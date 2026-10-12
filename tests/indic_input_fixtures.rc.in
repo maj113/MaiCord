@@ -1,0 +1,9 @@
+// QA-only input records; no runtime/shipping dependency.
+// Content identity: @MAICORD_INDIC_INPUT_IDENTITIES@
+1001 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/bengali_input_fixture.bin"
+1002 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/gujarati_input_fixture.bin"
+1003 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/gurmukhi_input_fixture.bin"
+1004 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/odia_input_fixture.bin"
+1005 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/telugu_input_fixture.bin"
+1006 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/kannada_input_fixture.bin"
+1007 RCDATA "@CMAKE_CURRENT_SOURCE_DIR@/tests/generated/malayalam_input_fixture.bin"

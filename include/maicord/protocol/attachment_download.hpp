@@ -1,0 +1,65 @@
+#pragma once
+
+#include "maicord/protocol/cdn_url.hpp"
+#include "maicord/protocol/http1.hpp"
+
+namespace maicord {
+
+enum class AttachmentDownloadRequestError : u8 {
+    none, invalid_input, invalid_url, origin_mismatch, expired, output_capacity,
+};
+struct AttachmentDownloadRequestResult {
+    u32 request_bytes;
+    CdnHost host;
+    AttachmentDownloadRequestError error;
+    constexpr bool ok() const noexcept { return error == AttachmentDownloadRequestError::none; }
+};
+
+// The source channel is the original channel for a forwarded snapshot. This
+// writes the exact signed origin-form target, never a preview rewrite, and
+// supplies neither account credentials nor a Cookie/Authorization header.
+AttachmentDownloadRequestResult attachment_download_write_request(
+    Utf8View signed_url, u64 source_channel_id, u64 attachment_id,
+    u64 now_seconds, Slice<u8> output) noexcept;
+
+enum class AttachmentDownloadResponseError : u8 {
+    none, invalid_input, http_head, status, content_encoding, size_limit, size_mismatch,
+};
+struct AttachmentDownloadResponsePolicy {
+    u64 expected_size;
+    u64 maximum_size;
+    AttachmentDownloadResponseError error;
+};
+
+// HttpResponseHeadParser callback. Only HTTP 200 with absent or a single
+// identity Content-Encoding is accepted. Content-Length, if present, must
+// match the source attachment size. The streaming decoder verifies the body.
+HttpHeadResult attachment_download_parse_response_head(
+    void* context, ConstSlice<u8> input, u32 maximum_header_bytes,
+    u32 maximum_fields) noexcept;
+
+inline constexpr u32 kAttachmentDownloadMaximumFilenameBytes = 2048;
+inline constexpr u32 kAttachmentDownloadMaximumSuggestedFilenameBytes = 512;
+enum class AttachmentDownloadFilenameError : u8 { none, invalid_input, output_capacity };
+struct AttachmentDownloadFilenameResult {
+    u32 bytes;
+    AttachmentDownloadFilenameError error;
+    bool risky;
+    bool changed;
+    constexpr bool ok() const noexcept { return error == AttachmentDownloadFilenameError::none; }
+};
+
+// Produces one NUL-terminated Windows filename component from the attachment
+// metadata name (not an encoded URL). Replaces separators, ADS punctuation,
+// controls and bidi overrides; avoids devices and trailing dots/spaces.
+// Truncation respects UTF8 scalars and retains ordinary/risky extensions.
+// Input is bounded at 2048 UTF8 bytes; output at 512 bytes and 240 UTF16 units.
+// These component limits are native policy, not server behavior.
+AttachmentDownloadFilenameResult attachment_download_safe_filename(
+    Utf8View metadata_filename, Slice<char> output) noexcept;
+
+// Exact downloaded-client extension set; a warning signal, never a statement
+// that the server scanned bytes or that an unlisted file is safe to execute.
+bool attachment_download_risk_extension(Utf8View filename) noexcept;
+
+} // namespace maicord

@@ -1,0 +1,89 @@
+#pragma once
+
+#include "maicord/core/base.hpp"
+
+namespace maicord {
+
+inline constexpr float kMaximumUiCoordinate = 1'048'576.0f;
+
+struct UiPoint {
+    float x;
+    float y;
+};
+
+struct UiSize {
+    float width;
+    float height;
+};
+
+struct UiRect {
+    float left;
+    float top;
+    float right;
+    float bottom;
+};
+
+struct UiInsets {
+    float left;
+    float top;
+    float right;
+    float bottom;
+};
+
+constexpr bool ui_coordinate_valid(float value) noexcept {
+    return value == value && value >= -kMaximumUiCoordinate && value <= kMaximumUiCoordinate;
+}
+
+constexpr bool ui_extent_valid(float value) noexcept {
+    return value == value && value >= 0.0f && value <= kMaximumUiCoordinate;
+}
+
+constexpr bool ui_size_valid_or_empty(const UiSize& size) noexcept {
+    return ui_extent_valid(size.width) && ui_extent_valid(size.height);
+}
+
+constexpr bool ui_size_valid(const UiSize& size) noexcept {
+    return ui_size_valid_or_empty(size) && size.width > 0.0f && size.height > 0.0f;
+}
+
+constexpr bool ui_insets_valid(const UiInsets& insets) noexcept {
+    return ui_extent_valid(insets.left) && ui_extent_valid(insets.top) && ui_extent_valid(insets.right) &&
+           ui_extent_valid(insets.bottom);
+}
+
+constexpr float ui_rect_width(const UiRect& rectangle) noexcept {
+    return rectangle.right - rectangle.left;
+}
+
+constexpr float ui_rect_height(const UiRect& rectangle) noexcept {
+    return rectangle.bottom - rectangle.top;
+}
+
+constexpr bool ui_rect_has_area(const UiRect& rectangle) noexcept {
+    return rectangle.right > rectangle.left && rectangle.bottom > rectangle.top;
+}
+
+constexpr bool ui_rect_contains(const UiRect& rectangle, float x, float y) noexcept {
+    return x >= rectangle.left && x < rectangle.right && y >= rectangle.top && y < rectangle.bottom;
+}
+
+constexpr bool ui_rect_valid_or_empty(const UiRect& rectangle) noexcept {
+    return ui_coordinate_valid(rectangle.left) && ui_coordinate_valid(rectangle.top) &&
+           ui_coordinate_valid(rectangle.right) && ui_coordinate_valid(rectangle.bottom) &&
+           rectangle.right >= rectangle.left && rectangle.bottom >= rectangle.top &&
+           ui_extent_valid(ui_rect_width(rectangle)) && ui_extent_valid(ui_rect_height(rectangle));
+}
+
+constexpr bool ui_rect_valid(const UiRect& rectangle) noexcept {
+    return ui_rect_valid_or_empty(rectangle) && ui_rect_has_area(rectangle);
+}
+
+constexpr bool ui_rect_equal(const UiRect& left, const UiRect& right) noexcept {
+    return left.left == right.left && left.top == right.top && left.right == right.right &&
+           left.bottom == right.bottom;
+}
+
+UiRect ui_rect_inset(UiRect rectangle, const UiInsets& insets) noexcept;
+UiRect ui_rect_intersection(const UiRect& left, const UiRect& right) noexcept;
+
+} // namespace maicord

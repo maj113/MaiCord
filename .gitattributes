@@ -1,0 +1,38 @@
+# Normalize text to LF in the repository; check out with the platform default.
+* text=auto
+
+# Windows shell scripts keep CRLF in the working tree on every platform.
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Resource scripts and Visual Studio files are consumed by Windows tools.
+*.rc text eol=crlf
+*.rc.in text eol=crlf
+*.manifest text eol=crlf
+
+# YAML, Python and Markdown stay LF so GitHub tooling sees canonical files.
+*.yml text eol=lf
+*.yaml text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+
+# Binary assets: never touch line endings or attempt textual diffs.
+*.ttf binary
+*.otf binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.mcp binary
+*.mp3 binary
+*.mp4 binary
+*.ogg binary
+*.opus binary
+*.wav binary
+*.bin binary
+*.zip binary
+*.sig binary

@@ -1,0 +1,11 @@
+MaiCord original notification sounds
+
+message-alert.mcp and focused-message-alert.mcp are synthesized by
+tools/generate_message_alerts.py using mathematical signals. No recordings,
+Discord assets, or third-party audio are used as inputs.
+
+These sound assets are dedicated to the public domain under CC0 1.0 Universal,
+to the extent permitted by law. This dedication applies to these two sound
+assets only, and does not change the license of MaiCord's code or other assets.
+
+CC0 1.0 Universal: https://creativecommons.org/publicdomain/zero/1.0/legalcode

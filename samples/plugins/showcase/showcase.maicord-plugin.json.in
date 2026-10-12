@@ -1,0 +1,14 @@
+{
+  "schema": 3,
+  "owner_id": 5567385134209385281,
+  "abi": 5,
+  "min_host_abi": 5,
+  "name": "Showcase",
+  "version": "1.0.0",
+  "description": "SDK sample: message log, @username suffixes, quick reply, a gradient background.",
+  "publisher": "MaiCord SDK sample",
+  "permissions": ["settings", "menus", "ui_slots", "store", "read_context", "read_members", "read_messages",
+                  "message_render", "act_messages", "navigate", "clipboard", "notify", "keybinds", "effects"],
+  "dll": "showcase.dll",
+  "sha256": "@SHOWCASE_SHA256@"
+}

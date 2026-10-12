@@ -1,0 +1,44 @@
+// All positive calls detach platform factories/formats. Font fallback, shaping,
+// fitting and interaction must complete through the candidate.
+bool native_arabic_paragraph_corpus(DWriteTextSystem system,bool editor) noexcept {
+    const Utf8View texts[]{
+        utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x20\xd8\xa8\xd8\xa7\xd9\x84\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85"),
+        utf8_literal("\xd8\xb3\xd9\x84\xd8\xa7\xd9\x85\x20\xd8\xb3\xd9\x84\xd8\xa7\xd9\x85\x20\xd8\xb3\xd9\x84\xd8\xa7\xd9\x85"),
+        utf8_literal("\x20\xd8\xa7\xd9\x84\xd8\xb9\xd8\xb1\xd8\xa8\xd9\x8a\xd8\xa9\x20"),
+        utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x0a\xd8\xa8\xd8\xa7\xd9\x84\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85"),
+        utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x0d\x0a\x0a\xd8\xa8\xd8\xa7\xd9\x84\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85"),
+        utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x09\xd8\xa8\xd8\xa7\xd9\x84\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85"),
+        utf8_literal("\x41\x20\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x20\x42"),
+        utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x20\x31\x32\x33\x20\xd8\xa8\xd8\xa7\xd9\x84\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85"),
+        utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x20\xd9\xa1\xd9\xa2\xd9\xa3\x20\xd8\xa8\xd8\xa7\xd9\x84\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85"),
+        utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x20\xd7\x90\xd7\x91\xd7\x92\x20\x77\x6f\x72\x6c\x64"),
+        utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x20\xf0\x9f\x98\x80\x20\xd8\xa8\xd8\xa7\xd9\x84\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85"),
+        utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x20\xe2\x9d\xa4\xef\xb8\x8e\x20\xd8\xa8\xd8\xa7\xd9\x84\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85"),
+        utf8_literal("\xd9\x84\xd9\x8e\xd8\xa7\x20\xd9\x84\xd9\x90\xd8\xa5\x20\xd9\x84\xd9\x8f\xd8\xa2"),
+        utf8_literal("\xd8\xa8\xe2\x80\x8d\xd8\xa8\x20\xd8\xa8\xe2\x80\x8c\xd8\xa8"),
+        utf8_literal("\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x20\xd9\xa1\xd0\x91\x20\xce\xb1"),
+        utf8_literal("\xce\xb1\x20\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x20\xd9\xa1\x20\xd0\x91"),
+        utf8_literal("\xd8\xa8\xcd\x8f\xd8\xa8"),
+        utf8_literal("\xd9\x85\xd9\x8e\xd8\xb1\xd9\x92\xd8\xad\xd9\x8e\xd8\xa8\xd9\x8b\xd8\xa7\x20\xd8\xa8\xd9\x90\xd8\xa7\xd9\x84\xd9\x92\xd8\xb9\xd9\x8e\xd8\xa7\xd9\x84\xd9\x8e\xd9\x85\xd9\x90"),
+        utf8_literal("\xd9\x81\xd8\xa7\xd8\xb1\xd8\xb3\xdb\x8c\x20\xd8\xa7\xd8\xb1\xd8\xaf\xd9\x88"),
+        utf8_literal("\xd8\xa7\xd9\x84\xd8\xb3\xd9\x84\xd8\xa7\xd9\x85\x20\xd8\xb9\xd9\x84\xd9\x8a\xd9\x83\xd9\x85\x20\xd9\x88\xd8\xb1\xd8\xad\xd9\x85\xd8\xa9\x20\xd8\xa7\xd9\x84\xd9\x84\xd9\x87"),
+        utf8_literal("\x28\xd9\x85\xd8\xb1\xd8\xad\xd8\xa8\xd8\xa7\x29\x20\x31\x32\x20\x5b\xd8\xb9\xd8\xa7\xd9\x84\xd9\x85\x5d")};
+    const float widths[]{8,37,95,1000000};
+    const u32 flags[]{0,text_style_bold,text_style_italic,text_style_underline,text_style_heading_3,text_style_monospace};
+    auto native=system,reference=system;native.factory=nullptr;native.format=nullptr;reference.native_text=nullptr;
+    u32 sample=0;
+    for(const auto text:texts){for(u32 independent=0;independent<(editor?1u:2u);++independent)for(u32 pattern=0;pattern<2;++pattern)for(u32 flag:flags)for(u32 nowrap=0;nowrap<2;++nowrap)for(float width:widths){
+        u32 first=0;if(pattern){const auto cp=utf8_decode_one(text.data,text.bytes);CHECK(cp.valid);first=cp.width;}
+        const TextStyleSpan span{first,text.bytes-first,flag};const ConstSlice<TextStyleSpan> styles{&span,flag?1u:0u};
+        native.independent_letters=reference.independent_letters=independent!=0;const auto wrapping=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
+        if(editor){if(!compare_hits(system,text,width,wrapping,styles,true)){print("Arabic hit sample/pattern/flag/width/nowrap=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(nowrap);print("\n");return false;}continue;}
+        ++cases;const auto a=text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping);
+        const auto b=text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping);
+        if(!a.ok()||!native_output.text.native_fonts()||!b.ok()||!same(native_output,reference_output,true)){
+            print("Arabic paragraph sample/pattern/flags/width/independent/nowrap=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(independent);print("/");number(nowrap);print(" errors=");number(static_cast<u32>(a.error));print("/");number(static_cast<u32>(b.error));print("\n");return false;
+        }++native_cases;
+        const auto am=text_measure_utf8_styled(&native,text,styles,width,1000000,{utf16,256},wrapping),bm=text_measure_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},wrapping);
+        CHECK(am.ok()&&bm.ok()&&bytes_equal(&am.width,&bm.width,12)&&am.line_count==bm.line_count);
+
+    }++sample;}return true;
+}

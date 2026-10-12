@@ -1,0 +1,31 @@
+name: Performance problem
+description: High CPU, GPU or memory use, slow startup, stutter or battery drain.
+labels: [performance]
+body:
+  - type: textarea
+    id: symptom
+    attributes:
+      label: What is slow or heavy?
+      description: Include numbers if you have them (Task Manager CPU %, memory, frame drops) and what was on screen.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MaiCord version
+      placeholder: v0.2.0
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Windows version, CPU and GPU
+      placeholder: Windows 11 24H2, Ryzen 7 5800X, Radeon RX 6700 XT, 144 Hz
+    validations:
+      required: true

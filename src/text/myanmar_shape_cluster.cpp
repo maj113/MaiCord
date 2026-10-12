@@ -1,0 +1,215 @@
+#include "maicord/text/myanmar_shape_cluster.hpp"
+#include "maicord/text/myanmar_input.hpp"
+#include "maicord/text/myanmar_shape_run.hpp"
+#include "myanmar_character.hpp"
+#include "selector_slots.hpp"
+namespace maicord {namespace {
+struct Policy {const SfntGdef* gdef;u32 units;u16 space=0,zero[4]{};};
+static_assert(sizeof(Policy)==24);
+SfntStatus prepare(void*,u16 stage,SfntGlyphBuffer*,SfntClusterMap*,SfntComponentForest* forest,
+    SfntGsubExecutionScratch,u64,u64* used) noexcept {
+    *used=0;if(!stage)forest->preserve_forms=false;return SfntStatus::ok;
+}
+SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
+    const auto& p=*static_cast<Policy*>(context);
+    if(zero.count<glyphs.count)return SfntStatus::output_too_small;
+    if(glyphs.count>work)return SfntStatus::resource_limit;
+    for(u32 i=0;i<glyphs.count;++i){auto& g=glyphs[i].glyph;
+        // USE recognizes final nominal ZWNJ/ZWJ/LRM/RLM IDs, including
+        // aliases to .notdef. ZWSP is not in this set for Myanmar.
+        const bool invisible=g.glyph==p.zero[0]||g.glyph==p.zero[1]||g.glyph==p.zero[2]||g.glyph==p.zero[3];
+        if(invisible)g.glyph=p.space;
+        g.glyph_class=sfnt_gdef_glyph_class(*p.gdef,g.glyph);g.reserved=static_cast<u8>(invisible);
+        zero[i]=static_cast<u8>(invisible||g.glyph_class==SfntGlyphClass::mark);
+    }return SfntStatus::ok;
+}
+SfntStatus restore(void* context,SfntClusterMap* clusters,const SfntComponentForest&,Slice<SfntComponentGlyph>,u64 work) noexcept {
+    const auto& p=*static_cast<Policy*>(context);SfntClusterMerge merge{};u64 used=0;
+    const auto status=sfnt_cluster_map_plan(*clusters,0,p.units-1,&merge,work,&used);if(status!=SfntStatus::ok)return status;
+    if(merge.commit_work>work-used)return SfntStatus::resource_limit;
+    sfnt_cluster_map_commit(clusters,merge);return SfntStatus::ok;
+}
+// Windows overwrites only the current cluster's selector slots. A generated
+// circle can observe a tail slot from an earlier cluster. Encode all 256
+// selectors plus zero in 32 bytes and one high-bit mask instead of 128 bytes.
+using SelectorSlots=SfntSelectorSlots;
+SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
+    ConstSlice<SfntIndicInputScalar> expanded,bool rtl,Slice<SfntClusterGlyph> mapped,u32& count,SelectorSlots* history=nullptr) noexcept {
+    count=0;u32 original=0;
+    for(u32 i=0;i<expanded.count;++i){
+        if(count==mapped.count)return SfntStatus::output_too_small;
+        const auto current=expanded[i];u32 selector=0;
+        // Windows copies selectors separately before reordering characters.
+        // Selector slots keep their ordinal position, including when a circle
+        // is inserted. Consume the original stream with an independent cursor.
+        if(history&&count>=32)return SfntStatus::invalid_input;
+        if(original<input.count){const u32 owner=input[original++];
+            if(myanmar_category(owner)!='S'&&original<input.count&&myanmar_category(input[original])=='S')selector=input[original++];
+            if(history)history->put(count,selector);}
+        else if(history)selector=history->get(count);
+        // Remove only the attached selector record from prepared output. Its
+        // source association determines consumption, not variation selection.
+        if(myanmar_category(current.scalar)!='S'&&i+1<expanded.count&&
+            myanmar_category(expanded[i+1].scalar)=='S'&&
+            expanded[i+1].source==current.source+(current.scalar>0xffff?2u:1u))++i;
+        u16 glyph=0;const u32 scalar=rtl?unicode_bidi_mirror(current.scalar):current.scalar;
+        auto status=sfnt_cmap_glyph(cmap,scalar,selector,&glyph);
+        if(selector&&status==SfntStatus::unsupported_sequence)status=sfnt_cmap_glyph(cmap,scalar,0,&glyph);
+        if(status!=SfntStatus::ok)return status;
+        mapped[count++]={{glyph,sfnt_gdef_glyph_class(plan.gdef,glyph),0},current.source};
+    }
+    return SfntStatus::ok;
+}
+
+constexpr u32 nil=0xffffffffu;
+struct Work {
+    u64 left,used=0;
+    bool spend(u64 n) noexcept {if(n>left)return false;left-=n;used+=n;return true;}
+};
+struct RunPolicy {
+    Policy cluster;const SfntShapePlan* plan;ConstSlice<SfntLookupStep> early;
+    Slice<u32> groups,boundaries;u64 edits=0;u32 boundary_count=0,match_work=0;
+};
+static_assert(sizeof(RunPolicy)==96);
+SfntStatus run_prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap* clusters,
+    SfntComponentForest* forest,SfntGsubExecutionScratch scratch,u64 available,u64* used) noexcept {
+    *used=0;if(stage)return SfntStatus::ok;
+    auto& run=*static_cast<RunPolicy*>(context);forest->preserve_forms=false;
+    if(!run.early.count)return SfntStatus::ok;
+    Work w{available};struct Report {Work& w;u64* out;~Report() noexcept {*out=w.used;}} report{w,used};
+    const auto seek=[&](SfntGlyphBuffer& value,u32 at) noexcept {
+        const u64 cost=(at>value.gap_begin?at-value.gap_begin:value.gap_begin-at)+1ull;
+        if(!w.spend(cost))return SfntStatus::resource_limit;return sfnt_glyph_buffer_seek(&value,at,cost);
+    };
+    for(u32 first=0;first<sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer));){
+        const auto view=sfnt_glyph_buffer_view(*buffer);const u32 total=sfnt_glyph_count(view);
+        const auto& initial=*reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(view,first));
+        const u32 group=run.groups[initial.source];u32 end=first;
+        while(end<total){const auto& value=*reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(view,end));
+            if(!w.spend(1))return SfntStatus::resource_limit;if(run.groups[value.source]!=group)break;++end;}
+        auto status=seek(*buffer,end);if(status!=SfntStatus::ok)return status;
+        // Expose only this cluster and the existing gap to the shared executor.
+        // Both contextual lookahead and lookbehind stay inside the local view.
+        SfntGlyphBuffer local{};
+        status=sfnt_glyph_buffer_open({buffer->storage.data+first*sizeof(SfntComponentGlyph),
+            (buffer->gap_end-first)*static_cast<u32>(sizeof(SfntComponentGlyph))},sizeof(SfntComponentGlyph),end-first,&local);
+        if(status!=SfntStatus::ok)return status;
+        for(u32 step=0;step<run.early.count;++step){
+            const u32 count=sfnt_glyph_count(sfnt_glyph_buffer_view(local));
+            if(run.plan->refresh_substitution_classes){if(!w.spend(count))return SfntStatus::resource_limit;
+                auto* values=reinterpret_cast<SfntComponentGlyph*>(local.storage.data);
+                for(u32 i=0;i<count;++i)values[i].glyph.glyph_class=sfnt_gdef_glyph_class(*run.cluster.gdef,values[i].glyph.glyph);}
+            SfntGsubExecutionResult execution{};
+            status=sfnt_gsub_execute_lookup(*run.plan->substitutions,run.early[step].lookup,&local,0,count,0,scratch,
+                {w.left,run.match_work},&execution,clusters,forest);
+            if(!w.spend(execution.operations))return SfntStatus::invalid_input;run.edits+=execution.edits;
+            if(status!=SfntStatus::ok)return status;
+            status=seek(local,sfnt_glyph_count(sfnt_glyph_buffer_view(local)));if(status!=SfntStatus::ok)return status;
+        }
+        buffer->gap_begin=first+local.gap_begin;buffer->gap_end=first+local.gap_end;first=buffer->gap_begin;
+    }
+    return SfntStatus::ok;
+}
+SfntStatus run_finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
+    return finish(&static_cast<RunPolicy*>(context)->cluster,glyphs,zero,work);
+}
+SfntStatus run_restore(void* context,SfntClusterMap* clusters,const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u64 work) noexcept {
+    auto& p=*static_cast<RunPolicy*>(context);const auto groups=p.groups;Work w{work};
+    // Late ligatures retain the last consumed source group. Reordered prefixes
+    // may still own earlier groups, and decomposition can restore those groups.
+    for(u32 i=0;i<glyphs.count;++i){u32 lo=nil,hi=0;u64 cost=0;
+        auto status=sfnt_component_source_bounds(forest,glyphs[i].component,&lo,&hi,w.left,&cost);w.spend(cost);
+        if(status!=SfntStatus::ok)return status;if(!w.spend(1))return SfntStatus::resource_limit;
+        const u32 source=lo==nil?glyphs[i].source:hi;if(source>=groups.count)return SfntStatus::invalid_input;
+        glyphs[i].source=groups[source];
+    }
+    if(!w.spend(static_cast<u64>(p.boundary_count)*3+glyphs.count))return SfntStatus::resource_limit;
+    for(u32 i=0;i<p.boundary_count;++i)groups[p.boundaries[i]]=nil;
+    for(u32 i=0;i<glyphs.count;++i){auto& first=groups[glyphs[i].source];first=minimum(first,i);}
+    // Earliest glyph ownership determines monotone source groups. A later mark
+    // from an earlier group does not erase a boundary restored by decomposition.
+    u32 next=nil;
+    for(u32 i=p.boundary_count;i;){auto& first=groups[p.boundaries[--i]];next=minimum(next,first);first=next;}
+    u32 count=0,previous=nil;
+    for(u32 i=0;i<p.boundary_count;++i){const u32 source=p.boundaries[i];const u32 value=groups[source];
+        if(!i||(value!=nil&&value!=previous)){p.boundaries[count++]=source;previous=value;}}
+    const u64 cost=static_cast<u64>(sfnt_cluster_map_words(groups.count))*3+count;
+    if(!w.spend(cost))return SfntStatus::resource_limit;
+    return sfnt_cluster_map_open(groups.count,{p.boundaries.data,count},clusters->storage,clusters,cost);
+}
+
+}
+SfntStatus sfnt_myanmar_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
+    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,
+    SfntShapeLimits limits,bool rtl,bool defer_output) noexcept {
+    if(!result)return SfntStatus::invalid_input;*result={};
+    if((steps.count&&!steps.data)||(storage.positions.count&&!storage.positions.data)||plan.substitution_roots.count)
+        return SfntStatus::invalid_input;
+    if(steps.count>limits.stage_work)return SfntStatus::resource_limit;
+    for(u32 i=0;i<steps.count;++i)if(steps[i].stage>=7||steps[i].feature_mask||
+        (i&&steps[i].stage<steps[i-1].stage))return SfntStatus::invalid_input;
+    auto status=sfnt_myanmar_cluster_boundaries(input,storage.flags,limits.stage_work);if(status!=SfntStatus::ok)return status;
+    for(u32 i=1;i<input.count;++i)if(storage.flags[i])return SfntStatus::unsupported_sequence;
+    auto* expanded=reinterpret_cast<SfntIndicInputScalar*>(storage.positions.data);SfntIndicInputResult sizes{};
+    const u64 slots=static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntIndicInputScalar);
+    status=sfnt_myanmar_prepare_input(input,{expanded,static_cast<u32>(minimum<u64>(slots,0xffffffffu))},&sizes,limits.stage_work);
+    if(status!=SfntStatus::ok)return status;
+    // Mapping consumes no more records than preparation emits. Map in place
+    // after reading each current record and its attached selector, avoiding a
+    // second scalar-sized staging buffer.
+    auto* mapped=reinterpret_cast<SfntClusterGlyph*>(expanded);u32 count=0;
+    static_assert(sizeof(SfntClusterGlyph)==sizeof(SfntIndicInputScalar));
+    status=map_cluster(plan,cmap,input,{expanded,sizes.scalar_count},rtl,{mapped,sizes.scalar_count},count);
+    if(status!=SfntStatus::ok)return status;
+    Policy policy{&plan.gdef,sizes.source_units};
+    status=sfnt_cmap_glyph(cmap,0x20,0,&policy.space);if(status!=SfntStatus::ok)return status;
+    for(u32 i=0;i<4;++i){status=sfnt_cmap_glyph(cmap,0x200c+i,0,&policy.zero[i]);if(status!=SfntStatus::ok)return status;}
+    const u32 boundary=0;const SfntShapeStagePolicy stages{&policy,prepare,7};
+    // Initial mark/control advances are zero; later GPOS adjustments survive.
+    auto resolved=plan;resolved.retain_zero_positioning=true;
+    return sfnt_shape_run(resolved,{mapped,count},sizes.source_units,{&boundary,input.count?1u:0u},rtl,em,
+        storage,result,limits,steps,{},{&policy,finish,restore},nullptr,&stages,defer_output);
+}
+SfntStatus sfnt_myanmar_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
+    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,bool modern) noexcept {
+    if(!result)return SfntStatus::invalid_input;*result={};
+    if((steps.count&&!steps.data)||(storage.positions.count&&!storage.positions.data)||
+        (storage.character_glyphs.count&&!storage.character_glyphs.data)||(storage.targets.count&&!storage.targets.data)||
+        plan.substitution_roots.count||(steps.count&&!plan.substitutions))return SfntStatus::invalid_input;
+    if(steps.count>limits.stage_work)return SfntStatus::resource_limit;
+    u32 early=0;
+    for(u32 i=0;i<steps.count;++i){if(steps[i].stage>=7||steps[i].feature_mask||(i&&steps[i].stage<steps[i-1].stage)||
+        steps[i].lookup>=plan.substitutions->lookups.count)return SfntStatus::invalid_input;if(steps[i].stage<5)++early;}
+    auto status=sfnt_myanmar_cluster_boundaries(input,storage.flags,limits.stage_work);if(status!=SfntStatus::ok)return status;
+    auto* expanded=reinterpret_cast<SfntIndicInputScalar*>(storage.positions.data);SfntIndicInputResult sizes{};
+    const u64 slots=static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntIndicInputScalar);
+    if(modern){status=sfnt_myanmar_prepare_input(input,{expanded,static_cast<u32>(minimum<u64>(slots,0xffffffffu))},&sizes,limits.stage_work);
+        if(status!=SfntStatus::ok)return status;
+    }else{
+        if(input.count>slots)return SfntStatus::output_too_small;
+        // Boundary validation reserves input.count * 16 work, bounding this
+        // direct mapping and its UTF-16 total within the same u32 allowance.
+        for(u32 i=0;i<input.count;++i){expanded[i]={input[i],sizes.source_units};sizes.source_units+=input[i]>0xffff?2u:1u;}
+        sizes.scalar_count=input.count;
+    }
+    if(sizes.source_units>storage.character_glyphs.count)return SfntStatus::output_too_small;
+    auto* mapped=reinterpret_cast<SfntClusterGlyph*>(expanded);u32 count=0,units=0,starts=0,pieces=0;SelectorSlots selectors{};
+    for(u32 first=0;first<input.count;){u32 end=first+1;while(end<input.count&&!storage.flags[end])++end;
+        u32 end_units=units;for(u32 i=first;i<end;++i)end_units+=input[i]>0xffff?2u:1u;
+        u32 end_pieces=pieces;while(end_pieces<sizes.scalar_count&&expanded[end_pieces].source<end_units)++end_pieces;
+        if(starts==storage.targets.count)return SfntStatus::output_too_small;storage.targets[starts++]=units;
+        for(u32 i=units;i<end_units;++i)storage.character_glyphs[i]=units;
+        u32 amount=0;status=map_cluster(plan,cmap,{input.data+first,end-first},{expanded+pieces,end_pieces-pieces},rtl,
+            {mapped+count,sizes.scalar_count-count},amount,modern?&selectors:nullptr);if(status!=SfntStatus::ok)return status;
+        count+=amount;first=end;units=end_units;pieces=end_pieces;
+    }
+    RunPolicy policy{{&plan.gdef,units},&plan,{steps.data,early},{storage.character_glyphs.data,units},storage.targets};
+    policy.boundary_count=starts;policy.match_work=limits.match_work;
+    status=sfnt_cmap_glyph(cmap,0x20,0,&policy.cluster.space);if(status!=SfntStatus::ok)return status;
+    for(u32 i=0;i<4;++i){status=sfnt_cmap_glyph(cmap,0x200c+i,0,&policy.cluster.zero[i]);if(status!=SfntStatus::ok)return status;}
+    const SfntShapeStagePolicy stages{&policy,run_prepare,7};auto resolved=plan;resolved.retain_zero_positioning=true;
+    status=sfnt_shape_run(resolved,{mapped,count},units,{storage.targets.data,starts},rtl,em,storage,result,limits,
+        {steps.data?steps.data+early:nullptr,steps.count-early},{},{&policy,run_finish,run_restore},nullptr,&stages);
+    result->substitution_edits+=policy.edits;return status;
+}
+}

@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="title desc">
+  <title id="title">MaiCord</title>
+  <desc id="desc">MaiCord, a native Discord client for Windows written in C++ with Direct3D 11.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d0d14"/>
+      <stop offset="0.55" stop-color="#14142a"/>
+      <stop offset="1" stop-color="#1d1840"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.22" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#5865f2" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#5865f2" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5865f2"/>
+      <stop offset="1" stop-color="#454fbd"/>
+    </linearGradient>
+    <linearGradient id="comet" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="320" rx="24" fill="url(#sky)"/>
+  <rect width="1280" height="320" rx="24" fill="url(#glow)"/>
+  <g fill="#ffffff">
+    <circle cx="512" cy="46" r="1.3" opacity="0.7"/>
+    <circle cx="640" cy="268" r="1.1" opacity="0.5"/>
+    <circle cx="742" cy="74" r="1.6" opacity="0.8"/>
+    <circle cx="868" cy="236" r="1.2" opacity="0.6"/>
+    <circle cx="955" cy="40" r="1.0" opacity="0.5"/>
+    <circle cx="1020" cy="150" r="1.5" opacity="0.7"/>
+    <circle cx="1104" cy="282" r="1.1" opacity="0.6"/>
+    <circle cx="1188" cy="96" r="1.4" opacity="0.8"/>
+    <circle cx="1236" cy="210" r="1.0" opacity="0.5"/>
+    <circle cx="420" cy="292" r="1.2" opacity="0.5"/>
+    <circle cx="1150" cy="30" r="0.9" opacity="0.6"/>
+    <circle cx="805" cy="300" r="0.9" opacity="0.4"/>
+  </g>
+  <path d="M1010 58 L1132 26" stroke="url(#comet)" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="1132" cy="26" r="2.4" fill="#ffffff"/>
+  <g transform="translate(96 72)">
+    <rect width="176" height="176" rx="53" fill="url(#tile)"/>
+    <path d="M49.3 125 V54.6 L88 96.8 L126.7 54.6 V125" fill="none" stroke="#ffffff" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g font-family="Segoe UI Variable Display, Segoe UI, system-ui, -apple-system, Helvetica, Arial, sans-serif">
+    <text x="320" y="150" fill="#ffffff" font-size="88" font-weight="700" letter-spacing="-1">MaiCord</text>
+    <text x="324" y="200" fill="#c9cdf8" font-size="30" font-weight="500">A native Discord client for Windows</text>
+    <g font-size="20" font-weight="600" fill="#e8e9ff">
+      <rect x="324" y="226" width="116" height="36" rx="18" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.16"/>
+      <text x="382" y="251" text-anchor="middle">C++23</text>
+      <rect x="452" y="226" width="166" height="36" rx="18" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.16"/>
+      <text x="535" y="251" text-anchor="middle">Direct3D 11</text>
+      <rect x="630" y="226" width="150" height="36" rx="18" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.16"/>
+      <text x="705" y="251" text-anchor="middle">No Electron</text>
+      <rect x="792" y="226" width="110" height="36" rx="18" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.16"/>
+      <text x="847" y="251" text-anchor="middle">~7 MB</text>
+    </g>
+  </g>
+</svg>

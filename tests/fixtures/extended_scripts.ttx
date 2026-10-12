@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ttFont sfntVersion="\x00\x01\x00\x00" ttLibVersion="4.63">
+
+  <GlyphOrder>
+    <!-- The 'id' attribute is only for humans; it is ignored when parsed. -->
+    <GlyphID id="0" name=".notdef"/>
+    <GlyphID id="1" name="A"/>
+    <GlyphID id="2" name="B"/>
+    <GlyphID id="3" name="C"/>
+    <GlyphID id="4" name="D"/>
+    <GlyphID id="5" name="E"/>
+    <GlyphID id="6" name="M"/>
+    <GlyphID id="7" name="N"/>
+    <GlyphID id="8" name="X"/>
+    <GlyphID id="9" name="Y"/>
+    <GlyphID id="10" name="Z"/>
+    <GlyphID id="11" name="L"/>
+    <GlyphID id="12" name="tagA"/>
+    <GlyphID id="13" name="tagB"/>
+    <GlyphID id="14" name="tagC"/>
+    <GlyphID id="15" name="tagD"/>
+    <GlyphID id="16" name="tagE"/>
+    <GlyphID id="17" name="tagM"/>
+    <GlyphID id="18" name="tagN"/>
+    <GlyphID id="19" name="tagX"/>
+    <GlyphID id="20" name="tagY"/>
+    <GlyphID id="21" name="tagZ"/>
+    <GlyphID id="22" name="tagL"/>
+  </GlyphOrder>
+
+  <cmap>
+    <tableVersion version="0"/>
+    <cmap_format_4 platformID="0" platEncID="3" language="0">
+      <map code="0x61" name="A"/><!-- LATIN SMALL LETTER A -->
+      <map code="0x62" name="B"/><!-- LATIN SMALL LETTER B -->
+      <map code="0x63" name="C"/><!-- LATIN SMALL LETTER C -->
+      <map code="0x64" name="D"/><!-- LATIN SMALL LETTER D -->
+      <map code="0x65" name="E"/><!-- LATIN SMALL LETTER E -->
+      <map code="0x6c" name="L"/><!-- LATIN SMALL LETTER L -->
+      <map code="0x78" name="X"/><!-- LATIN SMALL LETTER X -->
+      <map code="0x79" name="Y"/><!-- LATIN SMALL LETTER Y -->
+      <map code="0x7a" name="Z"/><!-- LATIN SMALL LETTER Z -->
+      <map code="0x301" name="M"/><!-- COMBINING ACUTE ACCENT -->
+      <map code="0x327" name="N"/><!-- COMBINING CEDILLA -->
+    </cmap_format_4>
+    <cmap_format_4 platformID="3" platEncID="1" language="0">
+      <map code="0x61" name="A"/><!-- LATIN SMALL LETTER A -->
+      <map code="0x62" name="B"/><!-- LATIN SMALL LETTER B -->
+      <map code="0x63" name="C"/><!-- LATIN SMALL LETTER C -->
+      <map code="0x64" name="D"/><!-- LATIN SMALL LETTER D -->
+      <map code="0x65" name="E"/><!-- LATIN SMALL LETTER E -->
+      <map code="0x6c" name="L"/><!-- LATIN SMALL LETTER L -->
+      <map code="0x78" name="X"/><!-- LATIN SMALL LETTER X -->
+      <map code="0x79" name="Y"/><!-- LATIN SMALL LETTER Y -->
+      <map code="0x7a" name="Z"/><!-- LATIN SMALL LETTER Z -->
+      <map code="0x301" name="M"/><!-- COMBINING ACUTE ACCENT -->
+      <map code="0x327" name="N"/><!-- COMBINING CEDILLA -->
+    </cmap_format_4>
+  </cmap>
+
+  <GDEF>
+    <Version value="0x00010000"/>
+    <GlyphClassDef>
+      <ClassDef glyph="A" class="1"/>
+      <ClassDef glyph="B" class="1"/>
+      <ClassDef glyph="C" class="1"/>
+      <ClassDef glyph="D" class="1"/>
+      <ClassDef glyph="E" class="1"/>
+      <ClassDef glyph="L" class="2"/>
+      <ClassDef glyph="M" class="3"/>
+      <ClassDef glyph="N" class="3"/>
+      <ClassDef glyph="X" class="1"/>
+      <ClassDef glyph="Y" class="1"/>
+      <ClassDef glyph="Z" class="1"/>
+      <ClassDef glyph="tagA" class="1"/>
+      <ClassDef glyph="tagB" class="1"/>
+      <ClassDef glyph="tagC" class="1"/>
+      <ClassDef glyph="tagD" class="1"/>
+      <ClassDef glyph="tagE" class="1"/>
+      <ClassDef glyph="tagL" class="2"/>
+      <ClassDef glyph="tagM" class="3"/>
+      <ClassDef glyph="tagN" class="3"/>
+      <ClassDef glyph="tagX" class="1"/>
+      <ClassDef glyph="tagY" class="1"/>
+      <ClassDef glyph="tagZ" class="1"/>
+    </GlyphClassDef>
+  </GDEF>
+
+  <GSUB>
+    <Version value="0x00010000"/>
+    <ScriptList>
+      <!-- ScriptCount=2 -->
+      <ScriptRecord index="0">
+        <ScriptTag value="DFLT"/>
+        <Script>
+          <DefaultLangSys>
+            <ReqFeatureIndex value="65535"/>
+            <!-- FeatureCount=1 -->
+            <FeatureIndex index="0" value="0"/>
+          </DefaultLangSys>
+          <!-- LangSysCount=0 -->
+        </Script>
+      </ScriptRecord>
+      <ScriptRecord index="1">
+        <ScriptTag value="latn"/>
+        <Script>
+          <DefaultLangSys>
+            <ReqFeatureIndex value="65535"/>
+            <!-- FeatureCount=1 -->
+            <FeatureIndex index="0" value="0"/>
+          </DefaultLangSys>
+          <!-- LangSysCount=0 -->
+        </Script>
+      </ScriptRecord>
+    </ScriptList>
+    <FeatureList>
+      <!-- FeatureCount=1 -->
+      <FeatureRecord index="0">
+        <FeatureTag value="test"/>
+        <Feature>
+          <!-- LookupCount=1 -->
+          <LookupListIndex index="0" value="0"/>
+        </Feature>
+      </FeatureRecord>
+    </FeatureList>
+    <LookupList>
+      <!-- LookupCount=1 -->
+      <Lookup index="0">
+        <LookupType value="1"/>
+        <LookupFlag value="0"/>
+        <!-- SubTableCount=1 -->
+        <SingleSubst index="0">
+          <Substitution in="A" out="A"/>
+        </SingleSubst>
+      </Lookup>
+    </LookupList>
+  </GSUB>
+
+</ttFont>

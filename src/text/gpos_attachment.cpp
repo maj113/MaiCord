@@ -1,0 +1,84 @@
+#include "maicord/text/gpos_attachment.hpp"
+#include "maicord/core/byte_order.hpp"
+
+namespace maicord {namespace {
+struct WorkReport {u32 initial;const u32& remaining;u32* used;~WorkReport() noexcept {if(used)*used=initial-remaining;}};
+inline bool spend(u32* work,u32 n=1) noexcept {if(n>*work)return false;*work-=n;return true;}
+inline u16 r16(ConstSlice<u8> b,u32 at) noexcept {return byte_load_be16(b.data+at);}
+bool span(ConstSlice<u8> b,u32 at,u64 count) noexcept {return at<=b.count && count<=b.count-at && (!count || b.data);}
+ConstSlice<u8> slice(ConstSlice<u8> b,u32 at) noexcept {return {b.data+at,b.count-at};}
+SfntStatus child(ConstSlice<u8> parent,u16 at,u32 minimum,ConstSlice<u8>* out) noexcept {
+    *out={};if(at<minimum)return SfntStatus::malformed;if(!span(parent,at,2))return SfntStatus::truncated;*out=slice(parent,at);return SfntStatus::ok;
+}
+SfntStatus cover(ConstSlice<u8> parent,u16 at,u32 minimum,u32 limit,u32 count,SfntCoverage* out,u32* work) noexcept {
+    ConstSlice<u8> bytes{};auto s=child(parent,at,minimum,&bytes);if(s!=SfntStatus::ok)return s;if(!span(bytes,0,4))return SfntStatus::truncated;
+    if(!spend(work,r16(bytes,2)))return SfntStatus::resource_limit;s=sfnt_coverage_open(bytes,limit,out);if(s!=SfntStatus::ok)return s;return out->covered_count==count?SfntStatus::ok:SfntStatus::malformed;
+}
+SfntStatus anchor(ConstSlice<u8> parent,u16 at,u32 minimum,bool nullable,u32* work) noexcept {
+    if(!spend(work))return SfntStatus::resource_limit;if(!at)return nullable?SfntStatus::ok:SfntStatus::malformed;
+    ConstSlice<u8> bytes{};auto s=child(parent,at,minimum,&bytes);if(s!=SfntStatus::ok)return s;SfntAnchor a{};u32 used=0;s=sfnt_anchor_open(bytes,&a,*work,&used);*work-=used;return s;
+}
+SfntAnchor anchor_view(ConstSlice<u8> parent,u32 field) noexcept {const u16 at=r16(parent,field);return at?SfntAnchor{slice(parent,at)}:SfntAnchor{};}
+SfntStatus matrix(ConstSlice<u8> parent,u32 rows,u32 classes,u32* work) noexcept {
+    const u64 count=static_cast<u64>(rows)*classes,end=2+2*count;if(!span(parent,0,end))return SfntStatus::truncated;
+    return spend(work,static_cast<u32>(count))?SfntStatus::ok:SfntStatus::resource_limit;
+}
+SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposAttachment* out,u32* work) noexcept {
+    *out={};if(!bytes.data || !limit || limit>65536)return SfntStatus::invalid_input;if(type<3 || type>6)return SfntStatus::unsupported;
+    if(!spend(work))return SfntStatus::resource_limit;if(!span(bytes,0,type==3?6u:12u))return SfntStatus::truncated;if(r16(bytes,0)!=1)return SfntStatus::unsupported;
+    SfntGposAttachment result{};result.glyph_limit=limit;result.type=static_cast<u8>(type);SfntStatus s;
+    if(type==3){const u32 count=r16(bytes,4),end=6+count*4;if(!span(bytes,0,end))return SfntStatus::truncated;result.counts[0]=static_cast<u16>(count);result.arrays[0]=bytes;
+        s=cover(bytes,r16(bytes,2),end,limit,count,&result.coverage[0],work);if(s!=SfntStatus::ok)return s;
+        for(u32 i=0;i<count*2;++i){s=anchor(bytes,r16(bytes,6+i*2),end,true,work);if(s!=SfntStatus::ok)return s;}
+    }else {result.class_count=r16(bytes,6);
+        for(u32 i=0;i<2;++i){s=child(bytes,r16(bytes,8+i*2),12,&result.arrays[i]);if(s!=SfntStatus::ok)return s;result.counts[i]=r16(result.arrays[i],0);
+            s=cover(bytes,r16(bytes,2+i*2),12,limit,result.counts[i],&result.coverage[i],work);if(s!=SfntStatus::ok)return s;}
+        const auto marks=result.arrays[0];const u32 count=result.counts[0],end=2+count*4;if(!span(marks,0,end))return SfntStatus::truncated;
+        for(u32 i=0;i<count;++i){if(!spend(work))return SfntStatus::resource_limit;if(r16(marks,2+i*4)>=result.class_count)return SfntStatus::malformed;
+            s=anchor(marks,r16(marks,4+i*4),end,false,work);if(s!=SfntStatus::ok)return s;}
+        const auto targets=result.arrays[1];if(type!=5){s=matrix(targets,result.counts[1],result.class_count,work);if(s!=SfntStatus::ok)return s;}
+        else {const u32 header=2+static_cast<u32>(result.counts[1])*2;if(!span(targets,0,header))return SfntStatus::truncated;
+            for(u32 i=0;i<result.counts[1];++i){if(!spend(work))return SfntStatus::resource_limit;ConstSlice<u8> lig{};s=child(targets,r16(targets,2+i*2),header,&lig);if(s!=SfntStatus::ok)return s;
+                s=matrix(lig,r16(lig,0),result.class_count,work);if(s!=SfntStatus::ok)return s;}}
+    }
+    *out=result;return SfntStatus::ok;
+}
+}
+SfntStatus sfnt_gpos_attachment_open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposAttachment* output,u32 work,u32* used) noexcept {
+    const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;return open(bytes,type,limit,output,&work);
+}
+SfntStatus sfnt_gpos_attachment_lookup_prepare(const SfntLayout& layout,u16 index,const SfntGdef& gdef,u32 limit,Slice<SfntGposAttachment> storage,SfntGposAttachmentLookup* output,u32 work) noexcept {
+    if(!output)return SfntStatus::invalid_input;*output={};if(layout.kind!=SfntLayoutKind::positioning || !limit || limit>65536 || (gdef.table.data && gdef.glyph_limit!=limit))return SfntStatus::invalid_input;
+    SfntLookup lookup{};auto s=sfnt_layout_lookup(layout,index,&lookup);if(s!=SfntStatus::ok)return s;if(lookup.type<3 || lookup.type>6)return SfntStatus::unsupported;
+    if(storage.count<lookup.subtable_count)return SfntStatus::output_too_small;if(lookup.subtable_count && !storage.data)return SfntStatus::invalid_input;if(!spend(&work,lookup.subtable_count))return SfntStatus::resource_limit;
+    SfntGposAttachmentLookup result{};s=sfnt_lookup_filter_prepare(gdef,lookup.flags,lookup.mark_set,&result.filter);if(s!=SfntStatus::ok)return s;if((lookup.flags>>8) && !(lookup.flags&0x18) && !gdef.mark_classes.format)return SfntStatus::missing_table;
+    for(u16 i=0;i<lookup.subtable_count;++i){ConstSlice<u8> bytes{};s=sfnt_lookup_subtable(lookup,i,&bytes);if(s!=SfntStatus::ok)return s;s=open(bytes,lookup.type,limit,&storage.data[i],&work);if(s!=SfntStatus::ok)return s;}
+    result.subtables={storage.data,lookup.subtable_count};*output=result;return SfntStatus::ok;
+}
+SfntStatus sfnt_gpos_cursive_anchors(const SfntGposAttachment& sub,u16 glyph,SfntGposCursiveAnchors* output) noexcept {
+    if(!output)return SfntStatus::invalid_input;*output={};if(sub.type!=3)return SfntStatus::invalid_input;if(glyph>=sub.glyph_limit)return SfntStatus::glyph_out_of_range;
+    const u32 index=sfnt_coverage_index(sub.coverage[0],glyph);if(index==sfnt_not_covered)return SfntStatus::ok;
+    *output={anchor_view(sub.arrays[0],6+index*4),anchor_view(sub.arrays[0],8+index*4),true};return SfntStatus::ok;
+}
+SfntStatus sfnt_gpos_mark_anchor(const SfntGposAttachment& sub,u16 glyph,SfntGposMarkAnchor* output) noexcept {
+    if(!output)return SfntStatus::invalid_input;*output={};if(sub.type<4 || sub.type>6)return SfntStatus::invalid_input;if(glyph>=sub.glyph_limit)return SfntStatus::glyph_out_of_range;
+    const u32 index=sfnt_coverage_index(sub.coverage[0],glyph);if(index==sfnt_not_covered)return SfntStatus::ok;
+    *output={anchor_view(sub.arrays[0],4+index*4),r16(sub.arrays[0],2+index*4),true};return SfntStatus::ok;
+}
+SfntStatus sfnt_gpos_target_anchors(const SfntGposAttachment& sub,u16 glyph,SfntGposTargetAnchors* output) noexcept {
+    if(!output)return SfntStatus::invalid_input;*output={};if(sub.type<4 || sub.type>6)return SfntStatus::invalid_input;if(glyph>=sub.glyph_limit)return SfntStatus::glyph_out_of_range;
+    const u32 index=sfnt_coverage_index(sub.coverage[1],glyph);if(index==sfnt_not_covered)return SfntStatus::ok;
+    SfntGposTargetAnchors result{};result.parent=sub.arrays[1];result.class_count=sub.class_count;result.covered=true;
+    if(sub.type==5){result.parent=slice(result.parent,r16(result.parent,2+index*2));result.offset=2;result.component_count=r16(result.parent,0);}
+    else {result.offset=2+index*sub.class_count*2;result.component_count=1;}
+    *output=result;return SfntStatus::ok;
+}
+SfntStatus sfnt_gpos_target_anchor(const SfntGposTargetAnchors& target,u16 component,u16 mark_class,SfntAnchor* output) noexcept {
+    if(!output)return SfntStatus::invalid_input;*output={};if(!target.covered || component>=target.component_count || mark_class>=target.class_count)return SfntStatus::invalid_input;
+    const u16 at=r16(target.parent,target.offset+(static_cast<u32>(component)*target.class_count+mark_class)*2);
+    if(!at)return SfntStatus::ok;
+    const u32 minimum=2+static_cast<u32>(r16(target.parent,0))*target.class_count*2;
+    ConstSlice<u8> bytes{};const auto status=child(target.parent,at,minimum,&bytes);
+    return status==SfntStatus::ok?sfnt_anchor_open(bytes,output,3):status;
+}
+}

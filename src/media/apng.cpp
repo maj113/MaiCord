@@ -1,0 +1,487 @@
+#include "maicord/media/apng.hpp"
+
+#include "png_common.hpp"
+
+namespace maicord {
+namespace {
+
+ApngParseResult fail(ApngParseResult result, ApngError error) noexcept {
+    result.error = error;
+    return result;
+}
+
+void initialize_image(ApngImage* image,
+                      ApngWorkspace* workspace) noexcept {
+    *image = ApngImage{};
+    image->frames = workspace->frames;
+    image->spans = workspace->spans;
+    image->frame_capacity = kApngFrameCapacity;
+    image->span_capacity = kApngDataSpanCapacity;
+    image->canvas.transparent_gray = ~0u;
+    image->canvas.transparent_red = ~0u;
+    image->canvas.transparent_green = ~0u;
+    image->canvas.transparent_blue = ~0u;
+}
+
+bool append_span(ApngImage* image, ApngFrame* frame, u32 offset,
+                 u32 bytes, bool default_data) noexcept {
+    if (bytes == 0) {
+        return true;
+    }
+    if (image->span_count >= image->span_capacity ||
+        (frame && frame->span_count >= kApngFrameDataSpanCapacity)) {
+        return false;
+    }
+    if (image->frame_count == 0 && image->span_count == 0) {
+        image->spans[kApngRetainedSpanCapacity].offset = 0;
+    }
+    image->spans[image->span_count++] = ApngDataSpan{offset, bytes};
+    if (frame) {
+        ++frame->span_count;
+        if (bytes > kPngEncodedMaximumBytes - frame->compressed_bytes) {
+            return false;
+        }
+        frame->compressed_bytes += bytes;
+    }
+    if (default_data) {
+        ++image->default_span_count;
+        if (bytes > kPngEncodedMaximumBytes -
+                        image->default_compressed_bytes) {
+            return false;
+        }
+        image->default_compressed_bytes += bytes;
+    }
+    return true;
+}
+
+bool apply_palette(PngImage* image, const u8* data, u32 length) noexcept {
+    if (image->color_type == 0 || image->color_type == 4 ||
+        length == 0 || length % 3 != 0 || length > 768) {
+        return false;
+    }
+    const u32 entries = length / 3;
+    if (image->color_type == 3 &&
+        entries > (1u << image->bit_depth)) {
+        return false;
+    }
+    for (u32 index = 0; index < entries; ++index) {
+        image->palette_rgba[index] =
+            static_cast<u32>(data[index * 3]) |
+            static_cast<u32>(data[index * 3 + 1]) << 8 |
+            static_cast<u32>(data[index * 3 + 2]) << 16 |
+            0xFF000000u;
+    }
+    image->palette_count = static_cast<u16>(entries);
+    return true;
+}
+
+bool apply_transparency(PngImage* image, const u8* data,
+                        u32 length, bool palette_seen) noexcept {
+    const u32 maximum_sample =
+        image->bit_depth == 16
+            ? 65'535u
+            : (1u << image->bit_depth) - 1u;
+    if (image->color_type == 0 && length == 2) {
+        image->transparent_gray = byte_load_be16(data);
+        if (image->transparent_gray > maximum_sample) {
+            return false;
+        }
+    } else if (image->color_type == 2 && length == 6) {
+        image->transparent_red = byte_load_be16(data);
+        image->transparent_green = byte_load_be16(data + 2);
+        image->transparent_blue = byte_load_be16(data + 4);
+        if (image->transparent_red > maximum_sample ||
+            image->transparent_green > maximum_sample ||
+            image->transparent_blue > maximum_sample) {
+            return false;
+        }
+    } else if (image->color_type == 3 && palette_seen && length != 0 &&
+               length <= image->palette_count) {
+        for (u32 index = 0; index < length; ++index) {
+            image->palette_rgba[index] =
+                image->palette_rgba[index] & 0x00FFFFFFu |
+                static_cast<u32>(data[index]) << 24;
+        }
+    } else {
+        return false;
+    }
+    image->has_transparency = true;
+    return true;
+}
+
+bool frame_complete(const ApngFrame& frame) noexcept {
+    return frame.span_count != 0 && frame.compressed_bytes >= 6;
+}
+
+bool configure_frame_image(ConstSlice<u8> encoded,
+                           const ApngImage& image,
+                           const ApngFrame& frame,
+                           PngImage* frame_image) noexcept {
+    if (!frame_image || frame.span_count == 0 ||
+        frame.span_count > kPngIdatSpanCapacity ||
+        frame.first_span > image.span_count ||
+        frame.span_count > image.span_count - frame.first_span) {
+        return false;
+    }
+    *frame_image = image.canvas;
+    frame_image->idat_span_count = 0;
+    frame_image->compressed_bytes = 0;
+    if (!png_image_configure(frame_image, frame.width, frame.height,
+                             image.canvas.bit_depth,
+                             image.canvas.color_type)) {
+        return false;
+    }
+    for (u32 index = 0; index < frame.span_count; ++index) {
+        const ApngDataSpan span =
+            image.spans[frame.first_span + index];
+        if (span.offset > encoded.count ||
+            span.bytes > encoded.count - span.offset) {
+            return false;
+        }
+        frame_image->idat_spans[index] =
+            DeflateInputSpan{encoded.data + span.offset, span.bytes};
+        frame_image->compressed_bytes += span.bytes;
+    }
+    frame_image->idat_span_count = frame.span_count;
+    return frame_image->compressed_bytes == frame.compressed_bytes;
+}
+
+bool configure_default_image(ConstSlice<u8> encoded,
+                             const ApngImage& image,
+                             PngImage* default_image) noexcept {
+    if (!default_image || image.default_span_count == 0 ||
+        image.default_span_count > kPngIdatSpanCapacity ||
+        image.default_first_span > image.span_count ||
+        image.default_span_count >
+            image.span_count - image.default_first_span) {
+        return false;
+    }
+    *default_image = image.canvas;
+    default_image->idat_span_count = 0;
+    default_image->compressed_bytes = 0;
+    for (u32 index = 0; index < image.default_span_count; ++index) {
+        const ApngDataSpan span =
+            image.spans[image.default_first_span + index];
+        if (span.offset > encoded.count ||
+            span.bytes > encoded.count - span.offset) {
+            return false;
+        }
+        default_image->idat_spans[index] =
+            DeflateInputSpan{encoded.data + span.offset, span.bytes};
+        default_image->compressed_bytes += span.bytes;
+    }
+    default_image->idat_span_count = image.default_span_count;
+    return default_image->compressed_bytes ==
+           image.default_compressed_bytes;
+}
+
+} // namespace
+
+ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
+                           ApngWorkspace* workspace) noexcept {
+    ApngParseResult result{};
+    if (!image || !workspace || (!encoded.data && encoded.count != 0)) {
+        return fail(result, ApngError::invalid_input);
+    }
+    initialize_image(image, workspace);
+    if (encoded.count > kPngEncodedMaximumBytes) {
+        return fail(result, ApngError::encoded_limit);
+    }
+    if (encoded.count < sizeof(kPngSignature)) {
+        return fail(result, ApngError::truncated);
+    }
+    for (u32 index = 0; index < sizeof(kPngSignature); ++index) {
+        if (encoded[index] != kPngSignature[index]) {
+            return fail(result, ApngError::signature);
+        }
+    }
+
+    bool header_seen = false;
+    bool animation_seen = false;
+    bool palette_seen = false;
+    bool transparency_seen = false;
+    bool idat_seen = false;
+    bool idat_closed = false;
+    bool end_seen = false;
+    u32 declared_frames = 0;
+    u32 expected_sequence = 0;
+    i32 current_frame = -1;
+    u32 cursor = sizeof(kPngSignature);
+    while (cursor < encoded.count) {
+        if (encoded.count - cursor < 12) {
+            return fail(result, ApngError::truncated);
+        }
+        const u32 length = byte_load_be32(encoded.data + cursor);
+        const u64 end = static_cast<u64>(cursor) + 12u + length;
+        if (length > 0x7FFFFFFFu || end > encoded.count) {
+            return fail(result, ApngError::truncated);
+        }
+        const u8* type_bytes = encoded.data + cursor + 4;
+        for (u32 index = 0; index < 4; ++index) {
+            if (!png_chunk_byte_valid(type_bytes[index])) {
+                return fail(result, ApngError::chunk_type);
+            }
+        }
+        if ((type_bytes[2] & 0x20u) != 0) {
+            return fail(result, ApngError::chunk_type);
+        }
+        const u32 type = byte_load_be32(type_bytes);
+        const u8* data = type_bytes + 4;
+        if (png_crc32(type_bytes, length + 4) !=
+            byte_load_be32(data + length)) {
+            return fail(result, ApngError::chunk_crc);
+        }
+        ++result.chunks;
+        if (!header_seen && type != kChunkIhdr) {
+            return fail(result, ApngError::chunk_order);
+        }
+        if (idat_seen && type != kChunkIdat) {
+            idat_closed = true;
+        }
+
+        if (type == kChunkIhdr) {
+            if (header_seen || length != 13) {
+                return fail(result, header_seen
+                                        ? ApngError::duplicate_chunk
+                                        : ApngError::unsupported_format);
+            }
+            if (data[12] != 0) {
+                return fail(result, data[12] == 1
+                                        ? ApngError::unsupported_interlace
+                                        : ApngError::unsupported_format);
+            }
+            if (data[10] != 0 || data[11] != 0 ||
+                !png_image_configure(&image->canvas, byte_load_be32(data),
+                                     byte_load_be32(data + 4), data[8],
+                                     data[9])) {
+                return fail(result,
+                            byte_load_be32(data) > kPngDimensionMaximum ||
+                                    byte_load_be32(data + 4) >
+                                        kPngDimensionMaximum
+                                ? ApngError::dimensions
+                                : ApngError::unsupported_format);
+            }
+            header_seen = true;
+        } else if (type == kChunkActl) {
+            if (!header_seen || animation_seen || idat_seen ||
+                length != 8) {
+                return fail(result, animation_seen
+                                        ? ApngError::duplicate_chunk
+                                        : ApngError::chunk_order);
+            }
+            declared_frames = byte_load_be32(data);
+            if (declared_frames == 0 ||
+                declared_frames > image->frame_capacity) {
+                return fail(result, ApngError::frame_limit);
+            }
+            image->play_count = byte_load_be32(data + 4);
+            animation_seen = true;
+        } else if (type == kChunkPlte) {
+            if (idat_seen || palette_seen || transparency_seen ||
+                !apply_palette(&image->canvas, data, length)) {
+                return fail(result,
+                            palette_seen ? ApngError::duplicate_chunk
+                                         : ApngError::palette);
+            }
+            palette_seen = true;
+        } else if (type == kChunkTrns) {
+            if (idat_seen || transparency_seen ||
+                !apply_transparency(&image->canvas, data, length,
+                                    palette_seen)) {
+                return fail(result,
+                            transparency_seen
+                                ? ApngError::duplicate_chunk
+                                : ApngError::transparency);
+            }
+            transparency_seen = true;
+        } else if (type == kChunkFctl) {
+            if (!animation_seen || length != 26 ||
+                image->frame_count >= declared_frames ||
+                (current_frame >= 0 &&
+                 !frame_complete(image->frames[current_frame]))) {
+                return fail(result, ApngError::frame_control);
+            }
+            if (byte_load_be32(data) != expected_sequence) {
+                return fail(result, ApngError::frame_sequence);
+            }
+            ++expected_sequence;
+            ++result.sequence_chunks;
+            ApngFrame frame{};
+            frame.first_span = image->span_count;
+            frame.width = byte_load_be32(data + 4);
+            frame.height = byte_load_be32(data + 8);
+            frame.x_offset = byte_load_be32(data + 12);
+            frame.y_offset = byte_load_be32(data + 16);
+            frame.delay_num = byte_load_be16(data + 20);
+            frame.delay_den = byte_load_be16(data + 22);
+            const u8 dispose = data[24];
+            const u8 blend = data[25];
+            if (frame.width == 0 || frame.height == 0 ||
+                frame.x_offset > image->canvas.width ||
+                frame.y_offset > image->canvas.height ||
+                frame.width > image->canvas.width - frame.x_offset ||
+                frame.height > image->canvas.height - frame.y_offset ||
+                dispose > 2 || blend > 1) {
+                return fail(result, ApngError::frame_control);
+            }
+            frame.dispose = static_cast<ApngDispose>(dispose);
+            frame.blend = static_cast<ApngBlend>(blend);
+            if (image->frame_count == 0 && !idat_seen) {
+                image->default_in_animation = true;
+                if (frame.x_offset != 0 || frame.y_offset != 0 ||
+                    frame.width != image->canvas.width ||
+                    frame.height != image->canvas.height) {
+                    return fail(result, ApngError::frame_control);
+                }
+            }
+            if (image->frame_count == 0 &&
+                frame.dispose == ApngDispose::previous) {
+                frame.dispose = ApngDispose::background;
+            }
+            // Invalidate before the first table write. Earlier errors leave a
+            // previous table intact and do not touch another workspace page.
+            if (image->frame_count == 0 && image->span_count == 0) {
+                image->spans[kApngRetainedSpanCapacity].offset = 0;
+            }
+            image->frames[image->frame_count] = frame;
+            current_frame = static_cast<i32>(image->frame_count++);
+        } else if (type == kChunkIdat) {
+            if (!animation_seen || idat_closed ||
+                (image->canvas.color_type == 3 && !palette_seen) ||
+                (current_frame >= 0 &&
+                 (!image->default_in_animation || current_frame != 0))) {
+                return fail(result, ApngError::chunk_order);
+            }
+            if (!idat_seen) {
+                image->default_first_span = image->span_count;
+            }
+            ApngFrame* frame =
+                image->default_in_animation
+                    ? &image->frames[0]
+                    : nullptr;
+            if (!append_span(image, frame, cursor + 8, length, true)) {
+                return fail(result, ApngError::span_limit);
+            }
+            idat_seen = true;
+        } else if (type == kChunkFdat) {
+            if (!animation_seen || !idat_seen || current_frame < 0 ||
+                (image->default_in_animation && current_frame == 0) ||
+                length < 4) {
+                return fail(result, ApngError::frame_data);
+            }
+            if (byte_load_be32(data) != expected_sequence) {
+                return fail(result, ApngError::frame_sequence);
+            }
+            ++expected_sequence;
+            ++result.sequence_chunks;
+            if (!append_span(image, &image->frames[current_frame],
+                             cursor + 12, length - 4, false)) {
+                return fail(result, ApngError::span_limit);
+            }
+        } else if (type == kChunkIend) {
+            if (!animation_seen || !idat_seen || length != 0 ||
+                end != encoded.count || end_seen) {
+                return fail(result, ApngError::chunk_order);
+            }
+            end_seen = true;
+        } else {
+            const bool ancillary = (type_bytes[0] & 0x20u) != 0;
+            if (!ancillary) {
+                return fail(result, ApngError::unknown_critical_chunk);
+            }
+            ++result.ancillary_chunks;
+            image->canvas.has_color_metadata =
+                image->canvas.has_color_metadata || type == kChunkSrgb ||
+                type == kChunkGama || type == kChunkChrm ||
+                type == kChunkIccp || type == kChunkCicp;
+        }
+        cursor = static_cast<u32>(end);
+        if (end_seen) {
+            break;
+        }
+    }
+    if (!animation_seen) {
+        return fail(result, ApngError::missing_animation);
+    }
+    if (!end_seen || !idat_seen || image->frame_count != declared_frames ||
+        current_frame < 0 ||
+        !frame_complete(image->frames[current_frame]) ||
+        image->default_span_count == 0 ||
+        image->default_span_count > kPngIdatSpanCapacity ||
+        image->default_compressed_bytes < 6 ||
+        (image->canvas.color_type == 3 &&
+         image->canvas.palette_count == 0)) {
+        return fail(result, ApngError::frame_data);
+    }
+    result.error = ApngError::none;
+    return result;
+}
+
+u64 apng_frame_duration_us(const ApngFrame& frame) noexcept {
+    const u32 denominator = frame.delay_den == 0 ? 100 : frame.delay_den;
+    const u64 scaled = static_cast<u64>(frame.delay_num) * 1'000'000ull;
+    u64 duration = scaled / denominator;
+    if (scaled % denominator != 0) {
+        ++duration;
+    }
+    duration = maximum(duration, kApngCompatibilityFrameFloorUs);
+    return minimum(duration, kApngFrameDurationMaximumUs);
+}
+
+ApngDecodeResult apng_decode_parsed_frame(
+    ConstSlice<u8> encoded, const ApngImage& image, u32 frame_index,
+    DeflateWorkspace* deflate_workspace, PngImage* frame_image,
+    Slice<u8> scanlines) noexcept {
+    ApngDecodeResult result{};
+    result.frame_index = frame_index;
+    if (!deflate_workspace || !frame_image || !scanlines.data ||
+        frame_index >= image.frame_count || !image.frames ||
+        !image.spans ||
+        !configure_frame_image(encoded, image, image.frames[frame_index],
+                               frame_image)) {
+        result.error = ApngError::invalid_input;
+        return result;
+    }
+    result.frame = image.frames[frame_index];
+    result.duration_us = apng_frame_duration_us(result.frame);
+    result.png = png_decode_parsed_scanlines(
+        frame_image, deflate_workspace, scanlines);
+    result.error = result.png.ok() ? ApngError::none
+                                   : ApngError::inflate;
+    return result;
+}
+
+PngDecodeResult apng_decode_parsed_default(
+    ConstSlice<u8> encoded, const ApngImage& image,
+    DeflateWorkspace* deflate_workspace, PngImage* default_image,
+    Slice<u8> scanlines) noexcept {
+    PngDecodeResult result{};
+    if (!deflate_workspace || !default_image || !scanlines.data ||
+        !configure_default_image(encoded, image, default_image)) {
+        result.error = PngError::invalid_input;
+        return result;
+    }
+    return png_decode_parsed_scanlines(default_image, deflate_workspace,
+                                       scanlines);
+}
+
+ApngDecodeResult apng_decode_frame(
+    ConstSlice<u8> encoded, u32 frame_index, ApngImage* image,
+    ApngWorkspace* workspace, DeflateWorkspace* deflate_workspace,
+    PngImage* frame_image, Slice<u8> scanlines) noexcept {
+    ApngDecodeResult result{};
+    result.parse = apng_parse(encoded, image, workspace);
+    if (!result.parse.ok()) {
+        result.error = result.parse.error;
+        return result;
+    }
+    const ApngParseResult parse = result.parse;
+    result = apng_decode_parsed_frame(
+        encoded, *image, frame_index, deflate_workspace, frame_image,
+        scanlines);
+    result.parse = parse;
+    return result;
+}
+
+} // namespace maicord
+

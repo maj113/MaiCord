@@ -1,0 +1,145 @@
+#pragma once
+
+#include "maicord/core/utf.hpp"
+
+namespace maicord {
+
+enum class GatewayCommandError : u8 {
+    none,
+    invalid_input,
+    invalid_utf8,
+    value_too_large,
+    output_too_small,
+};
+
+struct GatewayCommandWriteResult {
+    u32 bytes;
+    GatewayCommandError error;
+
+    constexpr bool ok() const noexcept {
+        return error == GatewayCommandError::none;
+    }
+};
+
+struct GatewayResume {
+    Utf8View token;
+    Utf8View session_id;
+    u64 sequence;
+};
+
+inline constexpr u32 kGatewayMemberSubscriptionMaximumRanges = 5;
+struct GatewayMemberSubscriptionRange {
+    u32 first;
+    u32 last;
+};
+
+// The official client keeps the five most recent channels of a guild subscribed
+// and writes them all in every frame, most recent first.
+inline constexpr u32 kGatewayGuildSubscriptionMaximumChannels = 5;
+struct GatewayChannelSubscription {
+    u64 channel_id;
+    GatewayMemberSubscriptionRange ranges[kGatewayMemberSubscriptionMaximumRanges];
+    u32 range_count;
+};
+
+struct GatewayGuildSubscription {
+    u64 guild_id;
+    u64 channel_id;
+    u32 range_first;
+    u32 range_last;
+    bool typing;
+    bool activities;
+    bool threads;
+    GatewayMemberSubscriptionRange ranges[kGatewayMemberSubscriptionMaximumRanges];
+    u32 range_count;
+    // A present field replaces the thread interest stored for the guild; zero writes an empty [].
+    u64 thread_id;
+    // Internal worker cleanup only. Public subscription requests reject it.
+    u64 clear_thread_guild_id;
+    bool thread_member_lists_present;
+    // Thread-only frames omit channels and require channel_id/range_count zero.
+    bool omit_channel_ranges;
+    // Releasing interest keeps the guild's existing feature flags.
+    bool omit_features;
+    // The guild's other remembered channels after channel_id, most recent
+    // first; each keeps at least one range.
+    GatewayChannelSubscription channels[kGatewayGuildSubscriptionMaximumChannels - 1];
+    u32 channel_count;
+};
+
+inline constexpr u32 kGatewayUserCapabilitiesDefault = 1'734'653;
+inline constexpr u32 kGatewayUserMaximumCommandBytes = 4'096;
+
+inline constexpr u32 kGatewayGuildMemberRequestMaximum = 100;
+inline constexpr u32 kGatewayGuildMemberQueryMaximumBytes = 100;
+// channel_id scopes queued UI interest; it is not sent in opcode 8.
+struct GatewayGuildMemberRequest {
+    u64 guild_id;
+    u64 channel_id;
+    u64 nonce;
+    u64 user_ids[kGatewayGuildMemberRequestMaximum];
+    u32 user_count;
+    // A name search instead (user_count zero, limit 1-100): opcode 8 carries
+    // "query" (UTF-8, possibly empty) and "limit" in place of user_ids.
+    u32 limit;
+    u32 query_bytes;
+    char query[kGatewayGuildMemberQueryMaximumBytes];
+};
+constexpr bool gateway_guild_member_request_is_query(const GatewayGuildMemberRequest& request) noexcept {
+    return request.user_count == 0 && request.limit != 0;
+}
+bool gateway_guild_member_request_valid(const GatewayGuildMemberRequest&) noexcept;
+GatewayCommandWriteResult gateway_write_guild_member_request(const GatewayGuildMemberRequest&,
+                                                             Slice<u8> output) noexcept;
+inline constexpr u32 kGatewayUserMaximumTokenBytes = 2 * 1024;
+inline constexpr u32 kGatewayUserMaximumOperatingSystemBytes = 32;
+inline constexpr u32 kGatewayUserMaximumBrowserBytes = 64;
+inline constexpr u32 kGatewayUserMaximumDeviceBytes = 64;
+inline constexpr u32 kGatewayUserMaximumLocaleBytes = 32;
+inline constexpr u32 kGatewayUserMaximumUserAgentBytes = 512;
+inline constexpr u32 kGatewayUserMaximumVersionBytes = 64;
+inline constexpr u32 kGatewayUserMaximumReleaseChannelBytes = 32;
+inline constexpr u32 kGatewayUserLaunchIdBytes = 36;
+
+bool gateway_user_launch_id_valid(Utf8View value) noexcept;
+
+enum class GatewayUserStatus : u8 {
+    online,
+    idle,
+    dnd,
+    invisible,
+};
+
+struct GatewayUserProperties {
+    Utf8View operating_system;
+    Utf8View browser;
+    Utf8View device;
+    Utf8View system_locale;
+    Utf8View browser_user_agent;
+    Utf8View browser_version;
+    Utf8View os_version;
+    Utf8View release_channel;
+    Utf8View client_launch_id;
+    u32 client_build_number;
+};
+
+// Normal-user Gateway v9 fresh-session Identify. It has no application intents/shard
+// tuple and claims no cached versions. The properties must identify MaiCord
+// truthfully; client_build_number is the official client's build number the API
+// expects, not a MaiCord version.
+struct GatewayUserIdentify {
+    Utf8View token;
+    GatewayUserProperties properties;
+    u64 since_ms;
+    GatewayUserStatus status;
+    bool has_since;
+    bool afk;
+};
+
+GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify& identify,
+                                                      Slice<u8> output) noexcept;
+GatewayCommandWriteResult gateway_write_resume(const GatewayResume& resume, Slice<u8> output) noexcept;
+GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
+    const GatewayGuildSubscription& subscription, Slice<u8> output) noexcept;
+
+} // namespace maicord

@@ -1,0 +1,191 @@
+# Build-time generated inputs: packed UI data, compiled shaders, the
+# executable icon and the notification sound resource. Everything is written
+# under ${MAICORD_GENERATED_DIRECTORY} in the build directory; the libraries
+# that consume an output list it as a source (see libraries.cmake).
+
+find_package(Python3 3.10 COMPONENTS Interpreter REQUIRED)
+find_program(MAICORD_FXC_EXECUTABLE NAMES fxc.exe fxc
+    HINTS
+        "$ENV{WindowsSdkVerBinPath}/x64"
+        "$ENV{WindowsSdkBinPath}/x64"
+        "$ENV{ProgramFiles\(x86\)}/Windows Kits/10/bin/${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}/x64"
+        "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots;KitsRoot10]/bin/${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}/x64")
+if(NOT MAICORD_FXC_EXECUTABLE)
+    message(FATAL_ERROR "The Windows SDK fxc.exe shader compiler was not found.")
+endif()
+set(MAICORD_GENERATED_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${MAICORD_GENERATED_DIRECTORY}")
+
+# Preserve the canonical emoji catalog; emit the compact data in the build tree.
+# The catalog and shortcode name/glyph pools ship as one zlib stream that
+# src/ui/emoji_catalog.cpp inflates on first use (lengths checked at compile time).
+set(MAICORD_EMOJI_CATALOG_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/unicode_emoji_16_optimized.inc")
+add_custom_command(
+    OUTPUT "${MAICORD_EMOJI_CATALOG_INCLUDE}"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_unicode_emoji_catalog.py"
+        --canonical-include
+        --shortcode-include "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/emoji_shortcodes.inc"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/unicode_emoji_16.inc"
+        "${MAICORD_EMOJI_CATALOG_INCLUDE}"
+    DEPENDS tools/generate_unicode_emoji_catalog.py src/ui/unicode_emoji_16.inc src/ui/emoji_shortcodes.inc
+    VERBATIM)
+set(MAICORD_EMOJI_POOL_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/emoji_pool_pack.inc")
+add_custom_command(
+    OUTPUT "${MAICORD_EMOJI_POOL_INCLUDE}"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_emoji_pools.py" "${MAICORD_EMOJI_POOL_INCLUDE}"
+        "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ui/emoji_shortcodes.inc"
+    DEPENDS tools/pack_emoji_pools.py tools/generate_unicode_emoji_catalog.py
+        "${MAICORD_EMOJI_CATALOG_INCLUDE}" src/ui/emoji_shortcodes.inc
+    VERBATIM)
+add_custom_target(maicord_emoji_catalog_data
+    DEPENDS "${MAICORD_EMOJI_CATALOG_INCLUDE}" "${MAICORD_EMOJI_POOL_INCLUDE}")
+
+# The icon manifest (its order defines UiIcon) and its vendored SVG sources.
+file(GLOB MAICORD_ICON_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons/*.svg"
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original/*.svg")
+set(MAICORD_ICON_PACK_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/ui_icon_pack.inc")
+add_custom_command(
+    OUTPUT "${MAICORD_ICON_PACK_INCLUDE}"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_icon_pack.py" build
+        --manifest "${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/ui/icon_ids.inc"
+        --lucide "${CMAKE_CURRENT_SOURCE_DIR}/third_party/lucide/icons"
+        --original "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/original"
+        --output "${MAICORD_ICON_PACK_INCLUDE}"
+    DEPENDS tools/generate_icon_pack.py include/maicord/ui/icon_ids.inc ${MAICORD_ICON_SOURCES}
+    VERBATIM)
+add_custom_target(maicord_icon_pack_data DEPENDS "${MAICORD_ICON_PACK_INCLUDE}")
+
+# Regional-flag SVGs ship deflate-compressed in groups; the generator packs
+# the committed Twemoji sources and the account DLL inflates a group on demand.
+file(GLOB MAICORD_REGIONAL_FLAG_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags/*.svg")
+set(MAICORD_REGIONAL_FLAG_BUNDLE "${MAICORD_GENERATED_DIRECTORY}/regional_flag_bundle.inc")
+add_custom_command(
+    OUTPUT "${MAICORD_REGIONAL_FLAG_BUNDLE}"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_regional_flag_bundle.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/regional_flags" "${MAICORD_REGIONAL_FLAG_BUNDLE}"
+    DEPENDS tools/generate_regional_flag_bundle.py ${MAICORD_REGIONAL_FLAG_SOURCES}
+    VERBATIM)
+add_custom_target(maicord_regional_flag_data DEPENDS "${MAICORD_REGIONAL_FLAG_BUNDLE}")
+
+set(MAICORD_NOTIFICATION_SOUND_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/assets/sounds")
+set(MAICORD_NOTIFICATION_SOUND_RESOURCE "${CMAKE_CURRENT_BINARY_DIR}/notification_sounds.rc")
+configure_file(config/notification_sounds.rc.in "${MAICORD_NOTIFICATION_SOUND_RESOURCE}" @ONLY)
+set_source_files_properties("${MAICORD_NOTIFICATION_SOUND_RESOURCE}" PROPERTIES OBJECT_DEPENDS
+    "${MAICORD_NOTIFICATION_SOUND_DIRECTORY}/message-alert.mcp;${MAICORD_NOTIFICATION_SOUND_DIRECTORY}/focused-message-alert.mcp")
+
+# Executable icon: the tray mark in default theme colours, PNG-compressed.
+set(MAICORD_APP_ICON "${MAICORD_GENERATED_DIRECTORY}/maicord.ico")
+add_custom_command(
+    OUTPUT "${MAICORD_APP_ICON}"
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_app_icon.py"
+        --output "${MAICORD_APP_ICON}"
+    DEPENDS tools/generate_app_icon.py
+    VERBATIM)
+# Its own target: a custom command listed among MaiCord's sources would wait
+# for every library MaiCord links (and MaiCordAccount.dll), and every MaiCord
+# object would wait for it.
+add_custom_target(maicord_app_icon DEPENDS "${MAICORD_APP_ICON}")
+set_source_files_properties(config/maicord.rc PROPERTIES
+    OBJECT_DEPENDS "${MAICORD_APP_ICON}"
+    COMPILE_OPTIONS "/I${MAICORD_GENERATED_DIRECTORY}")
+
+# maicord_shader(<variable> <header> <profile> <entry> <symbol> <source> [<define>...])
+# Compiles <source> with fxc into generated/<header>, a byte array named
+# <symbol>, and stores the header path in <variable>.
+function(maicord_shader variable header profile entry symbol source)
+    set(output "${MAICORD_GENERATED_DIRECTORY}/${header}")
+    set(defines)
+    foreach(define IN LISTS ARGN)
+        list(APPEND defines /D ${define})
+    endforeach()
+    add_custom_command(
+        OUTPUT "${output}"
+        COMMAND "${MAICORD_FXC_EXECUTABLE}"
+            /nologo /T ${profile} /E ${entry} ${defines} /O3 /Ges /WX /Zpr
+            /Qstrip_debug /Qstrip_reflect /Qstrip_priv
+            /Fh "${output}" /Vn ${symbol}
+            "${CMAKE_CURRENT_SOURCE_DIR}/${source}"
+        DEPENDS ${source}
+        VERBATIM)
+    set(${variable} "${output}" PARENT_SCOPE)
+endfunction()
+
+set(maicord_shaders src/render/shaders)
+maicord_shader(MAICORD_VIDEO_FRAME_HEADER video_frame_cs.hpp cs_5_0 cs_main g_maicord_video_frame_shader
+    ${maicord_shaders}/video_frame.hlsl)
+maicord_shader(MAICORD_UI_VERTEX_HEADER maicord_ui_vs.hpp vs_4_0 ui_vertex g_maicord_ui_vertex_shader
+    ${maicord_shaders}/ui.hlsl)
+maicord_shader(MAICORD_UI_PIXEL_HEADER maicord_ui_ps.hpp ps_4_0 ui_pixel g_maicord_ui_pixel_shader
+    ${maicord_shaders}/ui.hlsl)
+maicord_shader(MAICORD_GLYPH_COMPUTE_HEADER maicord_glyph_cs.hpp cs_5_0 glyph_coverage g_maicord_glyph_compute_shader
+    ${maicord_shaders}/glyph_atlas.hlsl)
+maicord_shader(MAICORD_COLR_COMPUTE_HEADER maicord_colr_cs.hpp cs_5_0 colr_paint g_maicord_colr_compute_shader
+    ${maicord_shaders}/colr_paint.hlsl COLR_GENERAL=1)
+maicord_shader(MAICORD_COLR_WIDE_HEADER maicord_colr_wide_cs.hpp cs_5_0 colr_paint g_maicord_colr_wide_compute_shader
+    ${maicord_shaders}/colr_paint.hlsl COLR_STACK_SIZE=64 COLR_GENERAL=1)
+maicord_shader(MAICORD_COLR_LAYERS_HEADER maicord_colr_layers_cs.hpp cs_5_0 colr_paint g_maicord_colr_layers_compute_shader
+    ${maicord_shaders}/colr_paint.hlsl COLR_LAYERS=1 COLR_GENERAL=1)
+maicord_shader(MAICORD_GLYPH_VERTEX_HEADER maicord_glyph_vs.hpp vs_4_0 glyph_vertex g_maicord_glyph_vertex_shader
+    ${maicord_shaders}/glyph_draw.hlsl)
+maicord_shader(MAICORD_GLYPH_PIXEL_HEADER maicord_glyph_ps.hpp ps_4_0 glyph_pixel g_maicord_glyph_pixel_shader
+    ${maicord_shaders}/glyph_draw.hlsl)
+# Background effect pass: canvas vertex shader and the built-in Stars/Comets
+# effect, a ps_5_0 program against the public mc.fx@1 constant buffer.
+maicord_shader(MAICORD_FX_VERTEX_HEADER maicord_fx_vs.hpp vs_5_0 fx_vertex g_maicord_fx_vertex_shader
+    ${maicord_shaders}/background_fx.hlsl FX_VERTEX=1)
+maicord_shader(MAICORD_FX_PIXEL_HEADER maicord_fx_ps.hpp ps_5_0 fx_builtin g_maicord_fx_pixel_shader
+    ${maicord_shaders}/background_fx.hlsl)
+maicord_shader(MAICORD_MEDIA_VERTEX_HEADER maicord_media_vs.hpp vs_4_0 media_vertex g_maicord_media_vertex_shader
+    ${maicord_shaders}/media_draw.hlsl)
+maicord_shader(MAICORD_MEDIA_PIXEL_HEADER maicord_media_ps.hpp ps_4_0 media_pixel g_maicord_media_pixel_shader
+    ${maicord_shaders}/media_draw.hlsl)
+maicord_shader(MAICORD_PNG_COMPUTE_HEADER maicord_png_cs.hpp cs_5_0 png_expand g_maicord_png_compute_shader
+    ${maicord_shaders}/png_atlas.hlsl)
+maicord_shader(MAICORD_VP8_RECONSTRUCT_HEADER maicord_vp8_reconstruct_cs.hpp cs_5_0 vp8_reconstruct
+    g_maicord_vp8_reconstruct_shader ${maicord_shaders}/vp8_reconstruct_tiled.hlsl)
+maicord_shader(MAICORD_VP8_IDCT_HEADER maicord_vp8_idct_cs.hpp cs_5_0 vp8_inverse_dct g_maicord_vp8_idct_shader
+    ${maicord_shaders}/vp8_reconstruct.hlsl)
+maicord_shader(MAICORD_VP8_FILTER_HEADER maicord_vp8_filter_cs.hpp cs_5_0 vp8_filter g_maicord_vp8_filter_shader
+    ${maicord_shaders}/vp8_filter.hlsl)
+maicord_shader(MAICORD_VP8_ATLAS_HEADER maicord_vp8_atlas_cs.hpp cs_5_0 vp8_to_atlas g_maicord_vp8_atlas_shader
+    ${maicord_shaders}/vp8_atlas.hlsl)
+maicord_shader(MAICORD_JPEG_IDCT_HEADER maicord_jpeg_idct_cs.hpp cs_5_0 jpeg_idct g_maicord_jpeg_idct_shader
+    ${maicord_shaders}/jpeg.hlsl)
+maicord_shader(MAICORD_JPEG_ATLAS_HEADER maicord_jpeg_atlas_cs.hpp cs_5_0 jpeg_to_atlas g_maicord_jpeg_atlas_shader
+    ${maicord_shaders}/jpeg.hlsl)
+
+# Every shipped shader is deflate-packed (one zlib stream each; the wide COLR
+# variant is a sparse byte patch on the normal COLR stream) and inflated into
+# exact-size stack scratch just before its D3D11 Create* call. The first-frame UI/glyph/media
+# set (~60 KB raw, ~13 KB packed) inflates in well under 0.1 ms at startup.
+set(MAICORD_SHADER_PACK_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack.inc")
+set(MAICORD_PACKED_SHADERS
+    "ui_vertex=${MAICORD_UI_VERTEX_HEADER}" "ui_pixel=${MAICORD_UI_PIXEL_HEADER}"
+    "glyph_vertex=${MAICORD_GLYPH_VERTEX_HEADER}" "glyph_pixel=${MAICORD_GLYPH_PIXEL_HEADER}"
+    "media_vertex=${MAICORD_MEDIA_VERTEX_HEADER}" "media_pixel=${MAICORD_MEDIA_PIXEL_HEADER}"
+    "glyph_compute=${MAICORD_GLYPH_COMPUTE_HEADER}"
+    "colr_compute=${MAICORD_COLR_COMPUTE_HEADER}" "colr_wide_compute=${MAICORD_COLR_WIDE_HEADER}"
+    "colr_layers_compute=${MAICORD_COLR_LAYERS_HEADER}" "png_compute=${MAICORD_PNG_COMPUTE_HEADER}"
+    "vp8_reconstruct=${MAICORD_VP8_RECONSTRUCT_HEADER}" "vp8_idct=${MAICORD_VP8_IDCT_HEADER}"
+    "vp8_filter=${MAICORD_VP8_FILTER_HEADER}" "vp8_atlas=${MAICORD_VP8_ATLAS_HEADER}"
+    "jpeg_idct=${MAICORD_JPEG_IDCT_HEADER}" "jpeg_atlas=${MAICORD_JPEG_ATLAS_HEADER}"
+    "video_frame=${MAICORD_VIDEO_FRAME_HEADER}"
+    "fx_vertex=${MAICORD_FX_VERTEX_HEADER}" "fx_builtin=${MAICORD_FX_PIXEL_HEADER}")
+set(MAICORD_PACKED_SHADER_HEADERS "")
+foreach(entry IN LISTS MAICORD_PACKED_SHADERS)
+    string(REGEX REPLACE "^[a-z0-9_]+=" "" header "${entry}")
+    list(APPEND MAICORD_PACKED_SHADER_HEADERS "${header}")
+endforeach()
+add_custom_command(
+    OUTPUT "${MAICORD_SHADER_PACK_INCLUDE}"
+    COMMAND "${Python3_EXECUTABLE}" -B
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/pack_shader_bytecode.py" "${MAICORD_SHADER_PACK_INCLUDE}"
+        ${MAICORD_PACKED_SHADERS}
+    DEPENDS tools/pack_shader_bytecode.py ${MAICORD_PACKED_SHADER_HEADERS}
+    VERBATIM)

@@ -1,0 +1,26 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "x64-release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceParentDir}/MaiCord-build/Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "MAICORD_BUILD_TESTS": false,
+        "MAICORD_BUILD_BENCHMARKS": false,
+        "MAICORD_BUILD_INTEGRATION_TESTS": false,
+        "MAICORD_GENERATE_LINK_MAPS": false
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "x64-release",
+      "configurePreset": "x64-release",
+      "targets": ["MaiCord", "MaiCordAccount"],
+      "jobs": 8
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+# Path-based labels for pull requests (actions/labeler).
+"area: messages":
+  - changed-files:
+      - any-glob-to-any-file: ["src/ui/message_*", "src/app/application_message*", "src/app/application_composer*", "src/ui/ansi_text*", "src/app/application_poll*"]
+"area: voice & video":
+  - changed-files:
+      - any-glob-to-any-file: ["src/app/voice_*", "src/app/dave_*", "src/app/mls_*", "src/app/application_voice*", "src/app/application_call*", "src/app/application_stream*", "src/app/*soundboard*", "src/ui/call_*", "src/protocol/voice_*"]
+"area: media":
+  - changed-files:
+      - any-glob-to-any-file: ["src/media/**", "src/app/*media*", "src/platform/h264_*", "src/render/*video*", "third_party/opus/**", "third_party/minimp3/**"]
+"area: servers":
+  - changed-files:
+      - any-glob-to-any-file: ["src/app/application_guild*", "src/ui/guild_*", "src/model/channel_permissions*", "src/model/permission*"]
+"area: accounts":
+  - changed-files:
+      - any-glob-to-any-file: ["src/app/account_*", "src/app/application_account*", "src/app/application_login*", "src/app/application_profile*", "src/ui/login_*", "src/ui/profile*"]
+"area: plugins":
+  - changed-files:
+      - any-glob-to-any-file: ["include/maicord/sdk/**", "src/app/plugin_*", "src/app/application_plugins*", "samples/plugins/**"]
+"area: themes":
+  - changed-files:
+      - any-glob-to-any-file: ["include/maicord/ui/theme*", "src/ui/theme*", "src/app/client_theme*", "assets/themes/**"]
+"area: updater":
+  - changed-files:
+      - any-glob-to-any-file: ["src/app/update_*", "tools/release/**", ".github/workflows/release.yml", ".github/workflows/manifest-refresh.yml"]
+"area: text":
+  - changed-files:
+      - any-glob-to-any-file: ["src/text/**", "src/ui/text*", "src/ui/native_text*", "src/render/glyph*", "assets/fonts/**"]
+"area: build":
+  - changed-files:
+      - any-glob-to-any-file: ["CMakeLists.txt", "cmake/**", "CMakePresets.json", "tools/*.ps1", "tools/*.py", ".github/**"]
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: ["**/*.md", "docs/**"]

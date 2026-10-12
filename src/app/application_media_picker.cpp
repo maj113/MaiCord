@@ -1,0 +1,2006 @@
+#include "application_reply_draft.hpp"
+#include "application_media_picker.hpp"
+#include "application_cursor.hpp"
+#include "maicord/ui/scene_cursor.hpp"
+#include "application_state.hpp"
+#include "application_account_presentation.hpp"
+#include "application_composer.hpp"
+#include "application_composer_text_input.hpp"
+#include "application_friends.hpp"
+#include "application_message_history.hpp"
+#include "application_message_mutation_notice.hpp"
+#include "application_message_reaction.hpp"
+#include "application_profile.hpp"
+#include "application_settings.hpp"
+#include "application_gif_favorites.hpp"
+#include "application_emoji_preferences.hpp"
+#include "application_surface_motion.hpp"
+#include "application_retained_projection.hpp"
+#include "catalog_preview_log.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
+#include "maicord/ui/clipboard.hpp"
+#include "maicord/app/account_media_catalog.hpp"
+#include "maicord/protocol/writer.hpp"
+#include "maicord/protocol/cdn_url.hpp"
+#include "maicord/ui/reaction_picker.hpp"
+#include "maicord/ui/regional_flag.hpp"
+
+#include <limits.h>
+
+namespace maicord::app_detail {
+namespace {
+struct CatalogBank {
+    MediaCatalogItem* items;
+    char* text;
+    u8* preview_mask;
+    u64 first_id;
+    u32 count, text_bytes, allocation_bytes, generation;
+    MediaCatalogOperation operation;
+};
+bool preview_admitted(const CatalogBank& bank, u32 index) noexcept {
+    return index < bank.count && bank.preview_mask && (bank.preview_mask[index >> 3] & (1u << (index & 7)));
+}
+bool contains(Utf8View text, Utf8View query) noexcept {
+    if (!query.bytes)
+        return true;
+    if (query.bytes > text.bytes)
+        return false;
+    for (u32 start = 0; start + query.bytes <= text.bytes; ++start) {
+        u32 i = 0;
+        for (; i < query.bytes; ++i) {
+            auto a = static_cast<u8>(text.data[start + i]);
+            auto b = static_cast<u8>(query.data[i]);
+            if (a >= 'A' && a <= 'Z')
+                a += 'a' - 'A';
+            if (b >= 'A' && b <= 'Z')
+                b += 'a' - 'A';
+            if (a != b)
+                break;
+        }
+        if (i == query.bytes)
+            return true;
+    }
+    return false;
+}
+bool favorite_contains(Utf8View text, Utf8View query) noexcept {
+    const auto ignored = [](char c) noexcept { return c == '-' || c == '_' || c == ' '; };
+    const auto folded = [](char c) noexcept {
+        return c >= 'A' && c <= 'Z' ? static_cast<char>(c + ('a' - 'A')) : c;
+    };
+    u32 first = 0;
+    while (first < query.bytes && ignored(query.data[first]))
+        ++first;
+    if (first == query.bytes)
+        return true;
+    for (u32 start = 0; start < text.bytes; ++start) {
+        if (ignored(text.data[start]))
+            continue;
+        u32 at = start, needle = first;
+        for (;;) {
+            while (needle < query.bytes && ignored(query.data[needle]))
+                ++needle;
+            if (needle == query.bytes)
+                return true;
+            while (at < text.bytes && ignored(text.data[at]))
+                ++at;
+            if (at == text.bytes || folded(text.data[at]) != folded(query.data[needle]))
+                break;
+            ++at;
+            ++needle;
+        }
+    }
+    return false;
+}
+// FavoriteGIF.format as the official client stores it: VIDEO for an MP4/WebM
+// source (its picker plays a <video>), IMAGE for everything else.
+GifFavoriteFormat favorite_format(Utf8View src) noexcept {
+    u32 end = 0;
+    while (end < src.bytes && src.data[end] != '?' && src.data[end] != '#')
+        ++end;
+    const auto ends = [&](const char* suffix, u32 bytes) noexcept {
+        if (end < bytes)
+            return false;
+        for (u32 i = 0; i < bytes; ++i) {
+            char c = src.data[end - bytes + i];
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c + ('a' - 'A'));
+            if (c != suffix[i])
+                return false;
+        }
+        return true;
+    };
+    return ends(".mp4", 4) || ends(".webm", 5) ? GifFavoriteFormat::video : GifFavoriteFormat::image;
+}
+MediaAttachmentFormat format(const MediaCatalogItem& item) noexcept {
+    // A synced Klipy favourite stores the official picker's gif_src (.gif); a
+    // VIDEO favourite's MP4 plays as a muted looping tile.
+    return item.kind == MediaCatalogItemKind::sticker
+               ? (item.sticker_format == 4 ? MediaAttachmentFormat::gif
+                  : item.sticker_format == 3 ? MediaAttachmentFormat::lottie : MediaAttachmentFormat::png)
+               : catalog_favorite_format(item.preview_url);
+}
+} // namespace
+struct ApplicationMediaPicker {
+    MessageComposer edit;
+    char query[256], submitted_query[256], tab_query[3][256];
+    u16 tab_query_bytes[3];
+    float tab_scroll[3];
+    ReactionPickerModel emoji;
+    u64 emoji_first_id;
+    u64 emoji_state_revision;
+    u32 emoji_guild_revision;
+    CatalogBank *gif, *guild, *packs;
+    CatalogBank saved, favorites_tile;
+    MediaCatalogItem tile_item;
+    u8* saved_preview_mask;
+    u32 saved_mask_bytes, tile_source_index, favorite_generation;
+    u64 favorites_revision, favorites_data_revision;
+    u8 tile_preview_mask;
+    UiMediaPickerScene scene;
+    UiMediaPickerSource source;
+    UiMediaPickerContent content;
+    UiMediaPickerSection sections[kUiMediaPickerMaximumSections];
+    u32 *filtered, filtered_count, filtered_capacity, section_count;
+    u64 scope, account_id, channel_id, guild_id, submitted_id, submitted_generation;
+    u64 due_at, blink_at, hover_at, edit_identity;
+    u32 generation, content_revision, edit_revision, held_key, retries;
+    MediaCatalogOperation operation, submitted_operation;
+    UiMediaPickerKind kind;
+    UiMediaPickerPhase phase;
+    Utf8View status;
+    bool active, focused, caret_visible, captured, dragging, wanted, admission_busy, sticker_guild_done;
+    bool favorites_enabled, favorites_view, gif_favorites_view;
+    u64 scrollbar_scope, scrollbar_revision;
+    float scrollbar_grab;
+    bool scrollbar_dragging, scrollbar_rail;
+    // Reaction popout: the Emoji component targeting one message instead of
+    // the composer. Zero message ID is the composer's expression picker.
+    u64 reaction_message_id;
+    UiRect reaction_anchor;
+    ApplicationMessageMutationScope reaction_scope;
+    UiMediaPickerKind composer_kind;
+    bool reaction_error;
+};
+namespace {
+constexpr auto kReactionHint = utf8_literal("Shift-click to add more reactions");
+bool projection(ApplicationMediaPicker&) noexcept;
+void revoke_capture(ApplicationMediaPicker&) noexcept;
+bool emoji_projection(ApplicationMediaPicker& p) noexcept {
+    revoke_capture(p);
+    if (!reaction_picker_refresh_search(&p.emoji).ok() ||
+        p.emoji.section_count > kUiMediaPickerMaximumSections ||
+        g_app.media_picker_item_serial > ~u64{0} - p.emoji.result_count - p.emoji.section_count)
+        return false;
+    p.emoji_first_id = g_app.media_picker_item_serial + 1;
+    g_app.media_picker_item_serial += p.emoji.result_count + p.emoji.section_count;
+    p.source.count = p.emoji.result_count;
+    p.section_count = p.emoji.section_count;
+    for (u32 i = 0; i < p.section_count; ++i) {
+        const auto& section = p.emoji.sections[i];
+        p.sections[i] = {p.emoji_first_id + p.emoji.result_count + i, section.first, section.count,
+                         reaction_picker_section_label(p.emoji, i), !section.collapsed};
+        auto& projected = p.sections[i];
+        if (section.guild_id) {
+            projected.visual = UiMediaPickerSectionVisual::guild;
+            projected.guild_id = section.guild_id;
+            for (u32 guild = 0; guild < p.emoji.guild_count; ++guild) {
+                const auto& source = p.emoji.guilds[guild];
+                if (source.id != section.guild_id)
+                    continue;
+                projected.icon_variant = source.icon_variant;
+                projected.icon_animated = source.animated;
+                break;
+            }
+        } else if (section.local < kReactionPickerSectionSearch) {
+            projected.visual = static_cast<UiMediaPickerSectionVisual>(section.local + 1);
+        }
+    }
+    p.phase = p.source.count ? UiMediaPickerPhase::ready : UiMediaPickerPhase::empty;
+    p.status = !p.source.count           ? utf8_literal("No emoji match your search.")
+               : p.reaction_message_id ? kReactionHint
+                                       : utf8_literal("Choose an emoji");
+    p.reaction_error = false;
+    ++p.source.revision;
+    return true;
+}
+bool open_emoji_model(ApplicationMediaPicker& p) noexcept {
+    const bool reaction = p.reaction_message_id != 0;
+    auto& ui = *g_app.account_ui;
+    if (!reaction_picker_open(&p.emoji, reaction ? p.reaction_message_id : p.channel_id,
+                              &ui.reaction_preferences, clock_unix_milliseconds(), &ui.chat_state, p.guild_id,
+                              &p.edit, reaction ? ReactionPreferenceKind::reaction : ReactionPreferenceKind::message)
+             .ok() ||
+        !emoji_projection(p))
+        return false;
+    p.emoji_state_revision =
+        (static_cast<u64>(ui.chat_state.emoji_mutations) << 32) | ui.chat_state.permission_mutations;
+    p.emoji_guild_revision = ui.chat_state.guild_mutations;
+    return true;
+}
+bool landing(const ApplicationMediaPicker& p) noexcept {
+    return p.kind == UiMediaPickerKind::gif && !p.favorites_view &&
+           p.operation == MediaCatalogOperation::gif_categories;
+}
+Utf8View favorite_detail(Utf8View value) noexcept {
+    u32 bytes = minimum(value.bytes, 256u);
+    while (bytes && !utf8_validate({value.data, bytes}).valid)
+        --bytes;
+    return {value.data, bytes};
+}
+void favorite_item(const GifFavoriteRecord& record, MediaCatalogItem* item) noexcept {
+    *item = {};
+    item->kind = MediaCatalogItemKind::gif;
+    item->name = utf8_literal("Saved GIF");
+    item->description = favorite_detail(record.url);
+    item->preview_url = record.src;
+    item->gif_url = record.src;
+    item->send_url = record.url;
+    item->width = record.width;
+    item->height = record.height;
+    item->available = record.url.bytes && record.url.bytes <= kMediaCatalogMaximumUrlBytes;
+}
+bool favorites_refresh(ApplicationMediaPicker& p) noexcept {
+    if (!p.favorites_enabled)
+        return true;
+    const auto view = application_gif_favorites_view();
+    if (p.favorites_data_revision == view.data_revision && p.favorites_revision == view.revision)
+        return true;
+    if (p.kind == UiMediaPickerKind::gif)
+        revoke_capture(p);
+    const bool data_changed = p.favorites_data_revision != view.data_revision;
+    if (data_changed) {
+        if (view.records.count > kUiMediaPickerMaximumItems || p.favorite_generation == ~u32{0} ||
+            g_app.media_picker_item_serial > ~u64{0} - view.records.count)
+            return false;
+        const u32 mask_bytes = (view.records.count + 7) / 8;
+        auto* mask = mask_bytes ? static_cast<u8*>(VirtualAlloc(nullptr, mask_bytes,
+                                                                MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE))
+                                : nullptr;
+        if (mask_bytes && !mask)
+            return false;
+        u32 first_preview = ~u32{0};
+        u8 target[kCdnMaximumTargetBytes]{};
+        for (u32 i = 0; i < view.records.count; ++i) {
+            const auto& record = view.records[i];
+            // Tenor/Giphy favourites preview as the provider's animated WebP,
+            // a Klipy gif_src as the GIF itself, a VIDEO favourite's MP4 as a
+            // muted looping video tile, and any other external image through
+            // the signed media proxy.
+            const auto preview_format = catalog_favorite_format(record.src);
+            const auto mapped = parse_catalog_preview_url(record.src, {target, sizeof(target)},
+                                                          preview_format, record.width, record.height);
+            if (mapped.ok()) {
+                mask[i >> 3] |= static_cast<u8>(1u << (i & 7));
+                if (first_preview == ~u32{0})
+                    first_preview = i;
+            } else {
+                // Logged once per favourites revision: the tile keeps its placeholder.
+                CatalogPreviewLog("map")
+                    .field("favorite", i)
+                    .field("format", static_cast<u64>(preview_format))
+                    .field("stored_format", static_cast<u64>(record.format))
+                    .field("url_error", static_cast<u64>(mapped.error))
+                    .source(record.src)
+                    .write();
+            }
+        }
+        if (p.saved_preview_mask)
+            VirtualFree(p.saved_preview_mask, 0, MEM_RELEASE);
+        p.saved_preview_mask = mask;
+        p.saved_mask_bytes = mask_bytes;
+        p.saved = {};
+        p.saved.count = view.records.count;
+        p.saved.first_id = g_app.media_picker_item_serial + 1;
+        g_app.media_picker_item_serial += view.records.count;
+        p.saved.generation = ++p.favorite_generation;
+        p.saved.preview_mask = mask;
+        p.saved.operation = MediaCatalogOperation::gif_search;
+        p.favorites_data_revision = view.data_revision;
+        p.tile_source_index = first_preview;
+        p.favorites_tile.generation = p.favorite_generation;
+    }
+    p.tile_item = {};
+    p.tile_item.kind = MediaCatalogItemKind::category;
+    p.tile_item.name = utf8_literal("Favorites");
+    p.tile_item.available = true;
+    p.tile_preview_mask = 0;
+    if (p.tile_source_index < view.records.count) {
+        const auto& preview = view.records[p.tile_source_index];
+        p.tile_item.preview_url = preview.src;
+        p.tile_item.width = preview.width;
+        p.tile_item.height = preview.height;
+        p.tile_preview_mask = 1;
+    }
+    p.favorites_revision = view.revision;
+    if (p.kind == UiMediaPickerKind::gif) {
+        ++p.source.revision;
+        ui_media_picker_scene_cancel_capture(&p.scene);
+    }
+    return !data_changed || p.kind != UiMediaPickerKind::gif || !p.favorites_view || projection(p);
+}
+bool enable_favorites(ApplicationMediaPicker& p) noexcept {
+    if (p.favorites_enabled) {
+        application_gif_favorites_set_visible(true);
+        return favorites_refresh(p);
+    }
+    if (!g_app.account.api.gif_favorites || !application_gif_favorites_open())
+        return true;
+    if (g_app.media_picker_item_serial == ~u64{0})
+        return false;
+    p.favorites_enabled = true;
+    p.favorite_generation = 1;
+    p.tile_source_index = ~u32{0};
+    p.favorites_tile.first_id = ++g_app.media_picker_item_serial;
+    p.favorites_tile.count = 1;
+    p.favorites_tile.generation = 1;
+    p.favorites_tile.operation = MediaCatalogOperation::gif_categories;
+    p.favorites_tile.preview_mask = &p.tile_preview_mask;
+    p.favorites_revision = ~u64{0};
+    p.favorites_data_revision = ~u64{0};
+    return favorites_refresh(p);
+}
+bool account_ready() noexcept {
+    return g_app.account_ui && g_app.account.instance && !g_app.account.stop_failed && !g_app.login.visible &&
+           !application_friends_active() &&
+           g_app.account.status.required_action == AccountRequirement::none;
+}
+bool reaction_current(const ApplicationMediaPicker& p) noexcept {
+    const auto& scope = p.reaction_scope;
+    const auto* ui = g_app.account_ui;
+    if (!ui || !scope.message_id || scope.message_id != p.reaction_message_id)
+        return false;
+    const auto* channel = chat_state_store_find_channel(ui->chat_state, scope.channel_id);
+    const auto found = message_store_find(g_app.message_view.store, scope.message_id);
+    const auto* message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    return scope.account_serial == g_app.plugin_account_scope_serial &&
+           scope.profile_id == g_app.account.status.profile_id &&
+           scope.self_user_id == ui->chat_state.self_user_id && scope.channel_id == ui->active_channel_id &&
+           channel && channel->occupied && channel->generation == scope.channel_generation && message &&
+           message->channel_id == scope.channel_id && message->delivery == MessageDeliveryState::authoritative;
+}
+// The composer's expression picker needs a sendable composer; the reaction
+// popout needs only its current message (reactions need no send access).
+bool available(const ApplicationMediaPicker* p = nullptr) noexcept {
+    if (!account_ready())
+        return false;
+    if (p && p->reaction_message_id)
+        return reaction_current(*p);
+    return g_app.message_composer_scene.active &&
+           g_app.message_composer.channel_id == g_app.account_ui->active_channel_id &&
+           g_app.message_composer_scene.channel_allows_send && !g_app.message_edit.editor_active;
+}
+bool owns_current(const ApplicationMediaPicker& p) noexcept {
+    return available(&p) && p.account_id == g_app.account_ui->chat_state.self_user_id &&
+           p.channel_id == g_app.account_ui->active_channel_id;
+}
+bool unobstructed() noexcept {
+    return !application_settings_active() && !g_app.text_form && !g_app.popup_scene.active &&
+           !(g_app.profile && g_app.profile->scene.active) && !g_app.image_viewer.scene.active &&
+           !g_app.reaction_viewer.active;
+}
+bool front(const ApplicationMediaPicker* p = nullptr) noexcept {
+    return available(p) && unobstructed();
+}
+void focus(ApplicationMediaPicker& p, bool value) noexcept {
+    if (p.focused != value)
+        application_composer_text_input_suspend();
+    if (value && !p.focused) {
+        if (g_app.media_picker_scope_serial == ~u64{0})
+            return;
+        p.edit_identity = ++g_app.media_picker_scope_serial;
+    }
+    p.focused = p.edit.focused = value;
+    p.caret_visible = value;
+    p.blink_at = value ? deadline_after(clock_monotonic_milliseconds(), kDefaultCaretBlinkMilliseconds) : 0;
+    if (value) {
+        g_app.message_composer.focused = false;
+        g_app.context_focus = &p.scene.widgets;
+        SetFocus(g_app.window);
+        ui_widget_manager_focus(&p.scene.widgets, p.scene.edit);
+    } else if (g_app.context_focus == &p.scene.widgets)
+        g_app.context_focus = nullptr;
+}
+void cancel(ApplicationMediaPicker& p) noexcept {
+    if (p.submitted_id && g_app.account.instance && g_app.account.api.media_catalog)
+        g_app.account.api.media_catalog(g_app.account.instance, AccountMediaCatalogOperation::cancel,
+                                        nullptr, p.submitted_id);
+    // Keep the response until the primary worker consumes it.
+}
+bool repaint(bool defer_text = false) noexcept {
+    if (!application_media_picker_synchronize())
+        return false;
+    // Pure pointer/scroll changes update hit geometry immediately. The frame
+    // boundary shapes the latest suffix once after native input dispatch.
+    if (defer_text)
+        return refresh_account_text() && application_request_frame();
+    if (!refresh_retained_projection())
+        return false;
+    application_composer_text_input_notify_layout();
+    application_composer_text_input_synchronize();
+    return true;
+}
+const MediaCatalogItem* item_at(const ApplicationMediaPicker& p, u32 index,
+                                const CatalogBank** bank = nullptr, u32* local = nullptr,
+                                MediaCatalogItem* temporary = nullptr) noexcept {
+    if (index >= p.source.count)
+        return nullptr;
+    if (landing(p) && p.favorites_enabled) {
+        if (!index) {
+            if (bank)
+                *bank = &p.favorites_tile;
+            if (local)
+                *local = 0;
+            return &p.tile_item;
+        }
+        --index;
+    }
+    if (p.kind == UiMediaPickerKind::gif && p.favorites_view) {
+        const auto view = application_gif_favorites_view();
+        if (!temporary || index >= p.filtered_count || !p.filtered)
+            return nullptr;
+        const u32 at = p.filtered[index];
+        if (at >= p.saved.count || at >= view.records.count)
+            return nullptr;
+        favorite_item(view.records[at], temporary);
+        if (bank)
+            *bank = &p.saved;
+        if (local)
+            *local = at;
+        return temporary;
+    }
+    const CatalogBank* owner = p.kind == UiMediaPickerKind::gif ? p.gif : p.guild;
+    if (index >= p.source.count || (p.kind == UiMediaPickerKind::sticker && index >= p.filtered_count))
+        return nullptr;
+    u32 at = p.kind == UiMediaPickerKind::sticker && p.filtered ? p.filtered[index] : index;
+    if (p.kind == UiMediaPickerKind::sticker && (!owner || at >= owner->count)) {
+        at -= owner ? owner->count : 0;
+        owner = p.packs;
+    }
+    if (!owner || at >= owner->count)
+        return nullptr;
+    if (bank)
+        *bank = owner;
+    if (local)
+        *local = at;
+    return &owner->items[at];
+}
+bool resolve(void* context, u32 index, UiMediaPickerItem* out) noexcept {
+    const auto& p = *static_cast<ApplicationMediaPicker*>(context);
+    if (!out || index >= p.source.count)
+        return false;
+    if (p.kind == UiMediaPickerKind::emoji) {
+        ReactionPickerSelection selection{};
+        Utf8View label{};
+        if (!reaction_picker_result_at(p.emoji, index, &selection, &label))
+            return false;
+        *out = {};
+        out->id = p.emoji_first_id + index;
+        out->kind = UiMediaPickerItemKind::emoji;
+        out->enabled = true;
+        out->label = label;
+        out->detail = selection.custom ? utf8_literal("Custom server emoji") : utf8_literal("Emoji");
+        out->width = out->height = 32;
+        if (selection.custom) {
+            out->asset_id = selection.emoji_id;
+            out->asset_flags = selection.animated ? 1 : 0;
+        } else {
+            out->glyph = selection.name;
+            out->regional_flag = regional_flag_sequence(selection.name);
+        }
+        return true;
+    }
+    const CatalogBank* bank = nullptr;
+    u32 at = 0;
+    MediaCatalogItem temporary{};
+    const auto* item = item_at(p, index, &bank, &at, &temporary);
+    if (!item)
+        return false;
+    const bool categories = bank->operation == MediaCatalogOperation::gif_categories;
+    const auto key = media_asset_catalog_preview(bank->first_id + at, bank->generation, format(*item),
+                                                 (item->sticker_format == 2 || item->sticker_format == 3));
+    *out = {};
+    out->id = key.id;
+    out->asset_id = preview_admitted(*bank, at) ? key.id : 0;
+    out->variant = key.variant;
+    out->asset_flags = key.flags;
+    out->label =
+        categories && item->kind == MediaCatalogItemKind::gif ? utf8_literal("Trending GIFs") : item->name;
+    out->detail = item->description.bytes ? item->description : item->name;
+    out->width = item->width;
+    out->height = item->height;
+    out->kind = p.kind == UiMediaPickerKind::sticker ? UiMediaPickerItemKind::sticker
+                : categories                         ? UiMediaPickerItemKind::category
+                                                     : UiMediaPickerItemKind::gif;
+    out->enabled = item->available;
+    if (out->kind == UiMediaPickerItemKind::gif && p.favorites_enabled) {
+        const auto favorite = application_gif_favorites_state(item->send_url);
+        out->favoritable = item->send_url.bytes && item->send_url.bytes <= kMediaCatalogMaximumUrlBytes;
+        out->favorite = favorite.confirmed;
+        out->favorite_pending = favorite.pending || !favorite.available;
+        out->favorite_failed = favorite.failed;
+    }
+    return true;
+}
+bool projection(ApplicationMediaPicker& p) noexcept {
+    revoke_capture(p);
+    p.section_count = 0;
+    if (p.kind == UiMediaPickerKind::gif) {
+        if (!p.favorites_view) {
+            p.source.count = (p.gif ? p.gif->count : 0) + (landing(p) && p.favorites_enabled ? 1 : 0);
+            return true;
+        }
+    }
+    const auto favorites = application_gif_favorites_view();
+    const u32 count = p.favorites_view && p.kind == UiMediaPickerKind::gif
+                          ? favorites.records.count
+                          : (p.guild ? p.guild->count : 0) + (p.packs ? p.packs->count : 0);
+    if (count > p.filtered_capacity) {
+        auto* next = static_cast<u32*>(
+            VirtualAlloc(nullptr, count * sizeof(u32), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (!next)
+            return false;
+        if (p.filtered)
+            VirtualFree(p.filtered, 0, MEM_RELEASE);
+        p.filtered = next;
+        p.filtered_capacity = count;
+    }
+    p.filtered_count = 0;
+    if (p.kind == UiMediaPickerKind::gif && p.favorites_view) {
+        const auto query = message_composer_text(p.edit);
+        for (u32 i = 0; i < count; ++i)
+            if (favorite_contains(favorites.records[i].url, query))
+                p.filtered[p.filtered_count++] = i;
+        p.source.count = p.filtered_count;
+        return true;
+    }
+    const auto query = message_composer_text(p.edit);
+    u64 previous = 0;
+    for (u32 i = 0; i < count; ++i) {
+        const auto* bank = p.guild && i < p.guild->count ? p.guild : p.packs;
+        const u32 local = p.guild && i < p.guild->count ? i : i - (p.guild ? p.guild->count : 0);
+        const auto& item = bank->items[local];
+        if (!contains(item.name, query) && !contains(item.tags, query) &&
+            !contains(item.description, query))
+            continue;
+        const u64 section = item.guild_id ? item.guild_id : item.pack_id;
+        if (section != previous && p.section_count < kUiMediaPickerMaximumSections) {
+            p.sections[p.section_count++] = {section, p.filtered_count, 0,
+                                             item.guild_id          ? utf8_literal("This server")
+                                             : item.pack_name.bytes ? item.pack_name
+                                                                    : utf8_literal("Sticker pack"),
+                                             true};
+            previous = section;
+        }
+        if (p.section_count)
+            ++p.sections[p.section_count - 1].count;
+        p.filtered[p.filtered_count++] = i;
+    }
+    p.source.count = p.filtered_count;
+    return true;
+}
+void request(ApplicationMediaPicker& p, MediaCatalogOperation operation, bool delayed = false) noexcept {
+    revoke_capture(p);
+    cancel(p);
+    if (p.kind == UiMediaPickerKind::gif)
+        p.favorites_view = p.gif_favorites_view = false;
+    if (p.generation == ~u32{0}) {
+        p.wanted = false;
+        p.phase = UiMediaPickerPhase::failed;
+        return;
+    }
+    ++p.generation;
+    p.operation = operation;
+    p.retries = 0;
+    p.wanted = true;
+    p.admission_busy = false;
+    p.due_at = deadline_after(clock_monotonic_milliseconds(), delayed ? 300 : 0);
+    p.phase = UiMediaPickerPhase::loading;
+    p.status = utf8_literal("Loading…");
+    ++p.source.revision;
+    p.scene.scroll_dips = 0;
+}
+bool switch_tab(ApplicationMediaPicker& p, UiMediaPickerKind kind) noexcept {
+    if (kind > UiMediaPickerKind::emoji)
+        return false;
+    if (p.kind == kind && p.scene.active)
+        return repaint();
+    const u32 old = static_cast<u32>(p.kind), next = static_cast<u32>(kind);
+    const auto query = message_composer_text(p.edit);
+    p.tab_query_bytes[old] = static_cast<u16>(query.bytes);
+    CopyMemory(p.tab_query[old], query.data, query.bytes);
+    p.tab_scroll[old] = p.scene.scroll_dips;
+    if (p.kind == UiMediaPickerKind::gif)
+        p.gif_favorites_view = p.favorites_view;
+    focus(p, false);
+    revoke_capture(p);
+    cancel(p);
+    if (p.kind == UiMediaPickerKind::emoji && kind != UiMediaPickerKind::emoji) {
+        ui_media_picker_scene_close(&p.scene);
+        reaction_picker_release(&p.emoji);
+    }
+    p.kind = kind;
+    message_composer_restore(&p.edit, 0, {p.tab_query[next], p.tab_query_bytes[next]},
+                             p.tab_query_bytes[next], p.tab_query_bytes[next]);
+    if (kind == UiMediaPickerKind::emoji) {
+        ui_media_picker_scene_close(&p.scene);
+        application_gif_favorites_set_visible(false);
+        p.favorites_view = false;
+        p.wanted = false;
+        p.due_at = 0;
+        if (p.generation == ~u32{0})
+            return false;
+        ++p.generation;
+        application_emoji_preferences_open();
+        if (!open_emoji_model(p))
+            return false;
+    } else if (kind == UiMediaPickerKind::gif && p.gif_favorites_view) {
+        if (p.generation == ~u32{0})
+            return false;
+        ++p.generation;
+        p.favorites_view = true;
+        p.wanted = false;
+        if (!enable_favorites(p) || !projection(p))
+            return false;
+        ++p.source.revision;
+    } else if (kind == UiMediaPickerKind::gif) {
+        if (!enable_favorites(p))
+            return false;
+        request(p,
+                p.edit.bytes ? MediaCatalogOperation::gif_search : MediaCatalogOperation::gif_categories);
+    } else {
+        p.favorites_view = false;
+        application_gif_favorites_set_visible(false);
+        if (p.generation == ~u32{0})
+            return false;
+        ++p.generation;
+        p.wanted = !p.packs || (p.guild_id && !p.sticker_guild_done);
+        p.operation = p.guild_id && !p.sticker_guild_done ? MediaCatalogOperation::guild_stickers
+                                                          : MediaCatalogOperation::sticker_packs;
+        p.due_at = 1;
+        p.phase = p.wanted ? UiMediaPickerPhase::loading : UiMediaPickerPhase::ready;
+        p.status = p.wanted ? utf8_literal("Loading stickers…") : utf8_literal("Choose a sticker");
+        if (!projection(p))
+            return false;
+        ++p.source.revision;
+    }
+    // Committing the new generation resets the scene's old layout.
+    // Restore the tab's saved offset only after its new scroll bounds exist.
+    if (!repaint())
+        return false;
+    const float delta = p.tab_scroll[next] - p.scene.scroll_dips;
+    return !ui_media_picker_scene_scroll(&p.scene, delta) || repaint();
+}
+// One reaction per activation; Shift keeps the popout open for more, as in
+// the official client. A refusal keeps the popout and shows the owner's reason.
+bool react(ApplicationMediaPicker& p, const ReactionPickerSelection& selection) noexcept {
+    const auto admission =
+        reaction_current(p) ? application_queue_message_reaction_emoji(p.reaction_message_id, selection.emoji_id,
+                                                                       selection.name, selection.animated)
+                            : ApplicationMessageReactionEnqueueResult::stale;
+    const bool accepted = admission == ApplicationMessageReactionEnqueueResult::accepted ||
+                          admission == ApplicationMessageReactionEnqueueResult::coalesced;
+    if (accepted && !(GetKeyState(VK_SHIFT) & 0x8000)) {
+        application_media_picker_close();
+        return true;
+    }
+    bool error = !accepted;
+    auto label = accepted ? application_message_reaction_status(p.reaction_message_id, &error)
+                          : application_message_reaction_admission_text(admission);
+    if (!label.bytes)
+        label = accepted ? kReactionHint : utf8_literal("Couldn't update the reaction. Try again.");
+    p.status = label;
+    p.reaction_error = error;
+    return repaint();
+}
+bool activate(ApplicationMediaPicker& p, UiMediaPickerTarget target) noexcept {
+    if (!owns_current(p) || !front(&p) || target.account_scope != p.scope ||
+        target.query_generation != p.generation || target.source_revision != p.source.revision ||
+        target.scene_generation != p.scene.generation || !ui_media_picker_scene_current(p.scene))
+        return true;
+    if (target.action == UiMediaPickerAction::tab) {
+        if (switch_tab(p, target.tab))
+            return true;
+        application_media_picker_close();
+        return false;
+    }
+    if (target.action == UiMediaPickerAction::edit) {
+        focus(p, true);
+        return repaint();
+    }
+    if (target.action == UiMediaPickerAction::back) {
+        message_composer_clear(&p.edit);
+        request(p, MediaCatalogOperation::gif_categories);
+        return repaint();
+    }
+    if (target.action == UiMediaPickerAction::section_jump) {
+        ui_media_picker_scene_scroll_section(&p.scene, target.item_id);
+        return repaint();
+    }
+    if (target.action == UiMediaPickerAction::section) {
+        for (u32 i = 0; i < p.section_count; ++i)
+            if (p.sections[i].id == target.item_id) {
+                if (p.kind == UiMediaPickerKind::emoji) {
+                    if (!reaction_picker_toggle_section(&p.emoji, i).ok() || !emoji_projection(p))
+                        return false;
+                    break;
+                }
+                revoke_capture(p);
+                p.sections[i].expanded = !p.sections[i].expanded;
+                ++p.source.revision;
+                break;
+            }
+        return repaint();
+    }
+    if (target.source_index >= p.source.count)
+        return true;
+    if (p.kind == UiMediaPickerKind::emoji) {
+        if (target.action != UiMediaPickerAction::item ||
+            target.item_id != p.emoji_first_id + target.source_index)
+            return true;
+        ReactionPickerSelection selection{};
+        if (!reaction_picker_result_at(p.emoji, target.source_index, &selection))
+            return true;
+        if (GetKeyState(VK_MENU) & 0x8000) {
+            if (!application_emoji_preferences_toggle_favorite(reaction_picker_selection_emoji(selection)) ||
+                !reaction_picker_refresh_preferences(&p.emoji).ok() || !emoji_projection(p))
+                return false;
+            return repaint();
+        }
+        if (p.reaction_message_id)
+            return react(p, selection);
+        char insertion[128]{};
+        Utf8View value = selection.name;
+        if (selection.custom) {
+            ProtocolWriter writer{{reinterpret_cast<u8*>(insertion), sizeof(insertion)}, 0};
+            if (!protocol_writer_append_c_string(&writer, selection.animated ? "<a:" : "<:") ||
+                !protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(selection.name.data),
+                                              selection.name.bytes) ||
+                !protocol_writer_append_literal(&writer, ":") ||
+                !protocol_writer_append_u64(&writer, selection.emoji_id) ||
+                !protocol_writer_append_literal(&writer, ">"))
+                return false;
+            value = {insertion, writer.used};
+        }
+        const u32 first = minimum(g_app.message_composer.anchor, g_app.message_composer.caret);
+        const u32 last = maximum(g_app.message_composer.anchor, g_app.message_composer.caret);
+        const auto inserted = message_composer_replace_range(&g_app.message_composer, first, last, value);
+        if (inserted != MessageComposerResult::changed)
+            return false;
+        // Composer frecency is recorded when the message is sent.
+        application_media_picker_close();
+        focus_message_composer_control(MessageComposerControl::edit);
+        return composer_apply_result(inserted, true);
+    }
+    if (target.action == UiMediaPickerAction::category && landing(p) && p.favorites_enabled &&
+        target.item_id == p.favorites_tile.first_id && target.source_index == 0) {
+        cancel(p);
+        if (p.generation == ~u32{0})
+            return false;
+        ++p.generation;
+        p.favorites_view = p.gif_favorites_view = true;
+        p.wanted = false;
+        p.due_at = 0;
+        message_composer_clear(&p.edit);
+        focus(p, true);
+        p.scene.scroll_dips = 0;
+        ++p.source.revision;
+        return favorites_refresh(p) && projection(p) && repaint();
+    }
+    const CatalogBank* bank = nullptr;
+    u32 local = 0;
+    MediaCatalogItem catalog_item{};
+    const auto* item = item_at(p, target.source_index, &bank, &local, &catalog_item);
+    if (!item || bank->first_id + local != target.item_id || !item->available)
+        return true;
+    if (target.action == UiMediaPickerAction::favorite && p.kind == UiMediaPickerKind::gif) {
+        const auto saved = application_gif_favorites_state(item->send_url);
+        if (!saved.available || saved.pending)
+            return true;
+        const auto src = item->gif_url.bytes ? item->gif_url : item->preview_url;
+        application_gif_favorites_toggle(item->send_url, src, item->width, item->height, favorite_format(src));
+        return repaint();
+    }
+    if (target.action == UiMediaPickerAction::category) {
+        if (item->kind == MediaCatalogItemKind::gif) {
+            message_composer_clear(&p.edit);
+            request(p, MediaCatalogOperation::gif_trending);
+        } else {
+            message_composer_restore(&p.edit, 0, item->name, item->name.bytes, item->name.bytes);
+            request(p, MediaCatalogOperation::gif_search);
+        }
+        return repaint();
+    }
+    if (target.action != UiMediaPickerAction::item)
+        return true;
+    focus(p, false);
+    if (p.kind == UiMediaPickerKind::gif && (GetKeyState(VK_SHIFT) & 0x8000)) {
+        const auto inserted = message_composer_insert_utf8(&g_app.message_composer, item->send_url);
+        application_media_picker_close();
+        return composer_apply_result(inserted, true);
+    }
+    // Ordinary selection uses the existing durable outbox; the current draft is
+    // independent and is never cleared by a catalog selection.
+    char text[kMediaCatalogMaximumUrlBytes];
+    MessageComposer temporary{};
+    if (!message_composer_initialize(&temporary, {text, sizeof(text)}))
+        return false;
+    message_composer_restore(&temporary, p.channel_id,
+                             p.kind == UiMediaPickerKind::gif ? item->send_url : Utf8View{}, 0, 0);
+    const u64 sticker = item->sticker_id;
+    const auto reply = application_reply_draft();
+    if (reply.message_id && !application_channel_readable(g_app, reply.channel_id)) {
+        message_composer_release(&temporary);
+        p.status = utf8_literal("You can no longer reply to this message.");
+        return repaint();
+    }
+    const auto queued = message_composer_controller_queue_send(
+        &g_app.account_ui->message_composer_controller, g_app.message_composer_scene.channel_allows_send,
+        g_app.account_ui->chat_state.self_user_id, clock_unix_milliseconds(),
+        clock_monotonic_milliseconds(), reply.message_id, {}, {}, &temporary,
+        p.kind == UiMediaPickerKind::sticker ? ConstSlice<u64>{&sticker, 1} : ConstSlice<u64>{},
+        reply.mention_reply_author, &reply);
+    message_composer_release(&temporary);
+    if (!queued.ok()) {
+        p.status = utf8_literal("Couldn't send. Try again.");
+        return repaint();
+    }
+    application_media_picker_close();
+    return refresh_message_composer_ui() && pump_message_history();
+}
+} // namespace
+namespace {
+ApplicationMediaPicker* ensure_owner() noexcept {
+    if (g_app.media_picker)
+        return g_app.media_picker;
+    if (g_app.media_picker_scope_serial == ~u64{0})
+        return nullptr;
+    auto* p = static_cast<ApplicationMediaPicker*>(
+        VirtualAlloc(nullptr, sizeof(ApplicationMediaPicker), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!p)
+        return nullptr;
+    if (!message_composer_initialize(&p->edit, {p->query, sizeof(p->query)})) {
+        VirtualFree(p, 0, MEM_RELEASE);
+        return nullptr;
+    }
+    p->scope = ++g_app.media_picker_scope_serial;
+    p->account_id = g_app.account_ui->chat_state.self_user_id;
+    p->channel_id = g_app.account_ui->active_channel_id;
+    const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, p->channel_id);
+    p->guild_id = channel ? channel->guild_id : 0;
+    p->source.context = p;
+    p->source.resolve = resolve;
+    p->source.revision = 1;
+    g_app.media_picker = p;
+    return p;
+}
+// A new account or channel retires every bank and saved tab of the old one.
+bool rebind(ApplicationMediaPicker& p) noexcept {
+    if (p.account_id == g_app.account_ui->chat_state.self_user_id &&
+        p.channel_id == g_app.account_ui->active_channel_id)
+        return true;
+    revoke_capture(p);
+    ui_media_picker_scene_close(&p.scene);
+    reaction_picker_release(&p.emoji);
+    cancel(p);
+    focus(p, false);
+    if (g_app.media_picker_scope_serial == ~u64{0})
+        return false;
+    p.scope = ++g_app.media_picker_scope_serial;
+    p.favorites_enabled = p.favorites_view = p.gif_favorites_view = false;
+    p.account_id = g_app.account_ui->chat_state.self_user_id;
+    p.channel_id = g_app.account_ui->active_channel_id;
+    const auto* channel = chat_state_store_find_channel(g_app.account_ui->chat_state, p.channel_id);
+    p.guild_id = channel ? channel->guild_id : 0;
+    if (p.guild)
+        VirtualFree(p.guild, 0, MEM_RELEASE);
+    p.guild = nullptr;
+    p.sticker_guild_done = false;
+    p.section_count = p.filtered_count = p.source.count = 0;
+    ZeroMemory(p.tab_query_bytes, sizeof(p.tab_query_bytes));
+    ZeroMemory(p.tab_scroll, sizeof(p.tab_scroll));
+    message_composer_clear(&p.edit);
+    return true;
+}
+} // namespace
+bool application_media_picker_open(UiMediaPickerKind kind) noexcept {
+    // The composer launchers replace an open reaction popout.
+    if (g_app.media_picker && g_app.media_picker->reaction_message_id)
+        application_media_picker_close();
+    if (!front())
+        return false;
+    auto* owner = ensure_owner();
+    if (!owner)
+        return false;
+    auto& p = *owner;
+    if (p.active && p.scene.active && owns_current(p) && p.kind == kind) {
+        application_media_picker_close();
+        return true;
+    }
+    if (!rebind(p))
+        return false;
+    if (kind == UiMediaPickerKind::gif && !enable_favorites(p))
+        return false;
+    p.active = true;
+    message_action_bar_close(&g_app.message_action_bar);
+    if (switch_tab(p, kind))
+        return true;
+    application_media_picker_close();
+    return false;
+}
+bool application_media_picker_open_reaction(u64 message_id, UiRect anchor) noexcept {
+    auto* ui = g_app.account_ui;
+    if (!message_id || !ui_rect_valid(anchor) || !account_ready() || !unobstructed())
+        return false;
+    const auto found = message_store_find(g_app.message_view.store, message_id);
+    const auto* message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    const auto* channel = message ? chat_state_store_find_channel(ui->chat_state, message->channel_id) : nullptr;
+    if (!message || !channel || channel->id != ui->active_channel_id ||
+        message->delivery != MessageDeliveryState::authoritative)
+        return false;
+    auto* owner = ensure_owner();
+    if (!owner)
+        return false;
+    auto& p = *owner;
+    // Add Reaction on the open popout's own message closes it, as in the official client.
+    if (p.active && p.scene.active && p.reaction_message_id == message_id) {
+        application_media_picker_close();
+        return true;
+    }
+    if (p.active)
+        application_media_picker_close();
+    if (!rebind(p) || p.generation == ~u32{0})
+        return false;
+    // Keep the composer picker's query for its next open.
+    const auto saved = message_composer_text(p.edit);
+    p.composer_kind = p.kind;
+    p.tab_query_bytes[static_cast<u32>(p.kind)] = static_cast<u16>(saved.bytes);
+    CopyMemory(p.tab_query[static_cast<u32>(p.kind)], saved.data, saved.bytes);
+    message_composer_clear(&p.edit);
+    p.reaction_message_id = message_id;
+    p.reaction_anchor = anchor;
+    p.reaction_scope = {g_app.plugin_account_scope_serial, g_app.account.status.profile_id,
+                        ui->chat_state.self_user_id, channel->id, channel->generation, message_id};
+    p.kind = UiMediaPickerKind::emoji;
+    p.favorites_view = p.wanted = false;
+    p.due_at = 0;
+    ++p.generation;
+    p.active = true;
+    application_gif_favorites_set_visible(false);
+    application_emoji_preferences_open();
+    message_action_bar_close(&g_app.message_action_bar);
+    if (open_emoji_model(p)) {
+        // The official client focuses the popout's search so typing filters at once.
+        focus(p, true);
+        if (repaint())
+            return true;
+    }
+    application_media_picker_close();
+    return false;
+}
+void application_media_picker_reaction_changed() noexcept {
+    auto* p = g_app.media_picker;
+    if (p && p->active && p->reaction_message_id && !repaint())
+        application_media_picker_close();
+}
+void application_media_picker_close() noexcept {
+    auto* p = g_app.media_picker;
+    if (!p)
+        return;
+    application_surface_motion_retire(RendererLayerSurface::gallery);
+    cancel(*p);
+    p->active = p->wanted = false;
+    focus(*p, false);
+    if (p->reaction_message_id) {
+        // Return the shared search field and kind to the composer picker.
+        const u32 kind = static_cast<u32>(p->composer_kind);
+        message_composer_restore(&p->edit, 0, {p->tab_query[kind], p->tab_query_bytes[kind]},
+                                 p->tab_query_bytes[kind], p->tab_query_bytes[kind]);
+        p->kind = p->composer_kind;
+        p->reaction_message_id = 0;
+        p->reaction_scope = {};
+        p->reaction_error = false;
+    }
+    p->captured = p->dragging = p->scrollbar_dragging = false;
+    p->hover_at = 0;
+    if (GetCapture() == g_app.window)
+        ReleaseCapture();
+    if (g_app.context_focus == &p->scene.widgets)
+        g_app.context_focus = nullptr;
+    ui_media_picker_scene_close(&p->scene);
+    g_app.renderer.media_picker_scene = nullptr;
+    reaction_picker_release(&p->emoji);
+    application_gif_favorites_set_visible(false);
+    application_request_frame();
+}
+void application_media_picker_release() noexcept {
+    auto* p = g_app.media_picker;
+    if (!p)
+        return;
+    application_media_picker_close();
+    application_composer_text_input_suspend();
+    g_app.media_picker = nullptr;
+    ui_media_picker_scene_release(&p->scene);
+    reaction_picker_release(&p->emoji);
+    message_composer_release(&p->edit);
+    CatalogBank* banks[]{p->gif, p->guild, p->packs};
+    for (auto* bank : banks)
+        if (bank)
+            VirtualFree(bank, 0, MEM_RELEASE);
+    if (p->filtered)
+        VirtualFree(p->filtered, 0, MEM_RELEASE);
+    if (p->saved_preview_mask)
+        VirtualFree(p->saved_preview_mask, 0, MEM_RELEASE);
+    VirtualFree(p, 0, MEM_RELEASE);
+}
+bool application_media_picker_active() noexcept {
+    return g_app.media_picker && g_app.media_picker->active && owns_current(*g_app.media_picker) &&
+           front(g_app.media_picker);
+}
+void application_media_picker_emoji_preferences_changed() noexcept {
+    auto* p = g_app.media_picker;
+    if (!p || !p->active || p->kind != UiMediaPickerKind::emoji || !p->emoji.message_id)
+        return;
+    if (!reaction_picker_refresh_preferences(&p->emoji).ok() || !emoji_projection(*p) || !repaint())
+        application_media_picker_close();
+}
+void application_media_picker_favorites_changed() noexcept {
+    auto* p = g_app.media_picker;
+    if (!p || !p->favorites_enabled)
+        return;
+    if (!favorites_refresh(*p)) {
+        application_media_picker_close();
+        return;
+    }
+    if (p->active && p->kind == UiMediaPickerKind::gif && !repaint())
+        application_media_picker_close();
+}
+bool application_media_picker_synchronize() noexcept {
+    auto* p = g_app.media_picker;
+    if (!p || !p->active) {
+        g_app.renderer.media_picker_scene = nullptr;
+        return true;
+    }
+    if (!front(p) || p->account_id != g_app.account_ui->chat_state.self_user_id ||
+        p->channel_id != g_app.account_ui->active_channel_id) {
+        application_media_picker_close();
+        return true;
+    }
+    p->source.account_scope = p->scope;
+    p->source.query_generation = p->generation;
+    const auto& state = g_app.account_ui->chat_state;
+    const u64 emoji_revision = (static_cast<u64>(state.emoji_mutations) << 32) | state.permission_mutations;
+    if (p->kind == UiMediaPickerKind::emoji &&
+        (p->emoji_state_revision != emoji_revision || p->emoji_guild_revision != state.guild_mutations)) {
+        revoke_capture(*p);
+        ui_media_picker_scene_close(&p->scene);
+        if (!open_emoji_model(*p))
+            return false;
+    }
+    p->source.sections = {p->sections, p->kind != UiMediaPickerKind::gif ? p->section_count : 0};
+    if (p->kind == UiMediaPickerKind::gif && !favorites_refresh(*p))
+        return false;
+    if (p->kind == UiMediaPickerKind::gif && !p->favorites_view)
+        p->source.count = (p->gif ? p->gif->count : 0) + (landing(*p) && p->favorites_enabled ? 1 : 0);
+    UiMediaPickerContent content{};
+    content.edit = {
+        message_composer_text(p->edit), p->edit.anchor, p->edit.caret, true, p->focused, p->caret_visible};
+    content.account_scope = p->scope;
+    content.query_generation = p->generation;
+    content.kind = p->kind;
+    content.phase = p->phase;
+    if (p->kind == UiMediaPickerKind::gif && p->favorites_view) {
+        const auto saved = application_gif_favorites_view();
+        content.phase = saved.authoritative
+                            ? (p->source.count ? UiMediaPickerPhase::ready : UiMediaPickerPhase::empty)
+                        : saved.failed ? UiMediaPickerPhase::failed
+                                       : UiMediaPickerPhase::loading;
+        p->phase = content.phase;
+        p->status = saved.failed || saved.loading || !saved.authoritative ? saved.status
+                    : !p->source.count
+                        ? (p->edit.bytes ? utf8_literal("No favorites match your search.")
+                                         : utf8_literal("Save GIFs with the star to find them here."))
+                        : utf8_literal("Your saved GIFs");
+    }
+    const bool reaction = p->reaction_message_id != 0;
+    if (reaction && !p->reaction_error && p->source.count) {
+        bool error = false;
+        const auto status = application_message_reaction_status(p->reaction_message_id, &error);
+        p->status = status.bytes ? status : kReactionHint;
+    }
+    content.available_tabs = reaction ? ui_media_picker_tab_bit(UiMediaPickerKind::emoji) : 7;
+    content.variant = reaction ? UiMediaPickerVariant::reaction : UiMediaPickerVariant::expression;
+    content.placeholder =
+        p->kind == UiMediaPickerKind::gif
+            ? (p->favorites_view ? utf8_literal("Search favorites") : utf8_literal("Search Klipy"))
+        : p->kind == UiMediaPickerKind::emoji
+            ? (reaction ? utf8_literal("Find the perfect reaction") : utf8_literal("Find the perfect emoji"))
+                                              : utf8_literal("Search stickers");
+    content.status = p->status;
+    content.back = p->kind == UiMediaPickerKind::gif &&
+                   (p->favorites_view || p->operation != MediaCatalogOperation::gif_categories);
+    auto prior = p->content;
+    prior.revision = 0;
+    content.revision =
+        bytes_equal(&prior, &content, sizeof(content)) ? p->content.revision : p->content.revision + 1;
+    p->content = content;
+    auto viewport = ui_scene_content_rectangle(g_app.shell_scene, UiSemantic::content);
+    viewport.right = static_cast<float>(g_app.renderer.width) * 96.f / maximum(g_app.renderer.dpi, 1u);
+    const auto* composer = ui_widget_manager_layout_node(g_app.message_composer_scene.widgets,
+                                                         g_app.message_composer_scene.surface);
+    if (const auto* title =
+            ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::title_bar)))
+        viewport.top = maximum(viewport.top, title->rectangle.bottom);
+    // The composer picker sits above the composer; the reaction popout may
+    // use the whole client area below the title bar beside its message.
+    if (reaction) {
+        viewport.left = 0;
+        viewport.bottom = static_cast<float>(g_app.renderer.height) * 96.f / maximum(g_app.renderer.dpi, 1u);
+    } else if (composer)
+        viewport.bottom = minimum(viewport.bottom, composer->rectangle.top);
+    const u32 prior_generation = p->scene.generation;
+    if ((!reaction && !composer) ||
+        !ui_media_picker_scene_update(&p->scene, &p->source, &p->content, viewport,
+                                      reaction ? p->reaction_anchor : composer->rectangle))
+        return false;
+    // A saved-state response rebuilds cell handles. Restore pointer state
+    // once for that update so a stationary cursor keeps its action hint.
+    if (prior_generation != p->scene.generation && !g_app.keyboard_focus_visible) {
+        POINT pointer{};
+        if (GetCursorPos(&pointer) && ScreenToClient(g_app.window, &pointer)) {
+            const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
+            ui_media_picker_scene_hover(&p->scene, pointer.x * scale, pointer.y * scale,
+                                        clock_monotonic_milliseconds());
+        }
+    }
+    g_app.renderer.media_picker_scene = &p->scene;
+    return true;
+}
+bool application_media_picker_pending(u64 now) noexcept {
+    const auto* p = g_app.media_picker;
+    return p && p->active && owns_current(*p) && p->wanted && !p->submitted_id && now >= p->due_at;
+}
+bool application_media_picker_submit(u64 id, u64 now) noexcept {
+    if (!id || !application_media_picker_pending(now) || !g_app.account.api.media_catalog)
+        return false;
+    auto& p = *g_app.media_picker;
+    const auto text = message_composer_text(p.edit);
+    CopyMemory(p.submitted_query, text.data, text.bytes);
+    const bool search = p.operation == MediaCatalogOperation::gif_search ||
+                        p.operation == MediaCatalogOperation::gif_suggestions;
+    MediaCatalogQuery query{p.operation,
+                            search ? Utf8View{p.submitted_query, text.bytes} : Utf8View{},
+                            utf8_literal("en-US"),
+                            p.operation == MediaCatalogOperation::guild_stickers ? p.guild_id : 0,
+                            p.kind == UiMediaPickerKind::gif ? 50u : 0u,
+                            MediaCatalogFormat::tiny_webp};
+    const auto submitted = g_app.account.api.media_catalog(
+        g_app.account.instance, AccountMediaCatalogOperation::submit, &query, id);
+    if (!submitted.ok()) {
+        p.admission_busy = submitted.error == RestClientSubmitError::busy;
+        if (!p.admission_busy) {
+            p.wanted = false;
+            p.phase = UiMediaPickerPhase::failed;
+            p.status = utf8_literal("Couldn't load. Press Enter to retry.");
+            repaint();
+        }
+        return false;
+    }
+    p.submitted_id = id;
+    p.submitted_generation = p.generation;
+    p.submitted_operation = p.operation;
+    p.wanted = false;
+    p.admission_busy = false;
+    return repaint();
+}
+bool application_media_picker_response(const RestClientResponse& response, Utf8View body) noexcept {
+    auto* p = g_app.media_picker;
+    if (!p || !p->submitted_id || response.request_id != p->submitted_id)
+        return false;
+    const auto generation = p->submitted_generation;
+    const auto operation = p->submitted_operation;
+    p->submitted_id = 0;
+    if (!p->active || !owns_current(*p) || p->generation != generation ||
+        p->account_id != g_app.account_ui->chat_state.self_user_id)
+        return true;
+    const auto now = clock_monotonic_milliseconds();
+    if (response.transport_ok() && response.status_code == 429 && p->retries++ < 3) {
+        p->wanted = true;
+        p->due_at = maximum(response.retry_at_ms,
+                            deadline_after(now, maximum(response.rate.retry_after_ms, 1000ull)));
+        p->status = utf8_literal("Too many requests. Retrying…");
+        return repaint();
+    }
+    CatalogBank* candidate = nullptr;
+    if (response.transport_ok() && response.status_code == 200) {
+        auto* scratch =
+            static_cast<u32*>(VirtualAlloc(nullptr, kMediaCatalogStructuralCapacity * sizeof(u32),
+                                           MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        if (scratch) {
+            const auto measured =
+                media_catalog_measure(operation, body, {scratch, kMediaCatalogStructuralCapacity}, 32);
+            if (measured.ok() && !measured.truncated &&
+                g_app.media_picker_item_serial <= ~u64{0} - measured.item_count) {
+                const bool stickers = operation == MediaCatalogOperation::guild_stickers ||
+                                      operation == MediaCatalogOperation::sticker_packs;
+                const u32 preview_bytes = stickers ? measured.item_count * 64 : 0;
+                const u32 mask_bytes = (measured.item_count + 7) / 8;
+                const u32 bytes = sizeof(CatalogBank) + measured.item_count * sizeof(MediaCatalogItem) +
+                                  measured.text_bytes + preview_bytes + mask_bytes;
+                candidate = static_cast<CatalogBank*>(
+                    VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+                if (candidate) {
+                    candidate->items = reinterpret_cast<MediaCatalogItem*>(candidate + 1);
+                    candidate->text = reinterpret_cast<char*>(candidate->items + measured.item_count);
+                    candidate->preview_mask =
+                        reinterpret_cast<u8*>(candidate->text + measured.text_bytes + preview_bytes);
+                    const auto decoded = media_catalog_decode(
+                        operation, body, {scratch, kMediaCatalogStructuralCapacity}, 32,
+                        {candidate->items, measured.item_count}, {candidate->text, measured.text_bytes});
+                    if (!decoded.ok() || decoded.truncated) {
+                        VirtualFree(candidate, 0, MEM_RELEASE);
+                        candidate = nullptr;
+                    } else {
+                        ProtocolWriter urls{
+                            {reinterpret_cast<u8*>(candidate->text + measured.text_bytes), preview_bytes},
+                            0};
+                        bool valid = true;
+                        for (u32 i = 0; stickers && valid && i < decoded.item_count; ++i) {
+                            auto& item = candidate->items[i];
+                            const u32 first = urls.used;
+                            valid =
+                                (item.sticker_format == 4
+                                     ? protocol_writer_append_literal(
+                                           &urls, "https://media.discordapp.net/stickers/")
+                                     : protocol_writer_append_literal(
+                                           &urls, "https://cdn.discordapp.com/stickers/")) &&
+                                protocol_writer_append_u64(&urls, item.sticker_id) &&
+                                (item.sticker_format == 4 ? protocol_writer_append_literal(&urls, ".gif")
+                                 : item.sticker_format == 3 ? protocol_writer_append_literal(&urls, ".json")
+                                                          : protocol_writer_append_literal(&urls, ".png"));
+                            if (valid)
+                                item.preview_url = {candidate->text + measured.text_bytes + first,
+                                                    urls.used - first};
+                        }
+                        if (!valid) {
+                            VirtualFree(candidate, 0, MEM_RELEASE);
+                            candidate = nullptr;
+                        } else {
+                            candidate->count = decoded.item_count;
+                            // URL policy is checked once per accepted
+                            // bank. Visibility and animation paths use one bit,
+                            // while the account worker revalidates when it accepts the request.
+                            u8 target[kCdnMaximumTargetBytes]{};
+                            for (u32 i = 0; i < decoded.item_count; ++i) {
+                                const auto& item = candidate->items[i];
+                                if (item.available &&
+                                    parse_catalog_preview_url(
+                                        item.preview_url, {target, sizeof(target)}, format(item))
+                                        .ok())
+                                    candidate->preview_mask[i >> 3] |= static_cast<u8>(1u << (i & 7));
+                            }
+                            candidate->text_bytes = decoded.text_bytes + urls.used;
+                            candidate->allocation_bytes = bytes;
+                            candidate->generation = p->generation;
+                            candidate->operation = operation;
+                            candidate->first_id = g_app.media_picker_item_serial + 1;
+                            g_app.media_picker_item_serial += decoded.item_count;
+                        }
+                    }
+                }
+            }
+            VirtualFree(scratch, 0, MEM_RELEASE);
+        }
+    }
+    if (candidate) {
+        auto** slot = operation == MediaCatalogOperation::guild_stickers  ? &p->guild
+                      : operation == MediaCatalogOperation::sticker_packs ? &p->packs
+                                                                          : &p->gif;
+        auto* old = *slot;
+        revoke_capture(*p);
+        ui_media_picker_scene_close(&p->scene);
+        *slot = candidate;
+        if (old)
+            VirtualFree(old, 0, MEM_RELEASE);
+        ++p->source.revision;
+        if (!projection(*p))
+            return false;
+        p->phase = p->source.count ? UiMediaPickerPhase::ready : UiMediaPickerPhase::empty;
+        p->status = p->source.count ? utf8_literal("Choose an item") : utf8_literal("No matches");
+    } else {
+        p->phase = UiMediaPickerPhase::failed;
+        p->status = utf8_literal("Couldn't load. Press Enter to retry.");
+    }
+    if (operation == MediaCatalogOperation::guild_stickers) {
+        p->sticker_guild_done = candidate != nullptr;
+        request(*p, MediaCatalogOperation::sticker_packs);
+    }
+    return repaint();
+}
+MessageComposer* application_media_picker_edit_model() noexcept {
+    return g_app.media_picker ? &g_app.media_picker->edit : nullptr;
+}
+bool application_media_picker_edit_focused() noexcept {
+    return application_media_picker_active() && g_app.media_picker->focused;
+}
+UiRect application_media_picker_edit_bounds() noexcept {
+    return application_media_picker_edit_focused() ? g_app.media_picker->scene.text : UiRect{};
+}
+bool application_media_picker_edit_changed(bool content) noexcept {
+    auto* p = g_app.media_picker;
+    if (!p)
+        return false;
+    p->caret_visible = p->focused;
+    p->blink_at =
+        p->focused ? deadline_after(clock_monotonic_milliseconds(), kDefaultCaretBlinkMilliseconds) : 0;
+    if (content) {
+        revoke_capture(*p);
+        if (p->kind == UiMediaPickerKind::gif && p->favorites_view) {
+            if (!projection(*p))
+                return false;
+            ++p->source.revision;
+            p->scene.scroll_dips = 0;
+        } else if (p->kind == UiMediaPickerKind::gif)
+            request(*p,
+                    p->edit.bytes ? MediaCatalogOperation::gif_search
+                                  : MediaCatalogOperation::gif_categories,
+                    true);
+        else if (p->kind == UiMediaPickerKind::emoji) {
+            if (!emoji_projection(*p))
+                return false;
+            p->scene.scroll_dips = 0;
+        } else {
+            if (!projection(*p))
+                return false;
+            ++p->source.revision;
+            p->scene.scroll_dips = 0;
+        }
+    }
+    return repaint();
+}
+u64 application_media_picker_next_wake() noexcept {
+    const auto* p = g_app.media_picker;
+    return p && p->active && p->wanted && !p->submitted_id && !p->admission_busy &&
+                   g_app.message_history_request_owner == MessageHistoryRequestOwner::none
+               ? p->due_at
+               : 0;
+}
+u64 application_media_picker_caret_wake() noexcept {
+    const auto* p = g_app.media_picker;
+    return application_media_picker_active() ? earliest_deadline(p->focused ? p->blink_at : 0, p->hover_at)
+                                             : 0;
+}
+void application_media_picker_tick(u64 now) noexcept {
+    auto* p = g_app.media_picker;
+    if (p && application_media_picker_edit_focused() && deadline_due(now, p->blink_at)) {
+        p->caret_visible = !p->caret_visible;
+        p->blink_at = deadline_after(now, kDefaultCaretBlinkMilliseconds);
+        repaint();
+    }
+    if (p && application_media_picker_active() && deadline_due(now, p->hover_at)) {
+        p->hover_at = 0;
+        repaint();
+    }
+}
+bool application_media_picker_preview_request(u32 cell, AccountMediaCatalogPreviewRequest* out) noexcept {
+    const auto* p = g_app.media_picker;
+    if (!out || !p || !application_media_picker_active() || p->kind == UiMediaPickerKind::emoji)
+        return false;
+    UiMediaPickerMediaSlot slot{};
+    if (!ui_media_picker_scene_media(p->scene, cell, &slot) || slot.target.source_index >= p->source.count)
+        return false;
+    const CatalogBank* bank = nullptr;
+    u32 local = 0;
+    MediaCatalogItem temporary{};
+    const auto* item = item_at(*p, slot.target.source_index, &bank, &local, &temporary);
+    if (!item || !preview_admitted(*bank, local))
+        return false;
+    *out = {};
+    out->url = item->preview_url;
+    out->key = media_asset_catalog_preview(bank->first_id + local, bank->generation, format(*item),
+                                           (item->sticker_format == 2 || item->sticker_format == 3));
+    out->catalog_scope = p->scope;
+    out->catalog_generation = bank->generation;
+    // Fit within 512 px keeping the aspect ratio the proxy sizes from.
+    u64 width = item->width ? item->width : 256, height = item->height ? item->height : 256;
+    const u64 longest = maximum(width, height);
+    if (longest > 512) {
+        width = maximum<u64>(1, width * 512 / longest);
+        height = maximum<u64>(1, height * 512 / longest);
+    }
+    out->width = static_cast<u16>(width);
+    out->height = static_cast<u16>(height);
+    out->format = format(*item);
+    return true;
+}
+bool application_media_picker_preview_current(MediaAssetKey key, u64 scope, u32 generation) noexcept {
+    const auto* p = g_app.media_picker;
+    if (!p || p->scope != scope || key.variant != generation || !application_media_picker_active())
+        return false;
+    return application_media_picker_preview_visible(key);
+}
+bool application_media_picker_preview_visible(MediaAssetKey key) noexcept {
+    const auto* p = g_app.media_picker;
+    if (!p || !application_media_picker_active())
+        return false;
+    for (u32 i = 0; i < p->scene.cell_count; ++i) {
+        AccountMediaCatalogPreviewRequest request{};
+        if (application_media_picker_preview_request(i, &request) &&
+            media_asset_key_equal(request.key, key))
+            return true;
+    }
+    return false;
+}
+u32 application_media_picker_owner_bytes() noexcept {
+    const auto* p = g_app.media_picker;
+    if (!p)
+        return 0;
+    u32 bytes = sizeof(*p) + p->filtered_capacity * sizeof(u32);
+    bytes += static_cast<u32>(p->emoji.storage.offset);
+    CatalogBank* banks[]{p->gif, p->guild, p->packs};
+    for (auto* bank : banks)
+        if (bank)
+            bytes += bank->allocation_bytes;
+    bytes += p->saved_mask_bytes;
+    return bytes;
+}
+
+bool application_media_picker_preview_owner_current(MediaAssetKey key, u64 scope, u32 generation) noexcept {
+    const auto* p = g_app.media_picker;
+    if (!p || !application_media_picker_active() || p->kind == UiMediaPickerKind::emoji ||
+        p->scope != scope || !key.id || !generation || key.variant != generation)
+        return false;
+    const CatalogBank* banks[]{p->kind == UiMediaPickerKind::gif ? (p->favorites_view ? &p->saved : p->gif)
+                                                                 : p->guild,
+                               p->kind == UiMediaPickerKind::sticker
+                                   ? p->packs
+                                   : (landing(*p) && p->favorites_enabled ? &p->favorites_tile : nullptr)};
+    for (const auto* bank : banks) {
+        if (!bank || bank->generation != generation || key.id < bank->first_id ||
+            key.id - bank->first_id >= bank->count)
+            continue;
+        const u32 index = static_cast<u32>(key.id - bank->first_id);
+        if (!preview_admitted(*bank, index))
+            return false;
+        MediaCatalogItem temporary{};
+        if (bank == &p->saved) {
+            const auto saved = application_gif_favorites_view();
+            if (index >= saved.records.count)
+                return false;
+            favorite_item(saved.records[index], &temporary);
+        } else if (bank == &p->favorites_tile)
+            temporary = p->tile_item;
+        const auto& item = bank == &p->saved || bank == &p->favorites_tile ? temporary : bank->items[index];
+        return media_asset_key_equal(
+            key, media_asset_catalog_preview(key.id, generation, format(item), (item.sticker_format == 2 || item.sticker_format == 3)));
+    }
+    return false;
+}
+
+bool application_media_picker_preview_rejected(MediaAssetKey key, u64 scope, u32 generation) noexcept {
+    auto* p = g_app.media_picker;
+    if (!application_media_picker_preview_owner_current(key, scope, generation))
+        return false;
+    CatalogBank* banks[]{p->gif, p->guild, p->packs, &p->saved, &p->favorites_tile};
+    for (auto* bank : banks) {
+        if (!bank || bank->generation != generation || key.id < bank->first_id ||
+            key.id - bank->first_id >= bank->count || !bank->preview_mask)
+            continue;
+        const u32 index = static_cast<u32>(key.id - bank->first_id);
+        bank->preview_mask[index >> 3] &= static_cast<u8>(~(1u << (index & 7)));
+        ++p->source.revision;
+        application_request_frame();
+        return true;
+    }
+    return false;
+}
+namespace {
+TextInputTarget edit_delegate(const TextInputTarget& target) noexcept {
+    return message_composer_input_target(static_cast<MessageComposer*>(target.context));
+}
+bool picker_edit_ready(const TextInputTarget& target) noexcept {
+    const auto* p = g_app.media_picker;
+    return p && application_media_picker_edit_focused() && target.context == &p->edit &&
+           target.identity == p->edit_identity && text_input_ready(edit_delegate(target));
+}
+u32 picker_edit_revision(const TextInputTarget& target) noexcept {
+    return text_input_revision(edit_delegate(target));
+}
+TextInputResult picker_edit_length(const TextInputTarget& target, u32* count) noexcept {
+    return text_input_length(edit_delegate(target), count);
+}
+TextInputResult picker_edit_selection(const TextInputTarget& target,
+                                      TextInputSelection* selection) noexcept {
+    return text_input_selection(edit_delegate(target), selection);
+}
+TextInputResult picker_edit_select(const TextInputTarget& target, TextInputSelection selection) noexcept {
+    return text_input_select(edit_delegate(target), selection);
+}
+TextInputResult picker_edit_copy(const TextInputTarget& target, u32 first, u32 last, Slice<u16> output,
+                                 u32* count, u32* next) noexcept {
+    return text_input_copy(edit_delegate(target), first, last, output, count, next);
+}
+bool single_line(ConstSlice<u16> input) noexcept {
+    if (!input.data && input.count)
+        return false;
+    for (u32 i = 0; i < input.count; ++i)
+        if (input[i] < 32 || (input[i] >= 127 && input[i] <= 159) || input[i] == 0x2028 ||
+            input[i] == 0x2029)
+            return false;
+    return true;
+}
+TextInputResult picker_edit_replace(const TextInputTarget& target, u32 first, u32 last,
+                                    ConstSlice<u16> input, TextInputChange* change) noexcept {
+    return change && single_line(input)
+               ? text_input_replace(edit_delegate(target), first, last, input, change)
+               : TextInputResult::invalid_input;
+}
+void picker_edit_cancel(const TextInputTarget& target) noexcept {
+    text_input_cancel(edit_delegate(target));
+}
+bool picker_edit_begin(const TextInputTarget& target) noexcept {
+    auto* model = static_cast<MessageComposer*>(target.context);
+    return (model->history || message_composer_enable_history(model, 2048)) &&
+           text_input_begin_group(edit_delegate(target));
+}
+void picker_edit_end(const TextInputTarget& target) noexcept {
+    text_input_end_group(edit_delegate(target));
+}
+constexpr TextInputOperations picker_edit_operations{
+    picker_edit_ready, picker_edit_revision, picker_edit_length, picker_edit_selection, picker_edit_select,
+    picker_edit_copy,  picker_edit_replace,  picker_edit_cancel, picker_edit_begin,     picker_edit_end};
+
+bool scroll_read(void* opaque, u64 scope, UiScrollRange* output, bool rail) noexcept {
+    if (!output || opaque != g_app.media_picker || !application_media_picker_active())
+        return false;
+    const auto& p = *g_app.media_picker;
+    if (p.scope != scope || !ui_media_picker_scene_current(p.scene))
+        return false;
+    const auto viewport = rail ? p.scene.rail : p.scene.body;
+    if (!ui_rect_has_area(viewport))
+        return false;
+    const auto scrollbar = ui_media_picker_scene_scrollbar(p.scene, rail);
+    if (!scrollbar.visible)
+        return false;
+    *output = {viewport,
+               rail ? p.scene.rail_scroll_dips : p.scene.scroll_dips,
+               scrollbar.maximum_scroll,
+               rail ? p.scene.style.metrics.rail_pitch : p.scene.cell_pitch,
+               1,
+               0,
+               (static_cast<u64>(p.generation) << 32) | p.source.revision};
+    return true;
+}
+bool body_scroll_read(void* opaque, u64 scope, UiScrollRange* out) noexcept {
+    return scroll_read(opaque, scope, out, false);
+}
+bool rail_scroll_read(void* opaque, u64 scope, UiScrollRange* out) noexcept {
+    return scroll_read(opaque, scope, out, true);
+}
+bool scroll_write(void* opaque, u64 scope, double offset, bool* changed, bool rail) noexcept {
+    UiScrollRange range{};
+    if (!changed || !scroll_read(opaque, scope, &range, rail))
+        return false;
+    auto& p = *g_app.media_picker;
+    *changed = ui_media_picker_scene_scroll(&p.scene, static_cast<float>(offset - range.offset), rail);
+    if (*changed) {
+        p.hover_at = 0;
+        if (p.focused)
+            ui_widget_manager_focus(&p.scene.widgets, p.scene.edit);
+        application_composer_text_input_notify_layout();
+        application_request_frame();
+    }
+    return true;
+}
+bool body_scroll_write(void* opaque, u64 scope, double offset, bool* changed) noexcept {
+    return scroll_write(opaque, scope, offset, changed, false);
+}
+bool rail_scroll_write(void* opaque, u64 scope, double offset, bool* changed) noexcept {
+    return scroll_write(opaque, scope, offset, changed, true);
+}
+void revoke_capture(ApplicationMediaPicker& p) noexcept {
+    p.captured = p.dragging = p.scrollbar_dragging = false;
+    ui_media_picker_scene_set_scrollbar_state(&p.scene, false, UiScrollbarVisualState::normal);
+    ui_media_picker_scene_set_scrollbar_state(&p.scene, true, UiScrollbarVisualState::normal);
+    ui_media_picker_scene_cancel_capture(&p.scene);
+    if (GetCapture() == g_app.window)
+        ReleaseCapture();
+}
+UiMediaPickerTarget focused_target(const ApplicationMediaPicker& p) noexcept {
+    const auto* node = ui_widget_manager_layout_node(p.scene.widgets, p.scene.widgets.focused);
+    if (!node)
+        return {};
+    const auto r = node->rectangle;
+    return ui_media_picker_scene_hit_test(p.scene, (r.left + r.right) * .5f, (r.top + r.bottom) * .5f);
+}
+void focus_selected(ApplicationMediaPicker& p) noexcept {
+    const auto cells = ui_media_picker_scene_cells(p.scene);
+    for (u32 i = 0; i < cells.count; ++i) {
+        const auto& cell = cells[i];
+        if (cell.source_index != p.scene.selected_index)
+            continue;
+        ui_widget_manager_focus(&p.scene.widgets, cell.widget);
+        break;
+    }
+    g_app.context_focus = &p.scene.widgets;
+}
+bool edit_pointer(ApplicationMediaPicker& p, float x, float y, bool extend) noexcept {
+    u32 position = 0, byte = 0;
+    if (!text_edit_layout_hit_test(g_app.renderer.media_picker_layout, x, y, &position) ||
+        !utf8_byte_offset_for_utf16_position(message_composer_text(p.edit), position, &byte))
+        return false;
+    message_composer_set_selection(&p.edit, extend ? p.edit.anchor : byte, byte);
+    return application_media_picker_edit_changed(false);
+}
+} // namespace
+
+TextInputTarget application_media_picker_edit_target() noexcept {
+    const auto* p = g_app.media_picker;
+    return p ? TextInputTarget{&g_app.media_picker->edit, &picker_edit_operations, p->edit_identity}
+             : TextInputTarget{};
+}
+void application_media_picker_edit_cancel_native_group(const TextInputTarget& target) noexcept {
+    const auto* p = g_app.media_picker;
+    if (!p || target.operations != &picker_edit_operations || target.context != &p->edit ||
+        target.identity != p->edit_identity)
+        return;
+    text_input_end_group(edit_delegate(target));
+    text_input_cancel(edit_delegate(target));
+}
+
+bool application_media_picker_input(UiInputKind kind, u32 key, bool repeated) noexcept {
+    auto* p = g_app.media_picker;
+    if (p && ui_input_consume_key_tail(&p->held_key, {kind, key, repeated}))
+        return true;
+    if (!application_media_picker_active())
+        return false;
+    const bool raw_control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
+    const bool control = raw_control && !alt, shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    if (kind == UiInputKind::character) {
+        if (!p->focused || control || (alt && !raw_control) || key < 32 || (key >= 127 && key <= 159) ||
+            key == 0x2028 || key == 0x2029 || key > 0xffff)
+            return true;
+        if (!p->edit.history)
+            message_composer_enable_history(&p->edit, 2048);
+        if (message_composer_insert_utf16(&p->edit, static_cast<u16>(key),
+                                          clock_monotonic_milliseconds()) == MessageComposerResult::changed)
+            application_media_picker_edit_changed(true);
+        return true;
+    }
+    if (kind == UiInputKind::key_up)
+        return true;
+    if (kind != UiInputKind::key_down)
+        return false;
+    if (key == VK_ESCAPE) {
+        p->held_key = key;
+        application_media_picker_close();
+        return true;
+    }
+    if (key == VK_TAB) {
+        p->held_key = key;
+        focus(*p, false);
+        const auto widget = ui_widget_manager_move_focus(&p->scene.widgets, shift);
+        if (widget.generation && widget.slot == p->scene.edit.slot)
+            focus(*p, true);
+        else
+            g_app.context_focus = &p->scene.widgets;
+        repaint();
+        // Content focus changes keep the geometry generation, but the scene
+        // reconciles selection focus. Preserve explicit Tab navigation after
+        // that reconciliation, including Shift+Tab back to the tab strip.
+        if (!p->focused && widget.generation)
+            ui_widget_manager_focus(&p->scene.widgets, widget);
+        return true;
+    }
+    if (key == VK_RETURN || (key == VK_SPACE && !p->focused)) {
+        p->held_key = key;
+        if (p->favorites_view && p->phase == UiMediaPickerPhase::failed) {
+            application_gif_favorites_set_visible(false);
+            application_gif_favorites_open();
+            repaint();
+        } else if (p->phase == UiMediaPickerPhase::failed) {
+            request(*p, p->operation);
+            repaint();
+        } else if (p->focused) {
+            if (p->kind == UiMediaPickerKind::gif && p->favorites_view) {
+                focus(*p, false);
+                ui_media_picker_scene_edge_selection(&p->scene, false);
+                focus_selected(*p);
+                repaint();
+            } else if (p->kind == UiMediaPickerKind::gif) {
+                request(*p, p->edit.bytes ? MediaCatalogOperation::gif_search
+                                          : MediaCatalogOperation::gif_categories);
+                repaint();
+            } else {
+                focus(*p, false);
+                ui_media_picker_scene_edge_selection(&p->scene, false);
+                focus_selected(*p);
+                repaint();
+            }
+        } else
+            activate(*p, focused_target(*p));
+        return true;
+    }
+    if (!p->focused) {
+        if (key == 'F' && !control && !alt) {
+            p->held_key = key;
+            activate(*p, ui_media_picker_scene_selected_favorite_target(p->scene));
+            return true;
+        }
+        bool changed = false;
+        if (key == VK_LEFT || key == VK_RIGHT || key == VK_UP || key == VK_DOWN)
+            changed = ui_media_picker_scene_move_selection(&p->scene,
+                                                           key == VK_LEFT    ? -1
+                                                           : key == VK_RIGHT ? 1
+                                                                             : 0,
+                                                           key == VK_UP     ? -1
+                                                           : key == VK_DOWN ? 1
+                                                                            : 0);
+        else if (key == VK_PRIOR || key == VK_NEXT)
+            changed = ui_media_picker_scene_page_selection(&p->scene, key == VK_PRIOR);
+        else if (key == VK_HOME || key == VK_END)
+            changed = ui_media_picker_scene_edge_selection(&p->scene, key == VK_END);
+        if (changed) {
+            focus_selected(*p);
+            repaint();
+        }
+        return true;
+    }
+    if (!p->edit.history)
+        message_composer_enable_history(&p->edit, 2048);
+    const u32 revision = p->edit.text_revision;
+    MessageComposerResult result = MessageComposerResult::unchanged;
+    if (control && key == 'A')
+        result = message_composer_select_all(&p->edit);
+    else if (control && (key == 'C' || key == 'X')) {
+        const u32 first = minimum(p->edit.anchor, p->edit.caret),
+                  last = maximum(p->edit.anchor, p->edit.caret);
+        if (last > first && clipboard_write_utf8(g_app.window, {p->edit.text + first, last - first}) &&
+            key == 'X')
+            result = message_composer_replace_range(&p->edit, first, last, {});
+    } else if (control && key == 'V') {
+        char text[kMediaCatalogMaximumQueryBytes];
+        const auto read = clipboard_read_utf8(g_app.window, {text, sizeof(text)});
+        bool valid = read.ok();
+        for (u32 i = 0; valid && i < read.bytes;) {
+            const auto scalar = utf8_decode_one(text + i, read.bytes - i);
+            valid = scalar.valid && scalar.codepoint >= 32 &&
+                    !(scalar.codepoint >= 127 && scalar.codepoint <= 159) && scalar.codepoint != 0x2028 &&
+                    scalar.codepoint != 0x2029;
+            if (valid)
+                i += scalar.width;
+        }
+        if (valid)
+            result = message_composer_insert_utf8(&p->edit, {text, read.bytes});
+    } else if (control && key == 'Z')
+        result = shift ? message_composer_redo(&p->edit) : message_composer_undo(&p->edit);
+    else if (control && key == 'Y')
+        result = message_composer_redo(&p->edit);
+    else if (key == VK_BACK) {
+        p->held_key = key;
+        result =
+            control ? message_composer_delete_word(&p->edit, false) : message_composer_backspace(&p->edit);
+    } else if (key == VK_DELETE)
+        result = control ? message_composer_delete_word(&p->edit, true)
+                         : message_composer_delete_forward(&p->edit);
+    else if (key == VK_LEFT || key == VK_RIGHT)
+        result = message_composer_move(
+            &p->edit,
+            control ? (key == VK_LEFT ? MessageComposerMove::previous_word : MessageComposerMove::next_word)
+                    : (key == VK_LEFT ? MessageComposerMove::previous : MessageComposerMove::next),
+            shift);
+    else if (key == VK_HOME || key == VK_END)
+        result = message_composer_move(
+            &p->edit,
+            key == VK_HOME ? MessageComposerMove::document_home : MessageComposerMove::document_end, shift);
+    else if (key == VK_DOWN) {
+        focus(*p, false);
+        ui_media_picker_scene_edge_selection(&p->scene, false);
+        focus_selected(*p);
+        repaint();
+        return true;
+    }
+    if (result == MessageComposerResult::changed)
+        application_media_picker_edit_changed(revision != p->edit.text_revision);
+    return true;
+}
+
+bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+    auto* p = g_app.media_picker;
+    if (!p)
+        return false;
+    if (message == WM_KILLFOCUS) {
+        focus(*p, false);
+        revoke_capture(*p);
+        p->hover_at = 0;
+        ui_widget_manager_hover(&p->scene.widgets, ui_widget_invalid_handle());
+        application_request_frame();
+        return false;
+    }
+    if (message == WM_CAPTURECHANGED && reinterpret_cast<HWND>(lparam) != g_app.window) {
+        revoke_capture(*p);
+        return false;
+    }
+    if (!application_media_picker_active())
+        return false;
+    if (message == WM_MOUSELEAVE) {
+        p->hover_at = 0;
+        const bool scrollbar_changed =
+            !p->scrollbar_dragging &&
+            (ui_media_picker_scene_set_scrollbar_state(&p->scene, false, UiScrollbarVisualState::normal) |
+             ui_media_picker_scene_set_scrollbar_state(&p->scene, true, UiScrollbarVisualState::normal));
+        if (ui_widget_manager_hover(&p->scene.widgets, ui_widget_invalid_handle()) || scrollbar_changed)
+            repaint(true);
+        return false;
+    }
+    POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
+    if (message == WM_SETCURSOR &&
+        (LOWORD(lparam) != HTCLIENT || !GetCursorPos(&point) || !ScreenToClient(g_app.window, &point)))
+        return false;
+    if (message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL || message == WM_CONTEXTMENU) {
+        if (message == WM_CONTEXTMENU && lparam == -1)
+            return true;
+        if (!ScreenToClient(g_app.window, &point))
+            return false;
+    }
+    const float scale = g_app.renderer.dpi ? 96.f / g_app.renderer.dpi : 1;
+    const float x = point.x * scale, y = point.y * scale;
+    const bool inside = ui_rect_contains(ui_rect_intersection(p->scene.panel, p->scene.viewport), x, y);
+    const auto hit = inside ? ui_media_picker_scene_hit_test(p->scene, x, y) : UiMediaPickerTarget{};
+    const auto body_scrollbar = ui_media_picker_scene_scrollbar(p->scene);
+    // The category rail remains wheel/keyboard scrollable without an overlay
+    // thumb stealing space and hits from its icons. Only the content has a thumb.
+    const UiScrollbarGeometry rail_scrollbar{};
+    if (p->scrollbar_dragging) {
+        const u64 revision = (static_cast<u64>(p->generation) << 32) | p->source.revision;
+        const auto geometry = p->scrollbar_rail ? rail_scrollbar : body_scrollbar;
+        if (p->scrollbar_scope != p->scope || p->scrollbar_revision != revision || !geometry.visible) {
+            revoke_capture(*p);
+            application_request_frame();
+            return true;
+        }
+        if (message == WM_MOUSEMOVE || message == WM_LBUTTONUP) {
+            const float next = ui_scrollbar_scroll_from_pointer(geometry, y, p->scrollbar_grab);
+            const float prior = p->scrollbar_rail ? p->scene.rail_scroll_dips : p->scene.scroll_dips;
+            const bool changed = ui_media_picker_scene_scroll(&p->scene, next - prior, p->scrollbar_rail);
+            if (message == WM_LBUTTONUP)
+                revoke_capture(*p);
+            if (changed)
+                repaint(true);
+            else
+                application_request_frame();
+            return true;
+        }
+    }
+    const bool primary_press = message == WM_LBUTTONDOWN ||
+                               (message == WM_LBUTTONDBLCLK && hit.action != UiMediaPickerAction::edit);
+    if (primary_press && inside &&
+        (ui_scrollbar_track_hit(body_scrollbar, x, y) || ui_scrollbar_track_hit(rail_scrollbar, x, y))) {
+        focus(*p, false);
+        ui_scroll_host_cancel(&g_app.scroll_host);
+        p->scrollbar_rail = ui_scrollbar_track_hit(rail_scrollbar, x, y);
+        const auto geometry = p->scrollbar_rail ? rail_scrollbar : body_scrollbar;
+        p->scrollbar_grab = ui_scrollbar_thumb_hit(geometry, x, y) ? y - geometry.thumb.top
+                                                                   : ui_rect_height(geometry.thumb) * .5f;
+        p->scrollbar_scope = p->scope;
+        p->scrollbar_revision = (static_cast<u64>(p->generation) << 32) | p->source.revision;
+        p->scrollbar_dragging = p->captured = true;
+        ui_media_picker_scene_set_scrollbar_state(&p->scene, p->scrollbar_rail,
+                                                  UiScrollbarVisualState::pressed);
+        const float next = ui_scrollbar_scroll_from_pointer(geometry, y, p->scrollbar_grab);
+        const float prior = p->scrollbar_rail ? p->scene.rail_scroll_dips : p->scene.scroll_dips;
+        ui_media_picker_scene_scroll(&p->scene, next - prior, p->scrollbar_rail);
+        SetCapture(g_app.window);
+        repaint(true);
+        return true;
+    }
+    if (message == WM_SETCURSOR && inside) {
+        application_set_cursor(ui_media_picker_scene_cursor(p->scene, x, y));
+        return true;
+    }
+    if ((message == WM_MOUSEWHEEL || message == WM_MOUSEHWHEEL) && inside) {
+        const bool rail = ui_rect_contains(p->scene.rail, x, y);
+        if (message == WM_MOUSEWHEEL && (rail || ui_rect_contains(p->scene.body, x, y))) {
+            u32 lines = 3;
+            SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+            ui_scroll_host_wheel(&g_app.scroll_host,
+                                 {p, p->scope, rail ? rail_scroll_read : body_scroll_read,
+                                  rail ? rail_scroll_write : body_scroll_write},
+                                 {x, y}, static_cast<short>(HIWORD(wparam)), lines,
+                                 lines == WHEEL_PAGESCROLL,
+                                 clock_microseconds(g_app.clock, g_app.process_start, clock_now()), scale);
+            application_request_frame();
+        }
+        return true;
+    }
+    if (primary_press) {
+        if (!inside) {
+            const auto control = message_composer_scene_hit_test(g_app.message_composer_scene, x, y);
+            // The launcher activates on release. Keep the current picker alive
+            // until then so its own same-kind toggle can close it, or a different
+            // launcher can switch tabs without a close/reopen cycle.
+            if (control == MessageComposerControl::gif || control == MessageComposerControl::sticker ||
+                control == MessageComposerControl::emoji)
+                return false;
+            application_media_picker_close();
+            return false;
+        }
+        SetFocus(g_app.window);
+        revoke_capture(*p);
+        if (hit.action == UiMediaPickerAction::edit) {
+            focus(*p, true);
+            edit_pointer(*p, x, y, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+            p->dragging = true;
+        } else {
+            focus(*p, false);
+            if (hit.action != UiMediaPickerAction::none) {
+                const auto widget = ui_widget_manager_hit_test(p->scene.widgets, x, y);
+                ui_widget_manager_focus(&p->scene.widgets, widget);
+                ui_media_picker_scene_pointer_down(&p->scene, x, y);
+            }
+            g_app.context_focus = &p->scene.widgets;
+            application_request_frame();
+        }
+        p->captured = true;
+        SetCapture(g_app.window);
+        return true;
+    }
+    if (message == WM_MOUSEMOVE && p->dragging) {
+        edit_pointer(*p, x, y, true);
+        return true;
+    }
+    if (message == WM_MOUSEMOVE) {
+        const bool scrollbar_changed =
+            ui_media_picker_scene_set_scrollbar_state(&p->scene, false,
+                                                      ui_scrollbar_thumb_hit(body_scrollbar, x, y)
+                                                          ? UiScrollbarVisualState::hovered
+                                                          : UiScrollbarVisualState::normal) |
+            ui_media_picker_scene_set_scrollbar_state(&p->scene, true,
+                                                      ui_scrollbar_thumb_hit(rail_scrollbar, x, y)
+                                                          ? UiScrollbarVisualState::hovered
+                                                          : UiScrollbarVisualState::normal);
+        if (scrollbar_changed)
+            application_request_frame();
+        if (inside) {
+            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, g_app.window, 0};
+            TrackMouseEvent(&track);
+            if (ui_media_picker_scene_hover(&p->scene, x, y, clock_monotonic_milliseconds())) {
+                p->hover_at = hit.action == UiMediaPickerAction::item ||
+                                      hit.action == UiMediaPickerAction::category ||
+                                      hit.action == UiMediaPickerAction::section ||
+                                      hit.action == UiMediaPickerAction::section_jump
+                                  ? deadline_after(clock_monotonic_milliseconds(), 500)
+                                  : 0;
+                repaint(true);
+            }
+        } else {
+            p->hover_at = 0;
+            if (ui_widget_manager_hover(&p->scene.widgets, ui_widget_invalid_handle()))
+                repaint(true);
+        }
+        return inside || p->captured;
+    }
+    if (message == WM_LBUTTONUP && (p->captured || inside)) {
+        const bool drag = p->dragging;
+        const auto selected =
+            !drag && inside ? ui_media_picker_scene_pointer_up(&p->scene, x, y) : UiMediaPickerTarget{};
+        revoke_capture(*p);
+        if (selected.action != UiMediaPickerAction::none)
+            activate(*p, selected);
+        return true;
+    }
+    if (message == WM_LBUTTONDBLCLK && hit.action == UiMediaPickerAction::edit) {
+        focus(*p, true);
+        edit_pointer(*p, x, y, false);
+        message_composer_select_word(&p->edit, p->edit.caret);
+        application_media_picker_edit_changed(false);
+        return true;
+    }
+    return inside && (message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||
+                      message == WM_RBUTTONDBLCLK || message == WM_MBUTTONDOWN || message == WM_MBUTTONUP ||
+                      message == WM_MBUTTONDBLCLK || message == WM_XBUTTONDOWN || message == WM_XBUTTONUP ||
+                      message == WM_XBUTTONDBLCLK || message == WM_LBUTTONDBLCLK);
+}
+} // namespace maicord::app_detail

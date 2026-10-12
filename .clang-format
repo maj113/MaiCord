@@ -1,0 +1,8 @@
+BasedOnStyle: Microsoft
+BreakBeforeBraces: Attach
+IndentWidth: 4
+ColumnLimit: 108
+NamespaceIndentation: None
+PointerAlignment: Left
+SortIncludes: Never
+UseTab: Never

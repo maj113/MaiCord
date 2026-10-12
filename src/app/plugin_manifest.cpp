@@ -1,0 +1,244 @@
+#include "maicord/app/plugin_manifest.hpp"
+#include "maicord/core/byte_range.hpp"
+#include "maicord/core/ascii.hpp"
+
+namespace maicord {
+namespace {
+bool text_valid(Utf8View text, u32 capacity, bool required) noexcept {
+    if (!text.data || text.bytes >= capacity || (required && !text.bytes)) return false;
+    u32 at = 0;
+    while (at < text.bytes) {
+        const auto scalar = utf8_decode_one(text.data + at, text.bytes - at);
+        if (!scalar.valid || scalar.codepoint < 32 ||
+            (scalar.codepoint >= 127 && scalar.codepoint <= 159)) return false;
+        at += scalar.width;
+    }
+    return true;
+}
+bool dll_valid(Utf8View name) noexcept {
+    if (name.bytes < 5 || name.bytes >= kNativePluginDllNameCapacity || name.data[0] == '.' ||
+        name.data[name.bytes - 4] != '.' || ascii_lower(name.data[name.bytes - 3]) != 'd' ||
+        ascii_lower(name.data[name.bytes - 2]) != 'l' || ascii_lower(name.data[name.bytes - 1]) != 'l') return false;
+    u32 stem = 0;
+    for (u32 i = 0; i < name.bytes; ++i) {
+        const char c = ascii_lower(name.data[i]);
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.')) return false;
+        if (c == '.' && i && name.data[i - 1] == '.') return false;
+        if (!stem && c == '.') stem = i;
+    }
+    const Utf8View base{name.data, stem};
+    constexpr Utf8View reserved[]{utf8_literal("con"), utf8_literal("prn"), utf8_literal("aux"), utf8_literal("nul")};
+    for (auto word : reserved) {
+        if (base.bytes != word.bytes) continue;
+        bool match = true;
+        for (u32 i = 0; i < base.bytes; ++i) if (ascii_lower(base.data[i]) != word.data[i]) match = false;
+        if (match) return false;
+    }
+    if (base.bytes == 4 && base.data[3] >= '1' && base.data[3] <= '9' &&
+        ((ascii_lower(base.data[0]) == 'c' && ascii_lower(base.data[1]) == 'o' && ascii_lower(base.data[2]) == 'm') ||
+         (ascii_lower(base.data[0]) == 'l' && ascii_lower(base.data[1]) == 'p' && ascii_lower(base.data[2]) == 't'))) return false;
+    return true;
+}
+constexpr u32 kManifestSchema = 3;
+constexpr u32 kManifestAbi = 5;
+enum Field : u32 { schema, owner, abi, name, version, description, dll, digest, permissions, min_host, publisher,
+    field_count };
+// min_host_abi and publisher are optional; everything before them is required.
+constexpr u32 kRequiredFields = (1u << min_host) - 1;
+constexpr Utf8View kPermissionNames[kNativePluginPermissionCount]{
+    utf8_literal("settings"), utf8_literal("menus"), utf8_literal("message_send"), utf8_literal("commands"),
+    utf8_literal("ui_slots"), utf8_literal("store"), utf8_literal("timer"), utf8_literal("read_context"),
+    utf8_literal("read_guilds"), utf8_literal("read_members"), utf8_literal("read_presence"), utf8_literal("read_voice"),
+    utf8_literal("read_messages"), utf8_literal("message_render"), utf8_literal("act_messages"),
+    utf8_literal("act_presence"), utf8_literal("navigate"), utf8_literal("clipboard"), utf8_literal("open_links"),
+    utf8_literal("notify"), utf8_literal("keybinds"), utf8_literal("effects")};
+constexpr Utf8View kPermissionLabels[kNativePluginPermissionCount]{
+    utf8_literal("Add settings pages"), utf8_literal("Add items to context menus"),
+    utf8_literal("Change your messages before they are sent"), utf8_literal("Add slash commands"),
+    utf8_literal("Show badges and buttons"), utf8_literal("Store its own data"), utf8_literal("Run on a timer"),
+    utf8_literal("See the open channel and your username"), utf8_literal("See your servers, channels and roles"),
+    utf8_literal("See users, server members, friends and open profiles"),
+    utf8_literal("See online status, devices and activities"), utf8_literal("See who is in voice channels"),
+    utf8_literal("Read messages you receive, including edits and deletions"),
+    utf8_literal("Change how messages are shown (hide, label, blur)"),
+    utf8_literal("Send, edit and react to messages and mark them read as you"),
+    utf8_literal("Change your custom status and shown activity"),
+    utf8_literal("Open channels, profiles and its own pages when you use it"),
+    utf8_literal("Copy text to the clipboard when you use it"),
+    utf8_literal("Open links (MaiCord asks first)"), utf8_literal("Show notices and dialogs"),
+    utf8_literal("Add keyboard shortcuts"), utf8_literal("Draw a background effect")};
+struct Parse { NativePluginManifest candidate; u32 seen; NativePluginManifestError error; JsonIndexedDocument document; };
+bool permission(void* context, u32 index, JsonValue value) noexcept {
+    auto& parse = *static_cast<Parse*>(context);
+    JsonString string{};
+    if (index >= kNativePluginPermissionCount || !json_value_as_string(value, &string)) {
+        parse.error = index >= kNativePluginPermissionCount ? NativePluginManifestError::capacity : NativePluginManifestError::type;
+        return false;
+    }
+    for (u32 bit = 0; bit < kNativePluginPermissionCount; ++bit) {
+        if (!json_string_equals_ascii(string, kPermissionNames[bit])) continue;
+        if (parse.candidate.permissions & (1ull << bit)) { parse.error = NativePluginManifestError::duplicate_field; return false; }
+        parse.candidate.permissions |= 1ull << bit;
+        return true;
+    }
+    parse.error = NativePluginManifestError::unsupported;
+    return false;
+}
+bool decode(JsonValue value, char* target, u32 capacity, u32* count, bool required, Parse& parse) noexcept {
+    JsonString string{};
+    if (!json_value_as_string(value, &string)) { parse.error = NativePluginManifestError::type; return false; }
+    const auto decoded = json_string_decode_utf8(string, {target, capacity - 1});
+    if (!decoded.ok() || !text_valid({target, decoded.bytes}, capacity, required)) {
+        parse.error = NativePluginManifestError::text; return false;
+    }
+    *count = decoded.bytes;
+    target[*count] = 0;
+    return true;
+}
+bool visit(void* context, JsonString key, JsonValue value) noexcept {
+    auto& parse = *static_cast<Parse*>(context);
+    constexpr Utf8View keys[]{utf8_literal("schema"), utf8_literal("owner_id"), utf8_literal("abi"),
+        utf8_literal("name"), utf8_literal("version"), utf8_literal("description"),
+        utf8_literal("dll"), utf8_literal("sha256"), utf8_literal("permissions"), utf8_literal("min_host_abi"),
+        utf8_literal("publisher")};
+    u32 field = field_count;
+    for (u32 i = 0; i < field_count; ++i) if (json_string_equals_ascii(key, keys[i])) { field = i; break; }
+    if (field == field_count) { parse.error = NativePluginManifestError::unknown_field; return false; }
+    if (parse.seen & (1u << field)) { parse.error = NativePluginManifestError::duplicate_field; return false; }
+    parse.seen |= 1u << field;
+    auto& output = parse.candidate;
+    u64 number = 0;
+    if (field <= abi || field == min_host) {
+        if (!json_value_to_u64(value, &number)) { parse.error = NativePluginManifestError::type; return false; }
+        if ((field == schema && number != kManifestSchema) || (field == abi && number != kManifestAbi) ||
+            (field == owner && !number) || (field == min_host && (number < kManifestAbi || number > 0xFFFF))) {
+            parse.error = NativePluginManifestError::unsupported; return false;
+        }
+        if (field == owner) output.owner_id = number;
+        if (field == abi) output.abi_version = static_cast<u32>(number);
+        if (field == min_host) output.min_host_abi = static_cast<u32>(number);
+        return true;
+    }
+    switch (field) {
+    case name: return decode(value, output.name, sizeof(output.name), &output.name_bytes, true, parse);
+    case version: return decode(value, output.version, sizeof(output.version), &output.version_bytes, true, parse);
+    case description: return decode(value, output.description, sizeof(output.description), &output.description_bytes, false, parse);
+    case publisher: return decode(value, output.publisher, sizeof(output.publisher), &output.publisher_bytes, false, parse);
+    case permissions: {
+        if (value.kind != JsonValueKind::array) { parse.error = NativePluginManifestError::type; return false; }
+        const auto read = json_visit_indexed_array(parse.document, value, 1, permission, &parse);
+        if (!read.ok() && parse.error == NativePluginManifestError::none) parse.error = NativePluginManifestError::json;
+        return read.ok();
+    }
+    case dll:
+        if (!decode(value, output.dll, sizeof(output.dll), &output.dll_bytes, true, parse)) return false;
+        if (!dll_valid({output.dll, output.dll_bytes})) { parse.error = NativePluginManifestError::dll_name; return false; }
+        return true;
+    case digest: {
+        JsonString string{};
+        if (!json_value_as_string(value, &string)) { parse.error = NativePluginManifestError::type; return false; }
+        if (string.has_escapes || string.encoded.bytes != 64) { parse.error = NativePluginManifestError::digest; return false; }
+        for (u32 i = 0; i < 64; ++i) {
+            const char c = string.encoded.data[i];
+            const i32 nibble = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : -1;
+            if (nibble < 0) { parse.error = NativePluginManifestError::digest; return false; }
+            output.sha256[i / 2] = static_cast<u8>((output.sha256[i / 2] << 4) | nibble);
+        }
+        return true;
+    }
+    default: return false;
+    }
+}
+} // namespace
+bool native_plugin_path_component_valid(ConstSlice<wchar_t> part) noexcept {
+    if (!part.count || part[0] == L'.' || part[part.count - 1] == L'.' || part[part.count - 1] == L' ') return false;
+    u32 stem = 0;
+    while (stem < part.count && part[stem] != L'.') ++stem;
+    const auto stem_is = [&](const wchar_t* name) noexcept {
+        return ascii_lower(part[0]) == name[0] && ascii_lower(part[1]) == name[1] && ascii_lower(part[2]) == name[2];
+    };
+    if (stem == 3 && (stem_is(L"con") || stem_is(L"prn") || stem_is(L"aux") || stem_is(L"nul"))) return false;
+    if (stem == 4 && part[3] >= L'1' && part[3] <= L'9' && (stem_is(L"com") || stem_is(L"lpt"))) return false;
+    for (u32 i = 0; i < part.count; ++i) {
+        const wchar_t c = part[i];
+        if (c < 32 || c == L'/' || c == L'\\' || c == L':' || c == L'*' || c == L'?' || c == L'"' ||
+            c == L'<' || c == L'>' || c == L'|' || c == L'~' || (c >= 127 && c <= 159) ||
+            (c >= 0xd800 && c <= 0xdfff)) return false;
+    }
+    return true;
+}
+Utf8View native_plugin_permission_name(u32 index) noexcept {
+    return index < kNativePluginPermissionCount ? kPermissionNames[index] : Utf8View{};
+}
+Utf8View native_plugin_permission_label(u32 index) noexcept {
+    return index < kNativePluginPermissionCount ? kPermissionLabels[index] : Utf8View{};
+}
+bool native_plugin_manifest_valid(const NativePluginManifest& manifest) noexcept {
+    if ((manifest.permissions & ~kNativePluginPermissionsAll) ||
+        manifest.publisher_bytes >= sizeof(manifest.publisher) ||
+        !text_valid({manifest.publisher, manifest.publisher_bytes}, sizeof(manifest.publisher), false)) return false;
+    return manifest.owner_id && manifest.abi_version == kManifestAbi &&
+        text_valid({manifest.name, manifest.name_bytes}, sizeof(manifest.name), true) &&
+        text_valid({manifest.version, manifest.version_bytes}, sizeof(manifest.version), true) &&
+        text_valid({manifest.description, manifest.description_bytes}, sizeof(manifest.description), false) &&
+        manifest.dll_bytes < sizeof(manifest.dll) && dll_valid({manifest.dll, manifest.dll_bytes});
+}
+NativePluginManifestResult native_plugin_manifest_parse(Utf8View document, NativePluginManifest* output) noexcept {
+    const ConstSlice<u8> input{reinterpret_cast<const u8*>(document.data), document.bytes};
+    const ConstSlice<u8> target{reinterpret_cast<const u8*>(output), sizeof(*output)};
+    if (!output || !document.bytes || document.bytes > kNativePluginManifestMaximumBytes ||
+        !byte_range_valid(input) || !byte_range_valid(target) || byte_ranges_overlap(input, target))
+        return {NativePluginManifestError::invalid_input};
+    // Eight scalar fields need fewer than 64 JSON structural offsets; excess
+    // structure cannot be a valid schema and is refused rather than allocated.
+    u32 indexes[128];
+    const auto scan = json_scan_structurals_avx1(document, {indexes, 128});
+    if (!scan.ok()) return {NativePluginManifestError::json};
+    Parse parse{};
+    parse.document = {document, {indexes, scan.count}};
+    const auto read = json_visit_root_object(document, {indexes, scan.count}, 2, visit, &parse);
+    if (!read.ok()) return {parse.error == NativePluginManifestError::none ? NativePluginManifestError::json : parse.error};
+    if ((parse.seen & kRequiredFields) != kRequiredFields) return {NativePluginManifestError::missing_field};
+    *output = parse.candidate;
+    return {NativePluginManifestError::none};
+}
+NativePluginManifestResult native_plugin_manifest_write(const NativePluginManifest& manifest,
+    Slice<char> output,u32* bytes) noexcept {
+    if(!bytes || !native_plugin_manifest_valid(manifest) || output.count>kNativePluginManifestMaximumBytes)
+        return {NativePluginManifestError::invalid_input};
+    const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(&manifest),sizeof(manifest)},
+        {reinterpret_cast<const u8*>(output.data),output.count},{reinterpret_cast<const u8*>(bytes),sizeof(*bytes)}};
+    for(u32 i=0;i<3;++i){if(!byte_range_valid(ranges[i]))return {NativePluginManifestError::invalid_input};
+        for(u32 j=0;j<i;++j)if(byte_ranges_overlap(ranges[i],ranges[j]))return {NativePluginManifestError::invalid_input};}
+    struct Writer {
+        char* data{};u32 used{};
+        void character(char c) noexcept {if(data)data[used]=c;++used;}
+        void text(Utf8View v) noexcept {for(u32 i=0;i<v.bytes;++i)character(v.data[i]);}
+        void quoted(Utf8View v) noexcept {character('"');for(u32 i=0;i<v.bytes;++i){
+            if(v.data[i]=='"'||v.data[i]=='\\')character('\\');character(v.data[i]);}character('"');}
+        void number(u64 value) noexcept {char digits[20];u32 count{};do{digits[count++]=static_cast<char>('0'+value%10);value/=10;}while(value);
+            while(count)character(digits[--count]);}
+    };
+    const auto write=[&manifest](Writer& w) noexcept {
+        w.text(utf8_literal("{\"schema\":3,\"owner_id\":"));
+        w.number(manifest.owner_id);
+        w.text(utf8_literal(",\"abi\":"));w.number(manifest.abi_version);
+        if(manifest.min_host_abi){w.text(utf8_literal(",\"min_host_abi\":"));w.number(manifest.min_host_abi);}
+        if(manifest.publisher_bytes){w.text(utf8_literal(",\"publisher\":"));w.quoted({manifest.publisher,manifest.publisher_bytes});}
+        w.text(utf8_literal(",\"permissions\":["));bool first=true;
+        for(u32 bit=0;bit<kNativePluginPermissionCount;++bit)if(manifest.permissions&(1ull<<bit)){
+            if(!first)w.character(',');first=false;w.quoted(kPermissionNames[bit]);}
+        w.character(']');
+        w.text(utf8_literal(",\"name\":"));w.quoted({manifest.name,manifest.name_bytes});
+        w.text(utf8_literal(",\"version\":"));w.quoted({manifest.version,manifest.version_bytes});
+        w.text(utf8_literal(",\"description\":"));w.quoted({manifest.description,manifest.description_bytes});
+        w.text(utf8_literal(",\"dll\":"));w.quoted({manifest.dll,manifest.dll_bytes});
+        w.text(utf8_literal(",\"sha256\":\""));constexpr char hex[]="0123456789abcdef";
+        for(u32 i=0;i<32;++i){w.character(hex[manifest.sha256[i]>>4]);w.character(hex[manifest.sha256[i]&15]);}
+        w.text(utf8_literal("\"}"));
+    };
+    Writer size{};write(size);
+    if(size.used>output.count)return {NativePluginManifestError::capacity};
+    Writer actual{output.data};write(actual);*bytes=actual.used;return {NativePluginManifestError::none};
+}
+} // namespace maicord

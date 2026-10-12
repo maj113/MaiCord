@@ -1,0 +1,80 @@
+name: Bug report
+description: Something in MaiCord is broken or behaves unexpectedly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Never paste tokens, passwords, QR codes, or full logs that contain account data.**
+        Security problems: please report privately through GitHub security advisories instead of an issue.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Messages (composer, timeline, embeds, replies)
+        - Voice and video
+        - Media (images, GIFs, video, audio)
+        - UI and visuals
+        - Servers (settings, roles, moderation)
+        - Accounts and profiles
+        - Plugins
+        - Themes
+        - Updates and installation
+        - Text, fonts and input
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MaiCord version
+      description: Release tag (e.g. v0.1.0) or commit SHA for source builds.
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: Windows 11 24H2 (26100.xxxx)
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and display scaling
+      placeholder: NVIDIA RTX 3060, 150% scaling, two monitors
+  - type: checkboxes
+    id: regression
+    attributes:
+      label: Regression
+      options:
+        - label: This worked in an earlier MaiCord version.
+  - type: textarea
+    id: log
+    attributes:
+      label: Relevant log lines
+      description: From `%LOCALAPPDATA%\MaiCord\logs\maicord.log`, around the time of the problem. The log holds no tokens, but check it for names you'd rather not share.
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or additional context
+      description: Redact usernames, server names and message content you don't want public.

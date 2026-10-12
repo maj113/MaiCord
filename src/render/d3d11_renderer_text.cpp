@@ -1,0 +1,2750 @@
+#include "maicord/ui/ansi_text.hpp"
+#include "maicord/ui/profile_appearance.hpp"
+#include "maicord/ui/message_author.hpp"
+#include "maicord/ui/native_text_candidate.hpp"
+#include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/render/colr_paint.hpp"
+#include "picker_glyph_cache.hpp"
+#include "shaped_text_cache.hpp"
+
+#include "maicord/core/log.hpp"
+#include "maicord/core/hash.hpp"
+#include "maicord/text/font_session.hpp"
+#include "maicord/ui/audio_presentation.hpp"
+#include "maicord/ui/poll_presentation.hpp"
+#include "maicord/render/glyph_quad_bounds.hpp"
+#include "maicord/ui/login_text_presentation.hpp"
+#include "maicord/ui/message_action_bar_presentation.hpp"
+#include "maicord/ui/popup_presentation.hpp"
+#include "maicord/ui/media_picker_presentation.hpp"
+#include "maicord/ui/reaction_viewer_presentation.hpp"
+#include "maicord/ui/shell_text_presentation.hpp"
+#include "maicord/ui/inline_flag_projection.hpp"
+#include "maicord/render/inline_media.hpp"
+
+#include "d3d11_renderer_edit.hpp"
+#include "d3d11_renderer_interaction_state.hpp"
+#include "d3d11_renderer_layout.hpp"
+#include "d3d11_renderer_login_form.hpp"
+
+#include <Windows.h>
+
+namespace maicord {
+struct RendererTypographyOwner {
+    TextSystem system{};
+    TextSystemTypography policy{};
+    u32 native_code_format{};
+};
+namespace {
+
+struct TextRasterScope {
+    D3D11GlyphTextOwner& owner;
+    ColrPaintBatch* previous;
+    ColrPaintBatch batch;
+    explicit TextRasterScope(D3D11Renderer& renderer) noexcept
+        : owner(renderer.glyph_text), previous(owner.color_batch), batch(renderer.graphics.context) {
+        if (previous)
+            previous->reset();
+        owner.color_batch = &batch;
+    }
+    ~TextRasterScope() noexcept {
+        batch.cancel();
+        owner.color_batch = previous;
+    }
+};
+
+Color packed_role_color(u32 packed) noexcept {
+    constexpr float scale = 1.0f / 255.0f;
+    return Color{static_cast<float>((packed >> 16u) & 0xFFu) * scale,
+                 static_cast<float>((packed >> 8u) & 0xFFu) * scale,
+                 static_cast<float>(packed & 0xFFu) * scale, 1.0f};
+}
+
+bool resolve_role_mention_color(const D3D11Renderer* renderer, u64 message_id, u64 role_id,
+                                Color* color) noexcept {
+    // Message id zero is the composer: its projected role spans carry colours.
+    if (renderer && color && message_id == 0 && role_id != 0 && renderer->message_composer_scene) {
+        const auto& composer = *renderer->message_composer_scene;
+        for (u32 index = 0; composer.projection_spans && index < composer.projection_span_count; ++index) {
+            const auto& span = composer.projection_spans[index];
+            if (span.kind == MessageComposerProjectionKind::role && span.target == role_id && span.color) {
+                *color = packed_role_color(span.color);
+                return true;
+            }
+        }
+        return false;
+    }
+    if (!renderer || !renderer->chat_state || !renderer->message_scene ||
+        !renderer->message_scene->timeline || !renderer->message_scene->timeline->store || !color ||
+        message_id == 0 || role_id == 0) {
+        return false;
+    }
+    const MessageStoreResult found =
+        message_store_find(*renderer->message_scene->timeline->store, message_id);
+    const MessageRecord* message =
+        found.ok() ? message_store_resolve(*renderer->message_scene->timeline->store, found.handle)
+                   : nullptr;
+    const ChannelRecord* channel =
+        message ? chat_state_store_find_channel(*renderer->chat_state, message->channel_id) : nullptr;
+    const RoleRecord* role =
+        channel && channel->guild_id != 0
+            ? chat_state_store_find_role(*renderer->chat_state, channel->guild_id, role_id)
+            : nullptr;
+    if (!role || role->color == 0) {
+        return false;
+    }
+    *color = packed_role_color(role->color);
+    return true;
+}
+
+bool resolve_role_mention_color_callback(void* context, u64 message_id, u64 role_id,
+                                         Color* color) noexcept {
+    return resolve_role_mention_color(static_cast<const D3D11Renderer*>(context), message_id, role_id,
+                                      color);
+}
+
+float aligned_text_origin(UiTextAlignment alignment, float start, float available, float used) noexcept {
+    const float remaining = maximum(0.0f, available - used);
+    if (alignment == UiTextAlignment::center) {
+        return start + remaining * 0.5f;
+    }
+    if (alignment == UiTextAlignment::end) {
+        return start + remaining;
+    }
+    return start;
+}
+
+bool append_login_text_command(D3D11Renderer* renderer, const UiTextCommand& command,
+                               bool* atlas_invalidated) noexcept {
+    if (command.text.bytes == 0) {
+        return true;
+    }
+    const TextStyleSpan span{0, command.text.bytes, command.style_flags};
+    const float maximum_width = maximum(ui_rect_width(command.rectangle), 1.0f);
+    const float maximum_height = maximum(ui_rect_height(command.rectangle), 1.0f);
+    const TextShapeResult shaped =
+        command.style_flags == text_style_none
+            ? text_shape_utf8(&renderer->glyph_text.system, command.text, maximum_width, maximum_height,
+                              Slice<wchar_t>{renderer->glyph_text.utf16, kRendererGlyphCapacity},
+                              &renderer->glyph_text.title,
+                              command.wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap
+                                                                          : TextWrapping::wrap,
+                              command.overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis
+                                                                           : TextOverflow::clip)
+            : text_shape_utf8_styled(&renderer->glyph_text.system, command.text,
+                                     ConstSlice<TextStyleSpan>{&span, 1}, maximum_width, maximum_height,
+                                     Slice<wchar_t>{renderer->glyph_text.utf16, kRendererGlyphCapacity},
+                                     &renderer->glyph_text.title,
+                                     command.wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap
+                                                                                 : TextWrapping::wrap,
+                                     command.overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis
+                                                                                  : TextOverflow::clip);
+    if (!shaped.ok()) {
+        return false;
+    }
+    const float origin_x = aligned_text_origin(command.horizontal_alignment, command.rectangle.left,
+                                               maximum_width, renderer->glyph_text.title.width);
+    const float origin_y = aligned_text_origin(command.vertical_alignment, command.rectangle.top,
+                                               maximum_height, renderer->glyph_text.title.height);
+    const D3D11GlyphTextAppendRequest request{
+        &renderer->glyph_text.title,
+        renderer->glyph_text.title_quads,
+        &renderer->glyph_text.title_quad_count,
+        atlas_invalidated,
+        {},
+        {},
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        command.color,
+        origin_x,
+        origin_y,
+        0,
+        0,
+        kRendererGlyphCapacity,
+        renderer->dpi,
+    };
+    const bool appended =
+        d3d11_glyph_text_append(&renderer->glyph_text, renderer->graphics.context, request);
+    return appended;
+}
+
+bool rebuild_login_text_commands_once(D3D11Renderer* renderer, const RendererLoginView& view,
+                                      const Theme& theme, bool* atlas_invalidated) noexcept {
+    TextRasterScope raster_scope(*renderer);
+    renderer->glyph_text.title_quad_count = 0;
+    *atlas_invalidated = false;
+    UiTextCommand commands[kMaximumLoginTextCommands]{};
+    UiTextCommandStream stream{};
+    if (!ui_text_command_stream_initialize(&stream,
+                                           Slice<UiTextCommand>{commands, kMaximumLoginTextCommands}) ||
+        !login_text_presentation_build(*renderer->login_scene, view, theme, &stream)) {
+        return false;
+    }
+    for (u32 index = 0; index < stream.count; ++index) {
+        if (!append_login_text_command(renderer, stream.storage[index], atlas_invalidated) ||
+            *atlas_invalidated) {
+            return false;
+        }
+    }
+    return renderer->glyph_text.title_quad_count != 0;
+}
+
+} // namespace
+
+bool d3d11_renderer_rebuild_login_text(D3D11Renderer* renderer, const RendererLoginView& view,
+                                       const Theme& theme) noexcept {
+    bool invalidated = false;
+    if (rebuild_login_text_commands_once(renderer, view, theme, &invalidated)) {
+        return true;
+    }
+    if (!invalidated) {
+        return false;
+    }
+    d3d11_glyph_text_reset_atlas(&renderer->glyph_text);
+    invalidated = false;
+    return rebuild_login_text_commands_once(renderer, view, theme, &invalidated) && !invalidated;
+}
+
+bool d3d11_renderer_capture_login_form_text(D3D11Renderer* renderer, const LoginView& view,
+                                            const Theme& theme) noexcept {
+    auto* owned = renderer ? renderer->login_form_text : nullptr;
+    if (!owned || !renderer->login_scene)
+        return false;
+    UiTextCommand commands[kMaximumLoginTextCommands]{};
+    UiTextCommandStream source{};
+    if (!ui_text_command_stream_initialize(&source, {commands, kMaximumLoginTextCommands}) ||
+        !login_text_presentation_build(*renderer->login_scene, view, theme, &source))
+        return false;
+    u32 bytes = 0;
+    for (u32 i = 0; i < source.count; ++i) {
+        if (source.storage[i].styles.count || source.storage[i].text.bytes > sizeof(owned->display) - bytes)
+            return false;
+        bytes += source.storage[i].text.bytes;
+    }
+    const u64 previous = owned->projection.signature;
+    if (!ui_text_command_stream_initialize(&owned->projection, {owned->commands, kMaximumLoginTextCommands},
+                                           {owned->display, sizeof(owned->display)}))
+        return false;
+    for (u32 i = 0; i < source.count; ++i)
+        if (!ui_text_command_stream_push_owned(&owned->projection, source.storage[i])) {
+            owned->valid = false;
+            return false;
+        }
+    if (!owned->valid || previous != owned->projection.signature)
+        content_text_retention_invalidate(&renderer->content_text_retention);
+    owned->valid = true;
+    return true;
+}
+
+bool d3d11_renderer_restore_login_form_base(D3D11Renderer* renderer) noexcept {
+    const auto* owned = renderer ? renderer->login_form_text : nullptr;
+    if (!owned || !owned->valid)
+        return false;
+    for (u32 attempt = 0; attempt < 4; ++attempt) {
+        bool invalidated = false;
+        bool valid = true;
+        TextRasterScope raster_scope(*renderer);
+        renderer->glyph_text.title_quad_count = 0;
+        for (u32 i = 0; valid && i < owned->projection.count; ++i)
+            valid = append_login_text_command(renderer, owned->projection.storage[i], &invalidated) &&
+                    !invalidated;
+        if (valid)
+            return true;
+        if (!invalidated)
+            return false;
+        d3d11_glyph_text_reset_atlas(&renderer->glyph_text);
+    }
+    return false;
+}
+
+namespace {
+
+const UiNode* scene_node(const D3D11Renderer* renderer, UiSemantic semantic) noexcept {
+    return renderer && renderer->ui_scene
+               ? ui_scene_resolve(*renderer->ui_scene, ui_scene_find(*renderer->ui_scene, semantic))
+               : nullptr;
+}
+
+
+bool append_text_batch(RendererTextStorage* storage, const UiRect& clip, u32 first_quad,
+                       bool force_new_batch = false) noexcept {
+    if (!storage || first_quad > storage->quad_count) {
+        return false;
+    }
+    const u32 count = storage->quad_count - first_quad;
+    if (count == 0) {
+        return true;
+    }
+    if (!force_new_batch && storage->batch_count != 0) {
+        GlyphDrawBatch& last = storage->batches[storage->batch_count - 1];
+        if (ui_rect_equal(last.clip, clip) && last.first_quad + last.quad_count == first_quad) {
+            last.quad_count += count;
+            return true;
+        }
+    }
+    if (storage->batch_count >= storage->batch_capacity) {
+        return false;
+    }
+    storage->batches[storage->batch_count++] = GlyphDrawBatch{clip, first_quad, count};
+    return true;
+}
+
+struct FontAsset {
+    const wchar_t* family;
+    const wchar_t* file;
+    float tracking;
+};
+constexpr FontAsset text_fonts[]{{L"Segoe UI", nullptr, 0},
+                                 {L"Bahnschrift", nullptr, 0},
+                                 {L"Georgia", nullptr, 0},
+                                 {L"Arial Rounded MT Bold", nullptr, 0},
+                                 {L"Consolas", nullptr, 0},
+                                 {L"Segoe Print", nullptr, 0},
+                                 {L"Orbitron", L"Orbitron.ttf", .03f},
+                                 {L"Bangers", L"Bangers.ttf", 0},
+                                 {L"MaiCord BioRhyme", L"BioRhyme.ttf", 0},
+                                 {L"Cherry Bomb One", L"CherryBomb.ttf", .04f},
+                                 {L"Chicle", L"Chicle.ttf", 0},
+                                 {L"Compagnon", L"Compagnon.otf", 0},
+                                 {L"MaiCord MuseoModerno", L"MuseoModerno.ttf", .01f},
+                                 {L"MaiCord Medieval", L"NeoCastel.otf", .02f},
+                                 {L"MaiCord Pixelify", L"Pixelify.ttf", .02f},
+                                 {L"Ribes", L"Ribes.otf", 0},
+                                 {L"Sinistre", L"Sinistre.otf", .01f},
+                                 {L"Zilla Slab", L"ZillaSlab.ttf", .03f},
+                                 {L"MaiCord Playpen", L"Playpen.ttf", 0},
+                                 {L"New Rocker", L"NewRocker.ttf", 0},
+                                 {L"Kalam", L"Kalam.ttf", 0}};
+static_assert(sizeof(text_fonts) / sizeof(text_fonts[0]) == static_cast<u32>(UiTextFace::count));
+bool profile_font_path(u32 index, wchar_t* path) noexcept {
+    const auto* file_name = text_fonts[index].file;
+    if (!file_name)
+        return false;
+    const DWORD count = GetModuleFileNameW(nullptr, path, 1024);
+    if (!count || count >= 900)
+        return false;
+    u32 at = count;
+    while (at && path[at - 1] != L'\\')
+        --at;
+    const wchar_t prefix[] = L"fonts\\";
+    for (u32 i = 0; i < 6; ++i)
+        path[at++] = prefix[i];
+    for (u32 i = 0; file_name[i]; ++i)
+        path[at++] = file_name[i];
+    path[at] = 0;
+    return true;
+}
+void release_typography_owner(RendererTypographyOwner* owner) noexcept {
+    if (!owner)
+        return;
+    text_system_release(&owner->system);
+    VirtualFree(owner, 0, MEM_RELEASE);
+}
+u64 typography_source_identity(const TextSystem& system) noexcept {
+    return native_text_format_identity(system);
+}
+bool prepare_typography_face(RendererTypographyOwner& owner, UiTextFace face, u32* native_format) noexcept {
+    const u32 index = static_cast<u32>(face);
+    auto& system = owner.system;
+    const auto& asset = text_fonts[index];
+    wchar_t path[1024]{};
+    const bool private_font = asset.file != nullptr;
+    if (private_font &&
+        (!profile_font_path(index, path) || GetFileAttributesW(path) == INVALID_FILE_ATTRIBUTES))
+        return false;
+    if (!system.native_text)
+        return false;
+    u32 scope{}, units{};
+    while (asset.family[units])
+        ++units;
+    return (!private_font || native_text_register_font_path(system.native_text, path, &scope)) &&
+           native_text_format_create(system.native_text,
+                                     {{reinterpret_cast<const u16*>(asset.family), units},
+                                      scope,
+                                      {400, 5, 0},
+                                      system.em_size,
+                                      system.em_size * 4,
+                                      true},
+                                     native_format);
+}
+TextSystem command_text_system(D3D11Renderer* renderer, UiTextFace face) noexcept {
+    auto system = renderer->glyph_text.system;
+    const u32 index = static_cast<u32>(face);
+    if (!index || index >= static_cast<u32>(UiTextFace::count))
+        return system;
+    if (face == UiTextFace::mono && renderer->typography_owner) {
+        const auto& owner = *renderer->typography_owner;
+        system.native_format = owner.native_code_format;
+        const auto selected = static_cast<u32>(owner.policy.value.code_face);
+        system.tracking = text_fonts[selected].tracking;
+        system.fixed_weight = text_fonts[selected].file != nullptr;
+        return system;
+    }
+    system.native_format = renderer->native_text_faces[index];
+    if (!system.native_format && system.native_text) {
+        wchar_t path[1024];
+        const bool private_path = profile_font_path(index, path);
+        u32 scope = 0, units = 0;
+        const auto* family = text_fonts[index].family;
+        while (family[units])
+            ++units;
+        // Missing optional assets retain system-family fallback; existing files
+        // are registered directly.
+        const bool available = private_path && GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES;
+        if ((!available || native_text_register_font_path(system.native_text, path, &scope)) &&
+            native_text_format_create(system.native_text,
+                                      {{reinterpret_cast<const u16*>(family), units},
+                                       scope,
+                                       {400, 5, 0},
+                                       system.em_size,
+                                       system.em_size * 4,
+                                       true},
+                                      &system.native_format))
+            renderer->native_text_faces[index] = system.native_format;
+    }
+    system.tracking = text_fonts[index].tracking;
+    system.fixed_weight = text_fonts[index].file != nullptr;
+    return system;
+}
+
+bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_width, float maximum_height,
+                         float origin_x, float origin_y, const UiRect& clip, const Color& color,
+                         ConstSlice<TextStyleSpan> styles, const Theme* style_theme,
+                         const Color* inline_role_color, float* shaped_height, bool* atlas_invalidated,
+                         ConstSlice<MessageMarkdownSemantic> semantics = {}, u64 message_id = 0,
+                         u32 message_revision = 0,
+                         UiWidgetReference layout_owner = ui_widget_invalid_reference(),
+                         UiTextAlignment horizontal_alignment = UiTextAlignment::start,
+                         UiTextAlignment vertical_alignment = UiTextAlignment::start,
+                         UiTextWrapping wrapping = UiTextWrapping::wrap,
+                         UiTextOverflow overflow = UiTextOverflow::clip, bool force_new_batch = false,
+                         bool selection_active = false, u32 selection_anchor = 0, u32 selection_caret = 0,
+                         UiTextFace face = UiTextFace::normal, bool cluster_effect = false,
+                         bool plain_flags = false, bool publish_semantics = true) noexcept {
+    auto text_system = command_text_system(renderer, face);
+    text_system.independent_letters = cluster_effect;
+    (void)layout_owner;
+    RendererTextStorage* storage = renderer->content_text;
+    if (!storage || !shaped_height || !atlas_invalidated || storage->quad_count > storage->quad_capacity ||
+        (!input.data && input.bytes != 0) || maximum_width <= 0.0f || maximum_height <= 0.0f) {
+        return false;
+    }
+    *shaped_height = 0.0f;
+    if (input.bytes == 0) {
+        return true;
+    }
+    const auto original_styles = styles;
+    UiInlineFlagProjection flag_projection{};
+    RendererInlineMediaLayer flag_layer{};
+    if (plain_flags && !semantics.count && !selection_active &&
+        renderer_inline_media_owner(*renderer, layout_owner, &flag_layer) &&
+        ui_widget_manager_resolve(*layout_owner.manager, layout_owner.handle)->kind !=
+            UiWidgetKind::text_field &&
+        (!styles.count ||
+         (styles.count == 1 && !styles[0].byte_offset && styles[0].byte_count == input.bytes))) {
+        const bool projected =
+            ui_inline_flag_project(input, styles.count ? styles[0].flags : 0, &flag_projection);
+        if (!projected || flag_projection.count > storage->hit_span_capacity ||
+            flag_projection.count > kRendererInlineFlagCapacity - renderer->inline_media.count) {
+            flag_projection.count = 0;
+            saturating_increment(renderer->inline_media.rejected);
+        }
+        if (flag_projection.count && !renderer->inline_media.flags) {
+            renderer->inline_media.flags = static_cast<RendererInlineFlag*>(
+                VirtualAlloc(nullptr, sizeof(RendererInlineFlag) * kRendererInlineFlagCapacity,
+                             MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+            if (!renderer->inline_media.flags) {
+                flag_projection.count = 0;
+                saturating_increment(renderer->inline_media.rejected);
+            }
+        }
+        if (flag_projection.count)
+            styles = {flag_projection.styles, flag_projection.style_count};
+    }
+    const UiRect command_rectangle{origin_x, origin_y, origin_x + maximum_width, origin_y + maximum_height};
+    bool picker_emoji = false;
+    for (u32 index = 0; index < styles.count; ++index) {
+        picker_emoji = picker_emoji || (styles[index].flags & text_style_picker_emoji) != 0;
+    }
+    const bool cache_picker =
+        picker_emoji && input.bytes <= 64 && styles.count == 1 && !styles[0].byte_offset &&
+        styles[0].byte_count == input.bytes && styles[0].flags == text_style_picker_emoji &&
+        !flag_projection.count && !semantics.count && !selection_active && !cluster_effect &&
+        face == UiTextFace::normal && horizontal_alignment == UiTextAlignment::center &&
+        vertical_alignment == UiTextAlignment::center && wrapping == UiTextWrapping::no_wrap;
+    const u32 picker_cache_flags = cache_picker ? styles[0].flags | (static_cast<u32>(overflow) << 24) : 0;
+    auto& glyph_owner = renderer->glyph_text;
+    if (cache_picker && !renderer->picker_glyph_cache)
+        renderer->picker_glyph_cache = static_cast<PickerGlyphCache*>(
+            VirtualAlloc(nullptr, sizeof(PickerGlyphCache), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    auto* picker_cache = cache_picker ? renderer->picker_glyph_cache : nullptr;
+    if (picker_cache) {
+        if (const auto* cached = picker_glyph_cache_find(
+                *picker_cache, glyph_owner, text_system, input, maximum_width, maximum_height, color,
+                renderer->dpi, picker_cache_flags, storage->quad_capacity - storage->quad_count)) {
+            const auto& e = *cached;
+            const u32 first = storage->quad_count;
+            for (u32 i = 0; i < e.count; ++i) {
+                auto q = e.quads[i];
+                q.left += command_rectangle.left;
+                q.right += command_rectangle.left;
+                q.top += command_rectangle.top;
+                q.bottom += command_rectangle.top;
+                storage->quads[storage->quad_count++] = q;
+            }
+            if (!glyph_quad_center_range(storage->quads, first, storage->quad_count, command_rectangle) ||
+                !glyph_quad_clip_range(storage->quads, first, &storage->quad_count,
+                                       ui_rect_intersection(command_rectangle, clip))
+                     .ok() ||
+                !append_text_batch(storage, clip, first, force_new_batch)) {
+                storage->quad_count = first;
+                storage->last_error = RendererTextBuildError::capacity;
+                return false;
+            }
+            *shaped_height = e.shaped_height;
+            ++picker_cache->hits;
+            return true;
+        }
+        ++picker_cache->misses;
+    }
+    shaped_text_reset(&storage->scratch);
+    constexpr Utf8View overflow_text = utf8_literal("…");
+    bool substituted = false;
+    constexpr u16 selection_semantic_index = 0xFFFFu;
+    const u32 selection_first = minimum(selection_anchor, selection_caret);
+    const u32 selection_last = maximum(selection_anchor, selection_caret);
+    selection_active =
+        selection_active && selection_first < selection_last && selection_last <= input.bytes;
+    u32 semantic_count = semantics.count;
+    const u32 semantic_remaining = storage->content_semantic_capacity - storage->content_semantic_count;
+    semantic_count = minimum(semantic_count, semantic_remaining);
+    const u32 semantic_span_capacity =
+        storage->hit_span_capacity - (selection_active && storage->hit_span_capacity != 0 ? 1u : 0u);
+    semantic_count = minimum(semantic_count, semantic_span_capacity);
+    saturating_increment_if(semantic_count != semantics.count, storage->semantic_truncations);
+    const u32 semantic_base = storage->content_semantic_count;
+    // Hit spans carry command-local semantic indices so a shaped result does
+    // not depend on where it lands in the frame; publication adds semantic_base.
+    for (u32 index = 0; index < semantic_count; ++index) {
+        storage->hit_spans[index] = TextHitSpan{semantics[index].byte_offset, semantics[index].byte_count,
+                                                static_cast<u16>(index), 0};
+    }
+    u32 interactive_count = semantic_count;
+    if (flag_projection.count) {
+        for (u32 i = 0; i < flag_projection.count; ++i) {
+            const auto& flag = flag_projection.flags[i];
+            storage->hit_spans[i] = {flag.first_byte, flag.end_byte - flag.first_byte, static_cast<u16>(i),
+                                     0};
+        }
+        interactive_count = flag_projection.count;
+    }
+    if (selection_active && interactive_count < storage->hit_span_capacity) {
+        storage->hit_spans[interactive_count++] =
+            TextHitSpan{selection_first, selection_last - selection_first, selection_semantic_index, 0};
+    } else {
+        selection_active = false;
+    }
+    const TextWrapping shape_wrapping =
+        wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap;
+    const TextOverflow shape_overflow =
+        overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip;
+    // Effects rewrite glyph data; flags and truncated semantics are rare. They shape directly.
+    ShapedTextCache* shape_cache = nullptr;
+    // ```ansi foregrounds are applied per glyph from the cluster map, which
+    // cached shapes do not keep.
+    bool ansi_colors = false;
+    for (u32 index = 0; index < styles.count && !ansi_colors; ++index)
+        ansi_colors = ansi_span_foreground(styles[index]) != kAnsiColorNone;
+    if (!renderer->shaped_text_cache_disabled && !flag_projection.count && !cluster_effect && !picker_emoji &&
+        !ansi_colors &&
+        semantic_count == semantics.count) {
+        if (!renderer->shaped_text_cache)
+            renderer->shaped_text_cache = shaped_text_cache_create();
+        shape_cache = renderer->shaped_text_cache;
+    }
+    const ShapedTextCacheRequest cache_request{&text_system,
+                                               input,
+                                               styles,
+                                               {storage->hit_spans, interactive_count},
+                                               maximum_width,
+                                               maximum_height,
+                                               renderer->dpi,
+                                               renderer->typography_revision,
+                                               static_cast<u8>(shape_wrapping),
+                                               static_cast<u8>(shape_overflow)};
+    u64 cache_hash = 0;
+    ShapedText cached{};
+    bool from_cache = false;
+    if (shape_cache && shaped_text_cache_find(shape_cache, cache_request, &cache_hash, &cached)) {
+        const u32 room = storage->quad_capacity - storage->quad_count;
+        // A result that no longer fits takes the substitution path below.
+        from_cache = cached.glyph_count <= room && cached.decoration_count <= room - cached.glyph_count;
+    }
+    bool primary_shape = true;
+    TextShapeResult shaped =
+        from_cache ? TextShapeResult{}
+        : interactive_count != 0
+            ? text_shape_utf8_interactive(
+                  &text_system, input, styles,
+                  ConstSlice<TextHitSpan>{storage->hit_spans, interactive_count}, maximum_width,
+                  maximum_height, Slice<wchar_t>{storage->utf16, storage->utf16_capacity},
+                  &storage->scratch,
+                  wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
+                  overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip)
+        : styles.count == 0
+            ? text_shape_utf8(
+                  &text_system, input, maximum_width, maximum_height,
+                  Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
+                  wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
+                  overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip)
+            : text_shape_utf8_styled(
+                  &text_system, input, styles, maximum_width, maximum_height,
+                  Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
+                  wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
+                  overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip);
+    if (interactive_count != 0 && shaped.error == TextShapeError::output_too_small) {
+        primary_shape = false;
+        shaped_text_reset(&storage->scratch);
+        if (flag_projection.count) {
+            styles = original_styles;
+            flag_projection.count = 0;
+            saturating_increment(renderer->inline_media.rejected);
+        }
+        interactive_count = 0;
+        semantic_count = 0;
+        selection_active = false;
+        saturating_increment(storage->semantic_truncations);
+        shaped =
+            styles.count == 0
+                ? text_shape_utf8(
+                      &text_system, input, maximum_width, maximum_height,
+                      Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
+                      wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
+                      overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip)
+                : text_shape_utf8_styled(
+                      &text_system, input, styles, maximum_width, maximum_height,
+                      Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
+                      wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
+                      overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip);
+    }
+    if (shaped.error == TextShapeError::output_too_small) {
+        primary_shape = false;
+        flag_projection.count = 0;
+        substituted = true;
+        if (storage->substitutions != 0xFFFF) {
+            ++storage->substitutions;
+        }
+        shaped = text_shape_utf8(
+            &text_system, overflow_text, maximum_width, maximum_height,
+            Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
+            wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
+            overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip);
+        interactive_count = 0;
+        semantic_count = 0;
+        selection_active = false;
+    }
+    if (!shaped.ok()) {
+        storage->last_error = RendererTextBuildError::shape;
+        storage->last_shape_error = shaped.error;
+        storage->native_error = shaped.native_error;
+        shaped_text_reset(&storage->scratch);
+        return false;
+    }
+    const u32 remaining_quads = storage->quad_capacity - storage->quad_count;
+    if (!from_cache && (storage->scratch.glyph_count > remaining_quads ||
+                        storage->scratch.decoration_count >
+                            remaining_quads - minimum(storage->scratch.glyph_count, remaining_quads))) {
+        primary_shape = false;
+        flag_projection.count = 0;
+        if (!substituted && storage->substitutions != 0xFFFF) {
+            ++storage->substitutions;
+        }
+        shaped = text_shape_utf8(
+            &text_system, overflow_text, maximum_width, maximum_height,
+            Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
+            wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
+            overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip);
+        interactive_count = 0;
+        semantic_count = 0;
+        selection_active = false;
+        if (!shaped.ok()) {
+            storage->last_error = RendererTextBuildError::shape;
+            storage->last_shape_error = shaped.error;
+            storage->native_error = shaped.native_error;
+            shaped_text_reset(&storage->scratch);
+            return false;
+        }
+        if (storage->scratch.glyph_count > remaining_quads) {
+            shaped_text_reset(&storage->scratch);
+            return true;
+        }
+    }
+    const ShapedText& layout = from_cache ? cached : storage->scratch;
+    *shaped_height = layout.height;
+    origin_x = aligned_text_origin(horizontal_alignment, origin_x, maximum_width, layout.width);
+    origin_y = aligned_text_origin(vertical_alignment, origin_y, maximum_height, layout.height);
+    const u32 first_quad = storage->quad_count;
+    const D3D11GlyphTextAppendRequest glyph_request{
+        &layout,
+        storage->quads,
+        &storage->quad_count,
+        atlas_invalidated,
+        input,
+        semantics,
+        style_theme,
+        inline_role_color,
+        renderer,
+        resolve_role_mention_color_callback,
+        color,
+        origin_x,
+        origin_y,
+        message_id,
+        0,
+        storage->quad_capacity,
+        renderer->dpi,
+        selection_semantic_index,
+        selection_active,
+        cluster_effect,
+        styles,
+    };
+    const bool appended =
+        d3d11_glyph_text_append(&renderer->glyph_text, renderer->graphics.context, glyph_request);
+    if (!appended) {
+        shaped_text_reset(&storage->scratch);
+        storage->last_error =
+            *atlas_invalidated ? RendererTextBuildError::atlas : RendererTextBuildError::capacity;
+        return false;
+    }
+    if (picker_emoji) {
+        if (picker_cache && !substituted && storage->quad_count - first_quad <= 4) {
+            auto& e = picker_cache->entries[picker_cache->cursor++ % 256];
+            e.system = text_system;
+            e.color = color;
+            e.bytes = input.bytes;
+            copy_bytes(e.text, input.data, input.bytes);
+            e.width = maximum_width;
+            e.height = maximum_height;
+            e.shaped_height = *shaped_height;
+            e.dpi = renderer->dpi;
+            e.flags = picker_cache_flags;
+            e.evictions = glyph_owner.allocator.evicted_entries;
+            e.resets = glyph_owner.allocator.full_resets;
+            e.count = storage->quad_count - first_quad;
+            for (u32 i = 0; i < e.count; ++i) {
+                e.quads[i] = storage->quads[first_quad + i];
+                e.quads[i].left -= command_rectangle.left;
+                e.quads[i].right -= command_rectangle.left;
+                e.quads[i].top -= command_rectangle.top;
+                e.quads[i].bottom -= command_rectangle.top;
+            }
+        }
+        if (!glyph_quad_center_range(storage->quads, first_quad, storage->quad_count, command_rectangle)) {
+            storage->quad_count = first_quad;
+            storage->last_error = RendererTextBuildError::layout;
+            shaped_text_reset(&storage->scratch);
+            return false;
+        }
+        const UiRect bounds = ui_rect_intersection(command_rectangle, clip);
+        const GlyphQuadBoundsResult bounded =
+            glyph_quad_clip_range(storage->quads, first_quad, &storage->quad_count, bounds);
+        if (!bounded.ok()) {
+            storage->quad_count = first_quad;
+            storage->last_error = RendererTextBuildError::layout;
+            log_u64(LogLevel::error, "render", "picker_emoji_quad_bounds_error",
+                    static_cast<u64>(bounded.error));
+            shaped_text_reset(&storage->scratch);
+            return false;
+        }
+    }
+    if (!append_text_batch(storage, clip, first_quad, force_new_batch)) {
+        shaped_text_reset(&storage->scratch);
+        storage->last_error = RendererTextBuildError::capacity;
+        return false;
+    }
+    if (flag_projection.count) {
+        for (u32 i = 0; i < layout.hit_region_count; ++i) {
+            const auto& hit = layout.hit_regions[i];
+            if (hit.semantic_index >= flag_projection.count)
+                continue;
+            const float extent = minimum(hit.right - hit.left, hit.bottom - hit.top);
+            const float x = origin_x + (hit.left + hit.right) * .5f;
+            const float y = origin_y + (hit.top + hit.bottom) * .5f;
+            const UiRect rectangle{x - extent * .5f, y - extent * .5f, x + extent * .5f, y + extent * .5f};
+            if (!ui_rect_has_area(ui_rect_intersection(rectangle, clip)))
+                continue;
+            if (renderer->inline_media.count == kRendererInlineFlagCapacity) {
+                saturating_increment(renderer->inline_media.rejected);
+                break;
+            }
+            renderer->inline_media.flags[renderer->inline_media.count++] = {
+                layout_owner, rectangle, clip, flag_projection.flags[hit.semantic_index].sequence,
+                flag_layer};
+        }
+        shaped_text_reset(&storage->scratch);
+        return true;
+    }
+    // Paint-only semantics (composer role colours) never become hit targets.
+    if (!publish_semantics) {
+        if (shape_cache && !from_cache && primary_shape)
+            shaped_text_cache_insert(shape_cache, cache_request, cache_hash, &storage->scratch);
+        shaped_text_reset(&storage->scratch);
+        return true;
+    }
+    u32 semantic_hit_region_count = 0;
+    for (u32 index = 0; index < layout.hit_region_count; ++index) {
+        if (layout.hit_regions[index].semantic_index != selection_semantic_index) {
+            ++semantic_hit_region_count;
+        }
+    }
+    // Message id zero denotes semantics owned by a retained overlay widget.
+    if (semantic_hit_region_count != 0 && message_id == 0 && !layout_owner.manager) {
+        shaped_text_reset(&storage->scratch);
+        storage->last_error = RendererTextBuildError::invalid_state;
+        return false;
+    }
+    if (semantic_hit_region_count >
+        storage->content_hit_region_capacity - storage->content_hit_region_count) {
+        shaped_text_reset(&storage->scratch);
+        storage->last_error = RendererTextBuildError::capacity;
+        return false;
+    }
+    for (u32 index = 0; index < semantic_count; ++index) {
+        const MessageMarkdownSemantic& semantic = semantics[index];
+        storage->content_semantics[storage->content_semantic_count++] =
+            MessageTextSemantic{message_id,
+                                semantic.target,
+                                message_revision,
+                                semantic.source_offset,
+                                semantic.source_bytes,
+                                semantic.kind,
+                                semantic.reserved};
+    }
+    for (u32 index = 0; index < layout.hit_region_count; ++index) {
+        const TextHitRegion& local = layout.hit_regions[index];
+        if (local.semantic_index == selection_semantic_index) {
+            continue;
+        }
+        const u16 semantic_index = static_cast<u16>(semantic_base + local.semantic_index);
+        const float left = maximum(clip.left, origin_x + local.left);
+        const float top = maximum(clip.top, origin_y + local.top);
+        const float right = minimum(clip.right, origin_x + local.right);
+        const float bottom = minimum(clip.bottom, origin_y + local.bottom);
+        if (right > left && bottom > top) {
+            const bool flag_cell = semantic_index < storage->content_semantic_count &&
+                                   storage->content_semantics[semantic_index].message_id != 0 &&
+                                   storage->content_semantics[semantic_index].kind ==
+                                       MessageMarkdownSemanticKind::regional_flag;
+            // Hit ranges supply the full em cell to media; the viewport's
+            // scissor clips artwork without shrinking or recentering it.
+            // Other semantic and overlay hit rectangles retain their clips.
+            storage->content_hit_regions[storage->content_hit_region_count++] =
+                flag_cell
+                    ? TextHitRegion{origin_x + local.left,   origin_y + local.top, origin_x + local.right,
+                                    origin_y + local.bottom, semantic_index, 0}
+                    : TextHitRegion{left, top, right, bottom, semantic_index, 0};
+        }
+    }
+    if (shape_cache && !from_cache && primary_shape)
+        shaped_text_cache_insert(shape_cache, cache_request, cache_hash, &storage->scratch);
+    shaped_text_reset(&storage->scratch);
+    return true;
+}
+
+Color profile_tone(Color c, float light_scale, float floor = 0, float saturation_scale = 1,
+                   float light_add = 0, float ceiling = 1) noexcept {
+    const float hi = maximum(c.red, maximum(c.green, c.blue)),
+                lo = minimum(c.red, minimum(c.green, c.blue));
+    const float old_l = (hi + lo) * .5f, old_c = hi - lo;
+    const float denominator = 1 - (old_l > .5f ? 2 * old_l - 1 : 1 - 2 * old_l);
+    const float saturation = denominator > 0 ? minimum(1.f, old_c / denominator * saturation_scale) : 0;
+    const float l = minimum(ceiling, maximum(floor, old_l * light_scale + light_add));
+    const float chroma = (1 - (l > .5f ? 2 * l - 1 : 1 - 2 * l)) * saturation;
+    const float scale = old_c > 0 ? chroma / old_c : 0, minimum_channel = l - chroma * .5f;
+    return {(c.red - lo) * scale + minimum_channel, (c.green - lo) * scale + minimum_channel,
+            (c.blue - lo) * scale + minimum_channel, 1};
+}
+
+bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& command, const Theme& theme,
+                                 bool* atlas_invalidated, bool force_new_batch = false) noexcept {
+    // A partial virtual row can have a label wholly outside the scroll clip
+    // (for example the upper label or emoji above a row's visible gap).
+    // Do not shape/rasterize it or pass an empty owner intersection to glyph clipping.
+    if (!ui_rect_has_area(ui_rect_intersection(command.rectangle, command.clip)))
+        return true;
+    const TextStyleSpan span{0, command.text.bytes, command.style_flags};
+    const auto* composer = renderer->message_composer_scene;
+    const bool composer_edit = composer && composer->model && composer->model->bytes &&
+                               command.owner.manager == &composer->widgets &&
+                               command.owner.handle.slot == composer->edit.slot;
+    const ConstSlice<TextStyleSpan> styles =
+        composer_edit ? ConstSlice<TextStyleSpan>{composer->display_styles, composer->display_style_count}
+        : command.styles.count                   ? command.styles
+        : command.style_flags == text_style_none ? ConstSlice<TextStyleSpan>{}
+                                                 : ConstSlice<TextStyleSpan>{&span, 1};
+    const auto* profile = renderer->profile_scene;
+    const bool bio = profile && profile->active && command.owner.manager == &profile->widgets &&
+                     command.owner.handle.slot == profile->bio_widget.slot;
+    auto bio_semantics =
+        bio ? ConstSlice<MessageMarkdownSemantic>{profile->bio_semantics, profile->bio_semantic_count}
+            : ConstSlice<MessageMarkdownSemantic>{};
+    // Coloured role pills in the draft paint like message role mentions.
+    MessageMarkdownSemantic composer_roles[kMessageComposerProjectionSpanCapacity];
+    u32 composer_role_count = 0;
+    for (u32 index = 0; composer_edit && composer->projection_spans && index < composer->projection_span_count &&
+                        composer_role_count < kMessageComposerProjectionSpanCapacity;
+         ++index) {
+        const auto& projection = composer->projection_spans[index];
+        if (projection.kind != MessageComposerProjectionKind::role || !projection.color ||
+            projection.display_last <= projection.display_first || projection.display_last > command.text.bytes)
+            continue;
+        composer_roles[composer_role_count++] = MessageMarkdownSemantic{
+            projection.target, projection.display_first, projection.display_last - projection.display_first, 0, 0,
+            MessageMarkdownSemanticKind::role_mention, 0};
+    }
+    if (composer_role_count)
+        bio_semantics = {composer_roles, composer_role_count};
+    float shaped_height = 0.0f;
+    const u32 first_quad = renderer->content_text->quad_count;
+    const bool appended = append_content_text(
+        renderer, command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
+        command.rectangle.left, command.rectangle.top, command.clip, command.color, styles,
+        composer_edit || bio ? &theme : nullptr, nullptr, &shaped_height, atlas_invalidated, bio_semantics,
+        0, 0, command.owner, command.horizontal_alignment, command.vertical_alignment, command.wrapping,
+        command.overflow, force_new_batch,
+        composer_edit && composer->model->focused && composer->display_anchor != composer->display_caret,
+        composer_edit ? composer->display_anchor : 0, composer_edit ? composer->display_caret : 0,
+        command.face, command.effect.kind == 8,
+        !composer_edit && !bio &&
+            !(renderer->text_form && renderer->text_form->scene &&
+              command.owner.manager == &renderer->text_form->scene->widgets) &&
+            !(renderer->forum_form && renderer->forum_form->scene &&
+              command.owner.manager == &renderer->forum_form->scene->widgets) &&
+            !(renderer->search_scene && command.owner.manager == &renderer->search_scene->widgets &&
+              command.owner.handle.slot == renderer->search_scene->edit.slot) &&
+            !(renderer->media_picker_scene &&
+              command.owner.manager == &renderer->media_picker_scene->widgets &&
+              command.owner.handle.slot == renderer->media_picker_scene->edit.slot),
+        !composer_edit);
+    if (appended && profile && profile->active && command.owner.manager == &profile->widgets) {
+        UiRect ink{};
+        bool have_ink = false;
+        // Capture native glyph geometry before name effects add shadow copies.
+        // Solid decoration quads (including hover underline) never enlarge the hit.
+        for (u32 i = first_quad; i < renderer->content_text->quad_count; ++i) {
+            const auto& glyph = renderer->content_text->quads[i];
+            if (glyph.u0 < 0 || !glyph.color.alpha)
+                continue;
+            const UiRect bounds{glyph.left, glyph.top, glyph.right, glyph.bottom};
+            if (!ui_rect_has_area(bounds))
+                continue;
+            if (!have_ink) {
+                ink = bounds;
+                have_ink = true;
+            } else {
+                ink.left = minimum(ink.left, bounds.left);
+                ink.top = minimum(ink.top, bounds.top);
+                ink.right = maximum(ink.right, bounds.right);
+                ink.bottom = maximum(ink.bottom, bounds.bottom);
+            }
+        }
+        profile_scene_publish_text_hit(*profile, command.owner, command.rectangle, ink, command.clip);
+    }
+    if (appended && command.effect.kind && command.effect.count &&
+        renderer->text_effect_count < kTextEffectCapacity) {
+        const u32 slot = renderer->text_effect_count++;
+        auto& material = renderer->text_effects.materials[slot];
+        material = {};
+        material.left = command.rectangle.left;
+        material.width = maximum(1.f, ui_rect_width(command.rectangle));
+        if (first_quad < renderer->content_text->quad_count) {
+            float ink_left = renderer->content_text->quads[first_quad].left,
+                  ink_right = renderer->content_text->quads[first_quad].right;
+            for (u32 i = first_quad + 1; i < renderer->content_text->quad_count; ++i) {
+                ink_left = minimum(ink_left, renderer->content_text->quads[i].left);
+                ink_right = maximum(ink_right, renderer->content_text->quads[i].right);
+            }
+            material.left = ink_left;
+            material.width = maximum(1.f, ink_right - ink_left);
+        }
+        material.kind = command.effect.kind;
+        material.count = minimum<u8>(command.effect.count, 8);
+        // Static effects keep the zero initialized above; only motion needs
+        // the live Windows animation preference.
+        if (!renderer->reduced_motion && command.effect.animate && command.effect.kind != 1 &&
+            command.effect.kind != 2 && command.effect.kind != 6) {
+            BOOL animation = TRUE;
+            SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animation, 0);
+            material.animate = animation ? 1.f : 0.f;
+        }
+        material.reserved[0] = static_cast<float>(command.effect.started_ms % 60000) / 1000.f;
+        material.reserved[1] = text_system_font_size(renderer->glyph_text.system, command.style_flags);
+        material.reserved[2] = command.rectangle.top;
+        renderer->text_effect_animated |= material.animate != 0 && command.effect.kind != 1;
+        UiRect effect_ink = command.rectangle;
+        for (u32 i = first_quad; i < renderer->content_text->quad_count; ++i) {
+            const auto& quad = renderer->content_text->quads[i];
+            effect_ink = i == first_quad ? UiRect{quad.left, quad.top, quad.right, quad.bottom}
+                                         : UiRect{minimum(effect_ink.left, quad.left),
+                                                  minimum(effect_ink.top, quad.top),
+                                                  maximum(effect_ink.right, quad.right),
+                                                  maximum(effect_ink.bottom, quad.bottom)};
+        }
+        // Covers the neon halo (4 + .12 em), pop offset (.13 em), gummy scale
+        // and the later outline/shadow passes (< 1 + .02 em).
+        const float reach = 4.f + .5f * material.reserved[1];
+        renderer->text_effect_bounds[slot] = {effect_ink.left - reach, effect_ink.top - reach,
+                                              effect_ink.right + reach, effect_ink.bottom + reach};
+        for (u32 i = 0; i < static_cast<u32>(material.count); ++i) {
+            const u32 c = command.effect.colors[i];
+            material.colors[i] = {((c >> 16) & 255) / 255.f, ((c >> 8) & 255) / 255.f, (c & 255) / 255.f,
+                                  1};
+        }
+        if (command.effect.kind == 3 || command.effect.kind == 4 || command.effect.kind == 5) {
+            const auto base = material.colors[0];
+            material.colors[1] = profile_tone(base, 1.2f);
+            material.colors[2] = profile_tone(base, 1.6f);
+            material.colors[3] = profile_tone(base, .6f);
+            material.colors[4] = profile_tone(base, .2f);
+            material.colors[5] = profile_tone(base, .4f, .12f);
+            material.colors[6] = profile_tone(base, 1, 0, 1.2f, .1f, .6f);
+        }
+        if (command.effect.kind == 7) {
+            auto system = command_text_system(renderer, command.face);
+            wchar_t scratch[4]{};
+            const TextStyleSpan zero_style{0, 1, command.style_flags};
+            const auto zero = text_measure_utf8_styled(&system, utf8_literal("0"), {&zero_style, 1}, 256,
+                                                       64, {scratch, 4}, TextWrapping::no_wrap);
+            u32 units = 0;
+            utf8_utf16_position_for_byte_offset(command.text, command.text.bytes, &units);
+            material.colors[7].alpha =
+                maximum(38.f, units * (zero.ok() ? zero.width : material.reserved[1] * .5f));
+        }
+        if (command.effect.kind == 8) {
+            // Combining glyphs share their shaped cluster's transform origin.
+            auto* quads = renderer->content_text->quads;
+            for (u32 i = first_quad; i < renderer->content_text->quad_count; ++i) {
+                if (quads[i].u0 >= 2.f)
+                    continue;
+                float left = quads[i].left, right = quads[i].right;
+                for (u32 j = first_quad; j < renderer->content_text->quad_count; ++j)
+                    if (quads[j].color.green == quads[i].color.green && quads[j].u0 >= 0) {
+                        left = minimum(left, quads[j].left);
+                        right = maximum(right, quads[j].right);
+                    }
+                quads[i].color.blue = (left + right) * .5f;
+            }
+        }
+        for (u32 i = first_quad; i < renderer->content_text->quad_count; ++i) {
+            if (renderer->content_text->quads[i].u0 >= 2.f)
+                continue;
+            renderer->content_text->quads[i].color.red = -1.f - static_cast<float>(slot);
+            if (command.effect.kind != 8)
+                renderer->content_text->quads[i].color.green = static_cast<float>(i - first_quad);
+        }
+    }
+    if (appended && first_quad < renderer->content_text->quad_count &&
+        renderer->content_text->quads[first_quad].color.red < 0 &&
+        (command.effect.kind == 4 || command.effect.kind == 5)) {
+        auto* storage = renderer->content_text;
+        const u32 count = storage->quad_count - first_quad, passes = command.effect.kind == 5 ? 5 : 4,
+                  extra = count * passes;
+        if (count && extra <= storage->quad_capacity - storage->quad_count) {
+            for (u32 i = count; i > 0; --i)
+                storage->quads[first_quad + extra + i - 1] = storage->quads[first_quad + i - 1];
+            const float dx[4] = {-1, 1, 0, 0}, dy[4] = {0, 0, -1, 1};
+            for (u32 pass = 0; pass < passes; ++pass)
+                for (u32 i = 0; i < count; ++i) {
+                    auto q = storage->quads[first_quad + extra + i];
+                    if (q.u0 >= 2.f)
+                        q.color.alpha = 0.f;
+                    const bool shadow = command.effect.kind == 5 && pass == 0;
+                    const u32 direction = (pass - (command.effect.kind == 5 ? 1 : 0)) % 4;
+                    const float em =
+                        text_system_font_size(renderer->glyph_text.system, command.style_flags);
+                    const float offset =
+                        shadow ? 0.f : ((command.effect.kind == 5 ? .6f : .8f) + .02f * em);
+                    q.left += dx[direction] * offset;
+                    q.right += dx[direction] * offset;
+                    q.top += dy[direction] * offset;
+                    q.bottom += dy[direction] * offset;
+                    q.color.blue = -1;
+                    q.color.green = shadow ? 2.f : 1.f;
+                    storage->quads[first_quad + pass * count + i] = q;
+                }
+            storage->quad_count += extra;
+            if (storage->batch_count)
+                storage->batches[storage->batch_count - 1].quad_count += extra;
+        }
+    }
+    return appended;
+}
+
+bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPresentation* presentation,
+                                 const MessageTextCommand& command, u32 command_index, const Theme& theme,
+                                 bool* atlas_invalidated, bool search_result = false,
+                                 bool force_new_batch = false) noexcept {
+    if (!renderer || !presentation || !atlas_invalidated ||
+        command.measurement_kind > MessageTextMeasurementKind::notice ||
+        (command.measurement_kind != MessageTextMeasurementKind::none &&
+         command.measurement_index >= presentation->measurement_count)) {
+        return false;
+    }
+    if (d3d11_renderer_audio_owner(*renderer, command.owner))
+        return true;
+    if (d3d11_renderer_poll_owner(*renderer, command.owner))
+        return true;
+    const auto* scene = search_result && renderer->search_scene
+                            ? ui_search_scene_message_scene(*renderer->search_scene)
+                            : renderer->message_scene;
+    const auto* users = search_result ? renderer->search_message_users : renderer->user_store;
+    auto* cache = search_result ? renderer->search_message_measure_cache : renderer->message_measure_cache;
+    MessageAuthorLayout header{};
+    if (scene && renderer->chat_state && users &&
+        message_author_layout(*scene, command, *renderer->chat_state, *users, cache, theme, &header,
+                              presentation->guild_members)) {
+        if (!append_content_text_command(renderer, header.name, theme, atlas_invalidated, force_new_batch))
+            return false;
+        const UiTextCommand* decorations[]{&header.name_prefix, &header.name_suffix};
+        for (const auto* decoration : decorations)
+            if (decoration->text.bytes &&
+                !append_content_text_command(renderer, *decoration, theme, atlas_invalidated))
+                return false;
+        const UiBadgeWidget* badges[2 + kUiPluginRenderBadges]{&header.badge, &header.plugin.badge};
+        for (u32 d = 0; d < header.decoration_count; ++d)
+            badges[2 + d] = &header.decorations[d].badge;
+        for (const auto* badge : badges) {
+            if (!badge || !badge->label.bytes)
+                continue;
+            UiTextCommand badge_command{};
+            UiTextCommandStream stream{};
+            if (!ui_text_command_stream_initialize(&stream, {&badge_command, 1}) ||
+                !ui_badge_text(*badge, scene->widgets, theme, &stream) ||
+                !append_content_text_command(renderer, badge_command, theme, atlas_invalidated))
+                return false;
+        }
+        return !header.timestamp.text.bytes ||
+               append_content_text_command(renderer, header.timestamp, theme, atlas_invalidated);
+    }
+    float shaped_height = 0.0f;
+    const bool selected =
+        !search_result && renderer->message_text_selection_message_id == command.message_id &&
+        renderer->message_text_selection_command_identity == command.measurement_identity &&
+        renderer->message_text_selection_revision == command.message_revision &&
+        renderer->message_text_selection_command_index == command_index;
+    const u32 first_semantic = renderer->content_text->content_semantic_count;
+    if (!append_content_text(
+            renderer, command.text, ui_rect_width(command.rectangle), ui_rect_height(command.rectangle),
+            command.rectangle.left, command.rectangle.top, command.clip, command.color, command.styles,
+            command.themed_styles ? &theme : nullptr, &command.inline_role_color, &shaped_height,
+            atlas_invalidated, command.semantics, command.message_id, command.message_revision,
+            command.owner, command.horizontal_alignment, command.vertical_alignment, command.wrapping,
+            command.overflow, force_new_batch, selected, renderer->message_text_selection_anchor,
+            renderer->message_text_selection_caret)) {
+        return false;
+    }
+    {
+        auto& storage = *renderer->content_text;
+        for (u32 i = first_semantic; i < storage.content_semantic_count; ++i) {
+            auto& semantic = storage.content_semantics[i];
+            if (search_result)
+                semantic.reserved |= kRendererSearchSemanticFlag;
+            const u32 source_index = i - first_semantic;
+            if (source_index >= command.semantics.count)
+                continue;
+            const auto& source = command.semantics[source_index];
+            for (u32 j = 0; j < command.styles.count; ++j) {
+                const auto& span = command.styles[j];
+                if ((span.flags & text_style_spoiler) && source.byte_offset >= span.byte_offset &&
+                    source.byte_offset - span.byte_offset < span.byte_count) {
+                    semantic.reserved |= 2u;
+                    break;
+                }
+            }
+        }
+    }
+    (void)shaped_height;
+    return true;
+}
+
+ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer, const Theme& theme,
+                                                   u64 shell_signature, u64 popup_signature,
+                                                   bool include_messages) noexcept {
+    if (d3d11_renderer_login_form_text(renderer))
+        return {shell_signature,
+                0,
+                popup_signature,
+                hash64_mix(content_text_theme_signature(theme),
+                           typography_source_identity(renderer.glyph_text.system)),
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                renderer.dpi,
+                renderer.glyph_text.allocator.evicted_entries,
+                renderer.glyph_text.allocator.full_resets,
+                false};
+    const MessageTextPresentation* presentation = renderer.message_text;
+    const bool settings_active = renderer_settings_page_visible(renderer);
+    const bool friends_active =
+        !settings_active && renderer.friends_scene && renderer.friends_scene->active;
+    const bool browser_active = d3d11_renderer_thread_browser_visible(renderer);
+    const auto* composer =
+        settings_active || friends_active || browser_active ? nullptr : renderer.message_composer_scene;
+    if (!settings_active && renderer.user_store)
+        shell_signature = hash64_mix(shell_signature, renderer.user_store->appearance.revision);
+    if (!settings_active && !friends_active && !browser_active && renderer.thread_header)
+        shell_signature = hash64_mix(shell_signature, renderer.thread_header->revision);
+    if (!settings_active && !friends_active && !browser_active && renderer.message_scene &&
+        renderer.user_store && renderer.chat_state) {
+        // Ordinary row hover changes paint and the action-bar suffix. Only a
+        // visible author name effect changes the retained base glyphs; grouped
+        // rows have no author header to animate.
+        const auto& scene = *renderer.message_scene;
+        const auto* hovered = message_scene_resolve(scene, scene.widgets.hovered);
+        const auto* record = hovered && !hovered->grouped && scene.timeline && scene.timeline->store
+                                 ? message_store_resolve(*scene.timeline->store, hovered->message)
+                                 : nullptr;
+        if (record) {
+            const auto& users = *renderer.user_store;
+            const auto* global = user_appearance_find(users.appearance, record->author_id);
+            const auto* channel =
+                chat_state_store_find_channel(*renderer.chat_state, record->channel_id);
+            const auto* guild =
+                channel ? user_appearance_find(users.appearance, record->author_id, channel->guild_id)
+                        : nullptr;
+            // Match message_author_layout's guild/global style source.
+            const auto* styled = guild && (guild->name.font_id || guild->name.effect_id) ? guild : global;
+            if (styled && profile_name_effect(styled->name, true).kind) {
+                shell_signature = hash64_mix(shell_signature, record->id);
+                shell_signature = hash64_mix(shell_signature, scene.widgets.hover_started_ms);
+            }
+        }
+    }
+    if (composer && composer->active)
+        shell_signature = hash64_counted_bytes(shell_signature, composer->display_styles,
+                                               composer->display_style_count * sizeof(TextStyleSpan));
+    if (composer && composer->model && composer->model->focused &&
+        composer->display_anchor != composer->display_caret) {
+        shell_signature = hash64_mix(shell_signature, composer->display_anchor);
+        shell_signature = hash64_mix(shell_signature, composer->display_caret);
+    }
+    return ContentTextRetentionKey{
+        shell_signature,
+        include_messages && presentation ? presentation->projection_signature : 0,
+        popup_signature,
+        hash64_mix(content_text_theme_signature(theme),
+                   typography_source_identity(renderer.glyph_text.system)),
+        include_messages ? renderer.message_text_selection_message_id : 0,
+        include_messages ? renderer.message_text_selection_command_identity : 0,
+        include_messages ? renderer.message_text_selection_revision : 0,
+        include_messages ? renderer.message_text_selection_command_index : 0,
+        include_messages ? renderer.message_text_selection_anchor : 0,
+        include_messages ? renderer.message_text_selection_caret : 0,
+        renderer.dpi,
+        renderer.glyph_text.allocator.evicted_entries,
+        renderer.glyph_text.allocator.full_resets,
+        include_messages,
+    };
+}
+
+// Friends search borrows composer_layout while the main chat content is
+// covered. The thread browser has no field: the header search bar serves it.
+bool measure_content_search(D3D11Renderer* renderer) noexcept {
+    renderer->friends_search_geometry = {};
+    const auto* scene = renderer->friends_scene;
+    if (!scene || !scene->active || !scene->content || !scene->content->search.active ||
+        (renderer->friends_requests_scene && renderer->friends_requests_scene->active)) {
+        text_edit_layout_invalidate(&renderer->composer_layout);
+        return true;
+    }
+    const auto bounds = ui_friends_scene_search_geometry(*scene).text;
+    const auto& edit = scene->content->search;
+    u32 anchor = 0, caret = 0;
+    if (!ui_rect_has_area(bounds) ||
+        !utf8_utf16_position_for_byte_offset(edit.text, edit.anchor, &anchor) ||
+        !utf8_utf16_position_for_byte_offset(edit.text, edit.caret, &caret)) {
+        text_edit_layout_invalidate(&renderer->composer_layout);
+        return false;
+    }
+    auto& layout = renderer->composer_layout;
+    if (renderer->edit_selection_owner != &layout) {
+        text_edit_layout_invalidate(&renderer->login_edit);
+        renderer->edit_selection_owner = &layout;
+    }
+    layout.selections = renderer->edit_selections;
+    layout.selection_capacity = kTextEditSelectionCapacity;
+    if (!text_edit_layout_measure(
+            &layout,
+            {edit.text, text_edit_signature(edit.text), anchor, caret, bounds.left, bounds.top,
+             ui_rect_width(bounds), ui_rect_height(bounds), kMaximumUiCoordinate,
+             text_edit_layout_center_vertically | text_edit_layout_scroll_to_caret},
+            renderer->glyph_text.system)) {
+        text_edit_layout_invalidate(&layout);
+        return false;
+    }
+    auto& geometry = renderer->friends_search_geometry;
+    // A long query may scroll its origin more than one viewport width. Keep
+    // the draw rectangle intersecting the actual visible text clip.
+    geometry.text = {layout.origin_x, layout.origin_y,
+                     maximum(bounds.right, layout.origin_x + maximum(layout.width, 1.f)),
+                     layout.origin_y + maximum(layout.layout_height, 1.f)};
+    geometry.caret = {layout.caret.left, layout.caret.top, layout.caret.left + 1,
+                      layout.caret.top + layout.caret.height};
+    if (layout.selection_count > kTextEditSelectionCapacity)
+        return false;
+    geometry.selection_count = layout.selection_count;
+    for (u32 i = 0; i < layout.selection_count; ++i) {
+        const auto& selection = layout.selections[i];
+        geometry.selections[i] = {selection.left, selection.top, selection.left + selection.width,
+                                  selection.top + selection.height};
+    }
+    return true;
+}
+
+bool measure_message_search(D3D11Renderer* renderer) noexcept {
+    renderer->search_edit_geometry = {};
+    if (!d3d11_renderer_search_visible(*renderer)) {
+        text_edit_layout_invalidate(&renderer->search_layout);
+        return true;
+    }
+    const auto& scene = *renderer->search_scene;
+    const auto& edit = scene.content->edit;
+    const auto bounds = scene.text;
+    u32 anchor = 0, caret = 0;
+    if (!utf8_utf16_position_for_byte_offset(edit.text, edit.anchor, &anchor) ||
+        !utf8_utf16_position_for_byte_offset(edit.text, edit.caret, &caret))
+        return false;
+    auto& layout = renderer->search_layout;
+    layout.selections = renderer->search_edit_selections;
+    layout.selection_capacity = kTextEditSelectionCapacity;
+    if (!text_edit_layout_measure(
+            &layout,
+            {edit.text, text_edit_signature(edit.text), anchor, caret, bounds.left, bounds.top,
+             ui_rect_width(bounds), ui_rect_height(bounds), kMaximumUiCoordinate,
+             text_edit_layout_center_vertically | text_edit_layout_scroll_to_caret},
+            renderer->glyph_text.system))
+        return false;
+    auto& geometry = renderer->search_edit_geometry;
+    geometry.text = {layout.origin_x, layout.origin_y,
+                     maximum(bounds.right, layout.origin_x + maximum(layout.width, 1.f)),
+                     layout.origin_y + maximum(layout.layout_height, 1.f)};
+    geometry.caret = {layout.caret.left, layout.caret.top, layout.caret.left + 1,
+                      layout.caret.top + layout.caret.height};
+    geometry.selection_count = layout.selection_count;
+    if (geometry.selection_count > kTextEditSelectionCapacity)
+        return false;
+    for (u32 i = 0; i < geometry.selection_count; ++i) {
+        const auto& metric = layout.selections[i];
+        geometry.selections[i] = {metric.left, metric.top, metric.left + metric.width,
+                                  metric.top + metric.height};
+    }
+    return true;
+}
+bool measure_media_picker(D3D11Renderer* renderer) noexcept {
+    renderer->media_picker_edit_geometry = {};
+    auto& layout = renderer->media_picker_layout;
+    const bool quick = d3d11_renderer_quick_switcher_visible(*renderer);
+    const bool forward = d3d11_renderer_message_forward_visible(*renderer);
+    if (!quick && !forward && !d3d11_renderer_media_picker_visible(*renderer)) {
+        text_edit_layout_invalidate(&layout);
+        return true;
+    }
+    const auto& edit = forward ? renderer->message_forward_scene->content->edit
+                       : quick ? renderer->quick_switcher_scene->content->edit
+                               : renderer->media_picker_scene->content->edit;
+    const auto bounds = forward ? renderer->message_forward_scene->text
+                        : quick ? renderer->quick_switcher_scene->text
+                                : renderer->media_picker_scene->text;
+    u32 anchor = 0, caret = 0;
+    if (!ui_rect_has_area(bounds) ||
+        !utf8_utf16_position_for_byte_offset(edit.text, edit.anchor, &anchor) ||
+        !utf8_utf16_position_for_byte_offset(edit.text, edit.caret, &caret)) {
+        text_edit_layout_invalidate(&layout);
+        return false;
+    }
+    layout.selections = renderer->media_picker_edit_selections;
+    layout.selection_capacity = kTextEditSelectionCapacity;
+    if (!text_edit_layout_measure(
+            &layout,
+            {edit.text, text_edit_signature(edit.text), anchor, caret, bounds.left, bounds.top,
+             ui_rect_width(bounds), ui_rect_height(bounds), kMaximumUiCoordinate,
+             text_edit_layout_center_vertically | text_edit_layout_scroll_to_caret},
+            renderer->glyph_text.system)) {
+        text_edit_layout_invalidate(&layout);
+        return false;
+    }
+    auto& geometry = renderer->media_picker_edit_geometry;
+    geometry.text = {layout.origin_x, layout.origin_y,
+                     maximum(bounds.right, layout.origin_x + maximum(layout.width, 1.f)),
+                     layout.origin_y + maximum(layout.layout_height, 1.f)};
+    geometry.caret = {layout.caret.left, layout.caret.top, layout.caret.left + 1,
+                      layout.caret.top + layout.caret.height};
+    if (layout.selection_count > kTextEditSelectionCapacity)
+        return false;
+    geometry.selection_count = layout.selection_count;
+    for (u32 i = 0; i < layout.selection_count; ++i) {
+        const auto& metric = layout.selections[i];
+        geometry.selections[i] = {metric.left, metric.top, metric.left + metric.width,
+                                  metric.top + metric.height};
+    }
+    return true;
+}
+struct TextOverlayBoundaries {
+    u32 friends_end, media_picker_start, media_picker_end, menu_start, form_start, forum_end;
+    u32 popup_start, popup_end, settings_choice_start, settings_choice_end, theme_editor_start,
+        theme_editor_end, profile_start, profile_end;
+    u32 search_rich_start{}, search_rich_end{};
+    u32 audio_start{}, audio_end{};
+    u32 poll_start{}, poll_end{};
+    // Profile editor overlays on a settings page (~0u: none this frame).
+    u32 settings_preview_start{~0u}, settings_preview_end{~0u}, settings_dialog_start{~0u}, settings_dialog_end{~0u};
+};
+
+bool search_message_command(const D3D11Renderer& renderer, u32 index, MessageTextCommand* native,
+                            UiTextCommand* neutral) noexcept {
+    const auto* presentation = renderer.search_message_text;
+    if (!native || !neutral || !presentation || !presentation->active ||
+        !d3d11_renderer_search_visible(renderer) || index >= presentation->command_count)
+        return false;
+    *native = presentation->commands[index];
+    native->clip = ui_search_scene_content_clip(*renderer.search_scene, native->clip);
+    if (!native->text.bytes || !ui_rect_has_area(native->rectangle) || !ui_rect_has_area(native->clip))
+        return false;
+    *neutral = {};
+    neutral->text = native->text;
+    neutral->owner = native->owner;
+    neutral->rectangle = native->rectangle;
+    neutral->clip = native->clip;
+    neutral->color = native->color;
+    neutral->styles = native->styles;
+    neutral->horizontal_alignment = native->horizontal_alignment;
+    neutral->vertical_alignment = native->vertical_alignment;
+    neutral->wrapping = native->wrapping;
+    neutral->overflow = native->overflow;
+    return true;
+}
+bool project_search_message_text(D3D11Renderer* renderer, UiTextEmitter* emitter) noexcept {
+    const auto* presentation = renderer->search_message_text;
+    if (!d3d11_renderer_search_visible(*renderer) || !presentation || !presentation->active)
+        return true;
+    if (presentation->command_count > presentation->commands.count)
+        return false;
+    UiTextOutput output{nullptr, emitter};
+    for (u32 i = 0; i < presentation->command_count; ++i) {
+        MessageTextCommand native{};
+        UiTextCommand neutral{};
+        if (search_message_command(*renderer, i, &native, &neutral) &&
+            !ui_text_output_push(&output, neutral))
+            return false;
+    }
+    // Semantic/reveal changes can preserve identical displayed bytes.
+    emitter->signature = hash64_mix(emitter->signature, presentation->projection_signature);
+    return true;
+}
+void reset_motion_text_ranges(D3D11Renderer* renderer, u32 batch) noexcept {
+    renderer->forum_text_end_batch = batch;
+    renderer->profile_text_first_batch = renderer->profile_text_end_batch = batch;
+    renderer->theme_editor_text_first_batch = renderer->theme_editor_text_end_batch = batch;
+    renderer->settings_page_text_first_batch = renderer->settings_page_text_end_batch = batch;
+    renderer->popup_text_first_batch = renderer->popup_text_end_batch = batch;
+    renderer->settings_choice_text_first_batch = renderer->settings_choice_text_end_batch = batch;
+    renderer->settings_preview_text_first_batch = renderer->settings_preview_text_end_batch = batch;
+    renderer->settings_dialog_text_first_batch = renderer->settings_dialog_text_end_batch = batch;
+}
+struct OverlayReservation {
+    u32 capacity, quads;
+};
+bool reserve_overlay_text(void* context, const UiTextCommand& command, u32) noexcept {
+    auto& reserve = *static_cast<OverlayReservation*>(context);
+    const u64 requested = static_cast<u64>(command.text.bytes) + 2u;
+    reserve.quads += static_cast<u32>(minimum<u64>(requested, reserve.capacity - reserve.quads));
+    return true;
+}
+struct BrowserShellTextFilter {
+    UiTextEmitter* target;
+    UiRect panel;
+};
+bool emit_browser_shell_text(void* context, const UiTextCommand& command, u32) noexcept {
+    const auto& filter = *static_cast<BrowserShellTextFilter*>(context);
+    const auto visible = ui_rect_intersection(command.rectangle, command.clip);
+    if (visible.left >= filter.panel.left && visible.top >= filter.panel.top &&
+        visible.right <= filter.panel.right && visible.bottom <= filter.panel.bottom)
+        return true;
+    UiTextOutput output{nullptr, filter.target};
+    return ui_text_output_push(&output, command);
+}
+// The shell before the member list rows, which end the shell's commands.
+bool project_shell_static_text(D3D11Renderer* renderer, const Theme& theme,
+                               UiTextEmitter* emitter) noexcept {
+    if (d3d11_renderer_login_form_text(*renderer)) {
+        const auto& cached = *renderer->login_form_text;
+        if (!cached.valid)
+            return false;
+        UiTextOutput output{nullptr, emitter};
+        for (u32 i = 0; i < cached.projection.count; ++i)
+            if (!ui_text_output_push(&output, cached.projection.storage[i]))
+                return false;
+        return true;
+    }
+    const bool settings = renderer_settings_page_visible(*renderer);
+    const bool friends = !settings && renderer->friends_scene && renderer->friends_scene->active;
+    const bool browser = d3d11_renderer_thread_browser_visible(*renderer);
+    const bool hidden = friends || browser;
+    BrowserShellTextFilter filter{emitter, browser ? renderer->thread_browser_scene->panel : UiRect{}};
+    UiTextEmitter filtered{};
+    if (browser && !ui_text_emitter_initialize(&filtered, emit_browser_shell_text, &filter))
+        return false;
+    UiTextOutput output{nullptr, browser ? &filtered : emitter};
+    UiRect composer_rectangle{};
+    const UiRect* composer = nullptr;
+    if (!settings && !hidden && renderer->composer_layout.active &&
+        renderer->composer_layout.layout_height > 0) {
+        const auto& layout = renderer->composer_layout;
+        composer_rectangle = {layout.origin_x, layout.origin_y, layout.origin_x + layout.width,
+                              layout.origin_y + layout.layout_height};
+        composer = &composer_rectangle;
+    }
+    if (!settings &&
+        !shell_text_presentation_build_output(
+            *renderer->ui_scene, *renderer->chat_state, *renderer->navigation_view, theme,
+            *renderer->shell_navigation_scene, hidden ? nullptr : renderer->message_composer_scene, nullptr,
+            composer, &output, renderer->user_store, renderer->guild_rail_scene,
+            browser ? renderer->thread_browser_scene->view->parent_id : 0))
+        return false;
+    output.emitter = emitter;
+    const bool projected =
+        (settings || hidden || !renderer->thread_header ||
+         ui_thread_header_text(*renderer->thread_header, theme, &output)) &&
+        (!friends || ui_friends_scene_text_output(*renderer->friends_scene, theme, &output,
+                                                  &renderer->friends_search_geometry)) &&
+        (!browser || ui_thread_browser_scene_text_output(*renderer->thread_browser_scene, theme, &output));
+    if (projected && d3d11_renderer_audio_scene_visible(*renderer)) {
+        // Selected audio replaces this attachment's static labels. Guard that
+        // omission in the retained base; elapsed time remains suffix-only.
+        const auto owner = renderer->audio_scene->owner;
+        emitter->signature = hash64_mix(emitter->signature, reinterpret_cast<usize>(owner.manager));
+        emitter->signature = hash64_mix(emitter->signature, owner.handle.slot);
+        emitter->signature = hash64_mix(emitter->signature, owner.handle.generation);
+    }
+    if (projected && d3d11_renderer_poll_scene_visible(*renderer)) {
+        const auto owner = renderer->poll_scene->owner;
+        emitter->signature = hash64_mix(emitter->signature, reinterpret_cast<usize>(owner.manager));
+        emitter->signature = hash64_mix(emitter->signature, owner.handle.slot);
+        emitter->signature = hash64_mix(emitter->signature, owner.handle.generation);
+    }
+    return projected;
+}
+// The member list rows, appended after the static shell in the same emitter.
+bool project_shell_member_text(D3D11Renderer* renderer, const Theme& theme,
+                               UiTextEmitter* emitter) noexcept {
+    if (d3d11_renderer_login_form_text(*renderer) || renderer_settings_page_visible(*renderer) ||
+        (renderer->friends_scene && renderer->friends_scene->active) ||
+        d3d11_renderer_thread_browser_visible(*renderer) || !renderer->member_list_scene)
+        return true;
+    UiTextOutput output{nullptr, emitter};
+    return shell_text_presentation_member_output(*renderer->member_list_scene, theme, &output);
+}
+bool project_shell_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmitter* emitter) noexcept {
+    return project_shell_static_text(renderer, theme, emitter) &&
+           project_shell_member_text(renderer, theme, emitter);
+}
+bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmitter* emitter,
+                          TextOverlayBoundaries* boundaries) noexcept {
+    if (d3d11_renderer_login_form_text(*renderer)) {
+        *boundaries = {};
+        UiTextOutput output{nullptr, emitter};
+        return !renderer->text_form || !renderer->text_form->scene || !renderer->text_form->scene->active ||
+               (renderer->text_form->scene->content.confirmation_only &&
+                text_form_text_output(*renderer->text_form->scene, renderer->text_form->geometry, theme,
+                                      &output));
+    }
+    const bool settings = renderer_settings_page_visible(*renderer);
+    const bool friends = !settings && renderer->friends_scene && renderer->friends_scene->active;
+    const bool requests =
+        !settings && renderer->friends_requests_scene && renderer->friends_requests_scene->active;
+    const bool form =
+        renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active;
+    const bool forum =
+        renderer->forum_form && renderer->forum_form->scene && renderer->forum_form->scene->active;
+    const auto popup_edit = settings ? UiEditGeometry{} : d3d11_renderer_popup_edit_geometry(*renderer);
+    const auto profile_edit = settings ? UiEditGeometry{} : d3d11_renderer_profile_edit_geometry(*renderer);
+    UiTextOutput output{nullptr, emitter};
+    if (settings) {
+        boundaries->friends_end = boundaries->menu_start = 0;
+        if (!ui_settings_scene_text_output(*renderer->settings_scene, theme, &output))
+            return false;
+        // The profile editor's preview card draws its text over its media.
+        const auto* preview = renderer->settings_profile_preview;
+        boundaries->settings_preview_start = emitter->count;
+        if (preview && preview->active && !profile_scene_text_output(*preview, theme, &output, nullptr))
+            return false;
+        boundaries->settings_preview_end = emitter->count;
+        boundaries->form_start = emitter->count;
+        boundaries->popup_start = boundaries->popup_end = emitter->count;
+        boundaries->settings_choice_start = emitter->count;
+        const auto* popup = d3d11_renderer_settings_popup(*renderer);
+        if (popup && !popup_text_presentation_build_output(*popup, theme, &output))
+            return false;
+        boundaries->settings_choice_end = emitter->count;
+        const auto* dialog = renderer->settings_profile_dialog;
+        boundaries->settings_dialog_start = emitter->count;
+        if (dialog && dialog->active && !ui_profile_dialog_text_output(*dialog, theme, &output))
+            return false;
+        boundaries->settings_dialog_end = emitter->count;
+        boundaries->theme_editor_start = boundaries->theme_editor_end = emitter->count;
+        boundaries->form_start = emitter->count;
+        if (forum && !forum_post_text_output(*renderer->forum_form->scene, renderer->forum_form->geometry,
+                                             theme, &output))
+            return false;
+        boundaries->forum_end = emitter->count;
+        return !form || text_form_text_output(*renderer->text_form->scene, renderer->text_form->geometry,
+                                              theme, &output);
+    }
+    // The call view leads the side-panel text range, above the base content.
+    if (d3d11_renderer_call_visible(*renderer) &&
+        !ui_call_scene_text_output(*renderer->call_scene, theme, &output))
+        return false;
+    if (d3d11_renderer_unread_banner_visible(*renderer) &&
+        !ui_unread_banner_text_output(*renderer->unread_banner_scene, theme, &output))
+        return false;
+    if (d3d11_renderer_video_scene_visible(*renderer)) {
+        const auto* video_owner = renderer->video_scene_search_result && renderer->search_scene
+                                      ? ui_search_scene_message_scene(*renderer->search_scene)
+                                      : renderer->message_scene;
+        if (!video_owner || !ui_video_scene_text_output(*renderer->video_scene, theme, &output,
+                                                        {&video_owner->widgets, video_owner->root}))
+            return false;
+    }
+    if (d3d11_renderer_search_visible(*renderer) &&
+        !ui_search_scene_text_output(*renderer->search_scene, theme, &output,
+                                     &renderer->search_edit_geometry))
+        return false;
+    boundaries->search_rich_start = emitter->count;
+    if (!project_search_message_text(renderer, emitter))
+        return false;
+    boundaries->search_rich_end = emitter->count;
+    if (d3d11_renderer_pinned_messages_visible(*renderer) &&
+        !ui_pinned_messages_scene_text_output(*renderer->pinned_messages_scene, theme, &output))
+        return false;
+    if (requests &&
+        !ui_friends_scene_text_output(*renderer->friends_requests_scene, theme, &output, nullptr))
+        return false;
+    boundaries->friends_end = emitter->count;
+    boundaries->media_picker_start = emitter->count;
+    if (d3d11_renderer_media_picker_visible(*renderer) &&
+        !ui_media_picker_scene_text_output(*renderer->media_picker_scene, theme, &output,
+                                           &renderer->media_picker_edit_geometry))
+        return false;
+    boundaries->media_picker_end = emitter->count;
+    // The action bar's opaque panel is painted after the gallery range. Its
+    // quick-reaction glyphs must belong to the following text range as well.
+    // Beside a call its text chat keeps the toolbar (as painted in layout).
+    if (!friends && !d3d11_renderer_thread_browser_visible(*renderer) &&
+        (!d3d11_renderer_call_visible(*renderer) || renderer->call_scene->chat_open) &&
+        !(renderer->profile_scene && renderer->profile_scene->active) &&
+        !d3d11_renderer_media_picker_visible(*renderer) && renderer->message_action_bar &&
+        !d3d11_renderer_message_modal_active(*renderer) && renderer->message_action_bar->active &&
+        !message_action_bar_text_presentation_build_output(*renderer->message_action_bar, theme, &output))
+        return false;
+    boundaries->profile_start = emitter->count;
+    if (!settings && renderer->profile_scene &&
+        !profile_scene_text_output(*renderer->profile_scene, theme, &output, &profile_edit))
+        return false;
+    boundaries->profile_end = emitter->count;
+    boundaries->menu_start = emitter->count;
+    boundaries->popup_start = emitter->count;
+    if (d3d11_renderer_download_visible(*renderer) &&
+        !ui_download_scene_text_output(*renderer->download_scene, theme, &output))
+        return false;
+    if (d3d11_renderer_message_forward_visible(*renderer) &&
+        !ui_message_forward_scene_text_output(*renderer->message_forward_scene, theme, &output,
+                                              &renderer->media_picker_edit_geometry, &popup_edit))
+        return false;
+    boundaries->audio_start = emitter->count;
+    if (d3d11_renderer_audio_scene_visible(*renderer) &&
+        !ui_audio_scene_text_output(*renderer->audio_scene, &output))
+        return false;
+    boundaries->audio_end = emitter->count;
+    boundaries->poll_start = emitter->count;
+    if (d3d11_renderer_poll_scene_visible(*renderer) &&
+        !ui_poll_scene_text_output(*renderer->poll_scene, &output))
+        return false;
+    if (d3d11_renderer_poll_voters_visible(*renderer) &&
+        !ui_poll_voters_scene_text_output(*renderer->poll_voters_scene, &output))
+        return false;
+    boundaries->poll_end = emitter->count;
+    if (d3d11_renderer_inbox_visible(*renderer) &&
+        !ui_inbox_scene_text_output(*renderer->inbox_scene, theme, &output))
+        return false;
+    if (d3d11_renderer_stream_card_visible(*renderer) &&
+        !ui_stream_card_text_output(*renderer->stream_card_scene, theme, &output))
+        return false;
+    if (d3d11_renderer_guild_card_visible(*renderer) &&
+        !ui_guild_card_text_output(*renderer->guild_card_scene, theme, &output))
+        return false;
+    if (d3d11_renderer_quick_switcher_visible(*renderer) &&
+        !ui_quick_switcher_scene_text_output(*renderer->quick_switcher_scene, theme, &output,
+                                             &renderer->media_picker_edit_geometry))
+        return false;
+    if (d3d11_renderer_shortcuts_visible(*renderer) &&
+        !ui_shortcuts_scene_text_output(*renderer->shortcuts_scene, theme, &output))
+        return false;
+    if (renderer->popup_scene && renderer->popup_scene->active &&
+        !popup_text_presentation_build_output(*renderer->popup_scene, theme, &output))
+        return false;
+    boundaries->popup_end = emitter->count;
+    boundaries->settings_choice_start = boundaries->settings_choice_end = emitter->count;
+    if (renderer->reaction_viewer && renderer->reaction_viewer->active &&
+        !reaction_viewer_text_presentation_build_output(*renderer->reaction_viewer, theme, &output))
+        return false;
+    if (!settings && renderer->image_viewer &&
+        !ui_image_viewer_text_output(*renderer->image_viewer, theme, &output))
+        return false;
+    boundaries->theme_editor_start = emitter->count;
+    // Hosted video time glyphs follow their bar in the viewer's upper layer.
+    if (!settings && d3d11_renderer_viewer_video_visible(*renderer) &&
+        !ui_video_scene_text_output(*renderer->video_scene, theme, &output, renderer->image_viewer->owner))
+        return false;
+
+    if (renderer_theme_editor_visible(*renderer) &&
+        !ui_theme_editor_text_output(*renderer->theme_editor_scene, theme, &output))
+        return false;
+    boundaries->theme_editor_end = emitter->count;
+    boundaries->form_start = emitter->count;
+    if (forum && !forum_post_text_output(*renderer->forum_form->scene, renderer->forum_form->geometry,
+                                         theme, &output))
+        return false;
+    boundaries->forum_end = emitter->count;
+    return (!form || text_form_text_output(*renderer->text_form->scene, renderer->text_form->geometry,
+                                           theme, &output)) &&
+           (!renderer_settings_page_visible(*renderer) ||
+            ui_settings_scene_text_output(*renderer->settings_scene, theme, &output)) &&
+           (!d3d11_renderer_tooltip_visible(*renderer) ||
+            ui_tooltip_text_output(*renderer->tooltip_scene, theme, &output));
+}
+struct TextRasterConsumer {
+    D3D11Renderer* renderer;
+    const Theme* theme;
+    bool* atlas_invalidated;
+    const TextOverlayBoundaries* boundaries;
+    bool overlay;
+    bool pending_boundary{}, settings_page_started{}, previous_settings_page{};
+    u32 search_command_cursor{};
+};
+bool raster_text_command(void* context, const UiTextCommand& command, u32 ordinal) noexcept {
+    auto& raster = *static_cast<TextRasterConsumer*>(context);
+    auto* renderer = raster.renderer;
+    bool boundary = false;
+    if (raster.overlay) {
+        const auto& bounds = *raster.boundaries;
+        const bool settings = renderer_settings_page_visible(*renderer);
+        const bool form =
+            ((renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active) ||
+             (renderer->forum_form && renderer->forum_form->scene &&
+              renderer->forum_form->scene->active)) ||
+            d3d11_renderer_tooltip_visible(*renderer);
+        if (ordinal == bounds.friends_end)
+            renderer->friends_requests_text_end_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.media_picker_start)
+            renderer->media_picker_text_first_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.media_picker_end)
+            renderer->media_picker_text_end_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.menu_start)
+            renderer->menu_text_first_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.profile_start)
+            renderer->profile_text_first_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.profile_end)
+            renderer->profile_text_end_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.theme_editor_start)
+            renderer->theme_editor_text_first_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.theme_editor_end)
+            renderer->theme_editor_text_end_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.popup_start)
+            renderer->popup_text_first_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.popup_end)
+            renderer->popup_text_end_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.settings_choice_start)
+            renderer->settings_choice_text_first_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.settings_choice_end)
+            renderer->settings_choice_text_end_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.settings_preview_start)
+            renderer->settings_preview_text_first_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.settings_preview_end)
+            renderer->settings_preview_text_end_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.settings_dialog_start)
+            renderer->settings_dialog_text_first_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.settings_dialog_end)
+            renderer->settings_dialog_text_end_batch = renderer->content_text->batch_count;
+        if ((form || settings) && ordinal == bounds.form_start)
+            renderer->form_text_first_batch = renderer->content_text->batch_count;
+        if (ordinal == bounds.forum_end)
+            renderer->forum_text_end_batch = renderer->content_text->batch_count;
+        boundary = ordinal == 0 || ordinal == bounds.friends_end || ordinal == bounds.media_picker_start ||
+                   ordinal == bounds.media_picker_end || ordinal == bounds.menu_start ||
+                   ordinal == bounds.profile_start || ordinal == bounds.profile_end ||
+                   ordinal == bounds.popup_start || ordinal == bounds.popup_end ||
+                   ordinal == bounds.settings_choice_start || ordinal == bounds.settings_choice_end ||
+                   ordinal == bounds.theme_editor_start || ordinal == bounds.theme_editor_end ||
+                   ordinal == bounds.settings_preview_start || ordinal == bounds.settings_preview_end ||
+                   ordinal == bounds.settings_dialog_start || ordinal == bounds.settings_dialog_end ||
+                   ((form || settings) && (ordinal == bounds.form_start || ordinal == bounds.forum_end));
+    }
+    const bool page = raster.overlay && renderer_settings_page_visible(*renderer) &&
+                      ui_settings_scene_page_owner(*renderer->settings_scene, command.owner);
+    boundary = boundary || page != raster.previous_settings_page;
+    if (page && !raster.settings_page_started) {
+        renderer->settings_page_text_first_batch = renderer->content_text->batch_count;
+        raster.settings_page_started = true;
+    }
+    raster.previous_settings_page = page;
+    raster.pending_boundary = raster.pending_boundary || boundary;
+    const u32 previous_batches = renderer->content_text->batch_count;
+    bool appended{};
+    if (raster.overlay && ordinal >= raster.boundaries->search_rich_start &&
+        ordinal < raster.boundaries->search_rich_end) {
+        const auto* presentation = renderer->search_message_text;
+        MessageTextCommand native{};
+        UiTextCommand neutral{};
+        bool found = false;
+        while (presentation && raster.search_command_cursor < presentation->command_count) {
+            const u32 index = raster.search_command_cursor++;
+            if (!search_message_command(*renderer, index, &native, &neutral))
+                continue;
+            // The hashing and raster visitors walk the same immutable projection.
+            if (neutral.text.data != command.text.data || neutral.text.bytes != command.text.bytes ||
+                neutral.owner.manager != command.owner.manager ||
+                neutral.owner.handle.slot != command.owner.handle.slot ||
+                !ui_rect_equal(neutral.clip, command.clip))
+                return false;
+            appended = append_message_text_command(renderer, presentation, native, index, *raster.theme,
+                                                   raster.atlas_invalidated, true, raster.pending_boundary);
+            found = true;
+            break;
+        }
+        if (!found)
+            return false;
+    } else {
+        const bool selected_audio_text = raster.overlay && ordinal >= raster.boundaries->audio_start &&
+                                         ordinal < raster.boundaries->audio_end;
+        const bool selected_poll_text = raster.overlay && ordinal >= raster.boundaries->poll_start &&
+                                        ordinal < raster.boundaries->poll_end;
+        appended = ((!selected_audio_text && d3d11_renderer_audio_owner(*renderer, command.owner)) ||
+                    (!selected_poll_text && d3d11_renderer_poll_owner(*renderer, command.owner)))
+                       ? true
+                       : append_content_text_command(renderer, command, *raster.theme,
+                                                     raster.atlas_invalidated, raster.pending_boundary);
+    }
+    // Culled or zero-glyph commands must not consume a layer boundary: the
+    // next emitted batch still belongs wholly to the new layer.
+    if (renderer->content_text->batch_count != previous_batches)
+        raster.pending_boundary = false;
+    if (page)
+        renderer->settings_page_text_end_batch = renderer->content_text->batch_count;
+    return appended && !*raster.atlas_invalidated;
+}
+
+// Revisions and positions of every scene and store the shell projection
+// reads. The host only offers a scroll_hint when no account source changed;
+// this stamp still catches pointer, layout and composer changes in between.
+u32 float_word(float value) noexcept {
+    union {
+        float number;
+        u32 word;
+    } bits{value};
+    return bits.word;
+}
+
+u64 shell_scene_stamp(const D3D11Renderer& renderer) noexcept {
+    u64 hash = kHash64Seed;
+    const auto mix = [&hash](u64 value) noexcept { hash = hash64_mix(hash, value); };
+    const auto widgets = [&mix](const UiWidgetManager& manager) noexcept {
+        mix(manager.hovered.slot);
+        mix(manager.hovered.generation);
+        mix(manager.hover_started_ms);
+        mix(manager.focused.slot);
+        mix(manager.focused.generation);
+        mix(manager.count);
+        mix(manager.generation);
+    };
+    const auto scroll = [&mix](float value) noexcept { mix(float_word(value)); };
+    if (const auto* scene = renderer.ui_scene) {
+        mix(reinterpret_cast<usize>(scene));
+        mix(scene->layout_passes);
+        mix(scene->layout_rebuilds);
+        mix(scene->layout_metrics_revision);
+        mix(scene->generation);
+        mix(static_cast<u8>(scene->view));
+        mix(scene->guild_menu_expanded);
+        widgets(scene->widgets);
+    }
+    if (const auto* scene = renderer.shell_navigation_scene) {
+        mix(scene->rebuilds);
+        mix(scene->layout_passes);
+        mix(scene->source_revision);
+        mix(scene->first);
+        mix(scene->count);
+        scroll(scene->scroll_dips);
+        widgets(scene->widgets);
+    }
+    if (const auto* scene = renderer.member_list_scene) {
+        mix(scene->rebuilds);
+        mix(scene->layout_passes);
+        mix(scene->source_revision);
+        mix(scene->first);
+        mix(scene->count);
+        mix(scene->active);
+        scroll(scene->scroll_dips);
+        widgets(scene->widgets);
+    }
+    if (const auto* scene = renderer.guild_rail_scene) {
+        mix(scene->rebuilds);
+        mix(scene->layout_passes);
+        mix(scene->data_updates);
+        mix(scene->source_revision);
+        mix(scene->first);
+        mix(scene->count);
+        mix(scene->active);
+        scroll(scene->scroll_dips);
+        widgets(scene->widgets);
+    }
+    if (const auto* composer = renderer.message_composer_scene) {
+        mix(composer->active);
+        mix(composer->display_signature);
+        mix(composer->observed_revision);
+        mix(composer->composition_revision);
+        mix(composer->observed_geometry_revision);
+        mix(composer->display_anchor);
+        mix(composer->display_caret);
+        widgets(composer->widgets);
+    }
+    const auto& layout = renderer.composer_layout;
+    scroll(layout.origin_x);
+    scroll(layout.origin_y);
+    scroll(layout.width);
+    scroll(layout.layout_height);
+    if (const auto* state = renderer.chat_state) {
+        mix(state->guild_mutations);
+        mix(state->channel_mutations);
+        mix(state->permission_mutations);
+        mix(state->activity_mutations);
+        mix(state->emoji_mutations);
+        mix(state->compactions);
+        mix(state->name_used);
+        mix(state->selection_revision);
+        mix(state->selected_guild_id);
+        mix(state->selected_channel_id);
+        mix(state->restore_channel_id);
+        mix(state->home_selected);
+        mix(state->private_channels ? state->private_channels->revision : 0u);
+    }
+    if (renderer.navigation_view)
+        mix(renderer.navigation_view->revision);
+    if (const auto* users = renderer.user_store) {
+        mix(users->revision);
+        mix(users->appearance.revision);
+    }
+    mix(renderer.thread_header ? renderer.thread_header->revision : 0u);
+    return hash;
+}
+
+// Scroll positions of the shell's text lists (members, channels). Any change
+// moves shell glyphs; the server rail is left out, its rows carry little text.
+u64 shell_list_scroll(u64 hash, bool active, u32 first, u32 count, float scroll) noexcept {
+    if (!active || !count)
+        return hash;
+    hash = hash64_mix(hash, (static_cast<u64>(first) << 32) | count);
+    return hash64_mix(hash, float_word(scroll));
+}
+u64 shell_navigation_scroll_key(const D3D11Renderer& renderer) noexcept {
+    const auto* scene = renderer.shell_navigation_scene;
+    return scene ? shell_list_scroll(kHash64Seed, scene->active, scene->first, scene->count,
+                                     scene->scroll_dips)
+                 : kHash64Seed;
+}
+u64 shell_scroll_key(const D3D11Renderer& renderer) noexcept {
+    u64 hash = kHash64Seed;
+    if (const auto* scene = renderer.member_list_scene)
+        hash = shell_list_scroll(hash, scene->active, scene->first, scene->count, scene->scroll_dips);
+    if (const auto* scene = renderer.shell_navigation_scene)
+        hash = shell_list_scroll(hash, scene->active, scene->first, scene->count, scene->scroll_dips);
+    return hash | 1;
+}
+// The static shell (everything before the member rows) as one build left it.
+struct ShellStaticMarks {
+    u64 signature, key;
+    u32 count, quads, batches, semantics, hits, effects, inline_flags, last_batch_quads, serial;
+    bool animated, valid;
+};
+ShellStaticMarks shell_static_marks(const D3D11Renderer& renderer, const UiTextEmitter& emitter, u64 key,
+                                    u32 serial) noexcept {
+    const RendererTextStorage& storage = *renderer.content_text;
+    return {emitter.signature,
+            key,
+            emitter.count,
+            storage.quad_count,
+            storage.batch_count,
+            storage.content_semantic_count,
+            storage.content_hit_region_count,
+            renderer.text_effect_count,
+            renderer.inline_media.count,
+            storage.batch_count ? storage.batches[storage.batch_count - 1].quad_count : 0u,
+            serial,
+            renderer.text_effect_animated,
+            true};
+}
+ShellStaticMarks shell_static_marks(const RendererTextShellPrefix& prefix) noexcept {
+    return {prefix.static_signature,    prefix.static_key,
+            prefix.static_count,        prefix.static_quads,
+            prefix.static_batches,      prefix.static_semantics,
+            prefix.static_hits,         prefix.static_effects,
+            prefix.static_inline_flags, prefix.static_last_batch_quads,
+            prefix.static_serial,       prefix.static_animated,
+            prefix.static_valid};
+}
+
+bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* atlas_invalidated,
+                             bool* storage_modified, bool* prefix_reused, bool include_messages) noexcept {
+    const bool login_form = renderer && d3d11_renderer_login_form_text(*renderer);
+    const bool settings_active = renderer && !login_form && renderer_settings_page_visible(*renderer);
+    const bool friends_active = renderer && !login_form && !settings_active && renderer->friends_scene &&
+                                renderer->friends_scene->active;
+    const bool browser_active = renderer && !login_form && d3d11_renderer_thread_browser_visible(*renderer);
+    include_messages = include_messages && !login_form && !settings_active && !friends_active &&
+                       !browser_active && renderer && renderer->message_scene &&
+                       renderer->message_scene->active;
+    RendererTextStorage* storage = renderer ? renderer->content_text : nullptr;
+    const MessageTextPresentation* presentation = renderer ? renderer->message_text : nullptr;
+    if (!renderer ||
+        (!login_form && !settings_active && (!renderer->chat_state || !renderer->navigation_view)) ||
+        !storage || !atlas_invalidated || !storage_modified ||
+        (include_messages && (!presentation || !presentation->active ||
+                              presentation->command_count > presentation->commands.count ||
+                              presentation->measurement_count > presentation->measurements.count))) {
+        return false;
+    }
+    *atlas_invalidated = false;
+    *storage_modified = false;
+    *prefix_reused = false;
+    storage->last_error = RendererTextBuildError::layout;
+    storage->last_shape_error = TextShapeError::none;
+    storage->native_error = S_OK;
+    if (!login_form && !settings_active &&
+        (!renderer->ui_scene || renderer->ui_scene->count == 0 || !renderer->shell_navigation_scene)) {
+        return false;
+    }
+    UiTextEmitter shell{}, overlay{};
+    OverlayReservation reservation{storage->quad_capacity, 0};
+    TextOverlayBoundaries boundaries{};
+    // A scroll-only rebuild over unchanged shell scenes keeps the shell's
+    // projection (and, below, its glyphs) from the build that made them.
+    auto& retained_shell = renderer->content_text_prefix.shell;
+    const u64 scene_stamp = login_form || settings_active ? 0 : shell_scene_stamp(*renderer);
+    bool shell_retained = retained_shell.scroll_hint && !login_form && !settings_active && !friends_active &&
+                          !browser_active && retained_shell.storage == storage &&
+                          retained_shell.build_serial == storage->rebuilds &&
+                          retained_shell.retention_generation == renderer->content_text_retention.generation &&
+                          retained_shell.scene_stamp == scene_stamp;
+    // A shell list (members, channels, servers) scrolled since the shell was
+    // rastered: its glyphs moved, so a signature-only projection could only
+    // confirm the miss. Project it once, rastering as it goes.
+    const u64 shell_scroll = login_form || settings_active ? 0 : shell_scroll_key(*renderer);
+    const u64 navigation_scroll =
+        login_form || settings_active ? 0 : shell_navigation_scroll_key(*renderer);
+    const bool shell_moved = !shell_retained && !login_form && !settings_active && !friends_active &&
+                             !browser_active && retained_shell.storage == storage &&
+                             retained_shell.build_serial == storage->rebuilds &&
+                             renderer->text_shell_scroll_key && renderer->text_shell_scroll_key != shell_scroll;
+    if (!ui_text_emitter_initialize(&shell) ||
+        !ui_text_emitter_initialize(&overlay, reserve_overlay_text, &reservation))
+        return false;
+    // The projection's static part (signature and count before the member
+    // rows), when this build knows it.
+    u64 static_signature = 0;
+    u32 static_count = 0;
+    bool static_known = false;
+    const auto project_static = [&]() noexcept {
+        if (!project_shell_static_text(renderer, theme, &shell))
+            return false;
+        static_signature = shell.signature;
+        static_count = shell.count;
+        static_known = true;
+        return true;
+    };
+    if (shell_retained) {
+        shell.signature = retained_shell.projection_signature;
+        shell.count = retained_shell.projection_count;
+        static_signature = retained_shell.static_signature;
+        static_count = retained_shell.static_count;
+        static_known = retained_shell.static_valid;
+    } else if (shell_moved) {
+        // Only the member list scrolled: confirm the static shell by its
+        // signature so its glyphs can stay; the rows are rastered below.
+        if (renderer->text_shell_navigation_scroll_key == navigation_scroll && !project_static())
+            return false;
+    } else if (!project_static() || !project_shell_member_text(renderer, theme, &shell)) {
+        return false;
+    }
+    if (!project_overlay_text(renderer, theme, &overlay, &boundaries))
+        return false;
+    ContentTextRetentionKey retention_key =
+        content_text_retention_key(*renderer, theme, shell.signature, overlay.signature, include_messages);
+    if (shell_retained && (retention_key.shell_signature != retained_shell.signature ||
+                           retention_key.theme_signature != retained_shell.theme_signature ||
+                           retention_key.dpi != retained_shell.dpi ||
+                           retention_key.atlas_evicted_entries != retained_shell.atlas_evicted_entries ||
+                           retention_key.atlas_full_resets != retained_shell.atlas_full_resets)) {
+        // Glyph inputs beyond the scenes moved (appearance, theme, atlas):
+        // project the shell for real.
+        shell_retained = false;
+        if (!ui_text_emitter_initialize(&shell) || !project_static() ||
+            !project_shell_member_text(renderer, theme, &shell))
+            return false;
+        retention_key =
+            content_text_retention_key(*renderer, theme, shell.signature, overlay.signature, include_messages);
+    }
+    if (shell_retained || shell_moved)
+        saturating_increment(retained_shell.projections_skipped);
+    if (!shell_moved && content_text_retention_probe(&renderer->content_text_retention, retention_key)) {
+        d3d11_renderer_commit_interaction_text_state(renderer);
+        storage->last_error = RendererTextBuildError::none;
+        return true;
+    }
+
+    auto& prefix = renderer->content_text_prefix;
+    // Nothing outside this build invalidated the stream since the shell
+    // prefix was committed (bindings, theme consumers, reduced motion).
+    const bool shell_generation_current =
+        prefix.shell.retention_generation == renderer->content_text_retention.generation;
+    const auto* messages = renderer->message_scene;
+    const bool reuse =
+        !shell_moved && include_messages && messages && prefix.storage == storage &&
+        prefix.build_serial == storage->rebuilds && prefix.message_root.manager == &messages->widgets &&
+        prefix.message_root.handle.slot == messages->root.slot &&
+        prefix.message_root.handle.generation == messages->root.generation &&
+        ui_widget_manager_resolve(messages->widgets, messages->root) &&
+        prefix.quads <= storage->quad_count && prefix.batches <= storage->batch_count &&
+        prefix.semantics <= storage->content_semantic_count &&
+        prefix.hits <= storage->content_hit_region_count && prefix.effects <= renderer->text_effect_count &&
+        prefix.inline_flags <= renderer->inline_media.count &&
+        content_text_retention_base_current(renderer->content_text_retention, retention_key);
+
+    // Presentation is structurally valid at this point.  Keep the last
+    // complete stream alive until this point so transient clipped geometry
+    // cannot blank every glyph during live resize.
+    TextRasterScope raster_scope(*renderer);
+    *storage_modified = true;
+    // Any failure after a suffix mutation must retry from a full build; the old
+    // key cannot describe partially rewritten overlay tails.
+    content_text_retention_invalidate(&renderer->content_text_retention);
+    *prefix_reused = reuse;
+    TextRasterConsumer raster{renderer, &theme, atlas_invalidated, &boundaries, false};
+    if (reuse) {
+        storage->quad_count = prefix.quads;
+        storage->batch_count = prefix.batches;
+        storage->content_semantic_count = prefix.semantics;
+        storage->content_hit_region_count = prefix.hits;
+        renderer->inline_media.count = prefix.inline_flags;
+        renderer->text_effect_count = prefix.effects;
+        renderer->text_effect_animated = prefix.animated;
+        // Shell and message glyphs stay as the message build wrote them.
+        renderer->text_stable_quads = prefix.quads;
+        renderer->text_stable_serial = renderer->text_message_serial;
+    } else {
+        prefix.storage = nullptr;
+        // Messages changed (a scroll, a new message) under an unchanged shell:
+        // keep the shell's glyphs instead of projecting and rastering it again.
+        auto& shell_prefix = prefix.shell;
+        // Glyph inputs beyond the projection (composer styles and selection,
+        // appearance and thread header revisions, a hovered name effect) key
+        // the static part exactly as they key the whole shell.
+        const u64 static_key =
+            static_known
+                ? content_text_retention_key(*renderer, theme, static_signature, 0, false).shell_signature
+                : 0;
+        const ShellStaticMarks previous_static = shell_static_marks(shell_prefix);
+        ShellStaticMarks static_marks = previous_static;
+        const bool shell_storage_current =
+            shell_prefix.storage == storage && shell_prefix.build_serial == storage->rebuilds;
+        const bool shell_reuse =
+            !shell_moved && shell_generation_current && shell_prefix.storage == storage &&
+            shell_prefix.build_serial == storage->rebuilds &&
+            shell_prefix.signature == retention_key.shell_signature &&
+            shell_prefix.theme_signature == retention_key.theme_signature && shell_prefix.dpi == retention_key.dpi &&
+            shell_prefix.atlas_evicted_entries == retention_key.atlas_evicted_entries &&
+            shell_prefix.atlas_full_resets == retention_key.atlas_full_resets &&
+            shell_prefix.quads <= storage->quad_capacity && shell_prefix.batches <= storage->batch_capacity &&
+            shell_prefix.semantics <= storage->content_semantic_capacity &&
+            shell_prefix.hits <= storage->content_hit_region_capacity;
+        shell_prefix.storage = nullptr;
+        if (shell_reuse) {
+            storage->quad_count = shell_prefix.quads;
+            storage->batch_count = shell_prefix.batches;
+            storage->content_semantic_count = shell_prefix.semantics;
+            storage->content_hit_region_count = shell_prefix.hits;
+            renderer->inline_media.count = shell_prefix.inline_flags;
+            renderer->text_effect_count = shell_prefix.effects;
+            renderer->text_effect_animated = shell_prefix.animated;
+            saturating_increment(shell_prefix.reuses);
+            renderer->text_stable_quads = shell_prefix.quads;
+            renderer->text_stable_serial = renderer->text_shell_serial;
+        } else {
+            // Only the member rows changed: the static shell's glyphs stay
+            // and the rows are rastered after them.
+            const bool static_reuse =
+                static_known && previous_static.valid && shell_generation_current &&
+                previous_static.signature == static_signature && previous_static.count == static_count &&
+                previous_static.key == static_key && shell_storage_current &&
+                shell_prefix.theme_signature == retention_key.theme_signature &&
+                shell_prefix.dpi == retention_key.dpi &&
+                shell_prefix.atlas_evicted_entries == retention_key.atlas_evicted_entries &&
+                shell_prefix.atlas_full_resets == retention_key.atlas_full_resets &&
+                previous_static.quads <= storage->quad_capacity &&
+                previous_static.batches <= storage->batch_capacity &&
+                previous_static.semantics <= storage->content_semantic_capacity &&
+                previous_static.hits <= storage->content_hit_region_capacity;
+            UiTextEmitter shell_raster{};
+            if (!ui_text_emitter_initialize(&shell_raster, raster_text_command, &raster))
+                return false;
+            if (static_reuse) {
+                storage->quad_count = previous_static.quads;
+                storage->batch_count = previous_static.batches;
+                storage->content_semantic_count = previous_static.semantics;
+                storage->content_hit_region_count = previous_static.hits;
+                // A row batch sharing the last static clip was merged into it.
+                if (previous_static.batches)
+                    storage->batches[previous_static.batches - 1].quad_count =
+                        previous_static.last_batch_quads;
+                renderer->inline_media.count = previous_static.inline_flags;
+                renderer->text_effect_count = previous_static.effects;
+                renderer->text_effect_animated = previous_static.animated;
+                shell_raster.signature = previous_static.signature;
+                shell_raster.count = previous_static.count;
+            } else {
+                renderer->text_effect_count = 0;
+                renderer->text_effect_animated = false;
+                storage->quad_count = 0;
+                storage->batch_count = 0;
+                storage->content_semantic_count = 0;
+                storage->content_hit_region_count = 0;
+                renderer->inline_media.count = 0;
+                if (!project_shell_static_text(renderer, theme, &shell_raster) ||
+                    (static_known &&
+                     (shell_raster.signature != static_signature || shell_raster.count != static_count)))
+                    return false;
+                // This build (it becomes rebuild rebuilds + 1) writes the shell.
+                static_marks = shell_static_marks(
+                    *renderer, shell_raster,
+                    static_known
+                        ? static_key
+                        : content_text_retention_key(*renderer, theme, shell_raster.signature, 0, false)
+                              .shell_signature,
+                    storage->rebuilds + 1);
+            }
+            if (!project_shell_member_text(renderer, theme, &shell_raster) ||
+                (!shell_moved &&
+                 (shell_raster.signature != shell.signature || shell_raster.count != shell.count)))
+                return false;
+            if (shell_moved) {
+                shell.signature = shell_raster.signature;
+                shell.count = shell_raster.count;
+                retention_key = content_text_retention_key(*renderer, theme, shell.signature, overlay.signature,
+                                                           include_messages);
+            }
+            renderer->text_shell_scroll_key = shell_scroll;
+            renderer->text_shell_navigation_scroll_key = navigation_scroll;
+            renderer->text_shell_serial = storage->rebuilds + 1;
+            renderer->text_stable_quads = static_reuse ? static_marks.quads : storage->quad_count;
+            renderer->text_stable_serial = static_reuse ? static_marks.serial : renderer->text_shell_serial;
+        }
+        shell_prefix = RendererTextShellPrefix{storage,
+                                               retention_key.shell_signature,
+                                               retention_key.theme_signature,
+                                               shell.signature,
+                                               scene_stamp,
+                                               shell.count,
+                                               storage->quad_count,
+                                               storage->batch_count,
+                                               storage->content_semantic_count,
+                                               storage->content_hit_region_count,
+                                               renderer->text_effect_count,
+                                               renderer->inline_media.count,
+                                               retention_key.dpi,
+                                               retention_key.atlas_evicted_entries,
+                                               retention_key.atlas_full_resets,
+                                               ~0u, // committed with the build below
+                                               0,
+                                               shell_prefix.reuses,
+                                               shell_prefix.projections_skipped,
+                                               renderer->text_effect_animated,
+                                               shell_prefix.scroll_hint};
+        shell_prefix.static_signature = static_marks.signature;
+        shell_prefix.static_key = static_marks.key;
+        shell_prefix.static_count = static_marks.count;
+        shell_prefix.static_quads = static_marks.quads;
+        shell_prefix.static_batches = static_marks.batches;
+        shell_prefix.static_semantics = static_marks.semantics;
+        shell_prefix.static_hits = static_marks.hits;
+        shell_prefix.static_effects = static_marks.effects;
+        shell_prefix.static_inline_flags = static_marks.inline_flags;
+        shell_prefix.static_last_batch_quads = static_marks.last_batch_quads;
+        shell_prefix.static_serial = static_marks.serial;
+        shell_prefix.static_animated = static_marks.animated;
+        shell_prefix.static_valid = static_marks.valid;
+        const u32 full_quad_capacity = storage->quad_capacity;
+        const u32 full_batch_capacity = storage->batch_capacity;
+        const u32 popup_quad_reserve = reservation.quads;
+        if (popup_quad_reserve < full_quad_capacity - storage->quad_count) {
+            storage->quad_capacity = maximum(storage->quad_count, full_quad_capacity - popup_quad_reserve);
+        } else {
+            storage->quad_capacity = storage->quad_count;
+        }
+        if (overlay.count < full_batch_capacity - storage->batch_count) {
+            storage->batch_capacity = maximum(storage->batch_count, full_batch_capacity - overlay.count);
+        } else {
+            storage->batch_capacity = storage->batch_count;
+        }
+        if (include_messages) {
+            for (u32 index = 0; index < presentation->command_count; ++index) {
+                const MessageTextCommand& command = presentation->commands[index];
+                // Text projection also contains offscreen overscan commands so
+                // their real heights are known before scrolling reveals them.
+                // They are measured, but their glyphs are not shaped or
+                // uploaded for this frame.
+                if (renderer->message_scene && !ui_rect_has_area(ui_rect_intersection(
+                                                   command.clip, renderer->message_scene->viewport))) {
+                    continue;
+                }
+                if (!append_message_text_command(renderer, presentation, command, index, theme,
+                                                 atlas_invalidated) ||
+                    *atlas_invalidated) {
+                    storage->quad_capacity = full_quad_capacity;
+                    storage->batch_capacity = full_batch_capacity;
+                    return false;
+                }
+            }
+        }
+        storage->quad_capacity = full_quad_capacity;
+        storage->batch_capacity = full_batch_capacity;
+        renderer->text_message_serial = storage->rebuilds + 1;
+        if (include_messages && messages && ui_widget_manager_resolve(messages->widgets, messages->root)) {
+            prefix.storage = storage;
+            prefix.message_root = {&messages->widgets, messages->root};
+            prefix.quads = storage->quad_count;
+            prefix.batches = storage->batch_count;
+            prefix.semantics = storage->content_semantic_count;
+            prefix.hits = storage->content_hit_region_count;
+            prefix.effects = renderer->text_effect_count;
+            prefix.inline_flags = renderer->inline_media.count;
+            prefix.animated = renderer->text_effect_animated;
+        }
+    }
+    renderer->overlay_text_first_batch = storage->batch_count;
+    renderer->form_text_first_batch = ~0u;
+    renderer->menu_text_first_batch = ~0u;
+    renderer->friends_requests_text_end_batch = storage->batch_count;
+    renderer->media_picker_text_first_batch = renderer->media_picker_text_end_batch = storage->batch_count;
+    reset_motion_text_ranges(renderer, storage->batch_count);
+    raster.overlay = true;
+    UiTextEmitter overlay_raster{};
+    TextOverlayBoundaries raster_boundaries{};
+    if (!ui_text_emitter_initialize(&overlay_raster, raster_text_command, &raster) ||
+        !project_overlay_text(renderer, theme, &overlay_raster, &raster_boundaries) ||
+        overlay_raster.signature != overlay.signature || overlay_raster.count != overlay.count ||
+        raster_boundaries.friends_end != boundaries.friends_end ||
+        raster_boundaries.media_picker_start != boundaries.media_picker_start ||
+        raster_boundaries.media_picker_end != boundaries.media_picker_end ||
+        raster_boundaries.popup_start != boundaries.popup_start ||
+        raster_boundaries.popup_end != boundaries.popup_end ||
+        raster_boundaries.profile_start != boundaries.profile_start ||
+        raster_boundaries.profile_end != boundaries.profile_end ||
+        raster_boundaries.audio_start != boundaries.audio_start ||
+        raster_boundaries.audio_end != boundaries.audio_end ||
+        raster_boundaries.poll_start != boundaries.poll_start ||
+        raster_boundaries.poll_end != boundaries.poll_end ||
+        raster_boundaries.settings_choice_start != boundaries.settings_choice_start ||
+        raster_boundaries.settings_choice_end != boundaries.settings_choice_end ||
+        raster_boundaries.settings_preview_start != boundaries.settings_preview_start ||
+        raster_boundaries.settings_preview_end != boundaries.settings_preview_end ||
+        raster_boundaries.settings_dialog_start != boundaries.settings_dialog_start ||
+        raster_boundaries.settings_dialog_end != boundaries.settings_dialog_end ||
+        raster_boundaries.theme_editor_start != boundaries.theme_editor_start ||
+        raster_boundaries.theme_editor_end != boundaries.theme_editor_end ||
+        raster_boundaries.menu_start != boundaries.menu_start ||
+        raster_boundaries.form_start != boundaries.form_start ||
+        raster_boundaries.forum_end != boundaries.forum_end)
+        return false;
+    if (boundaries.friends_end == overlay.count)
+        renderer->friends_requests_text_end_batch = storage->batch_count;
+    if (boundaries.media_picker_start == overlay.count)
+        renderer->media_picker_text_first_batch = storage->batch_count;
+    if (boundaries.media_picker_end == overlay.count)
+        renderer->media_picker_text_end_batch = storage->batch_count;
+    if (boundaries.popup_start == overlay.count)
+        renderer->popup_text_first_batch = storage->batch_count;
+    if (boundaries.profile_start == overlay.count)
+        renderer->profile_text_first_batch = storage->batch_count;
+    if (boundaries.profile_end == overlay.count)
+        renderer->profile_text_end_batch = storage->batch_count;
+    if (boundaries.popup_end == overlay.count)
+        renderer->popup_text_end_batch = storage->batch_count;
+    if (boundaries.settings_choice_start == overlay.count)
+        renderer->settings_choice_text_first_batch = storage->batch_count;
+    if (boundaries.settings_choice_end == overlay.count)
+        renderer->settings_choice_text_end_batch = storage->batch_count;
+    if (boundaries.settings_preview_start == overlay.count)
+        renderer->settings_preview_text_first_batch = storage->batch_count;
+    if (boundaries.settings_preview_end == overlay.count)
+        renderer->settings_preview_text_end_batch = storage->batch_count;
+    if (boundaries.settings_dialog_start == overlay.count)
+        renderer->settings_dialog_text_first_batch = storage->batch_count;
+    if (boundaries.settings_dialog_end == overlay.count)
+        renderer->settings_dialog_text_end_batch = storage->batch_count;
+    if (boundaries.theme_editor_start == overlay.count)
+        renderer->theme_editor_text_first_batch = storage->batch_count;
+    if (boundaries.theme_editor_end == overlay.count)
+        renderer->theme_editor_text_end_batch = storage->batch_count;
+    // A boundary at end-of-stream has no command callback. Publish its batch
+    // endpoint, including settings without an active popup.
+    if (boundaries.form_start == overlay.count)
+        renderer->form_text_first_batch = storage->batch_count;
+    if (boundaries.forum_end == overlay.count)
+        renderer->forum_text_end_batch = storage->batch_count;
+    if (prefix.storage)
+        prefix.build_serial = storage->rebuilds + 1;
+    if (prefix.shell.storage) {
+        prefix.shell.build_serial = storage->rebuilds + 1;
+        // An overlay-only rebuild keeps the shell; its scenes may have moved
+        // without changing a glyph (a hover with no text effect).
+        prefix.shell.scene_stamp = scene_stamp;
+    }
+    if (reuse)
+        saturating_increment(prefix.overlay_builds);
+    else
+        saturating_increment(prefix.base_builds);
+    storage->last_error = RendererTextBuildError::none;
+    content_text_retention_commit(&renderer->content_text_retention, retention_key);
+    prefix.shell.retention_generation = renderer->content_text_retention.generation;
+    d3d11_renderer_commit_interaction_text_state(renderer);
+    return true;
+}
+
+void discard_retained_overlay_text(D3D11Renderer* renderer) noexcept {
+    RendererTextStorage* storage = renderer ? renderer->content_text : nullptr;
+    if (!storage || renderer->overlay_text_first_batch > storage->batch_count) {
+        return;
+    }
+    storage->batch_count = renderer->overlay_text_first_batch;
+    storage->quad_count = storage->batch_count == 0
+                              ? 0
+                              : storage->batches[storage->batch_count - 1].first_quad +
+                                    storage->batches[storage->batch_count - 1].quad_count;
+    const auto& prefix = renderer->content_text_prefix;
+    if (prefix.storage == storage && prefix.batches == storage->batch_count &&
+        prefix.quads == storage->quad_count && prefix.semantics <= storage->content_semantic_count &&
+        prefix.hits <= storage->content_hit_region_count) {
+        storage->content_semantic_count = prefix.semantics;
+        storage->content_hit_region_count = prefix.hits;
+        renderer->inline_media.count = prefix.inline_flags;
+        renderer->text_effect_count = prefix.effects;
+        renderer->text_effect_animated = prefix.animated;
+    } else {
+        renderer->inline_media.count = 0;
+    }
+    renderer->overlay_text_first_batch = storage->batch_count;
+    renderer->form_text_first_batch = ~0u;
+    reset_motion_text_ranges(renderer, storage->batch_count);
+    content_text_retention_invalidate(&renderer->content_text_retention);
+}
+
+} // namespace
+
+bool renderer_project_accessible_text(D3D11Renderer* renderer, const Theme& theme, UiTextConsumeFunction consume,
+                                      void* context) noexcept {
+    if (!renderer || !consume || renderer->login_visible)
+        return false;
+    const bool shell_ready = d3d11_renderer_login_form_text(*renderer) || renderer_settings_page_visible(*renderer) ||
+                             (renderer->ui_scene && renderer->ui_scene->count && renderer->shell_navigation_scene &&
+                              renderer->chat_state && renderer->navigation_view);
+    UiTextEmitter shell{}, overlay{};
+    TextOverlayBoundaries boundaries{};
+    if (!ui_text_emitter_initialize(&shell, consume, context) ||
+        !ui_text_emitter_initialize(&overlay, consume, context))
+        return false;
+    const bool projected_shell = shell_ready && project_shell_text(renderer, theme, &shell);
+    const bool projected_overlay = project_overlay_text(renderer, theme, &overlay, &boundaries);
+    return projected_shell || projected_overlay;
+}
+
+bool renderer_refresh_interaction_text(D3D11Renderer* renderer, const Theme& theme) noexcept {
+    if (!renderer)
+        return false;
+    if (renderer->login_visible || !renderer->content_text ||
+        d3d11_renderer_interaction_text_state_current(*renderer))
+        return true;
+    return renderer_rebuild_content_text(renderer, theme);
+}
+
+TextSystem renderer_text_system(D3D11Renderer* renderer, UiTextFace face) noexcept {
+    return renderer ? command_text_system(renderer, face) : TextSystem{};
+}
+
+bool renderer_prepare_typography(D3D11Renderer* renderer, const UiThemeTypography& value,
+                                 RendererTypographyCandidate* candidate) noexcept {
+    if (!renderer || !candidate || candidate->prepared || !renderer->glyph_text.ready ||
+        !ui_theme_typography_valid(value))
+        return false;
+    const auto& source = renderer->glyph_text.system;
+    const UiThemeTypography defaults{};
+    const auto& current = renderer->typography_owner ? renderer->typography_owner->policy.value : defaults;
+    RendererTypographyCandidate prepared{nullptr, renderer, typography_source_identity(source),
+                                         renderer->typography_revision, true};
+    if (ui_theme_typography_equal(current, value)) {
+        *candidate = prepared;
+        return true;
+    }
+    if (renderer->typography_revision == ~u32{0})
+        return false;
+    auto* owner = static_cast<RendererTypographyOwner*>(
+        VirtualAlloc(nullptr, sizeof(RendererTypographyOwner), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!owner)
+        return false;
+    *owner = {};
+    owner->policy.value = value;
+    owner->policy.code_fixed_weight = text_fonts[static_cast<u32>(value.code_face)].file != nullptr;
+    auto& system = owner->system;
+    system.em_size = value.body_size;
+    system.typography = &owner->policy;
+    system.tracking = text_fonts[static_cast<u32>(value.body_face)].tracking;
+    system.fixed_weight = text_fonts[static_cast<u32>(value.body_face)].file != nullptr;
+    if (!source.native_fonts || !native_font_session_retain(source.native_fonts)) {
+        release_typography_owner(owner);
+        return false;
+    }
+    system.native_fonts = source.native_fonts;
+    if (!native_text_context_initialize(&system.native_text, system.native_fonts)) {
+        release_typography_owner(owner);
+        return false;
+    }
+    const bool ready_faces =
+        prepare_typography_face(*owner, value.body_face, &system.native_format) &&
+        prepare_typography_face(*owner, value.code_face, &owner->native_code_format);
+    bool ready = ready_faces &&
+                 native_text_context_set_code_format(system.native_text, owner->native_code_format) &&
+                 native_text_format_prepare(system.native_text, system.native_format) &&
+                 native_text_format_prepare(system.native_text, owner->native_code_format);
+    // Prepare the actual shaping/measurement path before the snapshot can publish.
+    wchar_t scratch[64]{};
+    if (ready) {
+        const auto body = text_measure_utf8_styled(&system, utf8_literal("Typography 012"), {}, 4096, 4096,
+                                                   {scratch, 64}, TextWrapping::no_wrap);
+        const TextStyleSpan code_style{0, 14, text_style_monospace};
+        const auto code =
+            text_measure_utf8_styled(&system, utf8_literal("Typography 012"), {&code_style, 1}, 4096, 4096,
+                                     {scratch, 64}, TextWrapping::no_wrap);
+        ready = body.ok() && code.ok();
+    }
+    if (!ready) {
+        release_typography_owner(owner);
+        return false;
+    }
+    prepared.owner = owner;
+    *candidate = prepared;
+    return true;
+}
+
+void renderer_discard_typography(RendererTypographyCandidate* candidate) noexcept {
+    if (!candidate)
+        return;
+    release_typography_owner(candidate->owner);
+    *candidate = {};
+}
+
+bool renderer_commit_typography(D3D11Renderer* renderer, RendererTypographyCandidate* candidate) noexcept {
+    if (!renderer || !candidate || !candidate->prepared || candidate->renderer != renderer ||
+        candidate->source_revision != renderer->typography_revision ||
+        candidate->source_identity != typography_source_identity(renderer->glyph_text.system))
+        return false;
+    if (!candidate->owner) {
+        *candidate = {};
+        return true;
+    }
+    auto* previous_owner = renderer->typography_owner;
+    auto previous_system = renderer->glyph_text.system;
+    auto* owner = candidate->owner;
+    // Edit owners retain font-independent geometry/owned COM references until
+    // their next measurement. Font guards reject it; remeasure preserves
+    // logical selection and clamped manual scroll through the existing path.
+    message_hit_test_cache_invalidate(&renderer->message_hit_test);
+    shaped_text_reset(&renderer->glyph_text.title);
+    renderer->glyph_text.title_quad_count = 0;
+    if (renderer->content_text) {
+        auto& text = *renderer->content_text;
+        shaped_text_reset(&text.scratch);
+        text.quad_count = text.batch_count = text.content_semantic_count = text.content_hit_region_count =
+            0;
+    }
+    for (auto& handle : renderer->native_text_faces)
+        handle = 0;
+    if (renderer->picker_glyph_cache)
+        *renderer->picker_glyph_cache = {};
+    shaped_text_cache_clear(renderer->shaped_text_cache);
+    renderer->glyph_text.system = owner->system;
+    owner->system = {};
+    renderer->typography_owner = owner;
+    ++renderer->typography_revision;
+    // The 16-bit public backend token wraps only after invalidation.
+    renderer->text_measure_revision = renderer->text_measure_revision == 65535
+                                          ? 1
+                                          : static_cast<u16>(renderer_text_measure_revision(*renderer) + 1);
+    if (renderer->message_measure_cache)
+        ui_text_measure_cache_invalidate(renderer->message_measure_cache);
+    if (renderer->search_message_measure_cache &&
+        renderer->search_message_measure_cache != renderer->message_measure_cache)
+        ui_text_measure_cache_invalidate(renderer->search_message_measure_cache);
+    content_text_retention_invalidate(&renderer->content_text_retention);
+    renderer->interaction_text_active_mask = ~u32{0};
+    renderer->uploaded_text_storage = nullptr;
+    renderer->uploaded_text_rebuild = renderer->uploaded_text_quad_count = 0;
+    renderer->retained_presentation.valid = false;
+    presentation_damage_invalidate_full(&renderer->presentation_damage);
+    text_system_release(&previous_system);
+    release_typography_owner(previous_owner);
+    *candidate = {};
+    return true;
+}
+
+void renderer_release_typography(D3D11Renderer* renderer) noexcept {
+    if (!renderer || (renderer->typography_owner &&
+                      renderer->glyph_text.system.typography == &renderer->typography_owner->policy))
+        return;
+    release_typography_owner(renderer->typography_owner);
+    renderer->typography_owner = nullptr;
+}
+u32 renderer_typography_revision(const D3D11Renderer& renderer) noexcept {
+    return renderer.typography_revision;
+}
+
+bool renderer_bind_thread_browser_scene(D3D11Renderer* renderer, UiThreadBrowserScene* scene) noexcept {
+    if (!renderer)
+        return false;
+    if (renderer->thread_browser_scene == scene)
+        return true;
+    renderer->thread_browser_scene = scene;
+    text_edit_layout_invalidate(&renderer->composer_layout);
+    content_text_retention_invalidate(&renderer->content_text_retention);
+    return true;
+}
+
+bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& theme,
+                                      bool include_messages) noexcept {
+    const bool login_form = renderer && d3d11_renderer_login_form_text(*renderer);
+    const bool settings_active = renderer && !login_form && renderer_settings_page_visible(*renderer);
+    const bool friends_active = renderer && !login_form && !settings_active && renderer->friends_scene &&
+                                renderer->friends_scene->active;
+    const bool browser_active = renderer && !login_form && d3d11_renderer_thread_browser_visible(*renderer);
+    include_messages = include_messages && !login_form && !settings_active && !friends_active &&
+                       !browser_active && renderer && renderer->message_scene &&
+                       renderer->message_scene->active;
+    if (!renderer || !renderer->content_text ||
+        (!login_form && !settings_active && (!renderer->chat_state || !renderer->navigation_view)) ||
+        !renderer->glyph_text.ready ||
+        (include_messages && (!renderer->message_text || !renderer->message_text->active))) {
+        return false;
+    }
+    if (!friends_active)
+        renderer->friends_search_geometry = {};
+    if (settings_active || login_form)
+        text_edit_layout_invalidate(&renderer->composer_layout);
+    for (u32 attempt = 0; attempt < 4; ++attempt) {
+        bool atlas_invalidated = false;
+        bool storage_modified = false;
+        bool prefix_reused = false;
+        const bool composer_measured =
+            login_form ? (!renderer->text_form ||
+                          text_form_surface_update(renderer->text_form, renderer->glyph_text.system))
+                       : (!renderer->forum_form ||
+                          forum_post_surface_update(renderer->forum_form, renderer->glyph_text.system)) &&
+                             (settings_active
+                                  ? d3d11_renderer_measure_settings_edit(renderer) &&
+                                        (!renderer->text_form ||
+                                         text_form_surface_update(renderer->text_form,
+                                                                  renderer->glyph_text.system))
+                                  : (((friends_active || browser_active)
+                                          ? measure_content_search(renderer)
+                                          : d3d11_renderer_measure_composer_edit(renderer)) &&
+                                     measure_message_search(renderer) && measure_media_picker(renderer) &&
+                                     d3d11_renderer_measure_popup_edit(renderer) &&
+                                     d3d11_renderer_measure_profile_edit(renderer) &&
+                                     (!renderer->text_form ||
+                                      text_form_surface_update(renderer->text_form,
+                                                               renderer->glyph_text.system))));
+        const bool content_built =
+            composer_measured &&
+            build_content_text_once(renderer, theme, &atlas_invalidated, &storage_modified, &prefix_reused,
+                                    include_messages);
+        if (content_built && composer_measured) {
+            if (storage_modified) {
+                ++renderer->content_text->rebuilds;
+            }
+            return true;
+        }
+        if (content_built && !composer_measured) {
+            renderer->content_text->last_error = RendererTextBuildError::composer;
+        }
+        if (atlas_invalidated) {
+            d3d11_glyph_text_reset_atlas(&renderer->glyph_text);
+            continue;
+        }
+        // A longer overlay can exhaust the retained suffix's capacity. Rebuild
+        // the base once with the current reservation rather than keeping tails
+        // from the previous time/status label or allocating another text bank.
+        if (prefix_reused)
+            continue;
+        ++renderer->content_text->rejected;
+        if (!storage_modified) {
+            // Shell/message glyphs may remain useful after a transient scene
+            // rejection, but interaction overlays are tied to short-lived
+            // widget handles.  Never leave the previous hover/popup emoji
+            // batches visible after their owner has closed or been recycled.
+            discard_retained_overlay_text(renderer);
+            return false;
+        }
+        // A content rebuild writes into retained buffers in place.  Never
+        // publish a partial command stream after a capacity/shape/composer
+        // failure; the application can retry without risking stale indices.
+        renderer->content_text->quad_count = 0;
+        renderer->content_text->batch_count = 0;
+        renderer->content_text->content_semantic_count = 0;
+        renderer->content_text->content_hit_region_count = 0;
+        renderer->text_effect_count = 0;
+        renderer->text_effect_animated = false;
+        renderer->content_text_prefix.storage = nullptr;
+        renderer->content_text_prefix.shell.storage = nullptr;
+        renderer->overlay_text_first_batch = 0;
+        renderer->text_stable_quads = 0;
+        reset_motion_text_ranges(renderer, 0);
+        content_text_retention_invalidate(&renderer->content_text_retention);
+        return false;
+    }
+    ++renderer->content_text->rejected;
+    renderer->content_text->last_error = RendererTextBuildError::atlas;
+    renderer->content_text->quad_count = 0;
+    renderer->content_text->batch_count = 0;
+    renderer->content_text->content_semantic_count = 0;
+    renderer->content_text->content_hit_region_count = 0;
+    renderer->text_effect_count = 0;
+    renderer->text_effect_animated = false;
+    renderer->content_text_prefix.storage = nullptr;
+    renderer->content_text_prefix.shell.storage = nullptr;
+    renderer->overlay_text_first_batch = 0;
+    renderer->text_stable_quads = 0;
+    reset_motion_text_ranges(renderer, 0);
+    content_text_retention_invalidate(&renderer->content_text_retention);
+    return false;
+}
+
+} // namespace maicord

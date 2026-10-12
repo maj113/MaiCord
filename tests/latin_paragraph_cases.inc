@@ -1,0 +1,16 @@
+const Utf8View latin_paragraph_samples[]{
+    utf8_literal("caf\xc3\xa9\tAV\r\nna\xc3\xafve"),
+    utf8_literal("\r\n\xc3\xa9\t\tffi\n"),
+    utf8_literal("\xc3\xa9\xe2\x80\xa8" "a"),
+    utf8_literal("\xc3\xa9\xe2\x80\xa9" "a"),
+    utf8_literal("\xc3\xa9\xc2\x85" "a"),
+    utf8_literal("\xc3\xa9\n\xcc\x81" "a"),
+    utf8_literal("(caf\xc3\xa9 fianc\xc3\xa9" "e) r\xc3\xa9sum\xc3\xa9"),
+    utf8_literal("a\xc2\xa0" "b \xc3\xa9\xe2\x80\xaf" "c"),
+    utf8_literal("\xc3\xa9\xe2\x80\x82\xe2\x80\x83" "abc"),
+    utf8_literal("\xc3\xa9\xe2\x80\x82\xe2\x80\x83"),
+    utf8_literal("\xc3\xa9\xe2\x80\x93" "a\xe2\x80\x94" "b"),
+    utf8_literal("\xc3\xa9\xe2\x80\x91" "a-b/c"),
+    utf8_literal("e\xcc\x81 e\xcc\x81 fi fi AV AV"),
+    utf8_literal("\xc4\x8c\xc5\xbe\xc5\xa1\t\n\r\n"),
+};

@@ -1,0 +1,211 @@
+name: Release
+
+# Push a tag to publish:  vMAJOR.MINOR.PATCH          -> stable release (stable + preview channels)
+#                         vMAJOR.MINOR.PATCH-preview.N -> prerelease (preview channel only)
+# Releases are immutable once published, so every asset goes onto a draft that
+# is then published. The channel manifests clients poll live outside releases,
+# on GitHub Pages (https://<owner>.github.io/<repo>/updates/), deployed from the
+# update-channels branch. See tools/release/README.md.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+# Serialize with manifest-refresh.yml so channel manifests are never raced.
+concurrency:
+  group: update-channels
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign and publish
+    runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
+    timeout-minutes: 120
+    environment: release
+    permissions:
+      contents: write     # draft, assets and publish; the update-channels branch
+      id-token: write     # Sigstore identity for build provenance
+      attestations: write
+    outputs:
+      deploy: ${{ steps.channels.outputs.deploy }}
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_REPO: ${{ github.repository }}
+      # Pages and attestations need a public repository on this plan.
+      PUBLIC_REPOSITORY: ${{ !github.event.repository.private }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Validate tag
+        id: version
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          python -B tools/release/maicord_release.py version $env:TAG --check-cmake .
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          git merge-base --is-ancestor $env:GITHUB_SHA origin/master
+          if ($LASTEXITCODE) { throw "Release tags must point at a commit on master." }
+          if (!$env:PUBLIC_KEY) { throw "Set the MAICORD_UPDATE_PUBLIC_KEY repository variable (see tools/release/README.md)." }
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "DIST=$env:RUNNER_TEMP\dist`n")
+        env:
+          PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
+
+      - name: Release tooling self-test
+        shell: powershell
+        run: python -B tools/release/test_release_tools.py
+
+      # The updater is compiled with this repository, the published key and
+      # the tag's preview number (0 for stable); see tools/release/README.md.
+      - name: Build, audit and test
+        shell: powershell
+        env:
+          MAICORD_UPDATE_REPOSITORY: ${{ github.repository }}
+          MAICORD_UPDATE_PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+          MAICORD_UPDATE_PREVIEW: ${{ steps.version.outputs.preview }}
+        run: ./tools/build.ps1 -Test -TestDeadlineSeconds 300 -TestTimeoutScale 5 -ExcludeTestLabels gpu,display
+
+      - name: Package and sign update
+        shell: powershell
+        env:
+          MAICORD_UPDATE_SIGNING_KEY: ${{ secrets.MAICORD_UPDATE_SIGNING_KEY }}
+          PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+          SEMVER: ${{ steps.version.outputs.semver }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (!$env:MAICORD_UPDATE_SIGNING_KEY) { throw 'The MAICORD_UPDATE_SIGNING_KEY secret is not available to this job.' }
+          $build = Join-Path (Split-Path -Parent $env:GITHUB_WORKSPACE) 'MaiCord-build\Release'
+          python -B tools/release/maicord_release.py release --tag $env:TAG --binaries $build `
+            --output-dir $env:DIST --public-key $env:PUBLIC_KEY
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -B tools/release/maicord_release.py portable --binaries $build `
+            --output "$env:DIST\MaiCord-$env:SEMVER-windows-x64.zip" --repository .
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -B tools/release/maicord_release.py checksums $env:DIST
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -B tools/release/maicord_release.py notes --tag $env:TAG --repository $env:GH_REPO `
+            --output "$env:RUNNER_TEMP\notes.md"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem $env:DIST | Format-Table Name, Length -AutoSize
+
+      - name: Verify signed manifests against the published key
+        shell: powershell
+        env:
+          PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+          ARTIFACT: ${{ steps.version.outputs.artifact }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($manifest in Get-ChildItem "$env:DIST\maicord-*.manifest.json") {
+            python -B tools/release/maicord_release.py verify --manifest $manifest.FullName `
+              --signature "$($manifest.FullName).sig" --public-key $env:PUBLIC_KEY `
+              --artifact "$env:DIST\$env:ARTIFACT" --check-time
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: MaiCord-${{ steps.version.outputs.semver }}-release
+          path: ${{ env.DIST }}
+          if-no-files-found: error
+          retention-days: 30
+
+      # A published release cannot change. A rerun after publishing skips
+      # straight to the channels, which take their manifests from the release.
+      - name: Check for an existing release
+        id: existing
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # No stderr redirection: Windows PowerShell turns native stderr into errors.
+          $draft = gh release view $env:TAG --json isDraft --jq .isDraft
+          $published = $LASTEXITCODE -eq 0 -and $draft -eq 'false'
+          if ($published) { Write-Host "::warning::$env:TAG is already published; its assets stay as they are." }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "published=$($published.ToString().ToLower())`n")
+          exit 0
+
+      - name: Attest build provenance
+        if: steps.existing.outputs.published != 'true' && env.PUBLIC_REPOSITORY == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: ${{ env.DIST }}/SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        if: steps.existing.outputs.published != 'true'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SEMVER: ${{ steps.version.outputs.semver }}
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # A draft left by a failed run is replaced; the tag stays.
+          gh release view $env:TAG --json isDraft | Out-Null
+          if ($LASTEXITCODE -eq 0) { gh release delete $env:TAG --yes; if ($LASTEXITCODE) { exit $LASTEXITCODE } }
+          $assets = @(Get-ChildItem $env:DIST -File | ForEach-Object FullName)
+          $prerelease = @(if ($env:PRERELEASE -eq 'true') { '--prerelease' })
+          $latest = if ($env:PRERELEASE -eq 'true') { '--latest=false' } else { '--latest' }
+          gh release create $env:TAG --draft --verify-tag --title "MaiCord $env:SEMVER" `
+            --notes-file "$env:RUNNER_TEMP\notes.md" @prerelease
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          gh release upload $env:TAG @assets
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          gh release edit $env:TAG --draft=false $latest
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      # The channels advance only to manifests attached to the published
+      # release, so they always name a package that is downloadable.
+      - name: Update the update channels
+        id: channels
+        if: env.PUBLIC_REPOSITORY == 'true'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAICORD_UPDATE_SIGNING_KEY: ${{ secrets.MAICORD_UPDATE_SIGNING_KEY }}
+          PUBLIC_KEY: ${{ vars.MAICORD_UPDATE_PUBLIC_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $published = Join-Path $env:RUNNER_TEMP 'published'
+          gh release download $env:TAG --dir $published --pattern 'maicord-*.manifest.json*'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ./tools/release/update_channels.ps1 -Site "$env:RUNNER_TEMP\update-channels" -Publish $published `
+            -Message "Publish $env:TAG to the update channels" -AlwaysDeploy
+
+      - name: Private repository notice
+        if: env.PUBLIC_REPOSITORY != 'true'
+        shell: powershell
+        run: |
+          Write-Host "::warning::Private repository: skipped provenance attestations and the Pages update channels. Updates reach no one until the repository is public."
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        if: steps.channels.outputs.deploy == 'true'
+        with:
+          path: ${{ runner.temp }}/update-channels
+
+  pages:
+    name: Deploy the update channels
+    needs: release
+    if: needs.release.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

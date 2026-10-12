@@ -1,0 +1,27 @@
+Twemoji regional flag artwork
+
+Copyright Twitter, Inc. and other contributors.
+Twemoji graphics are licensed under Creative Commons Attribution 4.0
+International (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/
+
+Project and attribution information:
+https://github.com/twitter/twemoji
+https://github.com/jdecked/twemoji
+
+MaiCord bundles regional flag SVG artwork from the independently
+licensed Twemoji upstream repository, pinned to version 17.0.3, commit:
+b6b55fef1e8636b540a6d016a4729ca8cdf2e60b
+
+Canonical source:
+https://raw.githubusercontent.com/jdecked/twemoji/b6b55fef1e8636b540a6d016a4729ca8cdf2e60b/assets/svg/<Unicode-codepoints>.svg
+
+All 262 admitted regional/subdivision filenames were checked against the pinned
+upstream SVG tree ee18e2e50b566d13dc3023d35fa0f8ddd894a23e on 2026-10-02.
+The corpus totals 728,487 encoded bytes; its largest SVG is 52,105 bytes.
+MaiCord embeds this artwork in its account media module. Source paths/colors are
+unchanged; native raster size, antialiasing and
+layout are chosen by MaiCord. There is no implied upstream endorsement.
+
+Primary graphics license:
+https://github.com/jdecked/twemoji/blob/b6b55fef1e8636b540a6d016a4729ca8cdf2e60b/LICENSE-GRAPHICS

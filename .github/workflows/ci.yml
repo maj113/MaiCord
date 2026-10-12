@@ -1,0 +1,169 @@
+name: CI
+
+# Documentation, issue forms and repository metadata don't affect the build.
+on:
+  push:
+    branches: [master]
+    paths-ignore: &docs
+      - "**/*.md"
+      - LICENSE
+      - .github/ISSUE_TEMPLATE/**
+      - .github/assets/**
+      - .github/labeler.yml
+      - .github/workflows/labeler.yml
+      - .github/workflows/workflow-lint.yml
+  pull_request:
+    branches: [master]
+    paths-ignore: *docs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Hosted Windows runners for this private repository have 2 vCPUs. The client
+# build (about 8 minutes: /GL front-end work plus the LTCG link) and the
+# temporary test build (non-/GL copies of the same libraries plus about 200
+# test executables, about 11 minutes, then about 3 minutes of tests) are
+# independent, so three jobs run side by side for about 10 minutes each:
+#   client     MaiCord.exe + MaiCordAccount.dll, PE audits and the artifact;
+#   tests/app  tests whose executables link the application core or exercise
+#              the shipping pair itself (update staging, the account DLL);
+#              they use the client job's artifact, which arrives while the
+#              tests build (build.ps1 -PrebuiltClient), instead of building
+#              the pair a second time;
+#   tests/core every other test (text, fonts, media, protocol, platform).
+# build.ps1 -TestShard picks each test's shard from its executable
+# (maicord-test-shards.txt, written by CMake), builds only that shard's
+# executables and runs exactly those tests. Both shards build most of the
+# shared test libraries, so this costs runner minutes for wall time: about
+# 29 runner minutes and 10 minutes of wall time per run, where one tests job
+# (-TestShard app,core) takes about 26 runner minutes and 15 minutes, and a
+# single job holding everything about 23 runner minutes and 23 minutes.
+# Pull requests run the same full suite: the jobs already run side by side,
+# so a pull-request subset would skip coverage without shortening the run.
+# The build tree is deliberately not cached: checkout gives every source a
+# fresh timestamp (so Ninja would rebuild anyway) and Release uses LTCG.
+# sccache was measured and rejected: it treats every CMake/MSVC compile here
+# as "multiple input files" (nothing cacheable) and cannot cache PCH compiles.
+
+jobs:
+  client:
+    name: Client (Windows x64 Release)
+    # GitHub-hosted images may only carry Visual Studio 2022. The setup action
+    # installs VS 2026 Build Tools when needed; point MAICORD_WINDOWS_RUNNER at
+    # an image or self-hosted runner that already has it to skip that step.
+    runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
+
+      - name: Release tooling self-test
+        shell: powershell
+        run: python -B tools/release/test_release_tools.py
+
+      # build.ps1 configures the x64-release preset in ../MaiCord-build/Release,
+      # builds MaiCord.exe + MaiCordAccount.dll and runs the PE audits
+      # (D3D11-only imports, no Media Foundation/DirectWrite, no debug info).
+      # Every test links the non-/GL test copies of the libraries, so the
+      # test jobs cover them all.
+      - name: Build and audit
+        shell: powershell
+        run: ./tools/build.ps1
+
+      - name: Collect client binaries
+        id: collect
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $build = Join-Path (Split-Path -Parent $env:GITHUB_WORKSPACE) 'MaiCord-build\Release'
+          $short = $env:GITHUB_SHA.Substring(0, 8)
+          $target = Join-Path $env:RUNNER_TEMP "MaiCord-x64-$short"
+          New-Item -ItemType Directory -Path $target | Out-Null
+          foreach ($item in 'MaiCord.exe', 'MaiCordAccount.dll', 'fonts', 'licenses') {
+            Copy-Item -LiteralPath (Join-Path $build $item) -Destination $target -Recurse
+          }
+          $pair = (Get-Item (Join-Path $target 'MaiCord.exe')).Length + (Get-Item (Join-Path $target 'MaiCordAccount.dll')).Length
+          "### MaiCord build`n`n- MSVC $env:MAICORD_MSVC_VERSION`n- EXE/DLL pair: $pair bytes ($([math]::Round($pair / 1MB, 2)) MiB)" |
+            Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding ascii
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "path=$target`nname=MaiCord-x64-$short`n")
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.collect.outputs.name }}
+          path: ${{ steps.collect.outputs.path }}
+          if-no-files-found: error
+          retention-days: 14
+
+  tests:
+    name: Tests (${{ matrix.shard }})
+    runs-on: ${{ vars.MAICORD_WINDOWS_RUNNER || 'windows-2025' }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read # the client job's artifact from this run
+    strategy:
+      matrix:
+        shard: [app, core]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          minimum-vs-major: ${{ vars.MAICORD_MIN_VS_MAJOR || '18' }}
+
+      # Tests link non-/GL copies of the shipping libraries, so these jobs never
+      # build the client. For the app shard a background job fetches the client
+      # job's artifact into the build directory while the tests build.
+      - name: Build and run the ${{ matrix.shard }} tests
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $common = @{ Test = $true; TestShard = $env:SHARD; TestDeadlineSeconds = 300; TestTimeoutScale = 5; ExcludeTestLabels = 'gpu,display' }
+          if ($env:SHARD -ne 'app') {
+            ./tools/build.ps1 -SkipClient @common
+          } else {
+            $build = Join-Path (Split-Path -Parent $env:GITHUB_WORKSPACE) 'MaiCord-build\Release'
+            $name = "MaiCord-x64-$($env:GITHUB_SHA.Substring(0, 8))"
+            $fetch = Start-Job -ArgumentList $build, $name -ScriptBlock {
+              param($build, $name)
+              # Native stderr must not become a terminating error while polling.
+              $ErrorActionPreference = 'Continue'
+              $download = Join-Path $env:RUNNER_TEMP 'client'
+              while ($true) {
+                & gh run download $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --name $name --dir $download 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) { break }
+                $client = & gh api "repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID/jobs" --jq '.jobs[] | select(.name | startswith("Client")) | .conclusion' 2>&1
+                if ($LASTEXITCODE -eq 0 -and "$client".Trim() -and "$client".Trim() -ne 'success') { "The client job ended without binaries ($client)."; return }
+                Start-Sleep -Seconds 15
+              }
+              while (!(Test-Path -LiteralPath (Join-Path $build 'CMakeCache.txt'))) { Start-Sleep -Seconds 5 }
+              # build.ps1 waits for both binaries; each appears complete.
+              foreach ($file in 'MaiCordAccount.dll', 'MaiCord.exe') {
+                Copy-Item -LiteralPath (Join-Path $download $file) -Destination (Join-Path $build "$file.partial") -ErrorAction Stop
+                Move-Item -LiteralPath (Join-Path $build "$file.partial") -Destination (Join-Path $build $file) -Force -ErrorAction Stop
+              }
+              "Client binaries from $name are in place."
+            }
+            try {
+              ./tools/build.ps1 -PrebuiltClient -ClientWaitSeconds 600 @common
+            } finally {
+              Stop-Job -Job $fetch
+              Receive-Job -Job $fetch -ErrorAction Continue | Out-Host
+              Remove-Job -Job $fetch -Force
+            }
+          }

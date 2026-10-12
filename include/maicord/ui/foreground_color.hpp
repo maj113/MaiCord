@@ -1,0 +1,54 @@
+#pragma once
+#include "maicord/ui/background_presentation.hpp"
+#include "maicord/ui/background_color_math.hpp"
+
+namespace maicord {
+// Choose an authored palette color for a filled control. A light theme can
+// still need a light label on its accent, and custom accents can need a dark
+// label. Preserve an authored candidate meeting normal-text contrast; otherwise
+// select an opaque endpoint. The bounded sRGB math adds no theme state or CRT.
+inline Color ui_surface_foreground(const Theme& theme, Color fill) noexcept {
+    const Color candidates[]{theme.text_primary, theme.text_secondary, theme.base_lowest, theme.surface};
+    const double background = background_color_luminance(fill);
+    Color selected = candidates[0];
+    double best = 0;
+    for (const auto color : candidates) {
+        const double value = background_color_luminance(color);
+        const double contrast = (maximum(value, background) + .05) / (minimum(value, background) + .05);
+        if (contrast > best) {
+            selected = color;
+            best = contrast;
+        }
+    }
+    if (best >= 4.5)
+        return selected;
+    const double white = 1.05 / (background + .05), black = (background + .05) / .05;
+    return white >= black ? Color{1, 1, 1, 1} : Color{0, 0, 0, 1};
+}
+// Preserve semantic hue while keeping authored role colors readable on the
+// admitted gradient canvas. This runs when text is published, not on hover.
+inline Color ui_foreground_color(const Theme& theme, Color color) noexcept {
+    const bool light = theme.appearance == ThemeAppearance::light;
+    if (!light && !ui_background_active(theme))
+        return color;
+    const float luminance = ui_background_luminance(color);
+    if ((light && luminance <= .10f) || (!light && luminance >= .50f))
+        return color;
+    float lower = 0, upper = 1;
+    const Color target = light ? Color{0, 0, 0, color.alpha} : Color{1, 1, 1, color.alpha};
+    for (u32 i = 0; i < 10; ++i) {
+        const float blend = (lower + upper) * .5f;
+        const Color trial{color.red + (target.red - color.red) * blend,
+                          color.green + (target.green - color.green) * blend,
+                          color.blue + (target.blue - color.blue) * blend, color.alpha};
+        const float value = ui_background_luminance(trial);
+        if (light ? value > .10f : value < .50f)
+            lower = blend;
+        else
+            upper = blend;
+    }
+    return {color.red + (target.red - color.red) * upper,
+            color.green + (target.green - color.green) * upper,
+            color.blue + (target.blue - color.blue) * upper, color.alpha};
+}
+} // namespace maicord

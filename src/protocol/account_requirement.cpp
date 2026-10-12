@@ -1,0 +1,126 @@
+#include "maicord/protocol/account_requirement.hpp"
+#include "maicord/core/json_scan.hpp"
+namespace maicord {
+namespace {
+struct Update {
+    AccountRequirement value;
+    bool seen;
+};
+bool action_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& update = *static_cast<Update*>(context);
+    if (!json_string_equals_ascii(name, utf8_literal("required_action")))
+        return true;
+    if (update.seen)
+        return false;
+    update.seen = true;
+    update.value = decode_account_requirement(value);
+    return true;
+}
+struct Rejection {
+    ApiRejection value;
+};
+bool error_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& result = *static_cast<Rejection*>(context);
+    if (json_string_equals_ascii(name, utf8_literal("code"))) {
+        u64 code = 0;
+        if (result.value.has_code || !json_value_to_u64(value, &code) || code > 0xffffffffull)
+            return false;
+        result.value.code = static_cast<u32>(code);
+        result.value.has_code = true;
+    } else if (json_string_equals_ascii(name, utf8_literal("captcha_key")) ||
+               json_string_equals_ascii(name, utf8_literal("captcha_sitekey")) ||
+               json_string_equals_ascii(name, utf8_literal("captcha_rqtoken"))) {
+        result.value.captcha |= value.kind != JsonValueKind::null_value;
+    }
+    return true;
+}
+} // namespace
+AccountRequirement decode_account_requirement(JsonValue value) noexcept {
+    if (value.kind == JsonValueKind::null_value)
+        return AccountRequirement::none;
+    JsonString text{};
+    if (!json_value_as_string(value, &text))
+        return AccountRequirement::other;
+    constexpr Utf8View names[] = {utf8_literal("REQUIRE_CAPTCHA"),
+                                  utf8_literal("REQUIRE_VERIFIED_EMAIL"),
+                                  utf8_literal("REQUIRE_VERIFIED_PHONE"),
+                                  utf8_literal("REQUIRE_REVERIFIED_EMAIL"),
+                                  utf8_literal("REQUIRE_REVERIFIED_PHONE"),
+                                  utf8_literal("REQUIRE_VERIFIED_EMAIL_OR_VERIFIED_PHONE"),
+                                  utf8_literal("REQUIRE_REVERIFIED_EMAIL_OR_VERIFIED_PHONE"),
+                                  utf8_literal("REQUIRE_VERIFIED_EMAIL_OR_REVERIFIED_PHONE"),
+                                  utf8_literal("REQUIRE_REVERIFIED_EMAIL_OR_REVERIFIED_PHONE"),
+                                  utf8_literal("AGREEMENTS"),
+                                  utf8_literal("REQUIRE_SAFETY_FLOWS")};
+    for (u32 n = 0; n < sizeof(names) / sizeof(names[0]); ++n)
+        if (json_string_equals_ascii(text, names[n]))
+            return static_cast<AccountRequirement>(n + 1);
+    return AccountRequirement::other;
+}
+bool account_requirement_update(JsonValue data, Slice<u32> scratch, AccountRequirement* output) noexcept {
+    if (!output || data.kind != JsonValueKind::object || data.source.bytes > 16384)
+        return false;
+    const auto scan = json_scan_structurals_avx1(data.source, scratch);
+    if (!scan.ok())
+        return false;
+    Update update{};
+    if (!json_visit_value_object(data, {scratch.data, scan.count}, 16, action_member, &update).ok() ||
+        !update.seen)
+        return false;
+    *output = update.value;
+    return true;
+}
+Utf8View account_requirement_notice(AccountRequirement value) noexcept {
+    switch (value) {
+    case AccountRequirement::none:
+        return {};
+    case AccountRequirement::captcha:
+        return utf8_literal("Complete Discord's verification before sending.");
+    case AccountRequirement::verify_email:
+    case AccountRequirement::reverify_email:
+        return utf8_literal("Verify your email in Discord before sending.");
+    case AccountRequirement::verify_phone:
+    case AccountRequirement::reverify_phone:
+        return utf8_literal("Verify your phone in Discord before sending.");
+    case AccountRequirement::agreements:
+        return utf8_literal("Review Discord's required agreements before sending.");
+    case AccountRequirement::safety_flows:
+        return utf8_literal("Resolve the account restriction in Discord before sending.");
+    default:
+        return utf8_literal("Verify your account in Discord before sending.");
+    }
+}
+bool api_rejection_decode(Utf8View body, Slice<u32> scratch, ApiRejection* output) noexcept {
+    if (!output)
+        return false;
+    *output = {};
+    if (!body.bytes || body.bytes > 16384)
+        return false;
+    const auto scan = json_scan_structurals_avx1(body, scratch);
+    if (!scan.ok())
+        return false;
+    Rejection parsed{};
+    if (!json_visit_root_object(body, {scratch.data, scan.count}, 16, error_member, &parsed).ok())
+        return false;
+    *output = parsed.value;
+    return true;
+}
+Utf8View api_rejection_notice(ApiRejection value) noexcept {
+    if (value.captcha)
+        return utf8_literal("Discord requires verification before this action.");
+    if (!value.has_code)
+        return {};
+    switch (value.code) {
+    case 40002:
+        return utf8_literal("Discord requires account verification before this action.");
+    case 40004:
+        return utf8_literal("Discord has temporarily disabled sending messages.");
+    case 20026:
+        return utf8_literal("Discord restricted this action. Check your account in Discord.");
+    case 50013:
+        return utf8_literal("Discord denied permission for this action.");
+    default:
+        return {};
+    }
+}
+} // namespace maicord

@@ -1,0 +1,31 @@
+#pragma once
+#include "maicord/text/run_plan.hpp"
+#include "maicord/text/indic_plan.hpp"
+namespace maicord {
+// Borrowed script-specific roots over a retained native font-instance plan.
+// A cache key must include run slot/generation AND profile; the same font can
+// provide different modern Indic programs. The owner retains run and its arena.
+struct NativeIndicPlan {
+    NativeRunPlanHandle run;
+    const SfntCmap* cmap;
+    const SfntLookupStep* substitution_steps;
+    const u16* positioning_roots;
+    u32 substitution_count,positioning_count;
+    SfntIndicProfile profile;
+    ConstSlice<SfntLookupStep> substitutions() const noexcept {return {substitution_steps,substitution_count};}
+    ConstSlice<u16> positioning() const noexcept {return {positioning_roots,positioning_count};}
+    const SfntGposProgram* positioning_program=nullptr;
+};
+static_assert(sizeof(NativeIndicPlan)==56);
+struct NativeIndicFormPlan {NativeIndicPlan indic;u8 forms[128];};
+static_assert(sizeof(NativeIndicFormPlan)==184);
+// Appends roots and any required GPOS subset; shares parent GSUB, coordinates,
+// mapping and metrics. No extra parent reference or retained arena is created.
+// Scratch rewinds on every return; failed calls rewind state and clear output.
+// Optional 128-byte form output covers the selected script's BMP block and is
+// written only on success. With no form output, masked GSUB steps are rejected.
+// All form probes share one lookup budget. Only probe.glyphs/substitutions are
+// used. State, scratch, borrowed views and outputs must otherwise be disjoint.
+SfntStatus native_indic_plan_prepare(const NativeRunPlanStore&,NativeRunPlanHandle,SfntIndicProfile,
+    Arena* state,Arena* scratch,SfntShapeStorage probe,NativeIndicPlan*,Slice<u8> forms={},SfntShapeLimits limits={}) noexcept;
+}

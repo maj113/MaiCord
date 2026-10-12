@@ -1,0 +1,31 @@
+name: Missing Discord feature
+description: Something the official client does that MaiCord doesn't (yet), or does differently.
+labels: [parity]
+body:
+  - type: textarea
+    id: feature
+    attributes:
+      label: What does the official client do?
+      description: Describe the feature or behavior. Screenshots of the official client with test accounts help.
+    validations:
+      required: true
+  - type: textarea
+    id: maicord
+    attributes:
+      label: What does MaiCord do instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: MaiCord version
+      placeholder: v0.2.0
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues labeled `parity`.
+          required: true

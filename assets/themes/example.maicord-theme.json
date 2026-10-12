@@ -1,0 +1,221 @@
+{
+  "version": "2.0",
+  "name": "Example (MaiCord defaults)",
+  "base": "dark",
+  "palette": {
+    "blurple": [0.3451, 0.3961, 0.949, 1]
+  },
+  "colors": {
+    "base_lowest": [0.0588, 0.0588, 0.0706, 1],
+    "base_lower": [0.102, 0.102, 0.1176, 1],
+    "base_low": [0.1333, 0.1333, 0.1451, 1],
+    "surface": [0.1647, 0.1647, 0.1804, 1],
+    "surface_high": [0.2078, 0.2078, 0.2275, 1],
+    "interactive": [0.2667, 0.2667, 0.2941, 1],
+    "interactive_hover": [0.3216, 0.3216, 0.3529, 1],
+    "accent": "{palette.blurple}",
+    "text_primary": [0.949, 0.9569, 0.9686, 1],
+    "avatar_placeholder": [0.3804, 0.3882, 0.4196, 1],
+    "notification": [0.949, 0.3216, 0.3216, 1],
+    "syntax_keyword": [0.7765, 0.4706, 0.8667, 1],
+    "syntax_type": [0.898, 0.7529, 0.4706, 1],
+    "syntax_string": [0.5961, 0.7647, 0.4745, 1],
+    "syntax_number": [0.8196, 0.6039, 0.4, 1],
+    "syntax_comment": [0.4235, 0.4667, 0.5333, 1],
+    "syntax_operator": [0.6706, 0.698, 0.749, 1],
+    "syntax_builtin": [0.3804, 0.6863, 0.9373, 1],
+    "syntax_preprocessor": [0.3373, 0.7137, 0.7608, 1],
+    "text_secondary": [0.7098, 0.7294, 0.7569, 1]
+  },
+  "semantic": {
+    "background": {
+      "primary": "{colors.base_low}",
+      "secondary": "{colors.base_lower}",
+      "floating": "{colors.base_lower}",
+      "input": "{colors.surface_high}"
+    },
+    "accent": {
+      "brand": "{colors.accent}",
+      "success": [0.14, 0.65, 0.38, 1],
+      "warning": [0.94, 0.69, 0.2, 1],
+      "danger": "{colors.notification}"
+    },
+    "text": {
+      "normal": "{colors.text_primary}",
+      "muted": "{colors.text_secondary}",
+      "link": "{colors.accent}",
+      "danger": "{colors.notification}",
+      "positive": [0.494, 0.796, 0.58, 1],
+      "warning": "{semantic.accent.warning}",
+      "on_accent": "#ffffff"
+    },
+    "border": {
+      "subtle": [1, 1, 1, 0.08],
+      "strong": [1, 1, 1, 0.12],
+      "focus": "{colors.accent}"
+    },
+    "state": {
+      "hover": [1, 1, 1, 0.1],
+      "pressed": [1, 1, 1, 0.16]
+    },
+    "fill": {
+      "subtle": [1, 1, 1, 0.08],
+      "muted": [1, 1, 1, 0.1],
+      "translucent": [0, 0, 0, 0.25]
+    },
+    "overlay": {
+      "scrim": [0, 0, 0, 0.56],
+      "scrim_light": [0, 0, 0, 0.5],
+      "scrim_strong": [0, 0, 0, 0.72],
+      "dense": [0, 0, 0, 0.68],
+      "media": [0, 0, 0, 0.92],
+      "shadow": [0, 0, 0, 0.32],
+      "shadow_soft": [0, 0, 0, 0.24]
+    },
+    "status": {
+      "online": "{semantic.accent.success}",
+      "idle": "{semantic.accent.warning}",
+      "dnd": "{semantic.accent.danger}",
+      "offline": "{colors.interactive}"
+    },
+    "mention": {
+      "background": "{colors.accent}@0.12",
+      "bar": "{colors.accent}",
+      "text": "{colors.accent}",
+      "inline_background": "{colors.accent}@0.18"
+    },
+    "syntax": {
+      "keyword": "{colors.syntax_keyword}",
+      "type": "{colors.syntax_type}",
+      "string": "{colors.syntax_string}",
+      "number": "{colors.syntax_number}",
+      "comment": "{colors.syntax_comment}",
+      "operator": "{colors.syntax_operator}",
+      "builtin": "{colors.syntax_builtin}",
+      "preprocessor": "{colors.syntax_preprocessor}"
+    },
+    "emphasis": {
+      "fill": "{colors.accent}",
+      "text": "{semantic.text.on_accent}",
+      "outline": "{colors.accent}",
+      "selected": "{colors.accent}@0.16"
+    },
+    "ansi": {
+      "black": "#000000",
+      "red": [0.92549, 0.388231, 0.38039, 1],
+      "green": [0.270588, 0.639212, 0.4, 1],
+      "yellow": [0.80784, 0.505883, 0, 1],
+      "blue": [0.270591, 0.568624, 0.925489, 1],
+      "magenta": [0.960783, 0.286277, 0.788233, 1],
+      "cyan": [0.015687, 0.623534, 0.666673, 1],
+      "white": [0.713725, 0.717646, 0.737255, 1],
+      "bright_black": [0.43921, 0.443132, 0.47843, 1],
+      "bright_red": [1, 0.576469, 0.55686, 1],
+      "bright_green": [0.129411, 0.733329, 0.38823, 1],
+      "bright_yellow": [0.90588, 0.580391, 0.09412, 1],
+      "bright_blue": [0.627448, 0.662742, 0.980392, 1],
+      "bright_magenta": [0.992157, 0.600003, 0.913726, 1],
+      "bright_cyan": [0.372548, 0.749017, 0.784312, 1],
+      "bright_white": "#ffffff"
+    },
+    "profile": {
+      "surface": "{colors.base_lower}",
+      "modal": "{colors.base_lower}",
+      "overlay": "#00000099",
+      "text": [1, 1, 1, 0.96],
+      "text_subtle": [1, 1, 1, 0.88],
+      "text_muted": [1, 1, 1, 0.76],
+      "border": [1, 1, 1, 0.08],
+      "hover": [1, 1, 1, 0.04],
+      "card": [0.594, 0.594, 0.626, 0.16],
+      "card_hover": [0.594, 0.594, 0.626, 0.2],
+      "input": [1, 1, 1, 0.12],
+      "button": [1, 1, 1, 0.08],
+      "button_hover": [1, 1, 1, 0.16],
+      "banner": [0.067, 0.071, 0.078, 1],
+      "control": [0, 0, 0, 0.56],
+      "control_border": [1, 1, 1, 0.08],
+      "control_icon": "#ffffff"
+    }
+  },
+  "scale": {
+    "space_1": 2,
+    "space_2": 4,
+    "space_4": 8,
+    "radius_xs": 2,
+    "radius_sm": 4,
+    "radius_md": 8,
+    "radius_lg": 12,
+    "radius_xl": 16,
+    "radius_full": 9999
+  },
+  "motion": {
+    "fast": {
+      "duration_ms": 120,
+      "curve": "ease_out"
+    }
+  },
+  "typography": {
+    "body_size": 16,
+    "heading_1_ratio": 1.5,
+    "heading_2_ratio": 1.25,
+    "heading_3_ratio": 1.1,
+    "subtext_ratio": 0.8125,
+    "mono_ratio": 0.9375,
+    "body_face": "normal",
+    "code_face": "mono"
+  },
+  "metrics": {
+    "shell_rail_width": 72,
+    "shell_sidebar_width": 240,
+    "shell_member_width": 240,
+    "shell_header_height": 48,
+    "shell_gutter": 0,
+    "control_height": 32,
+    "control_radius": 6,
+    "edit_radius": 8,
+    "compact_radius": 4,
+    "composer_padding": 4,
+    "message_left": 18,
+    "message_right": 24,
+    "message_top": 14,
+    "message_bottom": 1,
+    "message_grouped_top": 0,
+    "message_grouped_bottom": 1,
+    "message_avatar": 40,
+    "message_avatar_gap": 14,
+    "message_rich_gap": 8,
+    "form_width": 680,
+    "form_field_padding": 12,
+    "form_group_gap": 24,
+    "form_single_height": 40,
+    "form_multiline_height": 160,
+    "form_footer_height": 64,
+    "menu_padding": 6,
+    "menu_gap": 8,
+    "menu_icon": 20,
+    "menu_compact_height": 32,
+    "menu_row_height": 36,
+    "menu_detail_height": 56,
+    "menu_radius": 10,
+    "audio_padding": 8,
+    "audio_gap": 6,
+    "audio_target": 32,
+    "audio_minimum_width": 160,
+    "audio_maximum_width": 480,
+    "audio_title_height": 20,
+    "audio_time_width": 112,
+    "audio_volume_width": 64,
+    "audio_radius": 8,
+    "poll_padding": 16,
+    "poll_gap": 8,
+    "poll_answer_padding": 16,
+    "poll_answer_gap": 8,
+    "poll_minimum_width": 128,
+    "poll_maximum_width": 472,
+    "poll_target": 38,
+    "poll_marker": 24,
+    "poll_emoji": 24,
+    "poll_radius": 8
+  }
+}

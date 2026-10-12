@@ -1,0 +1,50 @@
+# Keep generated output outside source control.
+/out/
+/build/
+/.vs/
+/.cache/
+/.idea/
+/.vscode/
+
+# Compiler, linker, and profiler output.
+*.obj
+*.pch
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.exe
+*.dll
+*.map
+*.etl
+*.diagsession
+*.time-trace
+__pycache__/
+*.py[cod]
+
+# Runtime state must never enter the repository.
+*.log
+*.token
+*.session
+local/
+secrets/
+
+# Research material stays local: client bundles, captures, session notes.
+/Analysis/
+/docs/
+/tools/benchmark_discord_*
+/tools/discord_send_trace.mjs
+/tools/inspect_discord_media.mjs
+
+# Release and CI outputs. tools/release writes to a caller-chosen directory
+# outside the tree; these patterns guard against accidental local copies.
+/dist/
+/release-test/
+MaiCord-x64-*.zip
+MaiCord-*-windows-x64.zip
+maicord-*.manifest.json
+maicord-*.manifest.json.sig
+SHA256SUMS.txt
+
+# Update-signing private keys (JWK) must never be committed.
+*.jwk

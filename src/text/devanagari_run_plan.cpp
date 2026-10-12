@@ -1,0 +1,19 @@
+#include "maicord/text/devanagari_run_plan.hpp"
+#include "maicord/text/indic_run_plan.hpp"
+namespace maicord {
+SfntStatus native_devanagari_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,
+    Arena* state,Arena* scratch,SfntShapeStorage probe,NativeDevanagariPlan* output,SfntShapeLimits limits) noexcept {
+    if(!output)return SfntStatus::invalid_input;*output={};NativeIndicPlan prepared{};
+    const auto status=native_indic_plan_prepare(store,run,SfntIndicProfile::devanagari,state,scratch,probe,&prepared,{output->forms,128},limits);
+    if(status!=SfntStatus::ok)return status;
+    output->run=prepared.run;output->cmap=prepared.cmap;output->substitutions=prepared.substitutions();output->positioning=prepared.positioning();output->positioning_program=prepared.positioning_program;
+    return SfntStatus::ok;
+}
+SfntStatus native_devanagari_run(const NativeRunPlanStore& store,const NativeDevanagariPlan& prepared,Utf8View text,float em,
+    NativeDevanagariRunStorage storage,NativeAsciiResult* result,SfntShapeLimits limits,float trailing_spacing,bool rtl) noexcept {
+    if(!result)return SfntStatus::invalid_input;*result={};const auto* parent=native_run_plan_get(store,prepared.run);
+    if(!parent||!prepared.cmap)return SfntStatus::invalid_input;
+    auto plan=*parent;if(prepared.positioning_program)plan.positioning=prepared.positioning_program;plan.substitution_roots={};plan.positioning_roots=prepared.positioning;plan.refresh_substitution_classes=true;
+    return native_devanagari_run(plan,*prepared.cmap,{prepared.forms,128},prepared.substitutions,text,em,storage,result,limits,trailing_spacing,true,rtl);
+}
+}

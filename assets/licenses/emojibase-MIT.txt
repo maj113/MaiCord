@@ -1,0 +1,37 @@
+Emojibase shortcodes
+
+MaiCord's emoji shortcode table (src/ui/emoji_shortcodes.inc) includes
+alias names from emojibase-data 16.0.3, en/shortcodes/joypixels.json,
+iamcal.json and emojibase.json:
+https://github.com/milesj/emojibase
+https://www.npmjs.com/package/emojibase-data
+
+The joypixels preset comes from JoyPixels' emoji-toolkit, whose non-artwork
+files (including its emoji data) are MIT licensed; no JoyPixels artwork is
+used: https://github.com/joypixels/emoji-toolkit
+The iamcal preset comes from emoji-data, MIT licensed, Copyright (c) 2013
+Cal Henderson: https://github.com/iamcal/emoji-data
+Both licenses are the MIT License reproduced below with their holders'
+names in place of Miles Johnson's.
+
+MIT License
+
+Copyright (c) 2017-2019 Miles Johnson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

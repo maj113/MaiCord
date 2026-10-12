@@ -1,0 +1,312 @@
+#include "maicord/app/gateway_guild_folders.hpp"
+#include "maicord/app/gateway_user_settings.hpp"
+#include "gateway_ready_projection.hpp"
+#include "gateway_user_payload.hpp"
+#include "maicord/core/byte_range.hpp"
+
+namespace maicord {
+namespace {
+enum class RecordKind : u8 { user, guild, private_channel };
+struct Pass {
+    const GatewayReady* ready;
+    GatewayReadyProjectionScratch scratch;
+    GatewayReadyPublish publish;
+    GatewayReadyContinue work;
+    void* context;
+    u64 sequence, now_ms;
+    GatewayReadyProjectionResult result;
+    RecordKind kind;
+    u32 user_bytes, user_count;
+    bool staging;
+    u32 staged_bytes, staged_records;
+};
+// A staged record: descriptor, payload size, then the payload, 8-byte aligned.
+struct StagedRecord {
+    GatewayClientEvent event;
+    u32 payload_bytes;
+    u32 reserved;
+};
+constexpr u32 staged_size(u32 payload_bytes) noexcept {
+    return (static_cast<u32>(sizeof(StagedRecord)) + payload_bytes + 7u) & ~7u;
+}
+void stage(Pass& pass, const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
+    ReservedBytes* staging = pass.scratch.staging;
+    const u32 bytes = staged_size(payload.count);
+    if (payload.count > kGatewayClientDispatchPayloadCapacity || bytes > staging->reserved - pass.staged_bytes ||
+        !reserved_bytes_commit(staging, pass.staged_bytes + bytes)) {
+        pass.staging = false;
+        return;
+    }
+    auto* record = reinterpret_cast<StagedRecord*>(staging->base + pass.staged_bytes);
+    record->event = event;
+    record->payload_bytes = payload.count;
+    copy_bytes(record + 1, payload.data, payload.count);
+    pass.staged_bytes += bytes;
+    ++pass.staged_records;
+}
+bool valid(const GatewayReady& ready, GatewayReadyProjectionScratch scratch) noexcept;
+bool allowed(Pass& pass) noexcept {
+    if (!pass.work || pass.work(pass.context, pass.result.phase)) return true;
+    pass.result.interrupted = true;
+    return false;
+}
+bool emit(Pass& pass, const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
+    if (!allowed(pass)) return false;
+    if (pass.result.phase == GatewayReadyProjectionPhase::preflight) {
+        if (pass.staging) stage(pass, event, payload);
+        return true;
+    }
+    if (pass.publish(pass.context, event, payload)) {
+        pass.result.publication_started = true;
+        return true;
+    }
+    pass.result.interrupted = true;
+    return false;
+}
+GatewayClientEvent descriptor(const Pass& pass, GatewayClientDispatchKind kind) noexcept {
+    GatewayClientEvent event{};
+    event.kind = GatewayClientEventKind::dispatch;
+    event.dispatch_kind = kind;
+    event.sequence = pass.sequence; event.has_sequence = true;
+    event.timestamp_ms = pass.now_ms;
+    return event;
+}
+bool flush_users(Pass& pass) noexcept {
+    if (!pass.user_count) return true;
+    auto event = descriptor(pass, GatewayClientDispatchKind::user_snapshot);
+    event.state.record_count = pass.user_count;
+    event.dispatch_payload_bytes = pass.user_bytes;
+    if (!emit(pass, event, {reinterpret_cast<const u8*>(pass.scratch.payload.data), pass.user_bytes})) return false;
+    pass.user_count = pass.user_bytes = 0;
+    return true;
+}
+bool relay(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
+    return emit(*static_cast<Pass*>(opaque), event, payload);
+}
+bool grow_record_index(Pass& pass) noexcept {
+    // The outer array reader still borrows its index. Nested state decoders
+    // rescan and rebase offsets, so they need disjoint writable storage.
+    const u32 current = pass.scratch.records.count;
+    if (pass.result.route.event_error != GatewayEventDecodeError::scan_failed ||
+        pass.result.route.scan_error != JsonScanError::output_overflow ||
+        !pass.scratch.grow_records || current >= kGatewaySessionMaximumStructuralCount ||
+        !allowed(pass)) return false;
+    const u32 required = current > kGatewaySessionMaximumStructuralCount / 2 ?
+        kGatewaySessionMaximumStructuralCount : current * 2;
+    Slice<u32> backed{};
+    if (!pass.scratch.grow_records(pass.scratch.grow_records_context, required, &backed) ||
+        backed.data != pass.scratch.records.data || backed.count < required ||
+        backed.count > kGatewaySessionMaximumStructuralCount) return false;
+    auto candidate = pass.scratch;
+    candidate.records = backed;
+    if (!valid(*pass.ready, candidate)) return false;
+    pass.scratch = candidate;
+    return true;
+}
+bool record(void* opaque, u32, JsonValue value) noexcept {
+    auto& pass = *static_cast<Pass*>(opaque);
+    if (!allowed(pass)) return false;
+    if (pass.kind == RecordKind::user) {
+        if (pass.user_count == 64 && !flush_users(pass)) return false;
+        GatewayPayloadWriter writer{};
+        do {
+            writer = {pass.scratch.payload, pass.user_bytes};
+            pass.result.route = gateway_append_user(value, pass.scratch.records, 64, &writer);
+        } while (!pass.result.route.ok() && grow_record_index(pass));
+        if (!pass.result.route.ok()) return false;
+        pass.user_bytes = writer.used; ++pass.user_count;
+        return true;
+    }
+    GatewayEnvelope envelope{};
+    envelope.data = value;
+    envelope.event_name = {pass.kind == RecordKind::guild ? utf8_literal("READY_GUILD") :
+        utf8_literal("CHANNEL_CREATE"), 0, false};
+    envelope.sequence = pass.sequence; envelope.opcode = 0;
+    envelope.has_sequence = envelope.has_event_name = true;
+    GatewayClientEvent event{}; ConstSlice<u8> payload{};
+    do {
+        event = {}; payload = {};
+        pass.result.route = gateway_client_route_dispatch_large(envelope, pass.scratch.records, 64,
+            pass.scratch.payload, {}, pass.ready->user_id,
+            pass.kind == RecordKind::guild ? pass.scratch.large : GatewayClientLargeRecord{}, &event, &payload);
+    } while (!pass.result.route.ok() && grow_record_index(pass));
+    const bool expected = pass.kind == RecordKind::guild ?
+        event.dispatch_kind == GatewayClientDispatchKind::guild_create :
+        event.dispatch_kind == GatewayClientDispatchKind::channel_create && event.state.guild_id == 0 &&
+            (event.state.type == 1 || event.state.type == 3);
+    if (pass.result.route.ok() && !expected) {
+        pass.result.route.error = GatewayClientDispatchRouteError::decode;
+        pass.result.route.event_error = GatewayEventDecodeError::invalid_data;
+    }
+    if (!pass.result.route.ok() && pass.kind == RecordKind::guild && !pass.result.interrupted) {
+        // One guild that cannot be projected (an unknown shape, or more data
+        // than one typed record holds) must not cost the whole session. The
+        // READY header already listed it, so it stays an unavailable entry.
+        if (!pass.result.degraded_guilds) pass.result.degraded_route = pass.result.route;
+        ++pass.result.degraded_guilds;
+        pass.result.route = {};
+        return true;
+    }
+    if (!pass.result.route.ok()) return false;
+    event.timestamp_ms = pass.now_ms;
+    if (!emit(pass, event, payload)) return false;
+    // Voice states are ancillary: malformed rows are skipped, never fatal.
+    if (pass.kind != RecordKind::guild) return true;
+    GatewayGuildArrays arrays{};
+    const bool located = gateway_guild_arrays_find(value, pass.scratch.records, &arrays);
+    return gateway_client_publish_voice_states(value, GatewayVoiceStateSource::guild, event.state.id,
+               pass.scratch.records, pass.scratch.payload, pass.sequence, pass.now_ms, relay, &pass,
+               located ? &arrays.voice_states : nullptr) &&
+           gateway_client_publish_stage_instances(value, event.state.id, pass.scratch.records, pass.scratch.payload,
+               pass.sequence, pass.now_ms, relay, &pass, located ? &arrays.stage_instances : nullptr) &&
+           gateway_client_publish_scheduled_events(value, event.state.id, pass.scratch.records, pass.scratch.payload,
+               pass.sequence, pass.now_ms, relay, &pass, located ? &arrays.scheduled_events : nullptr);
+}
+bool records(Pass& pass, JsonValue array, RecordKind kind, GatewayClientFailureStage stage) noexcept {
+    pass.kind = kind; pass.result.failure_stage = stage;
+    if (!allowed(pass)) return false;
+    if (kind == RecordKind::user && array.kind == JsonValueKind::object)
+        return record(&pass, 0, array) && flush_users(pass);
+    const auto scan = json_scan_structurals_avx1(array.source, pass.scratch.arrays);
+    if (!scan.ok()) {
+        pass.result.route.error = GatewayClientDispatchRouteError::decode;
+        pass.result.route.event_error = GatewayEventDecodeError::scan_failed;
+        pass.result.route.scan_error = scan.error; pass.result.route.error_offset = scan.error_offset;
+        return false;
+    }
+    const auto read = json_visit_value_array(array, {pass.scratch.arrays.data, scan.count},
+        64, record, &pass);
+    if (!read.ok()) {
+        if (pass.result.route.ok() && !pass.result.interrupted) {
+            pass.result.route.error = GatewayClientDispatchRouteError::decode;
+            pass.result.route.event_error = GatewayEventDecodeError::invalid_json;
+            pass.result.route.read_error = read.error; pass.result.route.error_offset = read.error_offset;
+        }
+        return false;
+    }
+    return kind != RecordKind::user || flush_users(pass);
+}
+bool relationship(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
+    return emit(*static_cast<Pass*>(opaque), event, payload);
+}
+bool run(Pass& pass) noexcept {
+    const auto& ready = *pass.ready;
+    pass.result.failure_stage = GatewayClientFailureStage::ready_route;
+    if (!allowed(pass)) return false;
+    GatewayClientEvent event{}; ConstSlice<u8> payload{};
+    do {
+        event = {}; payload = {};
+        pass.result.route = gateway_client_route_ready(ready, pass.scratch.arrays, pass.scratch.records,
+            64, pass.scratch.header, &event, &payload);
+    } while (!pass.result.route.ok() && grow_record_index(pass));
+    if (!pass.result.route.ok()) return false;
+    event.sequence = pass.sequence; event.has_sequence = true; event.timestamp_ms = pass.now_ms;
+    if (!emit(pass, event, payload)) return false;
+    if (!records(pass, ready.user, RecordKind::user, GatewayClientFailureStage::ready_user_route)) return false;
+    if (ready.users.kind == JsonValueKind::array &&
+        !records(pass, ready.users, RecordKind::user, GatewayClientFailureStage::ready_user_route)) return false;
+    pass.result.route=gateway_client_publish_notification_snapshot(ready,pass.scratch.arrays,
+        pass.scratch.records,pass.scratch.payload,pass.sequence,pass.now_ms,relationship,&pass);
+    if(!pass.result.route.ok()||pass.result.interrupted)return false;
+    // The folder layout is ancillary: a malformed group never fails READY.
+    if (!allowed(pass)) return false;
+    gateway_client_publish_guild_folders(ready.user_settings_proto, false, pass.scratch.payload, pass.sequence,
+        true, pass.now_ms, relationship, &pass);
+    if (pass.result.interrupted) return false;
+    gateway_client_publish_user_settings(ready.user_settings_proto, ready.auth_session_id_hash, false,
+        pass.scratch.payload, pass.sequence, true, pass.now_ms, relationship, &pass);
+    if (pass.result.interrupted) return false;
+    if (!records(pass, ready.guilds, RecordKind::guild, GatewayClientFailureStage::ready_guild_route)) return false;
+    if (ready.private_channels.kind == JsonValueKind::array && !records(pass, ready.private_channels,
+        RecordKind::private_channel, GatewayClientFailureStage::ready_private_route)) return false;
+    pass.result.failure_stage = GatewayClientFailureStage::ready_route;
+    if (ready.read_state.source.data) {
+        if (!allowed(pass)) return false;
+        pass.result.route = gateway_client_route_read_state_snapshot(ready.read_state, pass.scratch.arrays,
+            64, pass.scratch.payload, &event, &payload);
+        if (!pass.result.route.ok()) return false;
+        event.sequence = pass.sequence; event.has_sequence = true; event.timestamp_ms = pass.now_ms;
+        if (!emit(pass, event, payload)) return false;
+    }
+    if (!allowed(pass)) return false;
+    pass.result.route = gateway_client_publish_relationship_snapshot(ready.relationships, ready.merged_presences,
+        pass.scratch.arrays, pass.scratch.records, pass.sequence, pass.now_ms, relationship, &pass);
+    if (!pass.result.route.ok() || pass.result.interrupted) return false;
+    const auto complete = descriptor(pass, GatewayClientDispatchKind::ready_state_complete);
+    if (!emit(pass, complete, {})) return false;
+    pass.result.completed = true; pass.result.failure_stage = GatewayClientFailureStage::none;
+    return true;
+}
+// Publication from the preflight's records: the same descriptors and bytes in
+// the same order, with the same guard before each one.
+void replay(Pass& pass) noexcept {
+    pass.result.failure_stage = GatewayClientFailureStage::ready_route;
+    const u8* cursor = pass.scratch.staging->base;
+    for (u32 index = 0; index < pass.staged_records; ++index) {
+        const auto* record = reinterpret_cast<const StagedRecord*>(cursor);
+        if (!emit(pass, record->event, {reinterpret_cast<const u8*>(record + 1), record->payload_bytes})) return;
+        cursor += staged_size(record->payload_bytes);
+    }
+    pass.result.completed = true;
+    pass.result.failure_stage = GatewayClientFailureStage::none;
+}
+bool valid(const GatewayReady& ready, GatewayReadyProjectionScratch scratch) noexcept {
+    if (!ready.user_id || !scratch.arrays.data || !scratch.arrays.count ||
+        scratch.arrays.count > kGatewaySessionMaximumStructuralCount ||
+        !scratch.records.data || !scratch.records.count ||
+        scratch.records.count > kGatewaySessionMaximumStructuralCount || !scratch.payload.data || !scratch.payload.count ||
+        scratch.payload.count > kGatewayClientDispatchPayloadCapacity || !scratch.header.data ||
+        !scratch.header.count || scratch.header.count > 4096 ||
+        (scratch.staging && (!scratch.staging->base || scratch.staging->committed))) return false;
+    const ConstSlice<u8> buffers[]{
+        {reinterpret_cast<const u8*>(scratch.arrays.data), scratch.arrays.count * 4u},
+        {reinterpret_cast<const u8*>(scratch.records.data), scratch.records.count * 4u},
+        {reinterpret_cast<const u8*>(scratch.payload.data), scratch.payload.count},
+        {reinterpret_cast<const u8*>(scratch.header.data), scratch.header.count}};
+    for (u32 i = 0; i < 4; ++i) {
+        if (!byte_range_valid(buffers[i])) return false;
+        for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(buffers[i], buffers[j])) return false;
+    }
+    const JsonValue sources[]{ready.user, ready.guilds, ready.private_channels, ready.users,
+        ready.apex_experiments, ready.relationships, ready.merged_presences, ready.read_state,
+        ready.user_guild_settings,ready.user_settings_proto,ready.notification_settings};
+    for (const auto& value : sources) {
+        const ConstSlice<u8> source{reinterpret_cast<const u8*>(value.source.data), value.source.bytes};
+        if (!byte_range_valid(source) || source.count > kGatewaySessionMaximumDecodedMessageBytes) return false;
+        for (const auto buffer : buffers) if (byte_ranges_overlap(source, buffer)) return false;
+    }
+    return true;
+}
+} // namespace
+GatewayReadyProjectionResult gateway_ready_project(const GatewayReady& ready,
+    GatewayReadyProjectionScratch scratch, u64 sequence, u64 now_ms,
+    GatewayReadyPublish publish, GatewayReadyContinue work, void* context) noexcept {
+    Pass pass{};
+    pass.ready = &ready; pass.scratch = scratch; pass.publish = publish; pass.work = work;
+    pass.context = context; pass.sequence = sequence; pass.now_ms = now_ms;
+    if (!publish || !valid(ready, scratch)) {
+        pass.result.route.error = GatewayClientDispatchRouteError::invalid_input;
+        return pass.result;
+    }
+    pass.staging = scratch.staging != nullptr;
+    const bool preflight = run(pass);
+    const bool staged = preflight && pass.staging;
+    if (preflight) {
+        const auto degraded_route = pass.result.degraded_route;
+        const u32 degraded_guilds = pass.result.degraded_guilds;
+        pass.result = {};
+        pass.result.phase = GatewayReadyProjectionPhase::publication;
+        if (staged) {
+            pass.result.degraded_route = degraded_route;
+            pass.result.degraded_guilds = degraded_guilds;
+            replay(pass);
+        } else {
+            run(pass);
+        }
+        if (pass.result.interrupted)
+            pass.result.failure_stage = GatewayClientFailureStage::ready_publish;
+    }
+    if (scratch.staging) reserved_bytes_decommit(scratch.staging);
+    return pass.result;
+}
+} // namespace maicord

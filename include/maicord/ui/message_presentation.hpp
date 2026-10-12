@@ -1,0 +1,61 @@
+#pragma once
+
+#include "maicord/ui/message_scene.hpp"
+#include "maicord/ui/paint.hpp"
+
+namespace maicord {
+
+enum class MessageMediaCommandKind : u8 {
+    attachment,
+    embed,
+    sticker,
+    custom_emoji,
+    regional_flag,
+    component, // thumbnail/gallery image keyed by URL hash (message_component_media)
+};
+
+struct MessageMediaCommand {
+    u64 id;
+    UiRect rectangle;
+    UiRect clip;
+    UiWidgetReference owner;
+    u32 message_revision;
+    MessageMediaCommandKind kind;
+    u8 format;
+    u8 embed_index;
+    u8 embed_resource;
+    bool animated;
+    bool ordinary_video; // Primary MP4 preview, excluding every GIFV embed.
+    bool snapshot;
+    bool search_result;
+    // Non-zero: the rectangle covers a centred square tile (search media grid);
+    // the renderer masks the media to that tile with this corner radius (DIP).
+    u8 tile_radius;
+    // MessageMediaObscure: spoiler/explicit previews draw blurred.
+    u8 obscure;
+    // Non-zero: the media covers the rectangle (an embed gallery tile), cropped
+    // to it, instead of being stretched to it.
+    u8 cover;
+};
+static_assert(sizeof(MessageMediaCommand) == 72, "Poster metadata reuses command padding.");
+
+struct MessageMediaCommandStream {
+    Slice<MessageMediaCommand> storage;
+    u32 count;
+    u32 rejected;
+};
+
+struct MessagePresentationResult {
+    u32 geometry_quads;
+    u32 media_commands;
+};
+
+bool message_media_command_stream_initialize(
+    MessageMediaCommandStream* stream,
+    Slice<MessageMediaCommand> storage) noexcept;
+bool message_presentation_build(
+    const MessageScene& scene, const Theme& theme, PaintStream* paint,
+    MessageMediaCommandStream* media,
+    MessagePresentationResult* result) noexcept;
+
+} // namespace maicord

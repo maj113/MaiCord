@@ -1,0 +1,254 @@
+#include "maicord/ui/timestamp_format.hpp"
+
+#include <Windows.h>
+
+namespace maicord {
+namespace {
+
+inline constexpr u64 kWindowsToUnixSeconds = 11'644'473'600ull;
+HourCycle g_hour_cycle = HourCycle::automatic;
+inline constexpr u64 kFileTimeTicksPerSecond = 10'000'000ull;
+
+bool append_ascii(Slice<char> output, u32* used, const char* value, u32 bytes) noexcept {
+    if (!used || *used > output.count || bytes > output.count - *used) {
+        return false;
+    }
+    for (u32 index = 0; index < bytes; ++index) {
+        output[*used + index] = value[index];
+    }
+    *used += bytes;
+    return true;
+}
+
+bool append_u64(Slice<char> output, u32* used, u64 value) noexcept {
+    char reversed[20]{};
+    u32 digits = 0;
+    do {
+        reversed[digits++] = static_cast<char>('0' + value % 10);
+        value /= 10;
+    } while (value != 0);
+    if (!used || *used > output.count || digits > output.count - *used) {
+        return false;
+    }
+    for (u32 index = 0; index < digits; ++index) {
+        output[*used + index] = reversed[digits - index - 1];
+    }
+    *used += digits;
+    return true;
+}
+
+bool append_wide_utf8(Slice<char> output, u32* used, const wchar_t* value, u32 units) noexcept {
+    if (!used || (!value && units != 0) || *used > output.count) {
+        return false;
+    }
+    if (units == 0) {
+        return true;
+    }
+    const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, static_cast<int>(units),
+                                             nullptr, 0, nullptr, nullptr);
+    if (required <= 0 || static_cast<u32>(required) > output.count - *used) {
+        return false;
+    }
+    const int written = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, static_cast<int>(units),
+                                            output.data + *used, required, nullptr, nullptr);
+    if (written != required) {
+        return false;
+    }
+    *used += static_cast<u32>(written);
+    return true;
+}
+
+bool unix_to_local(u64 seconds, SYSTEMTIME* local) noexcept {
+    if (!local || seconds > ~0ull - kWindowsToUnixSeconds ||
+        seconds + kWindowsToUnixSeconds > ~0ull / kFileTimeTicksPerSecond) {
+        return false;
+    }
+    const u64 ticks = (seconds + kWindowsToUnixSeconds) * kFileTimeTicksPerSecond;
+    FILETIME file_time{static_cast<DWORD>(ticks), static_cast<DWORD>(ticks >> 32)};
+    SYSTEMTIME utc{};
+    return FileTimeToSystemTime(&file_time, &utc) && SystemTimeToTzSpecificLocalTime(nullptr, &utc, local);
+}
+
+bool append_date(Slice<char> output, u32* used, const SYSTEMTIME& time, DWORD flags) noexcept {
+    wchar_t formatted[96]{};
+    const int units = GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, flags, &time, nullptr, formatted,
+                                      static_cast<int>(sizeof(formatted) / sizeof(formatted[0])), nullptr);
+    return units > 1 && append_wide_utf8(output, used, formatted, static_cast<u32>(units - 1));
+}
+
+bool append_time(Slice<char> output, u32* used, const SYSTEMTIME& time, bool seconds) noexcept {
+    wchar_t formatted[64]{};
+    const DWORD flags = seconds ? 0 : TIME_NOSECONDS;
+    // An explicit picture keeps the locale's AM/PM designators and digits.
+    const wchar_t* picture = g_hour_cycle == HourCycle::h12   ? (seconds ? L"h:mm:ss tt" : L"h:mm tt")
+                             : g_hour_cycle == HourCycle::h23 ? (seconds ? L"HH:mm:ss" : L"HH:mm")
+                                                                     : nullptr;
+    int units = GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, picture ? 0 : flags, &time, picture, formatted,
+                                static_cast<int>(sizeof(formatted) / sizeof(formatted[0])));
+    while (picture && units > 1 && formatted[units - 2] == L' ')
+        --units; // locales without AM/PM designators
+    return units > 1 && append_wide_utf8(output, used, formatted, static_cast<u32>(units - 1));
+}
+
+TimestampFormatResult format_relative(u64 timestamp, u64 now, Slice<char> output) noexcept {
+    const bool future = timestamp > now;
+    const u64 difference = future ? timestamp - now : now - timestamp;
+    const char* unit = "second";
+    u32 unit_bytes = 6;
+    u64 divisor = 1;
+    u64 refresh = 1;
+    if (difference >= 31'536'000) {
+        unit = "year";
+        unit_bytes = 4;
+        divisor = 31'536'000;
+        refresh = 86'400;
+    } else if (difference >= 2'592'000) {
+        unit = "month";
+        unit_bytes = 5;
+        divisor = 2'592'000;
+        refresh = 86'400;
+    } else if (difference >= 604'800) {
+        unit = "week";
+        unit_bytes = 4;
+        divisor = 604'800;
+        refresh = 3'600;
+    } else if (difference >= 86'400) {
+        unit = "day";
+        unit_bytes = 3;
+        divisor = 86'400;
+        refresh = 3'600;
+    } else if (difference >= 3'600) {
+        unit = "hour";
+        unit_bytes = 4;
+        divisor = 3'600;
+        refresh = 60;
+    } else if (difference >= 60) {
+        unit = "minute";
+        unit_bytes = 6;
+        divisor = 60;
+        refresh = 1;
+    }
+    const u64 amount = maximum<u64>(1, difference / divisor);
+    u32 used = 0;
+    const bool written = (!future || append_ascii(output, &used, "in ", 3)) &&
+                         append_u64(output, &used, amount) && append_ascii(output, &used, " ", 1) &&
+                         append_ascii(output, &used, unit, unit_bytes) &&
+                         (amount == 1 || append_ascii(output, &used, "s", 1)) &&
+                         (future || append_ascii(output, &used, " ago", 4));
+    return TimestampFormatResult{written && now <= ~0ull - refresh ? now + refresh : 0,
+                                        written ? used : 0, written};
+}
+
+} // namespace
+
+bool timestamp_set_hour_cycle(HourCycle cycle) noexcept {
+    if (static_cast<u8>(cycle) > static_cast<u8>(HourCycle::h23) || cycle == g_hour_cycle)
+        return false;
+    g_hour_cycle = cycle;
+    return true;
+}
+HourCycle timestamp_hour_cycle() noexcept {
+    return g_hour_cycle;
+}
+
+TimestampFormatResult format_profile_date(u64 seconds, Slice<char> output,
+                                                         const wchar_t* locale) noexcept {
+    SYSTEMTIME time{};
+    wchar_t text[96]{};
+    u32 used = 0;
+    if (!unix_to_local(seconds, &time))
+        return {};
+    const int count = GetDateFormatEx(locale, 0, &time, L"MMM d, yyyy", text, 96, nullptr);
+    const bool valid = count > 1 && append_wide_utf8(output, &used, text, static_cast<u32>(count - 1));
+    return {0, valid ? used : 0, valid};
+}
+
+TimestampFormatResult format_timestamp_calendar(u64 unix_seconds, u64 now_unix_seconds,
+                                                Slice<char> output) noexcept {
+    SYSTEMTIME local{}, now{}, yesterday{}, tomorrow{};
+    if (!output.data || output.count == 0 || !unix_to_local(unix_seconds, &local) ||
+        !unix_to_local(now_unix_seconds, &now) ||
+        !unix_to_local(now_unix_seconds >= 86'400 ? now_unix_seconds - 86'400 : 0, &yesterday) ||
+        !unix_to_local(now_unix_seconds + 86'400, &tomorrow))
+        return TimestampFormatResult{};
+    const auto same_day = [](const SYSTEMTIME& a, const SYSTEMTIME& b) noexcept {
+        return a.wYear == b.wYear && a.wMonth == b.wMonth && a.wDay == b.wDay;
+    };
+    u32 used = 0;
+    bool written = false;
+    // The label changes at the next local midnight; refresh hourly so a
+    // retained "Today at" header rolls over to "Yesterday at" in time.
+    u64 refresh = 0;
+    if (same_day(local, now)) {
+        written = append_ascii(output, &used, "Today at ", 9) && append_time(output, &used, local, false);
+        refresh = 3'600;
+    } else if (same_day(local, yesterday)) {
+        written = append_ascii(output, &used, "Yesterday at ", 13) && append_time(output, &used, local, false);
+        refresh = 3'600;
+    } else if (same_day(local, tomorrow)) {
+        // moment calendar nextDay; later days show the date alone (sameElse "L").
+        written = append_ascii(output, &used, "Tomorrow at ", 12) && append_time(output, &used, local, false);
+        refresh = 3'600;
+    } else if (unix_seconds > now_unix_seconds) {
+        written = append_date(output, &used, local, DATE_SHORTDATE);
+        refresh = 3'600;
+    } else {
+        written = append_date(output, &used, local, DATE_SHORTDATE) && append_ascii(output, &used, " ", 1) &&
+                  append_time(output, &used, local, false);
+    }
+    return TimestampFormatResult{written && refresh && now_unix_seconds <= ~0ull - refresh
+                                     ? now_unix_seconds + refresh
+                                     : 0,
+                                 written ? used : 0, written};
+}
+
+TimestampFormatResult format_timestamp_local(u64 unix_seconds, char style,
+                                                            u64 now_unix_seconds,
+                                                            Slice<char> output) noexcept {
+    if (!output.data || output.count == 0) {
+        return TimestampFormatResult{};
+    }
+    if (style == 'R') {
+        return format_relative(unix_seconds, now_unix_seconds, output);
+    }
+    SYSTEMTIME local{};
+    if (!unix_to_local(unix_seconds, &local)) {
+        return TimestampFormatResult{};
+    }
+    u32 used = 0;
+    bool written = false;
+    switch (style) {
+    case 't':
+        written = append_time(output, &used, local, false);
+        break;
+    case 'T':
+        written = append_time(output, &used, local, true);
+        break;
+    case 'd':
+        written = append_date(output, &used, local, DATE_SHORTDATE);
+        break;
+    case 'D':
+        written = append_date(output, &used, local, DATE_LONGDATE);
+        break;
+    case 'F':
+        written = append_date(output, &used, local, DATE_LONGDATE) && append_ascii(output, &used, " ", 1) &&
+                  append_time(output, &used, local, false);
+        break;
+    case 'S':
+        written = append_date(output, &used, local, DATE_SHORTDATE) &&
+                  append_ascii(output, &used, " ", 1) && append_time(output, &used, local, true);
+        break;
+    case 's':
+        written = append_date(output, &used, local, DATE_SHORTDATE) &&
+                  append_ascii(output, &used, " ", 1) && append_time(output, &used, local, false);
+        break;
+    case 'f':
+    default:
+        written = append_date(output, &used, local, DATE_LONGDATE) && append_ascii(output, &used, " ", 1) &&
+                  append_time(output, &used, local, false);
+        break;
+    }
+    return TimestampFormatResult{0, written ? used : 0, written};
+}
+
+} // namespace maicord

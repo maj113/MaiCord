@@ -1,0 +1,66 @@
+name: Set up MaiCord toolchain
+description: >
+  Ensures Python 3 and a Visual Studio C++ toolset (MSVC x64, Windows SDK,
+  CMake and Ninja) of at least the requested major version. tools/build.ps1
+  enters the developer shell itself, so no msvc-dev-cmd action is needed.
+
+inputs:
+  minimum-vs-major:
+    description: Minimum Visual Studio major version (18 = Visual Studio 2026, 17 = 2022).
+    default: "18"
+  buildtools-url:
+    description: Visual Studio Build Tools bootstrapper used when the image lacks the required version.
+    default: https://aka.ms/vs/18/stable/vs_buildtools.exe
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: "3.12"
+
+    - name: Ensure Visual Studio C++ toolset
+      shell: powershell
+      env:
+        MINIMUM_VS_MAJOR: ${{ inputs.minimum-vs-major }}
+        BUILDTOOLS_URL: ${{ inputs.buildtools-url }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+        function Get-Toolset {
+          if (!(Test-Path -LiteralPath $vswhere)) { return $null }
+          $found = & $vswhere -latest -prerelease -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json
+          if ($found) { return @($found)[0] } else { return $null }
+        }
+        $minimum = [int]$env:MINIMUM_VS_MAJOR
+        $toolset = Get-Toolset
+        if ($toolset -and [int]$toolset.installationVersion.Split('.')[0] -ge $minimum) {
+          Write-Host "Using preinstalled $($toolset.displayName) $($toolset.installationVersion)."
+        } else {
+          $present = if ($toolset) { "$($toolset.displayName) $($toolset.installationVersion)" } else { 'none' }
+          Write-Host "Visual Studio $minimum+ C++ tools are not on this image (found: $present). Installing Build Tools..."
+          $bootstrapper = Join-Path $env:RUNNER_TEMP 'vs_buildtools.exe'
+          Invoke-WebRequest -Uri $env:BUILDTOOLS_URL -OutFile $bootstrapper -UseBasicParsing
+          $signature = Get-AuthenticodeSignature -LiteralPath $bootstrapper
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation') {
+            throw "The Build Tools bootstrapper signature is not a valid Microsoft signature ($($signature.Status))."
+          }
+          $arguments = @('--quiet', '--wait', '--norestart', '--nocache',
+            '--add', 'Microsoft.VisualStudio.Workload.VCTools',
+            '--add', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+            '--add', 'Microsoft.VisualStudio.Component.VC.CMake.Project',
+            '--includeRecommended')
+          $process = Start-Process -FilePath $bootstrapper -ArgumentList $arguments -Wait -PassThru
+          if ($process.ExitCode -notin @(0, 3010)) { throw "Build Tools installation failed ($($process.ExitCode))." }
+          Remove-Item -LiteralPath $bootstrapper -Force
+          $toolset = Get-Toolset
+          if (!$toolset -or [int]$toolset.installationVersion.Split('.')[0] -lt $minimum) {
+            throw "Visual Studio $minimum+ C++ tools are still unavailable after installation."
+          }
+          Write-Host "Installed $($toolset.displayName) $($toolset.installationVersion)."
+        }
+        $msvc = Get-ChildItem -LiteralPath (Join-Path $toolset.installationPath 'VC\Tools\MSVC') -Directory |
+          Sort-Object { [version]$_.Name } | Select-Object -Last 1
+        Write-Host "MSVC toolset: $($msvc.Name)"
+        [IO.File]::AppendAllText($env:GITHUB_ENV, "MAICORD_MSVC_VERSION=$($msvc.Name)`n")
+        cmake --version | Select-Object -First 1

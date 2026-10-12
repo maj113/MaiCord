@@ -1,0 +1,888 @@
+{
+  "upstream_version": "1.6.1",
+  "upstream_url": "https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz",
+  "upstream_sha256": "6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1",
+  "license": "BSD-3-Clause",
+  "upstream_files": [
+    {
+      "path": "COPYING",
+      "bytes": 1945,
+      "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551"
+    },
+    {
+      "path": "celt/_kiss_fft_guts.h",
+      "bytes": 6212,
+      "sha256": "c61749211e75ab6088ea19cf05e777645b8762ac8917b7ec92dc24f630b0c392"
+    },
+    {
+      "path": "celt/arch.h",
+      "bytes": 12547,
+      "sha256": "6cd5b41be6d13e9300bb5eae18bf1ab739882f4db31e3a3a3d54c415c5b9c797"
+    },
+    {
+      "path": "celt/bands.c",
+      "bytes": 61074,
+      "sha256": "fc7ddcc7a46135c2cd89016025e4b96d30e9b514565610115467405d78d63ec6"
+    },
+    {
+      "path": "celt/bands.h",
+      "bytes": 5577,
+      "sha256": "2167a3fcca0789942d46cdc2f870d77d66d09ec1840ee1db8a508ae16126fad8"
+    },
+    {
+      "path": "celt/celt.c",
+      "bytes": 11029,
+      "sha256": "d3c1b484c4d895bceda7c543534fc607bf4c6e2b1ca4b080dee8a5b8433a95d9"
+    },
+    {
+      "path": "celt/celt.h",
+      "bytes": 8878,
+      "sha256": "1c2b136abe5af480d3a579742ebf099ea345622645c1852c151ca2817c92eb53"
+    },
+    {
+      "path": "celt/celt_decoder.c",
+      "bytes": 61451,
+      "sha256": "a53393c70ae917d39229f34bce2c16ada535807e095cad00a4580aee48c9bfdb"
+    },
+    {
+      "path": "celt/celt_encoder.c",
+      "bytes": 107002,
+      "sha256": "5fa1a138c061cb4939141ff6704c33229e07168de72d9dcf071f17277829ced7"
+    },
+    {
+      "path": "celt/celt_lpc.c",
+      "bytes": 10753,
+      "sha256": "8c6eb20b52aa9d52a83453fd3e33372f2faf1791ea6cfcd8d9d294b005cd0801"
+    },
+    {
+      "path": "celt/celt_lpc.h",
+      "bytes": 2240,
+      "sha256": "e10b2e2e610b16a2003d00599467dfed45d300726eb28d0934857ebe2dc822cf"
+    },
+    {
+      "path": "celt/cpu_support.h",
+      "bytes": 2434,
+      "sha256": "02bf67720c974a87fa96aad556c4847acc3370ecd16a95170193724197bc9c0e"
+    },
+    {
+      "path": "celt/cwrs.c",
+      "bytes": 28394,
+      "sha256": "6579428627c7cbdc5de0e977bd81559f1e75cc7dd620bcb29ef7b4770ae13e44"
+    },
+    {
+      "path": "celt/cwrs.h",
+      "bytes": 1885,
+      "sha256": "7705be67d58e7fbdea384dde5f3c404ef814fbb8ecbfca61f731d11e8201bdc7"
+    },
+    {
+      "path": "celt/ecintrin.h",
+      "bytes": 3679,
+      "sha256": "c1100f45bdf70d2243740a7891a5def54cf483b51d024a35ac915b630639b556"
+    },
+    {
+      "path": "celt/entcode.c",
+      "bytes": 5700,
+      "sha256": "fb52778fb752126b6da6366d29d532ee98d66eb366a28e913562eb9520ba9208"
+    },
+    {
+      "path": "celt/entcode.h",
+      "bytes": 5423,
+      "sha256": "97e7742ae4251b545326aadcc898635e90f22d5dc18fa63471c118b8bd79d1e8"
+    },
+    {
+      "path": "celt/entdec.c",
+      "bytes": 8374,
+      "sha256": "f2d74695ceeb927210dcf76d653241ebdfd465a1c23128604640d218cdd93c38"
+    },
+    {
+      "path": "celt/entdec.h",
+      "bytes": 5348,
+      "sha256": "31485453c516ad9be38a03b50a3c450fd5a9b7c7fad2d9e6c05357fd07efe0a9"
+    },
+    {
+      "path": "celt/entenc.c",
+      "bytes": 9881,
+      "sha256": "56e0843479ae5db15696125ba6ac3d0a0c26fa8b677d4d6bd457686865408572"
+    },
+    {
+      "path": "celt/entenc.h",
+      "bytes": 5905,
+      "sha256": "b54d50fa515e4cf2f4b5a5a7a99269b85e24aefb533dd55d407660d1105b5a01"
+    },
+    {
+      "path": "celt/fixed_generic.h",
+      "bytes": 10413,
+      "sha256": "d102d53bb299308b832590760913a95dcd4bef9684d6e92134852e932587995f"
+    },
+    {
+      "path": "celt/float_cast.h",
+      "bytes": 5955,
+      "sha256": "043f39a90f0dc86092dfa7a76916cb123d06084b16e984b7a2f6375dea42fbfc"
+    },
+    {
+      "path": "celt/kiss_fft.c",
+      "bytes": 18531,
+      "sha256": "0ff3c57ce9dededbf9925338808223ee8e164b5847f2b320da49b11bac4024d0"
+    },
+    {
+      "path": "celt/kiss_fft.h",
+      "bytes": 6754,
+      "sha256": "1f293823406831f90dea83170c9d8ca0161254ab2f5f932b4110e8c8e96927b7"
+    },
+    {
+      "path": "celt/laplace.c",
+      "bytes": 6257,
+      "sha256": "6a33bdc5bf3a3350f51f92aafa281e4163fdffc88c9e7b0718f6eb770dc595e7"
+    },
+    {
+      "path": "celt/laplace.h",
+      "bytes": 2349,
+      "sha256": "27102a1e7f24879c6871df971b7215b119d574bc25a3af9740c343d3b285ae82"
+    },
+    {
+      "path": "celt/mathops.c",
+      "bytes": 11265,
+      "sha256": "25199450cc613fc9784add776204dc81d12478fde0d00c746fb1ac62ba85c10e"
+    },
+    {
+      "path": "celt/mathops.h",
+      "bytes": 22889,
+      "sha256": "79bf06946bf6ab97e6eb933193bcc654d0a7503132044c22714d7cdcc22ba22f"
+    },
+    {
+      "path": "celt/mdct.c",
+      "bytes": 12338,
+      "sha256": "8a21116be9b1332926586f8f44af0e1afd9bb7e8a65614683f972654a0668dcb"
+    },
+    {
+      "path": "celt/mdct.h",
+      "bytes": 4771,
+      "sha256": "fe4d55da1aa03159403379a1cf9d6373da7b27ed0f1de63f8f726e9d9cffd41a"
+    },
+    {
+      "path": "celt/mfrngcod.h",
+      "bytes": 2232,
+      "sha256": "5974c2341889a1c2e9775c2a21b3a55d4cbc1ebef90fe4412789aca4f4a19504"
+    },
+    {
+      "path": "celt/modes.c",
+      "bytes": 16674,
+      "sha256": "03e61ddf326812e4d0d7c00067319af74e1cc5653e2c9551e5a322cad1f73480"
+    },
+    {
+      "path": "celt/modes.h",
+      "bytes": 2665,
+      "sha256": "f1e503db4939cefaaaf9b5c744023223de0acdb51d2e33238e60bb0495e81c3f"
+    },
+    {
+      "path": "celt/os_support.h",
+      "bytes": 3291,
+      "sha256": "9e0b4572b0c5f366fd6f954d8f70d598d5f2b9d6cd7d123fc0f57cfff54abfd6"
+    },
+    {
+      "path": "celt/pitch.c",
+      "bytes": 15133,
+      "sha256": "ad93368ae01b6fcadd28905e6ed5a55ad165ae5031654540af77d1ffe55acfd5"
+    },
+    {
+      "path": "celt/pitch.h",
+      "bytes": 6284,
+      "sha256": "546220cfc7b32796a1f18b37ce75864e94b0016ea8a5eaace1f06c70aa8e20e2"
+    },
+    {
+      "path": "celt/quant_bands.c",
+      "bytes": 18965,
+      "sha256": "bec6e7ac19ff02b83480c6ca6a01c084566781856a1e3442b7468bf25a4b937b"
+    },
+    {
+      "path": "celt/quant_bands.h",
+      "bytes": 2998,
+      "sha256": "ea86cddfd98268902f37662cbe67d168fb8c1d5d23ad6e6a82b8f6f511048874"
+    },
+    {
+      "path": "celt/rate.c",
+      "bytes": 29415,
+      "sha256": "f288c8b88882e6500ee5fbb9036eef1ee572e0301d28cd686061c815747a7b9e"
+    },
+    {
+      "path": "celt/rate.h",
+      "bytes": 3606,
+      "sha256": "7bc335949f2e6e7d4e28c23681c4fc6f3c99733848deb7d1a24e908431f0d8a6"
+    },
+    {
+      "path": "celt/stack_alloc.h",
+      "bytes": 6798,
+      "sha256": "791a3ed2f579d0031213dd2e59446b2160f887c2df158f00b254bb08e66a739f"
+    },
+    {
+      "path": "celt/static_modes_fixed.h",
+      "bytes": 203202,
+      "sha256": "75a8932d1c3681fae719b58c4495914e4cdb2826efdf5809d73f64c4e05d4387"
+    },
+    {
+      "path": "celt/vq.c",
+      "bytes": 25048,
+      "sha256": "7f488e7ced4080d267e4ff44cb512861a47a49d45891277f4e898fe680dad0e5"
+    },
+    {
+      "path": "celt/vq.h",
+      "bytes": 3921,
+      "sha256": "b6c4c1ff9eb7aeb71cef86fe18d33446c9b9a71b4e82f002840d7f13028195f5"
+    },
+    {
+      "path": "include/opus.h",
+      "bytes": 59505,
+      "sha256": "036f6a6e83a20e943505743e113e90d6278cbe8240f7d5bb90b3f86261e783e3"
+    },
+    {
+      "path": "include/opus_custom.h",
+      "bytes": 16965,
+      "sha256": "3b67a36b36eac7d712f712a4e57d602a7ff9df753d184b0743bbca8628ccff4b"
+    },
+    {
+      "path": "include/opus_defines.h",
+      "bytes": 38558,
+      "sha256": "bbd4d4e3ba99f6982b1c8d8f5541814ad77d8e8babf3cc788cf23d517b2ca9d6"
+    },
+    {
+      "path": "include/opus_types.h",
+      "bytes": 5157,
+      "sha256": "19cb301ea1eedbcbdbb5049363de061893bf11c20e505a657b69ce6ffa5b11fa"
+    },
+    {
+      "path": "silk/A2NLSF.c",
+      "bytes": 10759,
+      "sha256": "8552687904b2db168cf9787aa2700369ae9bc76ee0f36dd77fe9b1bf32cce465"
+    },
+    {
+      "path": "silk/API.h",
+      "bytes": 8353,
+      "sha256": "00d2a2ff0d5228b2eeac4e1645531185537a07982cad2d2231cce287b8171acf"
+    },
+    {
+      "path": "silk/CNG.c",
+      "bytes": 9920,
+      "sha256": "e3741a6e4f23f941c1dc4589a7254d5d21f12ae01002376ec36270992daa8b52"
+    },
+    {
+      "path": "silk/HP_variable_cutoff.c",
+      "bytes": 3989,
+      "sha256": "e528fcf0eebc186dcb31e751e27892ea144c94af1f4fe5749890e7297f986184"
+    },
+    {
+      "path": "silk/Inlines.h",
+      "bytes": 7244,
+      "sha256": "295558194c3b1778d5ced3b409ffcc011f0e5df3e25e2bcb8be28ef649ae9881"
+    },
+    {
+      "path": "silk/LPC_analysis_filter.c",
+      "bytes": 5015,
+      "sha256": "5cd8edb8558515d477f7c65c4f597d15c68d65b6d90cc303965d317666821c23"
+    },
+    {
+      "path": "silk/LPC_fit.c",
+      "bytes": 4042,
+      "sha256": "27e0d8a40024c0d6532705792c7278a3ca280e408da71993efeb485fd8f03ea6"
+    },
+    {
+      "path": "silk/LPC_inv_pred_gain.c",
+      "bytes": 6161,
+      "sha256": "c2cc22922cd31554eaa8920ac31238a901139b9cb7964621f6f5f49bedd2b720"
+    },
+    {
+      "path": "silk/LP_variable_cutoff.c",
+      "bytes": 6552,
+      "sha256": "e17cec3098ec1df1529cef41dbd9a83ec7d54477fea7b593b3331171927af481"
+    },
+    {
+      "path": "silk/MacroCount.h",
+      "bytes": 20763,
+      "sha256": "8d822f074a31b6edf49c1a9b45f6cab36d5193393aef94b73c6ff3c4d64ac4fc"
+    },
+    {
+      "path": "silk/MacroDebug.h",
+      "bytes": 33581,
+      "sha256": "aefab84ea6848a81b1c48bbcf60935f70751ded68853d5c7d0ebb1249bd75773"
+    },
+    {
+      "path": "silk/NLSF2A.c",
+      "bytes": 6361,
+      "sha256": "ce17793880db88d7247596f30415f86ceda690e2ea289a6eff27f2665bc8633c"
+    },
+    {
+      "path": "silk/NLSF_VQ.c",
+      "bytes": 3975,
+      "sha256": "a918199e31254c639ee9f18ce24c4676c7bc9cc3a58fb1296cc416b8ee123e10"
+    },
+    {
+      "path": "silk/NLSF_VQ_weights_laroia.c",
+      "bytes": 3937,
+      "sha256": "5b44c124016b70dd95b94dd66bdf70d4ce6db0fc5dd52420466720c1fcce8cec"
+    },
+    {
+      "path": "silk/NLSF_decode.c",
+      "bytes": 4766,
+      "sha256": "3d723c92896df39bf399e7758b119d641261048f5e199935e61cab287cf8b8e1"
+    },
+    {
+      "path": "silk/NLSF_del_dec_quant.c",
+      "bytes": 11896,
+      "sha256": "3d045d2d59317aa7bd7ea277936ddf34770588931065ac34f3400c14234a5509"
+    },
+    {
+      "path": "silk/NLSF_encode.c",
+      "bytes": 6129,
+      "sha256": "e0bb31a1fe04f30fa2f10a06ee31179293198702b2ddf9bb3bdbde449e119121"
+    },
+    {
+      "path": "silk/NLSF_stabilize.c",
+      "bytes": 6347,
+      "sha256": "14c69720cd90614d8fdf1a0bb05a051598b00783370633323bafec8ff310e2ac"
+    },
+    {
+      "path": "silk/NLSF_unpack.c",
+      "bytes": 2948,
+      "sha256": "049555e005febe8cedd19e72886f108835e4883e69013bf95050984de070faac"
+    },
+    {
+      "path": "silk/NSQ.c",
+      "bytes": 22868,
+      "sha256": "bce8cb89be691137a0ca9d92e4d5998aad67fb77f6eebbedf67246e8fd12cf8a"
+    },
+    {
+      "path": "silk/NSQ.h",
+      "bytes": 4343,
+      "sha256": "db57d49d839862a0da83585b75e7a436fc80e1e2b25e82aeb66a8afd9ccaf951"
+    },
+    {
+      "path": "silk/NSQ_del_dec.c",
+      "bytes": 39492,
+      "sha256": "5b7cc8f24a00f5d7094f8c632b517d034f39628147918c4f89c72327bc773b63"
+    },
+    {
+      "path": "silk/PLC.c",
+      "bytes": 21986,
+      "sha256": "914eb9ce1f7bd3cf68cbe5f8e91f5411c872006a99a6665409e66f307af01427"
+    },
+    {
+      "path": "silk/PLC.h",
+      "bytes": 3339,
+      "sha256": "013f9159a95bf705df435a11cbe0b1ec39d207db8bac9a7180585657f130db32"
+    },
+    {
+      "path": "silk/SigProc_FIX.h",
+      "bytes": 39392,
+      "sha256": "37942e211d5ba6443a8da5841f374023f5bba4899d25134fe2dca62c4cac5cf9"
+    },
+    {
+      "path": "silk/VAD.c",
+      "bytes": 15007,
+      "sha256": "710ca80daa272b7a3d2965caf335ab165bb1cc7c8260ef89d79ccf386c587ff4"
+    },
+    {
+      "path": "silk/VQ_WMat_EC.c",
+      "bytes": 7139,
+      "sha256": "0cf17b00ece99000bc536ddb479a619362194b228e2563223b211453359412b4"
+    },
+    {
+      "path": "silk/ana_filt_bank_1.c",
+      "bytes": 3782,
+      "sha256": "23ab2f6ef89e6106f8a8a417f07055b091f7b25c5693f7f2007d5e82edb4f849"
+    },
+    {
+      "path": "silk/biquad_alt.c",
+      "bytes": 6886,
+      "sha256": "cab5911f028eb96570859f2608bec00bdef8bc2ba338019b414abf583b12fdf3"
+    },
+    {
+      "path": "silk/bwexpander.c",
+      "bytes": 2760,
+      "sha256": "f01c2e6752d806974054c5b0ac5b9fbe1fef88b59873dcaae87974521f2d0256"
+    },
+    {
+      "path": "silk/bwexpander_32.c",
+      "bytes": 2574,
+      "sha256": "695726d8e425b68ecd9e2af47fef31246066c01303f6d37dffba709462584474"
+    },
+    {
+      "path": "silk/check_control_input.c",
+      "bytes": 5029,
+      "sha256": "739c90c5e6e5bad607d720dc34f39a4f36147fc63d42bc399cc0a1d739cf18f6"
+    },
+    {
+      "path": "silk/code_signs.c",
+      "bytes": 5554,
+      "sha256": "becd3134a77e972d70e2845cf10ac4a597233040c37d58338ffe9085859660a2"
+    },
+    {
+      "path": "silk/control.h",
+      "bytes": 6661,
+      "sha256": "a9fc44c0719b6c3506695b2667d53f0093877fabb251bfac57edd2fb5e08a784"
+    },
+    {
+      "path": "silk/control_SNR.c",
+      "bytes": 5447,
+      "sha256": "4b6b102ebc8acdc0bd44c5beab07032b15b69b20631e933def5a3781f7a63808"
+    },
+    {
+      "path": "silk/control_audio_bandwidth.c",
+      "bytes": 5919,
+      "sha256": "3282b7f2833226e70c1291e4a92f3a63d724da60323c263dab822df6740223e5"
+    },
+    {
+      "path": "silk/control_codec.c",
+      "bytes": 20591,
+      "sha256": "9c84153924c2033d1c539b97d1bb358d6c63a451883971745c6c9a550de2053b"
+    },
+    {
+      "path": "silk/debug.h",
+      "bytes": 12924,
+      "sha256": "6f02588379145c4ddcbd01dfaf8bb55d06b1f477120d7eb24e389ec57004388d"
+    },
+    {
+      "path": "silk/dec_API.c",
+      "bytes": 22827,
+      "sha256": "0f94c4c985851051d3cdf40a2ebf9b96c616ee1f49b8a2ad4477a6880ff01d1b"
+    },
+    {
+      "path": "silk/decode_core.c",
+      "bytes": 12216,
+      "sha256": "9bec65a48d32f0b4843eaaa02cd6b49b0e853186f47695ce3f3c178d4bd3452f"
+    },
+    {
+      "path": "silk/decode_frame.c",
+      "bytes": 7388,
+      "sha256": "d76755eb49d7e2ee5106945948c4613d6fbaceeec90d41f5ddc51956e185716d"
+    },
+    {
+      "path": "silk/decode_indices.c",
+      "bytes": 7245,
+      "sha256": "4d872038c93a2e16c266b1d29f400ffa8f5a4ccf57e50cbdc4cc5fa17623f5f5"
+    },
+    {
+      "path": "silk/decode_parameters.c",
+      "bytes": 5527,
+      "sha256": "d86e43fd07b72472baa5036bacb277600312afc0153d243324b89d8699c8df1b"
+    },
+    {
+      "path": "silk/decode_pitch.c",
+      "bytes": 3717,
+      "sha256": "b74b8c46973519c2a1ee535ce2f64ac89a93a3c4c0ec2de997d56cc5ca9262fa"
+    },
+    {
+      "path": "silk/decode_pulses.c",
+      "bytes": 5598,
+      "sha256": "58560300a5a4ae0ee2291349a8667cce5ebb9054c4e5056aeed76e0fe2792f10"
+    },
+    {
+      "path": "silk/decoder_set_fs.c",
+      "bytes": 4967,
+      "sha256": "8cdd79180cf730d77c6e063b625b960c6199e9f75c98101ae5cd16be4dc1e008"
+    },
+    {
+      "path": "silk/define.h",
+      "bytes": 9941,
+      "sha256": "4c580873f3eaa1f9ecebeb2cf890e3bc6d24937673a0fd3e5da8eb1ea46843b1"
+    },
+    {
+      "path": "silk/enc_API.c",
+      "bytes": 32873,
+      "sha256": "3eb171190e2ad0488ef77d00eb7b20eaa1ebc3a2afde7274f8a4f7681e9f261d"
+    },
+    {
+      "path": "silk/encode_indices.c",
+      "bytes": 9359,
+      "sha256": "585e886a5e552b7645e20a9bc4139369f96aef254c01d4cbf89b757f6542e594"
+    },
+    {
+      "path": "silk/encode_pulses.c",
+      "bytes": 8839,
+      "sha256": "892ebd497ff473050344fbe5c9e03e3395fd6cbe07f33ee2770887ddd1b3f06f"
+    },
+    {
+      "path": "silk/errors.h",
+      "bytes": 3572,
+      "sha256": "899a34237a1f21867731382a94cca0c341dd9dad1bf964e74acb3f7bfb542271"
+    },
+    {
+      "path": "silk/fixed/LTP_analysis_filter_FIX.c",
+      "bytes": 4729,
+      "sha256": "1ad8d9bb824efc851ff7b9988241bd69c96a7396d92409ad43693b9f38d0690e"
+    },
+    {
+      "path": "silk/fixed/LTP_scale_ctrl_FIX.c",
+      "bytes": 3328,
+      "sha256": "84b9867a55eccbea6964f55e32d1c8f063f822e798cf03e8a62adcd5e16bcdc8"
+    },
+    {
+      "path": "silk/fixed/apply_sine_window_FIX.c",
+      "bytes": 4921,
+      "sha256": "d43acd197f1d9293724f4cfd12cf29f2949548e1dd4ef01e53d280b41fe32e8b"
+    },
+    {
+      "path": "silk/fixed/autocorr_FIX.c",
+      "bytes": 2725,
+      "sha256": "16aceb2d3d8a896a350e43ebd142cfcc1b4413212c637634b9611998c15dc271"
+    },
+    {
+      "path": "silk/fixed/burg_modified_FIX.c",
+      "bytes": 16754,
+      "sha256": "9d4fdc704d9f7f12e985ed74f804f94ddf4d206b1d4c69710e013711d4da8b34"
+    },
+    {
+      "path": "silk/fixed/corrMatrix_FIX.c",
+      "bytes": 8334,
+      "sha256": "8cef6848e3336542c9b358781c02570a3624c35a73fb61631008c195f8c7e3d1"
+    },
+    {
+      "path": "silk/fixed/encode_frame_FIX.c",
+      "bytes": 24314,
+      "sha256": "4f2b91ba2cf8f000108028e796d1eb02d4aaee075865bb99317f4e73ba64daed"
+    },
+    {
+      "path": "silk/fixed/find_LPC_FIX.c",
+      "bytes": 7361,
+      "sha256": "9a805cb8cce47685da520f1237f8dc6f7040431e38a5c556c53306ac8bfb7a8e"
+    },
+    {
+      "path": "silk/fixed/find_LTP_FIX.c",
+      "bytes": 5422,
+      "sha256": "3d3e6eb738707e0522caff41e866f3fbbd0f9827841ace1a20c4e7733e655c1c"
+    },
+    {
+      "path": "silk/fixed/find_pitch_lags_FIX.c",
+      "bytes": 7330,
+      "sha256": "72089cf92638ffc1371bf7631dc36d974f14258cb0ae1f21ac8c7ab9e6975bd2"
+    },
+    {
+      "path": "silk/fixed/find_pred_coefs_FIX.c",
+      "bytes": 7655,
+      "sha256": "7bd3ecb58c545780c26d841e084d284a8a5b0174e32b637322b5900b852775eb"
+    },
+    {
+      "path": "silk/fixed/k2a_FIX.c",
+      "bytes": 2675,
+      "sha256": "0dbe9b0849bef47e8f97daf0984482526538569e25d1e4d9edc51da37962578e"
+    },
+    {
+      "path": "silk/fixed/k2a_Q16_FIX.c",
+      "bytes": 2622,
+      "sha256": "22f0dcde79d700f4acee6f44eb8f5b6ab6fe7f519240411b6486dc97e8e17b4d"
+    },
+    {
+      "path": "silk/fixed/main_FIX.h",
+      "bytes": 19046,
+      "sha256": "eccf1f7527162d410df79c7d42e6c2d8e62b67959ae533ac053eadf8da443f88"
+    },
+    {
+      "path": "silk/fixed/noise_shape_analysis_FIX.c",
+      "bytes": 20438,
+      "sha256": "a3ba363cd3d3c1225cedf433b7d304540aea6acb8eda758aaed1acbdc7cd23fb"
+    },
+    {
+      "path": "silk/fixed/pitch_analysis_core_FIX.c",
+      "bytes": 34345,
+      "sha256": "709cfe2b80127d7544e174631df8f7d975af26598d9a64aa65fea3bc3d570c2f"
+    },
+    {
+      "path": "silk/fixed/process_gains_FIX.c",
+      "bytes": 6595,
+      "sha256": "92a25af5a23536cac6ec4216711ae82a680be46d5b0c3b0515a2a2fec9e6d495"
+    },
+    {
+      "path": "silk/fixed/residual_energy_FIX.c",
+      "bytes": 5389,
+      "sha256": "637a8f4489ff09808ec1b614fe0748719a4220f63b42f001e853449107e113f2"
+    },
+    {
+      "path": "silk/fixed/schur64_FIX.c",
+      "bytes": 3994,
+      "sha256": "b342eabcf7b5e821141bb9f85b22465a14ed8abde415f3178ce9f00dbbf40d84"
+    },
+    {
+      "path": "silk/fixed/schur_FIX.c",
+      "bytes": 4447,
+      "sha256": "adcaae65d547ddd52c7ccddcd82a13dcd25d2903520a8ca684f43c2f2a9d7892"
+    },
+    {
+      "path": "silk/fixed/structs_FIX.h",
+      "bytes": 5158,
+      "sha256": "08c48813c69bf53e433a2081beec8a475a3261a396b96693f60093fcf43a5226"
+    },
+    {
+      "path": "silk/fixed/vector_ops_FIX.c",
+      "bytes": 4767,
+      "sha256": "db8173d0b313bd066bbbec9ad807f521a874140c69dc883c522d4de3f23e8cdc"
+    },
+    {
+      "path": "silk/fixed/warped_autocorrelation_FIX.c",
+      "bytes": 4759,
+      "sha256": "fdccb382d43d0cabce0fadfaf76bfbf6cab73b1137fd87282c642a7950f5d671"
+    },
+    {
+      "path": "silk/gain_quant.c",
+      "bytes": 6928,
+      "sha256": "070223b7a20976d91c8f557c5552537db2c452e459483d886f78daf71c5d17b7"
+    },
+    {
+      "path": "silk/init_decoder.c",
+      "bytes": 3057,
+      "sha256": "67d4da1fa2a546432ba3ce7f815cab5f759c24daff9c11746217e1aca4b0feb0"
+    },
+    {
+      "path": "silk/init_encoder.c",
+      "bytes": 2930,
+      "sha256": "0c06e1afc8aea2828426b599578f9708b0ea00c6ba3d76d5c2e0d4117e21ddf6"
+    },
+    {
+      "path": "silk/inner_prod_aligned.c",
+      "bytes": 2451,
+      "sha256": "11356406441d6257ce6941e408937eaeb22135849e38b551ea78d7bd624130d3"
+    },
+    {
+      "path": "silk/interpolate.c",
+      "bytes": 2601,
+      "sha256": "99eb0e43ca938348d5762b3d9c6f0f002933683363ab0e86bfcdcfccdeb93a86"
+    },
+    {
+      "path": "silk/lin2log.c",
+      "bytes": 2219,
+      "sha256": "75a642c6d99bfe79e2ddc924e9b96bdf3e0ef7359cfa2e28df4606ad4f86750f"
+    },
+    {
+      "path": "silk/log2lin.c",
+      "bytes": 2636,
+      "sha256": "4ce500b6b3ae8f96a6cce5b93391e85459ec88e640cd8430a32ce7337fed8923"
+    },
+    {
+      "path": "silk/macros.h",
+      "bytes": 6501,
+      "sha256": "7fb2ce02a79df147f9220a4fbc1effe531305881092f4b7d003057666223ebfd"
+    },
+    {
+      "path": "silk/main.h",
+      "bytes": 33034,
+      "sha256": "5ea6800f56e83fc6f15f7b7c8b189c4686a1f81b1cc75e18f580e305d5f455f2"
+    },
+    {
+      "path": "silk/pitch_est_defines.h",
+      "bytes": 4060,
+      "sha256": "a51197e9131a105cb12547ac520320a5ad9633c9a89dd74848999ca748f18af4"
+    },
+    {
+      "path": "silk/pitch_est_tables.c",
+      "bytes": 3589,
+      "sha256": "c0cf34e7d5ced41d7117c345edddc4ecefaf80ef2a55950a3a95582da7e3e334"
+    },
+    {
+      "path": "silk/process_NLSFs.c",
+      "bytes": 5447,
+      "sha256": "dfd4b5527fd6ff43d6eec50dacfd51a5819fe5ebca2a6797d25548d61c5dfb19"
+    },
+    {
+      "path": "silk/quant_LTP_gains.c",
+      "bytes": 7346,
+      "sha256": "81b85acad8242d5e423377999300c15ab4ec789c52615fa3ff7ac59aa1d0c7fd"
+    },
+    {
+      "path": "silk/resampler.c",
+      "bytes": 10146,
+      "sha256": "b75329b716a429b50e937bf7975aedd200543d8a7e4e1c77a4572b2975740ba3"
+    },
+    {
+      "path": "silk/resampler_down2.c",
+      "bytes": 3474,
+      "sha256": "0f988cdc80644b0dc0c25b84765bd0f11a2851b1913204db47eb064af6dd4cf1"
+    },
+    {
+      "path": "silk/resampler_down2_3.c",
+      "bytes": 4765,
+      "sha256": "2ab8318bf4bc64de8491ac0272cdf19c79bf036725b17f21fc870e280b1ebc72"
+    },
+    {
+      "path": "silk/resampler_private.h",
+      "bytes": 4485,
+      "sha256": "b8985c3e4b2d1a7db5ef0585d57bbe5106804d5c04648ab7a400c2d89f589e67"
+    },
+    {
+      "path": "silk/resampler_private_AR2.c",
+      "bytes": 2664,
+      "sha256": "ae6142c28e724374e0a0f8e988e27ead22c6d52fb4e0ede4467cac3d500b2f2c"
+    },
+    {
+      "path": "silk/resampler_private_IIR_FIR.c",
+      "bytes": 5231,
+      "sha256": "584c7b2afbcb56ba03016401408d8eecb1393640eee947d0bae78fc141f425be"
+    },
+    {
+      "path": "silk/resampler_private_down_FIR.c",
+      "bytes": 10897,
+      "sha256": "175b7b6863fecff32d9e36e497bbc666e7083ceb35dcca7d40502de58eb4fabd"
+    },
+    {
+      "path": "silk/resampler_private_up2_HQ.c",
+      "bytes": 5367,
+      "sha256": "f06a982b8856e1575371d147ddb9a03033f0569e8d7f969536133e606ef32a36"
+    },
+    {
+      "path": "silk/resampler_rom.c",
+      "bytes": 4747,
+      "sha256": "ec3ba5c620ee504d0a902290ae54bc8b434754e57e294a501a82757b9c9d6ddd"
+    },
+    {
+      "path": "silk/resampler_rom.h",
+      "bytes": 3224,
+      "sha256": "68bfa7fc24650e0af574ee853764e40849952eb58e84e26739d0ac2cedf49942"
+    },
+    {
+      "path": "silk/resampler_structs.h",
+      "bytes": 2546,
+      "sha256": "0f82b16200ce0d9afdb81c670b44d7435dc79efa8e2a37e7b529efd565f2b84d"
+    },
+    {
+      "path": "silk/shell_coder.c",
+      "bytes": 7718,
+      "sha256": "60b5a2786238f669eb48dc9a81c072707a11691be3a73029ceb643a6dee5d7dd"
+    },
+    {
+      "path": "silk/sigm_Q15.c",
+      "bytes": 3163,
+      "sha256": "bfa177d2ab282ce9b36f46e72603784c0ada059ef43d87d13293b34d205d366f"
+    },
+    {
+      "path": "silk/sort.c",
+      "bytes": 6265,
+      "sha256": "adf6ce2c63bd04e092e43bece82fb52cd6dc281d2b6bbfdd24f95fd54c27fef1"
+    },
+    {
+      "path": "silk/stereo_LR_to_MS.c",
+      "bytes": 12481,
+      "sha256": "36f67d3eff5c77522733bbc9d2c19c2ae3ae96e5b6ee4b4da84734edafe305e9"
+    },
+    {
+      "path": "silk/stereo_MS_to_LR.c",
+      "bytes": 4899,
+      "sha256": "55298e28fe9248ac067273533140ae73220b4f220222974b1e79accedea9a61a"
+    },
+    {
+      "path": "silk/stereo_decode_pred.c",
+      "bytes": 3417,
+      "sha256": "b852fbd96ea37d0387b523e5aec0526e0afe5d64457c5da44e6d6903cca27e8b"
+    },
+    {
+      "path": "silk/stereo_encode_pred.c",
+      "bytes": 2885,
+      "sha256": "405b710c9b7cebcbe49262ee865a75f63fd6375fba565b30c8aee488d09b6e22"
+    },
+    {
+      "path": "silk/stereo_find_predictor.c",
+      "bytes": 4374,
+      "sha256": "b77b33b43ab9f72947d6b853a282b639a633345b30e71e1817f122d487941fa1"
+    },
+    {
+      "path": "silk/stereo_quant_pred.c",
+      "bytes": 3404,
+      "sha256": "8d1895de054a67a8501af9bf977d20be91f3a9efc50d67bd683dd0a09da69732"
+    },
+    {
+      "path": "silk/structs.h",
+      "bytes": 21801,
+      "sha256": "255e5bfce33917a4c5e379a5371f939e7d34b1eb131a398c65a38a438c3ad2d8"
+    },
+    {
+      "path": "silk/sum_sqr_shift.c",
+      "bytes": 3789,
+      "sha256": "0a9db7e0b0b5f577ffdc277a03a043dbeac3d3dc9d05abcbc798169c3abfc44f"
+    },
+    {
+      "path": "silk/table_LSF_cos.c",
+      "bytes": 4191,
+      "sha256": "9cae32dfdc4ab45e5f288a4fd74cf8bb5dace19c651ec54b6c064024434d52c2"
+    },
+    {
+      "path": "silk/tables.h",
+      "bytes": 7110,
+      "sha256": "2155bc78731ed37a76106d1f48d5c1125bd9cf579e9da9edb73c07c370bb3942"
+    },
+    {
+      "path": "silk/tables_LTP.c",
+      "bytes": 7432,
+      "sha256": "95b4912701d4dfd46f0364603092885818c00604808c9b7f606e40eec34fb3f0"
+    },
+    {
+      "path": "silk/tables_NLSF_CB_NB_MB.c",
+      "bytes": 10785,
+      "sha256": "94e49118901f9f9e4f09c9c088f6eeb8936f200686517d791440c26c523463f5"
+    },
+    {
+      "path": "silk/tables_NLSF_CB_WB.c",
+      "bytes": 14498,
+      "sha256": "58511404ed6a4f6a8f5b0051e9328df1b60a8c6d59928382438be2cddabc05d8"
+    },
+    {
+      "path": "silk/tables_gain.c",
+      "bytes": 2451,
+      "sha256": "79b3ca1d67ff4dc665a837a9c6f22063fa706486846df77ae48376f02d1a6914"
+    },
+    {
+      "path": "silk/tables_other.c",
+      "bytes": 4714,
+      "sha256": "07b309e991adab0496fe0a0622195c9b8c11c17290582fd39fe0b357ef7afa5d"
+    },
+    {
+      "path": "silk/tables_pitch_lag.c",
+      "bytes": 3066,
+      "sha256": "0cb26e4e711a16a728aeb3943bf9c23a488de6abd2fe455076f418e325605c4c"
+    },
+    {
+      "path": "silk/tables_pulses_per_block.c",
+      "bytes": 11423,
+      "sha256": "2fb238cd37048303f2dfa033b1e4c4d6decc427ba81c8eccacae5e19dc7b77fd"
+    },
+    {
+      "path": "silk/tuning_parameters.h",
+      "bytes": 6122,
+      "sha256": "2823d20d758d468c1b5936914d679e25f42a20efb8487686aeaf72a3f00048b4"
+    },
+    {
+      "path": "silk/typedef.h",
+      "bytes": 3522,
+      "sha256": "a25409c0741545a75f28bf8a51ccdc3a7ba2421e783bd02baafe379e6d43e5b7"
+    },
+    {
+      "path": "src/analysis.h",
+      "bytes": 3583,
+      "sha256": "525530813f8650a82df8e3be6f5fe6e2a953d500af81225fc0294971ecdd4a79"
+    },
+    {
+      "path": "src/extensions.c",
+      "bytes": 23462,
+      "sha256": "82a896f6067d32cbb489b694f2e90f2dec8208f0a68ca40e1d123e312a1408b5"
+    },
+    {
+      "path": "src/mlp.h",
+      "bytes": 2096,
+      "sha256": "bb553cd83e8081e79244682cce949ad1d6b584232d43eff30a1a254100dba07b"
+    },
+    {
+      "path": "src/opus.c",
+      "bytes": 11274,
+      "sha256": "1cee175636295bbd576ff384b77c31663b04fe09619598a452e067229205ade1"
+    },
+    {
+      "path": "src/opus_decoder.c",
+      "bytes": 49619,
+      "sha256": "ddc60846096a83669aa33992481ce088eca791d6478ecdbf1e445a59d678779a"
+    },
+    {
+      "path": "src/opus_encoder.c",
+      "bytes": 119683,
+      "sha256": "c9e0a841e60fb904c9918f9f9a82f744cefed0b55ea47d9d7027dd6b95ac2a2c"
+    },
+    {
+      "path": "src/opus_private.h",
+      "bytes": 9225,
+      "sha256": "546ef810679530ec9e1129ca72e6fba29c4eba30ed56737b544525cea58feec8"
+    }
+  ]
+}
