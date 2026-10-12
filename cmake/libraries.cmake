@@ -179,6 +179,8 @@ maicord_library(maicord_app_core
     src/app/voice_message_recorder.cpp src/app/account_voice_message.cpp
     # Call view video bookkeeping and Go Live preview cache/backoff and stream state.
     src/app/call_video_presenter.cpp src/app/stream_preview_cache.cpp src/app/stream_watch_view.cpp
+    # Durable floor records shared by update_acceptance and the plugin catalog.
+    src/app/acceptance_record.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_media_core
         maicord_voice_encoder)
 
@@ -329,6 +331,12 @@ maicord_library(maicord_plugin_modules
     src/app/plugin_module_loader.cpp src/app/plugin_manifest.cpp src/app/plugin_catalog.cpp
     src/app/plugin_bundle_install.cpp src/app/plugin_preferences.cpp
     LIBS maicord_core maicord_plugin_host kernel32 bcrypt)
+# Plugin catalog: the signed index verifier, its pure policy, and the
+# provider, floor, state and journal records of the plugin manager.
+maicord_library(maicord_plugin_manager
+    src/app/plugin_index.cpp src/app/plugin_index_policy.cpp src/app/plugin_index_acceptance.cpp
+    src/app/plugin_providers.cpp src/app/plugin_manager_state.cpp
+    LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_modules kernel32 bcrypt)
 
 maicord_library(maicord_edit_history src/text/edit_history.cpp LIBS maicord_core maicord_platform)
 

@@ -38,24 +38,31 @@ bool contains(Utf8View a, const char* b) noexcept {
 }
 u32 length8(const char* s) noexcept { u32 n = 0; while (s[n]) ++n; return n; }
 bool contains(const char* a, const char* b) noexcept { return contains(Utf8View{a, length8(a)}, b); }
-UpdateLocation at(UpdateHost host, const char* target, const char* pages = "o.github.io") noexcept {
+UpdateLocation at(UpdateHost host, const char* target, const char* origin = nullptr) noexcept {
     UpdateLocation l{}; l.host = host; l.target_bytes = length8(target); copy_bytes(l.target, target, l.target_bytes);
-    if (host == UpdateHost::pages) { l.pages_bytes = length8(pages); copy_bytes(l.pages, pages, l.pages_bytes); }
+    if (!origin) origin = host == UpdateHost::provider ? "plugins.example.net" : "o.github.io";
+    if (host == UpdateHost::pages || host == UpdateHost::provider) { l.origin_bytes = length8(origin); copy_bytes(l.origin, origin, l.origin_bytes); }
     return l;
 }
 bool same_location(const UpdateLocation& l, UpdateHost host, const char* host_name, const char* target) noexcept {
     return l.host == host && same(update_location_host(l), host_name) && same({l.target, l.target_bytes}, target);
 }
 
-// Captured updater log lines.
+// Captured updater log lines and their categories.
 char g_lines[32][400];
+const char* g_categories[32];
 u32 g_line_count;
 bool g_echo;
-void capture(LogLevel, const char* line) noexcept {
+void capture(LogLevel, const char* category, const char* line) noexcept {
     if (g_echo) test_write_line(line);
     if (g_line_count == 32) return;
     u32 n = 0; while (line[n] && n + 1 < sizeof(g_lines[0])) { g_lines[g_line_count][n] = line[n]; ++n; }
+    g_categories[g_line_count] = category;
     g_lines[g_line_count++][n] = 0;
+}
+bool all_categories(const char* expected) noexcept {
+    for (u32 i = 0; i < g_line_count; ++i) if (!g_categories[i] || !same({g_categories[i], length8(g_categories[i])}, expected)) return false;
+    return g_line_count != 0;
 }
 bool logged(const char* needle) noexcept {
     for (u32 i = 0; i < g_line_count; ++i) if (contains(g_lines[i], needle)) return true;
@@ -80,14 +87,14 @@ struct Route {
 struct Fake {
     Route routes[12];
     u32 count, requests, wrong_host;
-    const char* pages;
+    const char* origin; // the Pages or provider host this fake serves
 };
 UpdateTransportError fake_get(void* context, const UpdateHttpRequest& request, UpdateHttpResponse* response) noexcept {
     auto* fake = static_cast<Fake*>(context);
     ++fake->requests;
     *response = {};
-    const Utf8View expected = request.host == UpdateHost::pages ? Utf8View{fake->pages, fake->pages ? length8(fake->pages) : 0}
-                                                                : update_host_name(request.host);
+    const bool closed = request.host == UpdateHost::pages || request.host == UpdateHost::provider;
+    const Utf8View expected = closed ? Utf8View{fake->origin, fake->origin ? length8(fake->origin) : 0} : update_host_name(request.host);
     if (!expected.bytes || request.host_name.bytes != expected.bytes || !bytes_equal(request.host_name.data, expected.data, expected.bytes)) {
         ++fake->wrong_host; response->status = 404; return UpdateTransportError::none;
     }
@@ -216,6 +223,37 @@ void test_redirects_and_schedule() noexcept {
         !parse(UpdateHost::pages, "https://github.com/o/r/x") && !parse(UpdateHost::pages, "https://other.github.io/r/x") &&
         !parse(UpdateHost::pages, "https://objects.githubusercontent.com/x") && !parse(UpdateHost::github, "https://o.github.io/r/x"),
         "update redirects: the Pages origin only redirects to itself and release hosts never hand off to it");
+    check(parse(UpdateHost::provider, "/catalog/v1/index.json") &&
+            same_location(next, UpdateHost::provider, "plugins.example.net", "/catalog/v1/index.json") &&
+        parse(UpdateHost::provider, "https://Plugins.Example.NET/x") && same_location(next, UpdateHost::provider, "plugins.example.net", "/x") &&
+        !parse(UpdateHost::provider, "https://github.com/o/r/x") && !parse(UpdateHost::provider, "https://o.github.io/r/x") &&
+        !parse(UpdateHost::provider, "https://cdn.plugins.example.net/x") && !parse(UpdateHost::provider, "http://plugins.example.net/x") &&
+        !parse(UpdateHost::pages, "https://plugins.example.net/x") && !parse(UpdateHost::github, "https://plugins.example.net/x"),
+        "update redirects: a provider origin only redirects to itself; Pages and release hosts never hand off to it");
+    char longest[65]{}, too_long[66]{};
+    for (u32 i = 0; i < 64; ++i) longest[i] = i == 30 ? '.' : 'a';
+    for (u32 i = 0; i < 65; ++i) too_long[i] = i == 30 ? '.' : 'a';
+    check(update_origin_host_valid(utf8_literal("plugins.example.net")) && update_origin_host_valid(utf8_literal("someone.github.io")) &&
+        update_origin_host_valid(utf8_literal("A-1.b2")) && update_origin_host_valid(utf8_literal("1.example")) &&
+        update_origin_host_valid({longest, 64}) && !update_origin_host_valid({too_long, 65}) &&
+        !update_origin_host_valid(utf8_literal("localhost")) && !update_origin_host_valid(utf8_literal("dev.LOCALHOST")) &&
+        !update_origin_host_valid(utf8_literal("127.0.0.1")) && !update_origin_host_valid(utf8_literal("example")) &&
+        !update_origin_host_valid(utf8_literal("-a.example")) && !update_origin_host_valid(utf8_literal("a-.example")) &&
+        !update_origin_host_valid(utf8_literal("a..example")) && !update_origin_host_valid(utf8_literal(".example.net")) &&
+        !update_origin_host_valid(utf8_literal("example.net.")) && !update_origin_host_valid(utf8_literal("a_b.example")) &&
+        !update_origin_host_valid(utf8_literal("host.example:443")) && !update_origin_host_valid(utf8_literal("u@host.example")) &&
+        !update_origin_host_valid({}),
+        "update origins: provider hosts are LDH names of at most 64 bytes, never IP literals or localhost");
+    UpdateLocation built{};
+    check(update_provider_location(utf8_literal("Plugins.Example.NET"), text("/catalog/v1/index.json"), &built) &&
+        same_location(built, UpdateHost::provider, "plugins.example.net", "/catalog/v1/index.json") &&
+        !update_provider_location(utf8_literal("127.0.0.1"), text("/v1/index.json"), &built) &&
+        !update_provider_location(utf8_literal("plugins.example.net"), text("v1/index.json"), &built) &&
+        !update_provider_location(utf8_literal("plugins.example.net"), text("//evil.example/x"), &built) &&
+        !update_provider_location(utf8_literal("plugins.example.net"), text("/a b"), &built) &&
+        !update_provider_location(utf8_literal("plugins.example.net"), text("/a#b"), &built) &&
+        same_location(built, UpdateHost::provider, "plugins.example.net", "/catalog/v1/index.json"),
+        "update origins: provider locations fold the host to lowercase and refuse other targets without changing the output");
     UpdateLocation self = at(UpdateHost::pages, "/r/a");
     constexpr char relative[] = "/r/b";
     check(update_redirect_target(self, {reinterpret_cast<const u8*>(relative), 4}, &self) &&
@@ -228,7 +266,7 @@ void test_redirects_and_schedule() noexcept {
         "update schedule: 24 h with jitter, exponential backoff capped at 24 h, server retry time honoured");
 
     static Fake fake{};
-    fake.pages = "o.github.io";
+    fake.origin = "o.github.io";
     fake.routes[fake.count++] = route(UpdateHost::github, "/o/r/a", 302, "https://objects.githubusercontent.com/a?sig=SECRET&X-Amz-Signature=x");
     fake.routes[fake.count++] = route(UpdateHost::objects, "/a?sig=SECRET&X-Amz-Signature=x", 200, nullptr, "hello", 5);
     fake.routes[fake.count++] = route(UpdateHost::github, "/o/r/evil", 302, "https://evil.example/a");
@@ -241,6 +279,7 @@ void test_redirects_and_schedule() noexcept {
     fake.routes[fake.count++] = route(UpdateHost::pages, "/r/updates/m.json", 301, "/r/updates/current.json");
     fake.routes[fake.count++] = route(UpdateHost::pages, "/r/updates/current.json", 200, nullptr, "{}", 2);
     fake.routes[fake.count++] = route(UpdateHost::pages, "/r/updates/away.json", 302, "https://github.com/o/r/a");
+    fake.routes[fake.count++] = route(UpdateHost::pages, "/r/updates/provider.json", 302, "https://plugins.example.net/r/x");
     const UpdateTransport transport{&fake, fake_get};
     Sink body{};
     g_line_count = 0; g_update_log_sink = capture;
@@ -250,14 +289,40 @@ void test_redirects_and_schedule() noexcept {
     bool private_fields = false;
     for (u32 i = 0; i < g_line_count; ++i) private_fields |= contains(g_lines[i], "SECRET") || contains(g_lines[i], "?") || contains(g_lines[i], "/o/r");
     check(g_line_count == 2 && logged("http host=github.com status=302 next=objects.githubusercontent.com") &&
-        logged("http host=objects.githubusercontent.com status=200 length=5 bytes=5 expected=5") && !private_fields,
-        "update log: each response records host, status and sizes, never targets or signed query strings");
+        logged("http host=objects.githubusercontent.com status=200 length=5 bytes=5 expected=5") && !private_fields &&
+        all_categories("update"),
+        "update log: each response records host, status and sizes under the update category, never targets or query strings");
     body = {};
     check(update_fetch(transport, at(UpdateHost::pages, "/r/updates/m.json"), 64, 0, sink, &body, now).ok() && body.used == 2 &&
         !fake.wrong_host, "update fetch: Pages manifests follow same-origin redirects and name the Pages host");
     body = {};
     check(update_fetch(transport, at(UpdateHost::pages, "/r/updates/away.json"), 64, 0, sink, &body, now).error == UpdateFetchError::redirect &&
         !body.used, "update fetch: a Pages redirect to another host is refused");
+    check(update_fetch(transport, at(UpdateHost::pages, "/r/updates/provider.json"), 64, 0, sink, &body, now).error == UpdateFetchError::redirect &&
+        !body.used && !fake.wrong_host, "update fetch: a Pages redirect to a provider host is refused");
+
+    // A plugin catalog provider: a closed origin like Pages, logged under its own category.
+    static Fake provider{};
+    provider.origin = "plugins.example.net";
+    provider.routes[provider.count++] = route(UpdateHost::provider, "/catalog/v1/index.json", 302,
+        "https://Plugins.Example.NET/catalog/v1/current.json?rev=SECRET");
+    provider.routes[provider.count++] = route(UpdateHost::provider, "/catalog/v1/current.json?rev=SECRET", 200, nullptr, "{}", 2);
+    provider.routes[provider.count++] = route(UpdateHost::provider, "/catalog/v1/away.json", 302, "https://github.com/o/r/a");
+    provider.routes[provider.count++] = route(UpdateHost::github, "/o/r/a", 200, nullptr, "{}", 2);
+    const UpdateTransport plugins{&provider, fake_get, "plugins"};
+    g_line_count = 0; body = {};
+    r = update_fetch(plugins, at(UpdateHost::provider, "/catalog/v1/index.json"), 64, 0, sink, &body, now);
+    private_fields = false;
+    for (u32 i = 0; i < g_line_count; ++i)
+        private_fields |= contains(g_lines[i], "catalog") || contains(g_lines[i], "SECRET") || contains(g_lines[i], "?") || contains(g_lines[i], "/");
+    check(r.ok() && r.redirects == 1 && body.used == 2 && !provider.wrong_host && provider.routes[1].hits == 1 && g_line_count == 2 &&
+        logged("http host=plugins.example.net status=302 next=Plugins.Example.NET") &&
+        logged("http host=plugins.example.net status=200 length=2 bytes=2") && !private_fields && all_categories("plugins"),
+        "update fetch: a provider origin follows a same-origin redirect and logs only hosts under the transport's category");
+    body = {}; g_line_count = 0;
+    check(update_fetch(plugins, at(UpdateHost::provider, "/catalog/v1/away.json"), 64, 0, sink, &body, now).error == UpdateFetchError::redirect &&
+        !body.used && !provider.routes[3].hits && logged("next=github.com refused=1") && all_categories("plugins"),
+        "update fetch: a provider redirect to github.com is refused before any request to it");
     check(update_fetch(transport, at(UpdateHost::github, "/o/r/evil"), 64, 0, sink, &body, now).error == UpdateFetchError::redirect && !body.used &&
         update_fetch(transport, at(UpdateHost::github, "/o/r/loop"), 64, 0, sink, &body, now).redirects == kUpdateFetchMaximumRedirects &&
         update_fetch(transport, at(UpdateHost::github, "/o/r/missing"), 64, 0, sink, &body, now).error == UpdateFetchError::not_found,
@@ -494,7 +559,7 @@ void test_service() noexcept {
     static Fake fake{};
     const auto serve = [&](const Utf8View& document, const u8* signature, const char* package_path, bool package_missing = false) noexcept {
         fake = {};
-        fake.pages = "owner.github.io";
+        fake.origin = "owner.github.io";
         fake.routes[fake.count++] = route(UpdateHost::pages, pages_manifest, 302, pages_current);
         fake.routes[fake.count++] = route(UpdateHost::pages, pages_current, 200, nullptr, document.data, document.bytes);
         fake.routes[fake.count++] = route(UpdateHost::pages, pages_signature, 200, nullptr, signature, 64);
@@ -667,7 +732,7 @@ void test_replay() noexcept {
     copy_bytes(signature_target, signature_at.target, signature_at.target_bytes);
     copy_bytes(package_target, package_at.target, package_at.target_bytes);
     static Fake fake{};
-    fake = {}; fake.pages = "owner.github.io";
+    fake = {}; fake.origin = "owner.github.io";
     fake.routes[fake.count++] = route(UpdateHost::pages, manifest_target, 200, nullptr, document, document_bytes);
     fake.routes[fake.count++] = route(UpdateHost::pages, signature_target, 200, nullptr, signature, 64);
     fake.routes[fake.count++] = route(UpdateHost::github, package_target, 302, "https://release-assets.githubusercontent.com/replay?sig=1");

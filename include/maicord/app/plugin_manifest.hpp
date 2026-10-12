@@ -35,6 +35,9 @@ struct NativePluginManifest {
 };
 // "settings", "commands", ... for one MC_PERM_* bit index; empty when unknown.
 Utf8View native_plugin_permission_name(u32 index) noexcept;
+// The MC_PERM_* bit index of an exact manifest permission name, or
+// kNativePluginPermissionCount when the name is unknown.
+u32 native_plugin_permission_bit(Utf8View name) noexcept;
 // Short sentence for the approval prompt and settings rows.
 Utf8View native_plugin_permission_label(u32 index) noexcept;
 // Requires exactly schema 3 and abi 5 with owner_id, name, version, description,

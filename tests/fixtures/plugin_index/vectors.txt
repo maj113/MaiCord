@@ -1,0 +1,86 @@
+# Malformed plugin indexes shared by tests/plugin_index.cpp and
+# tools/release/test_plugin_index_tools.py. Each row is
+#   <base>\t<error>\t<search>\t<replacement>
+# and replaces the single occurrence of <search> in <base>.index.json; the
+# result must fail with <error> (PluginIndexError / plugin_index.ERRORS) when
+# verified as that base's kind (official, or custom_signed pinned to the
+# scalar-one key) at now = 1760400000. Rows change exactly one rule.
+official	format	"format":1,	"format":2,
+official	type	"sequence":1760227200	"sequence":"1760227200"
+official	sequence	"sequence":1760227200	"sequence":0
+official	unknown_field	"format":1,	"format":1,"extra":0,
+official	duplicate_field	"format":1,	"format":1,"format":1,
+official	json	"format":1,	"format":1,,
+official	time	"issued":1760226600	"issued":0
+official	time	"expires":1762818600	"expires":1763250601
+official	time	"issued":1760226600	"issued":1760400601
+official	expired	"expires":1762818600	"expires":1760300000
+official	provider	"name":"MaiCord plugins",	"name":"MaiCord plugins","key":"046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c2964fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+official	provider	"id":"maicord"	"id":"maicord-plugins"
+official	identifier	"id":"maicord"	"id":"MaiCord"
+official	url	"homepage":"https://plugins.example.com/maicord"}	"homepage":"https://localhost/maicord"}
+custom	provider	,"key":"046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c2964fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5"	
+custom	provider	"id":"example-plugins"	"id":"maicord"
+custom	provider	"key":"046b17d1	"key":"056b17d1
+custom	key_changed	"key":"046b17d1f2e1	"key":"046b17d1f2e2
+custom	provider	"revoked":[]	"revoked":[],"blocklist":[]
+official	identifier	"slug":"dev-tools"	"slug":"-dev-tools"
+custom	identifier	"slug":"hello"	"slug":"Hello"
+official	duplicate	"slug":"dev-tools"	"slug":"showcase"
+official	owner	"owner_id":1234605616436508552,"name"	"owner_id":1,"name"
+official	duplicate	"owner_id":1234605616436508552,"name"	"owner_id":5567385134209385281,"name"
+official	type	"owner_id":18364758544493064720	"owner_id":18446744073709551616
+official	missing_field	"license":"MIT",	
+official	text	"name":"Showcase"	"name":""
+official	text	"name":"Showcase"	"name":"Show\u202ecase"
+official	text	"name":"Showcase"	"name":"Show\u0007case"
+official	json	"name":"Showcase"	"name":"Show\ud800case"
+official	text	"name":"Dev tools"	"name":"Dev\u200btools"
+custom	text	"summary":"Says hello."	"summary":"Says ⁦hello."
+official	text	"publisher":"MaiCord"	"publisher":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+official	text	"changelog":"First catalog release."	"changelog":"First\ncatalog release."
+official	limit	"authors":[{"name":"Example Labs","github":"example-labs"}]	"authors":[]
+official	missing_field	{"name":"Bo Example"}	{"github":"bo-example"}
+official	identifier	"github":"ana-example"	"github":"ana_example"
+official	identifier	"license":"Apache-2.0"	"license":"Apache 2.0"
+official	url	"homepage":"https://example.com/quiet-hours"	"homepage":"http://example.com/quiet-hours"
+official	url	"homepage":"https://example.com/dev-tools"	"homepage":"https://127.0.0.1/dev-tools"
+official	choice	"categories":["notifications"]	"categories":["gossip"]
+official	limit	"categories":["chat","appearance"]	"categories":["chat","appearance","fun","voice"]
+official	type	"categories":["developer","utility"]	"categories":"developer"
+official	depth	"categories":["developer","utility"]	"categories":[[[[[["developer"]]]]],"utility"]
+official	choice	"disclosures":["network","files"]	"disclosures":["network","camera"]
+official	digest	"sha256":"c47ccee3756edaa379004b99472c8f870ee7e25b32222315d494de004740a767"	"sha256":"C47CCEE3756EDAA379004B99472C8F870EE7E25B32222315D494DE004740A767"
+official	file	"bytes":3172	"bytes":16385
+official	missing_field	,"bytes":3172}	}
+official	version	"version":"1.1.0","version_code":1001000999	"version":"1.1.0","version_code":1001001999
+official	version	"version":"1.4.2"	"version":"1.4.02"
+custom	version	"version":"1.2.0-preview.1","version_code":1002000001	"version":"1.2.0-preview.0","version_code":1002000000
+official	order	"version":"1.0.0","version_code":1000000999	"version":"1.2.0","version_code":1002000999
+official	type	"version_code":3000999	"version_code":-3000999
+official	type	"version_code":3000999	"version_code":3000999.0
+official	abi	"abi":5,"min_host_abi":6	"abi":7,"min_host_abi":6
+official	abi	"abi":5,"min_host_abi":6	"abi":0,"min_host_abi":6
+official	abi	"max_host_abi":7	"max_host_abi":4
+official	permission	"permissions":["settings","read_context","clipboard"]	"permissions":["settings","read_context","teleport"]
+official	duplicate	"permissions":["settings","read_context","clipboard"]	"permissions":["settings","read_context","settings"]
+official	time	"released":1759000000	"released":0
+official	provider	,"commit":"6227a9b9528bf0773cc9bd902c6eb2e78cf75a9a"	
+official	digest	"commit":"6227a9b9528bf0773cc9bd902c6eb2e78cf75a9a"	"commit":"6227a9b"
+official	file	"bytes":48640}	"bytes":0}
+official	file	"bytes":48640}	"bytes":67108865}
+official	location	"bytes":48640}	"bytes":48640,"path":"showcase.dll"}
+official	choice	"arch":"arm64"	"arch":"riscv64"
+official	duplicate	"arch":"arm64"	"arch":"x64"
+custom	location	,"path":"dll/hello-1.0.0-x64.dll"	
+custom	location	"path":"dll/hello-1.0.0-x64.dll"	"path":"../hello-1.0.0-x64.dll"
+custom	location	"path":"dll/hello-1.0.0-x64.dll"	"path":"/dll/hello-1.0.0-x64.dll"
+custom	location	"bytes":3584,"path"	"bytes":3584,"github_release":{"repository":"example/plugins","tag":"hello-v1.0.0","asset":"hello.dll"},"path"
+custom	location	"tag":"hello-v1.1.0"	"tag":"hello v1.1.0"
+custom	location	"repository":"example/plugins","tag":"hello-v1.1.0"	"repository":"example","tag":"hello-v1.1.0"
+custom	unknown_field	"asset":"hello-1.1.0-x64.dll"}	"asset":"hello-1.1.0-x64.dll","mirror":1}
+custom	missing_field	"tag":"hello-v1.1.0",	
+official	choice	"severity":"broken"	"severity":"bad"
+official	owner	"owner_id":1234605616436508552,"sha256"	"owner_id":0,"sha256"
+official	text	"reason":"Crashes when the schedule spans midnight."	"reason":"rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr"
+official	time	"since":1760150000	"since":0

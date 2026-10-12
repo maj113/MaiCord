@@ -36,9 +36,11 @@ constexpr Utf8View host_names[]{{}, utf8_literal("github.com"), utf8_literal("ob
     utf8_literal("release-assets.githubusercontent.com")};
 constexpr u32 kFixedHosts = 4;
 constexpr Utf8View kPagesSuffix = utf8_literal(".github.io");
+// Pages and provider hosts are per location and closed: they redirect only to themselves.
+bool closed_origin(UpdateHost host) noexcept { return host == UpdateHost::pages || host == UpdateHost::provider; }
 bool location_valid(const UpdateLocation& l) noexcept {
-    return l.host != UpdateHost::none && l.host <= UpdateHost::pages && l.target_bytes && l.target_bytes <= kUpdateTargetCapacity &&
-        l.target[0] == '/' && (l.host != UpdateHost::pages || (l.pages_bytes && l.pages_bytes <= kUpdateHostNameCapacity));
+    return l.host != UpdateHost::none && l.host <= UpdateHost::provider && l.target_bytes && l.target_bytes <= kUpdateTargetCapacity &&
+        l.target[0] == '/' && (!closed_origin(l.host) || (l.origin_bytes && l.origin_bytes <= kUpdateHostNameCapacity));
 }
 // Host part of a Location value for diagnostics; relative targets stay on `current`.
 Utf8View location_host(ConstSlice<u8> location, Utf8View current) noexcept {
@@ -97,7 +99,39 @@ Utf8View update_host_name(UpdateHost host) noexcept {
     return static_cast<u32>(host) < kFixedHosts ? host_names[static_cast<u32>(host)] : Utf8View{};
 }
 Utf8View update_location_host(const UpdateLocation& l) noexcept {
-    return l.host == UpdateHost::pages ? Utf8View{l.pages, minimum(l.pages_bytes, kUpdateHostNameCapacity)} : update_host_name(l.host);
+    return closed_origin(l.host) ? Utf8View{l.origin, minimum(l.origin_bytes, kUpdateHostNameCapacity)} : update_host_name(l.host);
+}
+
+bool update_origin_host_valid(Utf8View host) noexcept {
+    if (!host.data || !host.bytes || host.bytes > kUpdateHostNameCapacity) return false;
+    u32 labels = 0, start = 0;
+    bool digits = true;
+    for (u32 i = 0; i <= host.bytes; ++i) {
+        if (i == host.bytes || host.data[i] == '.') {
+            const u32 n = i - start;
+            if (!n || n > 63 || host.data[start] == '-' || host.data[i - 1] == '-') return false;
+            ++labels;
+            if (i == host.bytes && (digits || ascii_equal_ignore_case({host.data + start, n}, utf8_literal("localhost")))) return false;
+            start = i + 1; digits = true;
+        } else {
+            const char c = host.data[i];
+            if (!alnum(c) && c != '-') return false;
+            digits &= c >= '0' && c <= '9';
+        }
+    }
+    return labels >= 2;
+}
+
+bool update_provider_location(Utf8View host, ConstSlice<char> target, UpdateLocation* out) noexcept {
+    if (!out || !update_origin_host_valid(host) || !target.data || !target.count || target.count > kUpdateTargetCapacity ||
+        target[0] != '/' || (target.count > 1 && target[1] == '/')) return false;
+    for (u32 i = 0; i < target.count; ++i) if (!target_byte(static_cast<u8>(target[i]))) return false;
+    out->host = UpdateHost::provider;
+    for (u32 i = 0; i < host.bytes; ++i) out->origin[i] = ascii_lower(host.data[i]);
+    out->origin_bytes = host.bytes;
+    copy_bytes(out->target, target.data, target.count);
+    out->target_bytes = target.count;
+    return true;
 }
 
 bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAsset asset, u64 version, UpdateLocation* out) noexcept {
@@ -105,7 +139,7 @@ bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAss
     u32 slash = 0;
     while (repository.data[slash] != '/') ++slash;
     Writer w{{out->target, kUpdateTargetCapacity}, 0, true};
-    out->pages_bytes = 0;
+    out->origin_bytes = 0;
     if (asset == UpdateAsset::package) {
         // Tags are vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-preview.N (N 1-998).
         char tag[32];
@@ -116,9 +150,9 @@ bool update_asset_location(Utf8View repository, UpdateChannel channel, UpdateAss
         w.add(utf8_literal("/MaiCord-x64-")); w.number(version); w.add(utf8_literal(".zip"));
     } else {
         out->host = UpdateHost::pages;
-        for (u32 i = 0; i < slash; ++i) out->pages[i] = ascii_lower(repository.data[i]);
-        copy_bytes(out->pages + slash, kPagesSuffix.data, kPagesSuffix.bytes);
-        out->pages_bytes = slash + kPagesSuffix.bytes;
+        for (u32 i = 0; i < slash; ++i) out->origin[i] = ascii_lower(repository.data[i]);
+        copy_bytes(out->origin + slash, kPagesSuffix.data, kPagesSuffix.bytes);
+        out->origin_bytes = slash + kPagesSuffix.bytes;
         w.add("/", 1); w.add({repository.data + slash + 1, repository.bytes - slash - 1});
         w.add(channel == UpdateChannel::stable ? utf8_literal("/updates/maicord-stable.manifest.json")
                                                : utf8_literal("/updates/maicord-preview.manifest.json"));
@@ -140,10 +174,10 @@ bool update_redirect_target(const UpdateLocation& current, ConstSlice<u8> locati
         if (slash == location.count) return false;
         const ConstSlice<u8> authority{location.data + scheme.bytes, slash - scheme.bytes};
         host = UpdateHost::none;
-        // The Pages origin is closed: it never hands off to another host,
-        // and the release hosts never hand off to it.
-        if (current.host == UpdateHost::pages) {
-            if (equal_case(authority, {current.pages, current.pages_bytes})) host = UpdateHost::pages;
+        // Pages and provider origins are closed: they never hand off to
+        // another host, and the release hosts never hand off to them.
+        if (closed_origin(current.host)) {
+            if (equal_case(authority, {current.origin, current.origin_bytes})) host = current.host;
         } else {
             for (u32 i = 1; i < kFixedHosts; ++i) if (equal_case(authority, host_names[i])) host = static_cast<UpdateHost>(i);
         }
@@ -153,7 +187,7 @@ bool update_redirect_target(const UpdateLocation& current, ConstSlice<u8> locati
     const u32 bytes = location.count - at;
     if (!bytes || bytes > kUpdateTargetCapacity) return false;
     for (u32 i = at; i < location.count; ++i) if (!target_byte(location[i])) return false;
-    if (next != &current) { next->pages_bytes = current.pages_bytes; copy_bytes(next->pages, current.pages, sizeof(next->pages)); }
+    if (next != &current) { next->origin_bytes = current.origin_bytes; copy_bytes(next->origin, current.origin, sizeof(next->origin)); }
     copy_bytes(next->target, location.data + at, bytes);
     next->target_bytes = bytes; next->host = host;
     return true;
@@ -187,8 +221,8 @@ UpdateFetchResult update_fetch(const UpdateTransport& transport, const UpdateLoc
         result.transport = transport.get(transport.context, request, &response);
         result.status = response.status; result.native_error = response.native_error; result.bytes = response.body_bytes;
         // One line per response: host, status and sizes. Targets carry signed
-        // query strings, so they are never logged.
-        UpdateLog line("http");
+        // query strings and provider paths, so they are never logged.
+        UpdateLog line(transport.log_category, "http");
         line.host("host", request.host_name);
         if (result.transport != UpdateTransportError::none) {
             line.field("transport", static_cast<u8>(result.transport)).field("native", response.native_error)

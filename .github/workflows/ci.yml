@@ -71,6 +71,11 @@ jobs:
         shell: powershell
         run: python -B tools/release/test_release_tools.py
 
+      # The plugin index reference tool against the vectors tests/plugin_index.cpp uses.
+      - name: Plugin index tooling self-test
+        shell: powershell
+        run: python -B tools/release/test_plugin_index_tools.py
+
       # build.ps1 configures the x64-release preset in ../MaiCord-build/Release,
       # builds MaiCord.exe + MaiCordAccount.dll and runs the PE audits
       # (D3D11-only imports, no Media Foundation/DirectWrite, no debug info).

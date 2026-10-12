@@ -5,14 +5,16 @@
 
 namespace maicord {
 
-// Updater diagnostics: one "update" log line per phase, request or result,
-// "<event> key=value ...". Values are numbers, enum ordinals (see the result
-// enums in the update_*.hpp headers) and host names only: never request
-// paths, query strings, tokens, keys or file contents.
+// Updater diagnostics: one log line per phase, request or result,
+// "<event> key=value ...", under a category ("update" by default; the plugin
+// catalog's fetches use its own through UpdateTransport::log_category).
+// Values are numbers, enum ordinals (see the result enums in the update_*.hpp
+// headers) and host names only: never request paths, query strings, provider
+// base paths, tokens, keys or document contents.
 // The executable routes lines to the application log (see
 // application_update_entry.cpp), tests capture them, and without a sink they
 // are dropped, so the updater core never links the log itself.
-using UpdateLogSink = void (*)(LogLevel, const char* line) noexcept;
+using UpdateLogSink = void (*)(LogLevel, const char* category, const char* line) noexcept;
 inline UpdateLogSink g_update_log_sink = nullptr;
 // Opens (true) or closes (false) the application log around startup work that
 // runs before the application opens it.
@@ -21,7 +23,13 @@ inline void (*g_update_log_session)(bool open) noexcept = nullptr;
 struct UpdateLog {
     char text[400];
     u32 bytes = 0;
+    const char* category = "update";
     explicit UpdateLog(const char* event) noexcept { add(event); }
+    // A null category keeps "update".
+    UpdateLog(const char* log_category, const char* event) noexcept {
+        if (log_category) category = log_category;
+        add(event);
+    }
     UpdateLog& add(const char* s) noexcept {
         while (s && *s && bytes + 1 < sizeof(text)) text[bytes++] = *s++;
         return *this;
@@ -44,7 +52,7 @@ struct UpdateLog {
     }
     void write(LogLevel level = LogLevel::info) noexcept {
         text[bytes] = 0;
-        if (g_update_log_sink) g_update_log_sink(level, text);
+        if (g_update_log_sink) g_update_log_sink(level, category, text);
     }
 };
 

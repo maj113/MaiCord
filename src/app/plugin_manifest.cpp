@@ -170,6 +170,11 @@ bool native_plugin_path_component_valid(ConstSlice<wchar_t> part) noexcept {
 Utf8View native_plugin_permission_name(u32 index) noexcept {
     return index < kNativePluginPermissionCount ? kPermissionNames[index] : Utf8View{};
 }
+u32 native_plugin_permission_bit(Utf8View name) noexcept {
+    for (u32 bit = 0; bit < kNativePluginPermissionCount; ++bit)
+        if (utf8_equal(name, kPermissionNames[bit])) return bit;
+    return kNativePluginPermissionCount;
+}
 Utf8View native_plugin_permission_label(u32 index) noexcept {
     return index < kNativePluginPermissionCount ? kPermissionLabels[index] : Utf8View{};
 }

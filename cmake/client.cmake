@@ -217,7 +217,7 @@ file(GLOB MAICORD_COLD_APPLICATION_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app/application_*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app/update_*.cpp")
 maicord_compact_sources(
-    SOURCES ${MAICORD_COLD_APPLICATION_SOURCES}
+    SOURCES ${MAICORD_COLD_APPLICATION_SOURCES} src/app/acceptance_record.cpp
         src/app/account_media.cpp src/app/account_media_worker.cpp src/app/regional_flag_assets.cpp
         src/app/game_detection.cpp src/core/log.cpp src/ui/clipboard.cpp
         src/platform/staged_file.cpp src/platform/browser_sign_in_launcher.cpp

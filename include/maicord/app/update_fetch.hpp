@@ -39,19 +39,29 @@ bool update_repository_valid(Utf8View repository) noexcept;
 // 130 hex digits of an uncompressed SEC1 point (04 || X || Y).
 bool update_public_key_from_hex(Utf8View hex, Slice<u8> output) noexcept;
 
-enum class UpdateHost : u8 { none, github, objects, release_assets, pages };
-// The fixed host names; pages is per repository and travels in UpdateLocation.
+// pages is a repository's "<owner>.github.io"; provider is any other
+// validated host (a plugin catalog provider). Both are closed origins.
+enum class UpdateHost : u8 { none, github, objects, release_assets, pages, provider };
+// The fixed host names; pages and provider hosts travel in UpdateLocation.
 Utf8View update_host_name(UpdateHost) noexcept;
 
-// An origin and origin-relative target. pages holds "<owner>.github.io" in
-// lowercase whenever host is pages.
+// An origin and origin-relative target. origin holds the lowercase host name
+// whenever host is pages or provider.
 struct UpdateLocation {
     UpdateHost host;
-    u32 pages_bytes, target_bytes;
-    char pages[kUpdateHostNameCapacity];
+    u32 origin_bytes, target_bytes;
+    char origin[kUpdateHostNameCapacity];
     char target[kUpdateTargetCapacity];
 };
 Utf8View update_location_host(const UpdateLocation&) noexcept;
+// A DNS name of at most 64 bytes: two or more dot-separated labels of 1-63
+// ASCII letters, digits and inner '-'. The last label is not all digits (no
+// IPv4 literal) and not "localhost".
+bool update_origin_host_valid(Utf8View host) noexcept;
+// A provider-origin location: host as update_origin_host_valid (stored in
+// lowercase) and an origin-relative target starting with '/' made of RFC 3986
+// path and query characters. out is unchanged on failure.
+bool update_provider_location(Utf8View host, ConstSlice<char> target, UpdateLocation* out) noexcept;
 
 enum class UpdateAsset : u8 { manifest, signature, package };
 // Channel manifests and their signatures come from the repository's GitHub
@@ -64,8 +74,9 @@ enum class UpdateAsset : u8 { manifest, signature, package };
 bool update_asset_location(Utf8View repository, UpdateChannel, UpdateAsset, u64 version, UpdateLocation*) noexcept;
 // Location header: absolute https on an allowed host, or origin-relative on
 // the current host. github.com and the release-asset hosts redirect among
-// themselves; the Pages host only to itself. Userinfo, ports, fragments and
-// control bytes are refused. next may be current; it is unchanged on failure.
+// themselves; a Pages or provider origin only to itself. Userinfo, ports,
+// fragments and control bytes are refused. next may be current; it is
+// unchanged on failure.
 bool update_redirect_target(const UpdateLocation& current, ConstSlice<u8> location, UpdateLocation* next) noexcept;
 
 struct UpdateHttpResponse {
@@ -93,10 +104,12 @@ struct UpdateHttpRequest {
 };
 // One GET per call. Records the status and observed fields for every
 // response; streams only 2xx bodies, refusing announced or received bytes
-// above maximum_body_bytes with `oversize`.
+// above maximum_body_bytes with `oversize`. update_fetch logs its responses
+// under log_category ("update" when null).
 struct UpdateTransport {
     void* context;
     UpdateTransportError (*get)(void* context, const UpdateHttpRequest&, UpdateHttpResponse*) noexcept;
+    const char* log_category;
 };
 // Shared field observer for transports: Location, Retry-After (seconds),
 // x-ratelimit-remaining and x-ratelimit-reset.

@@ -55,6 +55,9 @@ inline constexpr u32 kPluginSdkModalNodes = 8;
 // Adapter header in front of the plugin state inside the host slot's state block.
 inline constexpr u32 kPluginSdkStateHeaderBytes = 64;
 inline constexpr u32 kPluginSdkHostAbi = 5;
+// The oldest plugin query ABI (maicord_plugin_query_v<abi>) this host loads;
+// catalog versions outside [oldest, host] are not compatible.
+inline constexpr u32 kPluginSdkOldestPluginAbi = 5;
 
 struct NativePluginSdkBinding;
 

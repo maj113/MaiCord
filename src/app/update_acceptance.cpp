@@ -1,5 +1,5 @@
 #include "maicord/app/update_acceptance.hpp"
-#include "maicord/app/file_persistence.hpp"
+#include "maicord/app/acceptance_record.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/hash.hpp"
@@ -40,94 +40,33 @@ bool object_and_buffer(const void* object, u32 bytes, ConstSlice<u8> buffer) noe
     const ConstSlice<u8> ranges[]{{static_cast<const u8*>(object), bytes}, buffer};
     return object && disjoint({ranges, 2});
 }
-wchar_t lower(wchar_t value) noexcept {
-    return value >= L'A' && value <= L'Z' ? static_cast<wchar_t>(value + L'a' - L'A') : value;
+// The shared record errors use the updater's ordinals up to release.
+UpdateAcceptanceResult convert(AcceptanceRecordResult result) noexcept {
+    return {static_cast<UpdateAcceptanceError>(result.error), result.native_error};
 }
-bool reserved_component(const wchar_t* name, u32 count) noexcept {
-    u32 stem = 0;
-    while (stem < count && name[stem] != L'.') ++stem;
-    if (stem == 3) {
-        const wchar_t a = lower(name[0]), b = lower(name[1]), c = lower(name[2]);
-        return (a == L'c' && b == L'o' && c == L'n') || (a == L'p' && b == L'r' && c == L'n') ||
-            (a == L'a' && b == L'u' && c == L'x') || (a == L'n' && b == L'u' && c == L'l');
-    }
-    if (stem == 4 && name[3] >= L'0' && name[3] <= L'9')
-        return (lower(name[0]) == L'c' && lower(name[1]) == L'o' && lower(name[2]) == L'm') ||
-            (lower(name[0]) == L'l' && lower(name[1]) == L'p' && lower(name[2]) == L't');
-    return false;
-}
-bool valid_path(ConstSlice<wchar_t> path) noexcept {
-    if (!path.data || path.count < 4 || path.count > kUpdateAcceptanceMaximumPathCharacters - 5 ||
-        !byte_range_valid({reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}) ||
-        lower(path[0]) < L'a' || lower(path[0]) > L'z' || path[1] != L':' || path[2] != L'\\') return false;
-    u32 component = 3;
-    for (u32 i = 3; i <= path.count; ++i) {
-        if (i == path.count || path[i] == L'\\') {
-            if (i == component || path[i - 1] == L'.' || path[i - 1] == L' ' ||
-                reserved_component(path.data + component, i - component)) return false;
-            component = i + 1;
-        } else if (path[i] < 32 || path[i] == L'/' || path[i] == L':' || path[i] == L'*' ||
-                   path[i] == L'?' || path[i] == L'"' || path[i] == L'<' || path[i] == L'>' || path[i] == L'|') return false;
-    }
-    return true;
-}
-void terminate(ConstSlice<wchar_t> path, wchar_t* output) noexcept {
-    for (u32 i = 0; i < path.count; ++i) output[i] = path[i];
-    output[path.count] = 0;
-}
-void suffix(const wchar_t* path, u32 count, const wchar_t* ending, wchar_t* output) noexcept {
-    for (u32 i = 0; i < count; ++i) output[i] = path[i];
-    u32 i = 0;
-    do { output[count + i] = ending[i]; } while (ending[i++]);
-}
-UpdateAcceptanceResult ancestors(wchar_t* path, u32 count) noexcept {
-    wchar_t root[4]{path[0], L':', L'\\', 0};
-    if (GetDriveTypeW(root) != DRIVE_FIXED) return fail(UpdateAcceptanceError::path, ERROR_NOT_SUPPORTED);
-    for (u32 i = 3; i < count; ++i) if (path[i] == L'\\') {
-        path[i] = 0;
-        const DWORD attributes = GetFileAttributesW(path);
-        const DWORD native = attributes == INVALID_FILE_ATTRIBUTES ? GetLastError() : 0;
-        path[i] = L'\\';
-        if (attributes == INVALID_FILE_ATTRIBUTES) return fail(UpdateAcceptanceError::path, native);
-        if (!(attributes & FILE_ATTRIBUTE_DIRECTORY) || (attributes & FILE_ATTRIBUTE_REPARSE_POINT))
-            return fail(UpdateAcceptanceError::path, ERROR_BAD_PATHNAME);
-    }
-    return {};
-}
-UpdateAcceptanceResult disk_file(HANDLE file) noexcept {
-    if (GetFileType(file) != FILE_TYPE_DISK) return fail(UpdateAcceptanceError::file);
-    BY_HANDLE_FILE_INFORMATION information{};
-    if (!GetFileInformationByHandle(file, &information)) return fail(UpdateAcceptanceError::file, GetLastError());
-    if (information.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))
-        return fail(UpdateAcceptanceError::file, ERROR_BAD_PATHNAME);
-    return {};
-}
+constexpr bool same(AcceptanceRecordError a, UpdateAcceptanceError b) noexcept { return static_cast<u32>(a) == static_cast<u32>(b); }
+static_assert(same(AcceptanceRecordError::path, UpdateAcceptanceError::path) && same(AcceptanceRecordError::lock, UpdateAcceptanceError::lock) &&
+    same(AcceptanceRecordError::missing, UpdateAcceptanceError::missing) && same(AcceptanceRecordError::open, UpdateAcceptanceError::open) &&
+    same(AcceptanceRecordError::file, UpdateAcceptanceError::file) && same(AcceptanceRecordError::size, UpdateAcceptanceError::size) &&
+    same(AcceptanceRecordError::read, UpdateAcceptanceError::read) && same(AcceptanceRecordError::write, UpdateAcceptanceError::write) &&
+    same(AcceptanceRecordError::flush, UpdateAcceptanceError::flush) && same(AcceptanceRecordError::commit, UpdateAcceptanceError::commit) &&
+    same(AcceptanceRecordError::release, UpdateAcceptanceError::release));
+static_assert(kUpdateAcceptanceMaximumPathCharacters == kAcceptanceRecordMaximumPathCharacters);
+bool valid_path(ConstSlice<wchar_t> path) noexcept { return acceptance_record_path_valid(path); }
+UpdateAcceptanceResult ancestors(wchar_t* path, u32 count) noexcept { return convert(acceptance_record_ancestors(path, count)); }
 UpdateAcceptanceResult load(const wchar_t* path, UpdateAcceptanceState* state) noexcept {
-    HANDLE file = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-        FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-    if (file == INVALID_HANDLE_VALUE) {
-        const DWORD native = GetLastError();
-        return fail(native == ERROR_FILE_NOT_FOUND ? UpdateAcceptanceError::missing : UpdateAcceptanceError::open, native);
-    }
-    auto result = disk_file(file);
-    LARGE_INTEGER size{};
-    if (result.ok() && !GetFileSizeEx(file, &size)) result = fail(UpdateAcceptanceError::size, GetLastError());
-    if (result.ok() && size.QuadPart != kUpdateAcceptanceRecordBytes) result = fail(UpdateAcceptanceError::size);
     u8 record[kUpdateAcceptanceRecordBytes]{};
-    u32 native = 0;
-    if (result.ok() && !file_persistence_read_complete(file, {record, sizeof(record)}, &native))
-        result = fail(UpdateAcceptanceError::read, native);
-    if (!CloseHandle(file) && result.ok()) result = fail(UpdateAcceptanceError::release, GetLastError());
+    const auto result = convert(acceptance_record_read(path, {record, sizeof(record)}));
     return result.ok() ? update_acceptance_decode({record, sizeof(record)}, state) : result;
 }
 UpdateAcceptanceResult current(const UpdateAcceptanceTransaction& transaction) noexcept {
     if (!transaction.lock || !transaction.path_characters ||
         !valid_path({transaction.path, transaction.path_characters}) || !valid_state(transaction.state))
         return fail(UpdateAcceptanceError::invalid_input);
-    auto result = disk_file(transaction.lock);
+    auto result = convert(acceptance_record_disk_file(transaction.lock));
     if (!result.ok()) return fail(UpdateAcceptanceError::lock, result.native_error);
     wchar_t checked[kUpdateAcceptanceMaximumPathCharacters + 1];
-    terminate({transaction.path, transaction.path_characters}, checked);
+    acceptance_record_terminate({transaction.path, transaction.path_characters}, checked);
     result = ancestors(checked, transaction.path_characters);
     if (!result.ok()) return result;
     UpdateAcceptanceState state{};
@@ -139,26 +78,8 @@ UpdateAcceptanceResult current(const UpdateAcceptanceTransaction& transaction) n
 }
 UpdateAcceptanceResult store(const wchar_t* path, u32 characters, const UpdateAcceptanceState& state) noexcept {
     u8 record[kUpdateAcceptanceRecordBytes]{};
-    auto result = update_acceptance_encode(state, {record, sizeof(record)});
-    if (!result.ok()) return result;
-    wchar_t temporary[kUpdateAcceptanceMaximumPathCharacters + 1];
-    suffix(path, characters, L".new", temporary);
-    // CREATE_NEW never truncates or follows an attacker-controlled/stale sibling.
-    HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, nullptr, CREATE_NEW,
-        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_WRITE_THROUGH | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-    if (file == INVALID_HANDLE_VALUE) return fail(UpdateAcceptanceError::open, GetLastError());
-    result = disk_file(file);
-    DWORD written = 0;
-    if (result.ok()) {
-        if (!WriteFile(file, record, sizeof(record), &written, nullptr)) result = fail(UpdateAcceptanceError::write, GetLastError());
-        else if (written != sizeof(record)) result = fail(UpdateAcceptanceError::write, ERROR_WRITE_FAULT);
-    }
-    if (result.ok() && !FlushFileBuffers(file)) result = fail(UpdateAcceptanceError::flush, GetLastError());
-    if (!CloseHandle(file) && result.ok()) result = fail(UpdateAcceptanceError::release, GetLastError());
-    if (result.ok() && !MoveFileExW(temporary, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-        result = fail(UpdateAcceptanceError::commit, GetLastError());
-    if (!result.ok()) DeleteFileW(temporary); // only our successfully CREATE_NEW-owned sibling
-    return result;
+    const auto result = update_acceptance_encode(state, {record, sizeof(record)});
+    return result.ok() ? convert(acceptance_record_write(path, characters, {record, sizeof(record)})) : result;
 }
 } // namespace
 
@@ -204,7 +125,7 @@ UpdateAcceptanceResult update_acceptance_load(ConstSlice<wchar_t> path, UpdateAc
         {reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}))
         return fail(UpdateAcceptanceError::invalid_input);
     wchar_t terminated[kUpdateAcceptanceMaximumPathCharacters + 1];
-    terminate(path, terminated);
+    acceptance_record_terminate(path, terminated);
     const auto result = ancestors(terminated, path.count);
     return result.ok() ? load(terminated, state) : result;
 }
@@ -214,21 +135,15 @@ UpdateAcceptanceResult update_acceptance_begin(ConstSlice<wchar_t> path,
         {reinterpret_cast<const u8*>(path.data), path.count * static_cast<u32>(sizeof(wchar_t))}) || transaction->lock)
         return fail(UpdateAcceptanceError::invalid_input);
     UpdateAcceptanceTransaction candidate{};
-    terminate(path, candidate.path);
+    acceptance_record_terminate(path, candidate.path);
     candidate.path_characters = path.count;
     auto result = ancestors(candidate.path, path.count);
     if (!result.ok()) return result;
-    wchar_t locked[kUpdateAcceptanceMaximumPathCharacters + 1];
-    suffix(candidate.path, path.count, L".lock", locked);
-    candidate.lock = CreateFileW(locked, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS,
-        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-    if (candidate.lock == INVALID_HANDLE_VALUE) return fail(UpdateAcceptanceError::lock, GetLastError());
-    result = disk_file(candidate.lock);
-    if (result.ok()) {
-        result = load(candidate.path, &candidate.state);
-        candidate.record_present = result.ok();
-        if (result.error == UpdateAcceptanceError::missing && allow_first_use) result = {};
-    }
+    result = convert(acceptance_record_lock(candidate.path, path.count, &candidate.lock));
+    if (!result.ok()) return result;
+    result = load(candidate.path, &candidate.state);
+    candidate.record_present = result.ok();
+    if (result.error == UpdateAcceptanceError::missing && allow_first_use) result = {};
     if (!result.ok()) { CloseHandle(candidate.lock); return result; }
     *transaction = candidate;
     return {};

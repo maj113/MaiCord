@@ -33,7 +33,7 @@ static_assert(sizeof(public_key) == 1 || sizeof(public_key) == 131, "MAICORD_UPD
 static_assert(update_version_components_valid(MAICORD_VERSION_MAJOR, MAICORD_VERSION_MINOR, MAICORD_VERSION_PATCH, MAICORD_UPDATE_PREVIEW));
 constexpr u64 installed_version =
     update_version_number(MAICORD_VERSION_MAJOR, MAICORD_VERSION_MINOR, MAICORD_VERSION_PATCH, MAICORD_UPDATE_PREVIEW);
-void write_update_log(LogLevel level, const char* line) noexcept { log_write(level, "update", line); }
+void write_update_log(LogLevel level, const char* category, const char* line) noexcept { log_write(level, category, line); }
 void update_log_session(bool open) noexcept { if (open) log_open(); else log_close(); }
 } // namespace
 

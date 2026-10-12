@@ -202,6 +202,16 @@ maicord_test(MaiCordUpdateClientTests ENTRY maicord_update_client_tests_entry
     USES_CLIENT MaiCord MaiCordAccount
     TIMEOUT 15
     TEST maicord_update_client)
+# Plugin catalog: the index verifier against the vectors shared with
+# tools/release/test_plugin_index_tools.py (tests/fixtures/plugin_index), the
+# catalog policy, and the floor, providers, state and journal records.
+maicord_test(MaiCordPluginIndexTests ENTRY maicord_plugin_index_tests_entry
+    SOURCES tests/plugin_index_entry.cpp tests/plugin_index.cpp tests/plugin_index_policy.cpp
+        tests/plugin_manager_records.cpp
+    LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_manager maicord_plugin_modules kernel32 bcrypt
+    DEFINES "MAICORD_PLUGIN_INDEX_FIXTURES=L\"${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/plugin_index\""
+    TIMEOUT 10
+    TEST maicord_plugin_index)
 maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
     SOURCES tests/application_settings_runtime.cpp tests/application_custom_theme.cpp
         tests/application_plugin_catalog_runtime.cpp tests/application_plugin_navigation_runtime.cpp
