@@ -17,20 +17,20 @@ struct NativeRunPlanStore {NativeFontInstanceStore* instances;Slice<NativeRunPla
 struct NativeNominalPlan {ConstSlice<u64> participation;u32 glyph_limit;u16 ascii_first,ascii_count;};
 static_assert(sizeof(NativeNominalPlan)==24);
 // Text plans prepare Latin/en-US roots and nominal participation. Emoji plans
-// prepare Common roots for native_emoji_run only. GSUB payloads are loaded lazily.
-// Both typography modes share GSUB, reachable GPOS lookups and the metric
-// context. This does not implement TextLayout's nominal range gate,
-// script selection, fallback or script-specific stage/mask/reordering policy.
-// Slots are stable, zero initialized and mutated on the owning thread. A live
-// plan keeps its instance alive. Borrowed plan pointers stay valid while the plan is held.
-// Scratch is disposable, disjoint from live state and reset on acquisition.
-// Base state is read-only. A shared GSUB directory, grown on the owning thread on first
-// lookup use, never moves or changes committed payloads. The limit covers base
-// committed bytes plus lookup bytes. The pool is released with the last plan.
-// Work bounds each parser/planner stage; it is not a total CPU-time allowance.
-// Oblique reuses the base plan. Static TrueType bold keeps a one-page metric
-// view over that plan's programs, roots and nominal data. The limit
-// includes newly prepared base state and the view; cached state is reused.
+// prepare Common roots for native_emoji_run only. Both typography modes share GSUB
+// (payloads loaded lazily), reachable GPOS lookups and the metric context. Script
+// selection, fallback and script-specific stage/mask/reordering policy are not part
+// of the plan.
+// Slots are stable, zero initialized and mutated on the owning thread. A live plan
+// keeps its instance alive; borrowed plan pointers stay valid while the plan is held.
+// Scratch is disposable, disjoint from live state and reset on acquisition. Base
+// state is read-only. A shared GSUB directory, grown on the owning thread on first
+// lookup use, never moves or changes committed payloads; its pool is released with
+// the last plan. state_limit covers base committed bytes plus lookup bytes (including
+// newly prepared base state and any metric view; cached state is reused). Work bounds
+// each parser/planner stage, not total CPU time. Oblique reuses the base plan; static
+// TrueType bold keeps a one-page metric view over that plan's programs, roots and
+// nominal data.
 NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontInstanceHandle instance,
     Arena* scratch,NativeRunPlanHandle* output,u32 stage_work=1000000,usize state_limit=16*1024*1024,u32 simulations=0,NativeRunPlanKind kind=NativeRunPlanKind::text) noexcept;
 const SfntShapePlan* native_run_plan_get(const NativeRunPlanStore& store,NativeRunPlanHandle handle,

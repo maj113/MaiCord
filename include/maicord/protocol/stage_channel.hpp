@@ -5,8 +5,7 @@
 #include "maicord/protocol/gateway_events.hpp"
 
 namespace maicord {
-// Stage channels (type 13): stage instances and speaker/audience voice
-// states. Bodies match the official client byte for byte in field order.
+// Stage channels (type 13): stage instances and speaker/audience voice states.
 inline constexpr u8 kStageChannelType = 13;
 inline constexpr u32 kStageTopicMaximumCodepoints = 120;
 inline constexpr u32 kStageTopicMaximumBytes = kStageTopicMaximumCodepoints * 4;

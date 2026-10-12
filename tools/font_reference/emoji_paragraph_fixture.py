@@ -102,7 +102,7 @@ def pack(root):
         elif any(cp==0x200f or 0x202a<=cp<=0x202e or 0x2066<=cp<=0x2069 for cp in row['text']):reason='bidi formatting control requires bidi assembly'
         if reason:excluded.append(dict(index=row['index'],text=row['text'],reason=reason))
         else:selected.append(row)
-    # Retain the already verified visible corpus; 125 focused rows are freshly observed here.
+    # The first 125 rows are observed fresh; the rest are the verified visible corpus.
     selected+=old[125:]
     records=[]
     builtin=[r for r in selected if r['embedded']]+[r for r in selected if not r['embedded'] and r.get('index',0)>=125][:64]

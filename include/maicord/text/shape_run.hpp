@@ -75,12 +75,12 @@ struct SfntShapeInputPolicy {
 
 // Script processing between substitution stages (for example Indic final
 // reordering before presentation forms). Called before each stage 0..count-1,
-// including stages with no lookups. Steps must be ordered and use IDs < count;
-// legacy substitution_roots must be empty. Empty input invokes no callbacks.
-// Glyph/cluster/component edits follow the input policy's buffer-ownership rules.
-// Each invocation charges one lookup operation; the callback reports its own
-// consumed work on every return, bounded by min(remaining work, stage_work).
-// Later roots revalidate the changed run. Failure leaves result lengths unset.
+// including stages with no lookups, but never for empty input. Steps must be
+// ordered with stage IDs < count; legacy substitution_roots must be empty. Edits
+// follow the input policy's buffer-ownership rules. Each call charges one lookup
+// operation and the callback reports its own consumed work on every return,
+// bounded by min(remaining work, stage_work). Later roots revalidate the changed
+// run. Failure leaves result lengths unset.
 struct SfntShapeStagePolicy {
     void* context;
     SfntStatus (*prepare)(void*,u16,SfntGlyphBuffer*,SfntClusterMap*,SfntComponentForest*,SfntGsubExecutionScratch,u64,u64*) noexcept;
@@ -88,34 +88,30 @@ struct SfntShapeStagePolicy {
 };
 static_assert(sizeof(SfntShapeStagePolicy)==24);
 
-// Successful glyphs are contiguous in storage.glyphs. Source map, flags and
-// placements occupy their respective prefixes. The result lengths are set
-// only on success; failed attempts can leave scratch/output bytes changed and
-// must be restarted from the original input. Counters are diagnostic.
-// All mutable arrays and result are disjoint from each other, original input,
-// boundaries and font/program storage. No allocation or OS service.
+// Successful glyphs are contiguous in storage.glyphs; source map, flags and
+// placements occupy their respective prefixes. Result lengths are set only on
+// success; a failed attempt can leave scratch/output bytes changed and must be
+// restarted from the original input. Counters are diagnostic. All mutable arrays
+// and the result are disjoint from each other, the input, boundaries and
+// font/program storage, except for the borrows listed below. No allocation.
 // Initial glyph classes drive substitution filtering; final classes come from
-// GDEF unless the optional glyph policy resolves them. Profiles supply their
-// class/zero-advance overrides before those scripts use this entry point.
-// Optional ordered substitution steps replace the legacy roots (which must then
-// be empty). They carry feature masks and enable component form preservation.
-// Initial glyph metadata contains caller-computed forms. Stage IDs must be
-// nondecreasing 0..2 unless a stage policy supplies the stage count;
-// this entry point adds no normalization/mark/control policy.
+// GDEF unless the optional glyph policy resolves them. Initial glyph metadata
+// carries caller-computed forms. Optional ordered steps replace the legacy roots
+// (which must then be empty), carry feature masks and enable component form
+// preservation; their stage IDs are nondecreasing 0..2 unless a stage policy
+// supplies the stage count.
 // Optional input_order is a caller-prepared permutation of the initial mapped
-// glyphs. Its count must equal input.count; source records and forms move
-// together. It may borrow storage.character_glyphs, which is not overwritten
-// until after the initial copy. Other input/output disjointness rules apply.
-// Initial boundaries may similarly borrow storage.targets; they are consumed
-// while opening the cluster map, before that array is reused for target export.
-// Initial input may borrow the substitution replacement scratch; the initial
-// glyph copy consumes it before any lookup can reuse that scratch.
-// It may instead borrow the position buffer prefix, consumed before positioning.
-// defer_output returns raw design-unit positions and flags, skipping source
-// map export and placement writes. A script frontend must perform its final
-// reordering, source map export and finalization before using a placed run.
-// Buffer capacity/validity checks are unchanged; ordinary callers use the
-// default complete finalization.
+// glyphs (count == input.count); source records and forms move together. It may
+// borrow storage.character_glyphs, which is not overwritten until after the
+// initial copy. Initial boundaries may borrow storage.targets, consumed while
+// opening the cluster map before targets are reused for export. Initial input
+// may borrow the substitution replacement scratch (consumed by the initial glyph
+// copy before any lookup reuses it) or the position buffer prefix (consumed
+// before positioning).
+// defer_output returns raw design-unit positions and flags, skipping source map
+// export and placement writes; a script frontend must do its final reordering,
+// source map export and finalization before using the placed run. Ordinary
+// callers use the default complete finalization.
 SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph> input,
     u32 source_units,ConstSlice<u32> cluster_boundaries,bool rtl,float em_size,
     SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits={},ConstSlice<SfntLookupStep> steps={},ConstSlice<u32> input_order={},SfntShapeGlyphPolicy glyph_policy={},const SfntShapeInputPolicy* input_policy=nullptr,const SfntShapeStagePolicy* stage_policy=nullptr,bool defer_output=false) noexcept;

@@ -353,8 +353,8 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
         header_style.padding = metrics.navigation_header_padding;
         const bool guild_header = view == UiShellView::guild_channel;
         if (guild_header) {
-            // The official header pads 8 DIP around a 32-DIP dropdown whose own
-            // 8-DIP inline padding keeps the name at the usual 16-DIP inset.
+            // The header pads 8 DIP around a 32-DIP dropdown whose own 8-DIP
+            // inline padding keeps the name at a 16-DIP inset.
             const float vertical = maximum(0.f, (metrics.navigation_header_height - 32.f) * .5f);
             header_style.padding = {8.f, vertical, 8.f, vertical};
         }

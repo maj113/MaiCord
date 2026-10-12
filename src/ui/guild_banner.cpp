@@ -132,14 +132,14 @@ UiGuildBannerGeometry ui_guild_banner_geometry(UiRect sidebar, UiRect header, fl
     if (!ui_rect_has_area(sidebar) || !ui_rect_has_area(header) || !(scroll == scroll))
         return g;
     scroll = scroll > 0 ? scroll : 0.f;
-    // Banner reveal: value = clamp(1 - scroll / 88), visible while scroll < 88.
+    // Reveal value runs 1 -> 0 over the scroll range; the banner is visible while it is non-zero.
     g.value = clamp01(1 - scroll / kUiGuildBannerScrollRange);
     g.visible = scroll < kUiGuildBannerScrollRange;
     const float top = header.top;
     g.image = {sidebar.left, top, sidebar.right, top + kUiGuildBannerHeight};
-    // The container slides up translateY(-(1 - v) * 90) while the picture
-    // inside slides back down by the same amount: the picture stays put and
-    // the container's lower edge uncovers the list.
+    // The container slides up by (1 - value) * kUiGuildBannerSlide while the
+    // picture inside slides back down by the same amount: the picture stays
+    // put and the container's lower edge uncovers the list.
     const float slide = (1 - g.value) * kUiGuildBannerSlide;
     g.clip = {sidebar.left, top, sidebar.right, maximum(top, top + kUiGuildBannerHeight - slide)};
     g.header = {sidebar.left, header.top, sidebar.right, header.bottom};

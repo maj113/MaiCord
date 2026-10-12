@@ -4,11 +4,9 @@
 
 namespace maicord {
 
-// A visible-range change can require one pass to measure, one to update the
-// variable-height list, one to rematerialize the overscanned range, and one to
-// seed measurements for newly materialized commands.  Rich/reply rows can add
-// another round, so keep a small bounded margin rather than terminating a
-// healthy account session at the former four-pass boundary.
+// Pass bound for one convergence. A visible-range change needs measure, list
+// update, rematerialize and measurement-seed passes; rich/reply rows add more.
+// Exceeding it reports non_convergent.
 inline constexpr u32 kMaximumMessageTextConvergencePasses = 8;
 
 using MessageTextFinalize = bool (*)(void* context, const Theme& theme) noexcept;

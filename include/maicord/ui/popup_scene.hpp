@@ -83,19 +83,18 @@ struct PopupItem {
     Utf8View label;
     u32 action;
     u16 flags;
-    // Compact standard edit-command hint; zero has no hint. No per-item strings.
+    // Standard edit-command hint (PopupShortcut); zero is none.
     u16 shortcut;
     u64 media_id;
     u8 media_flags;
-    // Sits in padding after media_flags. Nothing initializes it positionally;
-    // emoji rows assign it by name.
+    // Occupies the padding after media_flags: positional initializers leave it
+    // unset, emoji rows assign it by name.
     u16 regional_flag; // Unicode preview identity; never a custom emoji snowflake.
     Utf8View detail;
     u32 media_variant;
     u8 status; // 0 unknown, 1 online, 2 idle, 3 busy, 4 offline
-    // Two bytes of the old tail padding. Published descriptors use
-    // aggregate/value initialization, not a default constructor, so large
-    // freestanding constinit banks remain plain data.
+    // Published descriptors use aggregate/value initialization, not a default
+    // constructor, so large constinit banks stay plain data.
     UiMenuRowPresentation presentation;
 };
 static_assert(sizeof(PopupItem) == 64);
@@ -184,17 +183,17 @@ struct PopupScene {
     UiPopupFeedback feedback;
     bool feedback_reserved;
     bool themed_menu;
-    // Header popouts (the server dropdown and its follow-up menus) stay
-    // below their anchor, shortened to the space down to the viewport bottom
-    // and scrolled internally, instead of flipping or sliding over the header.
+    // Header popouts (the server dropdown and its follow-up menus) stay below
+    // their anchor, shortened to the space down to the viewport bottom and
+    // scrolled internally, never flipping or sliding over the header.
     bool anchored_below;
     u32 source_revision;
     u32 theme_geometry_revision;
     // Borrowed apply-time bank. Specialized command geometry remains independent.
     const UiResolvedThemeStyles* theme_styles;
-    // Optional dormant backing used by initialize_owned. Virtual address space
-    // is reserved at initialization; pages and arrays are materialized only
-    // when the first popup opens.
+    // Optional dormant backing used by initialize_owned: address space is
+    // reserved at initialization, pages and arrays are committed when the first
+    // popup opens.
     Arena owned_storage;
     UiWidgetManager widgets;
     Slice<PopupItem> items;
@@ -218,7 +217,7 @@ struct PopupScene {
     PopupKind kind;
     bool prefer_above;
     bool active;
-    // Uses the existing tail padding; popup/plugin descriptors stay unchanged.
+    // Occupies the tail padding after active (see the size assert).
     PopupPanelMaterial panel_material;
 };
 static_assert(sizeof(PopupScene) ==

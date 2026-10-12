@@ -9,10 +9,9 @@ inline constexpr u32 kOpusEncoderStateAlignment = 16;
 inline constexpr u32 kOpusEncoderMaximumPacketBytes = 1275; // RFC 6716 single-frame bound.
 inline constexpr u32 kOpusEncoderMinimumBitrate = 6000, kOpusEncoderMaximumBitrate = 510000;
 inline constexpr u32 kOpusEncoderDefaultBitrate = 64000;
-// Complexity 7 matched 8-10 voice SNR at ~75% of their encode time (measured).
 inline constexpr u32 kOpusEncoderDefaultComplexity = 7, kOpusEncoderMaximumComplexity = 10;
 inline constexpr u32 kOpusEncoderDefaultPacketLossPercent = 10;
-// Encoding uses _alloca scratch: measured peak below 48 KiB (stereo, complexity 10).
+// Stack headroom a thread must reserve for the _alloca scratch used by encode.
 inline constexpr u32 kOpusEncoderStackReserve = 64u * 1024u;
 enum class OpusEncodeError : u8 {
     none,

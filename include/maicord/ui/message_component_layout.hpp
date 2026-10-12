@@ -69,7 +69,7 @@ u32 message_component_child_ordinal(const MessageRichRecord& rich, u32 index) no
 // The transport keeps parents before children. A reverse fold measures the
 // tree once, without recursion, heap allocations, or double-counting children.
 // With an available width, action rows wrap their buttons onto more lines
-// (inside containers, within the container's padded lane), as the official client does.
+// (inside containers, within the container's padded lane).
 float message_component_measure_tree(const MessageRichRecord& rich, MessageRichItemLayout* items,
                                      float available_width = 0) noexcept;
 u64 message_component_structure(const MessageRichRecord* rich) noexcept;

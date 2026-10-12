@@ -825,8 +825,8 @@ MediaAttachmentFormat message_rich_attachment_audio_format(
         equal_case(type, utf8_literal("audio/m4a"), false) ||
         (generic && equal_case(name, utf8_literal(".m4a"), true)))
         return MediaAttachmentFormat::m4a;
-    // Preserve the established Ogg/Opus filename admission; the demuxer still
-    // rejects non-Ogg data before any native playback resource is opened.
+    // Ogg/Opus is admitted by filename alone; the demuxer rejects non-Ogg data
+    // before any native playback resource is opened.
     if (equal_case(name, utf8_literal(".ogg"), true) || equal_case(name, utf8_literal(".opus"), true))
         return MediaAttachmentFormat::ogg_opus;
     return MediaAttachmentFormat::unknown;

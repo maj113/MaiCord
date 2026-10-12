@@ -25,18 +25,18 @@ struct NativeFontPrepareScratch {
     Slice<TtCallFrame> frames;
 };
 // Zero-initialized stable slots, serialized mutation and store-local handles,
-// as for NativeFontStore. Each live instance holds one face reference. Shaped
-// runs hold a reference to the instance, keeping all mapped/prepared views alive together.
-// Equivalent normalized settings share state; static raw instances allocate
-// nothing. Optional variable/instruction state occupies one read-only arena.
-// Disabled glyph programs discard their unused preparation arrays and decommit
-// whole tail pages; a compact profile header remains for shared-instance keys.
-// The caller selects whether glyph instructions are used.
-// Variable fonts are accepted with instructed preparation only when glyph
-// instructions are disabled. Active variable instructions are not approximated.
-// Oblique draws share these base instances; simulation belongs to outline
-// emission and does not duplicate the variation/instruction state.
-// Scratch is mutable, disjoint from mapped/prepared views, and reusable after
+// as for NativeFontStore. Each live instance holds one face reference; shaped
+// runs hold an instance reference, keeping all mapped/prepared views alive.
+// Equivalent normalized settings share one instance; static raw instances
+// allocate nothing. Optional variable/instruction state occupies one read-only
+// arena. When the font's prep disables glyph programs, the unused preparation
+// arrays are dropped and whole tail pages decommitted, keeping a compact
+// profile header for shared-instance keys.
+// With instructions requested, a variable font fails as unsupported unless its
+// prep disables glyph programs (variable instructions are not approximated).
+// Synthetic oblique shares the base instance; the slant is applied in outline
+// emission.
+// Scratch is mutable, disjoint from mapped/prepared views and reusable after
 // acquire returns. state_limit caps newly committed state (including page
 // rounding); a matching live instance needs no new allocation.
 NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,

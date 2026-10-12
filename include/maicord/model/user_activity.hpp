@@ -6,9 +6,7 @@
 namespace maicord {
 // Structured presence activities (rich presence). Custom status stays in
 // UserAppearance; this store holds the other activity types per user, in the
-// order the server sent them. Consumers (profile cards, the member and DM lists,
-// Friends "Active Now") read it through user_activity_find and the helpers
-// below; every string is owned, bounded UTF-8.
+// order the server sent them. Every string is owned, bounded UTF-8.
 enum class UserActivityType : u8 { playing = 0, streaming = 1, listening = 2, watching = 3, custom = 4, competing = 5 };
 enum class UserActivityField : u8 {
     name,
@@ -54,8 +52,8 @@ struct UserActivitySet {
 Utf8View user_activity_text(const UserActivity&, UserActivityField) noexcept;
 // Spotify listening activity (type 2 from the Spotify integration).
 bool user_activity_is_spotify(const UserActivity&) noexcept;
-// The official client's one-line status: "Playing X", "Streaming X", "Listening to X",
-// "Watching X", "Competing in X". Returns the byte count written (0 if none).
+// One-line status: "Playing X", "Streaming X", "Listening to X", "Watching X",
+// "Competing in X". Returns the byte count written (0 if none).
 u32 user_activity_summary(UserActivityType, Utf8View name, Utf8View details, Slice<char> output) noexcept;
 u32 user_activity_summary(const UserActivity&, Slice<char> output) noexcept;
 // Card heading: "Playing", "Listening to Spotify", "Watching", ...

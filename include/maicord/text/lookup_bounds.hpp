@@ -2,12 +2,12 @@
 #include "maicord/text/context.hpp"
 #include "maicord/core/byte_order.hpp"
 namespace maicord {
-// Conservative union of first-input coverage. Stored in existing lookup tail
-// padding. Hand-assembled programs leave ready=0 and use the ordinary scan.
-// GSUB/GPOS preparation may also set bit 1 when all contextual subtables have
-// byte-identical first-input coverage. It certifies an immutable program fact.
-// GPOS bit 2 certifies chained-format-3 subtables whose nearest-backtrack
-// coverages are singleton glyphs in strictly increasing subtable order.
+// Conservative union of first-input coverage, stored in existing lookup tail
+// padding. ready certifies immutable program facts: 0 for hand-assembled
+// programs (ordinary scan), 1 once prepared, |2 when all contextual subtables
+// have byte-identical first-input coverage (GSUB/GPOS), |4 (GPOS) when
+// chained-format-3 subtables' nearest-backtrack coverages are singleton glyphs
+// in strictly increasing subtable order.
 struct SfntLookupBounds {u16 first=65535,last=0,ready=0;};
 static_assert(sizeof(SfntLookupBounds)==6);
 // Optional immutable coverage proof. Exhaustion declines the optimization,

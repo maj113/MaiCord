@@ -2,13 +2,12 @@
 #include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
-// The official client merges a received attachment's actions into the message context
-// menu: after the message sections come the media group (Copy Image, Save)
-// and the native link group (Copy Link, Open Link), then the developer-mode
-// Copy Message ID. A right-clicked sticker image adds only the link group.
-// This model builds those two groups only; it has no account, clipboard or
-// filesystem dependencies. Action ids share the downloads namespace, outside
-// every built-in message action.
+// A received attachment's actions merge into the message context menu after the
+// message sections: the media group (Copy Image, Save) and the link group (Copy
+// Link, Open Link), then the developer-mode Copy Message ID. A right-clicked
+// sticker image adds only the link group. This model builds only the media and
+// link groups. Action ids use the downloads namespace, outside every built-in
+// message action.
 inline constexpr u32 kReceivedAttachmentActionSave = 0x444C0001u;
 inline constexpr u32 kReceivedAttachmentActionCopyImage = 0x444C0002u;
 inline constexpr u32 kReceivedAttachmentActionCopyLink = 0x444C0003u;
@@ -18,7 +17,7 @@ constexpr bool received_attachment_menu_action(u32 action) noexcept {
 }
 
 enum class ReceivedAttachmentKind : u8 {
-    image,          // still image the official client can copy (png, jpeg, webp)
+    image,          // still image that can be copied (png, jpeg, webp)
     animated_image, // gif: saved, never copied as a bitmap
     video,
     audio,
@@ -47,10 +46,10 @@ inline constexpr u32 kReceivedAttachmentMenuItems = 4;
 // is too small). Group starts carry popup_item_separator_before.
 u32 received_attachment_menu(const ReceivedAttachmentMenuFacts& facts, Slice<PopupItem> output) noexcept;
 
-// A right-clicked link in message text, an embed or a forward: the official
-// client's native link group (Copy Link, Open Link, named after the URL as above),
-// merged into the message menu in the same place. Open Link follows the
-// link's click, including the "Leaving Discord" warning.
+// A right-clicked link in message text, an embed or a forward gets the link
+// group (Copy Link, Open Link, named after the URL as above), merged into the
+// message menu in the same place. Open Link follows the link's click, including
+// its leaving-site warning.
 inline constexpr u32 kMessageLinkActionCopy = 0x4C4E0001u;
 inline constexpr u32 kMessageLinkActionOpen = 0x4C4E0002u;
 constexpr bool message_link_menu_action(u32 action) noexcept {

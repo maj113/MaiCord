@@ -552,7 +552,7 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
         overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip;
     // Effects rewrite glyph data; flags and truncated semantics are rare. They shape directly.
     ShapedTextCache* shape_cache = nullptr;
-    // ```ansi foregrounds are applied per glyph from the cluster map, which
+    // ANSI foregrounds are applied per glyph from the cluster map, which
     // cached shapes do not keep.
     bool ansi_colors = false;
     for (u32 index = 0; index < styles.count && !ansi_colors; ++index)
@@ -836,9 +836,9 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
                                    storage->content_semantics[semantic_index].message_id != 0 &&
                                    storage->content_semantics[semantic_index].kind ==
                                        MessageMarkdownSemanticKind::regional_flag;
-            // Hit ranges supply the full em cell to media; the viewport's
-            // scissor clips artwork without shrinking or recentering it.
-            // Other semantic and overlay hit rectangles retain their clips.
+            // Flag hit ranges keep the full em cell so the viewport scissor
+            // clips the artwork without shrinking or recentering it; other
+            // hit rectangles are clipped here.
             storage->content_hit_regions[storage->content_hit_region_count++] =
                 flag_cell
                     ? TextHitRegion{origin_x + local.left,   origin_y + local.top, origin_x + local.right,
@@ -868,9 +868,9 @@ Color profile_tone(Color c, float light_scale, float floor = 0, float saturation
 
 bool append_content_text_command(D3D11Renderer* renderer, const UiTextCommand& command, const Theme& theme,
                                  bool* atlas_invalidated, bool force_new_batch = false) noexcept {
-    // A partial virtual row can have a label wholly outside the scroll clip
-    // (for example the upper label or emoji above a row's visible gap).
-    // Do not shape/rasterize it or pass an empty owner intersection to glyph clipping.
+    // A partially visible virtual row can have a label wholly outside the
+    // scroll clip; skip it rather than shape it or pass an empty intersection
+    // to glyph clipping.
     if (!ui_rect_has_area(ui_rect_intersection(command.rectangle, command.clip)))
         return true;
     const TextStyleSpan span{0, command.text.bytes, command.style_flags};
@@ -1847,9 +1847,6 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
     return appended && !*raster.atlas_invalidated;
 }
 
-// Revisions and positions of every scene and store the shell projection
-// reads. The host only offers a scroll_hint when no account source changed;
-// this stamp still catches pointer, layout and composer changes in between.
 u32 float_word(float value) noexcept {
     union {
         float number;
@@ -1858,6 +1855,9 @@ u32 float_word(float value) noexcept {
     return bits.word;
 }
 
+// Revisions and positions of every scene and store the shell projection
+// reads. The host only offers a scroll_hint when no account source changed;
+// this stamp still catches pointer, layout and composer changes in between.
 u64 shell_scene_stamp(const D3D11Renderer& renderer) noexcept {
     u64 hash = kHash64Seed;
     const auto mix = [&hash](u64 value) noexcept { hash = hash64_mix(hash, value); };
@@ -2132,9 +2132,9 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
         prefix.inline_flags <= renderer->inline_media.count &&
         content_text_retention_base_current(renderer->content_text_retention, retention_key);
 
-    // Presentation is structurally valid at this point.  Keep the last
-    // complete stream alive until this point so transient clipped geometry
-    // cannot blank every glyph during live resize.
+    // The last complete stream stays live until presentation is known to be
+    // valid, so transient clipped geometry cannot blank every glyph during a
+    // live resize.
     TextRasterScope raster_scope(*renderer);
     *storage_modified = true;
     // Any failure after a suffix mutation must retry from a full build; the old
@@ -2235,7 +2235,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
                     (static_known &&
                      (shell_raster.signature != static_signature || shell_raster.count != static_count)))
                     return false;
-                // This build (it becomes rebuild rebuilds + 1) writes the shell.
+                // This build's serial is rebuilds + 1.
                 static_marks = shell_static_marks(
                     *renderer, shell_raster,
                     static_known
@@ -2575,9 +2575,9 @@ bool renderer_commit_typography(D3D11Renderer* renderer, RendererTypographyCandi
     auto* previous_owner = renderer->typography_owner;
     auto previous_system = renderer->glyph_text.system;
     auto* owner = candidate->owner;
-    // Edit owners retain font-independent geometry/owned COM references until
-    // their next measurement. Font guards reject it; remeasure preserves
-    // logical selection and clamped manual scroll through the existing path.
+    // Edit layouts keep font-independent geometry and owned COM references
+    // until their next measurement, where font guards reject stale ones;
+    // remeasuring preserves the logical selection and clamped manual scroll.
     message_hit_test_cache_invalidate(&renderer->message_hit_test);
     shaped_text_reset(&renderer->glyph_text.title);
     renderer->glyph_text.title_quad_count = 0;
@@ -2596,7 +2596,7 @@ bool renderer_commit_typography(D3D11Renderer* renderer, RendererTypographyCandi
     owner->system = {};
     renderer->typography_owner = owner;
     ++renderer->typography_revision;
-    // The 16-bit public backend token wraps only after invalidation.
+    // The public measure revision is 16-bit; it wraps to 1, never 0.
     renderer->text_measure_revision = renderer->text_measure_revision == 65535
                                           ? 1
                                           : static_cast<u16>(renderer_text_measure_revision(*renderer) + 1);
@@ -2706,16 +2706,15 @@ bool d3d11_renderer_rebuild_text_mode(D3D11Renderer* renderer, const Theme& them
             continue;
         ++renderer->content_text->rejected;
         if (!storage_modified) {
-            // Shell/message glyphs may remain useful after a transient scene
-            // rejection, but interaction overlays are tied to short-lived
-            // widget handles.  Never leave the previous hover/popup emoji
-            // batches visible after their owner has closed or been recycled.
+            // Shell/message glyphs may survive a transient scene rejection, but
+            // interaction overlays are tied to short-lived widget handles; drop
+            // them so no stale hover/popup emoji batch outlives its owner.
             discard_retained_overlay_text(renderer);
             return false;
         }
-        // A content rebuild writes into retained buffers in place.  Never
-        // publish a partial command stream after a capacity/shape/composer
-        // failure; the application can retry without risking stale indices.
+        // A content rebuild writes retained buffers in place; after a
+        // capacity, shape or composer failure the partial command stream is
+        // dropped so a retry cannot see stale indices.
         renderer->content_text->quad_count = 0;
         renderer->content_text->batch_count = 0;
         renderer->content_text->content_semantic_count = 0;

@@ -37,8 +37,8 @@ struct ColrNativeSource {
 // Caller owns frames (up to 65 active levels), stop scratch and referenced
 // immutable font/instance views. Fixed stop storage does not allocate; the
 // optional stop-only arena commits storage when a larger gradient is visited.
-// A failed cursor must be reset
-// by beginning another glyph; no partial result is usable after failure.
+// A failed cursor must be reset by beginning another glyph; no partial result
+// is usable after failure.
 SfntStatus colr_source_begin(ColrNativeSource* source,u16 glyph,u32 work_limit,
                              ColrPaintElement* root,ColrRect* clip,ColrPaintSource* callbacks) noexcept;
 } // namespace maicord

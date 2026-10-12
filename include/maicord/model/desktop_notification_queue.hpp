@@ -97,7 +97,6 @@ u32 desktop_notification_queue_purge_profile(DesktopNotificationQueue*, u64 prof
 u32 desktop_notification_queue_purge_all(DesktopNotificationQueue*) noexcept;
 // Packed layout: enqueue copies only new bytes; begin/purge move at most the
 // configured byte capacity plus header capacity, zeroing discarded private text.
-// Defaults are 32 headers, 16KiB packed text and 4KiB dispatch scratch (<24KiB total).
 static_assert(sizeof(DesktopNotificationQueueRow) <= 96);
 static_assert(sizeof(DesktopNotificationQueue) + kDesktopNotificationQueueRows * sizeof(DesktopNotificationQueueRow) +
     kDesktopNotificationQueueBytes + kDesktopNotificationQueueItemBytes < 24 * 1024);

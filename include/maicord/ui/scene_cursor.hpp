@@ -171,7 +171,7 @@ inline UiCursor ui_media_picker_scene_cursor(const UiMediaPickerScene& scene, fl
     return ui_action_cursor(action != UiMediaPickerAction::none, action == UiMediaPickerAction::edit);
 }
 
-// Modal backdrops dismiss on click but stay an arrow, as in the official client.
+// Modal backdrops dismiss on click but stay an arrow.
 inline UiCursor ui_message_forward_scene_cursor(const UiMessageForwardScene& scene, float x, float y) noexcept {
     if (!ui_rect_contains(scene.panel, x, y))
         return UiCursor::arrow;

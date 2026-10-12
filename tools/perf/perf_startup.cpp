@@ -1,10 +1,9 @@
-// Startup attribution for MaiCordPerfProbe (see perf_startup.hpp). Every
-// figure covers process creation to the first presented frame: named
-// main-thread points with main-thread CPU, DLL mappings (LdrRegisterDllNotification),
-// system calls made through this image's static and delay-load import
-// tables, main-thread waits, memory at the first present, and the D3D11
-// device, DXGI factory, swap chain and DirectComposition methods reached
-// through their vtables. Nothing here ships.
+// Startup attribution for MaiCordPerfProbe (see perf_startup.hpp), from process
+// creation to the first presented frame: named main-thread points with CPU, DLL
+// mappings (LdrRegisterDllNotification), system calls through this image's static
+// and delay-load import tables, main-thread waits, memory at the first present,
+// and the D3D11 device, DXGI factory, swap chain and DirectComposition methods
+// reached through their vtables. Nothing here ships.
 #include "perf_startup.hpp"
 
 #include "maicord/core/base.hpp"
@@ -20,7 +19,6 @@
 namespace maicord::perf {
 namespace {
 
-// ------------------------------------------------------------- clock
 struct StartupClock {
     u64 qpc0;
     u64 frequency;
@@ -58,7 +56,6 @@ bool window_open() noexcept {
     return g_window_closed == 0;
 }
 
-// --------------------------------------------------------------- marks
 struct Mark {
     const char* name;
     u64 at;
@@ -79,7 +76,6 @@ struct FirstFrameMemory {
 FirstFrameMemory g_first_frame_memory{};
 ID3D11Device* g_first_device = nullptr; // not owned
 
-// ---------------------------------------------------------------- DLLs
 struct ModuleName {
     wchar_t text[40];
 };
@@ -143,7 +139,6 @@ void CALLBACK dll_notification(ULONG reason, const LdrLoaded* data, void*) noexc
         copy_name(&event.name, data->base_name->buffer, data->base_name->length / 2);
 }
 
-// ------------------------------------------------------- API timings
 enum class Api : u32 {
     d3d11_create_device,
     dcomp_create_device,
@@ -249,7 +244,6 @@ void record(Api api, u64 start, void* caller, const wchar_t* name = nullptr) noe
                 u32 units = 0;
                 while (name[units] && units < 512)
                     ++units;
-                // Base name only.
                 u32 begin = units;
                 while (begin && name[begin - 1] != L'\\' && name[begin - 1] != L'/')
                     --begin;
@@ -259,10 +253,9 @@ void record(Api api, u64 start, void* caller, const wchar_t* name = nullptr) noe
     }
 }
 
-// ------------------------------------------------- vtable attribution
-// D3D11 device creation methods (d3d11.h / d3d11_1.h order), the DXGI
-// factory's CreateSwapChainForComposition, swap chain presents and the
-// DirectComposition device. All are x64 COM methods whose arguments are
+// Vtable attribution: D3D11 device creation methods (d3d11.h / d3d11_1.h
+// order), the DXGI factory's CreateSwapChainForComposition, swap chain presents
+// and the DirectComposition device. All are x64 COM methods whose arguments are
 // integers or pointers, so one forwarding stub per slot passes them through.
 enum class Vt : u32 {
     create_buffer,
@@ -433,7 +426,7 @@ void patch_device(ID3D11Device* device) noexcept {
         dxgi->Release();
 }
 
-// ------------------------------------------------------ import hooks
+// Import hooks
 #define MC_HOOK(api, ret, function, params, args)                                                                 \
     using function##_type = ret(WINAPI*) params;                                                                  \
     function##_type g_##function = nullptr;                                                                       \
@@ -612,7 +605,6 @@ void install_hooks() noexcept {
                       reinterpret_cast<IMAGE_THUNK_DATA64*>(base + entry->ImportAddressTableRVA));
 }
 
-// ------------------------------------------------------------- output
 struct Line {
     char text[512];
     u32 used;

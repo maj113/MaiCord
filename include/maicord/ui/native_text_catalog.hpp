@@ -21,13 +21,12 @@ static_assert(sizeof(NativeTextCatalogScopes)==368);
 struct NativeTextCatalogs {
     // One attempted-build bit per stable scope, including cached failures.
     Arena storage;NativeTextCatalogScopes scopes;u32 count,operation_depth,attempted;
-    // Sticky acquisition mismatch bits, one per scope, stored in alignment padding.
-    // Never clear or replace catalogs during active shaping; a future generation
-    // change must invalidate dependent caches together.
+    // Sticky acquisition-mismatch bits, one per scope. Catalogs are never cleared
+    // or replaced during active shaping.
     u32 stale_scopes;
     u64 builds,selections,unsupported,failures,build_ticks;
-    // Failure epoch, stored in alignment padding. A binding attempt must not
-    // keep a negative result after a temporary capacity failure.
+    // Failure epoch. A binding attempt must not keep a negative result after a
+    // temporary capacity failure.
     u32 retryable_failures;
     struct FamilyOrder* families;
     struct NativeSystemFontFile* files;
@@ -40,8 +39,7 @@ void native_text_catalogs_release(NativeTextCatalogs*) noexcept;
 // Repeating the same path returns the existing scope.
 bool native_text_catalog_register_path(NativeTextCatalogs*,const wchar_t*,u32* scope) noexcept;
 // Borrowed request independent of a format object. Scope indices are stable for
-// this catalog. Family storage belongs to the caller; selection does not
-// keep it. This permits style/font runs to share native selection and plans.
+// this catalog. Family storage belongs to the caller; selection does not keep it.
 struct NativeTextFontQuery {u32 scope;ConstSlice<u16> family;NativeFontProperties properties;};
 // Supplying selected_scope also opts into the default-face fallback for
 // a missing requested family. Other failures never trigger that fallback.
@@ -54,9 +52,9 @@ struct NativeTextFontRange {NativeFontCatalogMatch match;u32 bytes,units,scope;}
 // cached family order; subsequent queries allocate nothing and preserve scratch.
 // Missing initial glyphs are reported and require the outer system cascade.
 bool native_text_catalog_family_range(NativeTextCatalogs*,const NativeTextFontQuery&,NativeFontSession*,Arena*,Utf8View,NativeTextFontRange*) noexcept;
-// Experimental en-US app policy. Preserves base-family and fixed system-route
-// preference, including a missing base family. Returns the actual selected scope.
-// First use can prepare cached family orders/reset scratch; warmed queries borrow
+// en-US policy: preserves the base-family and fixed system-route preference,
+// including a missing base family. Returns the actual selected scope. First use
+// can prepare cached family orders and reset scratch; warmed queries borrow
 // immutable catalog state. Unknown collections and IO/parser failures stay errors.
 bool native_text_catalog_range(NativeTextCatalogs*,const NativeTextFontQuery&,NativeFontSession*,Arena*,Utf8View,NativeTextFontRange*) noexcept;
 // Prepare an already selected catalog face with its simulation policy.

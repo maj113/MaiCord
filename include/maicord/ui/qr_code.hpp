@@ -32,9 +32,8 @@ struct QrCodeRectResult {
 };
 
 // Encodes one QR Model 2 Version 5, error-correction level M symbol in byte
-// mode. This fixed profile covers the complete remote-auth login URL while
-// avoiding tables and heap state for unused QR versions. Output is
-// transactional.
+// mode. The fixed profile fits the remote-auth login URL without tables or heap
+// state for other versions. Output is transactional.
 bool qr_code_encode_v5_m(ConstSlice<u8> payload, QrCode* output) noexcept;
 bool qr_code_module(const QrCode& code, u32 x, u32 y) noexcept;
 // Coalesces adjacent rows with identical horizontal black runs. A null/zero

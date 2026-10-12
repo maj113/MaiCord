@@ -797,9 +797,9 @@ ForumPostResult forum_post_decode(Utf8View input, const ForumPostRequest& reques
                                                ThreadCreationEnvelope::forum_post);
     if (!thread.ok())
         return {0, thread_error(thread.error)};
-    // The thread decoder leaves the complete document's identical index intact.
-    // Finish indexed visitors before the production message decoder rescans its
-    // nested object into the same scratch; no active visitor index is replaced.
+    // The thread decoder leaves the document's index intact. Finish indexed
+    // visitors before the message decoder rescans the nested object into the
+    // same scratch.
     MessageScope scope{intent.guild_id, false, {}};
     if (!json_visit_indexed_object(parse.document, parse.message, 32, message_scope_field, &scope).ok())
         return {0, scope.error == ForumPostError::none ? ForumPostError::json : scope.error};

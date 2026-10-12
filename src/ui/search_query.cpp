@@ -9,7 +9,7 @@ namespace {
 bool equal(Utf8View a, Utf8View b) noexcept {
     return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
 }
-// Filter keys follow the official camelCase spelling but match without case.
+// Filter keys are camelCase in the query syntax but match case-insensitively.
 bool key_equal(Utf8View key, Utf8View name) noexcept {
     if (key.bytes != name.bytes)
         return false;

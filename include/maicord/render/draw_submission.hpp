@@ -23,8 +23,6 @@ struct DrawSubmissionState {
     DrawPipeline pipeline;
     bool shared_bound;
     bool scissor_valid;
-    // This stream's work: pipelines bound, shared-state binds, scissors set and
-    // scissors skipped because they repeated the bound rectangle.
     u32 pipeline_binds, shared_binds, scissor_sets, scissor_skips;
 };
 

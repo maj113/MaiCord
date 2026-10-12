@@ -6,11 +6,10 @@
 namespace maicord {
 
 // Composer spell checking off the input path. Edits schedule a debounced pass
-// from the frame tick; each pass re-tokenizes the text (cheap) and queries the
-// backend only for unchecked words absent from a small hash cache, within a
-// per-tick budget. A byte frontier preserves progress across cache eviction.
-// The word holding the caret
-// is skipped while it is still being typed (until the caret leaves it).
+// from the frame tick; each pass re-tokenizes the text and queries the backend
+// only for unchecked words absent from a small hash cache, within a per-tick
+// budget. A byte frontier preserves progress across cache eviction. The word
+// holding the caret is skipped until the caret leaves it.
 inline constexpr u32 kComposerSpellcheckCacheCapacity = 512; // power of two
 inline constexpr u32 kComposerSpellcheckSpanCapacity = 32;
 inline constexpr u32 kComposerSpellcheckSuggestions = 5;

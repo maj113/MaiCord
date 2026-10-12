@@ -14,8 +14,8 @@ struct AnimationFrameCacheKey {
     u32 frame_index;
     u16 source_generation;
     u16 reserved;
-    // Nonzero only after the encoded cache establishes exact byte equality.
-    // Zero preserves the original per-asset, generation-scoped cache key.
+    // Nonzero only after the encoded cache establishes exact byte equality;
+    // zero keys the frame by asset and generation.
     u64 content_identity;
 };
 

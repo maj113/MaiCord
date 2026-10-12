@@ -180,9 +180,8 @@ struct CoefficientUpdateProbabilityException {
     u8 reserved;
 };
 
-// RFC 6386 section 13.4's 4 x 8 x 3 x 11 update-probability table is
-// overwhelmingly 255. Store its 158 non-255 entries in traversal order.
-// This is 632 bytes instead of 1,056 and needs only one forward cursor.
+// The non-255 entries of RFC 6386 section 13.4's 4 x 8 x 3 x 11
+// update-probability table, in traversal order; every other entry is 255.
 constexpr CoefficientUpdateProbabilityException kCoefficientUpdateProbabilityExceptions[] = {
     {33, 176},  {34, 246},  {44, 223},  {45, 241},  {46, 252},   {55, 249},   {56, 253},  {57, 253},
     {67, 244},  {68, 252},  {77, 234},  {78, 254},  {79, 254},   {88, 253},   {100, 246}, {101, 254},
@@ -591,10 +590,8 @@ __forceinline u32 read_large_coefficient(WindowReader* reader, const u8* probabi
                                      : category == 1 ? kCoefficientCategory4
                                      : category == 2 ? kCoefficientCategory5
                                                      : kCoefficientCategory6;
-    // Categories 3, 4 and 5 add 3, 4 and 5 magnitude bits. Category 6 is
-    // wider: RFC 6386 section 13.2 assigns it 11 bits. Treating
-    // it as the apparent 6-bit continuation desynchronizes the token stream
-    // after the first large coefficient and corrupts every later block.
+    // Extra magnitude bits of categories 3 to 6 (RFC 6386 section 13.2);
+    // category 6 takes 11, not a 6-bit continuation of the pattern.
     constexpr u8 kCategoryBitCount[] = {3, 4, 5, 11};
     const u32 category_bits = kCategoryBitCount[category];
     u32 value = 0;
@@ -614,8 +611,7 @@ Vp8DecodedCoefficientBlock decode_coefficient_block(WindowReader* state,
                                                     const Vp8ProbabilityWorkspace& probabilities, u32 type,
                                                     u32 context, u16 dc_quantizer, u16 ac_quantizer,
                                                     u32 start, i16* output) noexcept {
-    // A local reader keeps value/range/bit_count in registers instead of a
-    // store/load round trip per decision; written back once per block.
+    // Local reader state stays in registers; written back once per block.
     WindowReader local = *state;
     WindowReader* const reader = &local;
     u32 coefficient = start;

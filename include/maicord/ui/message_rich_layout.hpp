@@ -127,12 +127,11 @@ inline constexpr float kMessageReplyTextInset = 20.0f;
 inline constexpr float kMessageReplyIcon = 20.0f;
 inline constexpr float kMessageReplyIconGap = 4.0f;
 
-// Embed card, as the official client lays it out: 4-DIP accent border,
-// 12-DIP start and 16-DIP end padding, 2-DIP top padding plus an 8-DIP margin
-// above every block, 16 DIPs above large media and 16 DIPs below the last
-// block. The corner thumbnail (at most 80x80) sits 16 DIPs right of the text
-// column; author icons are 24 DIPs and footer icons 20 DIPs, 8 DIPs before
-// their text, both round.
+// Embed card: 4-DIP accent border, 12-DIP start and 16-DIP end padding, 2-DIP
+// top padding plus an 8-DIP margin above every block, 16 DIPs above large media
+// and 16 DIPs below the last block. The corner thumbnail (at most 80x80) sits
+// 16 DIPs right of the text column; author icons are 24 DIPs and footer icons
+// 20 DIPs, 8 DIPs before their text, both round.
 inline constexpr float kMessageEmbedMaximumWidth = 520.0f;
 inline constexpr float kMessageEmbedAccentWidth = 4.0f;
 inline constexpr float kMessageEmbedContentInset = 16.0f; // card left to text (accent + 12)
@@ -152,7 +151,7 @@ constexpr float message_rich_embed_media_left(bool media_only) noexcept {
     return media_only ? 0.0f : kMessageEmbedContentInset;
 }
 
-// What the official embed renderer shows for one embed.
+// Which parts of one embed are shown.
 struct MessageRichEmbedPlan {
     bool media_only;       // bare image/video/gifv without a card
     bool markdown;         // only rich embeds parse markdown; others show raw text
@@ -230,13 +229,12 @@ bool message_rich_embed_media_select(const MessageRichStore& store, const Messag
                                      MessageRichEmbedMediaSelection* selection) noexcept;
 bool message_rich_embed_media_only(const MessageRichEmbed& embed) noexcept;
 
-// The official client merges embeds that share a url (multi-photo posts: one card plus
-// image-only embeds) into the first: later ones render nothing and their
-// images join the first's gallery. Presentation only; stored data is unchanged.
-// The gallery is the media block: 300 DIPs
-// high, two 1fr columns 4 DIPs apart, images cover their tiles; one column
-// holds image 1 (and 3), the other image 2 (and 4); a column with two images
-// splits 4 DIPs apart. Only the first four images are drawn.
+// Embeds that share a url (multi-photo posts: one card plus image-only embeds)
+// merge into the first: later ones render nothing and their images join the
+// first's gallery. Presentation only; stored data is unchanged. The gallery is the
+// media block, two equal columns with images covering their tiles: image 1 left,
+// 2 right, then 3 below 2 (three images) or 3 below 1 and 4 below 2 (four). Only
+// the first kMessageEmbedGalleryDrawn images are drawn.
 inline constexpr u32 kMessageEmbedGalleryDrawn = 4;
 inline constexpr float kMessageEmbedGalleryHeight = 300.0f;
 inline constexpr float kMessageEmbedGalleryGap = 4.0f;
@@ -253,8 +251,8 @@ bool message_rich_embed_gallery(const MessageRichStore&, const MessageRichRecord
 // A gallery image: the embed's image, else an article/image thumbnail.
 bool message_rich_embed_gallery_select(const MessageRichStore&, const MessageRichEmbed&,
                                        MessageRichEmbedMediaSelection*) noexcept;
-// Gallery width for the host: the official card is the first image's fitted
-// width plus insets when that is at least 300 DIPs, else 520 wide.
+// Gallery width for the host: the first image's fitted width plus insets when
+// that is at least 300 DIPs, else 520 wide.
 float message_rich_embed_gallery_width(const MessageRichStore&, const MessageRichEmbed& host,
                                        float available_width) noexcept;
 // Tile `ordinal` (< kMessageEmbedGalleryDrawn) of a gallery of `count` images.

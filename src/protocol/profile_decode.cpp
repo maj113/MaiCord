@@ -126,7 +126,7 @@ bool activity_item(void* opaque, u32, JsonValue v) noexcept {
     if (c.custom || (type != 4 && c.out->activity.bytes) || type > 5)
         return true;
     if (type != 4) {
-        // The one-line status reads like the official client's: "Playing X", "Listening to X".
+        // One-line status such as "Playing X" or "Listening to X".
         ProfileString<256> name{}, details{};
         if (!string(f[1].value, &name) || !name.bytes)
             return true; // Oversized or missing names do not invalidate the presence.

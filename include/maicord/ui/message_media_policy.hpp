@@ -35,8 +35,7 @@ inline constexpr u32 kMessageMediaRevealMaximum = 64;
 inline constexpr float kMessageMediaObscureBlur = 28.0f;
 
 // Session-only reveal memory: a bounded ring of item keys. Revealing never
-// persists, matching the official client, and a channel switch keeps earlier reveals until
-// the ring wraps.
+// persists, and a channel switch keeps earlier reveals until the ring wraps.
 struct MessageMediaReveals {
     u64 keys[kMessageMediaRevealMaximum];
     u32 count;

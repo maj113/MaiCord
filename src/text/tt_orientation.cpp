@@ -46,9 +46,9 @@ struct Ray {
     bool excluded(Point a,Point b,Point c) const noexcept {return max(max(a.x,b.x),c.x)<lx||min(min(a.x,b.x),c.x)>hx||max(max(a.y,b.y),c.y)<ly||min(min(a.y,b.y),c.y)>hy;}
     u32 line(Point a,Point b) const noexcept {
         if(excluded(a,b,b))return 0;const double sa=side(a),sb=side(b);if(!((sa<=0&&sb>0)||(sb<=0&&sa>0)))return 0;
-        // The reference rounds the edge parameter to 16.16 before testing the
-        // ray's dominant coordinate. Exact geometric intersection alone gives
-        // different answers when a probe starts on a shared boundary.
+        // Windows rounds the edge parameter to 16.16 before testing the ray's
+        // dominant coordinate; exact geometric intersection alone gives different
+        // answers when a probe starts on a shared boundary.
         const i64 numerator=absolute(static_cast<i64>(sa))*65536,denominator=absolute(static_cast<i64>(sb-sa));
         i64 t=(numerator+denominator/2)/denominator;if(!t)t=1;
         const bool horizontal=absolute(static_cast<i64>(d.x))>absolute(static_cast<i64>(d.y));

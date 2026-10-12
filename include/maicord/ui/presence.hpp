@@ -10,17 +10,15 @@ enum class UiPresence : u8 {
     offline
 };
 
-// The phone-shaped status: online on
-// mobile only. Used in place of the online dot for other users.
+// Phone-shaped status for a user online on mobile only; replaces the online
+// dot for other users.
 constexpr bool ui_presence_mobile(UiPresence status, u8 client_status) noexcept {
     return status == UiPresence::online && client_status_mobile_online(client_status);
 }
 
-// Geometry of the phone for a status dot of extent s (its square box): the
-// box keeps the dot's width and bottom-right corner and is 1.5s tall. The
-// body's corners are .1875s; the screen is .75s square at (.125s, .25s); the
-// home button is a circle of radius .125s centred at (.5s, 1.25s). The avatar
-// cutout grows the body by the ring width k with 0.2*(1.5s + 2k) corners.
+// Phone geometry for a status dot of extent s: the body keeps the dot's width
+// and bottom-right corner and is 1.5s tall. The cutout grows the body by the
+// avatar ring width, with corners 0.2 of its height.
 struct UiMobilePresenceGeometry {
     UiRect cutout;
     float cutout_radius;

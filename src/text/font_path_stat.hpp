@@ -13,9 +13,9 @@ struct Attributes {u32 bytes;HANDLE root;Name* name;u32 flags;void* security;voi
 struct Io {void* status;usize bytes;};
 static_assert(sizeof(Stat)==104&&sizeof(Name)==16&&sizeof(Attributes)==48&&sizeof(Io)==16);
 using HandleQuery=LONG (WINAPI*)(HANDLE,Io*,void*,u32,u32);
-// Optional one-query metadata projection from the already read-locked handle.
-// False clears output and requires the caller's existing public-query path.
-// No pathname lookup, handle ownership, cache or minimum-OS change.
+// Optional one-query metadata read from an already read-locked handle. False
+// clears the output and the caller falls back to the public query path.
+// No pathname lookup, handle ownership or cache.
 bool read_handle(HandleQuery,HANDLE,NativeFontFileStamp*) noexcept;
 bool read_handle(HANDLE,NativeFontFileStamp*) noexcept;
 

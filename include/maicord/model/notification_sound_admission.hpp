@@ -23,8 +23,7 @@ struct NotificationSoundAdmissions {
     NotificationSoundDecision ordinary, selected;
     MessageNotificationReason ordinary_reason, selected_reason;
 };
-// Both preserve the host's ready/live/duplicate barriers. Those are host rules,
-// not an additional replay guard that the official client enforces.
+// Both keep the host's ready/live/duplicate barriers.
 MessageNotificationReason notification_sound_ordinary_admit(const MessageNotificationPolicyInput&) noexcept;
 MessageNotificationReason notification_sound_selected_admit(const NotificationSoundAdmissionInput&) noexcept;
 NotificationSoundAdmissions notification_sound_admissions(const NotificationSoundAdmissionInput&) noexcept;

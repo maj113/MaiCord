@@ -279,8 +279,7 @@ bool gif_frame_valid(const GifFrame& frame, u16 canvas_width, u16 canvas_height,
     if (palette.has_transparency && palette.transparent_index >= palette.count) {
         return false;
     }
-    // Every u8 index is valid for a full palette. Avoid rereading the entire
-    // decoded image on the UI thread before its upload in this common case.
+    // Every u8 index is valid for a full 256-entry palette; skip rescanning the image.
     if (palette.count == 256) return true;
     for (u32 index = 0; index < pixels; ++index) {
         if (indices[index] >= palette.count) {

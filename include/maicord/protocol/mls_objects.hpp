@@ -145,12 +145,11 @@ struct MlsEncodeResult {
         return error == MlsWireError::none;
     }
 };
-// Serializes the fields, ignoring any cached serialized/tbs views. Only structure
-// is checked; signatures must already match the supplied fields. Inactive
-// credential/source arms are ignored. Size queries validate without allocating.
-// Encode leaves output unchanged on failure and keeps its unused tail.
-// Output must not overlap the input object or any active field, and the input
-// must not change during the call.
+// Serializes the fields, ignoring cached serialized/tbs views. Only structure is
+// checked; signatures must already match the fields. Inactive credential/source arms
+// are ignored. Encode writes only the returned prefix and leaves output unchanged on
+// failure. Output must not overlap the input object or any active field, and the
+// input must not change during the call.
 MlsEncodeResult mls_encoded_size(const MlsLeafView& input) noexcept;
 MlsEncodeResult mls_encoded_size(const MlsKeyPackageView& input) noexcept;
 MlsEncodeResult mls_encoded_size(const MlsGroupContextView& input) noexcept;

@@ -14,8 +14,8 @@ struct Arena {
     u32 commit_count;
 };
 
-// Process-wide totals since start, updated only when an arena commits pages
-// (never on the bump path): number of commit calls and bytes committed.
+// Process-wide totals since start: arena initializations, commit calls and bytes
+// committed. Updated only on initialization and commit, never on the bump path.
 struct ArenaProcessCounters {
     u64 initializations;
     u64 commits;

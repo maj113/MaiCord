@@ -213,9 +213,9 @@ bool ui_unread_banner_update(UiUnreadBannerScene* scene, const UiUnreadBannerVie
             changed = true;
         }
     }
-    // Compare the stored (possibly cleared) forms. Comparing the raw inputs and
-    // byte-comparing the padded view reported a change on every frame while the
-    // banner was unusable (login, settings), so each present requested another.
+    // Compare the stored (possibly cleared) forms: comparing raw inputs against
+    // the padded view would report a change on every frame while the banner is
+    // unusable (login, settings), requesting another present each time.
     const UiRect stored_viewport = usable ? viewport : UiRect{};
     const UiWidgetReference stored_owner = usable ? text_owner : UiWidgetReference{};
     changed = changed || !ui_rect_equal(scene->viewport, stored_viewport) ||

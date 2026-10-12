@@ -239,15 +239,14 @@ struct Vp8CoefficientParseResult {
 };
 
 // Parses the uncompressed ten-byte header of one complete VP8 keyframe
-// payload and bounds its first boolean-coded partition. It does not claim
-// that the remaining compressed syntax has decoded successfully.
+// payload and bounds its first boolean-coded partition. The compressed syntax
+// after it is not validated.
 Vp8ParseResult vp8_parse_keyframe(ConstSlice<u8> payload,
                                   Vp8Keyframe* frame) noexcept;
 // Parses RFC 6386 sections 9.2 through 9.11 for a still-image keyframe,
 // validates and slices all coefficient token partitions, and leaves the
-// bounded boolean reader positioned at the first macroblock mode. The
-// final coefficient probability values are retained in the caller-owned
-// workspace for the later token decoder rather than bloating this header.
+// bounded boolean reader positioned at the first macroblock mode. The final
+// coefficient probabilities go to the caller-owned workspace.
 Vp8ControlParseResult vp8_parse_keyframe_control(
     const Vp8Keyframe& frame, Vp8ControlHeader* header,
     Vp8ProbabilityWorkspace* probabilities) noexcept;

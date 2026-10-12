@@ -23,8 +23,8 @@ enum class MessageSearchScope : u8 {
     channel,
     private_channels
 };
-// The official client's tab presets: media has image/video, files has file, links has link,
-// pins is pinned. A preset yields to the user's own has/pinned filter.
+// Tab presets: media has image/video, files has file, links has link, pins is
+// pinned. A preset yields to the user's own has/pinned filter.
 enum class MessageSearchTab : u8 {
     messages,
     media,
@@ -183,10 +183,11 @@ MessageSearchTabsWriteResult write_message_search_tabs_request(const MessageSear
 // Both decoders accept the legacy root (messages/total_results) or the tabs root
 // ({"tabs":{"<tab>":{messages,total_results}}}); the query's tab must be present.
 // On failure ignore all output slices. On success every text view points into
-// text_output, never the HTTP body. Search results are not conversation events.
-// Guild IDs present in the response are checked against the query. When guild_known
-// is false, the host must verify channel membership in the server-confirmed guild
-// state before using the result; a missing guild ID does not show the channel is in the guild.
+// text_output, never the HTTP body. Search results are not conversation events
+// and never reach notification handling. Guild IDs present in the response are
+// checked against the query; when guild_known is false the host must verify
+// channel membership against server-confirmed guild state, since a missing guild
+// ID does not show the channel belongs to the guild.
 MessageSearchDecodeResult decode_message_search_page(Utf8View body, const MessageSearchQuery& query,
                                                      Slice<u32> page_structurals,
                                                      Slice<u32> message_structurals, u32 maximum_depth,
@@ -211,13 +212,12 @@ struct MessageSearchRichSink {
 };
 
 // accept must copy every string/descriptor it needs before returning: message text
-// and rich scratch are reused for the next result. The caller must discard anything
-// collected through the sink if the page fails for any reason, including a later
-// group without a hit or a sink rejection; a sink call does not mean the page was accepted.
-// On success groups and messages keep routing/scalar summaries only; every borrowed
-// text/descriptor view in messages is cleared. page.text_bytes counts all decoded
-// text, not the occupancy of the reusable per_message_text buffer.
-// Search results never reach notification handling for the current user.
+// and rich scratch are reused for the next result. Discard anything collected
+// through the sink if the page fails for any reason (a later group without a hit,
+// a sink rejection); a sink call does not mean the page was accepted.
+// On success messages keep routing/scalar summaries only: every borrowed
+// text/descriptor view is cleared. page.text_bytes counts all decoded text, not
+// the occupancy of per_message_text.
 MessageSearchDecodeResult decode_message_search_page(
     Utf8View body, const MessageSearchQuery& query, Slice<u32> page_structurals,
     Slice<u32> message_structurals, u32 maximum_depth, Slice<char> per_message_text,

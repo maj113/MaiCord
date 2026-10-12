@@ -5,8 +5,8 @@ namespace maicord { namespace {
 // Compact numeric tables generated from Unicode 17.0.0 UnicodeData,
 // SpecialCasing and DerivedCoreProperties. Unicode License v3:
 // Copyright (c) 1991-2025 Unicode, Inc. See assets/licenses/Unicode-3.0.txt.
-// Existing UnicodeProperties lacks Cased/Case_Ignorable; these exact derived
-// properties avoid approximating Final_Sigma with general letter categories.
+// UnicodeProperties lacks Cased/Case_Ignorable; these exact derived properties
+// avoid approximating Final_Sigma with general letter categories.
 struct LowerRange {u32 first;i32 delta;u16 span;u8 stride;};
 static_assert(sizeof(LowerRange) == 12);
 constexpr LowerRange lowercase_ranges[]{
@@ -361,9 +361,9 @@ constexpr u16 case_ignorable_span[]{
     13,0,3,4,1,0,0,1,
     0,0,6,7,4,0,95,239,
 };
-// Spans preserve the inclusive endpoint without paying struct alignment for
-// every property entry. Validate exact generated bounds and ordering at compile
-// time; no validation tables or startup work are retained in the binary.
+// Spans keep the inclusive endpoint without struct alignment padding per entry.
+// Bounds and ordering are validated at compile time; nothing is retained in the
+// binary and there is no startup work.
 template <usize N> constexpr bool valid_property_ranges(const u32 (&starts)[N], const u16 (&spans)[N]) noexcept {
     for (usize i = 0; i < N; ++i) {
         if (spans[i] > 339 || starts[i] > 0x10FFFF || spans[i] > 0x10FFFF - starts[i] ||

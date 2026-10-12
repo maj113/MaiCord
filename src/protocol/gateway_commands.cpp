@@ -286,8 +286,8 @@ GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
             return {0, GatewayCommandError::invalid_input};
         range_digits += decimal_digits(range.first) + decimal_digits(range.last);
     }
-    // The guild's other remembered channels (the official client writes every one of its
-    // five): distinct, never empty, each with ascending bounded ranges.
+    // The guild's other remembered channels: distinct, never empty, each with
+    // ascending bounded ranges.
     if (subscription.channel_count > kGatewayGuildSubscriptionMaximumChannels - 1 ||
         (subscription.channel_count && subscription.omit_channel_ranges))
         return {0, GatewayCommandError::invalid_input};

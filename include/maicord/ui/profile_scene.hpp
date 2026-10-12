@@ -16,9 +16,9 @@
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/presence.hpp"
 namespace maicord {
-// The official client's user profile surfaces: the click popout (compact
-// card), the full profile modal (profile card and tab panel) and the profile
-// editor's preview. Geometry follows the web client in CSS px (DIPs).
+// User profile surfaces: the click popout (compact card), the full profile
+// modal (profile card and tab panel) and the profile editor's preview.
+// Geometry is in DIPs.
 enum class ProfileAction : u16 {
     none,
     close,

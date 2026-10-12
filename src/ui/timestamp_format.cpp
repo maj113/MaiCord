@@ -186,7 +186,7 @@ TimestampFormatResult format_timestamp_calendar(u64 unix_seconds, u64 now_unix_s
         written = append_ascii(output, &used, "Yesterday at ", 13) && append_time(output, &used, local, false);
         refresh = 3'600;
     } else if (same_day(local, tomorrow)) {
-        // moment calendar nextDay; later days show the date alone (sameElse "L").
+        // Only tomorrow shows a time; later days show the date alone.
         written = append_ascii(output, &used, "Tomorrow at ", 12) && append_time(output, &used, local, false);
         refresh = 3'600;
     } else if (unix_seconds > now_unix_seconds) {

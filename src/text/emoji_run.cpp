@@ -6,9 +6,10 @@
 namespace maicord {namespace {
 template<class T> bool valid(Slice<T> s) noexcept {return !s.count||s.data;}
 template<class T> bool valid(ConstSlice<T> s) noexcept {return !s.count||s.data;}
-// A root cannot execute without a covered first glyph. Prove absence from all
-// selected roots before bypassing substitution and positioning. Unknown/budget
-// exhaustion keeps full shaping. The four-entry miss cache lives only in a run.
+// A root cannot execute without a covered first glyph. A glyph uncovered by
+// every selected root bypasses substitution and positioning; an unknown result
+// or exhausted budget keeps full shaping. The four-entry cache of proven
+// misses lives only for one run.
 bool uncovered(const SfntCoverage& coverage,u16 glyph,u64* work) noexcept {
     if(*work<17)return false;*work-=17;return sfnt_coverage_index(coverage,glyph)==sfnt_not_covered;
 }
@@ -34,7 +35,7 @@ SfntStatus finish_controls(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u
     for(u32 i=0;i<glyphs.count;++i){auto& glyph=glyphs[i];if(glyph.source>=p.units)return SfntStatus::invalid_input;
         // Arabic's control ownership follows the restored logical source,
         // including GSUB decomposition. Common emoji follows surviving
-        // component ownership instead. Reuse the same provenance bytes.
+        // component ownership instead.
         const u8 kind=p.sources[glyph.source];bool control=kind&&p.arabic;
         if(kind&&!p.arabic&&glyph.component!=0xffffffffu){u32 root=0,ordinal=0;u64 used=0;
             const auto status=sfnt_component_location(p.components,glyph.component,&root,&ordinal,work,&used);work-=used;if(status!=SfntStatus::ok)return status;

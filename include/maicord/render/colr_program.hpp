@@ -14,8 +14,8 @@ enum class ColrPaintKind : u32 {
 };
 struct ColrPaintColor { ColrColor value; };
 // Geometry is in em units, with Y down. Colors are straight-alpha sRGB.
-// Sweep angles use counter-clockwise degrees from +X; extend/composite values
-// retain the current renderer's numeric modes. Children preserve paint order.
+// Sweep angles use counter-clockwise degrees from +X; extend and composite
+// modes carry the COLRv1 numeric values. Children preserve paint order.
 struct ColrPaintElement {
     ColrPaintKind kind;
     union {
@@ -32,7 +32,7 @@ struct ColrPaintElement {
     } paint;
 };
 
-// Postfix upload ABI shared with the existing renderer. No OS text types.
+// Postfix program records uploaded to the COLR compute shader; the layout is a GPU contract.
 struct ColrPaintNode {
     u32 next,kind,data,count;
     u32 mode,reserved;
@@ -79,9 +79,7 @@ struct ColrPaintSource {
     // preserves its full 2,048-command capacity. This does not validate a glyph.
     u32 (*outline_capacity)(void*,u16) noexcept = nullptr;
 };
-// Native compiler selected by the opt-in COLRv1 renderer candidate. Preserves the
-// current upload arithmetic/limits for differential comparison. Failed output
-// must not be submitted; the same program arena can be reset and reused.
+// Failed output must not be submitted; the same program arena can be reset and reused.
 bool colr_program_build(ColrPaintProgram* program,const ColrPaintSource& source,
                         const ColrPaintElement& root,ColrRect clip,float pixels_per_em) noexcept;
 } // namespace maicord

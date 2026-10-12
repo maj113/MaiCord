@@ -46,13 +46,13 @@ template <typename T> struct SpscMailboxTypeIdentity {
     using type = T;
 };
 
-// One producer and one consumer. Descriptor and byte sequences are monotonic;
-// each descriptor covers one FIFO payload interval. The producer copies bytes
-// before making the descriptor visible. The consumer releases the payload
-// interval only after copying or discarding that descriptor.
-// Each sequence has one writer. Acquire/release ordering makes the descriptor
-// and its bytes visible without a locked read-modify-write on every counter access.
-// The build pins the Windows SDK's x64 /volatile:ms ordering semantics.
+// One producer and one consumer; each sequence has one writer. Descriptor and
+// byte sequences are monotonic and each descriptor covers one FIFO payload
+// interval. The producer copies bytes before publishing the descriptor; the
+// consumer releases the interval only after copying or discarding it.
+// Acquire/release ordering publishes the descriptor and its bytes without a
+// locked read-modify-write per counter access; the build pins x64
+// /volatile:ms semantics.
 template <typename T, u32 EventCapacity, u32 PayloadCapacity> struct SpscMailbox {
     static_assert(EventCapacity >= 2);
     static_assert((EventCapacity & (EventCapacity - 1)) == 0);
@@ -96,8 +96,7 @@ void spsc_mailbox_copy_into(u8 (&destination)[Capacity], u64 sequence,
     }
     const u32 offset = static_cast<u32>(sequence % Capacity);
     const u32 first = minimum(source.count, Capacity - offset);
-    // A FIFO interval wraps at most once. Use the project's AVX1 copy routine
-    // instead of a branch for every byte; the descriptor is made visible later.
+    // A FIFO interval wraps at most once, so two copies cover it.
     copy_bytes(destination + offset, source.data, first);
     copy_bytes(destination, source.data + first, source.count - first);
 }
@@ -245,8 +244,7 @@ SpscMailboxResult spsc_mailbox_pop(
     else
         spsc_mailbox_copy_out(mailbox->payload, payload_read, payload_output, record.payload_bytes);
     *value = record.value;
-    // Copy every result before releasing the slot. The producer may
-    // reuse this descriptor as soon as read_sequence is advanced.
+    // Copy results before advancing read_sequence: the producer may then reuse the slot.
     const u32 payload_bytes = record.payload_bytes;
     if (!outside)
         spsc_mailbox_store(&mailbox->payload_read_sequence,
@@ -273,8 +271,7 @@ SpscMailboxResult spsc_mailbox_discard(
         return SpscMailboxResult{record.payload_bytes, SpscMailboxError::corrupt, outside};
     }
     *value = record.value;
-    // Copy every result before releasing the slot. The producer may
-    // reuse this descriptor as soon as read_sequence is advanced.
+    // Copy results before advancing read_sequence: the producer may then reuse the slot.
     const u32 payload_bytes = record.payload_bytes;
     if (!outside)
         spsc_mailbox_store(&mailbox->payload_read_sequence,

@@ -25,13 +25,13 @@ SfntStatus sfnt_gvar_instance_prepare(const SfntGvar& font,ConstSlice<double> co
 // Tuple extents and required X runs are checked; unused X/Y suffixes are skipped.
 // Views must belong to the same font. No partial output on failure.
 SfntStatus sfnt_gvar_design_advance(const SfntTrueType&,const SfntGvarInstance&,u16 glyph,u16* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
-// Simple points use original design coordinates. Contour-end indices are local
-// unless point_origin gives their offset in a parent's point arena.
-// For composites points.data may be null and points.count is the component count;
-// components are not interpolated. Four phantom deltas follow the point deltas.
-// Matches Windows outline arithmetic: normalized coordinates use F2DOT14 and each
-// inferred tuple contribution truncates toward zero. Explicit deltas stay fractional
-// until the outline resolver rounds the final point.
+// Simple points use original design coordinates; contour ends are local unless
+// point_origin gives their offset in a parent's point arena. For composites
+// points.data may be null and points.count is the component count (components
+// are not interpolated). Four phantom deltas follow the point deltas.
+// Arithmetic follows Windows: normalized coordinates use F2DOT14 and each
+// inferred tuple contribution truncates toward zero, while explicit deltas stay
+// fractional until the outline resolver rounds the final point.
 // Scratch/output must not overlap inputs or each other. Output is valid only on
 // success; scratch may change on failure.
 SfntStatus sfnt_gvar_deltas(const SfntGvarInstance& instance,u16 glyph,ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,bool composite,SfntGvarScratch scratch,Slice<SfntGvarDelta> output,u32 work_limit=1000000,u32* work_used=nullptr,u32 point_origin=0) noexcept;

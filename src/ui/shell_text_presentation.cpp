@@ -307,8 +307,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     ? row.id == visual_selected_channel_id : row.selected;
                 const Color color = ui_navigation_foreground(theme, row, row_selected);
                 // Text keeps its row's own geometry and only the clip follows the
-                // list viewport: a row half under the header scrolls away beneath
-                // it instead of being squeezed (and pushed down) into the visible part.
+                // list viewport, so a row half under the header scrolls away beneath
+                // it instead of being squeezed into the visible part.
                 const UiRect visible_clip = ui_rect_intersection(
                     ui_rect_intersection(label_layout->clip_rectangle, label_layout->content_rectangle),
                     channel_navigation->rectangle);
@@ -553,7 +553,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                 return false;
             r.top = r.bottom;
             r.bottom = footer->rectangle.bottom - 4;
-            // A custom status replaces the username line, as in the official client.
+            // A custom status replaces the username line.
             const auto* appearance = user_appearance_find(users->appearance, state.self_user_id);
             char status[kAppearanceStatusEmojiBytes + 1 + kAppearanceActivityBytes];
             u32 status_bytes = 0;

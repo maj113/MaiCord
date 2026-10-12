@@ -22,7 +22,7 @@ enum class PrivateChannelActionKind : u8 {
     leave,            // DELETE /channels/{id}?silent=...
     ring,             // POST /channels/{id}/call/ring {"recipients":null|[...]}
     stop_ringing,     // POST /channels/{id}/call/stop-ringing {} or {"recipients":[...]}
-    // Message requests and DM safety (account ABI 113).
+    // Message requests and DM safety.
     accept_request,   // PUT /channels/{id}/recipients/@me {"consent_status":2}
     ignore_request,   // DELETE /channels/{id}/recipients/@me
     ignore_requests,  // PUT /channels/recipients/@me/batch-reject {"channel_ids":[recipients...]}

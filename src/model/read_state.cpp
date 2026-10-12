@@ -132,8 +132,8 @@ bool read_state_upsert(ChatStateStore* state, const ReadStateEntry& entry, u64 v
         const u32 position = lower_bound(reads, entry.channel_id);
         if (position < reads.count && reads.pending[position].channel_id == entry.channel_id) erase(&reads, position);
     } else if (!stage(&reads, entry)) return false;
-    // The official client assigns versions as bookkeeping only. It does not reject
-    // older cursor/version values; a manual backward ACK restores unread state.
+    // Versions are bookkeeping only: older cursor/version values are not rejected,
+    // and a manual backward ACK restores unread state.
     reads.version = version;
     saturating_increment(reads.revision);
     return true;

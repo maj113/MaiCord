@@ -9,14 +9,14 @@
 
 namespace maicord {
 
-// The official client's composer upload area: a horizontally scrolling row of fixed
-// 200 x 200 tiles inside the input surface, each with its media (contain-fit
-// thumbnail or file-type icon), filename and a top-right action bar. The
-// module is pure geometry/paint/text; the host owns drafts and thumbnails.
+// Composer upload area: a horizontally scrolling row of fixed 200 x 200 tiles
+// inside the input surface, each with its media (contain-fit thumbnail or
+// file-type icon), filename and a top-right action bar. Pure geometry, paint
+// and text; the host owns drafts and thumbnails.
 inline constexpr u32 kUiComposerAttachmentMaximum = 10;
 
-// Classifier order, as in the official client: image/video MIME families, then extension
-// classes. Unknown names use the generic file card.
+// Classifier order: image/video MIME families, then extension classes. Unknown
+// names use the generic file card.
 enum class UiAttachmentFileKind : u8 {
     unknown,
     image,
@@ -33,7 +33,7 @@ UiAttachmentFileKind ui_attachment_file_kind(Utf8View filename) noexcept;
 UiIcon ui_attachment_file_icon(UiAttachmentFileKind kind) noexcept;
 // Lower-case ASCII extension (at most 8 bytes) without the dot; zero when absent.
 u32 ui_attachment_file_extension(Utf8View filename, Slice<char> output) noexcept;
-// "12 B", "3.4 KB", "56 MB", "1.2 GB" (binary units, the official client's labels).
+// "12 B", "3.4 KB", "56 MB", "1.2 GB" (binary units).
 u32 ui_attachment_format_size(u64 bytes, Slice<char> output) noexcept;
 // "0:07", "12:34", "1:02:03".
 u32 ui_attachment_format_duration(u32 milliseconds, Slice<char> output) noexcept;
@@ -122,8 +122,8 @@ UiComposerAttachmentTileGeometry ui_composer_attachment_tile_geometry(
     const UiComposerAttachmentStripStyle& style = {}) noexcept;
 // Media rule: object-fit contain, centred, never upscaled past 2x.
 UiRect ui_composer_attachment_fit(UiRect media, u32 width, u32 height) noexcept;
-// The official client blurs spoilered upload media with CSS blur(44px) and keeps the
-// SPOILER tag; small thumbnails cap the deviation at a quarter of their
+// Spoilered upload media blur with a 44 px deviation (CSS blur(44px)) and keep
+// the SPOILER tag; small thumbnails cap the deviation at a quarter of their
 // shorter side so they stay a soft image instead of a flat fill.
 inline constexpr float kUiComposerAttachmentSpoilerBlur = 44.f;
 // Gaussian standard deviation (DIPs) the renderer applies to a fitted

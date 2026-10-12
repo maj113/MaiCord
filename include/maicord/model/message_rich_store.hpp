@@ -276,7 +276,7 @@ struct MessageRichStore {
     u32 deleted;
     u32 compactions;
     u8 active_bank;
-    bool sparse_text;    // existing padding: caller commits text prefixes before writes
+    bool sparse_text;    // caller commits text prefixes before writes
     u32 record_capacity; // physical outer + child slots; capacity bounds indexed outer records
     u32 snapshot_count;
 };
@@ -320,13 +320,11 @@ bool message_rich_store_initialize(MessageRichStore* store, Slice<MessageRichRec
                                    Slice<u16> order, Slice<u8> text) noexcept;
 bool message_rich_store_initialize_owned(MessageRichStore* store, StableStorage* record_storage,
                                          u32 record_capacity, Slice<u16> order, Slice<u8> text) noexcept;
-// For caller-owned sparse virtual text reservations. Records/order initialize
-// as usual; only text[0] and text[text.count / 2] are written. Both sentinels
-// must already be committed. Before apply/reaction mutation/compaction, the
-// caller must commit both banks' entire prefixes that the operation may use.
-// The full reserved slice is recorded; unused tails remain untouched. Reset
-// preserves sparse mode and again writes only the two bank sentinels. Release
-// frees owned records, never the caller's text reservation.
+// For caller-owned sparse virtual text reservations. Initialize and reset write
+// only text[0] and text[text.count / 2], which must already be committed.
+// Before apply/reaction mutation/compaction, the caller must commit both banks'
+// entire prefixes that the operation may use; unused tails stay untouched.
+// Release frees owned records, never the caller's text reservation.
 bool message_rich_store_initialize_owned_sparse(MessageRichStore* store, StableStorage* record_storage,
                                                 u32 record_capacity, Slice<u16> order,
                                                 Slice<u8> reserved_text) noexcept;

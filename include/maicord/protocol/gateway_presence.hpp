@@ -59,9 +59,9 @@ struct GatewayLocalPresence {
 static_assert(sizeof(GatewayLocalPresence) == 424);
 bool gateway_local_presence_valid(const GatewayLocalPresence&) noexcept;
 bool gateway_local_presence_equal(const GatewayLocalPresence&, const GatewayLocalPresence&) noexcept;
-// Automatic idle as the official client applies it: an online user becomes idle
-// with since and afk; a chosen idle, Do Not Disturb or invisible status is
-// kept and only afk is set, so a manual choice is never overridden.
+// Automatic idle: an online user becomes idle with since and afk; a chosen idle,
+// Do Not Disturb or invisible status is kept and only afk is set, so a manual
+// choice is never overridden.
 GatewayPresenceUpdate gateway_presence_effective(const GatewayPresenceUpdate& desired,
                                                  const GatewayLocalPresence* local) noexcept;
 } // namespace maicord

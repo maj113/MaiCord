@@ -2,9 +2,9 @@
 #include "maicord/render/colr_program.hpp"
 namespace maicord {
 inline constexpr u32 kLottieMaximumBytes = 1024 * 1024;
-// Compile a bounded animation frame into the hardware paint program. Canvas coordinates are normalized to a maximum extent of one.
-// JSON and temporary native geometry are released before this call returns.
 struct LottieTiming { float first=0, rate=0; u32 frames=1; u64 duration_us=0; };
+// Compile a bounded animation frame into the hardware paint program. Canvas coordinates are normalized so the larger extent is one.
+// JSON and temporary native geometry are released before this call returns.
 bool lottie_program_compile(ConstSlice<u8> json, ColrPaintProgram* program, float frame, float pixels,
                             float* source_width = nullptr) noexcept;
 using LottieProgramAcquire = ColrPaintProgram* (*)(void* context) noexcept;

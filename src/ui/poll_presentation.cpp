@@ -61,9 +61,8 @@ Utf8View status(const UiPollProjection& projection, const UiPollStyle& style) no
            : state.results && !state.results_known ? style.unknown_results
                                                    : Utf8View{};
 }
-// Radio (single select): a 20-DIP ring with a 2-DIP stroke in a 24-DIP box and
-// a 10-DIP brand dot when selected. Checkbox: 20 DIPs, 2-DIP border, 3-DIP
-// radius; selected it fills with brand and shows a white check.
+// Radio (single select) or checkbox (multiple), sized as fractions of the
+// 24-DIP marker box; a selected checkbox fills with the accent and shows a check.
 bool selection(PaintStream* paint, UiRect marker, bool selected, bool multiple, const UiPollProjection& projection,
                Color ring) noexcept {
     const float extent = ui_rect_width(marker);
@@ -84,8 +83,8 @@ bool selection(PaintStream* paint, UiRect marker, bool selected, bool multiple, 
            ui_icon_paint(paint, UiIcon::check, centered(box, ui_rect_width(box) * .85f),
                          projection.primary_foreground);
 }
-// The own-vote circle check in results: brand while open, the victor green on
-// a winning answer once closed, muted on the others.
+// The own-vote circle check in results: accent while open, victor color on a
+// winning answer once closed, muted on the others.
 bool own_check(PaintStream* paint, UiRect marker, Color fill, Color ink) noexcept {
     const UiRect circle = centered(marker, ui_rect_width(marker) * (20.f / 24.f));
     return rounded(paint, circle, fill, ui_rect_width(circle) * .5f) &&
@@ -145,8 +144,8 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
                 if (!rounded(paint, bar, fill, minimum(style.radius, ui_rect_width(bar) * .5f)))
                     return false;
             }
-            // Outline: brand while selected (voting) or voted, green for a
-            // winner, --border-strong on hover while voting.
+            // Outline: accent while selected (voting) or voted, victor color
+            // for a winner, the hover outline on hover while voting.
             Color outline{};
             if (!results)
                 outline = answer.selected ? projection.accent : hovered ? projection.outline_hover : Color{};

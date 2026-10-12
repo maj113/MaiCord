@@ -6,11 +6,11 @@ constexpr B none=static_cast<B>(255);
 constexpr u8 tag_east=0x40,ignored=0x80,quote_initial=49,quote_final=50,future_ideograph=51,future_alphabetic=52;
 constexpr u8 east=1,initial=2,final=4,dotted=8,potential_emoji=16,initial_context=32,numeric_close=64;
 struct Item {B kind;u8 flags;};
-// The pinned table has only ID/XX for Cn & Extended_Pictographic (including the
-// derived property's nontrivial @missing ranges, not just explicit rows).
-// The exhaustive property-contract test checks this before a data update can
-// silently invalidate the compact tag. Spare class codes retain QU Pi/Pf and
-// future emoji; bit 6 retains East Asian width. No second property lookup.
+// Tag layout: spare class codes carry QU Pi/Pf and future emoji (Cn &
+// Extended_Pictographic, which the pinned table limits to ID/XX, including the
+// derived property's @missing ranges); bit 6 carries East Asian width, so no
+// second property lookup is needed. The property-contract test checks this
+// before a data update can invalidate the compact tag.
 static_assert(static_cast<u8>(B::zwj)==48&&unicode_data_version==0x00110000);
 inline B type(u8 tag) noexcept {const u8 value=tag&63;return value<49?static_cast<B>(value):value==future_ideograph?B::id:value==future_alphabetic?B::al:B::qu;}
 inline bool hard(B b) noexcept {return b==B::bk||b==B::cr||b==B::lf||b==B::nl;}

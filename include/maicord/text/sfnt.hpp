@@ -57,7 +57,7 @@ struct SfntGlyphMetrics {
 
 // These handles must come from sfnt_cmap_open and must not be modified. Scalar
 // mapping supports Unicode formats 0/4/6/10/12/13, and UVS format 14. Unsupported
-// formats/encodings are explicit; this is not yet the shaping/fallback engine.
+// formats/encodings are explicit; this is not a shaping or fallback engine.
 struct SfntCmap {
     ConstSlice<u8> base;
     ConstSlice<u8> variations;

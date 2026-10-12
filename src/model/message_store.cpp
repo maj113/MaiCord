@@ -34,7 +34,6 @@ bool content_equal(const MessageStore& store, const MessageRecord& record, Utf8V
     if (resident == incoming) {
         return true;
     }
-    // Preserve the early exit for a changed first byte.
     if (resident[0] != incoming[0]) {
         return false;
     }

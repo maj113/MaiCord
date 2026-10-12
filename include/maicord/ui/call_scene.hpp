@@ -10,9 +10,7 @@ namespace maicord {
 // or one focused tile above a filmstrip) and a control bar. Pure geometry and
 // paint; the host projects participants, video residency and voice state and
 // draws video frames and avatars into ui_call_scene_tile_media rectangles.
-// Go Live streams are tiles of their own (stream != none): the watched stream
-// shows its picture with LIVE, viewers and connection states; other live
-// users' streams offer "Watch stream" over their preview.
+// Go Live streams are tiles of their own (stream != none).
 inline constexpr u32 kUiCallMaximumTiles = 64;
 inline constexpr u32 kUiCallNameBytes = 96;
 inline constexpr u32 kUiCallTitleBytes = 128;
@@ -20,9 +18,9 @@ inline constexpr u32 kUiCallTitleBytes = 128;
 inline constexpr u32 kUiCallEffectBytes = 112;
 inline constexpr float kUiCallTileAspect = 16.f / 9.f;
 inline constexpr float kUiCallHeaderHeight = 48, kUiCallBarHeight = 80;
-// Control bar (the official client's call controls): 44-DIP rounded squares in groups
-// (audio, video, stage), 4 DIP apart inside a group and 12 between groups,
-// then the wider red disconnect button.
+// Control bar: 44-DIP rounded squares in groups (audio, video, stage), 4 DIP
+// apart inside a group and 12 between groups, then the wider red disconnect
+// button.
 inline constexpr float kUiCallButton = 44, kUiCallDisconnectWidth = 60, kUiCallGroupGap = 4,
                        kUiCallControlGap = 12;
 inline constexpr float kUiCallMinimumTileWidth = 192, kUiCallStageInset = 16;
@@ -56,8 +54,8 @@ enum class UiCallControl : u8 {
     close,      // Header: back to the chat view.
     mute,
     deafen,
-    camera,       // Disabled until camera send exists.
-    screen_share, // Disabled until Go Live send exists.
+    camera,       // Disabled: camera send is not implemented.
+    screen_share, // Disabled: Go Live send is not implemented.
     disconnect,
     fullscreen,      // Control bar: toggles borderless fullscreen.
     tile_fullscreen, // Hover button on a tile: focus it and enter fullscreen.
@@ -227,10 +225,10 @@ struct UiCallScene {
     u8 spinner_phase; // Host frame clock (paint only; part of the paint stamp).
 };
 
-// Header toolbar, right to left like the official channel header: close, the
-// host's search field, then the text chat toggle, 8 DIP apart. The search
-// slot is dropped (empty) when it would leave the title less than
-// kUiCallHeaderTitleMinimum or be narrower than kUiCallHeaderSearchMinimum.
+// Header toolbar, right to left: close, the host's search field, then the text
+// chat toggle, 8 DIP apart. The search slot is dropped (empty) when it would
+// leave the title less than kUiCallHeaderTitleMinimum or be narrower than
+// kUiCallHeaderSearchMinimum.
 inline constexpr float kUiCallHeaderControl = 32, kUiCallHeaderGap = 8, kUiCallHeaderSearchHeight = 32,
                        kUiCallHeaderSearchMinimum = 120, kUiCallHeaderTitleMinimum = 96;
 struct UiCallHeaderLayout {

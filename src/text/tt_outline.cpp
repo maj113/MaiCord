@@ -44,11 +44,11 @@ SfntStatus tt_outline_prepare(const FontGeometry& geometry,TtInterpreter s,TtOut
     status=tt_execute(&s,fpgm,TtPhase::font,execution,work);work-=execution->operations;if(status!=SfntStatus::ok)return status;
     s.graphics={};s.stack_count=0;for(u32 i=0;i<twilight;++i)s.twilight[i]={};
     status=tt_execute(&s,prep,TtPhase::prep,execution,work);work-=execution->operations;
-    // The Windows outline path disables glyph programs after prep calls an
-    // undefined function (including Mongolian Baiti's absent fpgm). First-party
-    // probes distinguish this from an absent but unused font program. Discard
-    // the partial graphics state; unsupported opcodes and exhausted resources
-    // remain errors, so missing engine support cannot select raw outlines.
+    // Windows disables glyph programs after prep calls an undefined function
+    // (including Mongolian Baiti's absent fpgm), which differs from an absent but
+    // unused font program. The partial graphics state is discarded; unsupported
+    // opcodes and exhausted resources stay errors, so missing engine support
+    // cannot select raw outlines.
     if(status==SfntStatus::malformed&&execution->missing_function){s.graphics={};s.graphics.instruction_control=1;result.prep_recovered_missing_function=true;}
     else if(status!=SfntStatus::ok)return status;
     if(vertical.data && !(s.graphics.instruction_control&1)){

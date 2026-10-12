@@ -6,11 +6,10 @@ namespace maicord {
 enum class SfntGlyphClass : u8 { unassigned,base,ligature,mark,component };
 enum class SfntGdefListKind : u8 { attachment,ligature_caret };
 // Root opens validate the header, root offsets and class definitions. Optional
-// lists, mark coverages and variation data are validated when prepared, avoiding
-// repeated traversal of aliased subgraphs. All views borrow immutable bytes.
-// Queries require successfully prepared, unmodified views (or an empty GDEF).
-// Lookup owners enforce required-table rules and budget/cache repeated child
-// preparation; this API does not execute lookups or infer absent glyph classes.
+// lists, mark coverages and variation data are validated when prepared, so
+// aliased subgraphs are not traversed repeatedly. Views borrow immutable bytes;
+// queries require successfully prepared, unmodified views (or an empty GDEF).
+// Lookup owners enforce required-table rules and budget repeated child preparation.
 struct SfntGdef {ConstSlice<u8> table;SfntClassDef glyph_classes,mark_classes;u32 glyph_limit;u16 minor_version;};
 struct SfntGdefList {ConstSlice<u8> table;SfntCoverage coverage;u16 glyph_count;SfntGdefListKind kind;};
 struct SfntCaretList {ConstSlice<u8> table;u16 count;};

@@ -71,7 +71,7 @@ struct ReactionPreferenceTable {
 };
 
 // A local use not yet confirmed by a settings write; replayed over each
-// authoritative snapshot like the official client's pending usages.
+// authoritative snapshot.
 struct ReactionPreferencePendingUse {
     ReactionEmojiRef emoji;
     u64 timestamp_ms;

@@ -387,8 +387,8 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
                     return parse_failure(result,
                                          PngError::idat_capacity);
                 }
-                // Encoders split IDAT freely (libpng: 8 KiB, some 4 KiB);
-                // chunks past the inline table are found again at decode.
+                // Encoders split IDAT freely; chunks past the inline table are
+                // found again at decode.
                 if (image->idat_span_count < kPngIdatSpanCapacity) {
                     image->idat_spans[image->idat_span_count] =
                         DeflateInputSpan{data, length};

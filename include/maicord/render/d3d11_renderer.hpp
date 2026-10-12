@@ -92,8 +92,7 @@ inline constexpr u32 kRendererTextDecorationCapacity = 1'024;
 inline constexpr u32 kRendererContentSemanticCapacity = 1024;
 inline constexpr u32 kRendererContentHitRegionCapacity = 2048;
 // One resident asset can be instanced many times (for example a repeated
-// custom emoji). Keep draw capacity independent from atlas identity capacity;
-// the shared glyph instance buffer is already sized for 8,192 48-byte quads.
+// custom emoji), so draw capacity is independent of atlas identity capacity.
 inline constexpr u32 kRendererMessageMediaCommandCapacity = 256;
 inline constexpr u16 kRendererAnimationFrameCacheMaximumFrameExtent =
     kAnimationFrameCacheGpuMaximumFrameExtent;

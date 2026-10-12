@@ -181,7 +181,7 @@ TextShapeResult text_system_initialize(TextSystem* system, const wchar_t* family
     }
     *system = TextSystem{};
     u32 units=0;while(units<256&&family_name[units])++units;
-    // The native app policy is en-US. Reject other locales.
+    // Only en-US is supported; other locales are rejected.
     constexpr wchar_t locale[]=L"en-us";u32 i=0;
     while(locale[i]&&locale_name[i]&&(locale_name[i]|32)==locale[i])++i;
     if(!units||units==256||locale[i]||locale_name[i]||em_size>250000)
@@ -280,10 +280,9 @@ TextShapingView::~TextShapingView() noexcept {
 }
 
 namespace {
-// The client has no shaper besides the native one, so a scalar or sequence the
-// native items cannot express must not fail its whole text item: one failing
-// embed field failed the frame's content text, blanked the message list behind
-// the shell fallback and re-ran the full rebuild every 1.6 s. UTF-8 and UTF-16
+// With browser invisibles on there is no shaper besides the native one, so a
+// scalar or sequence the native items cannot express must not fail its whole
+// text item. It is replaced by a same-length substitute: UTF-8 and UTF-16
 // offsets are unchanged, so styles, hit spans and cluster maps stay valid. The
 // bare engine (policy off) keeps rejecting such input.
 bool native_fallback_scalar(u32 cp) noexcept {return cp>126||(cp<32&&cp!=9&&cp!=10&&cp!=13);}
@@ -395,11 +394,11 @@ bool TextNativeFallback::build(const TextSystem& system,Utf8View input,u32 stage
     return changed;
 }
 
-// Bisects a failing range at the space or line break nearest its middle,
-// else at the nearest grapheme boundary, down to single clusters, which are
-// substituted. Probes are bounded per build; past the bound a failing range is
-// substituted whole, as is a failing range whose halves both shape when
-// `unresolved` is set (a failure that needs the context across the cut).
+// Bisects a failing range at the space or line break nearest its middle, else at
+// the nearest grapheme boundary, down to single clusters, which are substituted.
+// Probes are bounded per build; past the bound a failing range is substituted
+// whole. With `unresolved` (a failure that needs the context across the cut) a
+// failing range whose halves both shape is substituted whole too.
 // Returns true when anything changed.
 bool TextNativeFallback::narrow(const TextSystem& system,char* out,u32 begin,u32 end,bool known_failing,bool unresolved) noexcept {
     if(begin>=end)return false;

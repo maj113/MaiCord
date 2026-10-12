@@ -66,13 +66,12 @@ bool initialize_storage(TextEditLayoutOwner* owner) noexcept {
 }
 bool prepare_native(TextEditLayoutOwner* owner,const TextEditLayoutInput& input,const TextSystem& system) noexcept {
     if(!system.native_text||!input.text.bytes||input.text.bytes>kTextEditTextCapacity)return false;
-    // The retained edit layout applies font styles and emoji overrides, but
-    // not drawing's tracking or independent-letter typography.
+    // The edit layout applies font styles and emoji overrides but not tracking
+    // or independent-letter typography.
     auto editor_system=system;editor_system.tracking=0;editor_system.independent_letters=false;
     u32 n=input.text.bytes;const u32 advance_capacity=input.text.bytes*4+16;
-    // Large UTF-8 fields need at most one hit cluster/line per UTF-16 source
-    // unit. Keep the existing byte-based glyph-expansion allowance separately.
-    // Small fields retain the inexpensive conservative bound.
+    // Fields of 256+ bytes size hit clusters/lines by UTF-16 unit count; smaller
+    // ones use the byte count as a cheap upper bound. Glyph advances stay byte-based.
     if(n>=256&&!utf8_utf16_position_for_byte_offset(input.text,input.text.bytes,&n))return false;
     const TextShapingView shaping(input.text);
     // Drawing's same-length substitute when the native items reject the text.

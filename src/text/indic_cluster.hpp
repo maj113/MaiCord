@@ -4,8 +4,8 @@
 #include "maicord/text/shape_run.hpp"
 #include "maicord/core/utf.hpp"
 namespace maicord {
-// Existing Bengali expansion needs 32 slots. Odia/Telugu/Kannada's observed preparation
-// budget is 31, including any added circle and dependent-vowel pieces.
+// Bengali expansion needs 32 slots. Odia/Telugu/Kannada preparation is limited to
+// 31, including any added circle and dependent-vowel pieces.
 inline constexpr u32 indic_cluster_capacity=32;
 // Private run entry: the caller has validated scalar input and established one
 // complete original Bengali/Gujarati/Gurmukhi/Odia/Telugu/Kannada cluster, of at most 31 scalars. Public

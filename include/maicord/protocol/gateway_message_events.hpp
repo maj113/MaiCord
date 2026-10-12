@@ -81,8 +81,8 @@ struct GatewayMessageReaction {
     bool animated;
 };
 
-// Command attribution is not a message reference. The official client's renderer
-// uses interaction.user and name_localized ?? name for this header.
+// Command attribution is not a message reference. The header comes from
+// interaction.user and name_localized ?? name.
 struct GatewayMessageInteraction {
     u64 id;
     u64 user_id;
@@ -123,8 +123,8 @@ enum class GatewayMessageEmbedType : u8 {
     article,
     link,
     poll_result,
-    // Component embed (a page's discord:component-embed): its
-    // components[] container is decoded into description/color/media.
+    // Wire type "components": its components[] container is decoded into
+    // description/color/media.
     components,
 };
 
@@ -135,9 +135,9 @@ struct GatewayMessageEmbedField {
     bool inline_field;
 };
 
-// The API exposes independent image, thumbnail, and video objects on an
-// embed. Keep all three descriptors through the Gateway pipeline: choosing a
-// presentation resource is a UI policy and must not destroy protocol data.
+// An embed carries independent image, thumbnail and video objects. All three
+// descriptors are kept: choosing one to present is UI policy and must not
+// destroy protocol data.
 struct GatewayMessageEmbedMedia {
     Utf8View url;
     Utf8View proxy_url;
@@ -156,8 +156,8 @@ struct GatewayMessageEmbed {
     Utf8View url;
     Utf8View author_name;
     Utf8View footer_text;
-    // author.url, author/footer proxy_icon_url (the official client renders an
-    // icon only through the media proxy) and provider.name/url.
+    // author.url, author/footer proxy_icon_url (icons are fetched only through
+    // the media proxy) and provider.name/url.
     Utf8View author_url;
     Utf8View author_icon;
     Utf8View footer_icon;
@@ -441,7 +441,7 @@ struct GatewayMessageEvent {
     u16 type;
     bool author_bot, activity_instance_present, application_present, changelog_present,
         interaction_metadata_present;
-    bool pinned;            // uses existing tail padding without shifting aggregate fields
+    bool pinned;
     u8 forwarding_features; // object presence only; body remains in the shared JSON scratch
     GatewayMessageSnapshot snapshot;
     GatewayMessagePoll poll;
@@ -480,12 +480,10 @@ GatewayEventDecodeResult gateway_decode_message_poll_vote(JsonValue data, Slice<
 // truncated, matching the model's storage precision.
 bool parse_iso_timestamp(JsonString value, u64* timestamp_ms) noexcept;
 
-// Content is unescaped into caller storage. The returned view points into that
-// storage and remains valid only while it does. The fields mask distinguishes
-// an absent MESSAGE_UPDATE field from a present empty or null value.
-// Snapshot core fields are partial and have no message/channel/author identity.
-// This shared decoder validates scalar fields and scoped named mentions before
-// the rich decoder handles the nested media at depth one.
+// Content is unescaped into caller storage; the returned view is valid only
+// while that storage is. The fields mask distinguishes an absent MESSAGE_UPDATE
+// field from a present empty or null value. Snapshot core fields are partial
+// and carry no message/channel/author identity.
 GatewayEventDecodeResult gateway_decode_message_snapshot_core(JsonValue data, Slice<u32> structural_scratch,
                                                               u32 maximum_depth,
                                                               Slice<char> content_scratch,

@@ -7,7 +7,7 @@
 
 namespace maicord {
 // VOICE_SERVER_UPDATE supplies an authority, not a URL. Ports 80/443 are
-// normalized to secure port 443, matching the current normal-user client.
+// normalized to secure port 443.
 GatewayEndpointError voice_gateway_endpoint(Utf8View authority, GatewayEndpoint* output) noexcept;
 
 struct VoiceGatewayEnvelope {
@@ -52,7 +52,7 @@ struct VoiceGatewayIdentify {
     u64 user_id;
     u16 max_dave_protocol_version;
     bool video;
-    // Always serialized ("streams":[] when empty), as the official client does.
+    // Always serialized ("streams":[] when empty).
     // The camera context requests {video, "100", 100}.
     ConstSlice<VoiceIdentifyStream> streams;
 };

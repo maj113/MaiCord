@@ -372,8 +372,8 @@ bool comes_before(const GifFavoriteRecord& a, const GifFavoriteRecord& b) noexce
     return a.order > b.order || (a.order == b.order && a.first_entry_offset > b.first_entry_offset);
 }
 void sort_records(Slice<GifFavoriteRecord> records) noexcept {
-    // In-place heap sort bounds worst-case catalog work; equal orders follow
-    // the official stable ascending sort followed by reverse.
+    // In-place heap sort bounds worst-case work. Equal orders sort as a stable
+    // ascending sort reversed: the later entry first.
     const auto sift = [&](u32 root, u32 end) noexcept {
         while (root < end / 2) {
             u32 child = root * 2 + 1;

@@ -2,7 +2,7 @@
 namespace maicord {
 namespace {
 constexpr float kToolbarTarget = 32, kToolbarPitch = 40, kToolbarInset = 16, kToolbarTop = 12;
-// The official client separates the view (zoom) group from the item actions.
+// Gap between the view (zoom) group and the item actions.
 constexpr float kToolbarGroupGap = 12;
 bool zoom_group(u32 index) noexcept {
     return index == ui_image_viewer_fit || index == ui_image_viewer_zoom_in || index == ui_image_viewer_zoom_out;
@@ -13,7 +13,7 @@ UiRect lerp_rect(UiRect from, UiRect to, float t) noexcept {
             from.right + (to.right - from.right) * t, from.bottom + (to.bottom - from.bottom) * t};
 }
 void arrange(UiImageViewer* v) noexcept {
-    // Images never upscale past their pixels; video fills the viewer like the official client's.
+    // Images never upscale past their pixels; video fills the viewer.
     const float scale = minimum(ui_rect_width(v->body) / v->pixels.width, ui_rect_height(v->body) / v->pixels.height);
     const float fit = v->video ? scale : minimum(1.0f, scale);
     const float width = v->pixels.width * fit * v->zoom, height = v->pixels.height * fit * v->zoom;

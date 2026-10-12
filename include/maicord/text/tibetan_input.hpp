@@ -4,7 +4,7 @@ namespace maicord {
 using SfntTibetanInputScalar=SfntIndicInputScalar;
 using SfntTibetanInputResult=SfntIndicInputResult;
 // Original-scalar horizontal Tibetan boundaries. One byte per scalar; 1=start.
-// No normalization, allocation, font access or app admission. Four work units
+// No normalization, allocation, font access or font support check. Four work units
 // per input scalar; at most 31 original non-selector items in a cluster.
 // An attached selector does not consume an item. Invalid scalars,
 // overlap, work or capacity errors leave output unchanged. Views are disjoint.

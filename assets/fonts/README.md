@@ -1,6 +1,9 @@
 # Profile display fonts
 
-These fonts come from independently licensed upstream releases, not a Discord installation or CDN font bundle. User-selected profile typography is registered lazily with MaiCord's native font engine; MaiCord interface text continues to use the system font. No third-party font parsing or conversion library is shipped.
+Fonts for profile typography. Each comes from an independently licensed upstream
+release (not a Discord installation or CDN bundle) and is registered lazily with
+MaiCord's native font engine when a visible name needs that family. Interface text
+uses the system font. No font parsing or conversion library is shipped.
 
 | Wire ID | File | Family / style | Bytes | License |
 | --- | --- | --- | ---: | --- |
@@ -20,12 +23,25 @@ These fonts come from independently licensed upstream releases, not a Discord in
 | 15 | [NewRocker.ttf](NewRocker.ttf) | NewRocker | 173,224 | [OFL-NewRocker.txt](OFL-NewRocker.txt) |
 | 16 | [Kalam.ttf](Kalam.ttf) | Kalam | 427,360 | [OFL-Kalam.txt](OFL-Kalam.txt) |
 
-ID 11 selects the normal system face. All fifteen distributed font files total **2,452,500 bytes**. Each includes its complete SIL Open Font License 1.1 (the Neo Castel license is the French translation). Original notices remain in the files. Sources, retrieval date, transformations and final SHA-256 digests are recorded in [sources.json](sources.json).
+ID 11 selects the normal system face. The fifteen files total **2,452,500 bytes**.
+Each ships with its complete SIL Open Font License 1.1 text (Neo Castel's is the
+French translation); original notices stay in the files. Sources, retrieval dates,
+transformations and final SHA-256 digests are in [sources.json](sources.json).
 
-BioRhyme, MuseoModerno, Pixelify and Playpen were instanced at weight 400, retaining all glyphs and using the upstream defaults for other axes. The resulting families are renamed `MaiCord BioRhyme`, `MaiCord MuseoModerno`, `MaiCord Pixelify` and `MaiCord Playpen`; this avoids claiming modified files are the reserved upstream families. fontTools 4.63.0 was used only during asset preparation.
+- **BioRhyme, MuseoModerno, Pixelify, Playpen:** instanced at weight 400 with all
+  glyphs kept and the upstream defaults for other axes (fontTools 4.63.0, asset
+  preparation only). Renamed `MaiCord BioRhyme`, `MaiCord MuseoModerno`,
+  `MaiCord Pixelify` and `MaiCord Playpen` so the modified files do not claim the
+  reserved upstream family names.
+- **Neo Castel:** Max Lillo's free font ([author release](https://maxlilllo.gumroad.com/l/neo-castel));
+  source and full license come from the `hunterirving/web_workshop` mirror linked in
+  the manifest. Its WOFF2 was decoded to SFNT with fontTools and Brotli 1.2.0 outside
+  the runtime; the outlines are unchanged. Family, style and unique-name metadata
+  are normalized to `MaiCord Medieval Regular` (Regular style flags, weight 400)
+  because the source's smiley subfamily metadata broke DirectWrite family matching.
+- **Orbitron Bold and the other static faces:** unmodified. Compagnon is from
+  Velvetyne; Ribes and Sinistre are from Collletttivo; the rest are from the Google
+  Fonts upstream repository.
 
-Neo Castel is Max Lillo’s free font ([author release](https://maxlilllo.gumroad.com/l/neo-castel)); the source and full license were obtained from the `hunterirving/web_workshop` mirror linked in the manifest. Its WOFF2 was decoded to SFNT using fontTools and Brotli 1.2.0 outside the runtime. The outlines are unchanged. Family, style and unique-name metadata are normalized to `MaiCord Medieval Regular`, with Regular style flags and weight 400, because the source smiley subfamily metadata prevented correct DirectWrite family matching.
-
-Orbitron Bold and the other static upstream faces are unmodified. Compagnon comes from Velvetyne; Ribes and Sinistre come from Collletttivo. The remaining faces come from the Google Fonts upstream repository.
-
-CMake copies this directory beside the application and native UI probe. Keep it together with the executable and matching account module. Fonts are mapped only when a visible name needs that family.
+CMake copies this directory beside the application and the native UI probe. Keep it
+next to the executable and its matching account module.

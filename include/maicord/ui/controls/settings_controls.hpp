@@ -66,7 +66,7 @@ enum class UiSettingsButtonVariant : u8 {
     critical_secondary,
     count
 };
-// The official client's sm (32 DIP) and md (40 DIP) button sizes.
+// Button sizes: sm is 32 DIP, md 40 DIP.
 enum class UiSettingsButtonSize : u8 {
     compact,
     regular

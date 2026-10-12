@@ -10,8 +10,8 @@ u32 bucket(u32 scalar) noexcept {
     return 11;
 }
 bool modifier(u32 scalar) noexcept {
-    // Unicode 17 PropList.txt Modifier_Combining_Mark. A compact script-local
-    // predicate avoids widening every general Unicode property record.
+    // Unicode 17 PropList.txt Modifier_Combining_Mark, kept script-local to avoid
+    // widening the general property record.
     switch(scalar) {
         case 0x654:case 0x655:case 0x658:case 0x6dc:case 0x6e3:case 0x6e7:case 0x6e8:
         case 0x8ca:case 0x8cb:case 0x8cd:case 0x8ce:case 0x8cf:case 0x8d3:case 0x8f3:return true;

@@ -3,10 +3,9 @@
 
 namespace maicord {
 
-// Guild rail edits in the official client's sorted-guilds semantics. Settings are
-// always rewritten in the canonical form that client sends: every displayed
-// guild in order, a guild outside folders as a folder entry without an id,
-// real folders keeping their id, name and color. Guild positions are kept.
+// Guild rail edits. Settings are always rewritten in canonical form: every
+// displayed guild in order, a guild outside folders as a folder entry without
+// an id, real folders keeping their id, name and color. Guild positions are kept.
 
 enum class GuildFolderDrop : u8 {
     before,  // above the target row
@@ -23,23 +22,23 @@ struct GuildFolderItem {
 
 enum class GuildFolderEditError : u8 {
     none,
-    input,     // unknown items or a move the official client refuses
+    input,     // unknown items or a refused move
     capacity,  // more folders or guilds than the settings hold
     unchanged, // valid, but the layout would not change
 };
 
 // Canonical settings for what the rail shows now (unlisted guilds prepended,
 // missing guilds and empty folders dropped; an id-less entry holding several
-// guilds splits into single guilds, as the official client reads it).
+// guilds splits into single guilds).
 GuildFolderEditError guild_folders_canonical(const GuildFolderSettings* current, const ChatStateStore& state,
                                              GuildFolderSettings* output) noexcept;
 
-// Moves source next to (before/after) or onto (combine) target, as the
-// official client's rail drag does: a folder never enters another folder or combines; a guild
-// may move next to a guild inside a folder (joining that folder); combining
-// onto a guild inside a folder is refused. new_folder_id names the folder a
-// guild-on-guild combine creates. settings must be canonical; it is updated
-// only on success. A folder left empty disappears.
+// Moves source next to (before/after) or onto (combine) target. A folder stays
+// top level: it never combines or lands next to a guild inside a folder. A guild
+// dropped next to a guild inside a folder joins that folder; combining onto
+// such a guild is refused. new_folder_id names the folder a guild-on-guild
+// combine creates. settings must be canonical and changes only on success. A
+// folder left empty disappears.
 GuildFolderEditError guild_folders_move(GuildFolderSettings* settings, GuildFolderItem source,
                                         GuildFolderItem target, GuildFolderDrop drop,
                                         u64 new_folder_id) noexcept;

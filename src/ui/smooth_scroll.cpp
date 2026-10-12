@@ -52,10 +52,10 @@ CurveSample curve_sample(double progress, double initial_slope) noexcept {
         return {1.0, 0.0};
     }
 
-    // Chromium's wheel curve is cubic-bezier(0.42, 0, 0.58, 1). Retargets
-    // replace the first Y control point to preserve the prior velocity. X is
-    // strictly monotonic here, so a few Newton steps are both bounded and
-    // substantially cheaper than a general timing-function allocation.
+    // The wheel curve is cubic-bezier(0.42, 0, 0.58, 1). Retargets replace the
+    // first Y control point to preserve the prior velocity. X is strictly
+    // monotonic, so a few Newton steps are bounded and need no general
+    // timing-function allocation.
     double parameter = progress;
     for (u32 iteration = 0; iteration < 5; ++iteration) {
         const double derivative = cubic_bezier_derivative(parameter, kEaseInOutX1, kEaseInOutX2);

@@ -2,12 +2,11 @@
 #include "maicord/text/sfnt.hpp"
 
 namespace maicord {
-// Prepared views borrow their enclosing mapped font bytes. Opens
-// validate complete record spans and ordering. Trailing enclosing bytes are
-// allowed. glyph_limit is an exclusive bound, 1..65536; use maxp.numGlyphs for
-// real fonts. Callers must validate coverage counts/classes against lookup data.
-// Record byte lengths are implied by validated format and record_count.
-// Keep only the borrowed pointer; no duplicate extent or narrowing of counts.
+// Prepared views borrow their enclosing mapped font bytes. Opens validate
+// complete record spans and ordering; trailing enclosing bytes are allowed.
+// glyph_limit is an exclusive bound, 1..65536 (maxp.numGlyphs for real fonts).
+// Callers must validate coverage counts/classes against lookup data. Record byte
+// lengths are implied by the validated format and record_count.
 struct SfntCoverage {
     const u8* records;
     u32 covered_count;

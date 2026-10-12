@@ -8,15 +8,15 @@ namespace maicord {
 struct NativeFallbackRange {u32 first;u16 offset,count;};
 struct NativeFallbackCascade {ConstSlice<NativeFallbackRange> ranges;ConstSlice<u16> tokens;u32 token_count;};
 constexpr u32 native_fallback_missing=0xffffffffu;
-// App fallback preference order over a resolved physical/named-instance family.
+// Fallback preference order over a resolved physical/named-instance family.
 // Stores only source indices (four bytes per candidate); properties, axes and
 // coverage remain in the catalog. Projects required simulations, ranks geometric
-// distance, then uses simulation flags and ascending original weight for ties.
-// Equal remaining candidates preserve source order. Selected-face compatibility
-// must be checked with the family's coverage; this does not reproduce every
-// unused tail ordering in the Windows enumeration API.
-// Inputs/output/count are disjoint. Errors clear count; output scratch may change.
-// Budget counts projections and insertion comparisons. No allocation/font IO.
+// distance, then breaks ties by simulation flags and ascending original weight;
+// equal candidates keep source order. The caller checks selected-face compatibility
+// against the family's coverage. The unused tail ordering of the Windows
+// enumeration is not reproduced.
+// Inputs, output and count are disjoint. Errors clear count; output scratch may
+// change. Budget counts projections and insertion comparisons.
 SfntStatus native_font_fallback_order(ConstSlice<NativeFontProperties>,NativeFontProperties,
     Slice<u32> order,u32* count,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 // Callback sets covered on success. An unavailable family is successful false;
@@ -47,10 +47,9 @@ SfntStatus native_fallback_cascade_find(const NativeFallbackCascade&,u32 scalar,
     u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 // Only use an unchanged successful open result. Invalid scalars are rejected.
 // Returns the first available token covering the scalar, or missing on a normal
-// miss. Errors also clear output to missing. Budget counts range comparisons and
-// callback attempts; callback-internal work is the caller's responsibility.
-// This is not grapheme selection, range-length policy or a complete fallback
-// engine; in particular variation-selector attachment belongs to the range stage.
+// miss; errors also clear output to missing. Budget counts range comparisons and
+// callback attempts, not callback internals. Variation-selector attachment belongs
+// to the range stage.
 SfntStatus native_fallback_cascade_select(const NativeFallbackCascade&,u32 scalar,NativeFallbackCoverage,void* context,
     u32* token,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 static_assert(sizeof(NativeFallbackRange)==8&&sizeof(NativeFallbackCascade)==40);

@@ -54,10 +54,9 @@ struct Builder {
                 if(selected.stage!=stage&&selected.stage!=required_stage)continue;
                 if(passes>1&&(selected.stage==required_stage?pass!=0:(selected.identity>=17?5u:static_cast<u32>(selected.identity)-12)!=pass))continue;
                 const auto indices=selected.feature.lookup_indices;if(!spend(work,indices.count/2))return SfntStatus::resource_limit;
-                // Fallback calt/rclt share font order, but a lookup referenced
-                // by both executes once for each feature. Two spare scratch
-                // bits retain this provenance without a second array; repeats
-                // inside one feature still collapse.
+                // Fallback calt/rclt share font order, but a lookup referenced by both
+                // executes once per feature. Two spare scratch bits record which
+                // feature added it; repeats inside one feature still collapse.
                 const u16 context=passes>1&&pass==5?static_cast<u16>(selected.identity==17?512:1024):0;
                 for(u32 i=0;i<indices.count/2;++i)scratch[byte_load_be16(indices.data+i*2)]|=(selected.mask?selected.mask:mask)|context;
             }

@@ -22,8 +22,7 @@ inline constexpr Utf8View kReactionSeeds[] = {
     utf8_literal("check_mark_button"),
     utf8_literal("cross_mark"),
 };
-// The official composer seeds: thumbsup, eyes, laughing, watermelon, fork_and_knife,
-// yum, weary, tired_face, poop, 100.
+// Default frequently-used emoji for the composer picker.
 inline constexpr Utf8View kMessageSeeds[] = {
     utf8_literal("thumbs_up"),      utf8_literal("eyes"),
     utf8_literal("grinning_squinting_face"), utf8_literal("watermelon"),
@@ -34,7 +33,7 @@ inline constexpr Utf8View kMessageSeeds[] = {
 
 inline constexpr u16 kReactionPickerCustomResult = 0x8000u;
 
-// The official emoji picker section headers.
+// Picker section headers.
 inline constexpr Utf8View kSectionNames[] = {
     utf8_literal("Frequently Used"), utf8_literal("Favorites"),  utf8_literal("People"),
     utf8_literal("Nature"),          utf8_literal("Food"),       utf8_literal("Activities"),
@@ -168,8 +167,8 @@ void sort_custom_emojis(ReactionPickerCustomEmoji* emojis, u32 count) noexcept {
     if (ordered == count)
         return;
 
-    // This private slice contains one guild and has no external reader yet.
-    // Original ranks preserve stable equal-key order without another array.
+    // All emoji in this slice share one guild, so guild_index is borrowed as a
+    // rank that keeps equal keys in input order, then restored below.
     const u16 guild_index = emojis[0].guild_index;
     for (u32 index = 0; index < count; ++index)
         emojis[index].guild_index = static_cast<u16>(index);

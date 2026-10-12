@@ -54,7 +54,7 @@ MessageComponentKind message_component_kind(const MessageRichComponent& componen
     case gateway_component_container:
         return MessageComponentKind::container;
     default:
-        // Unknown wire types still carry text (legacy bots) when present.
+        // Unknown wire types still carry text when present.
         return component.content.bytes != 0 ? MessageComponentKind::text : MessageComponentKind::hidden;
     }
 }

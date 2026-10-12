@@ -184,10 +184,9 @@ if ($stageNames.Count) {
         Write-Host $line
     }
 }
-# Startup attribution: named main-thread points (ms since process creation,
-# main-thread CPU ms), then the first run's module loads, timed system calls,
-# D3D11/DXGI/DirectComposition calls and long main-thread waits until the
-# first presented frame.
+# Startup attribution until the first presented frame: named main-thread points,
+# then the first run's module loads, timed system calls, D3D11/DXGI/
+# DirectComposition calls and long main-thread waits.
 if ($warm[0].st['st_mark']) {
     Write-Host ''
     Write-Host 'startup timeline (ms since process creation / main-thread CPU ms; medians):'

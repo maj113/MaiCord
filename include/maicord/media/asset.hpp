@@ -16,8 +16,7 @@ enum class MediaAssetKind : u16 {
     regional_flag,
     catalog_preview,
     local_draft_preview,
-    // Custom group DM icon (cdn /channel-icons/{channel}/{hash}); same
-    // hash-variant identity as guild icons and user avatars.
+    // Group DM icon; same hash-variant identity as guild icons and user avatars.
     channel_icon,
     // Latest decoded call video picture: user ID and RTP SSRC, never fetched.
     call_video,
@@ -54,10 +53,10 @@ enum class MediaEmbedResource : u8 {
     video,
 };
 
-// Presentation-scale identity for large static message media. Tier zero keeps
-// the original-size identity used by callers that do not make
-// viewport-aware requests. Tiers map to 64 through 2048 physical pixels;
-// presentation policy applies the individual codec's supported extent.
+// Presentation-scale identity for large static message media. `original` is the
+// identity for callers that make no viewport-aware requests; the other tiers are
+// 64 through 2048 physical pixels, limited by presentation policy to the
+// codec's supported extent.
 enum class MediaResolutionTier : u8 {
     original,
     px64,
@@ -152,7 +151,7 @@ constexpr bool media_asset_key_valid(MediaAssetKey key) noexcept {
     case MediaAssetKind::catalog_preview: {
         const auto format = static_cast<MediaAttachmentFormat>((key.flags & kMediaCatalogFormatMask) >>
                                                                kMediaCatalogFormatShift);
-        // MP4 is a VIDEO favourite's muted looping tile; it is always animated.
+        // MP4 previews are muted looping tiles and always animated.
         return key.variant != 0 &&
                (key.flags & ~(kMediaCatalogFormatMask | media_asset_flag_animated)) == 0 &&
                (format == MediaAttachmentFormat::png || format == MediaAttachmentFormat::webp ||

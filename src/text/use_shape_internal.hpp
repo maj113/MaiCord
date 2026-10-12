@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/text/shape_run.hpp"
 namespace maicord::use_shape {
-// Generic nominal grouping for non-admitted fonts. Tibetan keeps its observed
-// mark grouping and control-source policy separate from Sinhala.
+// Generic nominal grouping for non-admitted fonts. Tibetan keeps its own mark
+// grouping and control-source policy, separate from Sinhala.
 SfntStatus nominal_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<u32>,float,
     SfntShapeStorage,SfntShapeRunResult*,SfntShapeLimits,bool rtl,bool tibetan=false) noexcept;
 enum Role:u8 {base_role=1,halant_role=2,pre_role=4,control_role=8,join_role=16,cgj_role=32,reph_role=64};

@@ -19,10 +19,9 @@ struct MessagePositionHit {
     bool valid;
 };
 
-// Selection dragging normally stays within one message draw command. Keeps one
-// native geometry snapshot; storage is allocated on first use and kept across
-// invalidation. The size is fixed: it does not grow with message history or
-// selection length.
+// Selection dragging normally stays within one message draw command, so one
+// native geometry snapshot is kept. Storage is allocated on first use and
+// survives invalidation; it does not grow with message history or selection length.
 struct MessageHitTestCacheOwner {
     u64 native_format;
     u64 message_id;

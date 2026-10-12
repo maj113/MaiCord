@@ -131,9 +131,8 @@ constexpr bool background_fx_pack_builtin(BackgroundFxConstants* output, const T
     return true;
 }
 
-// ---- GPU guard --------------------------------------------------------------------------------
-// A plugin effect averaging more than 2 ms of GPU time over a second, or
-// taking more than 8 ms in three frames, is turned off.
+// GPU guard: a plugin effect averaging more than 2 ms of GPU time over a
+// second, or taking more than 8 ms in three frames, is turned off.
 inline constexpr float kBackgroundFxAverageLimitMs = 2;
 inline constexpr float kBackgroundFxStallMs = 8;
 inline constexpr u32 kBackgroundFxStallLimit = 3;
@@ -163,10 +162,10 @@ constexpr bool background_fx_guard_sample(BackgroundFxGuard* guard, float gpu_ms
     return slow;
 }
 
-// ---- Plugin effect choice ---------------------------------------------------------------------
-// The picker lists the built-ins, then registered plugin effects ordered by
-// name. A chosen plugin effect persists as owner+effect id, apart from the
-// built-in preference, and applies whenever its plugin has it registered.
+// Plugin effect choice: the picker lists the built-ins, then registered plugin
+// effects ordered by name. A chosen plugin effect persists as owner+effect id,
+// apart from the built-in preference, and applies whenever its plugin has it
+// registered.
 struct BackgroundFxChoice {
     u64 owner_id, effect_id;
 };

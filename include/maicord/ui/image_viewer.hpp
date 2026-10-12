@@ -4,7 +4,7 @@
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/button_keyboard.hpp"
 namespace maicord {
-// Toolbar/gallery button indices. The first five keep their historical order.
+// Toolbar/gallery button indices.
 enum UiImageViewerButton : u32 {
     ui_image_viewer_zoom_out,
     ui_image_viewer_zoom_in,

@@ -9,12 +9,11 @@ struct SfntClusterMap {Slice<u64> storage;u32 text_count,levels;};
 struct SfntClusterMerge {u32 first,last;u64 commit_work;};
 static_assert(sizeof(SfntClusterGlyph)==8 && sizeof(SfntClusterMap)==24 && sizeof(SfntClusterMerge)==16);
 u32 sfnt_cluster_map_words(u32 text_count) noexcept;
-// Empty boundaries means one initial cluster per source unit. Otherwise supply
-// sorted unique starts including zero for nonempty text. The end is implicit.
-// Units are caller-defined (normally UTF-16). No Unicode or script policy is
-// inferred here. Storage is borrowed, aligned, mutable and caller-owned.
-// Later queries require a successful open and no direct mutation of the map or
-// its storage. Boundary inputs and output objects are disjoint from that storage.
+// Empty boundaries means one initial cluster per source unit; otherwise supply
+// sorted unique starts including zero for nonempty text (the end is implicit).
+// Units are caller-defined (normally UTF-16). Storage is borrowed, aligned and
+// mutable. Later queries need a successful open and no direct mutation of the
+// map or its storage; boundaries and output are disjoint from that storage.
 SfntStatus sfnt_cluster_map_open(u32 text_count,ConstSlice<u32> boundaries,Slice<u64> storage,
                                  SfntClusterMap* output,u64 work_limit=1000000) noexcept;
 SfntStatus sfnt_cluster_map_find(const SfntClusterMap& map,u32 source,u32* first,u32* end) noexcept;
@@ -31,13 +30,12 @@ void sfnt_cluster_map_commit(SfntClusterMap* map,const SfntClusterMerge& plan) n
 // No outstanding merge plan may be committed after this mutation.
 SfntStatus sfnt_cluster_map_split(SfntClusterMap* map,u32 source,u64 work_limit=1000000) noexcept;
 // Export first physical glyph index per source cluster, and optionally one byte
-// per glyph indicating that first occurrence. Inputs/outputs/storage are disjoint.
-// Glyph records begin with SfntClusterGlyph; additional metadata is ignored. Initial grouping and glyph
-// source indices come from the caller. Outputs are valid only on success.
-// Cluster membership may interleave in glyph order (e.g. a decomposed ligature
-// followed by its component marks). Every source cluster must have a glyph.
-// Optional first-occurrence bytes are NOT DirectWrite isClusterStart flags;
-// those are independent shaping policy, especially after ligature decomposition.
+// per glyph marking that first occurrence (not DirectWrite isClusterStart, which
+// is separate shaping policy). Glyph records begin with SfntClusterGlyph; extra
+// metadata is ignored. Cluster membership may interleave in glyph order (e.g. a
+// decomposed ligature followed by its component marks); every source cluster
+// must have a glyph. Inputs, outputs and storage are disjoint; outputs are
+// valid only on success.
 SfntStatus sfnt_cluster_map_export(const SfntClusterMap& map,SfntGlyphView glyphs,Slice<u32> character_glyphs,
                                    Slice<u8> glyph_starts={},u64 work_limit=1000000) noexcept;
 }

@@ -1,8 +1,7 @@
 #include "maicord/media/mp3_stream.hpp"
 
 // CC0 low-level decoder, upstream ea99364f61c14656440e8d77e9c233ccf3124633.
-// No minimp3_ex allocation/file API is compiled. Its reservoir/DSP preroll and
-// 529-frame synthesis-delay convention inform the bounded wrapper below.
+// No minimp3_ex allocation/file API is compiled.
 #define MINIMP3_ONLY_MP3
 #define MINIMP3_ONLY_SIMD
 #define MINIMP3_FLOAT_OUTPUT

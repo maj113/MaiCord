@@ -131,11 +131,9 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
                                 panel->rectangle.bottom)) {
         return false;
     }
-    // A dedicated clip also forces a distinct paint batch. That guarantees the
-    // overlay cannot be merged into the last base batch and drawn underneath
-    // media/text merely because both happened to share the root clip.
-    // Every popup kind (menus, context menus, autocomplete, pickers, account
-    // menu) shares the popover elevation material on gradient themes.
+    // The pushed clip also forces a distinct paint batch, so the overlay cannot
+    // merge into the last base batch and draw under media/text sharing the root
+    // clip. Every popup kind shares the popover elevation material on gradient themes.
     bool success =
         ui_surface_paint_plate(paint, panel->rectangle, theme, UiElevation::popover, panel_radius) &&
         paint_stream_record_content(paint, UiWidgetReference{&scene.widgets, scene.panel}, panel->rectangle,
@@ -165,9 +163,9 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
                 break;
             }
         }
-        // A checked (not pointed-at) row carries the emphasis selected tint at
-        // popover elevation (accent treatment), never the pointer's hover fill:
-        // the pointed-at row must stay distinguishable from checked ones.
+        // A checked (not pointed-at) row uses the emphasis selected tint at
+        // popover elevation, never the hover fill, so the pointed-at row stays
+        // distinguishable from checked ones.
         const bool checked_only = scene.selected_index != index && (item.flags & popup_item_checked);
         const Color highlight = checked_only ? ui_emphasis_selected(theme, UiElevation::popover)
                                              : ui_background_hover_color(theme, theme.surface_high, .28f);
@@ -392,9 +390,8 @@ PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& 
     if (!layout.visible) {
         return PopupMediaPresentationStatus::skip;
     }
-    // Custom emoji own a fixed, centered label node in PopupScene.  Consuming
-    // that rectangle keeps media and Unicode emoji on the same layout path and
-    // removes renderer-local positioning arithmetic.
+    // Custom emoji own a fixed, centered label node in PopupScene; using its
+    // rectangle keeps media and Unicode emoji on one layout path.
     *command = PopupMediaCommand{layout.label->rectangle,
                                  layout.clip_rectangle,
                                  item.media_id,

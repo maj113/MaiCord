@@ -12,9 +12,8 @@ def main():
     parser.add_argument('--font',type=Path,required=True)
     parser.add_argument('--output-dir',type=Path,required=True)
     args=parser.parse_args();source=args.font.read_bytes()
-    # This input is the mlm2-pstf-empty fixture, independently recorded in the
-    # classification experiments. Feature mutations do not alter cmap except
-    # in the explicitly named swap controls.
+    # The input must be the mlm2-pstf-empty fixture recorded in form-fixtures.json.
+    # Feature mutations leave cmap alone except in the named swap controls.
     expected=json.loads((args.font.parent/'form-fixtures.json').read_text(encoding='utf-8'))
     identity=next(r['sha256'] for r in expected if r['variant']=='mlm2-pstf-empty')
     if hashlib.sha256(source).hexdigest()!=identity:raise ValueError('Wrong classification fixture')

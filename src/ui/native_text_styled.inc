@@ -19,8 +19,8 @@ bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* 
     else {
     auto cells=take<UnicodeBidiCell>(owner.scratch,text.bytes);auto order=take<u32>(owner.scratch,text.bytes);
     if(!cells.data||!order.data||unicode_bidi_classify({scalars.data,count},cells)!=UnicodeBidiStatus::ok)return false;
-    // In the app's LTR paragraphs a tab supplies L context, including within
-    // bracket pairs. Keep pairs intact. Restore S before the standard L1 reset.
+    // In LTR paragraphs a tab supplies L context, including within bracket
+    // pairs, so pairs stay intact. S is restored before the standard L1 reset.
     if(tabs)for(u32 i=0;i<count;++i)if(scalars[i]==9)cells[i].original=UnicodeBidiClass::l;
     for(u32 first=0;first<count;){u32 end=0;UnicodeBidiParagraph paragraph{};
         if(unicode_bidi_paragraph_end({cells.data,count},first,&end)!=UnicodeBidiStatus::ok||end<=first)return false;
@@ -45,9 +45,9 @@ bool directional_scripts(NativeTextContext& owner,Utf8View text,u8* scripts,u8* 
 }
 ConstSlice<u8> prepare_line_reset(NativeTextContext& owner) noexcept {
     const auto& s=owner.paragraph_storage;const u32 count=owner.paragraph_shape.cluster_count;
-    // Run reshaping does not use the old single-line geometry scratch. Its
-    // bytes retain L1 eligibility across fitting and publication calls.
-    // Highly fragmented fallback items may need a transient arena suffix.
+    // Run reshaping leaves the single-line cluster scratch unused, so it holds
+    // L1 eligibility across fitting and publication. Highly fragmented fallback
+    // items may not fit and take a transient arena suffix instead.
     const auto flags=static_cast<u64>(s.work.clusters.count)*sizeof(NativeLineCluster)>=count?
         Slice<u8>{reinterpret_cast<u8*>(s.work.clusters.data),count}:take<u8>(owner.scratch,count);
     if(flags.count<count||!flags.data)return {};u32 byte=0,source=0;
@@ -166,9 +166,8 @@ bool alphabetic_scripts(NativeTextContext& owner,Utf8View text,u8* bytes) noexce
         for(u32 i=0;i<cp.width;++i)bytes[at+i]=static_cast<u8>(script>>3);at+=cp.width;}
     return true;
 }
-// Intersect paint/font styles with the app's maximal emoji font overrides.
-// The same sweep counts exact storage and fills it. Script/bidi resolution is
-// separate: these ranges only describe presentation boundaries.
+// Intersects paint/font styles with the maximal emoji font overrides. One sweep
+// counts the exact storage and fills it; script/bidi resolution is separate.
 u32 requested_font(const TextSystem& system,u32 flags) noexcept {u32 result=flags&(text_style_bold|text_style_italic|text_style_monospace);if(text_system_fixed_weight(system,flags))result&=~text_style_bold;return result;}
 float span_size(const TextSystem& system,const NativeFormat* format,u32 flags) noexcept {const float size=text_system_font_size(system,flags);return size!=system.em_size?size:format->em;}
 bool same_query(const NativeTextFontQuery& a,const NativeTextFontQuery& b) noexcept {return a.scope==b.scope&&bytes_equal(&a.properties,&b.properties,4)&&a.family.count==b.family.count&&
@@ -219,10 +218,9 @@ u32 presentation_spans(Utf8View text,ConstSlice<TextStyleSpan> styles,u8 present
                     if(at>=mapping_limit){mapping_limit=editor?font_span_end(styles,at,item_end,style,*system,format,flags):end;if(mapping_limit<=at)return 0;
                         const auto first=utf8_decode_one(text.data+at,mapping_limit-at);if(!first.valid)return 0;control=layout_control(first.codepoint);u32 previous_scalar=first.codepoint;
                         for(u32 byte=at+first.width;byte<mapping_limit;){const auto cp=utf8_decode_one(text.data+byte,mapping_limit-byte);if(!cp.valid)return 0;
-                            // Hebrew layout ends the font-mapping item before
-                            // a space following ZWJ or CGJ. Otherwise routing's
-                            // join affinity would retain the Hebrew fallback
-                            // face for the following base-font space.
+                            // Hebrew layout ends the font-mapping item before a space
+                            // following ZWJ or CGJ; otherwise routing's join affinity
+                            // would keep the Hebrew fallback face for that space.
                             if(layout_control(cp.codepoint)!=control||(script==64&&(directions?!(directions[byte]&1):byte>=trailing)&&
                                (previous_scalar==0x200d||previous_scalar==0x34f)&&cp.codepoint==32)){mapping_limit=byte;break;}
                             previous_scalar=cp.codepoint;byte+=cp.width;}
@@ -278,8 +276,8 @@ u32 presentation_spans(Utf8View text,ConstSlice<TextStyleSpan> styles,u8 present
                 for(u32 byte=at;byte<end;){const auto cp=utf8_decode_one(text.data+byte,end-byte);if(!cp.valid||(!(native_script_class(cp.codepoint).flags&native_script_contextual)&&!layout_control(cp.codepoint)))return 0;byte+=cp.width;}
                 script=128;if(!prepare_script_profile(*system->native_text,*font,script,system->independent_letters))return 0;
             }}
-        // The reference layout publishes long font/effect items in chunks of
-        // at most 16000 UTF-16 units. Preserve their accumulation boundaries.
+        // Windows layout publishes long font/effect items in chunks of at most
+        // 16000 UTF-16 units; keep those accumulation boundaries.
         if(end-at>16000){u32 byte=at,units=0;while(byte<end){const auto cp=utf8_decode_one(text.data+byte,end-byte);if(!cp.valid)return 0;
             const u32 width=cp.codepoint>65535?2u:1u;if(units+width>16000)break;units+=width;byte+=cp.width;}end=byte;}
         // The byte script array may share continuity: this sweep only writes
@@ -291,12 +289,11 @@ u32 presentation_spans(Utf8View text,ConstSlice<TextStyleSpan> styles,u8 present
     }
     return count;
 }
-// Keep cache-miss scratch out of the retained-layout entry point under LTO.
-// Native font shaping remains the source of truth for source ranges and fonts. A projected flag owns
-// one em-sized media cell, so normalize its already-shaped source range in the
-// caller's existing paragraph arrays. No character, font or glyph is replaced.
-// The single cluster gives wrapping, bidi, selections and range geometry the
-// same Unicode atom and advance used by the atlas artwork.
+// noinline keeps cache-miss scratch out of the retained-layout entry point under LTO.
+// A projected flag owns one em-sized media cell, so its already-shaped source
+// range is collapsed to one cluster in the caller's paragraph arrays; no
+// character, font or glyph is replaced. Wrapping, bidi, selections and range
+// geometry then see the same Unicode atom and advance as the atlas artwork.
 __declspec(noinline) bool normalize_flag_cells(Utf8View text, ConstSlice<StyledSpan> spans,
     NativeAsciiParagraphStorage& storage, NativeParagraphShape& shape) noexcept {
     bool admitted = false;
@@ -360,8 +357,8 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     ConstSlice<TextStyleSpan> styles,float em,bool geometry,bool editor,u8 presentation,bool alphabetic,bool fallback=false,bool rtl=false,bool mixed=false) noexcept {
     constexpr u32 font_flags=text_style_bold|text_style_italic|text_style_monospace;
     const bool emoji=presentation!=0;
-    // Font preparation owns/reset its transient arena. Complete it before
-    // storing any resolved span in that arena.
+    // Font preparation resets the transient arena; complete it before storing
+    // any resolved span there.
     owner.last_valid=false;owner.prefer_multiline=false;if(text.bytes>native_text_maximum_bytes)return false;
     const u32 scratch_bytes=maximum(4096u,(text.bytes+31u)&~31u);
     auto* script_bytes=static_cast<u8*>(_alloca(scratch_bytes+(mixed?text.bytes:0)));auto* directions=script_bytes+scratch_bytes;
@@ -401,10 +398,10 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
                         !((resolved[i-1].flags^span.flags)&(text_style_underline|text_style_strikethrough));
                     if(editor&&!rtl&&!mixed&&!boundary&&!modifier_cut&&!font_cut&&!paint_cut&&(!selected||(i&&((selected&&resolved[i-1].em!=span.em)||((continuity[i-1]^continuity[i])&4)))))return false;}}
             // CRLF and join-control cuts still need the control-itemization
-            // policy; font-dependent paint cuts can change their clusters. The
-            // client (browser invisibles) draws a zero-width non-joiner that
-            // opens a script run, as the hidden-ignorable substitute does
-            // after a line break ("\n" U+FE00 Cyrillic in fxtwitter quotes).
+            // policy; font-dependent paint cuts can change their clusters. With
+            // browser invisibles on, a leading ZWNJ is the hidden-ignorable
+            // substitute and opens a script run (also after a line break), so
+            // it is not rejected here.
             if(!rtl&&!mixed&&!selected&&at==span.first_byte&&at&&((cp.codepoint==0x200c&&!text_browser_invisibles())||cp.codepoint==0x200d||(cp.codepoint==10&&text.data[at-1]=='\r')))return false;
             if(plain){u16 glyph=0;plain=nominal_scalar_is_simple(cp.codepoint);
                 if(plain){const u32 offset=cp.codepoint-32u;if(offset<plan.ascii_count)glyph=static_cast<u16>(plan.ascii_first+offset);
@@ -417,13 +414,13 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     const auto paint_identity=[&](u32 byte) noexcept {u32 lo=0,hi=styles.count;while(lo<hi){const u32 mid=lo+(hi-lo)/2;
         if(styles[mid].byte_offset+styles[mid].byte_count<=byte)lo=mid+1;else hi=mid;}return lo<styles.count&&styles[lo].byte_offset<=byte?lo+1:0;};
     // A new font-property range can restart neutral script context after a
-    // fallback symbol. Preserve its original start: a size-only cut through a
+    // fallback symbol; keep its original start, since a size-only cut through a
     // selector differs from a complete symbol or a font/decoration transition.
-    // Resolve prior-family availability from prepared bindings; acquiring a
-    // binding here could reset the arena holding these spans.
-    // Tracking keeps full-shaping script cuts, including a neutral space after
-    // an emoji. Nominal-space coalescing would change float accumulation in
-    // caret endpoints and decoration ranges despite identical glyph origins.
+    // Prior-family availability comes from prepared bindings: acquiring one here
+    // could reset the arena holding these spans.
+    // With tracking the full-shaping script cuts stay, including a neutral space
+    // after an emoji: nominal-space coalescing would change float accumulation
+    // in caret endpoints and decoration ranges despite identical glyph origins.
     if(mixed&&!system.independent_letters&&!system.tracking){u32 written=0,property_start=0,property_end=0,property_style=0,property_flags=0,previous_property_flags=0;bool neutral_property=false;
         for(u32 i=0;i<count;){auto item=resolved[i];u16 policy=continuity[i];u8 level=directions[i];u32 last=i+1;
             if(editor&&styles.count)while(property_end<=item.first_byte){const u32 previous_start=property_start;property_start=property_end;
@@ -469,10 +466,9 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
     // required; do not substitute separately shaped runs at that boundary.
     for(u32 i=1;i<count;++i)if(((continuity[i-1]^continuity[i])&4)&&resolved[i-1].binding()->plan.slot==resolved[i].binding()->plan.slot&&
         resolved[i-1].binding()->plan.generation==resolved[i].binding()->plan.generation)return false;
-    // The retained editor applies font properties but no drawing effects.
-    // Preserve underline/strike boundaries as well as font/size properties.
-    // Color-only effects do not participate in the editor's run reduction.
-    // Han paint cuts were removed during mapping; keep its fallback items.
+    // The retained editor merges runs by font and size properties and keeps
+    // underline/strike boundaries; color-only effects do not split runs. Han
+    // fallback items stay separate (their paint cuts were removed during mapping).
     if(editor){const auto weight=format->font.properties.weight;const auto font_style=format->font.properties.style;bool base_monospace=format->font.family.count==8;
         constexpr u16 expected[]{'c','o','n','s','o','l','a','s'};for(u32 i=0;base_monospace&&i<8;++i){const auto c=format->font.family[i];base_monospace=static_cast<u16>(c>='A'&&c<='Z'?c+32:c)==expected[i];}
         const auto properties=[&](const StyledSpan& span) noexcept {const u32 flags=span.flags;if(span.binding()->font_flags==emoji_font_flag)return flags&(text_style_underline|text_style_strikethrough);return static_cast<u32>((!text_system_fixed_weight(system,flags)&&(flags&text_style_bold))?600u:weight)|
@@ -561,10 +557,9 @@ __declspec(noinline) bool prepare_styled_shape(NativeTextContext& owner,const Te
         // Every emitted run owns at least one source unit. Reuse the already
         // decoded UTF-16 length for both retained runs and borrowed boundaries.
         runs=take<NativeParagraphRun>(owner.scratch,units);lines=take<NativeParagraphLine>(owner.scratch,geometry?units+1:0);if(!saved.data||(styles.count&&!saved_styles.data)||!spans.data||!parts.data||!runs.data||(geometry&&!lines.data))return false;
-        // Devanagari consumes component/lookup/positioning scratch one cluster
-        // at a time. Keep only compact line output proportional to its length.
-        // Other scripts retain their existing whole-item scratch; the second
-        // attempt restores the original full allocation if a font expands more.
+        // Devanagari consumes component/lookup/positioning scratch one cluster at
+        // a time, so the first attempt sizes work scratch by the longest other
+        // item; the retry restores the full allocation if a font expands more.
         const u32 work_source=attempt?longest:minimum(longest,maximum(64u,longest_ordinary));
         const bool compact=work_source<longest;
         paragraph_buffers={};paragraph_buffers.work=storage(owner.scratch,work_source,compact?maximum(128u,work_source+16):longest*factor+16,false,attempt!=0);
@@ -696,8 +691,8 @@ bool native_text_styled_plan_or_output(const TextSystem& system,Utf8View text,Co
     constexpr u32 paint_flags=text_style_link|kTextStyleSyntaxMask|text_style_timestamp|text_style_interactive_hover|text_style_inline_role_color|text_style_custom_emoji;
     const u32 supported=font_flags|size_flags|paint_flags|native_decoration_flags|text_style_list|kTextStyleListDepthMask;
     u32 style_flags=0;
-    // Keep the short, strided flag reduction compact instead of gathering
-    // eight separate style records into vectors plus a scalar remainder.
+    // Vectorizing this short, strided reduction would gather eight style
+    // records plus a scalar remainder; the scalar loop is smaller.
 #pragma loop(no_vector)
     // Spans arrive folded (text_fold_style_sizes): sizes are heading-bit codes.
     for(u32 i=0;i<styles.count;++i){if((styles[i].flags&~supported)||styles[i].size)return false;style_flags|=styles[i].flags;}

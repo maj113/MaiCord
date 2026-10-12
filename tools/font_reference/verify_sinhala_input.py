@@ -42,8 +42,8 @@ def worker(args):
         rows = saved['rows']
     else:
         # Bound each reference invocation by input volume as well as time.
-        # Persist completed chunks so a pathological later case never discards
-        # prior observations. The parent still enforces five seconds overall.
+        # Completed chunks persist, so a pathological later case keeps prior
+        # observations. The parent still enforces five seconds overall.
         rows = [];at = 0
         while at < len(cases):
             end = at;units = 0

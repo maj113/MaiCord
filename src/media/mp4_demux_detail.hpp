@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/media/mp4_demux.hpp"
 
-// Private shared bounded box/table walker. Public video and audio cursors borrow
-// the same immutable source; this helper owns no storage and admits no codec.
+// Private bounded box/table walker shared by the video and audio cursors. It
+// owns no storage and admits no codec.
 namespace maicord::mp4_demux_detail {
 struct Box { u32 type; u64 begin, payload, end; };
 constexpr u32 fourcc(char a,char b,char c,char d) noexcept {

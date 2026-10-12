@@ -54,7 +54,7 @@ struct ThreadBrowserPage {
 };
 // Forum/media post metadata retained beside a page (one post per row, same
 // order). Only decoded when the caller supplies post storage; otherwise the
-// extra thread fields and first_messages previews are ignored as before.
+// extra thread fields and first_messages previews are ignored.
 inline constexpr u32 kThreadBrowserPostTagMaximum = 5;
 inline constexpr u32 kThreadBrowserPostPreviewMaximumBytes = 600;
 inline constexpr u32 kThreadBrowserPostContentMaximumBytes = 16'384;

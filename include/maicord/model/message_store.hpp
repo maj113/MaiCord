@@ -24,7 +24,7 @@ enum MessagePresentationFlag : u32 {
     message_presentation_none = 0,
     message_presentation_mentions_current_user = 1u << 0,
     message_presentation_pinned = 1u << 1,
-    // Retain source eligibility without admitting a second rich object tree.
+    // Flag only; poll content lives in the poll store.
     message_presentation_has_poll = 1u << 2,
     message_presentation_has_call = 1u << 3,
     message_presentation_has_activity = 1u << 4,
@@ -55,7 +55,7 @@ struct MessageRecord {
     MessageContentAvailability content_availability;
     MessageDeliveryState delivery;
     u8 presentation_flags;
-    u16 type; // existing tail padding; the message type is independent of flags
+    u16 type; // message type, independent of flags
 };
 
 struct MessageStore {
@@ -86,7 +86,7 @@ struct MessageInput {
         MessageContentAvailability::available;
     MessageDeliveryState delivery = MessageDeliveryState::authoritative;
     u32 presentation_flags = message_presentation_none;
-    u16 type = 0; // existing tail padding; local ordinary messages default to type 0
+    u16 type = 0; // local ordinary messages default to type 0
 };
 
 enum class MessageStoreError : u8 {

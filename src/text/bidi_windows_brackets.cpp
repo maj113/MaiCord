@@ -55,9 +55,8 @@ UnicodeBidiStatus bidi_windows_resolve_candidate(Slice<UnicodeBidiCell> cells,Un
 }
 void bidi_windows_brackets_candidate(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,
                                     B sos,B eos,B embedding_direction) noexcept {
-    // Windows-compatible candidate, not UAX #9 N0. The 61 tracked openings and
-    // scalar matching are tested against Windows; do not substitute
-    // this policy for the public standards resolver.
+    // Windows-compatible, not UAX #9 N0: at most 61 tracked openings, matched by
+    // scalar. Not a substitute for the public standards resolver.
     struct Open {u32 paired,position;};Open stack[61];u32 depth=0;
     for(u32 i=0;i<order.count;++i) {
         auto& cell=cells[order[i]];if(cell.resolved!=B::on)continue;
@@ -79,9 +78,8 @@ void bidi_windows_brackets_candidate(Slice<UnicodeBidiCell> cells,ConstSlice<u32
         if(embedding_direction==B::l?inside.l:inside.r)
             cell.resolved=cells[order[cell.link]].resolved=embedding_direction;
     }
-    // The isolating sequence is already materialized in order. Its old next
-    // links are no longer needed. Reuse them for the nearest following strong
-    // position, avoiding repeated suffix scans for long runs of empty pairs.
+    // The old next links are no longer needed; reuse them for the nearest following
+    // strong position, avoiding repeated suffix scans over long runs of empty pairs.
     u32 next_strong=none;
     for(u32 i=order.count;i>0;) {
         auto& cell=cells[order[--i]];cell.next=next_strong;

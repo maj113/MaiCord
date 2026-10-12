@@ -4,8 +4,8 @@
 namespace maicord::cff_detail {
 namespace {
 
-// StandardEncoding -> SID and predefined charset SID data from CFF's standard
-// tables. These are format constants, not external parser/runtime code.
+// StandardEncoding -> SID and predefined charset SID data (format constants
+// from the CFF specification, Adobe TN #5176).
 constexpr u8 standard_high[128]{
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     0,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,0,111,112,113,114,0,115,116,117,118,119,120,121,122,

@@ -124,9 +124,8 @@ SfntStatus sfnt_arabic_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,
     const bool leading_cgj=scalars.count&&scalars[0]==0x34f;
     if(leading_cgj&&logical){
         if(storage.flags.count<scalars.count)return SfntStatus::output_too_small;if(!storage.flags.data)return SfntStatus::invalid_input;
-        // Compatibility with the app's Arabic shaper: a lone initial CGJ
-        // leaves the following joining sequence nominal until a nonjoining
-        // scalar (including a transparent mark) restarts form analysis.
+        // A lone initial CGJ leaves the following joining sequence nominal until
+        // a nonjoining scalar (including a transparent mark) restarts form analysis.
         u32 restart=1;while(restart<scalars.count){const auto type=unicode_properties(scalars[restart])->joining_type();
             if(type!=UnicodeJoiningType::d&&type!=UnicodeJoiningType::r&&type!=UnicodeJoiningType::l&&scalars[restart]!=0x200d)break;++restart;}
         for(u32 i=0;i<restart;++i)storage.flags[i]=0;
@@ -169,9 +168,8 @@ SfntStatus sfnt_arabic_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,
                 reverse_prefix(expanded,first,end);first=end;
             }
             reverse_prefix(expanded,0,input.count);
-            // Control ownership is indexed in the opposite glyph order,
-            // including inserted dotted circles and within-cluster marks.
-            // Carry it in existing component metadata, not a source-unit LUT.
+            // Control ownership is indexed in the opposite glyph order (including
+            // inserted dotted circles and within-cluster marks); carried in component metadata.
             if(controls)for(u32 a=0,b=input.count;a<b;++a){--b;const u8 change=(expanded[a].glyph.reserved^expanded[b].glyph.reserved)&initial_join_marker;
                 expanded[a].glyph.reserved^=change;expanded[b].glyph.reserved^=change;}
         }

@@ -6,8 +6,8 @@
 
 namespace maicord {
 inline constexpr u32 kUiVideoControlsFadeMs = 120;
-// The official client hides a playing player's controls after this much pointer idleness;
-// expanded/fullscreen players use the shorter delay.
+// Pointer idleness after which a playing player's controls hide; expanded and
+// fullscreen players use the shorter delay.
 inline constexpr u32 kUiVideoControlsIdleMs = 3'000;
 inline constexpr u32 kUiVideoControlsExpandedIdleMs = 1'000;
 // Host metrics are independent of the control layout and theme colors.
@@ -96,8 +96,8 @@ u64 ui_video_scene_text_paint_revision(const UiVideoScene&) noexcept;
 bool ui_video_scene_tick(UiVideoScene*, u64 now_ms, bool reduced_motion) noexcept;
 u64 ui_video_scene_next_wake(const UiVideoScene&, u64 now_ms, bool reduced_motion) noexcept;
 bool ui_video_scene_paint(const UiVideoScene&, const Theme&, PaintStream*) noexcept;
-// The host supplies a live, generation-checked message/scene handle. Keeping it
-// external keeps the scene safe to copy and preserves the shared text ownership contract.
+// The host supplies a live, generation-checked handle. Keeping it outside the
+// scene keeps the scene safe to copy and preserves the shared text ownership contract.
 bool ui_video_scene_text_output(const UiVideoScene&, const Theme&, UiTextOutput*,
                                 UiWidgetReference text_owner) noexcept;
 } // namespace maicord

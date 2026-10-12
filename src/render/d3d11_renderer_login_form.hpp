@@ -5,9 +5,9 @@
 
 namespace maicord {
 inline constexpr u32 kRendererLoginFormDisplayBytes = 8 * 1024;
-// Each admitted confirmation command is at most 2,048 UTF-8 bytes. Keep
-// fallback-run capacity for an alternating-script command, but no account
-// semantics, interactive hit maps or markdown decoration banks are needed.
+// Each confirmation command is at most 2,048 UTF-8 bytes; the capacity covers
+// fallback runs for an alternating-script command. No hit maps or markdown
+// decoration banks are needed.
 inline constexpr u32 kRendererLoginFormGlyphCapacity = 4 * 1024;
 inline constexpr u32 kRendererLoginFormUnitCapacity = 2'048 + 1;
 struct RendererLoginFormTextStorage {

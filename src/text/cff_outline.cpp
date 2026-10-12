@@ -42,9 +42,9 @@ template<bool Bold,bool MetricsOnly> struct VirtualMachine {
     static constexpr bool bold=Bold,metrics_only=MetricsOnly;
 
     bool flex_coordinate(double value, double* result) const noexcept {
-        // Windows' unhinted flex path round-trips output controls through a
-        // 16.16 inverse transform. Ordinary cubics do not. Keep the charstring
-        // current point unchanged; altering it introduces drift between flexes.
+        // Windows' unhinted flex path round-trips output controls through a 16.16
+        // inverse transform; ordinary cubics do not. The charstring current point
+        // stays unchanged, otherwise error drifts between flexes.
         *result = value;
         if (!design_scale) return true;
         const double scaled = value * design_scale;
@@ -422,9 +422,8 @@ template<bool Bold,bool MetricsOnly> SfntStatus decode(const CffFont& font, u16 
     auto status=cff_detail::select_dict(font,glyph,&vm.local_subrs,vm.matrix,&vm.random,&vm.advance,&vm.nominal_width);
     if (status!=SfntStatus::ok) return status;
     if (vm.matrix[0]>0 && vm.matrix[0]==vm.matrix[3] && !vm.matrix[1] && !vm.matrix[2] && !vm.matrix[4] && !vm.matrix[5]) {
-        // The Windows outline oracle quantizes uniform scaling in design space
-        // to 16.16 before the final single-precision em conversion. A rounded
-        // reciprocal alone is insufficient (see the nonintegral-scale corpus).
+        // Windows quantizes uniform scaling in design space to 16.16 before the
+        // final single-precision em conversion; a rounded reciprocal alone differs.
         const double scaled=vm.matrix[0]*font.units_per_em*65536.0;
         if (scaled<=2147483647.0) {
             vm.design_scale=static_cast<i32>(scaled+.5);
@@ -433,8 +432,7 @@ template<bool Bold,bool MetricsOnly> SfntStatus decode(const CffFont& font, u16 
     }
     if (!vm.random) vm.random=0x7384a119u;
     if((oblique||Bold)&&!vm.design_scale)return SfntStatus::unsupported;
-    // Resolve the shear in the same 16.16 matrix as the font scale once per
-    // glyph. Geometry and its bounds are emitted together; no path rewrite.
+    // The shear is resolved once per glyph in the same 16.16 matrix as the font scale.
     if(oblique)vm.oblique_scale=static_cast<i32>(vm.design_scale*(87.0/256.0)+.5);
     vm.translate_x=dx; vm.translate_y=dy;
     status=vm.run(cff_detail::index_object(font.charstrings,glyph),0);

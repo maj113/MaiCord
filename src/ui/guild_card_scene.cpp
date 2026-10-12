@@ -82,7 +82,7 @@ Color packed(u32 rgb, float alpha = 1) noexcept {
     return {static_cast<float>((rgb >> 16) & 0xFF) / 255.f, static_cast<float>((rgb >> 8) & 0xFF) / 255.f,
             static_cast<float>(rgb & 0xFF) / 255.f, alpha};
 }
-// "Est. Mar 2021" from the guild snowflake (UTC month, as the official client shows it).
+// "Est. Mar 2021" from the guild snowflake (UTC month).
 u32 established(u64 guild_id, char* output) noexcept {
     if (!guild_id)
         return 0;
@@ -407,7 +407,7 @@ bool ui_guild_card_media(const UiGuildCardScene& s, u32 index, UiGuildCardMedia*
         return true;
     }
     if (index == kUiGuildCardBannerMedia && media_asset_key_valid(s.banner_key)) {
-        // background: url() center / cover; the card rounds its top corners.
+        // Centred cover fit; the card rounds its top corners.
         const auto r = at(s, s.banner);
         *output = {s.banner_key, r, ui_rect_intersection(r, s.panel), 0, opacity(s),
                    {r.left, r.top, r.right, r.bottom + kRadius}, kRadius, true};

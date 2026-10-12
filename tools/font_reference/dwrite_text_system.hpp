@@ -2,8 +2,7 @@
 // Test/tool-only DirectWrite reference text system. The shipping text stack
 // is native; this reference is compiled only into test and font-reference
 // executables (which link dwrite.lib) and never into MaiCord.exe or
-// MaiCordAccount.dll. It reproduces the former compatibility text system so
-// native output can be compared against DirectWrite layouts.
+// MaiCordAccount.dll. Native output is compared against its DirectWrite layouts.
 #include "maicord/ui/text.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
 #include "maicord/render/text_edit_layout.hpp"
@@ -13,14 +12,13 @@
 namespace maicord {
 
 // A native text system plus the DirectWrite objects of the reference shaper.
-// Copies share (borrow) the owner's objects, like TextSystem command copies.
-// Shaping overloads below dispatch on the members:
-//   native_text set           -> the shipping native path; when factory and
-//                                format are also set, DirectWrite shapes what
-//                                the native path rejects (the old fallback);
-//   native_text null          -> DirectWrite only.
+// Copies borrow the owner's objects, like TextSystem command copies. Shaping
+// overloads below dispatch on the members:
+//   native_text set   -> the shipping native path; with factory and format also
+//                        set, DirectWrite shapes what the native path rejects;
+//   native_text null  -> DirectWrite only.
 // While native_format is zero (or format was replaced after the last capture)
-// the native format is derived from `format` on each call.
+// it is derived from `format` on each call.
 struct DWriteTextSystem : TextSystem {
     IDWriteFactory* factory{};
     IDWriteTextFormat* format{};
@@ -33,7 +31,7 @@ struct DWriteTextSystem : TextSystem {
 };
 
 // DirectWrite objects plus a native session/context; native_format is left
-// for capture (native_text_format_capture) as the old compatibility system did.
+// for capture (native_text_format_capture).
 TextShapeResult text_system_initialize(DWriteTextSystem* system, const wchar_t* family_name, float em_size,
                                        const wchar_t* locale_name) noexcept;
 void text_system_release(DWriteTextSystem* system) noexcept;
@@ -81,10 +79,9 @@ u64 native_text_format_identity(const DWriteTextSystem&) noexcept;
 bool text_edit_layout_measure(TextEditLayoutOwner* owner, const TextEditLayoutInput& input,
                               const DWriteTextSystem& text_system) noexcept;
 
-// The former compatibility editor: a retained DirectWrite layout behind the
-// same owner geometry. With a native reference system (native_text set) it
-// measures natively first, as compatibility owners did; queries on a native
-// owner use the shipping geometry.
+// A retained DirectWrite layout behind the same owner geometry. With a native
+// reference system (native_text set) it measures natively first; queries on a
+// native owner use the shipping geometry.
 struct DWriteEditLayoutOwner : TextEditLayoutOwner {
     IDWriteTextLayout* layout{};
     wchar_t* utf16{};

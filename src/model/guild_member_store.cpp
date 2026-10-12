@@ -532,8 +532,8 @@ GuildMemberStoreResult guild_member_store_upsert(
     record.list_index = resolved_list_index;
     record.list_id = resolved_list_id;
     record.last_seen = store->clock;
-    // The list's own rows take the position even when the record's legacy
-    // position stays with a pinned list.
+    // The list's own rows take the position even when the record's list_index
+    // stays with a pinned list.
     if (list_id && list_index != ~0u &&
         position_set(store, scope_slot(*store, guild_id, list_id), list_index, user_id) && !changed) {
         saturating_increment(store->revision);

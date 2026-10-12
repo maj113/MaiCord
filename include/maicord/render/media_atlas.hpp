@@ -101,9 +101,8 @@ bool media_atlas_validate(const MediaAtlas& atlas, MediaAtlasHandle handle,
 bool media_atlas_set_decoded_animation(MediaAtlas* atlas, MediaAtlasHandle handle,
                                        bool animated) noexcept;
 bool media_atlas_decoded_animation(const MediaAtlas& atlas, MediaAtlasHandle handle) noexcept;
-// Resolves a generation-safe logical handle and pins its physical allocation
-// for the current visibility epoch. Unlike key lookup this is O(1), which is
-// useful when a retained media command stream only needs refreshed UVs.
+// Resolves a generation-safe handle and pins its allocation for the current
+// visibility epoch in O(1), unlike key lookup.
 bool media_atlas_resolve_visible(MediaAtlas* atlas, MediaAtlasHandle handle,
                                  MediaAtlasResult* result) noexcept;
 

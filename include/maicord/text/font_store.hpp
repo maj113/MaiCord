@@ -32,13 +32,12 @@ struct NativeFontResult {
     constexpr bool ok() const noexcept {return error==NativeFontError::none;}
 };
 struct NativeFontStoreStats {u64 mapped_bytes;u32 files,faces,references;};
-// Caller supplies zero-initialized slots at stable addresses. Store-local
-// handles hold a face and its read-only mapping; they contain no COM object.
-// Slots and borrowed views must not be copied or modified while in use.
-// Serialize mutations on the owning thread. Readers can share read-only views
-// while an owner holds the handle and synchronizes its final release.
-// Acquire performs file I/O; retain/get/release use handles without path lookup.
-// Last release unmaps the file when no other collection face retains it.
+// Caller supplies zero-initialized slots at stable addresses. Handles hold a face
+// and its read-only mapping, no COM object. Slots and borrowed views must not be
+// copied or modified while in use. Serialize mutations on the owning thread; readers
+// can share read-only views while an owner holds the handle and synchronizes its
+// final release. Acquire performs file I/O; retain/get/release take handles without
+// path lookup. The last release unmaps the file once no other face of it is retained.
 // No shutdown/reset operation invalidates outstanding references implicitly.
 NativeFontResult native_font_acquire(NativeFontStore* store,const wchar_t* path,
     u32 face_index,NativeFontHandle* output,NativeFontStoreGrow grow=nullptr,void* context=nullptr) noexcept;

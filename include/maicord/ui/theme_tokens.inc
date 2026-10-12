@@ -111,8 +111,7 @@ MAICORD_THEME_TOKEN(emphasis, selected, PA(accent, .16f), PA(accent, .14f))
 MAICORD_THEME_GROUP_END(emphasis)
 
 // ```ansi code block palette (ansi-to-html colors 0-15): SGR 30-37/40-47 use
-// 0-7, 90-97/100-107 use the bright 8-15, for foreground and background
-// alike. Defaults are the official client's dark and light theme values.
+// 0-7, 90-97/100-107 use the bright 8-15, for foreground and background alike.
 MAICORD_THEME_GROUP(ansi)
 MAICORD_THEME_TOKEN(ansi, black, RGBA(0, 0, 0, 1), RGBA(0, 0, 0, 1))
 MAICORD_THEME_TOKEN(ansi, red, RGBA(.92549f, .388231f, .38039f, 1), RGBA(.905882f, .345098f, .345098f, 1))
@@ -132,9 +131,8 @@ MAICORD_THEME_TOKEN(ansi, bright_cyan, RGBA(.372548f, .749017f, .784312f, 1), RG
 MAICORD_THEME_TOKEN(ansi, bright_white, RGBA(1, 1, 1, 1), RGBA(1, 1, 1, 1))
 MAICORD_THEME_GROUP_END(ansi)
 
-// User profile cards (popout, full profile, editor preview). Defaults are
-// the official client's dark and light theme values; a Nitro-themed card takes
-// the column of its own profile theme (darkness of the primary colour).
+// User profile cards (popout, full profile, editor preview). A Nitro-themed
+// card takes the column of its own profile theme (darkness of the primary colour).
 // overlay is the 60% veil over the theme gradient; surface and modal are the
 // unthemed card and full-profile backgrounds; banner is the colourless
 // banner; control is the circular header button over the banner.

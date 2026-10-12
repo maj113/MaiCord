@@ -55,7 +55,7 @@ Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_i
     if (metadata->request_flags & private_request_spam) return utf8_literal("Possible spam");
     if (metadata->request_flags & private_request_pending) return utf8_literal("Message request");
     if (channel->type == 1 && storage.data && source.users) {
-        // Custom status or "Playing X" for an online peer, as the official DM list shows.
+        // Custom status or "Playing X" for an online peer.
         u64 peer[2]{};
         if (!ui_private_row_group_members(*source.state, channel_id, peer) ||
             ui_private_row_status(source, channel_id) == UiPrivateRowStatus::offline)

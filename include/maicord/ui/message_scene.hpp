@@ -166,11 +166,10 @@ struct MessageSceneDisplay {
 };
 inline constexpr float kMessageSceneCompactIndentEm = 5.0f;
 
-// The official client's channel-beginning header (the "empty message" block),
-// shown above the first message once the loaded window reaches the channel
-// start. The host supplies the text; the scene folds the measured block into
-// the first row's extent so scrolling, anchoring and bottom placement treat
-// it as timeline content.
+// Channel-beginning header (the "empty message" block), shown above the first
+// message once the loaded window reaches the channel start. The host supplies
+// the text; the scene folds the measured block into the first row's extent so
+// scrolling, anchoring and bottom placement treat it as timeline content.
 enum class MessageSceneIntroKind : u8 {
     none,
     channel,              // # glyph in a 68 px circle, "Welcome to #name!"
@@ -199,10 +198,10 @@ struct MessageSceneIntroGeometry {
 };
 // The message list's horizontal margin.
 inline constexpr float kMessageSceneIntroMargin = 16.0f;
-inline constexpr float kMessageSceneIntroHeaderLine = 40.0f;      // heading-xxl: 32 px * 1.25
-inline constexpr float kMessageSceneIntroHeaderMargin = 8.0f;     // header margin 8px 0
-inline constexpr float kMessageSceneIntroSubtitleLine = 24.0f;    // heading-xl/medium: 20 px * 1.2
-inline constexpr float kMessageSceneIntroDescriptionLine = 20.0f; // text-md/normal: 16 px * 1.25
+inline constexpr float kMessageSceneIntroHeaderLine = 40.0f;      // 32 px font * 1.25
+inline constexpr float kMessageSceneIntroHeaderMargin = 8.0f;     // 8 px above and below the header
+inline constexpr float kMessageSceneIntroSubtitleLine = 24.0f;    // 20 px font * 1.2
+inline constexpr float kMessageSceneIntroDescriptionLine = 20.0f; // 16 px font * 1.25
 
 struct MessageScene {
     const UiResolvedThemeStyles* theme_styles;
@@ -282,7 +281,7 @@ struct MessageScene {
     float intro_measured_width;
     float intro_height; // folded into the first row; zero when hidden
     float intro_header_height, intro_subtitle_height, intro_description_height;
-    // Whole-run styles of the header (bold heading-xxl) and subtitle (bold heading-xl).
+    // Whole-run styles of the header (bold, 32 px) and subtitle (bold, 20 px).
     TextStyleSpan intro_header_style, intro_subtitle_style;
 };
 // Replaces the channel-beginning header; null or kind none hides it. The
@@ -290,9 +289,9 @@ struct MessageScene {
 // the content changed.
 bool message_scene_set_intro(MessageScene* scene, const MessageSceneIntro* intro,
                              UiTextMeasureCache* measure) noexcept;
-// The official channel-beginning strings for one kind (name is the channel or
-// conversation display name; username is a DM recipient's username). Text
-// that does not fit is truncated at a UTF-8 boundary. False on bad input.
+// The channel-beginning strings for one kind (name is the channel or
+// conversation display name; username is a DM recipient's username). Text that
+// does not fit is truncated at a UTF-8 boundary. False on bad input.
 bool message_scene_intro_compose(MessageSceneIntro* intro, MessageSceneIntroKind kind, u64 channel_id,
                                  Utf8View name, Utf8View username, u64 user_id, bool locked) noexcept;
 // Text layout of the intro block, valid after message_scene_update.

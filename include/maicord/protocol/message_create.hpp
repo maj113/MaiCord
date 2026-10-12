@@ -58,15 +58,14 @@ MessageCreateWriteResult write_message_create_body(
 // Message flag SUPPRESS_NOTIFICATIONS, written by "@silent" sends.
 inline constexpr u32 kMessageFlagSuppressNotifications = 1u << 12;
 // IS_VOICE_MESSAGE: exactly one voice attachment (waveform and duration) and
-// no content or stickers, as the official clients send recorded voice messages.
+// no content or stickers.
 inline constexpr u32 kMessageFlagVoiceMessage = 1u << 13;
 // The leading "@silent" prefix (^@silent(\s|$)). On a match the
 // remainder after the prefix, trimmed of surrounding whitespace, is returned.
 bool message_silent_prefix(Utf8View content, Utf8View* remainder) noexcept;
 
 // Poll creation (POST /channels/{id}/messages with an empty content and a
-// poll object, as the official client sends polls). Text is trimmed by
-// the caller; lengths are in code points.
+// poll object). Text is trimmed by the caller; lengths are in code points.
 inline constexpr u32 kPollCreateMinimumAnswers = 2;
 inline constexpr u32 kPollCreateMaximumAnswers = 10;
 inline constexpr u32 kPollQuestionMaximumCodepoints = 300;

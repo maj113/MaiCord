@@ -348,8 +348,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                         ui_layout_content_bounds_allow_overlap)) {
             return false;
         }
-        // The official client's trailing reply icon (attachment/embed image, sticker,
-        // command, voice message), 4 DIPs after the measured preview text.
+        // Trailing reply icon (attachment/embed image, sticker, command, voice
+        // message), 4 DIPs after the measured preview text.
         const auto& reference = rich->reference;
         const float reply_width = row.rich_item_layout.reply_width;
         if (reference.state == GatewayMessageReferenceState::available && reply_width > 0.0f) {

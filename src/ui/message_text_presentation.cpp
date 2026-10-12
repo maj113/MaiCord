@@ -321,7 +321,7 @@ bool spoiler_revealed(void* opaque, u32 source_offset) noexcept {
     return false;
 }
 
-// ------------------------------------------------------------ Markdown cache
+// Markdown cache.
 // Parse dependencies the callbacks observed, so an entry can record which
 // state it was built against and how much output capacity it needed.
 enum MarkdownCacheFlag : u8 {
@@ -635,11 +635,10 @@ bool begin_flow_item_clamped(UiTextFlowLayout* flow, float left_inset, float rig
     if (width <= 0.0f) {
         return false;
     }
-    // Retained rows can briefly become narrower than the normal pane
-    // floor while DWM is driving an interactive resize. Fixed rich-content
-    // insets are decoration, not a reason to reject the entire text stream.
-    // Preserve at least one positive DIP for shaping and let the owning row
-    // clip hide the degenerate layout.
+    // Retained rows can briefly be narrower than the normal pane floor while DWM
+    // drives an interactive resize. Fixed rich-content insets are decoration, not
+    // a reason to reject the whole text stream: keep at least one positive DIP
+    // for shaping and let the row clip hide the degenerate layout.
     const float inset_budget = maximum(0.0f, width - 1.0f);
     const float clamped_left = minimum(left_inset, inset_budget);
     const float clamped_right = minimum(right_inset, maximum(0.0f, inset_budget - clamped_left));
@@ -739,11 +738,6 @@ RetainedAuthorHeader retain_author_header(MessageTextPresentation* presentation,
                                   presentation->style_count - style_begin}};
 }
 
-// Search result cards have no day dividers, so their header carries the
-// calendar timestamp ("Today at", "Yesterday at", or the short date) beside
-// the name. Name and timestamp are separate commands laid out from measured
-// widths: the timestamp always fits and follows the name, and a long name
-// truncates first.
 RetainedAuthorHeader retain_styled_text(MessageTextPresentation* presentation, Utf8View text, u32 flags) noexcept {
     if (!presentation || text.bytes == 0 || !text.data ||
         text.bytes > presentation->utf8.count - presentation->utf8_count ||
@@ -777,6 +771,10 @@ float result_card_text_width(const MessageScene& scene, const MessageRecord& rec
     // Without a measurer, a generous per-byte estimate keeps the timestamp whole.
     return static_cast<float>(text.bytes) * ((flags & text_style_subtext) != 0 ? 7.0f : 9.0f);
 }
+// Search result cards have no day dividers, so the header carries the calendar
+// timestamp ("Today at", "Yesterday at", or the short date) beside the name.
+// Name and timestamp are separate commands laid out from measured widths: the
+// timestamp always fits and follows the name, and a long name truncates first.
 bool append_result_card_header(MessageTextPresentation* presentation, const MessageScene& scene,
                                const MessageSceneRowWidget& row, UiRect author, const UiRect& clip, Color color,
                                const MessageRecord& record, Utf8View name, u64 now_unix_seconds) noexcept {
@@ -841,7 +839,7 @@ u32 reply_sgr_bytes(const char* text, u32 bytes) noexcept {
 // The bounded parse source for a reply preview. SGR escapes inside ```ansi
 // fences leave first (the inline reply rules drop them anyway), so a heavily
 // coloured message still reaches its closing fence; a fence the cap cuts is
-// closed so it stays one inline code run, as the official client shows it.
+// closed so it stays one inline code run.
 u32 reply_preview_source(Utf8View content, char* output, u32 capacity) noexcept {
     u32 used = 0, at = 0;
     bool fence = false, ansi = false;
@@ -1130,8 +1128,8 @@ bool parse_content(MessageTextPresentation* presentation, BuildContext* context,
 
 // Compact body: "Name content" as one flow. The name prefix precedes the
 // parsed text in the retained buffers so styles and semantics shift by it.
-// A plugin name prefix/suffix wraps the name as muted subtext (the role colour
-// for MC_TONE_ROLE); the name stays the bold role-coloured span.
+// A plugin name prefix/suffix wraps the name as muted subtext (in the role
+// colour for MC_TONE_ROLE); the name stays the bold role-coloured span.
 bool compact_content(MessageTextPresentation* presentation, BuildContext* context, Utf8View name,
                      Utf8View source, Utf8View* text, ConstSlice<TextStyleSpan>* styles,
                      ConstSlice<MessageMarkdownSemantic>* semantics,
@@ -1298,11 +1296,10 @@ bool parse_content(MessageTextPresentation* presentation, BuildContext* context,
     return true;
 }
 
-// The official client renders a quote as a block: a 4-DIP spine,
-// 12/8-DIP inline padding, at most 90% of the markup width and 4-DIP block
-// margins. Runs of quoted and plain lines become separate commands, so
-// wrapped quote lines keep the indent; the newline between two runs belongs
-// to neither.
+// A quote renders as a block: a 4-DIP spine, 12/8-DIP inline padding, at most
+// 90% of the markup width and 4-DIP block margins. Runs of quoted and plain
+// lines become separate commands, so wrapped quote lines keep the indent; the
+// newline between two runs belongs to neither.
 constexpr float kQuoteSpine = 4.0f;
 constexpr float kQuoteStartPadding = 12.0f;
 constexpr float kQuoteEndPadding = 8.0f;
@@ -2144,7 +2141,7 @@ bool append_invite_cards(MessageTextPresentation* presentation, const MessageSce
                                         joined ? theme.text_primary : theme.tokens.text.on_accent, record, ordinal,
                                         measurement_index, UiTextAlignment::center)))
             return false;
-        // A server without an icon shows its initials in the tile, as the official client does.
+        // A server without an icon shows its initials in the tile.
         if (known && !entry->invite.icon_bytes) {
             char initials_storage[16];
             const Utf8View initials = ui_admin_initials(name, {initials_storage, sizeof(initials_storage)});
@@ -2272,10 +2269,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     }
 
     const UiRect visible_row_clip = ui_rect_intersection(scene.viewport, row_layout->rectangle);
-    // Overscan is useful only if rows are measured before they cross the
-    // viewport edge. Keep a positive offscreen clip for shaping/measurement;
-    // the renderer rejects commands whose clip does not intersect the message
-    // viewport, so these commands never become visible paint.
+    // Overscan rows are measured before they cross the viewport edge, so keep a
+    // positive offscreen clip for shaping and measurement. The renderer rejects
+    // commands whose clip misses the message viewport: they never become paint.
     const UiRect row_clip = ui_rect_has_area(visible_row_clip) ? visible_row_clip : row_layout->rectangle;
     const float text_left = content_layout->content_rectangle.left;
     const float text_width = ui_rect_width(content_layout->content_rectangle);
@@ -2829,7 +2825,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             if (!media_only) {
                 if (!ui_text_flow_advance(&flow, kMessageEmbedTopInset))
                     return fail(presentation, MessageTextPresentationError::layout);
-                // Provider: text-xs/normal (12 DIP).
+                // Provider: small subtext (12 DIP).
                 const Utf8View provider = message_rich_store_string(*rich_store, embed.provider_name);
                 const Utf8View provider_url = message_rich_store_string(*rich_store, embed.provider_url);
                 if (provider.bytes) {
@@ -2989,10 +2985,10 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 }
             }
             const u32 slot = kMessageSceneEmbedItemOffset + index;
-            // Choose the content width from the initial maximum-width pass.
-            // Measuring again after wrapping at that chosen width feeds the
-            // shorter wrapped lines back into the width and keeps shrinking
-            // the card. A new viewport/content identity resets retained_width.
+            // The content width comes from the initial maximum-width pass.
+            // Measuring again after wrapping at that width feeds the shorter
+            // wrapped lines back and keeps shrinking the card. A new
+            // viewport/content identity resets retained_width.
             bool measured = true;
             for (u32 c = embed_command_begin; c < presentation->command_count; ++c)
                 measured = measured && presentation->commands[c].measured_height > 0;

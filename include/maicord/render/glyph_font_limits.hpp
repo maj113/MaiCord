@@ -3,6 +3,6 @@
 namespace maicord {
 inline constexpr u32 glyph_font_initial_capacity=32;
 inline constexpr u32 glyph_font_maximum_capacity=256;
-// Atlas bit 63 distinguishes color keys from monochrome keys.
+// Face ids occupy atlas key bits 48..62; bit 63 marks color glyph keys.
 static_assert(glyph_font_maximum_capacity<0x8000);
 }

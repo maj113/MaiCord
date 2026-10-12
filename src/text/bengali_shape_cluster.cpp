@@ -18,15 +18,14 @@ SfntStatus indic_scalar_cluster(SfntIndicProfile profile,const SfntShapePlan& pl
     if(font_forms.count!=128||!font_forms.data)return SfntStatus::invalid_input;
     if(input.count>31)return SfntStatus::unsupported_sequence;
     // Bengali admits one composite vowel; Odia can admit two in one cluster.
-    // Gujarati/Gurmukhi signs remain nominal through this same source-preserving path.
-    // Preserve original grouping when expansion would otherwise change parsing.
-    // Position scratch is unused until after mapping. Borrow it for expansion,
-    // then retain only mapped glyphs/scalars through staged execution.
+    // Gujarati/Gurmukhi signs stay nominal through this same source-preserving path.
+    // Original grouping is kept when expansion would otherwise change parsing.
+    // Position scratch is unused until after mapping, so expansion borrows it.
     if(storage.positions.count&&!storage.positions.data)return SfntStatus::invalid_input;
     auto* expanded=reinterpret_cast<SfntIndicInputScalar*>(storage.positions.data);SfntIndicInputResult sizes{};
     const u32 capacity=static_cast<u32>(minimum<u64>(indic_cluster_capacity,static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntIndicInputScalar)));
-    // Odia/Telugu/Kannada reserve their circle before spending the remaining preparation slots
-    // on split vowels. Full input survives even when later vowels stay nominal.
+    // Odia/Telugu/Kannada reserve a slot for the dotted circle before spending the
+    // remaining preparation slots on split vowels.
     const u32 extra=(profile==SfntIndicProfile::odia||profile==SfntIndicProfile::telugu||profile==SfntIndicProfile::kannada||profile==SfntIndicProfile::malayalam)?31-input.count-static_cast<u32>(input.count&&input.count<31&&input.data&&input[0]==0x200d):0xffffffffu;
     auto status=sfnt_indic_expand_cluster(profile,input,{expanded,capacity},&sizes,limits.stage_work,extra);if(status!=SfntStatus::ok)return status;
     const u32 block=sfnt_indic_script(profile)->block_first;

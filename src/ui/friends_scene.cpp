@@ -8,8 +8,8 @@ namespace maicord {
 namespace {
 constexpr float row_height = 56, header_height = 76, status_height = 32, search_height = 48;
 constexpr float section_height = 32;
-// The official client's friend row actions: 36-DIP round icon buttons, 10 DIP apart.
-// Text actions keep their 48-DIP pill with a 2-DIP gap.
+// Friend row actions: 36-DIP round icon buttons, 10 DIP apart. Text actions
+// keep their 48-DIP pill with a 2-DIP gap.
 constexpr float icon_action_extent = 36, icon_action_glyph = 20, icon_action_gap = 10;
 constexpr float text_action_width = 48, text_action_gap = 2;
 constexpr u32 maximum_visible = kUiFriendsMaximumVisibleRows;
@@ -1155,9 +1155,8 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
         const bool pressed =
             hovered && s.widgets.captured.slot == h.slot && s.widgets.captured.generation == h.generation;
         UiRect clip = node->clip_rectangle;
-        // Every row primitive is confined to its own rectangle. Share the body
-        // clip across rows/actions rather than spending one global clip slot
-        // per row at tall native viewport sizes.
+        // Every row primitive stays inside its own rectangle, so rows and actions
+        // share the body clip instead of using one global clip slot per row.
         if (e.row.user_id || e.target.action == UiFriendsAction::toggle_section ||
             e.target.action == UiFriendsAction::clear_incoming)
             clip = body_clip;
@@ -1189,9 +1188,9 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
                                hovered && enabled ? theme.text_primary : theme.text_secondary);
             continue;
         }
-        // Row/action labels already provide idle affordances. Their redundant
-        // background/border quads would exceed the shared native paint budget
-        // at tall viewports. Preserve tab chrome and interaction feedback.
+        // Idle row/action background and border quads are skipped: the labels
+        // already show the affordance and the quads would exceed the shared native
+        // paint budget at tall viewports. Tab chrome and hover/focus feedback stay.
         if ((!e.row.user_id && e.target.action != UiFriendsAction::toggle_section) || hovered || focused)
             ok = paint_stream_push_rounded_border(
                 paint, node->rectangle.left + 1, node->rectangle.top + 1, node->rectangle.right - 1,
@@ -1228,7 +1227,7 @@ bool ui_friends_scene_paint(const UiFriendsScene& s, const Theme& theme, PaintSt
         ok = ui_friends_scene_presence_paint(s, theme, paint);
     if (ok && s.active_visible) {
         const auto& r = s.active_rect;
-        // A hairline divides the column from the list, as the official client's aside.
+        // A hairline divides the column from the list.
         ok = paint_stream_push(paint, r.left, r.top, r.left + 1, r.bottom,
                                ui_background_surface_color(theme, theme.interactive, .30f));
         const auto toggle = active_toggle_rect(s);

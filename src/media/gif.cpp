@@ -77,13 +77,12 @@ bool skip_subblocks(ConstSlice<u8> encoded, u32* cursor, GifParseResult* result,
     }
 }
 
-// Non-interlaced LZW, bit-exact with the stack decoder in gif_decode_parsed_frame
-// (same results and the same error at the same code). Every dictionary string
-// is old's string plus the first byte of the string after it, and those two
-// were written back to back, so an entry is just (position, length) of bytes
-// already in the output: a code becomes one forward copy, as in LZ77. Every
-// byte of an entry was range-checked against the palette when it was first
-// written, so only root codes need the check.
+// Non-interlaced LZW. Every dictionary string is old's string plus the first
+// byte of the string after it, and those two were written back to back, so an
+// entry is just (position, length) of bytes already in the output: a code
+// becomes one forward copy, as in LZ77. Every byte of an entry was
+// range-checked against the palette when it was first written, so only root
+// codes need the check.
 struct GifFastReader {
     const u8* bytes;
     u32 cursor;
@@ -97,7 +96,7 @@ struct GifFastReader {
 __forceinline void fast_refill(GifFastReader* reader) noexcept {
     while (reader->bit_count <= 56 && !reader->exhausted) {
         if (reader->block_remaining == 0) {
-            // Same sub-block rules as bit_reader_byte: a zero size terminates.
+            // A zero-size sub-block terminates the data.
             if (reader->cursor >= reader->end) {
                 reader->exhausted = true;
                 break;
@@ -557,9 +556,8 @@ GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& 
     if (error != GifError::none) {
         return decode_fail(result, error);
     }
-    // Interlaced rows arrive in pass order (every 8th from 0, every 8th from
-    // 4, every 4th from 2, every 2nd from 1); the checks above do not depend
-    // on row order, so the rows are put in place once the frame decoded.
+    // Interlaced rows arrive in pass order (every 8th row from 0, every 8th
+    // from 4, every 4th from 2, every 2nd from 1); put them in place last.
     if ((frame.flags & gif_frame_interlaced) != 0) {
         deinterlace_rows(indices.data, frame.width, frame.height);
     }

@@ -105,8 +105,8 @@ bool arrow(const UiTooltipScene& scene, const Theme& theme, PaintStream* paint) 
         vertical
             ? maximum(r.left + 12, minimum((scene.anchor.left + scene.anchor.right) * .5f, r.right - 12))
             : maximum(r.top + 12, minimum((scene.anchor.top + scene.anchor.bottom) * .5f, r.bottom - 12));
-    // At most twelve bounded strips form the small caret for every placement. They
-    // use the existing native quad pipeline and its viewport clipping.
+    // At most twelve bounded strips form the small caret for every placement,
+    // drawn as ordinary quads so the viewport clip applies.
     const u32 strips = static_cast<u32>(scene.style.arrow_size);
     for (u32 i = 0; i < strips; ++i) {
         const float distance = static_cast<float>(i), half = scene.style.arrow_size - distance;

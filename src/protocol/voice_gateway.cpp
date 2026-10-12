@@ -186,7 +186,7 @@ GatewayCommandWriteResult voice_gateway_write_identify(const VoiceGatewayIdentif
         writer.number(identify.max_dave_protocol_version);
         writer.literal(",\"video\":");
         writer.boolean(identify.video);
-        // Unset ssrc/active/rtx_ssrc/limits serialize as undefined (omitted).
+        // Unset ssrc/active/rtx_ssrc/limits are omitted.
         writer.literal(",\"streams\":[");
         for (u32 i = 0; i != identify.streams.count; ++i) {
             const auto& stream = identify.streams[i];

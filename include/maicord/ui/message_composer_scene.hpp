@@ -309,9 +309,9 @@ bool message_composer_scene_composition_range(const MessageComposerScene& scene,
                                               const TextCompositionSpan& span, u32* first,
                                               u32* last) noexcept;
 
-// The plugin slot handles and count, the spelling slice and its revision, the
-// voice view, the status tone (one aligned word) and the widget manager's hit
-// filter (function and context) are the only growth past the original 512.
+// Size budget: 512 bytes plus the plugin slot handles and count, the spelling
+// slice and its revision, the voice view, the status tone (one aligned word)
+// and the widget manager's hit filter (function and context).
 static_assert(sizeof(MessageComposerScene) < 512 + sizeof(UiWidgetHandle) * kMessageComposerPluginSlots + 8 +
                                                  sizeof(ConstSlice<TextCompositionSpan>) + 8 +
                                                  sizeof(const UiComposerVoiceView*) + 8 + 2 * sizeof(void*));

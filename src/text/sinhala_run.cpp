@@ -12,7 +12,7 @@ template<class T> Slice<T> take(Arena* arena,u32 count) noexcept {return {count?
 template<class T> bool filled(Slice<T> values) noexcept {return !values.count||values.data;}
 }
 // Non-admitted fonts keep nominal mapping, without USE expansion or circles.
-// Tibetan overrides only its observed mark, selector and control-source rules.
+// Tibetan overrides only its mark, selector and control-source rules.
 SfntStatus use_shape::nominal_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,float em,
     SfntShapeStorage storage,SfntShapeRunResult* result,SfntShapeLimits limits,bool rtl,bool tibetan) noexcept {
     if((storage.positions.count&&!storage.positions.data)||(storage.targets.count&&!storage.targets.data))return SfntStatus::invalid_input;

@@ -515,7 +515,6 @@ bool ui_access_attribute_text(UiAccessTree* tree, UiWidgetReference owner, Utf8V
         return false;
     if (tree->nodes[node].internal & internal_ignore_text)
         return true;
-    // Climb through presentational containers toward a composite control.
     u32 target = node;
     while (target != kUiAccessNone && has_role(kPassThroughRoles, tree->nodes[target].role))
         target = tree->nodes[target].parent;
@@ -938,7 +937,6 @@ bool ui_access_plan_events(UiAccessEventState* state, const UiAccessTree& tree, 
                 add_property(entry.key, UiAccessProperty::text_selection, old);
         }
     }
-    // Swap buffers: this snapshot becomes the baseline.
     const auto spare = state->previous;
     state->previous = state->current;
     state->previous_count = state->current_count;
@@ -966,7 +964,7 @@ bool ui_access_message_should_announce(UiAccessMessageCursor* cursor, u64 channe
     return !authored_locally;
 }
 
-// ---- text units ------------------------------------------------------------
+// Text units
 
 namespace {
 
@@ -1208,7 +1206,7 @@ i32 ui_access_text_move(Utf8View text, UiAccessTextUnit unit, i32 count, u32* st
     return moved;
 }
 
-// ---- announcements -------------------------------------------------------
+// Announcements
 
 bool ui_access_announce_admit(UiAccessAnnouncer* announcer, Utf8View text, UiAccessPoliteness politeness,
                               u64 now_ms) noexcept {
@@ -1242,7 +1240,7 @@ bool ui_access_announce_admit(UiAccessAnnouncer* announcer, Utf8View text, UiAcc
     return true;
 }
 
-// ---- throttling ----------------------------------------------------------
+// Throttling
 
 void ui_access_throttle_mark_urgent(UiAccessThrottle* throttle) noexcept {
     if (throttle)

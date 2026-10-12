@@ -74,10 +74,9 @@ void explicit_levels(Slice<UnicodeBidiCell> cells,u8 base,bool windows) noexcept
     }
 }
 void windows_weak_tail(Slice<UnicodeBidiCell> cells,ConstSlice<u32> order,B sos) noexcept {
-    // Observed Windows numeric context survives intervening weak/neutral
-    // characters until another number or strong character replaces it.
-    // Resolve ET runs and W7 together so a context change does not require
-    // extra per-cell flags, another buffer or a backwards repair scan.
+    // Windows numeric context survives intervening weak/neutral characters until
+    // another number or strong character replaces it. ET runs and W7 are resolved
+    // together so no extra per-cell flags, buffer or backward repair scan is needed.
     B strong=sos,previous=sos;bool number_an=false,pending_cs=false;
     for(u32 i=0;i<order.count;){auto& cell=cells[order[i]];const B type=cell.resolved;
         if(type==B::et){const u32 first=i;while(i<order.count&&cells[order[i]].resolved==B::et)++i;

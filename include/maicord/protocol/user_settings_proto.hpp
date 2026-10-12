@@ -44,14 +44,12 @@ inline constexpr u32 kUserSettingsPartialMaximumBytes = 47 * 1024;
 
 enum class UserSettingsProtoError : u8 { none, input, base64, protobuf, capacity };
 
-// Leaf encodings used by the settings protos. Wrapper kinds are the
-// google.protobuf *Value messages; false/zero wrappers encode as an empty
-// message (still present). Plain kinds omit proto3 defaults.
-// id_member addresses one ID of a repeated fixed64 list (privacy.restricted_
-// guild_ids and friends): the value's number is the ID and present is whether
-// the list holds it. Lists are read packed or unpacked and written packed,
-// deduplicated, in their existing order with new IDs appended (as the official
-// client's set-based edits do); an empty list is omitted.
+// Leaf encodings. Wrapper kinds are the google.protobuf *Value messages;
+// false/zero wrappers encode as an empty (still present) message. Plain kinds
+// omit proto3 defaults. id_member addresses one ID of a repeated fixed64 list
+// (privacy.restricted_guild_ids and friends): number is the ID, present is
+// whether the list holds it. Lists are read packed or unpacked and written
+// packed and deduplicated, new IDs appended; an empty list is omitted.
 enum class UserSettingsKind : u8 { boolean, uint32, uint64, string, enumeration, plain_bool, id_member };
 // group.field or group.field.child (child != 0 addresses a field of the
 // sub-message `field`).

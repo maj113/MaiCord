@@ -429,7 +429,7 @@ bool visit_referenced(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 
 // The referenced poll's question.text, and whether the referenced message is
-// a lone image/gifv link whose content the official client hides behind its embed.
+// a lone image/gifv link whose content is hidden behind its embed.
 struct ReferencedPreviewContext {
     const JsonIndexedDocument* document;
     u32 depth;
@@ -479,7 +479,7 @@ GatewayEventDecodeResult read_object(JsonValue value, const JsonIndexedDocument&
         return rich_failure(GatewayEventDecodeError::invalid_data, value.source_offset);
     }
     JsonReadResult read = json_visit_indexed_object(scratch, value, maximum_depth, visitor, context);
-    // Preserve the existing child-relative schema diagnostics.
+    // Diagnostic offsets are relative to the child object.
     const u32 begin = static_cast<u32>(value.source.data - scratch.input.data);
     if (!read.ok() && read.error_offset >= begin)
         read.error_offset -= begin;
@@ -1614,8 +1614,8 @@ GatewayMessageEmbedType embed_type(JsonString value) noexcept {
 
 // A components embed carries one Components V2 tree: containers (17) with an
 // accent colour, sections (9) with a thumbnail accessory (11), text displays
-// (10), media galleries (12) and separators (14). The official client renders it as that
-// container; the embed card shows the same text as one markdown description.
+// (10), media galleries (12) and separators (14). The embed card shows its
+// text as one markdown description.
 inline constexpr u32 kEmbedComponentTextMaximum = 16;
 struct EmbedComponentWalk {
     const JsonIndexedDocument* document;

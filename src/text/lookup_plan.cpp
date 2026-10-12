@@ -34,8 +34,8 @@ struct Builder {
         const bool jamo=script==sfnt_tag('j','a','m','o');
         const bool hangul=jamo||script==sfnt_tag('h','a','n','g');
         const u32 candidates[]{jamo?sfnt_tag('h','a','n','g'):script,first,second};SfntLanguageSelection selection{};u64 remaining=work;
-        // The app's explicit independent-letter typography enables its normal
-        // fallback feature selection; ordinary Hangul keeps a missing script empty.
+        // Explicit independent-letter typography enables the normal fallback
+        // feature selection; ordinary Hangul keeps a missing script empty.
         auto s=sfnt_layout_select_language_prepared(layout,{candidates+(script?0:1),hangul&&!independent?1u:script?3u:2u},sfnt_tag('E','N','G',' '),selection,remaining);work=remaining;result.script_tag=selection.script_tag;
         if(s==SfntStatus::missing_table)return SfntStatus::ok;if(s!=SfntStatus::ok)return s;
         result.language_found=true;result.language_tag=selection.language_tag;const auto& selected=selection.language;

@@ -4,13 +4,12 @@ namespace maicord {
 // A complete, already itemized Latin/en-US run in one selected native font.
 // UTF-16 source positions are kept through font-aware composition; user
 // text is not normalized. Missing glyphs remain zero for caller-owned fallback.
-// Script selection, bidi and fallback are not performed by this entry point.
 // Storage has the aliasing/lifetime rules of native_ascii_run. Scalars borrow
 // the components prefix; initial boundaries borrow targets; control provenance
-// borrows advances until the post-GSUB policy has consumed it. No allocation,
-// OS calls or external library. Failed attempts leave output lengths unset.
-// Layout callers can require coverage of every original scalar before font-aware
-// composition; a missing original then returns unsupported_sequence for fallback.
+// borrows advances until the post-GSUB policy has consumed it. No allocation.
+// Failed attempts leave output lengths unset.
+// With require_source_coverage, a missing original scalar (checked before
+// font-aware composition) returns unsupported_sequence so the caller can fall back.
 // force_shaping carries the containing font/effect range's eligibility decision
 // across script cuts. It keeps the same default features, not independent mode.
 SfntStatus native_latin_run(const NativeRunPlanStore&,NativeRunPlanHandle,Utf8View,
@@ -22,7 +21,7 @@ SfntStatus native_latin_shape_run(const NativeRunPlanStore&,NativeRunPlanHandle,
     SfntShapeStorage,SfntShapeRunResult*,SfntShapeLimits limits={}) noexcept;
 // Generic preparation for Khmer text that the font gate rejects. Uses
 // caller-selected roots over the parent run, nominal dependent vowels and
-// separate Khmer consonant shaping groups; editor graphemes are unaffected.
+// separate Khmer consonant shaping groups; grapheme boundaries are unaffected.
 SfntStatus native_khmer_fallback_shape_run(const NativeRunPlanStore&,NativeRunPlanHandle,Utf8View,bool independent,bool rtl,float em,
     SfntShapeStorage,SfntShapeRunResult*,ConstSlice<u16> substitutions,ConstSlice<u16> positioning,SfntShapeLimits limits={}) noexcept;
 }

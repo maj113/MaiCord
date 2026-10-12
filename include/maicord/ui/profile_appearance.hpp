@@ -59,8 +59,8 @@ inline UiTextEffect profile_name_effect(const NameStyle& style, bool animate,
 
 #include "maicord/ui/background_color_math.hpp"
 namespace maicord {
-// The official Nitro profile theme pipeline: colours are 0xRRGGBB, the
-// decision follows the primary colour.
+// Profile theme colours are 0xRRGGBB; the dark/light decision follows the
+// primary colour.
 constexpr float profile_darkness(u32 rgb) noexcept {
     return 1.f - (.299f * ((rgb >> 16) & 255) + .587f * ((rgb >> 8) & 255) + .114f * (rgb & 255)) / 255.f;
 }
@@ -104,8 +104,8 @@ inline double profile_contrast(u32 first, u32 second) noexcept {
                  b = background_color_luminance(background_color_rgb24(second));
     return a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05);
 }
-// Profile gradient button colour: P darkened/brightened in Lab steps of
-// 18 until its contrast with white is within [7, 10].
+// Profile gradient button colour: the primary colour darkened/brightened in Lab
+// lightness steps of 18 until its contrast with white is within [7, 10].
 inline u32 profile_button_color(u32 primary) noexcept {
     constexpr u32 white = 0xFFFFFF;
     u32 color = primary;
@@ -122,7 +122,7 @@ inline u32 profile_button_color(u32 primary) noexcept {
     }
     return color;
 }
-// Profile gradient modal background: the Lab midpoint of P and S
+// Profile gradient modal background: the Lab midpoint of primary and secondary
 // with its HSL lightness rounded and clamped to [0, .1] (dark) or [.8, 1].
 inline u32 profile_modal_background(u32 primary, u32 secondary, bool dark) noexcept {
     const auto p = profile_lab(primary), s = profile_lab(secondary);
@@ -134,9 +134,8 @@ inline u32 profile_modal_background(u32 primary, u32 secondary, bool dark) noexc
     return profile_rgb(background_color_from_hsl(hsl));
 }
 
-// The per-server profile as the official client resolves it: guild values
-// win when set, the accent colour is the user's.
-// Theme colours apply to Nitro (premium type 2) profiles and to previews.
+// The per-server profile: guild values win when set, the accent colour is the
+// user's. Theme colours apply to Nitro (premium type 2) profiles and to previews.
 struct ProfileDisplay {
     Utf8View bio, pronouns, banner, avatar, decoration;
     u32 theme[2];

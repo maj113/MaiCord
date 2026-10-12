@@ -195,8 +195,7 @@ bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base,
         profile->theme_colors[1] = draft.theme[1];
     }
     if (changed & profile_editor_effect) {
-        // The saved list without its effect, plus the new effect (the official
-        // client rebuilds collectibles_sku_ids the same way).
+        // The saved list without its effect, plus the new effect (collectibles_sku_ids).
         profile->fields |= profile_patch_collectibles;
         for (u32 i = 0; i < base.collectibles.count && profile->collectible_count < kProfileEditCollectibleMaximum; ++i)
             if (base.collectibles[i].type != ProfileCollectibleType::profile_effect && base.collectibles[i].sku)

@@ -7,7 +7,7 @@ namespace maicord {
 // character_glyphs temporarily hold original source groups. Input may borrow
 // the component prefix until mapping completes; other views are disjoint.
 // Preparation sees the whole run, including truncated kinzi before punctuation.
-// Legacy mode keeps source clusters/stages without reordering or circles.
+// modern=false keeps source clusters/stages without reordering or circles.
 // Failure leaves output lengths unset; scratch contents can change.
 SfntStatus sfnt_myanmar_shape_run(const SfntShapePlan&,const SfntCmap&,ConstSlice<u32>,
     float,SfntShapeStorage,SfntShapeRunResult*,ConstSlice<SfntLookupStep>,SfntShapeLimits limits={},bool rtl=false,bool modern=true) noexcept;

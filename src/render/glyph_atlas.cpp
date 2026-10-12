@@ -261,9 +261,8 @@ void glyph_atlas_clear_pins(GlyphAtlasAllocator* atlas) noexcept {
     }
     ++atlas->visibility_epoch;
     if (atlas->visibility_epoch == 0) {
-        // Entry/row epochs are 16-bit so the hot structure sizes remain
-        // unchanged. Rebase once per 65,535 visibility epochs; every ordinary
-        // frame is O(1), and the rare bounded scan prevents stale aliases.
+        // Epochs are 16-bit: on wrap, clear every stored epoch so stale
+        // entries cannot alias the new one.
         for (u32 index = 0; index < atlas->entry_capacity; ++index) {
             atlas->entries[index].visibility_epoch = 0;
         }
@@ -330,8 +329,8 @@ GlyphAtlasAllocation glyph_atlas_find(GlyphAtlasAllocator* atlas, u64 key) noexc
         return GlyphAtlasAllocation{{}, 0, 0, 0, 0, 0, GlyphAtlasError::invalid_input, false,
                                     false};
     }
-    // Stop after observing every live entry. Capacity is larger than the
-    // common working set, so scanning unused headroom would waste CPU.
+    // Stop once every live entry has been seen; capacity usually exceeds the
+    // working set.
     u32 remaining = atlas->entry_count;
     for (u32 index = 0; index < atlas->entry_capacity && remaining != 0;
          ++index) {

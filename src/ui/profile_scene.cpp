@@ -16,10 +16,9 @@
 namespace maicord {
 namespace {
 constexpr u32 capacity = 320;
-// The official client's text variants as size codes (1rem = the body size).
+// Text variants as size codes (1rem = the body size).
 constexpr u32 kXs = kTextStyleSizeCodeXs, kSm = kTextStyleSizeCodeSm, kMd = kTextStyleSizeCodeMd,
               kLg = text_style_heading_2, kXl = text_style_heading_1;
-// Popout and banner metrics.
 constexpr float kPopoutWidth = 300, kPopoutBanner = 105, kModalBanner = 140;
 struct Storage {
     UiWidget widgets[capacity * 2];
@@ -60,8 +59,8 @@ bool interactive(const ProfileScene& s) noexcept {
 bool modal(const ProfileScene& s) noexcept {
     return s.presentation == ProfilePresentation::modal;
 }
-// Resolved colours of one card: the official themed overrides for
-// a Nitro theme, else the application theme.
+// Resolved colours of one card: the profile's own theme colours when it has
+// one, else the application theme.
 struct Palette {
     Color primary, secondary, overlay, surface, banner, modal;
     Color text, strong, subtle, muted, border, hover, card, card_hover, input, button, button_hover;
@@ -114,7 +113,7 @@ Palette palette(const ProfileScene& s, const Theme& theme) noexcept {
     c.button = tokens.button;
     c.button_hover = tokens.button_hover;
     c.accent = packed(profile_button_color(s.theme_primary));
-    // color-mix(srgb, button 90%, black | white).
+    // Hover: the accent mixed 10% toward the darkest (dark theme) or lightest surface.
     c.accent_hover = mix(c.accent, s.theme_dark ? kDefaultTheme.base_lowest : kLightTheme.surface, .1f);
     c.accent_hover.alpha = 1;
     c.on_accent = theme.tokens.text.on_accent;
@@ -341,7 +340,7 @@ template <u32 N> bool append_number(ProfileString<N>* s, u64 n) noexcept {
         s->data[s->bytes++] = digits[--count];
     return true;
 }
-// "m:ss", or "h:mm:ss" from an hour (the official activity timer).
+// "m:ss", or "h:mm:ss" from an hour.
 template <u32 N> void clock_text(ProfileString<N>* out, u64 ms) noexcept {
     out->bytes = 0;
     const u64 seconds = ms / 1000, hours = seconds / 3600, minutes = seconds / 60 % 60, rest = seconds % 60;
@@ -513,8 +512,8 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
     return height;
 }
 
-// Section 1.7: the custom status thought bubble. Returns its height (0 when
-// there is no custom status). max_width bounds the whole bubble.
+// The custom status thought bubble. Returns its height (0 when there is no
+// custom status). max_width bounds the whole bubble.
 float status_bubble(ProfileScene* s, UiWidgetHandle owner, float left, float top, float max_width,
                     Utf8View card_line) noexcept {
     const auto* status = appearance(*s, appearance_activity);
@@ -566,9 +565,9 @@ float status_bubble(ProfileScene* s, UiWidgetHandle owner, float left, float top
     return height;
 }
 
-// Section 1.8.1: role pills. Popouts show at most two lines within the
-// content width and end with "+N"; the modal and an expanded popout list
-// every role. Returns the block height (0 without roles or add button).
+// Role pills. Popouts show at most two lines within the content width and end
+// with "+N"; the modal and an expanded popout list every role. Returns the
+// block height (0 without roles or add button).
 struct RoleItem {
     const RoleRecord* role;
     Utf8View name;
@@ -738,8 +737,8 @@ float plugin_section(ProfileScene* s, UiWidgetHandle owner, float left, float to
     return y;
 }
 
-// Section 1.8 (1): display name row, then username, pronouns, guild tag and
-// badges in one wrapping row. Returns the block height.
+// Display name row, then username, pronouns, guild tag and badges in one
+// wrapping row. Returns the block height.
 float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool large) noexcept {
     const auto& p = *s->profile;
     const auto display = p.nickname.bytes ? p.nickname.view() : p.display_name.view();
@@ -767,8 +766,7 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
     if (note && !icon(s, owner, {x, top, x + 24, top + 24}, UiIcon::file_text, ProfileAction::open_note))
         return -1;
     float y = top + line;
-    // Username row: flex wrap, column gap 9.33 (6 with pronouns or a bot tag),
-    // row gap 2 (4 in the modal).
+    // Username row wraps; column gap is 6 with pronouns or a bot tag, else 9.33.
     const auto pronouns = p.guild_pronouns.bytes ? p.guild_pronouns.view() : p.pronouns.view();
     const float gap = pronouns.bytes || bot(*s) ? 6.f : 9.33f;
     float cx = 0, row_top = y, row_height = 0;
@@ -958,8 +956,8 @@ float biography(ProfileScene* s, UiWidgetHandle owner, float left, float top, fl
                                        &size)
              .ok()) {
         // A rejected biography must not abort the shared text projection after
-        // clearing this card's widgets. Keep the rest of the profile usable,
-        // and leave its source untouched so a later layout can retry it.
+        // this card's widgets were cleared: show a placeholder, leave the
+        // source untouched so a later layout can retry.
         constexpr auto unavailable = utf8_literal("About me unavailable");
         copy_bytes(s->bio_display.data, unavailable.data, unavailable.bytes);
         s->bio_display.bytes = static_cast<u16>(unavailable.bytes);
@@ -1084,7 +1082,7 @@ bool finish(ProfileScene* s, UiRect viewport) noexcept {
     return true;
 }
 
-// Section 1: the popout (and the editor preview, which is the same card).
+// The popout (and the editor preview, which is the same card).
 bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
     const auto& p = *s->profile;
     const bool live = interactive(*s);
@@ -1252,7 +1250,7 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
     return finish(s, viewport);
 }
 
-// Body sections ---------------------------------------------------------------------------
+// Body sections
 float heading(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, Utf8View text) noexcept {
     return add(s, owner, {left, top, left + width, top + 16}, text, ProfileAction::none, kXs | text_style_bold,
                ProfileLook::plain, ProfileTone::subtle)
@@ -1291,7 +1289,7 @@ float member_since(ProfileScene* s, UiWidgetHandle owner, float left, float top,
     auto& l = labels(s);
     const float y = top + h;
     float x = left;
-    // The official logo is a trademarked asset; a calendar marks the account date.
+    // A generic calendar icon marks the account date; no brand asset is shipped.
     if (!icon(s, owner, {x, y + 1, x + 16, y + 17}, UiIcon::calendar, ProfileAction::none))
         return -1;
     x += 20;
@@ -1396,7 +1394,7 @@ float note_section(ProfileScene* s, UiWidgetHandle owner, float left, float top,
     note->wrap = true;
     return h + height;
 }
-// Section 2.2 buttons row by relationship.
+// Buttons row by relationship.
 float modal_buttons(ProfileScene* s, UiWidgetHandle owner, float left, float top) noexcept {
     if (s->relation == 4)
         return 0;
@@ -1426,7 +1424,7 @@ float modal_buttons(ProfileScene* s, UiWidgetHandle owner, float left, float top
         return -1;
     return 32;
 }
-// Section 2.3: the tab panel.
+// The tab panel.
 bool tab_panel(ProfileScene* s, UiRect panel, float bottom_pad) noexcept {
     const auto& p = *s->profile;
     auto& l = labels(s);
@@ -1544,7 +1542,7 @@ bool tab_panel(ProfileScene* s, UiRect panel, float bottom_pad) noexcept {
     return scroll_container(s, container->widget, s->secondary_scroll);
 }
 
-// Section 2: the full profile modal (V2).
+// The full profile modal.
 bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
     const float vw = ui_rect_width(viewport), vh = ui_rect_height(viewport);
     const bool wide = vw >= 929, tall = vh >= 785;
@@ -1879,7 +1877,7 @@ bool modal_background(const ProfileScene& s, const Theme& theme, const Palette& 
         !paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.modal, radius))
         return false;
     if (s.themed) {
-        // Inner veil: color-mix(overlay 80%, modal) fading to 20% at 300 DIPs.
+        // Inner veil: the overlay at 80% alpha fading to 20% over the top 300 DIPs.
         Color veil = c.overlay;
         const float low = .2f * veil.alpha, high = .8f * veil.alpha;
         Color constant = veil, top = veil, clear = veil;

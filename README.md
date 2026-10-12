@@ -154,6 +154,10 @@ src/text/          text shaping, bidi, line breaking, fonts, color emoji
 src/media/         image, video and audio decoders
 src/platform/      Win32: windows, TLS, CNG crypto, audio, notifications
 tests/             unit, integration and rendering tests (CTest)
+benchmarks/        opt-in freestanding benchmarks
+samples/plugins/   example plugins built against the SDK
+cmake/             build modules included by CMakeLists.txt
+config/            application manifest and resource scripts
 tools/             build, PE audit, perf harness and release scripts
 third_party/       Opus, Lucide icons, minimp3
 assets/            fonts, sounds, themes and license notices

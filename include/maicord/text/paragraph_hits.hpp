@@ -47,13 +47,13 @@ static_assert(sizeof(NativeParagraphHitMetric)==24&&sizeof(NativeParagraphHitRun
 // Query only immutable geometry successfully published by paragraph_layout.
 // The caller retains its storage. No font, OS object, allocation or glyph ID is
 // required. Source positions and range endpoints use shaping-cluster affinity.
-// Point queries publish the nearest logical caret, which is the editor's
-// contract; leading/trailing descriptions of the same caret are not retained.
+// Point queries publish the nearest logical caret; leading/trailing
+// descriptions of the same caret are not retained.
 SfntStatus native_paragraph_hit_position(const NativeParagraphHits&,u32,bool trailing,
     NativeParagraphHitMetric*,float* x) noexcept;
 SfntStatus native_paragraph_hit_point(const NativeParagraphHits&,float x,float y,
     NativeParagraphHitPoint*, u32* character = nullptr) noexcept;
-// Includes zero-area regions, as the raw reference API does. The actual count
+// Includes zero-area regions. The actual count
 // is returned even when capacity is insufficient. Origins are added at output.
 SfntStatus native_paragraph_hit_range(const NativeParagraphHits&,u32 first,u32 length,
     float origin_x,float origin_y,Slice<NativeParagraphHitMetric>,u32* count) noexcept;

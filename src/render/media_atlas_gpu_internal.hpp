@@ -238,10 +238,9 @@ void unbind_compute_resources(ID3D11DeviceContext1* context) noexcept;
 void unbind_compute(ID3D11DeviceContext1* context) noexcept;
 
 // The primary, animation and preview atlases occupy PS slots 0..2 while media
-// is drawn.  Atlas mutation can happen later in the same immediate-context
-// command stream, so every writable atlas path must remove all three aliases
-// before binding an atlas UAV/RTV.  Unbinding only slot zero leaves the preview
-// atlas simultaneously readable and writable.
+// is drawn. Every writable atlas path must unbind all three before binding an
+// atlas UAV/RTV; unbinding only slot zero leaves the preview atlas readable
+// and writable at once.
 void unbind_media_pixel_resources(ID3D11DeviceContext1* context) noexcept;
 
 void dispatch_png_shader(MediaAtlasGpu* gpu, ID3D11DeviceContext1* context,

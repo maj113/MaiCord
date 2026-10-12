@@ -7,8 +7,7 @@ def run(root,source,exe):
     root.mkdir(parents=True,exist_ok=True);data=json.loads(source.read_text());rows=[];contours=0
     for case in data['cases']:
         font=Path(case['font']['path']);assert identity(font)==case['font']
-        # The integrated bold path now widens its points. Use the unsimulated
-        # decode here to inspect original simple contour directions separately.
+        # Unsimulated decode: the original simple contour directions, before bold widening.
         p=subprocess.run([str(exe),str(font),'--simulate=0','--points',f'--instructions-state={case["glyph"]}'],capture_output=True,text=True,timeout=60,creationflags=0x08000000)
         log=root/f'{font.stem}-{case["glyph"]}.txt';log.write_text(p.stdout+p.stderr);assert p.returncode in [0,6],(font,case['glyph'],p.returncode)
         match=re.search(r'^native_contour_directions=([0-9,]+)$',p.stdout,re.M);assert match

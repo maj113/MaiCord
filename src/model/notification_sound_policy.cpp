@@ -29,8 +29,8 @@ NotificationMessageSoundDecision notification_message_sound_decide(const Notific
     if(!i.ready||!i.live||i.duplicate||i.optimistic||i.restrictions!=A::allowed||!i.focus_known)return d;
     const bool selected=i.selected==A::allowed;
     d.selected_direct=selected&&i.preference_known&&i.message1_enabled;
-    // T returns before ordinary notification processing while blurred, even
-    // when the shared message1 preference disables its actual selected sound.
+    // While unfocused, a selected candidate returns before ordinary notification
+    // processing, even when the message1 preference disables the selected sound.
     if((!i.focused&&i.selected!=A::denied)||i.ordinary!=A::allowed||i.overlay!=A::allowed||
         !i.desktop_type_known)return d;
     d.ordinary_notification=true;
@@ -56,8 +56,8 @@ NotificationSoundTransport notification_sound_transport(NotificationSoundNative 
     return disabled?NotificationSoundTransport::none:NotificationSoundTransport::fallback;
 }
 bool notification_message_sound_gain(float percent,float* gain) noexcept {
-    // Bit validation remains valid under the application's fast-float mode and
-    // needs no math/runtime import for NaN or infinity classification.
+    // NaN and infinity are classified by bits: correct under fast-float and
+    // needs no math/runtime import.
     if(!gain||!finite(percent)||percent<0.0f)return false;
     const float value=(percent/100.0f)*0.4f;*gain=value<1.0f?value:1.0f;return true;
 }
@@ -80,7 +80,7 @@ NotificationSoundInvocation notification_sound_throttle_request(NotificationSoun
     const bool invoking=should_invoke(*s,now);
     s->pending_request=request;s->pending=true;s->last_call_ms=now;s->has_last_call=true;
     if(invoking) {
-        // leadingEdge and the maxWait tight-loop branch both arm wait_ms.
+        // The leading edge and the maxWait branch both arm wait_ms.
         s->timer_active=true;s->deadline_ms=deadline(now,wait_ms);
         return invoke(s,now);
     }
@@ -89,10 +89,10 @@ NotificationSoundInvocation notification_sound_throttle_request(NotificationSoun
 }
 NotificationSoundInvocation notification_sound_throttle_timer(NotificationSoundThrottle* s,u64 now,u64 generation) noexcept {
     if(!s||!generation||generation!=s->generation||!s->timer_active)return {};
-    // An actual elapsed timer can observe Date.now() moving backwards. Lodash
-    // treats a negative time-since-last-call as its trailing edge; do not hide
-    // that branch behind the nominal absolute deadline. Ordinary early timer
-    // notifications still leave the current deadline/pending args untouched.
+    // An elapsed timer can observe the clock moving backwards. Lodash treats a
+    // negative time since the last call as its trailing edge, so that case must
+    // not be hidden behind the nominal deadline. Early timer notifications
+    // still leave the deadline and pending request untouched.
     if(now<s->deadline_ms&&now>=s->last_call_ms)return {};
     if(should_invoke(*s,now)) {
         s->timer_active=false;

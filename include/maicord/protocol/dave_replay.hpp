@@ -17,8 +17,8 @@ bool dave_frame_counter(u32 oldest_generation, u32 truncated_nonce, DaveFrameCou
 
 // One owner per sender/key epoch, shared by that sender's audio and video frames.
 // Missing counters stay eligible until consumed or displaced by 1000 newer gaps,
-// not merely until the largest nonce advances by 1000. The fixed ring retains
-// the official 1000-entry bound without packet allocation or unused extra slots.
+// not merely until the largest nonce advances by 1000. The fixed ring keeps the
+// 1000-entry bound without packet allocation or unused extra slots.
 // Keep this with the active DAVE decryptor, not with every idle member/SSRC.
 struct DaveReplay {
     u64 largest;

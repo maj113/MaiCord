@@ -24,11 +24,11 @@ UnicodeBidiStatus unicode_bidi_classify(ConstSlice<u32> scalars,Slice<UnicodeBid
 // remain the caller's policy; this function does not rewrite source text.
 UnicodeBidiStatus unicode_bidi_paragraph_end(ConstSlice<UnicodeBidiCell> cells,u32 first,u32* end) noexcept;
 // UAX #9 rev 51, P2 through I2, on one paragraph. A B is allowed only at the
-// end; the paragraph coordinator owns P1 splitting. FSI always uses P2/P3's
-// LTR fallback; auto_rtl is an explicit higher-level paragraph fallback.
-// Needs one u32 scratch slot per cell. No allocation. Inputs/working buffers
-// must not overlap and must remain exclusively owned during resolution.
-// On failure, working outputs are unusable and paragraph is cleared.
+// end; the caller splits paragraphs (P1). FSI always uses P2/P3's LTR
+// fallback; auto_rtl is an explicit higher-level paragraph fallback.
+// Needs one u32 scratch slot per cell; no allocation. Buffers must not overlap
+// and must stay exclusively owned during resolution. On failure, working
+// outputs are unusable and paragraph is cleared.
 UnicodeBidiStatus unicode_bidi_resolve(Slice<UnicodeBidiCell> cells,UnicodeParagraphDirection direction,
                                      Slice<u32> scratch,UnicodeBidiParagraph* paragraph) noexcept;
 // L1/L2 for [first,end). Does not change the paragraph's resolved levels.

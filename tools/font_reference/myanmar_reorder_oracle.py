@@ -16,8 +16,7 @@ def worker(args):
     if not cases or any(not s or len(s)>256 or sum(1+(c>65535) for c in s)>256 for s in cases):raise ValueError('Observer capacity')
     inputs=[identity(args.font),identity(args.reference),identity(args.case_file)]
     with TTFont(args.font) as font:
-        # The earlier input fixture accidentally advertised Khmer. Keep the
-        # intended modern profile an explicit precondition of this oracle.
+        # Precondition: the font advertises the modern Myanmar script (mym2).
         for tag in ('GSUB','GPOS'):
             if 'mym2' not in [r.ScriptTag for r in font[tag].table.ScriptList.ScriptRecord]:raise ValueError('Missing Myanmar script')
         cmap={c:font.getGlyphID(g) for c,g in font.getBestCmap().items()}

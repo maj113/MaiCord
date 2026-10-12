@@ -84,7 +84,7 @@ bool snowflake_string_array(const JsonIndexedDocument& document, JsonValue array
     return ok;
 }
 
-// ---- verification -----------------------------------------------------------
+// Verification
 
 struct FormPass {
     JsonIndexedDocument document;
@@ -167,7 +167,7 @@ bool form_member(void* opaque, JsonString name, JsonValue value) noexcept {
     return true;
 }
 
-// ---- onboarding ---------------------------------------------------------------
+// Onboarding
 
 struct OnboardingPass {
     JsonIndexedDocument document;
@@ -294,7 +294,7 @@ bool onboarding_member(void* opaque, JsonString name, JsonValue value) noexcept 
     return true;
 }
 
-// ---- events ---------------------------------------------------------------------
+// Scheduled events
 
 struct EventPass {
     JsonIndexedDocument document;
@@ -408,7 +408,7 @@ bool blank(Utf8View text) noexcept {
 }
 } // namespace
 
-// ---- requests ---------------------------------------------------------------------
+// Requests
 
 bool guild_community_operation_has_body(GuildCommunityOperation operation) noexcept {
     return operation == GuildCommunityOperation::verification_submit ||
@@ -524,9 +524,9 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
         result.route_id = kGuildProfileGetRouteId;
         break;
     case GuildCommunityOperation::guild_join:
-        // The server tag popout's Join on a discoverable server is a lurker
-        // join (lurker=true): the query names this Gateway session, which
-        // receives the GUILD_CREATE.
+        // Joining a discoverable server from its tag is a lurker join
+        // (lurker=true); session_id names the Gateway session that receives the
+        // GUILD_CREATE.
         ok = ok && guild_path() && route_append(&route, utf8_literal("/members/@me?lurker=true")) &&
              (!session_id.bytes || (route_append(&route, utf8_literal("&session_id=")) &&
                                     route_append(&route, session_id)));
@@ -556,7 +556,7 @@ u32 guild_community_write_join_body(Slice<u8> body) noexcept {
 }
 
 u32 guild_community_write_join_context(Slice<u8> output) noexcept {
-    // base64("{}"): JSON.stringify({source: undefined}).
+    // base64("{}"): an empty context object.
     static constexpr u8 kEmptyContext[]{'e', '3', '0', '='};
     const u32 written = rest_append_extra_header(output, 0, utf8_literal("X-Context-Properties"),
                                                  {kEmptyContext, sizeof(kEmptyContext)});
@@ -577,7 +577,7 @@ GuildCommunityOutcome guild_community_classify(u16 status) noexcept {
     return GuildCommunityOutcome::unavailable;
 }
 
-// ---- verification -----------------------------------------------------------------
+// Verification decoding
 
 bool guild_verification_decode(Utf8View body, Slice<u32> scratch, GuildVerificationForm* output) noexcept {
     if (!output)
@@ -774,7 +774,7 @@ GuildApplicationStatus guild_verification_decode_status(Utf8View body, Slice<u32
     return status;
 }
 
-// ---- onboarding ---------------------------------------------------------------------
+// Onboarding decoding
 
 bool guild_onboarding_decode(Utf8View body, Slice<u32> scratch, GuildOnboarding* output) noexcept {
     if (!output)
@@ -879,7 +879,7 @@ u32 guild_onboarding_write_responses(const GuildOnboarding& onboarding, u64 seen
     return ok ? w.used : 0;
 }
 
-// ---- events ---------------------------------------------------------------------------
+// Scheduled event decoding
 
 bool scheduled_event_decode(Utf8View object, Slice<u32> scratch, ScheduledEvent* output) noexcept {
     const auto s = scan(object, scratch);
@@ -1023,7 +1023,7 @@ u32 scheduled_event_write_link(u64 guild_id, u64 event_id, Slice<char> output) n
     return ok ? w.used : 0;
 }
 
-// ---- server profile -------------------------------------------------------------
+// Server profile
 
 namespace {
 struct ProfileParse {
@@ -1131,7 +1131,7 @@ bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
     } else if (json_string_equals_ascii(name, utf8_literal("features")) && value.kind == JsonValueKind::array)
         json_visit_indexed_array(*p.document, value, kDepth, visit_profile_feature, &o.features);
     else if (json_string_equals_ascii(name, utf8_literal("traits")) && value.kind == JsonValueKind::array) {
-        // Up to five {label, position}; the official client lays them out by position.
+        // Up to five {label, position}, laid out by position.
         ProfileTraits traits{p.document, {}};
         json_visit_indexed_array(*p.document, value, kDepth, visit_profile_trait, &traits);
         o.trait_count = 0;

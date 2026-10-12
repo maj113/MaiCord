@@ -53,10 +53,10 @@ SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap
     const u32 count=sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer));if(!work.spend(static_cast<u64>(count)*2))return SfntStatus::resource_limit;
     auto status=sfnt_glyph_buffer_seek(buffer,count,static_cast<u64>(count)*2);if(status!=SfntStatus::ok)return status;
     Slice<SfntComponentGlyph> glyphs{reinterpret_cast<SfntComponentGlyph*>(buffer->storage.data),count};
-    // The original matra slot is dead here (Malayalam retains its node in
-    // initial.base). Borrow it across pref;
-    // the glyph identity fits existing padding. Later stages cannot make an
-    // earlier non-substitution appear eligible for pre-base reordering.
+    // The original matra slot is dead here (Malayalam keeps its node in
+    // initial.base), so it is borrowed across pref; the glyph identity fits
+    // existing padding. This keeps an unsubstituted glyph from looking eligible
+    // for pre-base reordering at later stages.
     if(pref_boundary){u32 at=nil;status=locate(*forest,glyphs,p.pre,&at,work);if(status!=SfntStatus::ok)return status;
         if(stage==static_cast<u16>(SfntDevanagariStage::pre_base)){
             p.initial.pre_matra=at==nil?nil:glyphs[at].component;p.pref_glyph=at==nil?0:glyphs[at].glyph.glyph;
@@ -110,8 +110,8 @@ SfntStatus prepare(void* opaque,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap
             if((p.profile==SfntIndicProfile::telugu||p.profile==SfntIndicProfile::kannada||p.profile==SfntIndicProfile::malayalam)&&p.pre==nil&&(glyphs[i].glyph.reserved&sfnt_deva_pre)&&(p.forms[original]&sfnt_deva_pre))p.pre=node;
             if(original==p.initial.base)p.base=node;if(original==p.initial.pre_matra){if(p.profile==SfntIndicProfile::malayalam)malayalam_matra=node;else p.pre=node;}if(!original&&p.initial.reph_end)p.reph=node;
         }
-        // Source base is no longer needed once the metadata is stored. Retain
-        // Malayalam's separate left-vowel node here across the pref stages.
+        // The source base is no longer needed once metadata is stored; Malayalam's
+        // separate left-vowel node takes its place across the pref stages.
         if(p.profile==SfntIndicProfile::malayalam)p.initial.base=malayalam_matra;
         return SfntStatus::ok;
     }
@@ -192,8 +192,8 @@ SfntStatus finish(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u
     for(u32 i=0;i<glyphs.count;++i){auto& g=glyphs[i];u8 metadata=0;const auto status=role(*p.forest,g,&metadata,work);if(status!=SfntStatus::ok)return status;
         const bool control=(metadata&control_role)&&g.component!=nil&&p.forest->nodes[g.component].count==1;
         if(control)g.glyph.glyph=p.space;g.glyph.glyph_class=sfnt_gdef_glyph_class(*p.gdef,g.glyph.glyph);
-        // Eligibility is dead after GSUB. Retain control identity in the same
-        // byte for run tracking after component scratch is reused.
+        // Eligibility is dead after GSUB; the same byte then carries control
+        // identity for run tracking once component scratch is reused.
         if(p.profile!=SfntIndicProfile::devanagari)g.glyph.reserved=static_cast<u8>(control);
         if(p.profile==SfntIndicProfile::odia&&(metadata&half_nukta_role)&&g.glyph.glyph_class==SfntGlyphClass::mark){
             g.glyph.reserved|=sfnt_mark_source_target;}

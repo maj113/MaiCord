@@ -15,7 +15,7 @@ template<class Binding> struct NativeStyledSpan {
 static_assert(sizeof(NativeStyledSpan<void>)==24);
 // Analysis uses an 8-bit script ID and three independent shaping flags. The
 // transient byte array stores only the ID; flags travel with the span record.
-// Expose the combined 11-bit value while the existing grouping passes run.
+// Reference exposes the combined 11-bit value (script<<3 | flags) to the grouping passes.
 template<class Span> struct NativeSpanAnalysis {
     u8* scripts;Span* spans;
     struct Reference {

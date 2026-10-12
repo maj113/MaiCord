@@ -128,8 +128,8 @@ bool compare(const wchar_t* path) noexcept {
         for(u32 i=0;i<count;++i) {
             const bool isolate_control=cells[i].scalar>=0x2066 && cells[i].scalar<=0x2069;
             const bool excluded=levels[i]==255 || isolate_control;
-            // The new metric cannot hide unexpected source exclusion. Preserve
-            // the old raw counter, including differing control marker values.
+            // Candidate exclusion must match the source, and raw bidi classes must
+            // agree, control markers included.
             if((candidate_levels[i]==255)!=excluded || cells[i].original!=unicode_properties(cells[i].scalar)->bidi_class()){ok=false;break;}
             if(levels[i]!=255 && candidate_levels[i]!=dw[i])++candidate_diff;
             if(excluded){++candidate_removed;isolate_removed+=isolate_control;}

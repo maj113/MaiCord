@@ -79,8 +79,8 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
     for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);if(!cp.valid)return SfntStatus::invalid_input;
         if(count>=capacity||count>=s.mapped.count)return SfntStatus::output_too_small;
         bool boundary=false;if(!unicode_grapheme_next(&graphemes,cp.codepoint,&boundary))return SfntStatus::invalid_input;
-        // The rejected-font generic provider does not apply Khmer conjunct
-        // joining. This changes shaping groups only, not editor graphemes.
+        // The generic fallback provider does not apply Khmer conjunct joining.
+        // This changes shaping groups only, not editor graphemes.
         if(khmer_fallback&&cp.codepoint>=0x1780&&cp.codepoint<=0x17b3)boundary=true;
         bool invalid_thai=false;
         // A synthetic dotted circle does not make a missing consonant valid
@@ -95,9 +95,9 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
             }else if(kind==4)invalid_thai=thai_base_class==0||thai_base_class==8||thai_previous_class==4||thai_previous_class==5;
             else if(kind==5)invalid_thai=thai_base_class!=2;
             else if(kind==6){invalid_thai=thai_base_class!=2;thai_base_class=6;}
-            // Synthetic circles never become a valid base. Two class bytes
-            // retain the reference's validity state; existing mapped metadata
-            // handles lower-mark/phinthu reordering and Sara Am expansion.
+            // Synthetic circles never become a valid base. Two class bytes carry the
+            // validity state; mapped metadata handles lower-mark/phinthu reordering
+            // and Sara Am expansion.
             if(invalid_thai){boundary=true;thai_base_class=8;}
             thai_previous_class=kind;
         }else if(thai){const auto category=unicode_properties(cp.codepoint)->general_category();
@@ -110,13 +110,12 @@ SfntStatus alphabetic_run(const NativeRunPlanStore& store,NativeRunPlanHandle ha
             ((scalars[count-1]>=0x1100&&scalars[count-1]<=0x11ff)||(scalars[count-1]>=0x3130&&scalars[count-1]<=0x318f)||(scalars[count-1]>=0xffa0&&scalars[count-1]<=0xffdc));
         if(repeated_tone||jamo_tone)boundary=true;
         // Windows keeps halfwidth kana sound marks as separate initial shape
-        // clusters. Font ligatures can still merge them during GSUB. This is
-        // a script shaping policy; Unicode grapheme/editor boundaries stay
-        // independent and must not be changed to obtain this cluster map.
+        // clusters; font ligatures can still merge them during GSUB. This is a
+        // shaping policy and leaves Unicode grapheme/editor boundaries alone.
         if((cp.codepoint==0x200c&&!thai)||(egyptian&&cp.codepoint==0x200d)||(profile&&profile->script_tag==sfnt_tag('k','a','n','a')&&
             (cp.codepoint==0xff9e||cp.codepoint==0xff9f)))boundary=true;
-        // The app's current en-US Hangul path retains scalar shape boundaries,
-        // including conjoining Jamo. Grapheme/editor boundaries stay separate.
+        // The en-US Hangul path keeps scalar shape boundaries, including
+        // conjoining Jamo. Grapheme/editor boundaries stay separate.
         if(profile&&profile->script_tag==sfnt_tag('h','a','n','g')&&cp.codepoint!=0x302e&&cp.codepoint!=0x302f&&unicode_properties(cp.codepoint)->script()==UnicodeScript::hang)boundary=true;
         if(boundary){if(boundary_count==s.shaping.targets.count)return SfntStatus::output_too_small;s.shaping.targets[boundary_count++]=units;}
         // Unicode 17 selectors begin with E1, EF or F3 in UTF-8. Ordinary

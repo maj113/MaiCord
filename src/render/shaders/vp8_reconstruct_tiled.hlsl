@@ -1,6 +1,6 @@
-// Tiled VP8 prediction from the supplied research, integrated and checked on D3D11.
-// Each group owns two rows and eight ranks of (mb_x + 2*mb_y, mb_y).
-// Ordered dispatches publish external borders; intra-tile borders stay shared.
+// Tiled VP8 intra prediction. Each group owns two macroblock rows and eight
+// ranks of (mb_x + 2*mb_y, mb_y). Ordered dispatches publish external tile
+// borders; borders inside a tile stay in shared memory.
 #define VP8_TILE_ROWS 2
 #define RESIDUAL_BLOCK_BYTES 64u
 
@@ -36,8 +36,6 @@ int ReadResidual(uint mb_base, uint block, uint x, uint y) {
     return asint(vp8_yuv.Load(mb_base + block * RESIDUAL_BLOCK_BYTES + y * 16u + x * 4u));
 }
 
-// Shared memory per row slot = 597 uints = 2388 bytes.
-// Two row slots use 4776 shared bytes and 128 threads.
 // Bottom cache: four generations, each [Y16,U8,V8]. Right cache: [Y16,U8,V8].
 groupshared uint gs_bottom[VP8_TILE_ROWS * 4 * 32];
 groupshared uint gs_right[VP8_TILE_ROWS * 32];
@@ -305,9 +303,9 @@ void vp8_reconstruct(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID) {
                 if (y == 15u) gs_bottom[(row * 4u + (rank & 3u)) * 32u + x] = value;
             }
         }
-        // The next rank uses ONLY shared borders for intra-tile dependencies.
-        // Global stores are consumed only by later DISPATCHES. No UAV fence,
-        // inter-group polling, globallycoherent declaration, or spinlock needed.
+        // The next rank uses only shared borders for intra-tile dependencies.
+        // Global stores are consumed only by later dispatches, so no UAV fence
+        // or inter-group synchronization is needed.
         GroupMemoryBarrierWithGroupSync();
     }
 }

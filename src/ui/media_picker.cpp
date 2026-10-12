@@ -488,8 +488,7 @@ bool select_available(UiMediaPickerScene& scene, u32 first, i32 direction) noexc
     return false;
 }
 } // namespace
-// Emoji counterparts of the official client's rail icons: clock, star, reaction,
-// nature, food, game controller, bicycle, object, heart and flag.
+// Emoji stand-ins for the category rail icons.
 Utf8View ui_media_picker_section_glyph(UiMediaPickerSectionVisual visual) noexcept {
     switch (visual) {
     case UiMediaPickerSectionVisual::recent: return utf8_literal("\xF0\x9F\x95\x92");     // clock three

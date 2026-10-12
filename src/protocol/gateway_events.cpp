@@ -87,9 +87,8 @@ bool visit_hello_member(void* opaque, JsonString name, JsonValue value) noexcept
 
 bool visit_ready_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<ReadyContext*>(opaque);
-    // Notification-policy damage is recoverable independently of transport.
-    // Preserve the raw, immutable value for the preflight producer rather than
-    // letting one malformed optional policy field terminate READY.
+    // Policy fields are kept raw for the preflight producer, so one malformed
+    // optional field cannot fail READY.
     u32 policy_bit=0;JsonValue*policy=nullptr;
     if(json_string_equals_ascii(name,utf8_literal("user_guild_settings"))){policy_bit=1u<<15;policy=&context->ready.user_guild_settings;}
     else if(json_string_equals_ascii(name,utf8_literal("user_settings_proto"))){policy_bit=1u<<16;policy=&context->ready.user_settings_proto;}

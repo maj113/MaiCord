@@ -51,15 +51,16 @@ struct AttachmentDownloadFilenameResult {
 
 // Produces one NUL-terminated Windows filename component from the attachment
 // metadata name (not an encoded URL). Replaces separators, ADS punctuation,
-// controls and bidi overrides; avoids devices and trailing dots/spaces.
-// Truncation respects UTF8 scalars and retains ordinary/risky extensions.
-// Input is bounded at 2048 UTF8 bytes; output at 512 bytes and 240 UTF16 units.
-// These component limits are native policy, not server behavior.
+// controls and bidi overrides; avoids device names and trailing dots/spaces.
+// Truncation keeps whole UTF-8 scalars and an extension of up to 64 UTF-16
+// units. Input is at most 2048 bytes; output at most 512 bytes and 240 UTF-16
+// units (local policy, not a server limit).
 AttachmentDownloadFilenameResult attachment_download_safe_filename(
     Utf8View metadata_filename, Slice<char> output) noexcept;
 
-// Exact downloaded-client extension set; a warning signal, never a statement
-// that the server scanned bytes or that an unlisted file is safe to execute.
+// Executable, installer, script and archive extensions treated as risky; a
+// warning signal, never a statement that the server scanned bytes or that an
+// unlisted file is safe to execute.
 bool attachment_download_risk_extension(Utf8View filename) noexcept;
 
 } // namespace maicord

@@ -59,8 +59,6 @@ def commands(font, glyph, oblique=False):
 
 
 def widen(commands, matrix_scale, units, oblique=False):
-    # Store only polygon positions and indices. No per-point heap nodes, copied
-    # segment endpoints, or shifted-edge arrays are needed by this model.
     points, contours, begin = [], [], 0
     for kind, values in commands:
         if kind == 0:

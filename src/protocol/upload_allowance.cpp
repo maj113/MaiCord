@@ -29,7 +29,7 @@ bool assignment(void* opaque, u32, JsonValue value) noexcept {
             f.seen |= static_cast<u8>(1u << index); return true;
         }, &fields);
     if (!parsed.ok()) return false;
-    // Murmur3 hashes verified against the public client's Apex name hashing.
+    // Murmur3 hashes of the four assignment names the policy reads.
     constexpr u32 hashes[]{3942863072u, 587404649u, 981354709u, 3383307794u};
     for (u32 i = 0; i < 4; ++i) if (fields.hash == hashes[i]) {
         if (!fields.valid || (fields.seen & 3) != 3) return false;

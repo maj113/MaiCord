@@ -290,7 +290,7 @@ bool ui_shortcuts_scene_paint(const UiShortcutsScene& s, const Theme& t, PaintSt
         const auto& row = s.content->rows[i];
         if (row.header)
             continue;
-        // Hairline between rows of a group, as in the official combos list.
+        // Hairline between rows of a group.
         if (i + 1 < s.row_count && !s.content->rows[i + 1].header)
             ok = paint_stream_push(out, r.left, r.bottom - 1, r.right, r.bottom, ui_theme_color_alpha(t.surface_high, .6f));
         ok = ok && each_cap(row, r, [&](Utf8View key, UiRect cap) noexcept {

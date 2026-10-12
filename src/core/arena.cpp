@@ -26,9 +26,8 @@ usize system_page_size() noexcept {
     SYSTEM_INFO info{};
     GetSystemInfo(&info);
     const u32 page_size = info.dwPageSize;
-    // Page size is fixed for this process. Racing first users may both query;
-    // publishing the same scalar needs no initialization lock or wait path.
-    // Do not retain an invalid result: the caller rejects it and can retry.
+    // Page size is fixed per process, so racing first callers publish the same
+    // value without a lock. An invalid result is not cached; the caller rejects it.
     if (is_power_of_two(page_size))
         InterlockedCompareExchange(&g_page_size, static_cast<LONG>(page_size), 0);
     return page_size;
@@ -80,7 +79,6 @@ bool arena_initialize(Arena* arena, usize reserve_bytes, usize initial_commit_by
         return false;
     }
 
-    // Avoid a second allocation call when the whole reservation is committed.
     u8* base;
     if (initial_commit == reserved) {
         base = static_cast<u8*>(VirtualAlloc(nullptr, reserved, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -122,8 +120,6 @@ void* arena_allocate(Arena* arena, usize bytes, usize alignment) noexcept {
     if (arena->offset > arena->reserved) {
         return nullptr;
     }
-    // The OS reservation bounds the address range; compute only the padding
-    // needed inside it rather than rounding an absolute pointer twice.
     const usize address = reinterpret_cast<usize>(arena->base) + arena->offset;
     const usize padding = (usize{0} - address) & (alignment - 1);
     const usize remaining = arena->reserved - arena->offset;

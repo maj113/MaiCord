@@ -32,7 +32,7 @@ SfntStatus native_myanmar_run(const NativeRunPlanStore&,const NativeMyanmarPlan&
     float,SfntShapeStorage,SfntShapeRunResult*,SfntShapeLimits limits={},bool rtl=false,float trailing_spacing=0) noexcept;
 // Exact corresponding output-prefix aliases are permitted as in native_ascii_run.
 // Missing final glyph IDs reject compact publication; control-ID aliasing follows
-// the observed Myanmar policy. Failures publish no output lengths.
+// the Windows Myanmar policy. Failures publish no output lengths.
 SfntStatus native_myanmar_run(const NativeRunPlanStore&,const NativeMyanmarPlan&,Utf8View,
     float,const NativeAsciiStorage&,NativeAsciiResult*,SfntShapeLimits limits={},bool rtl=false,float trailing_spacing=0) noexcept;
 }

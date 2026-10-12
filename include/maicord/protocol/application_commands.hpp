@@ -36,7 +36,7 @@ void command_index_release(CommandIndex*) noexcept;
 // metadata stays intact, including its version and root/subcommand structure.
 bool command_data(const ApplicationCommand&, Utf8View options_json, ProtocolWriter*) noexcept;
 // Context menu invocation data: {"version","id","guild_id"?,"name","type",
-// "options":[],"application_command","target_id"} as the official client sends.
+// "options":[],"application_command","target_id"}.
 bool command_context_data(const ApplicationCommand&, u8 type, u64 target_id, ProtocolWriter*) noexcept;
 // Parses named composer arguments (name:value, with optional JSON-quoted strings).
 // Values retain their declared wire type; unknown/duplicate/missing arguments fail.

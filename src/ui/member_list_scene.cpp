@@ -275,8 +275,8 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
             while (text.bytes && text.bytes < group_name.bytes &&
                    (static_cast<u8>(group_name.data[text.bytes]) & 0xC0) == 0x80)
                 --text.bytes;
-            // The official client's member group heading: "ONLINE — 75,000" (ASCII letters
-            // uppercased, em dash, grouped digits).
+            // Group heading format: "ONLINE — 75,000" (ASCII letters uppercased,
+            // em dash, grouped digits).
             for (u32 i = 0; i < text.bytes; ++i) {
                 const char c = group_name.data[i];
                 text.data[i] = c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
@@ -591,8 +591,7 @@ const MemberMediaCacheEntry* member_media_entry(const MemberListScene& s, u32 in
     entry.state = state;
     const float x = -node->rectangle.left, y = -node->rectangle.top;
     const UiBadgeWidget badge = member_list_badge_resolve(s, index);
-    // A label beyond the copy (none today: guild tags are at most 32 bytes)
-    // keeps resolving uncached.
+    // A label too long for the copy stays uncached (0xFF) and keeps resolving.
     entry.badge_bytes = badge.owner.generation ? 0xFF : 0;
     if (badge.owner.generation && badge.label.bytes <= sizeof(entry.badge_text)) {
         entry.badge = true;

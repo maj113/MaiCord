@@ -82,9 +82,9 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
     if(kannada&&ra&&(forms[0]&sfnt_deva_reph)&&n>4&&categories[1]==C::nonjoiner&&categories[2]==C::halant&&
         (categories[3]==C::joiner||scalars[3]==0xa0))value.base=first_base;
     if(n)value.needs_dotted_circle=(malayalam&&scalars[0]==0xd4e&&value.base==nil)||categories[0]==C::joiner||(value.base==nil&&categories[0]>=C::nukta&&categories[0]!=C::nonjoiner&&categories[0]!=C::medial);
-    // A dot reph after only joiners/NBSP has no main consonant. The
-    // observed broken cluster keeps that prefix, then supplies its base.
-    // A real leading dotted circle is a different, already valid cluster.
+    // A dot reph after only joiners/NBSP has no main consonant; the broken
+    // cluster keeps that prefix, then supplies its base. A real leading dotted
+    // circle is already a valid cluster.
     u32 broken_reph=inserted_circle?1u:0u;
     if(malayalam){while(broken_reph<n&&(categories[broken_reph]==C::joiner||scalars[broken_reph]==0xa0))++broken_reph;
         if(broken_reph>(inserted_circle?1u:0u)&&broken_reph<n&&scalars[broken_reph]==0xd4e){
@@ -115,22 +115,20 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
                 if(i>=first&&i<=pre_consonant)mask|=sfnt_deva_pre;}}
         masks[i]=mask;
         if(categories[i]==C::pre&&(!(bengali||odia||malayalam)||value.pre_matra==nil))value.pre_matra=i;
-        // The fixed-size local permutation never changes the user's source
-        // positions. Nuktas and Vedic marks retain their source/component identity.
+        // Only the local permutation changes, never source positions; nuktas and
+        // Vedic marks keep their source/component identity.
         if(combining[i]){u32 at=i;while(at){const auto previous=combining[order[at-1]];
             if(!previous||previous<=combining[i])break;order[at]=order[at-1];--at;}order[at]=i;}
     }
-    // The no-post-form Malayalam fallback uses consonant/halant order for
-    // default post/below groups. Preserve original source identities while
-    // moving only the permutation, before font substitutions can consume it.
+    // The no-post-form Malayalam fallback uses consonant/halant order for default
+    // post/below groups. Only the permutation moves; source identities are kept.
     if(malayalam&&value.base!=nil)for(u32 at=1;at<n;++at){const u32 original=order[at];
         if(original>value.base&&(forms[original]&indic_default_position)&&categories[order[at-1]]==C::halant){u32 end=at;
             while(end+1<n&&(categories[order[end+1]]==C::joiner||categories[order[end+1]]==C::nonjoiner||scalars[order[end+1]]==0xa0))++end;
             move_order(order,at-1,end);at=end;}}
-    // Kannada moves the base group's control before its halant. For a
-    // direct consonant/control/consonant group, the observed preparation
-    // replaces the preceding slot with the halant. Reuse the otherwise
-    // unused Kannada tail-sign slot; original source ownership is retained.
+    // Kannada moves the base group's control before its halant. For a direct
+    // consonant/control/consonant group, Windows replaces the preceding slot with
+    // the halant; this uses the otherwise unused tail-sign slot and keeps source ownership.
     if(kannada&&value.base!=nil&&categories[value.base]!=C::vowel){u32 control=value.base+1;
         while(control+1<n&&(categories[control+1]==C::nukta||categories[control+1]==C::halant||
             categories[control+1]==C::nonjoiner||categories[control+1]==C::joiner||scalars[control+1]==0xa0)){
@@ -140,9 +138,9 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
             if(categories[halant]!=C::halant){value.tail_sign=static_cast<u8>(halant+1);categories[halant]=C::halant;masks[halant]|=sfnt_deva_below;}
             u32 from=0,to=0;for(u32 at=0;at<n;++at){if(order[at]==halant)from=at;if(order[at]==control)to=at;}
             move_order(order,from,to);}}
-    // The Odia upper modifier also occupies a slot within a multi-mark tail.
-    // Frozen Windows output advances that slot once per four tail scalars. Keep
-    // the source identity of the replaced slot; only its shaping role changes.
+    // The Odia upper modifier also occupies a slot within a multi-mark tail,
+    // advancing once per four tail scalars as in Windows. The replaced slot keeps
+    // its source identity; only its shaping role changes.
     const auto bindu_slot=[&]() noexcept {u32 first=nil,start=0;
         if(!n||categories[n-1]!=C::bindu)return;
         for(u32 at=0;at<n;++at)if(categories[order[at]]==C::pre)start=at+1;
@@ -182,11 +180,10 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
             categories[i]=value.pre_matra!=nil&&(leading&(1u<<i))?C::vedic:C::nukta;
     }
     if(odia&&value.pre_matra!=nil)bindu_slot();
-    // Observed modern Windows tail-slot behavior: without a Vedic tail, a
-    // terminal non-joiner after a modifier also occupies the slot immediately
-    // following the first canonically ordered matra (a quarter-tail offset
-    // for Odia). Preserve that original
-    // source identity while moving the control slot after the remaining matras.
+    // Windows tail-slot behavior: without a Vedic tail, a terminal non-joiner
+    // after a modifier also occupies the slot immediately following the first
+    // canonically ordered matra (a quarter-tail offset for Odia). The replaced
+    // slot keeps its source identity; the control slot moves after the remaining matras.
     if(any_matra&&n&&categories[n-1]==C::nonjoiner){bool sign=false,vedic=false;u32 first=nil;
         for(u32 i=0;i<n;++i){const auto c=categories[order[i]];if(first==nil&&(c==C::pre||c==C::above||c==C::below||c==C::post||(odia&&scalars[order[i]]==0xb55)))first=i;
             if(first!=nil){sign|=c==C::bindu||c==C::visarga;vedic|=c==C::vedic;}}
@@ -238,10 +235,9 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
     if(southern&&!malayalam&&value.base!=nil){u32 target=nil,movable=0,pending=0,parts=0;
         const auto before_subscript=[&](u32 scalar) noexcept {const u32 part=scalar-block;
             return (part>=0x3e&&part<=0x42)||(part>=0x46&&part<=0x4c)||(!kannada&&(part==0x55||part==0x56))||part==0x62||part==0x63;};
-        // Frozen Windows output leaves a contiguous vowel group in source
-        // order once it contains more than six before-subscript pieces. A
-        // halant ends the group; Kannada after-subscript pieces do too.
-        // Record eligible source slots in one bitset.
+        // Windows leaves a contiguous vowel group in source order once it has more
+        // than six before-subscript pieces. A halant ends the group; Kannada
+        // after-subscript pieces do too. Eligible source slots go in one bitset.
         for(u32 at=0;at<=n;++at){const auto c=at<n?categories[order[at]]:C::other;
             if(at<n&&(c==C::above||c==C::below||c==C::post)&&before_subscript(scalars[order[at]])){pending|=1u<<order[at];++parts;}
             if((c!=C::above&&c!=C::below&&c!=C::post&&c!=C::nukta)||(kannada&&at<n&&after_subscript(scalars[order[at]]))){if(parts<=6)movable|=pending;pending=parts=0;}}

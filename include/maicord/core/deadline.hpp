@@ -4,7 +4,7 @@
 
 namespace maicord {
 
-// INFINITE: a Win32 wait that never times out (checked in src/app/account_video_session.cpp).
+// INFINITE: a Win32 wait that never times out.
 inline constexpr u32 kInfiniteWaitMilliseconds = 0xFFFFFFFFu;
 inline constexpr u32 kFiniteWaitMaximumMilliseconds = 0xFFFFFFFEu;
 

@@ -29,12 +29,11 @@ enum class EmojiCategory : u8 {
 
 inline constexpr u32 kEmojiCategoryCount = 8;
 
-// The shared name and glyph pools ship as one deflate stream (~24 KB instead of
-// ~106 KB of .rdata). unicode_emoji_catalog(), emoji_shortcodes() and the
-// lookups below inflate it once, on first use, into private read-write pages
-// that stay committed for the process lifetime; entries are only reachable
-// through those calls, so name()/glyph() never observe an uninflated pool.
-// If the one allocation fails, the catalog and shortcode tables are empty.
+// The shared name and glyph pools ship as one deflate stream to keep .rdata small.
+// unicode_emoji_catalog(), emoji_shortcodes() and the lookups below inflate it once,
+// on first use, into private read-write pages kept for the process lifetime; entries
+// are reachable only through those calls, so name()/glyph() never see an uninflated
+// pool. If the allocation fails, the catalog and shortcode tables are empty.
 namespace emoji_pool_detail {
 extern const char* catalog_names;
 extern const char* catalog_glyphs;

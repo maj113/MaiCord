@@ -205,7 +205,7 @@ template <u32 N> void literal(char (&text)[N], u8& count, const char* value) noe
     while (*value && count < N)
         text[count++] = *value++;
 }
-// "{n} vote(s)" with grouped digits, as the official client formats it.
+// "{n} vote(s)" with grouped digits.
 template <u32 N> void votes_label(char (&text)[N], u8& count, u64 votes) noexcept {
     number(text, count, votes, true);
     literal(text, count, votes == 1 ? " vote" : " votes");
@@ -224,7 +224,7 @@ void labels(UiPollProjection& projection, const UiPollStyle& style) noexcept {
             continue;
         }
         votes_label(projection.count_text[i], projection.count_bytes[i], answer.count);
-        // Math.round(100 * votes / total); total sums every answer's votes.
+        // 100 * votes / total rounded half up; total sums every answer's votes.
         u32 percent = 0;
         if (state.total_votes_known && state.total_votes && answer.count <= state.total_votes)
             percent = minimum(static_cast<u32>((static_cast<u64>(answer.count) * 200u + state.total_votes) /
@@ -256,7 +256,7 @@ void labels(UiPollProjection& projection, const UiPollStyle& style) noexcept {
     if (state.total_votes_known)
         votes_label(projection.summary_text, projection.summary_bytes, state.total_votes);
     if (projection.expiry_bytes) {
-        // Details after the first are preceded by a U+2219 bullet with 0.5 rem margins.
+        // Details after the first are preceded by a U+2219 bullet.
         if (projection.summary_bytes)
             literal(projection.summary_text, projection.summary_bytes, " \xE2\x88\x99 ");
         for (u32 i = 0; i < projection.expiry_bytes && projection.summary_bytes < sizeof(projection.summary_text);
@@ -323,13 +323,13 @@ bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollS
     layout.content_signature = content_signature(state, style);
     auto& geometry = layout.geometry;
     const float left = style.padding, right = width - style.padding;
-    // Answer rows: 8-DIP vertical padding (half the 16-DIP inline padding), an
-    // 8-DIP gap between label, votes and icon.
+    // Answer rows: vertical padding is half the inline padding; item_gap
+    // separates label, votes and icon.
     const float row_vertical = style.answer_padding * .5f, item_gap = style.gap;
     if (right - left < 2 * style.answer_padding + style.marker + item_gap)
         return false;
     UiTextMeasureValue measured{};
-    // Header grid: question/prompt beside a reserved 24-DIP info column.
+    // Header grid: question/prompt beside a reserved info column.
     const float info_column = style.marker + style.gap;
     const float header_right = right - left > info_column + style.marker ? right - info_column : right;
     if (!measure(state, question(state, style), 0, style.question_style, header_right - left, false, cache,
@@ -359,8 +359,8 @@ bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollS
         !measure(state, utf8_literal("100%"), 3, style.percent_style, kMaximumUiCoordinate, true, cache, backend,
                  &percent_size))
         return false;
-    // Narrower than the reference 302-DIP minimum card, the count goes first and
-    // then the percentage, so a label always keeps room to wrap.
+    // In narrow cards the vote count is dropped first, then the percentage, so
+    // a label always keeps room to wrap.
     const float label_room = right - left - 2 * style.answer_padding - style.marker - item_gap -
                              (style.emoji_extent + 2 + item_gap);
     const float full_votes = count_size.size.width + item_gap + percent_size.size.width;
@@ -387,7 +387,7 @@ bool ui_poll_measure_layout(const UiPollState& state, float width, const UiPollS
         text_heights[i] = text_height;
         row_text_height = maximum(row_text_height, text_height);
     }
-    // grid-auto-rows: 1fr makes every answer as tall as the tallest.
+    // Every answer row is as tall as the tallest.
     const float row_height = maximum(style.answer_minimum_height, 2 * row_vertical + row_text_height);
     for (u32 i = 0; i < state.answers.count; ++i) {
         const auto& answer = state.answers[i];
@@ -492,7 +492,7 @@ bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, c
     } else
         geometry.results = {};
     if (layout.geometry.footer_rows == 1) {
-        // The details text ends before the actions (margin-inline-end: auto).
+        // The details text ends before the actions.
         const float actions_left = ui_rect_has_area(geometry.results) ? geometry.results.left
                                    : primary_width                    ? primary_rect.left
                                                                       : band.right;

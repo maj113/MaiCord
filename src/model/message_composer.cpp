@@ -126,11 +126,10 @@ bool scalar_allowed(u32 codepoint) noexcept {
            !(codepoint >= 0xD800u && codepoint <= 0xDFFFu);
 }
 
-// Inserted text (paste, IME, edits, commands) keeps every control the official
-// composer keeps: clipboard text is inserted verbatim, so ANSI escapes
-// (U+001B), tabs and other C0/C1 controls reach the message. NUL cannot travel
-// through the Windows clipboard or a browser editor, and a bare CR must
-// already have been normalized to LF by the caller.
+// Inserted text (paste, IME, edits, commands) keeps control characters:
+// clipboard text is inserted verbatim, so ANSI escapes (U+001B), tabs and other
+// C0/C1 controls reach the message. NUL cannot travel through the Windows
+// clipboard, and a bare CR must already have been normalized to LF by the caller.
 bool inserted_scalar_allowed(u32 codepoint) noexcept {
     return codepoint != 0 && codepoint != '\r' && codepoint <= 0x10FFFFu &&
            !(codepoint >= 0xD800u && codepoint <= 0xDFFFu);

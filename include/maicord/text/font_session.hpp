@@ -11,12 +11,12 @@ struct NativeFontSessionStats {
     u64 peak_mapped_bytes;
     u32 instances,peak_files,peak_faces,peak_instances,references;
 };
-// Shared owning-thread store. All pools expose stable prefixes in groups of eight
-// up to 1024 slots. The first 64 file records share the owner's committed page;
-// the file tail and other pools share one reservation and commit on demand. Exposed prefixes and
-// live mappings/views never move on growth.
-// Face acquisition grows around its open read handle without reopening the path.
-// Each consumer retains the session while holding any store-local handle.
+// Shared owning-thread store. Pools expose stable prefixes in groups of eight up to
+// 1024 slots; the first 64 file records share the owner's committed page, and the file
+// tail and other pools share one reservation that commits on demand. Exposed prefixes
+// and live mappings/views never move on growth. Face acquisition grows around its open
+// read handle without reopening the path. Each consumer retains the session while
+// holding any store-local handle.
 bool native_font_session_create(NativeFontSession**) noexcept;
 bool native_font_session_retain(NativeFontSession*) noexcept;
 // Last release fails without clearing the pointer if live handles remain.

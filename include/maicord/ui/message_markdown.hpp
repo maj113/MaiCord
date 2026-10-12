@@ -79,12 +79,12 @@ struct MessageMarkdownOptions {
     bool no_links;
     bool no_headings;
     bool no_lists;
-    // The official rem sizes: headings 1.5/1.25/1rem, "-#" subtext .875rem, and
+    // Rem sizes: headings 1.5/1.25/1rem, "-#" subtext .875rem, and
     // base_size (a TextSize) for the remaining text, which then gets size-only
     // spans so the whole display is covered.
     bool text_sizes;
     u8 base_size;
-    // The official client's inline reply preview rules: block
+    // Inline reply preview rules: block
     // quotes stay literal, ```fences become inline code without the language
     // tag or edge newlines (```ansi drops its SGR escapes instead of colouring),
     // headings are inline bold and list markers inline text.

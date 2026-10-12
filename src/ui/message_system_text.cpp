@@ -48,7 +48,7 @@ u32 write_u32(u32 value, char* output) noexcept {
     return count;
 }
 
-// Original welcome lines; the official client rotates a fixed set by snowflake time.
+// Original welcome lines, picked by message snowflake time.
 constexpr const char* kJoinLines[kMessageSystemJoinLineCount] = {
     "{a} just arrived. Say hi!",
     "Everyone, welcome {a}!",

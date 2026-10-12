@@ -66,8 +66,8 @@ u64 last_use(const ReactionPreferenceUsage& usage) noexcept {
     return usage.recent_count ? usage.recent_uses[usage.recent_count - 1] : 0;
 }
 
-// The official client serializes only the 100 most recently used entries, so eviction
-// follows recency rather than score.
+// Only the 100 most recently used entries are synced, so eviction follows
+// recency rather than score.
 u32 eviction_candidate(const ReactionPreferenceTable& table) noexcept {
     u32 selected = kReactionPreferenceUsageCapacity;
     for (u32 index = 0; index < kReactionPreferenceUsageCapacity; ++index) {

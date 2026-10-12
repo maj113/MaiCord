@@ -30,8 +30,8 @@ bool native_directional_hits(const NativeTextContext& owner,const NativeParagrap
             highest=maximum(highest,level);if(level&1)lowest=minimum(lowest,level);
         }
         if(hit!=hit_end)return false;
-        // Reorder the compact run records themselves; no per-cluster visual
-        // permutation or temporary index array is retained.
+        // Reverse the run records per level (UAX #9 L2) in place; no
+        // per-cluster visual permutation or index array is kept.
         for(u32 level=highest;level>=lowest;--level)for(u32 i=first_run;i<logical_run;){
             if(storage.visual_runs[i].bidi_level<level){++i;continue;}const u32 begin=i;
             while(i<logical_run&&storage.visual_runs[i].bidi_level>=level)++i;

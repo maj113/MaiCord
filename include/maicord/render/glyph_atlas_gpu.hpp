@@ -26,8 +26,8 @@ struct GlyphAtlasGpu {
     u32 raster_count;
     u32 dispatch_count;
     u32 rejected;
-    u16 command_capacity; // Configured maximum; API validates <= 65535.
-    u16 command_committed; // Current buffer elements, grows without changing the maximum.
+    u16 command_capacity; // Configured maximum.
+    u16 command_committed; // Current buffer elements; grows up to command_capacity.
     u16 width;
     u16 height;
 };

@@ -276,8 +276,8 @@ RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8Vi
     if (!read.ok()) return failure(snapshot.error == RelationshipsDecodeError::none ? RelationshipsDecodeError::json : snapshot.error);
     heap_sort(candidate.data, snapshot.count, [](const auto& a, const auto& b) noexcept { return a.user_id < b.user_id; });
     for (u32 i = 1; i < snapshot.count; ++i) if (candidate[i - 1].user_id == candidate[i].user_id) return failure(RelationshipsDecodeError::duplicate);
-    // Match the store's semantic guard before asking the owner to commit its
-    // destination. Presence can have been inherited from the previous store.
+    // Apply the store's own validity checks before the owner commits its
+    // destination; presence may be inherited from the previous store.
     for (u32 i = 0; i < snapshot.count; ++i) {
         const auto& record = candidate[i];
         if (!record.user_id || record.type > RelationshipType::suggestion ||

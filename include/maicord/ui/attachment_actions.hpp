@@ -5,8 +5,8 @@
 #include "maicord/ui/icon.hpp"
 
 namespace maicord {
-// Share the virtual Save action's geometry between paint and input. It reuses
-// the attachment's existing widget and does not add a widget to each row.
+// Save action geometry shared by paint and input. It reuses the attachment's
+// widget instead of adding one per row.
 inline UiRect ui_attachment_save_rectangle(UiRect attachment, bool file_card) noexcept {
     if (file_card) {
         attachment.right = minimum(attachment.right, attachment.left + 420.f);
@@ -20,9 +20,9 @@ inline UiRect ui_attachment_save_rectangle(UiRect attachment, bool file_card) no
     return {attachment.right - inset - size, attachment.top + inset,
             attachment.right - inset, attachment.top + inset + size};
 }
-// Virtual child action: the attachment owns its hover/focus and content bounds.
-// Callers can additionally expose it while the containing media row is active.
-// The caller supplies the same exact action rectangle and clip used by input.
+// Virtual child action: the attachment widget owns its hover/focus and content
+// bounds. The caller passes the same action rectangle and clip that input uses,
+// and may expose the action while the containing media row is active.
 inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner,
     UiRect rectangle, UiRect clip, const Theme& theme, bool file_card,
     bool parent_active = false) noexcept {

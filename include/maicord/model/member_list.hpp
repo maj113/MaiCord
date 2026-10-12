@@ -91,9 +91,9 @@ MemberListViewResult member_list_view_rebuild(
 bool member_list_view_await_sync(MemberListView* projection,
     u64 guild_id, u64 list_id, u32 logical_count) noexcept;
 // Applies status and role-color member changes (presence_revision) to
-// resident rows in place. Revision is
-// published only when an updated row lies in [visible_first, visible_first +
-// visible_count); a row whose sorted group changes requests a rebuild instead.
+// resident rows in place. The revision is published only when an updated row
+// lies in [visible_first, visible_first + visible_count); a row whose sorted
+// group changes requests a rebuild instead.
 MemberListPresenceResult member_list_view_refresh_presence(
     MemberListView* projection, const GuildMemberStore& members,
     u32 visible_first, u32 visible_count) noexcept;

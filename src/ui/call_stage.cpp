@@ -332,7 +332,6 @@ bool paint_foreground(const UiCallScene& s, const Theme& theme, PaintStream* p) 
     bool ok = true;
     const auto hovered = [&](UiCallControl c) noexcept { return s.hovered == c; };
     const auto pressed = [&](UiCallControl c) noexcept { return s.hovered == c && s.pressed == c; };
-    // Header: start (brand), topic (icon), end (danger).
     if (const auto r = control(s, UiCallControl::stage_start); ui_rect_has_area(r))
         ok = paint_stream_push_rounded(
             p, r.left, r.top, r.right, r.bottom,
@@ -352,7 +351,6 @@ bool paint_foreground(const UiCallScene& s, const Theme& theme, PaintStream* p) 
             p, r.left, r.top, r.right, r.bottom,
             shaded(theme.tokens.accent.danger, hovered(UiCallControl::stage_end), pressed(UiCallControl::stage_end)),
             theme.scale.radius_sm);
-    // Invite banner.
     if (ok && ui_rect_has_area(s.stage_banner)) {
         const auto& b = s.stage_banner;
         const float y = (b.top + b.bottom) * .5f;
@@ -368,7 +366,6 @@ bool paint_foreground(const UiCallScene& s, const Theme& theme, PaintStream* p) 
                                            hovered(UiCallControl::stage_decline) ? theme.interactive : theme.surface_high,
                                            theme.scale.radius_sm);
     }
-    // Section glyphs.
     if (ok && ui_rect_has_area(s.stage_audience)) {
         const auto l = audience_label(s);
         const float y = (l.top + l.bottom) * .5f;

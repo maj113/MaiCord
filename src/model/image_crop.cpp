@@ -8,8 +8,8 @@ float clamp(float value, float low, float high) noexcept {
 bool sideways(u16 rotation) noexcept {
     return rotation % 180 != 0;
 }
-// The official client's layout at zoom 1: the image at the editor's height, a
-// banner fitted to 17:6, and the mask the laid-out image covers.
+// Layout at zoom 1: the image at the editor's height, a banner fitted to 17:6,
+// and the mask the laid-out image covers.
 void layout(ImageCropState* s) noexcept {
     const bool turned = sideways(s->rotation);
     const float vw = static_cast<float>(turned ? s->image_height : s->image_width);

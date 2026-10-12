@@ -71,12 +71,10 @@ struct MemberListScope {
     // Store clock when the list was last shown (visible range or pinned pages).
     u32 viewed;
 };
-// Every member list keeps its own rows, as the official client keeps one row array per
-// list id: a list that stays subscribed in the background never takes rows
-// from the list on screen, and a list shown again presents what it retained.
-// A position names the user (an evicted member record is fetched again); the
-// pool is shared and bounded, each list holds at most a page budget, and when
-// the pool is full the least recently viewed list gives up its rows.
+// Each list keeps its own rows, so a background subscription never takes rows
+// from the list on screen. A position names the user only (an evicted member
+// record is fetched again). The pool is shared and bounded; when full, the
+// least recently viewed list gives up its rows.
 inline constexpr u32 kMemberListPositionCapacity = 2'048;
 inline constexpr u32 kMemberListPositionsPerList = 512;
 struct MemberListPosition {
@@ -142,9 +140,9 @@ struct GuildMemberStoreResult {
 bool guild_member_store_initialize(GuildMemberStore* store,
                                            Slice<GuildMemberRecord> records,
                                            Slice<u32> order) noexcept;
-// Fresh READY withdraws Gateway list positions while retaining useful cached
-// guild identities, profile data, resolved roles, and presence. Resume retains
-// list residency and must not invoke this reset.
+// Fresh READY withdraws Gateway list positions but keeps cached guild
+// identities, profile data, resolved roles and presence. RESUMED keeps list
+// residency and must not call this.
 void guild_member_store_reset_lists(GuildMemberStore* store) noexcept;
 // A fresh Gateway session cannot retain assignment authority from a missed gap.
 // RESUMED retains ordered dispatch authority and must not call this.
@@ -179,8 +177,9 @@ const GuildMemberRecord* guild_member_store_find(const GuildMemberStore& store,
 bool guild_member_store_set_status(GuildMemberStore* store, u64 guild_id, u64 user_id,
                                            GuildMemberStatus status) noexcept;
 Utf8View guild_member_store_nickname(const GuildMemberRecord& record) noexcept;
-// Complete current assigned roles, or an empty slice when unknown/truncated.
+// True when the record holds the complete assigned role list.
 bool guild_member_store_role_ids_known(const GuildMemberRecord& record) noexcept;
+// The assigned roles, or an empty slice when unknown/truncated.
 ConstSlice<u64> guild_member_store_role_ids(const GuildMemberRecord& record) noexcept;
 // Records an observed communication_disabled_until (zero clears). Uncached
 // members are a no-op that returns false.

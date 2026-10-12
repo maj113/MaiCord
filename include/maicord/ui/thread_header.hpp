@@ -13,8 +13,8 @@ constexpr u32 ui_thread_action_bit(UiThreadAction action) noexcept {
         ? 1u << (static_cast<u32>(action) - 1u) : 0;
 }
 
-// All members have no default initializers: application globals
-// remain zero-filled. Opt-in callers obtain the authored dimensions below.
+// No default member initializers, so application globals stay zero-filled;
+// callers opt in through ui_thread_header_style().
 struct UiThreadHeaderStyle {
     float height, feedback_height, inset, gap, control_height;
     float primary_width, overflow_width, cancel_width;

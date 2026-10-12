@@ -58,8 +58,8 @@ UiScrollDispatch ui_scroll_host_reveal(UiScrollHost* host, UiScrollBinding bindi
 // scroll-into-view targets an owner computed itself.
 UiScrollDispatch ui_scroll_host_scroll_to(UiScrollHost* host, UiScrollBinding binding, double target,
                                           u64 now_us, double dips_per_pixel = 1.0) noexcept;
-// Deepest eligible scroll_view wins. New scroll_view widgets
-// automatically receive the same input/timing/boundary policy.
+// Deepest eligible scroll_view under the point wins; all scroll_view widgets
+// share the same input, timing and boundary policy.
 UiScrollDispatch ui_scroll_host_wheel_widgets(
     UiScrollHost* host, UiWidgetManager* widgets, UiPoint point, i32 wheel_delta, u32 lines, bool page,
     u64 now_us, double dips_per_pixel = 1.0,

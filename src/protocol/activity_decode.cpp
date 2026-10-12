@@ -236,7 +236,6 @@ u32 decode(JsonValue v, char* output, u32 budget, bool whole) noexcept {
         return 0;
     if (whole && text.bytes > budget)
         return 0;
-    // Trim surrounding ASCII spaces; the official client renders them collapsed.
     u32 begin = 0, end = text.bytes;
     while (begin < end && (scratch[begin] == ' ' || scratch[begin] == '\n' || scratch[begin] == '\t'))
         ++begin;
@@ -353,7 +352,7 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
         return false;
     a.start_ms = number(times.a);
     a.end_ms = number(times.b);
-    // Some integrations send seconds; the official client normalizes the same way.
+    // Some integrations send seconds instead of milliseconds.
     if (a.start_ms && a.start_ms < 100'000'000'000ull)
         a.start_ms *= 1000;
     if (a.end_ms && a.end_ms < 100'000'000'000ull)

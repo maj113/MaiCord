@@ -16,10 +16,9 @@ struct Point {
 struct Segment {
     Point a, b;
 };
-// Borrow the font's immutable tables for this bake. Simple static TrueType
-// contours do not need the DWrite scaler, glyph metrics, or its outline cache.
-// Composite, variable, simulated and non-TrueType outlines retain the font's
-// own DirectWrite outline provider; the color paint path is always COLRv1.
+// Borrows the font's immutable tables for this bake. Simple static TrueType
+// contours skip the DWrite scaler and outline cache; composite, variable,
+// simulated and non-TrueType outlines use the face's DirectWrite outline provider.
 struct FontOutlines {
     IDWriteFontFace* face;
     const u8 *head = nullptr, *loca = nullptr, *glyf = nullptr;
@@ -343,8 +342,8 @@ bool emit_mask(Builder& b, u32 job) noexcept {
     if (b.p->last != none) {
         auto* paint = reinterpret_cast<ColrPaintNode*>(b.p->storage.base + b.p->last);
         if (paint->kind <= 3) {
-            // A leaf paint clipped by a shape is one operation. Most pixels
-            // miss that shape and need no gradient evaluation at all.
+            // A leaf paint clipped by a shape is one operation, so pixels
+            // outside the shape skip gradient evaluation.
             paint->kind += 8;
             paint->reserved = job;
             return true;
@@ -357,8 +356,8 @@ bool emit_mask(Builder& b, u32 job) noexcept {
     return true;
 }
 bool mask(Builder& b, u32 glyph, DWRITE_MATRIX m) noexcept {
-    // Common COLRv1 artwork fills the same shape many times. Retain one mask
-    // within this bake, not another cross-frame cache, and avoid repeated DWrite calls.
+    // Artwork often fills the same shape repeatedly: reuse one mask per bake
+    // (no cross-frame cache) to avoid repeated DWrite calls.
     for (u32 at = b.mask_buckets[glyph & 255]; at;) {
         const auto* job = reinterpret_cast<const ColrMask*>(b.p->storage.base + at);
         const auto& a = job->transform;

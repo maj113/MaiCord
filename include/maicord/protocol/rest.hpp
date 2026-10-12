@@ -36,9 +36,9 @@ enum class RestAuthorization : u8 {
     normal_user,
 };
 
-// Current normal-user requests use the session token verbatim and attach the
-// public client's compatibility metadata. The timezone is optional because a
-// native Windows zone name must not be mislabeled as an IANA zone.
+// Normal-user requests use the session token verbatim and attach client
+// metadata headers. The timezone is optional because a native Windows zone name
+// must not be mislabeled as an IANA zone.
 struct RestUserRequestHeaders {
     ConstSlice<u8> super_properties;
     Utf8View locale;
@@ -52,7 +52,7 @@ struct RestRequestHead {
     RestMethod method;
     RestAuthorization authorization;
     // False sends no Content-Type; a bodyless POST or PUT still carries
-    // Content-Length: 0, as Chromium sends it.
+    // Content-Length: 0.
     bool json_body;
     bool close_connection;
     const RestUserRequestHeaders* user_headers;
@@ -65,8 +65,8 @@ struct RestRequestHead {
     // Non-empty with a body selects multipart/form-data with this boundary
     // instead of application/json (rest_multipart_boundary_valid).
     ConstSlice<u8> multipart_boundary;
-    // An empty reason still sends "X-Audit-Log-Reason: " with no value, as the
-    // official client does for "" (a null reason sends nothing). Never on GET.
+    // An empty reason still sends "X-Audit-Log-Reason: " with no value (a null
+    // reason sends nothing). Never on GET.
     bool send_empty_audit_reason = false;
 };
 

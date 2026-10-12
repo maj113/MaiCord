@@ -10,7 +10,6 @@ namespace maicord {
 bool ui_audio_attachment_project(const MessageRichStore&, const MessageRichAttachment&, u64 generation,
                                  u64 revision, bool voice, UiRect bounds, const Theme&,
                                  Slice<u8> waveform_scratch, UiAudioControlsProjection*) noexcept;
-// Original native geometry; no image assets, fonts for icons or waveform cache.
 bool ui_audio_controls_paint(const UiAudioControlsProjection&, const UiAudioControlsStyle&, UiRect clip,
                              const Theme&, UiWidgetReference owner, PaintStream*,
                              UiAudioControl focus = UiAudioControl::none,

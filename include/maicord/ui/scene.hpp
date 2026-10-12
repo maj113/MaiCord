@@ -6,8 +6,8 @@
 namespace maicord {
 
 inline constexpr u32 kMaximumUiNodes = 32;
-// The guild header dropdown: an "xs" chevron (X while open) at the
-// trailing edge of the 32-DIP button, with 8-DIP rounded corners.
+// The guild header dropdown: a chevron (X while open) at the trailing edge of
+// the 32-DIP button, with 8-DIP rounded corners.
 inline constexpr float kUiShellGuildMenuChevron = 12.0f;
 inline constexpr float kUiShellGuildMenuRadius = 8.0f;
 inline constexpr float kUiShellMinimumMessageWidthDips = 320.0f;
@@ -203,8 +203,8 @@ void ui_scene_release(UiScene* scene) noexcept;
 bool ui_scene_layout(UiScene* scene, float width, float height) noexcept;
 bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics,
                                   float width, float height) noexcept;
-// Predict the actual composer content width with the same pane visibility and
-// margins as layout, without constructing widgets or requesting a layout pass.
+// Composer content width using layout's pane visibility and margins, without
+// constructing widgets or running a layout pass.
 float ui_scene_composer_width(const UiShellLayoutMetrics& metrics, float width) noexcept;
 UiNodeHandle ui_scene_find(const UiScene& scene, UiSemantic semantic) noexcept;
 const UiNode* ui_scene_resolve(const UiScene& scene, UiNodeHandle handle) noexcept;

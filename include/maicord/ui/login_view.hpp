@@ -99,9 +99,9 @@ constexpr bool login_recovery_editable(LoginStatus status) noexcept {
     return status == LoginStatus::recovery_editing || status == LoginStatus::recovery_failed;
 }
 
-// QR remote authentication is an independent presentation state. The official
-// client keeps this transport alive while the credential form remains editable, so
-// it must not overload LoginStatus or disable the password controls.
+// QR remote authentication is an independent presentation state: the transport
+// stays alive while the credential form is editable, so it must not overload
+// LoginStatus or disable the password controls.
 enum class LoginRemoteStatus : u8 {
     idle,
     connecting,

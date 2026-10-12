@@ -10,8 +10,8 @@
 #include <cmath>
 #include <d3d11_1.h>
 using namespace maicord;
-// Exercise the actual native run/instance/renderer ownership path. The legacy
-// NativePaintContext remains the lower-level paint-source oracle.
+// Exercises the native run/instance/renderer ownership path; NativePaintContext
+// is the lower-level paint-source oracle.
 struct AppPaintContext {
     NativeFontSession* fonts=nullptr;NativeFontHandle face{};NativeFontInstanceHandle instance{};
     NativeFontRunHandle run{};NativeGlyphOutlines* outlines=nullptr;Arena scratch{};

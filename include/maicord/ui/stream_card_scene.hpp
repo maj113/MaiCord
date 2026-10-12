@@ -6,9 +6,9 @@
 
 namespace maicord {
 // Go Live preview card: hovering a live user under a voice channel shows the
-// stream's thumbnail, the streamer and "Watch stream" beside the row, like the
-// official client's stream popout. Pure geometry and paint; the host owns the
-// hover timing, the preview fetch and draws the thumbnail into ui_stream_card_media.
+// stream's thumbnail, the streamer and "Watch stream" beside the row. Pure
+// geometry and paint; the host owns the hover timing, the preview fetch and
+// draws the thumbnail into ui_stream_card_media.
 inline constexpr float kUiStreamCardWidth = 296, kUiStreamCardPadding = 12, kUiStreamCardGap = 8;
 inline constexpr u32 kUiStreamCardTextBytes = 96;
 inline constexpr u32 kUiStreamCardEntranceMs = 260;

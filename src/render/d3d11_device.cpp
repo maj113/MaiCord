@@ -9,10 +9,9 @@ namespace {
 inline constexpr UINT kSwapChainFlags =
     DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
-// Hardware device creation is dominated by user-mode driver initialization
-// (tens of milliseconds, even with the driver DLLs already mapped). A worker
-// started at process entry overlaps it with window and model setup, then runs
-// the caller's continuation while the main thread builds the swap chain.
+// Hardware device creation is dominated by user-mode driver initialization. A
+// worker started at process entry overlaps it with window and model setup, then
+// runs the caller's continuation while the main thread builds the swap chain.
 struct DevicePrestart {
     HANDLE thread;
     HANDLE ready;
@@ -109,13 +108,12 @@ D3D11DeviceOwnerResult d3d11_device_owner_initialize(
             0, 0, 0, E_INVALIDARG, D3D11DeviceOwnerError::invalid_input};
     }
 
-    // MaiCord.exe delay-loads these, so the loader does not map them before
-    // the entry point (which the device worker waits for). Map them here, in
-    // parallel with the worker, which is still creating the device: GPU
-    // user-mode drivers import shell32, ole32 (combase) and advapi32
-    // themselves, which would otherwise load on the device's critical path,
-    // and composition needs dcomp right after it. The references stay for the
-    // process lifetime.
+    // MaiCord.exe delay-loads these, so the loader does not map them before the
+    // entry point (which the device worker waits for). Map them here, in parallel
+    // with the worker: GPU user-mode drivers import shell32, ole32 and advapi32
+    // themselves, which would otherwise load on the device's critical path, and
+    // composition needs dcomp right after it. The references stay for the process
+    // lifetime.
     static constexpr const wchar_t* kParallelLibraries[] = {L"dcomp.dll", L"shell32.dll", L"ole32.dll",
                                                             L"advapi32.dll"};
     for (const wchar_t* library : kParallelLibraries)
@@ -123,8 +121,7 @@ D3D11DeviceOwnerResult d3d11_device_owner_initialize(
     HRESULT result = adopt_prestart(owner);
     const bool prestarted = SUCCEEDED(result);
     if (FAILED(result)) {
-        // No worker, or it failed: retry on this thread (adapter changes and
-        // transient driver states are rare but not permanent).
+        // No worker, or it failed: retry on this thread; driver failures can be transient.
         D3D_FEATURE_LEVEL level{};
         result = create_hardware_device(&owner->device, &level, &owner->context);
         owner->feature_level = static_cast<u32>(level);
@@ -268,8 +265,8 @@ D3D11DeviceOwnerResult d3d11_device_owner_resize(
         0, width, height, DXGI_FORMAT_UNKNOWN, kSwapChainFlags);
     if (FAILED(result)) {
         // ResizeBuffers leaves the old buffers intact on failure. Recreate the
-        // view we released so a transient resize error cannot strand the owner
-        // without a usable target while the caller decides whether to retry.
+        // released view so a transient resize error cannot leave the owner
+        // without a render target.
         const HRESULT restored = create_target(owner);
         if (FAILED(restored)) {
             return D3D11DeviceOwnerResult{

@@ -59,8 +59,8 @@ struct MessageTextCommand {
     UiTextAlignment vertical_alignment;
     UiTextWrapping wrapping;
     UiTextOverflow overflow;
-    // Stable logical source selector. Rich-store compaction can move strings;
-    // selectors identify the owning field, never a borrowed storage offset.
+    // Logical selector of the owning field; stable across rich-store compaction
+    // (never a storage offset).
     u16 source_id;
 };
 
@@ -169,13 +169,11 @@ struct MessageTextPresentationResult {
     }
 };
 
-// Retained Markdown results (display text, style spans, semantics) of earlier
-// builds, so a scroll or relayout lays out cached text instead of parsing and
-// highlighting every visible message again. Keys cover the source bytes and
-// every parse option; entries that resolved entities, consulted spoiler
-// reveals or formatted timestamps also record that state and expire with it.
-// Payloads live in a ring: old windows are overwritten first, and an entry
-// still in use is copied forward before the ring reaches it.
+// Retained Markdown results so scroll and relayout skip reparsing. Keys cover
+// the source bytes and every parse option; entries that depended on entities,
+// spoiler reveals or timestamp formatting also record that state and expire with
+// it. Payloads live in a ring: the oldest are overwritten first, and one still
+// in use is copied forward before the ring reaches it.
 inline constexpr u32 kMessageMarkdownCacheSlots = 512;
 inline constexpr u32 kMessageMarkdownCacheArenaBytes = 64 * 1'024;
 
@@ -212,8 +210,8 @@ struct MessageMarkdownCache {
     u32 uncacheable;
 };
 
-// entries start zeroed (fresh pages stay untouched until used); their count
-// is a power of two and arena.count a multiple of eight.
+// entries start zeroed; their count is a power of two and arena.count a
+// multiple of eight.
 bool message_markdown_cache_initialize(MessageMarkdownCache* cache, Slice<MessageMarkdownCacheEntry> entries,
                                        Slice<u8> arena) noexcept;
 void message_markdown_cache_clear(MessageMarkdownCache* cache) noexcept;

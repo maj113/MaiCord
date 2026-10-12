@@ -6,7 +6,7 @@
 
 namespace maicord {
 // User notes, in-app reports (the menu-driven reporting API) and message flag
-// edits. Targets and bodies match the official client field for field.
+// edits.
 inline constexpr u32 kUserNoteMaximumCodepoints = 256;
 inline constexpr u32 kUserNoteMaximumBytes = kUserNoteMaximumCodepoints * 4;
 inline constexpr u32 kUserSocialMaximumTargetBytes = 128;
@@ -139,7 +139,7 @@ struct ReportSubmission {
     ConstSlice<u32> breadcrumbs;
     ConstSlice<ReportAnswer> answers;
 };
-// {"version","variant","language","breadcrumbs","elements",ids...,"name"} in
-// the official key order; unselected groups are omitted.
+// {"version","variant","language","breadcrumbs","elements",ids...,"name"};
+// unselected groups are omitted.
 UserSocialWriteResult report_write_submit(const ReportMenu&, const ReportSubmission&, Slice<u8> output) noexcept;
 } // namespace maicord

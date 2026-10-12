@@ -6,8 +6,8 @@
 
 namespace maicord {
 namespace {
-// The caller already retains compact output through the call. Cache references
-// to it instead of copying glyph/placement payloads into a second cache.
+// The caller retains compact output through the call; entries reference it
+// instead of copying glyph/placement payloads.
 struct ClusterMemo {u32 hash,key,byte_first,unit_first,glyph_first,glyph_count;};
 static_assert(sizeof(ClusterMemo)==24);
 }
@@ -70,8 +70,8 @@ SfntStatus native_devanagari_run(const SfntShapePlan& plan,const SfntCmap& cmap,
                 mapped_units+=scalar>0xffff?2u:1u;}
             auto remaining=limits;remaining.lookup_operations-=result->lookup_operations;SfntShapeRunResult shaped{};
             auto scratch=storage.shaping;
-            // Exact-prefix app storage retains earlier compact output while
-            // each later cluster borrows only the still-unused backing suffix.
+            // Exact-prefix caller storage keeps earlier compact output while each
+            // later cluster borrows only the still-unused backing suffix.
             if(shared_glyphs){if(glyph_count>=scratch.glyphs.count)return SfntStatus::output_too_small;
                 scratch.glyphs={scratch.glyphs.data+glyph_count,scratch.glyphs.count-glyph_count};}
             if(shared_placements){if(glyph_count>=scratch.placements.count)return SfntStatus::output_too_small;

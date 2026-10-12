@@ -34,8 +34,8 @@ struct MediaDrawBatch {
     u32 quad_count;
 };
 
-// Stable-address, page-committed per-frame media draw scratch. It retains the
-// 4,096-instance ceiling without permanently committing the uncommon tail.
+// Stable-address, page-committed per-frame media draw scratch. Address space
+// covers kRendererMediaQuadCapacity quads; pages commit only as a frame needs them.
 struct RendererMediaDrawStorage {
     StableStorage quads;
     StableStorage handles;

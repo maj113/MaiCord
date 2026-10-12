@@ -93,21 +93,18 @@ struct Machine {
             if(initial<=last){u32 a=initial;do{u32 b=a==last?first:a+1;while(b!=initial && !(s.glyph[b].touched&mask)){if(!spend())return SfntStatus::resource_limit;b=b==last?first:b+1;}
                 const auto pa=s.glyph[a],pb=s.glyph[b];i64 oa=axis?pa.original_y:pa.original_x,ob=axis?pb.original_y:pb.original_x,da=(axis?pa.y:pa.x)-oa,db=(axis?pb.y:pb.x)-ob;
                 if(oa>ob){const i64 p=oa;oa=ob;ob=p;const i64 d=da;da=db;db=d;}
-                // The ratio maps original font units to F26Dot6 points using
-                // 16.16 precision. Our originals carry six extra fraction bits,
-                // hence the equivalent 2^22 scale. Prepare once per interval.
+                // The ratio maps original font units to F26Dot6 with 16.16 precision.
+                // Originals carry six extra fraction bits, hence the 2^22 scale.
                 const i64 span=(ob+db)-(oa+da);
                 const bool short_span=span>=-32768 && span<=32767;
                 const i64 scale=oa==ob || short_span?0:quotient(span*4194304,ob-oa);
                 for(u32 i=a==last?first:a+1;i!=b;i=i==last?first:i+1){if(!spend())return SfntStatus::resource_limit;auto& p=s.glyph[i];const i64 old=axis?p.original_y:p.original_x;
-                    // The outline profile uses the following contour
-                    // anchor's shift when both original coordinates are equal.
-                    // With one touched anchor Windows shifts current points;
-                    // with two anchors it interpolates from original points.
-                    // The short signed-word interval path interpolates directly;
-                    // larger intervals use the prepared fixed-point ratio.
-                    // Both add a positive half and divide toward zero, including
-                    // reversed current spans; this differs from projection ties.
+                    // A lone touched anchor (a==b) shifts the current point by its delta;
+                    // equal original anchors use the following anchor's delta. Otherwise
+                    // interpolate from original points, directly when the span fits a
+                    // signed word, else with the prepared ratio. Both add a positive
+                    // half and divide toward zero (also for reversed current spans),
+                    // unlike projection ties.
                     const i64 value=a==b?(axis?p.y:p.x)+db:oa==ob?old+db:old<=oa?old+da:old>=ob?old+db:
                         oa+da+(short_span?(span*(old-oa)+(ob-oa)/2)/(ob-oa):(scale*(old-oa)+2097152)/4194304);
                     if(!fits(value))return SfntStatus::malformed;if(axis)p.y=static_cast<i32>(value);else p.x=static_cast<i32>(value);}

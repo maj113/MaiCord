@@ -28,8 +28,7 @@ enum class JpegColorTransform : u8 {
     grayscale,
     ycbcr,
     rgb,
-    // Chromium-compatible inverted CMYK. This also applies when APP14 is
-    // absent, as in the official web client.
+    // Chromium-compatible inverted CMYK; also assumed when APP14 is absent.
     cmyk,
     ycck,
 };

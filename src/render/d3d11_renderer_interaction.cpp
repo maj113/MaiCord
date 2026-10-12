@@ -127,9 +127,7 @@ bool renderer_bind_member_list_scene(D3D11Renderer* renderer, const MemberListSc
 }
 
 bool renderer_bind_popup_scene(D3D11Renderer* renderer, const PopupScene* scene) noexcept {
-    // Popup item/row storage is created on first open.
-    // The widget manager is the initialization invariant needed by the renderer;
-    // dormant popups have no item data to render yet.
+    // Only the widget manager is required; popup item/row storage is created on first open.
     if (!renderer || !scene || !scene->widgets.storage.data) {
         return false;
     }

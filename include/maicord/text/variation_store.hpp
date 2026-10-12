@@ -26,7 +26,7 @@ enum class VariationCoordinatePrecision : u8 { full, fixed_16 };
 enum class VariationArithmetic : u8 { wide, float_32 };
 
 // All views borrow immutable storage. Absent and encoded empty maps map indices
-// identically; the empty-map behavior is also checked against Windows.
+// identically.
 SfntStatus variation_index_map_open(ConstSlice<u8> table,u32 offset,VariationIndexMap* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 SfntStatus variation_index_map_get(const VariationIndexMap& map,u32 index,u32* delta_index) noexcept;
 SfntStatus item_variation_store_open(ConstSlice<u8> table,u32 offset,ItemVariationStore* output,

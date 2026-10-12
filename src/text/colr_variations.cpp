@@ -12,9 +12,8 @@ SfntStatus adjustment(const ColrVariationInstance& instance,VariationDeltaBlock&
         if(base==0xffffffff)return SfntStatus::ok;
         if(base>0xffffffffu-field)return SfntStatus::malformed;
     }
-    // The current Windows paint reader forms per-field indices with uint32
-    // wrapping before map lookup, including a base of 0xffffffff. Keep that
-    // Windows behavior isolated from the standards-oriented policy.
+    // The Windows paint reader forms per-field indices with uint32 wrapping before
+    // map lookup, including a base of 0xffffffff. Kept apart from the standard policy.
     u32 index=0;const auto status=variation_index_map_get(instance.map,base+field,&index);
     if(status!=SfntStatus::ok)return status;
     const auto computed=item_variation_delta_cached(instance.instance,index,value,&block,
@@ -110,11 +109,10 @@ SfntStatus colr_resolve_color_stops(const ColrFont& font,const ColrVariationInst
         output[i]={stop.position+position/16384.0,instance.mode==ColrVariationMode::standard?clamp_alpha(opacity):opacity,i,stop.palette};
         if(i && output[i-1].position>output[i].position)ordered=false;
     }
-    // Equal offsets already retain file order. Test the resolved positions,
-    // because variation can change their order even in a sorted input line.
+    // Test the resolved positions: variation can reorder a line that is sorted in the file.
     if(ordered)return SfntStatus::ok;
-    // Heap sort with original-index tie breaking gives stable semantic order
-    // in O(n log n) time and O(1) additional space, including adversarial stops.
+    // Heap sort with original-index tie breaking: stable order in O(n log n) time
+    // and O(1) extra space, including for adversarial stops.
     for(u32 i=line.count/2;i>0;--i)sift(output,i-1,line.count);
     for(u32 count=line.count;count>1;--count){const auto value=output[0];output[0]=output[count-1];output[count-1]=value;sift(output,0,count-1);}
     return SfntStatus::ok;

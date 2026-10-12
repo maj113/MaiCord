@@ -55,9 +55,9 @@ SfntStatus execute_run(SfntIndicProfile profile,const SfntShapePlan& plan,const 
         u8 boundaries[32]{};
         auto status=sfnt_indic_cluster_boundaries(profile,{scalars,window},{boundaries,32},limits.stage_work,(profile==SfntIndicProfile::telugu||profile==SfntIndicProfile::kannada||profile==SfntIndicProfile::malayalam)?forms:ConstSlice<u8>{});
         if(status!=SfntStatus::ok)return status;
-        // Consume every complete cluster in this window. Only its last cluster
-        // can need more input; the scanner's 31-scalar cap guarantees progress
-        // in a full 32-scalar window. A scalar is decoded/scanned at most twice.
+        // Consume every complete cluster in this window. Only the last can need more
+        // input; the scanner's 31-scalar cap guarantees progress in a full 32-scalar
+        // window. A scalar is decoded/scanned at most twice.
         for(u32 at=0;at<window;){u32 length=1;while(at+length<window&&!boundaries[at+length])++length;
             const u32 consumed=encoded?byte_offsets[at+length]-byte_offsets[at]:length;
             if(at+length==window&&first+consumed<source_size)break;

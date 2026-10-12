@@ -18,12 +18,11 @@
 
 namespace maicord {
 namespace {
-// ---- regional flag inline cells (custom-emoji flags keep a one-em cell) ----
-
-// Caller-owned COM metrics. A layout borrows these cells until its final
-// Release; Release never deletes caller storage. Two alternating identities
-// for each of eight typography sizes prevent adjacent equal-em flags from
-// coalescing into one DirectWrite property range, independent of emoji count.
+// One-em inline cells for custom-emoji regional flags: caller-owned COM metrics.
+// A layout borrows these cells until its final Release; Release never deletes
+// caller storage. Two alternating identities for each of eight typography sizes
+// keep adjacent equal-em flags from coalescing into one DirectWrite property
+// range, independent of emoji count.
 class RegionalFlagInlineCell final : public IDWriteInlineObject {
 public:
     float em = 0;
@@ -129,8 +128,7 @@ HRESULT regional_flag_layout_apply(IDWriteTextLayout* layout, Utf8View text,
 }
 
 
-// ---- reference run faces --------------------------------------------------
-// Faces stay referenced for the process; runs keep a 1-based table index.
+// Reference run faces stay referenced for the process; runs keep a 1-based table index.
 constexpr u32 kReferenceFaceCapacity = 1u << 14;
 IDWriteFontFace* g_reference_faces[kReferenceFaceCapacity];
 u32 g_reference_face_slots[kReferenceFaceCapacity * 2];
@@ -196,8 +194,8 @@ class EmojiFontPolicy final : public IDWriteFontFallback {
             while (selected[i] && family[i] == selected[i])
                 ++i;
         if (family && !selected[i] && !family[i]) {
-            // Even an unsupported emoji stays in the requested font.
-            // Do not replace it with a monochrome Symbol glyph or another set.
+            // An unsupported emoji stays in the requested font; no monochrome
+            // Symbol glyph or other set replaces it.
             if (!mapped_length || !mapped_font || !scale)
                 return E_POINTER;
             *mapped_length = length;
@@ -285,7 +283,7 @@ void convert_utf16(Utf8View input, wchar_t* output) noexcept {
 struct ResolvedTextStyle {
     DWRITE_TEXT_RANGE range;
     u32 flags;
-    u16 ansi_background; // ansi_span_background of the source span
+    u16 ansi_background;
 };
 
 class TextDrawingEffect final : public IUnknown {
@@ -328,8 +326,7 @@ class TextDrawingEffect final : public IUnknown {
 };
 
 // Per-request drawing effects. Only the styled prefix is constructed (in
-// apply_text_styles); constructing all kTextStyleSpanMaximum entries on every
-// DirectWrite shape/measure dominated the request setup.
+// apply_text_styles), not all kTextStyleSpanMaximum entries.
 struct TextDrawingEffects {
     alignas(TextDrawingEffect) unsigned char storage[sizeof(TextDrawingEffect) * kTextStyleSpanMaximum];
     TextDrawingEffect* data() noexcept { return reinterpret_cast<TextDrawingEffect*>(storage); }
@@ -908,8 +905,8 @@ HRESULT capture_code_block_decorations(IDWriteTextLayout* layout, ConstSlice<Res
                 }
             }
             if (bounded && multiline) {
-                // The official fenced-code element is block-level: wrapped or
-                // explicit subsequent lines share one full-width surface.
+                // A fenced-code block is block-level: wrapped or explicit
+                // subsequent lines share one full-width surface.
                 left = 0.0f;
                 right = layout->GetMaxWidth();
             }
@@ -917,10 +914,9 @@ HRESULT capture_code_block_decorations(IDWriteTextLayout* layout, ConstSlice<Res
             return tested;
         }
 
-        // Very long fenced blocks can contain more line fragments than the
-        // bounded scratch buffer. Falling back to the first/last positions
-        // keeps shaping allocation-free and, importantly, never rejects the
-        // entire retained frame merely because a block has many lines.
+        // Very long fenced blocks can have more line fragments than the bounded
+        // scratch buffer. The first/last-position fallback keeps shaping
+        // allocation-free and never rejects the retained frame.
         if (!bounded) {
             FLOAT first_x = 0.0f;
             FLOAT first_y = 0.0f;
@@ -960,7 +956,7 @@ HRESULT capture_code_block_decorations(IDWriteTextLayout* layout, ConstSlice<Res
     return S_OK;
 }
 
-// The official quote divider: one 4-DIP spine spanning the whole quote,
+// Quote divider: one 4-DIP spine spanning the whole quote,
 // in the 16-DIP indent (spine + 12-DIP padding) left of the quoted text.
 inline constexpr float kQuoteSpineLeft = -16.0f;
 inline constexpr float kQuoteSpineWidth = 4.0f;
@@ -1068,9 +1064,8 @@ HRESULT capture_range_decorations(IDWriteTextLayout* layout, ConstSlice<Resolved
         if ((style.flags & (background_flags | text_style_list_bullet)) == 0) {
             continue;
         }
-        // Code-block backgrounds were already captured with the bounded
-        // first/last-position fallback above. Do not repeat the full range query
-        // unless this style also needs a bullet.
+        // Code-block backgrounds are already captured with the first/last-position
+        // fallback above; repeat the full range query only for a bullet.
         if ((style.flags & text_style_code_block) != 0 && (style.flags & text_style_list_bullet) == 0) {
             continue;
         }
@@ -1325,7 +1320,7 @@ TextMeasureResult measure_dwrite(
                              : measure_result(TextShapeError::unsupported, result, utf16_units);
 }
 
-// ---- native format capture ------------------------------------------------
+// Native format capture.
 IUnknown* identity(IUnknown* object) noexcept {
     IUnknown* token = nullptr;
     if (object)

@@ -18,12 +18,11 @@ u32 guild_context_policy_build(const ChatStateStore&, u64 guild_id, u32 copy_id_
 // menu (category_id, text and voice) when the account has Manage Channels there.
 u32 guild_context_create_channel_items(const ChatStateStore&, u64 guild_id, u64 category_id, u32 text_action,
                                        u32 voice_action, Slice<PopupItem> output) noexcept;
-// Whether the account may create a channel in a guild or under a category.
 bool guild_context_can_create_channel(const ChatStateStore&, u64 guild_id, u64 category_id) noexcept;
-// Channel an invite from this server points to, as the official client picks it: the
-// preferred (selected) channel when it belongs to the server and allows
-// invites, then the system channel, then the first listed text-like channel
-// the account can view and create invites for. Zero when there is none.
+// Channel an invite from this server points to: the preferred (selected)
+// channel when it belongs to the server and allows invites, then the system
+// channel, then the first listed text-like channel the account can view and
+// create invites for. Zero when there is none.
 u64 guild_context_invite_channel(const ChatStateStore&, u64 guild_id, u64 preferred_channel) noexcept;
 // "Invite people" (separated) when guild_context_invite_channel finds a channel.
 u32 guild_context_invite_item(const ChatStateStore&, u64 guild_id, u64 preferred_channel, u32 action,
@@ -35,7 +34,7 @@ u32 guild_context_copy_id_item(const ChatStateStore&, u64 guild_id, u32 action, 
 // The account owns the server: the server refuses to let an owner leave.
 bool guild_context_owner(const ChatStateStore&, u64 guild_id) noexcept;
 // Separated danger "Leave server" row for a live guild the account does not
-// own; owners get no row, as in the official client.
+// own; owners get no row.
 u32 guild_context_leave_item(const ChatStateStore&, u64 guild_id, u32 action, Slice<PopupItem> output) noexcept;
 
 // Server menus (the header popout under the server name and the server
@@ -56,14 +55,13 @@ enum GuildMenuCapability : u16 {
     guild_menu_capability_show_all_checked = 1u << 5,
 };
 inline constexpr u32 kGuildHeaderMenuMaximumItems = 12;
-// The server header popout for a live guild, in the official order and groups:
+// The server header popout for a live guild, in this order and groups:
 // Invite people, Server settings, Create channel, Create category, Create
 // event | Show all channels (community opt-in), Notification settings,
 // Privacy settings | Edit per-server profile, Hide muted channels (checked
 // while on) | Leave server (danger, not for the owner) | Copy server ID. Rows
-// whose permission or capability is missing are left out; Server Boost is
-// never offered. Returns 0 and leaves output unchanged when it cannot hold
-// every row or the guild is not live.
+// whose permission or capability is missing are left out. Returns 0 and leaves
+// output unchanged when it cannot hold every row or the guild is not live.
 u32 guild_header_menu_build(const ChatStateStore&, u64 guild_id, u64 preferred_channel, const GuildMenuActions&,
                             u16 capabilities, Slice<PopupItem> output) noexcept;
 // "Create category" (Manage Channels on the server).

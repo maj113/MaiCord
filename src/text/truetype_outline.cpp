@@ -20,8 +20,8 @@ float varied_coordinate(double value) noexcept {
 #pragma float_control(pop)
 
 float component_product(float coordinate, float factor) noexcept {
-    // The current unhinted Windows scaler resolves component coordinates on a
-    // 1/64 design-unit grid. This is independent of pixel hinting/ROUND_XY.
+    // The unhinted Windows scaler resolves component coordinates on a 1/64
+    // design-unit grid, independent of pixel hinting/ROUND_XY.
     const double value = static_cast<double>(coordinate) * factor;
     const double magnitude = value < 0 ? -value : value;
     const i64 integer = static_cast<i64>(magnitude * 64.0 + 0.5);
@@ -49,8 +49,8 @@ void reset(GlyphOutline* out) noexcept {
     out->commands = commands; out->capacity = capacity; out->fill_rule = GlyphFillRule::winding;
 }
 
-// Raw design points are retained until composites/point attachments are resolved.
-// Normalize only the final glyph, then use the current quadratic->cubic order.
+// Raw design points are kept until composites and point attachments are
+// resolved; only the final glyph is normalized.
 struct Decoder {
     const SfntTrueType& font;
     SfntOutlineScratch& scratch;
@@ -240,9 +240,8 @@ struct Decoder {
                 const u32 parent_count = child_first - first;
                 const u32 child_count = scratch.point_count - child_first;
                 if (static_cast<u32>(a) >= parent_count || static_cast<u32>(b) >= child_count) {
-                    // The four phantom points are valid font references, but
-                    // require horizontal/vertical phantom metrics not yet in
-                    // this provider. Do not misclassify them as corrupt data.
+                    // The four phantom points are valid references but need phantom
+                    // metrics this decoder lacks: unsupported, not corrupt data.
                     return static_cast<u64>(a) < static_cast<u64>(parent_count) + 4u &&
                            static_cast<u64>(b) < static_cast<u64>(child_count) + 4u
                                ? SfntStatus::unsupported : SfntStatus::malformed;
@@ -324,9 +323,9 @@ SfntStatus emit(const SfntOutlineScratch& scratch, GlyphOutline& output, float o
                 const auto raw_target=on?next:middle(points[i],next);
                 const auto target = color?raw_target:normalized(raw_target, origin, scale);
                 constexpr float third = 1.f / 3.f;
-                // The legacy color path is compiled with /fp:fast, which
-                // folds its (1 - 1/3) constant to rounded 2/3. Text uses the
-                // precise subtraction required by the Windows outline sink.
+                // The color path uses 2/3 as a folded constant (as /fp:fast folds
+                // (1 - 1/3)); text needs the precise subtraction used by the
+                // Windows outline sink.
                 const float two_thirds = color?2.f/3.f:1.f-third;
                 const SfntOutlinePoint a{current.x * third + point.x * two_thirds,
                                          current.y * third + point.y * two_thirds, 0, {0, 0, 0}};
@@ -454,9 +453,9 @@ SfntStatus sfnt_truetype_outline(const SfntTrueType& font, u16 glyph,
     }
     if (status == SfntStatus::ok && scratch->point_count) {
         const float scale = 1.f / font.metrics.units_per_em;
-        // The existing color fast path computes implied points after scaling,
-        // and retains isolated contours. Preserve it only for the simple glyph
-        // sizes that take that path; composites use the text provider order.
+        // The color path computes implied points after scaling and keeps isolated
+        // contours. It applies only to simple glyphs within 2048 points and
+        // contours; composites use the text order.
         const u32 begin=location(font,glyph),end=location(font,glyph+1);
         const bool color=(mode==SfntOutlineMode::colr||mode==SfntOutlineMode::colr_commands) && end-begin>=10 && signed16(font.glyf.data+begin)>=0 &&
             scratch->point_count<=2048 && scratch->contour_count<=2048;

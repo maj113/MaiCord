@@ -139,10 +139,9 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
                          Slice<char>{content_begin, content_remaining}, &message));
     if (!decoded.ok() && context->capture_rich) {
         // Rich decoding (cards, embeds, threads, polls, ...) is presentation
-        // detail. One unexpected nested shape degrades only that message to its
-        // core text; the page still loads. Core failures remain page failures.
-        // Nothing was committed for the failed attempt: every pool cursor
-        // advances only after a successful message.
+        // detail: an unexpected nested shape degrades only that message to its
+        // core text. Core failures still fail the page. A failed attempt commits
+        // nothing; pool cursors advance only after a successful message.
         GatewayMessageEvent core{};
         const GatewayEventDecodeResult fallback =
             context->mention_users.data

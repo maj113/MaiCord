@@ -107,9 +107,8 @@ struct MediaCatalogDecodeResult {
 MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& query,
                                                    Slice<u8> output) noexcept;
 // Measures the validated owned representation without touching item/text
-// output. A zero limit selects 50 GIF records or 4096 sticker records. This
-// allows exact on-use allocation for full packs/guild catalogs, rather than
-// pretending an initial gallery page is the complete server response.
+// output. A zero limit selects 50 GIF records or 4096 sticker records, so full
+// packs and guild catalogs can be allocated exactly on use.
 MediaCatalogDecodeResult media_catalog_measure(MediaCatalogOperation operation, Utf8View input,
                                                Slice<u32> structural_scratch, u32 maximum_depth,
                                                u32 limit = 0, u32 first_item = 0) noexcept;

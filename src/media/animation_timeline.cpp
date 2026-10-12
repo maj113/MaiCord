@@ -427,11 +427,9 @@ AnimationTimelineCollectResult animation_timeline_collect_due(
         if (result.advances >= output.count) {
             continue;
         }
-        // A visible entry whose pump stalled (covered surface, starved
-        // scheduler, long decode) would otherwise replay every missed frame
-        // back to back once collection resumes. Small lateness keeps the
-        // absolute cadence; a long stall resynchronizes to wall time so the
-        // next frame plays now and later frames keep their normal duration.
+        // After a long stall (covered surface, starved scheduler, long decode)
+        // resynchronize to wall time instead of replaying every missed frame
+        // back to back; small lateness keeps the absolute cadence.
         if (monotonic_now_us - entry.due_at_us > kAnimationLateResyncUs) {
             entry.due_at_us = monotonic_now_us;
         }

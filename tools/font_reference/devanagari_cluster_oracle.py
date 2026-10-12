@@ -105,9 +105,9 @@ def run(args, output):
             if len(observations) != len(cases):
                 raise RuntimeError('Missing successful Windows batch records')
             break
-        # Preserve analyzer failures as unavailable evidence. Probe the failing
-        # record individually for its HRESULT, then continue the remaining batch.
-        # This does not remove cases or count unobservable cases as exact matches.
+        # Analyzer failures stay unavailable evidence: probe the failing record
+        # alone for its HRESULT, then continue the batch. Cases are never dropped
+        # or counted as exact matches.
         if len(observations) == len(cases):
             raise RuntimeError('Windows failed after its last complete record')
         scalars, _ = cases[len(observations)]

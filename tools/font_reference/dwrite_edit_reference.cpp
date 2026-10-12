@@ -11,7 +11,7 @@ bool text_edit_layout_measure(TextEditLayoutOwner* owner, const TextEditLayoutIn
     return text_edit_layout_measure(owner, input, native_view(text_system));
 }
 
-// ---- former compatibility editor (DirectWrite layout behind owner geometry) ----
+// DirectWrite layout behind owner geometry.
 namespace {
 constexpr u8 kEditKnownOptions = text_edit_layout_wrap | text_edit_layout_center_vertically |
                                  text_edit_layout_scroll_to_caret;

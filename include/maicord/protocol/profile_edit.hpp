@@ -5,11 +5,10 @@
 
 namespace maicord {
 
-// The Profiles settings page ("Main Profile" and "Per-server
-// Profiles"): the exact requests the official client sends on Save, its
-// loads, the owned collectibles list and the flattened field errors of a
-// rejected save. Bodies hold only changed fields, in the client's key order;
-// "" clears text, null removes images, colours and collectibles.
+// Profile editing (main and per-server profiles): save requests, profile loads,
+// the owned collectibles list and the flattened field errors of a rejected save.
+// Bodies hold only changed fields; "" clears text, null removes images, colours
+// and collectibles.
 inline constexpr u32 kProfileEditDisplayNameCodepoints = 32;
 inline constexpr u32 kProfileEditNicknameCodepoints = 32;
 inline constexpr u32 kProfileEditPronounsCodepoints = 40;
@@ -162,8 +161,8 @@ struct ProfileCollectible {
 // groups flattened, other types skipped). ~0u for a malformed body.
 u32 profile_edit_decode_collectibles(Utf8View body, Slice<u32> structurals, Slice<ProfileCollectible> output) noexcept;
 
-// A rejected save, flattened the way the official client's form errors are: the first
-// message of each field the page shows, plus the top-level message.
+// A rejected save, flattened to the first message of each field the page shows,
+// plus the top-level message.
 enum class ProfileEditErrorField : u8 {
     global_name,
     nick,

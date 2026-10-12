@@ -93,8 +93,8 @@ constexpr Theme ui_theme_resolve_defaults(Theme theme) noexcept {
     return theme;
 }
 
-// The core table is data, not renderer policy. The theme file parser can
-// replace any tier without changing UI or rendering code.
+// Pure data: the theme file parser can replace any tier without changing UI or
+// rendering code.
 inline constexpr Theme kDefaultTheme = ui_theme_resolve_defaults(Theme{
     {0.0588f, 0.0588f, 0.0706f, 1.0f}, {0.1020f, 0.1020f, 0.1176f, 1.0f}, {0.1333f, 0.1333f, 0.1451f, 1.0f},
     {0.1647f, 0.1647f, 0.1804f, 1.0f}, {0.2078f, 0.2078f, 0.2275f, 1.0f}, {0.2667f, 0.2667f, 0.2941f, 1.0f},

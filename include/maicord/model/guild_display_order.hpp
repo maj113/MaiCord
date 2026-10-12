@@ -14,7 +14,7 @@ struct GuildDisplayEntry {
     u16 folder; // index into GuildFolderSettings::folders, or kGuildDisplayNoFolder
 };
 
-// The official client's sorted guild list. Folders without an id are single guilds; guilds
+// The sorted guild list. Folders without an id are single guilds; guilds
 // absent from the state are dropped, empty folders vanish, and loaded guilds
 // absent from the settings are prepended (each inserted at the top). Without
 // folders, guild_positions orders the list; null settings keep guild_order.

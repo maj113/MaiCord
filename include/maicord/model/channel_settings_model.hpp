@@ -5,8 +5,7 @@
 
 namespace maicord {
 
-// Channel Settings overview for voice, stage and category channels. Text
-// channels keep the dedicated channel overview controller.
+// Channel Settings overview for voice, stage and category channels.
 struct ChannelSettingsDraft {
     u64 channel_id, guild_id, parent_id;
     u32 bitrate, user_limit, slowmode_seconds;

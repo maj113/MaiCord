@@ -220,10 +220,9 @@ Mp4DemuxError parse_description(Mp4Demuxer* demuxer, const Box& stsd) noexcept {
     demuxer->nal_length_bytes = length_bytes;
     demuxer->avcc_offset = static_cast<u32>(avcc.payload);
     demuxer->avcc_bytes = static_cast<u32>(avcc.end - avcc.payload);
-    // Walk all extensions so a truncated/duplicate pasp cannot silently
-    // turn an anamorphic stream into square pixels. Unknown valid boxes
-    // (colr, btrt, fiel) remain ignorable, as does QuickTime's zero
-    // terminator. Keep both 32-bit spacing values without narrowing.
+    // Walk all extensions so a truncated or duplicate pasp cannot silently
+    // turn an anamorphic stream into square pixels. Other valid boxes and
+    // QuickTime's zero terminator are ignored.
     u64 extension_cursor = entry.payload + 78u;
     while (!atom_list_end(demuxer->encoded, extension_cursor, entry.end)) {
         Box extension{};
@@ -294,8 +293,8 @@ bool load_chunk(Mp4Demuxer* demuxer) noexcept {
                                      ? read_u64(chunk)
                                      : read_u32(chunk);
     if (demuxer->chunk_index && demuxer->chunk_byte_offset < previous_end) return false;
-    // Supported chunks are ordered, disjoint, and entirely internal mdat data.
-    // Advance one top-level cursor instead of rescanning boxes for every sample.
+    // Supported chunks are ordered, disjoint, and entirely inside mdat, so one
+    // top-level cursor only moves forward.
     if (demuxer->chunk_byte_offset < demuxer->mdat_begin) return false;
     while (demuxer->chunk_byte_offset >= demuxer->mdat_end) {
         Box box{};
@@ -415,7 +414,6 @@ Mp4DemuxError initialize_tables(Mp4Demuxer* demuxer,ConstSlice<u8> encoded,
     Box fragments{};
     if (find_box(encoded,moov.payload,moov.end,fourcc('m','v','e','x'),&fragments)) return Mp4DemuxError::unsupported;
 
-    // An absent audio stream is a normal distinction (no_audio).
     Box mdia{}, stbl{}, selected{};
     bool enabled{};
     const Mp4DemuxError chosen = select_track(encoded, moov, handler, &selected);
@@ -553,8 +551,7 @@ Mp4DemuxError initialize_tables(Mp4Demuxer* demuxer,ConstSlice<u8> encoded,
         return Mp4DemuxError::malformed;
     }
     // Validate samples and derive the raw composition endpoint before edits.
-    // Reuse the existing complete scan: no second pass or sample index is
-    // needed. Keep media_duration_ticks as the independent STTS decode total.
+    // media_duration_ticks stays the independent STTS decode total.
     u64 presentation_end_ticks{};
     Mp4Demuxer scan = *demuxer;
     for (u32 i = 0; i < demuxer->sample_count; ++i) {
@@ -581,9 +578,9 @@ Mp4DemuxError initialize_tables(Mp4Demuxer* demuxer,ConstSlice<u8> encoded,
         }
     }
     demuxer->movie_duration_ticks = maximum(demuxer->movie_duration_ticks, presentation_end_ticks);
-    // Preserve the admitted STTS extent for declared trailing duration when
-    // negative composition offsets end earlier. Positive offsets can extend
-    // that envelope; they must not force removal of valid final pictures.
+    // Negative composition offsets can end before the STTS extent; keep that
+    // extent so a declared trailing duration stays valid. Positive offsets may
+    // extend it and must not drop valid final pictures.
     const u64 edit_end_ticks = maximum(demuxer->media_duration_ticks, presentation_end_ticks);
     const auto edited = edits(*demuxer, moov, selected, edit_end_ticks);
     if (edited != Mp4DemuxError::none) {

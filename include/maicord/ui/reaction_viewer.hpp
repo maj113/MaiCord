@@ -7,8 +7,7 @@
 
 namespace maicord {
 
-// Two thousand rows fit within the account arena's 8 MiB limit.
-// Additional users are paged in rather than inflating every signed-in process.
+// Sized to fit the account arena's 8 MiB limit; additional users are paged in.
 inline constexpr u32 kReactionViewerUserCapacity = 2'048;
 inline constexpr u32 kReactionViewerTextCapacity = 256 * 1'024;
 inline constexpr float kReactionViewerPreferredWidth = 480.0f;

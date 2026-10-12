@@ -8,11 +8,10 @@ namespace maicord {
 
 struct ShapedText;
 
-// The official client renders ```ansi code blocks (only those; inline code and
-// every other language keep the raw text) with the ansi-to-html library: text
-// escaped, foreground the theme's default text colour, background transparent,
-// colours 0-15 the theme's ansi tokens and 16-255 the library's fixed xterm palette.
-// The scanner reproduces that library's tokenizer and tag stack:
+// Scanner for ```ansi code blocks only (inline code and every other language
+// keep the raw text), following the ansi-to-html tokenizer and tag stack:
+// foreground defaults to the theme's text colour, background to transparent;
+// colours 0-15 are the theme's ansi tokens, 16-255 a fixed xterm palette.
 //   ESC[...m   SGR, each ';' code applied in order: 0 reset (closes every tag),
 //              1 bold, 3 italic, 4 underline, 9 strikethrough, 8 hidden,
 //              22 bold/italic off (CSS cannot remove an ancestor's underline),
@@ -26,12 +25,11 @@ struct ShapedText;
 //              xterm colour (16-255) because spans carry palette indices.
 //   ESC[K, ESC[(B, ESC[nJ, ESC[n;mf and an ESC with up to three digits or
 //   ';' (optionally after '[') are removed; backspaces are removed.
-// Everything else, including CR and LF, is text. Hidden text is dropped.
-// Colour codes are 0 (none: the code block's own colour or no background)
-// or 1 + an xterm index.
-// An underline or line-through is drawn in the foreground of the run it
-// sits under (the code block's own colour where the run has none), as
-// the official client draws it, whatever colour was in effect when its 4/9 opened.
+// Everything else, including CR and LF, is text; hidden text is dropped.
+// Colour codes are 0 (none: the code block's own colour or no background) or
+// 1 + an xterm index. An underline or line-through takes the foreground of the
+// run it sits under (the code block's own colour where the run has none),
+// whatever colour was in effect when its 4/9 opened.
 inline constexpr u16 kAnsiColorNone = 0;
 inline constexpr u32 kAnsiTextStyleMask =
     text_style_bold | text_style_italic | text_style_underline | text_style_strikethrough;

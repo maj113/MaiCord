@@ -25,9 +25,8 @@ struct JsonValue {
     u32 source_offset;
     JsonValueKind kind;
     // Set only by the reader, after the value's complete source passed RFC
-    // 8259/UTF-8 validation. Visits of a validated value (indexed, or
-    // json_visit_value_*) skip re-validating its contents; any other value
-    // is validated in full.
+    // 8259/UTF-8 validation. Visits of a validated value skip re-validating
+    // its contents; any other value is validated in full.
     bool validated = false;
 };
 
@@ -106,14 +105,13 @@ JsonReadResult json_visit_indexed_array(const JsonIndexedDocument& document, Jso
 
 bool json_string_equals_ascii_bytes(const char* encoded, u32 encoded_bytes, const char* ascii,
                                     u32 ascii_bytes) noexcept;
-// Decodes escapes in value (has_escapes is only a hint). Field-name chains
-// call this hundreds of times per record: the inline forwarder passes four
-// scalars instead of copying both views to the stack for every comparison.
+// Decodes escapes in value (has_escapes is only a hint). The inline forwarder
+// passes scalars so field-name chains do not copy both views to the stack.
 inline bool json_string_equals_ascii(JsonString value, Utf8View ascii) noexcept {
     return json_string_equals_ascii_bytes(value.encoded.data, value.encoded.bytes, ascii.data, ascii.bytes);
 }
-// The same comparison for the longest field-name chains (READY state objects,
-// member lists): a name whose first byte differs is rejected without a call.
+// The same comparison for long field-name chains: a name whose first byte
+// differs is rejected without a call.
 inline bool json_name_is(JsonString name, Utf8View ascii) noexcept {
     if (name.encoded.data && name.encoded.bytes && ascii.bytes && name.encoded.data[0] != ascii.data[0] &&
         name.encoded.data[0] != '\\')

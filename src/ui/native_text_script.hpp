@@ -1,10 +1,10 @@
 #pragma once
 #include "maicord/text/unicode.hpp"
 namespace maicord {
-// One byte selects the packed profile. Keep its full eight-bit identity space;
-// Unassigned scalars use Common shaping and the ordinary missing-glyph route.
-// Only an unresolved Inherited item still requires a preceding script owner.
-// Indexing covers the entire enum representation, including unsupported values.
+// One byte selects the packed profile. The table covers the entire enum
+// representation, so unsupported values index safely (profile 0). Unassigned
+// scalars use Common shaping and the ordinary missing-glyph route; only an
+// unresolved Inherited item still requires a preceding script owner.
 struct NativeTextScriptProfiles {u8 values[256];};
 inline constexpr NativeTextScriptProfiles native_text_script_profiles=[]() constexpr noexcept {
     NativeTextScriptProfiles result{};
@@ -23,8 +23,7 @@ inline constexpr NativeTextScriptProfiles native_text_script_profiles=[]() const
     both(UnicodeScript::orya,42);both(UnicodeScript::telu,44);both(UnicodeScript::knda,46);both(UnicodeScript::mlym,48);both(UnicodeScript::sinh,50);both(UnicodeScript::khmr,52);both(UnicodeScript::mymr,54);both(UnicodeScript::tibt,56);
     both(UnicodeScript::egyp,58);both(UnicodeScript::runr,60);
     // Simple scripts without reordering or required contextual forms: nominal
-    // cmap glyphs from the first covering face (Ebrima, Gadugi, Microsoft Yi
-    // Baiti, Segoe UI Historic, Nirmala UI ...), like Runic and Cherokee. N'Ko
+    // cmap glyphs from the first covering face, like Runic and Cherokee. N'Ko
     // is right-to-left and draws its nominal (unjoined) forms.
     both(UnicodeScript::bamu,64);both(UnicodeScript::yiii,66);both(UnicodeScript::vaii,68);
     both(UnicodeScript::tfng,70);both(UnicodeScript::cans,72);both(UnicodeScript::nkoo,74);

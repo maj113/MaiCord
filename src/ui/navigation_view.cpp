@@ -349,8 +349,8 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
             if ((metadata && private_channel_is_request(*metadata)) != view->requests_mode)
                 continue;
         }
-        // Discovery retains archived history in Core. Keep those pages from
-        // crowding the channel rail, while preserving the open conversation.
+        // Archived and unlisted threads (kept in state for discovery) stay off
+        // the channel rail; the open conversation stays.
         if (channel_is_thread(channel.type) && channel.id != state.selected_channel_id &&
             ((channel.thread_archived_known && channel.thread_archived) ||
              (channel.thread_active_known && !channel.thread_listed_active)))

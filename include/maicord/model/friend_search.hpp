@@ -9,12 +9,11 @@ struct FriendSearchResult {
     bool matched;
     constexpr bool ok() const noexcept { return error == FriendSearchError::none; }
 };
-// Current Friends-list semantics: independent substring search of username,
-// relationship nickname and global display name, after full Unicode 17 default
-// lowercase. Locale independent; no normalization, trimming or accent removal.
-// Every input is valid UTF-8 and at most 128 bytes. Missing fields are empty.
-// Empty query matches every valid input; malformed fields still report error.
-// Uses fixed caller-thread scratch only; no allocation or retained name cache.
+// Substring match of the query against each of username, nickname and display
+// name, after full Unicode 17 default lowercase (locale independent; no
+// normalization or trimming). Every input must be valid UTF-8 of at most 128
+// bytes; missing fields are empty. An empty query matches every valid input;
+// malformed fields still report error.
 FriendSearchResult friend_search(Utf8View query, Utf8View username,
     Utf8View nickname, Utf8View display_name) noexcept;
 struct FriendCompareResult {

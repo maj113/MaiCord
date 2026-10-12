@@ -35,7 +35,7 @@ SfntStatus sfnt_position_value_resolve(const SfntPositionValue& value,const Sfnt
 struct SfntGposSubtable {
     ConstSlice<u8> table;SfntCoverage coverage;SfntClassDef classes[2];u32 glyph_limit;
     u16 counts[2];u8 type,format,value_formats[2],value_bytes[2];
-    u16 last_covered_glyph=65535; // Prepared bound in former tail padding.
+    u16 last_covered_glyph=65535; // Prepared bound, stored in tail padding.
 };
 struct SfntGposMatch {SfntValueRecord values[2];u32 first_input,second_input,next_input;bool matched;};
 struct SfntGposLookup {ConstSlice<SfntGposSubtable> subtables;SfntLookupFilter filter;};

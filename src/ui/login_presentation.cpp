@@ -197,9 +197,9 @@ bool login_presentation_build(const LoginScene& scene, const LoginPresentationIn
         return false;
     }
     if (!input.qr_code) {
-        // Keep the QR surface white while the first challenge or a replacement
-        // challenge is pending. A dark placeholder reads as a disabled or
-        // redacted QR and visibly flashes between automatic refreshes.
+        // Keep the QR surface white while a first or replacement challenge is
+        // pending: a dark placeholder reads as disabled and flashes between
+        // automatic refreshes.
         return true;
     }
 

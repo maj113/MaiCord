@@ -40,9 +40,9 @@ SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,
     if(zero.count<glyphs.count)return SfntStatus::output_too_small;
     if(glyphs.count>work)return SfntStatus::resource_limit;
     for(u32 i=0;i<glyphs.count;++i){auto& item=glyphs[i];auto& g=item.glyph;
-        // Installed Khmer postprocessing recognizes the font's three nominal
-        // zero-width glyph IDs, even when another scalar maps to the same ID.
-        // A substitution to a different ID is therefore visible.
+        // Khmer postprocessing treats the font's three nominal zero-width glyph IDs
+        // as invisible, even when another scalar maps to the same ID; a
+        // substitution to a different ID stays visible.
         const bool invisible=g.glyph==p.zero[0]||g.glyph==p.zero[1]||g.glyph==p.zero[2];
         if(invisible)g.glyph=p.space;g.glyph_class=sfnt_gdef_glyph_class(*p.gdef,g.glyph);g.reserved=static_cast<u8>(invisible);
         zero[i]=static_cast<u8>(invisible||g.glyph_class==SfntGlyphClass::mark);

@@ -16,7 +16,7 @@ struct PickerGlyphCache {
     u16 cursor,lookup_start;
     u32 hits,misses,probes;
 };
-// The comparison counter consumes the owner's existing tail padding.
+// Cursors and counters add exactly 16 bytes after the entries.
 static_assert(sizeof(PickerGlyphCache) == sizeof(PickerGlyphCache::Entry) * 256 + 16);
 inline bool picker_glyph_cache_matches(const PickerGlyphCache::Entry& e,
                                        const D3D11GlyphTextOwner& owner,const TextSystem& system,
@@ -33,9 +33,8 @@ inline bool picker_glyph_cache_matches(const PickerGlyphCache::Entry& e,
 inline const PickerGlyphCache::Entry* picker_glyph_cache_find(
     PickerGlyphCache& cache,const D3D11GlyphTextOwner& owner,const TextSystem& system,
     Utf8View input,float width,float height,Color color,u32 dpi,u32 flags,u32 capacity) noexcept {
-    // Picker commands usually walk consecutive ring entries. Test the next slot
-    // once, then preserve the original slot-zero scan excluding that tested slot.
-    // Unrelated hits cost at most one extra comparison; a miss still costs 256.
+    // Picker commands usually walk consecutive ring entries: test the slot after
+    // the last hit first, then scan the rest in order. A miss still costs 256 probes.
     const u32 hint=cache.lookup_start&255u;
     for(u32 probe=0;probe<256;++probe) {
         const u32 slot=probe==0?hint:(probe-1<hint?probe-1:probe);

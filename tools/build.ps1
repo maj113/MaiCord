@@ -340,9 +340,8 @@ try {
             }
             if (!$referenced.Count) { throw 'No CTest executable maps to the temporary target manifest.' }
 
-            # One Ninja invocation keeps every worker busy (separate driver-first
-            # passes left most cores idle for about a minute). Ninja still stops at
-            # the first failing edge, and the broad shared drivers are listed first.
+            # One Ninja invocation keeps every worker busy. Ninja still stops at the
+            # first failing edge; the broad shared drivers are listed first.
             $drivers = @('MaiCordNativeAppLineTests', 'MaiCordUiProbe', 'MaiCordNativeExtensionTests' | Where-Object { $referenced.Contains($_) })
             $remaining = @($referenced | Where-Object { $_ -notin $drivers } | Sort-Object)
             Invoke-CMake -Arguments (@('--build', $cacheRoot, '--parallel', [string]$compileJobs, '--target') + $drivers + $remaining)

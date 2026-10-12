@@ -152,10 +152,10 @@ bool navigation_view_initialize(NavigationView* view, Slice<GuildViewRow> guild_
                                         Slice<u16> channel_scratch,
                                         Slice<u8> channel_visibility_scratch,
                                         Slice<ChannelSortKey> channel_sort_keys) noexcept;
-// Requires zero published guild and channel counts and writable caller-owned arrays.
-// Leaves array bytes unchanged. Readers use published row counts. Rebuild writes
-// each new row and all required scratch before use. The eager API above still
-// clears every array, including on rebind.
+// Requires zero published guild and channel counts and writable caller-owned
+// arrays. Unlike navigation_view_initialize it leaves array bytes unchanged:
+// readers use published row counts, and rebuild writes each new row and all
+// required scratch before use.
 bool navigation_view_initialize_sparse(NavigationView* view, Slice<GuildViewRow> guild_rows,
                                       Slice<ChannelViewRow> channel_rows, Slice<u16> channel_scratch,
                                       Slice<u8> channel_visibility_scratch,

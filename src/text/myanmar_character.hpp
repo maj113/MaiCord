@@ -1,7 +1,7 @@
 #pragma once
 #include "maicord/text/unicode.hpp"
 namespace maicord {
-// Myanmar categories, including Extended A/B, verified with Windows probes.
+// Myanmar categories, including Extended A/B.
 // One byte per scalar; ordinal ranks are kept separate from classification.
 // C/G: consonant/generic base; H/s: halant/asat; y/r/w/h: medials;
 // e/a/b/v: pre/above/below/post vowels; n/d: anusvara/dot; p/t: tones;

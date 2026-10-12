@@ -347,9 +347,8 @@ bool message_rich_attachment_preview_extent(const MessageRichStore& store,
     // preview so the decoder can run and publish the actual aspect ratio.
     if ((attachment.state & 3u) != 3u || !attachment.width || !attachment.height)
         return bounded_media_extent(400, 225, available_width, 550.0f, 350.0f, width, height);
-    // The official client's ordinary image surface is bounded to 550x350 while retaining
-    // the source aspect ratio. Available message width remains the tighter
-    // horizontal constraint on compact windows.
+    // Ordinary images are bounded to 550x350 and keep their aspect ratio; the
+    // available message width is the tighter horizontal limit on compact windows.
     return bounded_media_extent(attachment.width, attachment.height, available_width, 550.0f, 350.0f, width,
                                 height);
 }
@@ -373,9 +372,9 @@ MediaAttachmentFormat embed_media_format(const MessageRichStore& store,
     if (ascii_equal_case(content_type, "video/mp4") || ascii_equal_case(content_type, "video/quicktime")) {
         return MediaAttachmentFormat::mp4;
     }
-    // The media proxy's images-ext target may omit the external
-    // resource's extension. Preserve the proxy as the fetch source, but infer
-    // its decoder from the canonical embed URL before rejecting the media.
+    // A media proxy URL for external media may omit the resource's extension.
+    // Keep the proxy as the fetch source, but infer its decoder from the
+    // canonical embed URL before rejecting the media.
     const MediaAttachmentFormat proxy_format =
         media_format_from_url(message_rich_store_string(store, media.proxy_url));
     return proxy_format != MediaAttachmentFormat::unknown ? proxy_format : media_format_from_url(original);
@@ -426,7 +425,7 @@ bool message_rich_embed_media_select(const MessageRichStore& store, const Messag
     *selection = MessageRichEmbedMediaSelection{};
     if (!g_display.embed_media)
         return false;
-    // The official client's media order: gifv plays its video; any other embed with a
+    // Media order: gifv plays its video; any other embed with a
     // video shows the video, whose thumbnail is its poster (and the fallback
     // when the video itself cannot be presented); then the image, including a
     // normalized article/image thumbnail.
@@ -453,7 +452,7 @@ MessageRichEmbedPlan message_rich_embed_plan(const MessageRichStore&, const Mess
     MessageRichEmbedPlan plan{};
     plan.media_only = message_rich_embed_media_only(embed);
     // A components embed's text displays use the message markdown rules at
-    // message size, like the container the official client renders for it.
+    // message size.
     plan.markdown = rich || components;
     plan.components = components;
     plan.description = type != GatewayMessageEmbedType::image && type != GatewayMessageEmbedType::video &&
@@ -707,9 +706,9 @@ bool message_rich_embed_media_extent(const MessageRichEmbedMediaSelection& selec
         selection.format == MediaAttachmentFormat::unknown) {
         return false;
     }
-    // The official client's embed media sizing defaults to 400x300.
-    // Attachment mosaics have a separate policy; an inline URL image must not
-    // inherit their larger bounds or the enclosing rich card's width.
+    // Embed media defaults to 400x300. Attachment mosaics have a separate
+    // policy; an inline URL image must not inherit their larger bounds or the
+    // enclosing rich card's width.
     return bounded_media_extent(selection.media->width ? selection.media->width : 400,
                                 selection.media->height ? selection.media->height : 225, available_width,
                                 400.0f, 300.0f, width, height);
@@ -751,10 +750,9 @@ float message_rich_reaction_button_width(const MessageRichReaction& reaction) no
     for (u32 count = reaction.count; count >= 10; count /= 10) {
         ++digits;
     }
-    // Reaction labels use the 14-DIP UI face. Its tabular decimal advance is
-    // bounded to 8 DIP here; emoji occupy a 16-DIP media cell.
-    // This avoids a fixed 80-DIP pill while keeping layout deterministic
-    // before the text presentation pass measures the final glyphs.
+    // Reaction labels use the 14-DIP UI face; its tabular decimal advance is
+    // estimated at 8 DIP and emoji occupy a 16-DIP media cell. This keeps layout
+    // deterministic before the text pass measures the final glyphs.
     constexpr float digit_advance = 8.0f;
     constexpr float unicode_gap = 4.0f;
     const float emoji_and_gap =
@@ -886,7 +884,7 @@ MessageRichLayout message_rich_aggregate_layout(const MessageRichRecord& rich,
             ++component_roots;
         }
     }
-    // Root components stack with the component gap (see the Components group).
+    // Root components stack with the component gap.
     if (component_roots > 1)
         result.components += static_cast<float>(component_roots - 1) * kMessageComponentGap;
     result.reactions = message_rich_reaction_layout_height(rich, available_width, reaction_widths);

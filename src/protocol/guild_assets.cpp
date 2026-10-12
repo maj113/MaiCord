@@ -277,7 +277,7 @@ bool contains(ConstSlice<u8> haystack, ConstSlice<u8> needle) noexcept {
     return false;
 }
 
-// Decoders ------------------------------------------------------------------
+// Decoders
 
 constexpr u32 kDepth = 32;
 
@@ -414,7 +414,7 @@ RestMethod guild_asset_method(GuildAssetOperation op) noexcept {
 
 bool guild_asset_has_body(GuildAssetOperation op) noexcept {
     const auto method = guild_asset_method(op);
-    // Deleting a server POSTs no body, as the official client does.
+    // Deleting a server POSTs with no body.
     return op != Op::image_probe && op != Op::guild_delete && op < Op::count &&
            (method == RestMethod::patch || method == RestMethod::post);
 }

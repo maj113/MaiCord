@@ -5,14 +5,13 @@
 
 namespace maicord {
 
-// Decoder policy may impose a larger floor for zero or unusually short source
-// delays. The timeline itself accepts microsecond durations so rational frame
-// rates do not accumulate millisecond-scale drift.
+// The timeline accepts microsecond durations so rational frame rates do not
+// accumulate millisecond-scale drift; decoder policy may impose a larger floor
+// for zero or unusually short source delays.
 inline constexpr u64 kAnimationFrameDurationMaximumUs = 24ull * 60ull * 60ull * 1'000'000ull;
 inline constexpr u64 kAnimationCompatibilityFrameFloorUs = 10'000;
-// The official client's APNG/GIF/animated-WebP decoders are each bounded to 256
-// frames. Keep the general timeline wider without spending 32 bits per hot
-// frame position; oversized descriptors are rejected before narrowing.
+// Frame positions are stored in 16 bits; oversized descriptors are rejected
+// before narrowing.
 inline constexpr u32 kAnimationTimelineFrameMaximum = 0xFFFFu;
 // Collection lateness beyond this bound resynchronizes the entry's deadline to
 // the collection time. Ordinary decode/pump jitter stays below it and keeps the

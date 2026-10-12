@@ -83,8 +83,7 @@ DevanagariCategory indic_category(SfntIndicProfile profile,u32 scalar) noexcept 
 namespace {
 // Bit 15 distinguishes a retained IRI/pre-vowel restriction after a direct
 // YA/RA/VA/HA group from the original independent-vowel restriction. A following
-// nukta or medial releases this form-sensitive restriction. Bits 0..14 retain
-// their original U+xx3E..U+xx4C meaning; no state field is added.
+// nukta or medial releases it. Bits 0..14 keep their U+xx3E..U+xx4C meaning.
 constexpr u16 gurmukhi_subjoined_i=0x8002u;
 enum class Phase : u8 {closed,dot_reph,space,initial_join,base,halant,strict_halant,join,joined_nukta,reph_nukta,reph_nukta_join,medial,matra,modifier,visarga,vedic};
 struct State {
@@ -95,9 +94,9 @@ struct State {
         *this={};if(c==Category::consonant||c==Category::vowel||c==Category::placeholder){phase=scalar==0xa0?Phase::space:Phase::base;allow_consonant=true;allow_vowel=profile==SfntIndicProfile::bengali?(scalar==0x9b0||scalar==0x9f0):profile!=SfntIndicProfile::gurmukhi&&profile!=SfntIndicProfile::telugu&&scalar==sfnt_indic_script(profile)->block_first+0x30u&&((profile!=SfntIndicProfile::kannada&&profile!=SfntIndicProfile::malayalam)||(form&sfnt_deva_reph));vowel_base=c==Category::vowel;}
         else if(c==Category::joiner){phase=Phase::initial_join;allow_consonant=true;}
         else if(profile==SfntIndicProfile::malayalam&&scalar==0xd4e)phase=Phase::dot_reph;
-        // Observed independent-vowel restrictions within each script block.
-        // Gurmukhi IRI/URA are vowel carriers; their atomic-vowel alternatives
-        // remain separate original-input groups. No Unicode normalization occurs.
+        // Independent-vowel matra restrictions per script block. Gurmukhi IRI/URA are
+        // vowel carriers; their atomic-vowel alternatives stay separate groups of the
+        // original input (no normalization).
         excluded_matras=scalar==0xd07||scalar==0xd09?0x8000u:scalar==0xd12?0x8001u:scalar==0xd0e?0x100u:scalar==0xc92?0x4000u:scalar==0xc0b||scalar==0xc0c?1u:scalar==0xc12?0x4000u:scalar==0xb05?1u:scalar==0xa05?0x4401u:scalar==0xa72?0x206u:scalar==0xa73?0x18u:scalar==0xa85?0x6e81u:scalar==0xa86?0x680u:scalar==0x985?1u:scalar==0x905?0x7901u:scalar==0x906?0x780u:scalar==0x90f?0x380u:0;
     }
     void next_base(SfntIndicProfile profile,Category c,u32 scalar,u8 form,bool clear_vowel=false,bool retain_vowel=false) noexcept {
@@ -107,13 +106,12 @@ struct State {
         // a control following the halant or a joined nukta disables that form.
         if(profile==SfntIndicProfile::gurmukhi)excluded_matras=retain_vowel?previous:(direct_halant&&!clear_vowel&&(previous&2u)&&(scalar==0xa2f||scalar==0xa30||scalar==0xa35||scalar==0xa39)?gurmukhi_subjoined_i:0);
         else if(profile==SfntIndicProfile::telugu||profile==SfntIndicProfile::kannada){
-            // Preserve the original vowel restriction while marking whether
-            // the latest font-dependent base makes it active. A later below
-            // form can reactivate it; a pre-form preserves the prior state.
-            // Bit 15 is free in both profiles' vowel masks. Direct vowel joins
-            // also retain their control grammar without adding a state field.
-            // Kannada bit 13 remembers a joined independent-vowel origin after
-            // its AU restriction is cleared; another direct vowel stays separate.
+            // Carries the vowel restriction over. Bit 15 (free in both profiles' vowel
+            // masks) is set while it is inactive: retain_vowel or a below form after a
+            // direct halant activates it, a pre-form there keeps the prior state
+            // (non-vowel origin), any other base deactivates it. Kannada bit 13 records
+            // a joined independent-vowel origin once its AU restriction is cleared; a
+            // later direct vowel stays separate.
             vowel_base=vowel_base||(original_vowel&&retain_vowel);
             const bool active=retain_vowel||(direct_halant&&((form&sfnt_deva_below)||(!original_vowel&&(form&sfnt_deva_pre)&&!(previous&0x8000u))));
             excluded_matras=static_cast<u16>((clear_vowel?0:((previous&0x7fffu)|(active?0:0x8000u)))|
@@ -144,15 +142,15 @@ struct State {
         if(phase==Phase::dot_reph){if(!consonant)return false;next_base(profile,c,scalar,form);return true;}
         if(phase==Phase::space){phase=joiner?Phase::initial_join:Phase::closed;return joiner||(c>=Category::nukta&&c!=Category::nonjoiner);}
         if(phase==Phase::initial_join){phase=c==Category::halant?Phase::strict_halant:Phase::closed;return c>=Category::nukta&&!control;}
-        // The observed parser stops adding bases once ten input scalars have
-        // already been consumed. A three-scalar consonant group can therefore
-        // take the cluster to twelve before the next base starts a new one.
+        // Windows stops adding bases once ten input scalars are consumed; a
+        // three-scalar consonant group can take the cluster to twelve before the
+        // next base starts a new one.
         if(phase==Phase::strict_halant){if(!consonant||!allow_consonant||length>=10)return false;next_base(profile,c,scalar,form);return true;}
         if(phase==Phase::joined_nukta){if((consonant||c==Category::vowel)&&length<10){next_base(profile,c,scalar,form,true);return true;}
             if(c!=Category::bindu&&c!=Category::visarga)return false;}
-        // A Kannada reph + joiner + nukta permits another control but no
-        // bare consonant or halant. The second join permits a halant/matra,
-        // while a second nukta starts a new group. These phases reuse the byte.
+        // A Kannada reph + joiner + nukta permits another control but no bare
+        // consonant or halant. The second join permits a halant/matra, while a
+        // second nukta starts a new group.
         if(phase==Phase::reph_nukta&&control){
             if(c!=Category::nonjoiner){phase=Phase::reph_nukta_join;joined=true;nuktas=1;}return true;}
         if(phase==Phase::reph_nukta_join){if(c==Category::nukta)return false;phase=Phase::join;}
@@ -185,14 +183,14 @@ struct State {
         if(phase==Phase::medial&&c==Category::halant){phase=Phase::halant;nuktas=static_cast<u8>(nuktas==2);allow_consonant=false;return true;}
         const u8 next=c==Category::pre?1:c==Category::above?2:c==Category::below?3:c==Category::post?4:0;
         const bool composite=profile==SfntIndicProfile::malayalam?(scalar>=0xd4a&&scalar<=0xd4c):bengali?(scalar==0x9cb||scalar==0x9cc):profile==SfntIndicProfile::kannada&&kannada_composite(scalar);
-        // The spare high bit records a pre/above/below part. A composite may
-        // not add another left part after both a lower-ranked and right part.
-        // Kannada uses the same history for its two/three-part vowels.
-        // Reuse the rank byte instead of growing the per-scan state.
+        // The spare high bit records a pre/above/below part. A composite may not add
+        // another left part after both a lower-ranked and right part. Kannada uses
+        // the same history for its two/three-part vowels. Packed into the rank byte
+        // to keep State small.
         const u8 previous=rank&7;
-        // Odia retains combined pre/above/below ranks when entering right
-        // parts. O, AU-length and AU contribute ranks 1/2/3; ordinary right
-        // marks repeat without erasing that history. Borrow two rank bits.
+        // Odia keeps combined pre/above/below ranks when entering right parts: O,
+        // AU-length and AU contribute ranks 1/2/3, and ordinary right marks repeat
+        // without erasing that history. Uses two spare rank bits.
         const u8 odia_right=odia?static_cast<u8>(scalar==0xb4b?1:scalar==0xb57?2:scalar==0xb4c?3:0):0;
         const bool odia_ai=odia&&scalar==0xb48,telugu_ai=profile==SfntIndicProfile::telugu&&scalar==0xc48;
         if(odia_right&&previous==4&&odia_right<=((rank>>4)&3))return false;
@@ -228,8 +226,7 @@ SfntStatus sfnt_indic_cluster_boundaries(SfntIndicProfile profile,ConstSlice<u32
     if(a>~u64{0}-bytes||b>~u64{0}-n||(n&&a<b+n&&b<a+bytes))return SfntStatus::invalid_input;
     if(forms.count){const u64 f=reinterpret_cast<usize>(forms.data);if(f>~u64{0}-forms.count||(n&&f<b+n&&b<f+forms.count))return SfntStatus::invalid_input;}
     for(u32 i=0;i<scalars.count;++i)if(!unicode_is_scalar(scalars[i]))return SfntStatus::invalid_input;
-    // Windows' observed mark-tail limit is 31 input scalars per cluster. These
-    // are compatibility boundaries, not limits on the caller's total run size.
+    // Windows limits a cluster's mark tail to 31 input scalars.
     State state{};u32 first=0;const u32 block=sfnt_indic_script(profile)->block_first;
     for(u32 i=0;i<scalars.count;++i){const auto c=indic_category(profile,scalars[i]);const u32 offset=scalars[i]-block;
         const u8 form=forms.count&&offset<128?forms[offset]:0;const bool start=!i||i-first>=31||!state.accept(profile,c,scalars[i],i-first,form);

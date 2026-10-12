@@ -725,7 +725,7 @@ ChatStateStoreError chat_state_store_preflight_guild_role_update(const ChatState
         if (!read_role(context, index, &input) || input.id == 0 || input.guild_id != guild.id ||
             !valid_name(input.name))
             return ChatStateStoreError::invalid_input;
-        // Legacy unbound permission callers accept roles as no-op writes.
+        // Without permission backing, role writes are accepted as no-ops.
         if (!store.roles)
             continue;
         const auto* old = chat_state_store_find_role(store, guild.id, input.id);
@@ -1407,10 +1407,9 @@ bool chat_state_store_channel_age_restricted(const ChatStateStore& store,
     if (channel.content_policy & kChannelContentAgeRestricted)
         return true;
     const auto* guild = chat_state_store_find_guild(store, channel.guild_id);
-    // Public docs describe these as whole-server age classifications. Using
-    // them for forward preflight is an inference, consistent with MaiCord's
-    // notification classification; whether the server accepts a forward is
-    // still decided by the existing REST response path.
+    // nsfw_level 1 and 3 classify the whole server by age. This only feeds the
+    // forward preflight; the server's REST response decides whether a forward
+    // is accepted.
     if (guild && (guild->nsfw_level == 1 || guild->nsfw_level == 3))
         return true;
     if (channel.type != 10 && channel.type != 11 && channel.type != 12)

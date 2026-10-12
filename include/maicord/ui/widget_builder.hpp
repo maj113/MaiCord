@@ -11,13 +11,12 @@ struct UiWidgetKey {
     Utf8View name;
 };
 
-// A short-lived, allocation-free construction view over a retained owner.
-// It stops at the first error. The scene remains responsible for aborting or
-// resetting an incomplete tree; successful handles keep the owner's lifetime.
-// Construct/use on the owner UI thread. The manager object must remain alive
-// and initialized throughout builder use; the captured generation rejects a
-// reset, but cannot make a dangling or released/reinitialized owner safe.
-// Do not retain this construction view across owner teardown or callbacks.
+// A short-lived, allocation-free construction view over a retained owner; it stops
+// at the first error. The scene aborts or resets an incomplete tree; successful
+// handles keep the owner's lifetime. UI thread only. The manager must stay alive
+// and initialized while the builder is used: the captured generation rejects a
+// reset but cannot make a dangling or reinitialized owner safe. Do not keep the
+// view across owner teardown or callbacks.
 class UiWidgetBuilder {
   public:
     explicit UiWidgetBuilder(UiWidgetManager& manager) noexcept;

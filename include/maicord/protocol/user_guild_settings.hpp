@@ -4,10 +4,10 @@
 
 namespace maicord {
 
-// Notification settings writes, matching the client's routing: direct messages
-// PATCH /users/@me/guilds/@me/settings with the partial settings object; guilds
-// PATCH /users/@me/guilds/settings with {"guilds":{"<id>":partial}}. A channel
-// patch carries only that channel inside channel_overrides.
+// Notification settings writes: direct messages PATCH
+// /users/@me/guilds/@me/settings with the partial settings object; guilds PATCH
+// /users/@me/guilds/settings with {"guilds":{"<id>":partial}}. A channel patch
+// carries only that channel inside channel_overrides.
 enum UserGuildSettingsField : u16 {
     user_guild_settings_muted = 1,
     user_guild_settings_level = 2,
@@ -16,7 +16,7 @@ enum UserGuildSettingsField : u16 {
     // Guild scope only: "Hide muted channels".
     user_guild_settings_hide_muted = 16,
     // Guild scope only: the whole guild flags word (channel opt-in
-    // OPT_IN_CHANNELS_ON 1 << 14 and friends), as the official client writes it.
+    // OPT_IN_CHANNELS_ON 1 << 14 and friends).
     user_guild_settings_flags = 32,
 };
 inline constexpr u32 kUserGuildOptInChannelsOn = 1u << 14;
@@ -68,7 +68,7 @@ struct MentionsQuery {
 };
 bool mentions_query_valid(const MentionsQuery&) noexcept;
 u32 write_mentions_target(const MentionsQuery&, Slice<u8> output) noexcept;
-// A full page means more may follow, as the client assumes.
+// A full page means more may follow.
 constexpr bool mentions_has_more(u32 count, u8 limit) noexcept {
     return limit && count >= limit;
 }

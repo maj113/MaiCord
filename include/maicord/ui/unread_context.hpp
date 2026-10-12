@@ -27,8 +27,8 @@ struct UnreadContextTarget {
 // Preflight native action visibility before opening a popup.
 bool unread_context_available(UnreadContextSource source, UnreadContextKind kind, u64 id) noexcept;
 // The popup must already be published. Nonzero action binds an enabled row.
-// No strings or mutable model pointers
-// are retained; identity and borrowed owner addresses fence later activation.
+// No strings or mutable model pointers are retained; identity and borrowed
+// owner addresses fence later activation.
 bool unread_context_capture(UnreadContextSource source, UnreadContextKind kind,
     u64 id, UnreadContextTarget* target, u32 action = 0) noexcept;
 // Keyboard focus/hover may change without expiring this target. A reopened

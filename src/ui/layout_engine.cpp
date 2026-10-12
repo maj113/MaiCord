@@ -85,8 +85,8 @@ UiSize initial_measure_constraint(const UiLayoutNode& node, UiSize viewport) noe
 UiLayoutError measure_intrinsic_content(UiLayoutEngine* engine, UiSize viewport) noexcept {
     for (u32 index = 0; index < engine->count; ++index) {
         UiLayoutNode& node = engine->storage[index];
-        // Validate retained anchor edits during the existing traversal and
-        // before geometry publication. No separate scan of every UI node.
+        // Retained anchor edits are validated in this traversal, before geometry
+        // publication, to avoid a separate scan of every node.
         if (has_flag(node.spec.style, ui_layout_node_anchored) &&
             (!valid_style(node.spec) || !valid_anchor(*engine, node, index)))
             return UiLayoutError::invalid_style;

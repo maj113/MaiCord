@@ -8,8 +8,8 @@
 #include "maicord/ui/theme_editor.hpp"
 
 namespace maicord {
-// Apply-time bank projection. Null/dormant banks reproduce the original native
-// component defaults. No ownership, registry lookup, hashing or allocation.
+// Apply-time bank projection. Null/dormant banks yield the built-in component
+// defaults. No ownership, registry lookup, hashing or allocation.
 const UiThemeMetrics& ui_theme_metrics(const UiResolvedThemeStyles*) noexcept;
 UiAudioControlsStyle ui_theme_audio_style(const UiResolvedThemeStyles*) noexcept;
 UiPollStyle ui_theme_poll_style(const UiResolvedThemeStyles*) noexcept;

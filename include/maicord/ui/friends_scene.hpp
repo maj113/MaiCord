@@ -47,11 +47,11 @@ struct UiFriendsSource {
 // the optional search row; total_count is the current tab before filtering.
 struct UiFriendsContent {UiEditView search;u32 total_count,revision;};
 // Optional Pending-only projection. Contiguous ranges partition source.count,
-// including collapsed rows. Main view contains Incoming/Outgoing; hidden_view
+// including collapsed rows. The main view holds Incoming/Outgoing; hidden_view
 // uses a flat incoming source and requires sections=nullptr,count=0. The host
-// orders ignored rows before spam, owns every toggle/filter and bulk action.
-// Counts are filtered range counts and unfiltered totals, never inferred by UI.
-// At most four unique, ascending section kinds; revision invalidates all helpers.
+// orders ignored rows before spam and owns every toggle, filter and bulk action.
+// Counts are filtered range counts and unfiltered totals from the host. At most
+// four unique, ascending section kinds; revision invalidates all helpers.
 // Sources larger than the retained row cap must supply find for bounded ID lookup.
 struct UiFriendsSection {UiFriendsSectionKind kind;u32 first,count,total_count;bool collapsed;bool allow_clear = false;};
 struct UiFriendsSections {
@@ -61,7 +61,7 @@ struct UiFriendsSections {
     u32 hidden_count;
 };
 struct UiFriendsSearchGeometry {UiRect field,text,clear;};
-// Active Now: a column beside the list on wide windows (the official client's aside).
+// Active Now: a column beside the list on wide windows.
 // The host projects friends' voice channels and activities into cards; the
 // strings and member IDs stay valid until revision changes or unbind.
 inline constexpr u32 kUiFriendsActiveNowCards = 8;
@@ -116,8 +116,7 @@ struct UiFriendsScene {
     UiFriendsPhase phase;
     bool active,focus_visible,search_active;
 };
-// Lazy retained viewport list, maximum 16,384 logical rows. No renderer,
-// protocol, account, plugin, or editing ownership is attached to this scene.
+// Lazy retained viewport list, maximum 16,384 logical rows.
 bool ui_friends_scene_update(UiFriendsScene*,const UiFriendsSource*,UiFriendsTab,UiFriendsPhase,Utf8View status,UiRect viewport,const UiFriendsContent* content=nullptr,const UiFriendsSections* sections=nullptr,const UiFriendsActiveNow* active_now=nullptr) noexcept;
 // Active Now geometry: avatars beyond the list's visible rows (for media),
 // and pointer hover over cards. Both are no-ops without a visible column.

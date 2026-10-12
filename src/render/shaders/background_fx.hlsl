@@ -84,9 +84,9 @@ float4 fx_builtin(float4 position : SV_Position, float2 uv : TEXCOORD0) : SV_Tar
         // Density admits one to four staggered paths across the window.
         const uint lane_count = clamp((uint)ceil(density * 4.0f), 1u, 4u);
         for (uint lane = 0u; lane < lane_count; ++lane) {
-            // A bounded lane gets a new rain origin and slope each time
-            // window. Different periods avoid a synchronized repeated train.
-            // Fixed lane inputs let fxc fold the seed hashes and reciprocals.
+            // Each time window draws a new comet origin and slope; per-lane
+            // periods differ so lanes do not fire in lockstep. Lane inputs are
+            // constants, so fxc folds the seed hashes and reciprocals.
             const float seed = lane == 0u ? fx_hash(float2(37.0f, 19.0f))
                                : lane == 1u ? fx_hash(float2(38.0f, 19.0f))
                                : lane == 2u ? fx_hash(float2(39.0f, 19.0f))

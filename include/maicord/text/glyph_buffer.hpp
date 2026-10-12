@@ -29,11 +29,11 @@ SfntStatus sfnt_glyph_buffer_open(Slice<u8> storage,u32 record_size,u32 count,Sf
 SfntGlyphView sfnt_glyph_buffer_view(const SfntGlyphBuffer& buffer) noexcept;
 SfntStatus sfnt_glyph_buffer_seek(SfntGlyphBuffer* buffer,u32 position,u64 work_limit=1000000) noexcept;
 // Consumed logical positions are strictly increasing and start at start. Empty
-// consumed positions insert at that boundary. Empty replacements delete. Both
-// input arrays must be disjoint from buffer storage and remain valid throughout
-// the operation. Records are copied whole; intervening unconsumed slots survive.
-// All failure checks precede mutation. Work charges validation and copied records.
-// The returned edit borrows consumed positions; keep them alive while mapping indices.
+// consumed inserts at that boundary; empty replacements delete. Both inputs must
+// be disjoint from buffer storage and stay valid for the call. Records are
+// copied whole; intervening unconsumed slots survive. All failure checks precede
+// mutation. Work charges validation and copied records. The returned edit
+// borrows consumed; keep it alive while mapping indices.
 SfntStatus sfnt_glyph_buffer_replace(SfntGlyphBuffer* buffer,u32 start,ConstSlice<u32> consumed,
                                    ConstSlice<u8> replacements,SfntGlyphEdit* output,u64 work_limit=1000000) noexcept;
 // Maps surviving old slots to their new slots. Every consumed slot reports removed, even

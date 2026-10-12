@@ -187,8 +187,7 @@ bool output_valid(Slice<u8> output) noexcept {
     return byte_range_valid({output.data, output.count});
 }
 
-// Encoder ----------------------------------------------------------------
-// Wrapper message {value = 1} sizes.
+// Encoded sizes of wrapper messages {value = 1}.
 u32 varint_wrapper_size(u64 value) noexcept {
     return value ? 1 + proto_varint_size(value) : 0;
 }

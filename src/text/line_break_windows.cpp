@@ -1,6 +1,6 @@
 #include "line_break_windows.hpp"
-// Windows-compatible en-US analysis policy. The default Unicode implementation
-// is separate; this profile reproduces the Windows rules.
+// Windows-compatible en-US line-break policy; the default Unicode implementation
+// is separate.
 namespace maicord {namespace {
 using B=UnicodeLineBreak;
 struct LineClassOverride {u32 first;u16 count;B kind;};

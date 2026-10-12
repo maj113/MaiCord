@@ -473,10 +473,9 @@ bool push_delimiter(Parser* parser, u32 style, u8 marker_bytes, DelimiterKind ki
             sink.cache[0] = {parser->input_offset, {}};
             cached = 0;
             Parser replay;
-            // Only active slots are read by the walker. Every push fully
-            // initializes its next delimiter slot before that slot is used.
-            // Keep the scalar prefix initialized without copying 32 inactive
-            // records for every short depth-one scope.
+            // Only active slots are read by the walker and every push initializes
+            // its next slot first, so copy the scalar prefix and the active slots,
+            // not all kDelimiterCapacity records.
             copy_bytes(&replay, parser, static_cast<u32>(offsetof(Parser, delimiters) +
                 sizeof(Delimiter) * parser->depth));
             replay.source_sink = nullptr;
@@ -544,9 +543,9 @@ bool compact_ansi_piece(void* context, u32 begin, u32 end, AnsiTextStyle style) 
     return true;
 }
 
-// The official client's ANSI-to-HTML pass over a closed ```ansi block: escapes and hidden
-// text leave the display text, SGR styles join the byte styles and colours
-// become runs. The block is the output tail, so nothing follows it.
+// ANSI-to-HTML pass over a closed ```ansi block: escapes and hidden text
+// leave the display text, SGR styles join the byte styles and colours become
+// runs. The block is the output tail, so nothing follows it.
 void transform_ansi_block(Parser* parser, u32 begin) noexcept {
     const u32 end = parser->output_bytes;
     AnsiCompaction compaction{parser, begin, begin};
@@ -557,8 +556,8 @@ void transform_ansi_block(Parser* parser, u32 begin) noexcept {
     }
 }
 
-// The official client's reply preview removes /\x1B\[(\d+(?:[:;]\d+)*)m/g from a ```ansi
-// block (the tail of the output) and shows the remaining text uncoloured.
+// A reply preview removes /\x1B\[(\d+(?:[:;]\d+)*)m/g from a ```ansi block
+// (the tail of the output) and shows the remaining text uncoloured.
 u32 ansi_sgr_bytes(const char* text, u32 bytes) noexcept {
     if (bytes < 4 || text[0] != '\x1B' || text[1] != '[' || !ascii_is_digit(text[2]))
         return 0;
@@ -650,8 +649,8 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
     const bool reply_fence = delimiter.kind == DelimiterKind::code && delimiter.marker_bytes == 3 &&
                              parser->options && parser->options->inline_reply;
     if (reply_fence) {
-        // INLINE_REPLY_RULES match /^```(?:lang\n)?\n*([^\n][^]*?)\n*```/ and
-        // render group 2 as inline code; ```ansi first drops /\x1B\[\d+([:;]\d+)*m/.
+        // Reply previews match /^```(?:lang\n)?\n*([^\n][^]*?)\n*```/ and render
+        // group 2 as inline code; ```ansi first drops /\x1B\[\d+([:;]\d+)*m/.
         u32 lead = 0;
         while (delimiter.output_offset + lead < parser->output_bytes &&
                parser->output[delimiter.output_offset + lead] == '\n')
@@ -686,7 +685,7 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
         if (parser->code_blocks != 0xFF) {
             ++parser->code_blocks;
         }
-        // Editors keep the raw escapes, as the official client's composer does.
+        // Editors (preserve_entities) keep the raw escapes.
         if (language == CodeLanguage::ansi && !(parser->options && parser->options->preserve_entities)) {
             transform_ansi_block(parser, delimiter.output_offset);
         } else if (language != CodeLanguage::none) {
@@ -1020,7 +1019,7 @@ bool decimal_u64(Utf8View input, u32 begin, u32 end, u64* value) noexcept {
 }
 
 bool message_link_at(Utf8View input, u32 begin, MessageLink* link) noexcept {
-    // Every web client host routes /channels/<guild|@me>/<channel>/<message>.
+    // Each of these hosts routes /channels/<guild|@me>/<channel>/<message>.
     constexpr const char* prefixes[] = {"https://discord.com/channels/", "https://ptb.discord.com/channels/",
                                         "https://canary.discord.com/channels/",
                                         "https://discordapp.com/channels/"};

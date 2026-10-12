@@ -58,8 +58,8 @@ struct NativeAsciiParagraphStorage {
     Slice<u16> glyphs;Slice<SfntPlacement> placements;Slice<u32> source_glyphs;
     Slice<NativeParagraphCluster> clusters;
 };
-// A boundary after at ASCII source units; input must contain only printable
-// ASCII, TAB, CR or LF. Endpoints are never-before/always-after the paragraph.
+// Whether a line break is allowed after the first `at` source units; input must
+// contain only printable ASCII, TAB, CR or LF. at==0 never breaks; the end always does.
 bool native_ascii_break_after(Utf8View,u32 at) noexcept;
 // Single-font ASCII paragraph frontend. Printable ranges are shaped once;
 // tabs and CR/LF are nondrawing clusters. Input/font policy otherwise follows
@@ -69,16 +69,15 @@ SfntStatus native_ascii_paragraph_shape(const NativeRunPlanStore&,NativeRunPlanH
 // Greedy wrapping over the cluster array, with emergency cluster breaks. Tabs
 // advance to the next positive stop; trailing ASCII spaces do not constrain fit.
 // Produces drawing runs (including zero-glyph controls) and paragraph metrics.
-// This specialization is not a full Unicode line-break/fallback implementation.
 SfntStatus native_ascii_paragraph_layout(Utf8View,const NativeParagraphShape&,ConstSlice<NativeParagraphCluster>,
     ConstSlice<SfntPlacement>,float width,float tab_stop,bool wrap,Slice<NativeParagraphRun>,NativeParagraphLayout*,NativeParagraphHitStorage* hits=nullptr) noexcept;
-// Source-independent line fitter for ordered, nonnegative, left-to-right
-// clusters with uniform line metrics. Source coordinates are UTF-16 units;
-// neither UTF-8 decoding nor source text is needed here. The frontend supplies
-// break_before only at legal, reshape-safe cluster boundaries. Explicit newline
-// clusters remain mandatory breaks even with wrap=false; emergency wrapping
-// never splits a cluster. This is not bidi layout or a Unicode break analyzer.
-// Buffers are caller-provided and disjoint; outputs are written only after full success.
+// Line fitter over ordered, nonnegative, left-to-right clusters with uniform
+// line metrics; needs no source text. Source coordinates are UTF-16 units. The
+// frontend supplies break_before only at legal, reshape-safe cluster
+// boundaries. Explicit newline clusters break even with wrap=false; emergency
+// wrapping never splits a cluster. No bidi or Unicode break analysis.
+// Buffers are caller-provided and disjoint. The layout result and hit view are
+// published only on success; runs and hit arrays may change on error.
 SfntStatus native_ordered_paragraph_layout(const NativeParagraphShape&,ConstSlice<NativeParagraphCluster>,
     ConstSlice<SfntPlacement>,float width,float tab_stop,bool wrap,Slice<NativeParagraphRun>,NativeParagraphLayout*,NativeParagraphHitStorage* hits=nullptr) noexcept;
 // Font/style indices occupy the high 24 bits of cluster flags. The supplied

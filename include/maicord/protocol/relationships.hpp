@@ -49,19 +49,18 @@ RelationshipsDecodeResult relationship_decode_record(Utf8View input,
     Slice<u32> structural_scratch, RelationshipEvent event, RelationshipMutation* output) noexcept;
 RelationshipStoreResult relationship_apply_decoded(RelationshipStore* store,
     RelationshipEvent event, const RelationshipMutation& mutation) noexcept;
-// Parses a complete REST/READY relationships array into caller scratch, sorts,
-// checks for duplicate IDs and only then replaces the active relationship rows.
-// User snapshots are separate outputs; hydration can fail. An empty users slice
-// skips collecting them but still validates every user.
-// The optional storage callback is called first for the candidate rows with the
-// array's record count, then (after full validation) for the active rows with
-// max(new count, previous count), so a shrinking snapshot can clear its old tail.
-// It may grow storage, but must not change pointers/counts or row data. If it
-// rejects, the active rows/count/revision are unchanged.
+// Optional storage hook: called with the array's record count for the candidate
+// rows (active=false), then after full validation with max(new count, previous
+// count) for the active rows, so a shrinking snapshot can clear its old tail. It may
+// grow storage but must not change pointers, counts or row data. If it rejects, the
+// active rows, count and revision are unchanged.
 struct RelationshipsAdmission {
     void* context;
     bool (*admit)(void* context, u32 record_count, bool active) noexcept;
 };
+// Parses a complete REST/READY relationships array into caller scratch, sorts,
+// rejects duplicate IDs and only then replaces the active rows. User snapshots go to
+// `users`; an empty slice skips collecting them but still validates every user.
 RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8View input,
     Slice<u32> structural_scratch, Slice<RelationshipRecord> candidate,
     Slice<RelationshipUser> users, RelationshipsAdmission admission = {}) noexcept;

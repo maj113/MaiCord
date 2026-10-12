@@ -3,10 +3,10 @@
 
 namespace maicord {
 
-// The official client's Profiles page policy: what changed against the saved profile,
-// what the account may change (Nitro and permissions), whether Save is
-// allowed and the two partial PATCH bodies of a save. Pure; the application
-// owns the page, images and requests.
+// Profiles page policy: what changed against the saved profile, what the
+// account may change (Nitro and permissions), whether Save is allowed and the
+// two partial PATCH bodies of a save. Pure; the application owns the page,
+// images and requests.
 enum class ProfileEditorTab : u8 {
     main,  // "Main Profile": PATCH /users/@me, then /users/@me/profile
     guild, // "Per-server Profiles": the member, then the member profile
@@ -64,14 +64,14 @@ struct ProfileEditorGate {
     u16 enabled;
 };
 ProfileEditorGate profile_editor_gate(ProfileEditorTab tab, u8 premium_type, bool change_nickname) noexcept;
-// The official client's explanation for a gated field (no upsell); empty when enabled.
+// Explanation for a gated field (no upsell); empty when enabled.
 Utf8View profile_editor_gate_reason(ProfileEditorTab tab, ProfileEditorGate gate, ProfileEditorField field) noexcept;
 
-// profile_editor_* bits the draft changes, normalised like the official
-// client's pending changes (an empty display name over none is no change).
+// profile_editor_* bits the draft changes, normalised (an empty display name
+// over none is no change).
 u16 profile_editor_changes(ProfileEditorTab tab, const ProfileEditorBase& base,
                            const ProfileEditorDraft& draft) noexcept;
-// The official client's only local check: the bio within its limit (190 code points).
+// The bio is within its limit (190 code points).
 bool profile_editor_bio_valid(Utf8View bio, u32 limit = kProfileEditBioCodepoints) noexcept;
 // Remaining bio characters as the counter shows them (may be negative).
 i32 profile_editor_bio_remaining(Utf8View bio, u32 limit = kProfileEditBioCodepoints) noexcept;

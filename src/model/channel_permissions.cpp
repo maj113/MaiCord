@@ -169,7 +169,7 @@ bool chat_state_store_prepare_permissions(ChatStateStore* store, u32 required_ro
                                              u32 required_overwrites) noexcept {
     if (!store)
         return false;
-    // Preserve legacy callers with no installed permission backing.
+    // Without installed permission backing, only an empty store is valid.
     if (!store->roles && !store->overwrites)
         return !store->permission_reserve && !store->permission_reserve_context && !store->role_count &&
                !store->overwrite_count && !store->role_backed_count && !store->overwrite_backed_count;
@@ -297,8 +297,7 @@ bool chat_state_store_thread_accessible(const ChatStateStore& store,
         return false;
     if (channel.type != 12)
         return chat_state_store_channel_visible(store, *parent);
-    // The legacy permission-storage fallback must never authorize a private
-    // thread whose current-user membership has not been established.
+    // A private thread needs established membership or Manage Threads.
     return store.self_user_id != 0 && parent->permissions_resolved &&
            (parent->effective_permissions & kPermissionViewChannel) != 0 &&
            ((channel.thread_self_joined_known && channel.thread_self_joined) ||
@@ -447,8 +446,7 @@ bool chat_state_store_note_history_latest(ChatStateStore* store, u64 channel_id,
     channel->last_message_id = latest_message_id;
     if (channel_is_private(channel->type))
         private_channel_store_touch_sort(store->private_channels, channel_id);
-    // Mention contributions are unchanged; reconcile only the white unread
-    // aggregate, without replaying message-author or mention effects.
+    // Mention contributions are unchanged; reconcile only the unread aggregate.
     adjust_guild_activity(store, guild, old_unread, 0, channel_activity_visible(*store, *channel), 0);
     saturating_increment(channel->revision);
     saturating_increment(store->channel_mutations);

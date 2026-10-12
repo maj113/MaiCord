@@ -13,7 +13,8 @@ constexpr u32 kHashSize = 65'536;
 constexpr u32 kBlockBytes = 65'535;
 constexpr u32 kMinMatch = 3;
 constexpr u32 kMaxMatch = 258;
-// zlib level 6-like effort: chains of 48, lazy evaluation below 32 bytes.
+// Match search effort: hash chain length, and the match length below which a
+// lazy match is tried.
 constexpr u32 kMaxChain = 48;
 constexpr u32 kLazyLength = 32;
 constexpr u32 kNiceLength = 160;

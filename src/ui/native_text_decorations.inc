@@ -95,9 +95,8 @@ __declspec(noinline) bool native_styled_range(const NativeTextContext& owner,con
         const auto floor_source=[&](u32 source) noexcept {u32 lo=0,hi=owner.paragraph_shape.cluster_count;
             while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(owner.paragraph_storage.clusters[mid].source_end<=source)lo=mid+1;else hi=mid;}
             return lo<owner.paragraph_shape.cluster_count?owner.paragraph_storage.clusters[lo].source_first:owner.paragraph_shape.source_units;};
-        // A paint cut inside a complete grapheme retains an empty end region
-        // for RTL, emoji or zero-advance clusters. A fragment of a larger grapheme does not.
-        // Keep this observed range policy separate from glyph-count changes.
+        // A paint cut inside a complete grapheme keeps an empty end region for
+        // RTL, emoji or zero-advance clusters; a fragment of a larger grapheme does not.
         const u32 requested_end=end;first=floor_source(first);end=floor_source(end);bool terminal_point=false,terminal_zero=false;
         if(requested_end!=end){u32 lo=0,hi=owner.paragraph_shape.cluster_count;
             while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(owner.paragraph_storage.clusters[mid].source_end<=end)lo=mid+1;else hi=mid;}
@@ -230,7 +229,7 @@ bool native_styled_decorations(const NativeTextContext& owner,const NativeParagr
         if(bounded&&!append({maximum(0.f,left-4),top-2,minimum(maximum_width,right+4),bottom+2,text_style_monospace|text_style_code_block,TextDecorationKind::background,0,0,0}))return false;span=next;
     }
     // One quote spine per run of quoted paint ranges over their line boxes,
-    // 16 DIP left of the text (the compatibility shaper's capture_quote_decorations).
+    // 16 DIP left of the text.
     for(u32 paint=0,quote_span=0;paint<owner.last_styles.count;){const auto& input=owner.last_styles[paint];
         if(!(input.flags&text_style_quote)){++paint;continue;}
         u32 end=input.byte_offset+input.byte_count,next=paint+1;

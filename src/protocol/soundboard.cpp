@@ -50,7 +50,7 @@ bool create_suffix(const SoundboardRequest& r, ProtocolWriter* w) noexcept {
 bool small_body(const SoundboardRequest& r, ProtocolWriter* w) noexcept {
     bool ok = protocol_writer_append_byte(w, '{');
     if (r.operation == Op::send) {
-        // emoji_name is omitted (not null) when the sound has none, like the official client.
+        // emoji_name is omitted (not null) when the sound has none.
         ok = ok && protocol_writer_append_literal(w, "\"sound_id\":") &&
              protocol_writer_append_snowflake(w, r.sound_id) &&
              protocol_writer_append_literal(w, ",\"emoji_id\":") && append_optional_id(w, r.emoji_id);

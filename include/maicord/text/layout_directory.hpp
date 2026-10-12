@@ -25,12 +25,11 @@ SfntStatus sfnt_layout_script(const SfntLayout& layout,u16 index,u32* tag,SfntSc
 SfntStatus sfnt_script_find_language(const SfntScript& script,u32 tag,u16* index) noexcept;
 SfntStatus sfnt_script_language(const SfntScript& script,u16 feature_limit,u32 index,u32* tag,SfntLanguage* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 // Resolve caller-ordered script candidates, then the requested language or that
-// script's DefaultLangSys. A zero requested language means DefaultLangSys only.
-// Stop at the first present script even if it has no usable language. Returns
-// missing_table for absent script/language; script_tag distinguishes those cases.
-// This is a shared directory walk, not Unicode-to-script or shaping policy.
-// A successful result borrows the font's feature-index slice without allocation.
-// Storage is disjoint; work accounts for each search and validated directory.
+// script's DefaultLangSys (a zero requested language means DefaultLangSys only).
+// Stops at the first present script even if it has no usable language. Returns
+// missing_table for an absent script/language; script_tag distinguishes the
+// cases. A successful result borrows the font's feature-index slice. Storage is
+// disjoint; work accounts for each search and validated directory.
 SfntStatus sfnt_layout_select_language(const SfntLayout&,ConstSlice<u32> script_candidates,u32 requested_language,
     SfntLanguageSelection*,u64 work_limit=1000000,u64* work_used=nullptr) noexcept;
 // Pass an empty substitutions view for the base feature. Otherwise use a view

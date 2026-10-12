@@ -4,12 +4,10 @@
 namespace maicord {
 enum class NotificationSoundDecision : u8 { unknown, denied, allowed };
 enum class NotificationMessageSoundRoute : u8 { none, direct, popup };
-// Normalized inputs for the selected-channel sound decision. Selection is the
-// original channel's MAIN selection, before THREAD_STARTER_MESSAGE parent
-// normalization. The effective channel/author facts and allow_no_messages use that
-// normalized parent. allow_no_messages includes guild/category/channel mute, NONE
-// and opt-in status. This helper does not use popup eligibility: selected sound
-// has no SUPPRESS_NOTIFICATIONS, age, lurking, request, RPC or own-activity check.
+// Selection is the original channel's main selection, before THREAD_STARTER_MESSAGE
+// parent normalization; the channel/author facts and allow_no_messages (guild,
+// category or channel mute, NONE, opt-in) use the normalized parent. Popup
+// eligibility checks (SUPPRESS_NOTIFICATIONS, age, lurking, own activity) do not apply.
 struct NotificationSelectedSoundInput {
     u64 self_id, author_id;
     MessageNotificationGlobal global; // caller supplies effective presence/expiry
@@ -70,9 +68,9 @@ struct NotificationSoundRequest {
     NotificationSoundKind kind;
 };
 // One process-wide throttle shared by all sound names containing "message".
-// It behaves like a Lodash-style throttle with a 1000 ms wait (leading=true,
-// trailing=true, maxWait=1000). Direct/selected/native-attached paths bypass it.
-// No allocation, audio, message cache, OS timer or callback ownership here.
+// Lodash-style throttle: 1000 ms wait, leading=true, trailing=true,
+// maxWait=1000. Direct/selected/native-attached paths bypass it. Owns no
+// allocation, audio, message cache, OS timer or callback.
 struct NotificationSoundThrottle {
     u64 generation, last_call_ms, last_invoke_ms, deadline_ms;
     NotificationSoundRequest pending_request;

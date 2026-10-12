@@ -60,7 +60,6 @@ inline constexpr UiForumStyle kDefaultUiForumStyle{
 };
 bool ui_forum_view_valid(const UiForumChannelView&) noexcept;
 
-// ---- ordering and filtering (official client parity) ------------------------
 // No selection matches every post. Otherwise an untagged post never matches;
 // "some" needs any selected tag, "all" needs every selected tag.
 bool ui_forum_post_matches(ConstSlice<u64> applied, ConstSlice<u64> selected, UiForumTagMatch) noexcept;
@@ -74,7 +73,6 @@ struct UiForumSortKey {
 // the post's own ID) or by creation (the post ID); ties by ID, descending.
 void ui_forum_sort(Slice<UiForumSortKey>, UiForumSort) noexcept;
 
-// ---- geometry ----------------------------------------------------------------
 struct UiForumToolbar {
     UiRect sort, list, gallery;
     UiRect chips[kUiForumTagCapacity];
@@ -95,7 +93,7 @@ struct UiForumCardParts {
 };
 UiForumCardParts ui_forum_card_parts(UiRect card, UiForumLayout, const UiForumPost&, const UiForumStyle&) noexcept;
 
-// ---- scene integration (called by the thread browser panel) ------------------
+// Scene integration, called by the thread browser panel.
 // Avatar and thumbnail placements for media requests; false when culled.
 bool ui_forum_channel_avatar(const UiThreadBrowserScene&, u32 index, UiRect* rectangle, UiRect* clip) noexcept;
 bool ui_forum_channel_media(const UiThreadBrowserScene&, u32 index, UiRect* rectangle, UiRect* clip) noexcept;

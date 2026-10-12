@@ -145,9 +145,8 @@ struct MediaAtlasGpuResult {
 MediaAtlasGpuResult media_atlas_gpu_initialize(
     MediaAtlasGpu* gpu, ID3D11Device* device,
     ID3D11DeviceContext1* context, u16 width, u16 height) noexcept;
-// Adds a second texture owner while retaining the same decoder shaders,
-// upload buffers and workspaces. Large previews therefore cannot evict small
-// identity media and do not duplicate decoder state.
+// Adds a second texture owner that shares the decoder shaders, upload buffers
+// and workspaces, so large previews cannot evict small identity media.
 MediaAtlasGpuResult media_atlas_gpu_initialize_preview(
     MediaAtlasGpu* gpu, ID3D11Device* device,
     ID3D11DeviceContext1* context, u16 width, u16 height) noexcept;

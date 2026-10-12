@@ -31,7 +31,7 @@ struct NativeGlyphOutlines {
     u32 oblique_faces[(capacity+31)/32],bold_faces[(capacity+31)/32],prepared_faces[(capacity+31)/32];
     NativeColorState* color;
 };
-static_assert(sizeof(NativeGlyphOutlines)<=4096); // Expanded IDs still fit the existing committed page.
+static_assert(sizeof(NativeGlyphOutlines)<=4096); // Fits one committed page.
 namespace {
 template<class T> Slice<T> take(Arena& a,u32 n) noexcept {return {n?arena_allocate<T>(&a,n):nullptr,n};}
 bool failed(NativeGlyphOutlines& o,u32 stage,u32 error) noexcept {++o.failures;log_u64(LogLevel::error,"render","native_outline_stage",stage);log_u64(LogLevel::error,"render","native_outline_error",error);return false;}
@@ -88,8 +88,8 @@ bool outline_impl(NativeGlyphOutlines** pointer,u16 face_id,u16 glyph,GlyphOutli
         if(s!=SfntStatus::ok||maxp.count<32)return failed(o,14,static_cast<u32>(s));
         points=maximum<u32>(1,minimum(maximum_points,maximum<u32>(byte_load_be16(maxp.data+6),byte_load_be16(maxp.data+10))));
         contours=maximum<u32>(1,minimum(maximum_contours,maximum<u32>(byte_load_be16(maxp.data+8),byte_load_be16(maxp.data+12))));}
-    // The app's reference color renderer disables its simple-outline shortcut
-    // for simulated faces and uses the text outline provider for each mask.
+    // Explicit emoji overrides reset style, but text-presentation fallback can
+    // select a simulated color face; those use the text outline path per mask.
     if(mode==SfntOutlineMode::colr&&(oblique||bold))mode=SfntOutlineMode::text;
     SfntStatus status=SfntStatus::invalid_input;
     for(u32 attempt=0;attempt<3;++attempt){
@@ -111,9 +111,6 @@ bool native_color_glyph_build(NativeGlyphOutlines** pointer,u16 face_id,u16 glyp
     const ColrColor& foreground,float pixels_per_em,ColrPaintProgram* program,bool* uses_foreground,NativeFontSession* fonts,NativeFontRunHandle run) noexcept {
     if(!program||!uses_foreground||!prepare_owner(pointer,face_id,fonts,run))return false;
     auto& o=**pointer;const auto binding=o.bindings[face_id-1];
-    // Explicit emoji overrides reset style, but text-presentation fallback can
-    // select a simulated color face. Preserve the app's existing mask-provider
-    // behavior; do not add a transform to its paint graph or clip rectangles.
     const auto* instance=native_font_instance_get(*native_font_session_instances(o.fonts),binding);if(!instance)return failed(o,20,0);
     auto* instances=native_font_session_instances(o.fonts);if(!native_font_instance_retain(instances,binding))return failed(o,20,0);
     struct Retain {NativeFontInstanceStore* store;NativeFontInstanceHandle handle;~Retain() noexcept {native_font_instance_release(store,handle);}} retained{instances,binding};

@@ -37,10 +37,10 @@ bool hidden(u32 previous,u32 cp,u32 next) noexcept {
     if(filler(cp))return !conjoining_jamo(previous)&&!conjoining_jamo(next);
     if(cp==0x17b4||cp==0x17b5)return !(previous-0x1780u<0x80&&previous!=0x17b4&&previous!=0x17b5);
     if(cp==0x2065||cp==0x3164||cp==0xffa0||cp-0xfff0u<9)return true;
-    // Invisible format controls the native shaper has no item for (fxtwitter
-    // descriptions are full of U+2063): C1 controls, soft hyphen, ALM, LRM/RLM,
-    // word joiner and invisible operators, deprecated format controls, BOM,
-    // interlinear annotation, shorthand and musical format controls.
+    // Invisible format controls the native shaper has no item for: C1 controls,
+    // soft hyphen, ALM, LRM/RLM, word joiner and invisible operators, deprecated
+    // format controls, BOM, interlinear annotation, shorthand and musical format
+    // controls.
     if((cp-0x80u<32&&cp!=0x85)||cp==0xad||cp==0x61c||cp-0x200eu<2||cp-0x2060u<5||cp-0x206au<6||cp==0xfeff||
        cp-0xfff9u<3||cp-0x1bca0u<4||cp-0x1d173u<8)return true;
     if(cp-0x180bu<5||cp-0xfe00u<16||cp-0xe0100u<240)return !selector_consumed(previous,cp);

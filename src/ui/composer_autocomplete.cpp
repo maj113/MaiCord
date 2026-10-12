@@ -169,7 +169,7 @@ bool starts_with_folded_ascii(Utf8View candidate, Utf8View query) noexcept {
     return true;
 }
 
-// Match-sorter style ranking, which sorts role results:
+// Ranking in the style of the match-sorter library, for role results:
 // case-sensitive equal 7, equal 6, starts with 5, word starts with 4,
 // contains 3, acronym 2, then 1 plus closeness for in-order letters; zero is
 // no match. Fixed point, kMatchRankUnit per ranking.
@@ -281,7 +281,6 @@ bool append_global(ComposerAutocomplete* autocomplete, Utf8View text, Utf8View d
 bool append_role(ComposerAutocomplete* autocomplete, const RoleCandidate& candidate) noexcept {
     char label[kComposerAutocompleteLabelBytes];
     u32 bytes = minimum(candidate.name.bytes, static_cast<u32>(sizeof(label) - 1));
-    // Long names stop at a code point boundary.
     while (bytes < candidate.name.bytes && bytes &&
            (static_cast<u8>(candidate.name.data[bytes]) & 0xC0u) == 0x80u)
         --bytes;
@@ -362,10 +361,10 @@ void append_mention_extras(ComposerAutocomplete* autocomplete, const MessageComp
         append_role(autocomplete, roles[index]);
 }
 
-// The official client's user ranking: a name that starts with
-// the query outranks an in-order letter match; at most 50 of the latter are
-// kept to fill rows prefixes leave. Ties keep the member cache's order, which
-// `order` approximates (member list position, then discovery).
+// User ranking: a name that starts with the query outranks an in-order letter
+// match; at most 50 of the latter are kept to fill rows prefixes leave. Ties
+// keep the member cache's order, which `order` approximates (member list
+// position, then discovery).
 constexpr u32 kMentionFuzzyMaximum = 50;
 // Recent authors come from at most this many newest loaded messages.
 constexpr u32 kMentionAuthorScanMaximum = 2'048;
@@ -656,8 +655,7 @@ bool composer_autocomplete_build(ComposerAutocomplete* autocomplete, const Messa
         autocomplete->kind = ComposerAutocompleteKind::emoji;
         const ConstSlice<EmojiCatalogEntry> entries = unicode_emoji_catalog();
         const auto aliases = emoji_shortcodes();
-        // Prefix matches are the official client's useful fast path. A second pass adds
-        // substring matches without displacing exact/prefix results.
+        // Pass 0 takes prefix matches; pass 1 adds substring matches after them.
         for (u32 pass = 0; pass < 2 && autocomplete->count < kComposerAutocompleteCapacity; ++pass) {
             for (u32 i = 0; i < state.emoji_count && autocomplete->count < kComposerAutocompleteCapacity; ++i) {
                 const auto& emoji = state.emojis[i];

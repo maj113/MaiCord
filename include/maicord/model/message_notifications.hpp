@@ -74,8 +74,8 @@ struct MessageNotificationGlobal {
 };
 void message_notifications_apply_global(MessageNotificationGlobal*, const MessageNotificationGlobal&, bool partial) noexcept;
 
-// TRUE special bits reject. A known false bit is materially different from
-// an unknown gate. Caller only needs gates applicable to this message kind.
+// A set gate bit rejects. A known clear bit (known_gates) differs from an
+// unknown gate. Callers need only the gates applicable to the message kind.
 enum MessageNotificationGate : u32 {
     notification_gate_blocked = 1u << 0, notification_gate_ignored = 1u << 1,
     notification_gate_spammer = 1u << 2, notification_gate_managed = 1u << 3,
@@ -111,10 +111,10 @@ struct MessageNotificationScope {
     MessageNotificationLevel level;
     bool suppress_everyone, suppress_roles;
 };
-// generic implements543465's current -> immediate parent -> guild/default
-// level and guild/current/immediate-parent mute/opt-in. message_thread adds
-// joined thread flags/mute and607508's inherited PARENT -> category -> guild
-// resolver; explicit thread flags precede its grandparent-category mute.
+// generic resolves the level channel -> immediate parent -> guild/default, with
+// mute and opt-in checked on the guild, channel and immediate parent.
+// message_thread also requires a joined thread: explicit thread flags set the
+// level, otherwise parent -> category -> guild/default, and the category mute applies.
 MessageNotificationScope message_notification_scope_resolve(const MessageNotificationPolicyInput&,
     MessageNotificationScopeMode = MessageNotificationScopeMode::message_thread) noexcept;
 // Valid known UNKNOWN status projects ONLINE while connected. Missing fields
@@ -122,7 +122,7 @@ MessageNotificationScope message_notification_scope_resolve(const MessageNotific
 MessageNotificationGlobal message_notification_effective_global(const MessageNotificationGlobal&,u64 now_ms,
     bool connected) noexcept;
 // Admission is independent of desktop/sound device output booleans. Callers
-// choose their exact required gate mask; popup decide preserves the old mask.
+// choose their exact required gate mask; decide uses the input's required_gates.
 MessageNotificationReason message_notification_admit(const MessageNotificationPolicyInput&) noexcept;
 // Override the gate mask without copying the input's roles/global/scope facts.
 MessageNotificationReason message_notification_admit(const MessageNotificationPolicyInput&,u32 required_gates) noexcept;

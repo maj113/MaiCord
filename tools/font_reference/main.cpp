@@ -338,8 +338,8 @@ bool compare_color(const SfntFace& face,IDWriteFontFace* reference) noexcept {
                 CpalColor color{};
                 if(cpal_color(font.palette,static_cast<u16>(palette),static_cast<u16>(first+i),&color)!=SfntStatus::ok){ok=false;break;}
                 const auto e=palette_entries[i];
-                // Compare source sRGB bytes. Float normalization/compositing
-                // belongs to the forthcoming resolved paint compiler.
+                // Compare source sRGB bytes only; float normalization and
+                // compositing are not checked here.
                 if(color.red!=static_cast<u32>(e.r*255+.5f) || color.green!=static_cast<u32>(e.g*255+.5f) ||
                    color.blue!=static_cast<u32>(e.b*255+.5f) || color.alpha!=static_cast<u32>(e.a*255+.5f))++palette_differences;
                 ++palette_entries_compared;

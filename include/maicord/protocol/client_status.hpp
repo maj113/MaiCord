@@ -20,11 +20,10 @@ constexpr u8 client_status_with(u8 packed, ClientPlatform platform, ClientPlatfo
     return static_cast<u8>((packed & ~(3u << shift)) | ((static_cast<u32>(status) & 3u) << shift));
 }
 
-// Mobile-only online, as the official client decides it: mobile is online and
-// desktop is not online (web is ignored; desktop idle still counts as mobile).
-// The phone replaces the dot only while the overall status is online; idle, do
-// not disturb, streaming and offline keep their shapes. The official client also lets
-// an online "vr" session block it; that key is not among the four kept here.
+// Mobile-only online: mobile is online and desktop is not online (web is
+// ignored; desktop idle still counts as mobile). The phone replaces the dot only
+// while the overall status is online; idle, do not disturb, streaming and
+// offline keep their shapes.
 constexpr bool client_status_mobile_online(u8 packed) noexcept {
     return client_status_get(packed, ClientPlatform::mobile) == ClientPlatformStatus::online &&
            client_status_get(packed, ClientPlatform::desktop) != ClientPlatformStatus::online;

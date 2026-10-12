@@ -188,8 +188,8 @@ bool shaped_text_bind_decorations(ShapedText* text, Slice<TextDecoration> decora
 bool shaped_text_bind_hit_regions(ShapedText* text, Slice<TextHitRegion> hit_regions) noexcept;
 void shaped_text_reset(ShapedText* text) noexcept;
 
-// Creates a native font session, text context and the family's format. The
-// app policy is en-US; other locales are rejected.
+// Creates a native font session, text context and the family's format. Only
+// en-US is supported; other locales are rejected.
 TextShapeResult text_system_initialize(TextSystem* system, const wchar_t* family_name, float em_size,
                                        const wchar_t* locale_name) noexcept;
 void text_system_release(TextSystem* system) noexcept;
@@ -214,15 +214,15 @@ private:
 };
 
 // Under the client presentation policy (text_browser_invisibles) the text
-// system shapes a same-length substitute instead of failing an item it
-// cannot express, trying each stage in order: the base scalars that
-// fail on their own become the missing glyph; also the item is bisected (at
-// spaces, then grapheme clusters) down to the clusters that still fail, and
-// only those become one missing glyph each; also paired brackets become
-// mirrored lookalikes (unmatched pairs in right-to-left text); as a last
-// resort every scalar beyond printable ASCII becomes the missing glyph.
-// Offsets are unchanged. Hit testing and editing take the same stages so they
-// agree with drawing.
+// system shapes a same-length substitute instead of failing an item it cannot
+// express. Each stage includes the earlier ones: 0 base scalars that fail on
+// their own become the missing glyph; 1 the item is bisected (at spaces, then
+// grapheme clusters) and only the clusters that still fail become one missing
+// glyph each; 2 paired brackets become non-pairing lookalikes (< > or
+// U+2039 U+203A); 3 the smallest failing range whose halves shape alone is
+// substituted whole; 4 every scalar beyond printable ASCII becomes the missing
+// glyph. Offsets are unchanged. Hit testing and editing use the same stages so
+// they agree with drawing.
 class TextNativeFallback {
 public:
     static constexpr u32 stages = 5;

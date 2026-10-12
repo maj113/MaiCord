@@ -285,8 +285,8 @@ __declspec(noinline) bool build_mask(Builder& b, u32 glyph, const ColrMatrix& m)
 }
 
 bool mask(Builder& b, u32 glyph, const ColrMatrix& m) noexcept {
-    // Common COLRv1 artwork fills the same shape many times. Retain one mask
-    // within this bake, not another cross-frame cache, and avoid repeated outline decoding.
+    // Common COLRv1 artwork fills the same shape many times; one mask per bake
+    // avoids repeated outline decoding.
     for (u32 at = b.mask_buckets[glyph & 255]; at;) {
         const auto* job = reinterpret_cast<const ColrMask*>(b.p->storage.base + at);
         const auto& a = job->transform;

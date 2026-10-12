@@ -10,7 +10,7 @@
 namespace maicord {
 namespace {
 
-constexpr u32 kWork = 32; // work-buffer stride, as in the reference decoder
+constexpr u32 kWork = 32; // work-buffer stride
 // Signed offsets: the row above and the left column precede dst.
 constexpr i32 kStride = static_cast<i32>(kWork);
 
@@ -79,7 +79,7 @@ bool block_nonzero(const i16* in) noexcept {
     return false;
 }
 
-// ---- Intra prediction (section 12), libwebp-style work buffer ----------------
+// ---- Intra prediction (section 12) ------------------------------------------
 // dst points at the block's first pixel; dst[-kWork..] is the row above
 // (including four above-right samples), dst[-1 + k * kWork] the left column.
 void fill(u8* dst, u32 size, u8 value) noexcept {
@@ -523,7 +523,6 @@ void reconstruct_macroblock(Decoder* d, u32 mb_x, u32 mb_y, u8 (*work_y)[kWork],
                 add_transform(coefficients, chroma[plane] + (block >> 1) * 4u * kWork + (block & 1u) * 4u);
         }
     }
-    // Store the reconstruction into the row buffers.
     u8* y_row = d->w.y + static_cast<usize>(kPendingLuma) * d->w16 + mb_x * 16u;
     for (u32 j = 0; j < 16; ++j)
         copy_bytes(y_row + static_cast<usize>(j) * d->w16, &work_y[1 + j][1], 16);

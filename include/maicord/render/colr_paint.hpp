@@ -38,8 +38,6 @@ struct ColrPaintBatch {
     void cancel() noexcept;
 };
 
-// Programs come from the native COLR compiler (colr_source.hpp) or the
-// account module's media worker; MaiCord renders every paint type.
 bool colr_paint_rasterize(ColrPaintGpu* gpu, ID3D11DeviceContext* context, const ColrPaintProgram& program,
                           const GlyphRasterBounds& bounds, const GlyphAtlasAllocation& allocation,
                           float pixels_per_em, u16 atlas_extent, u16 padding, ColrPaintBatch* batch=nullptr,

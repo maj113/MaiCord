@@ -4,10 +4,9 @@
 #include "maicord/model/voice_state_store.hpp"
 
 namespace maicord {
-// Stage channel roles and permissions, as the official client derives them:
-// suppress + request_to_speak_timestamp classify a voice state, and stage
-// moderators hold Manage Channels, Mute Members and Move Members together
-// (administrators hold every permission).
+// Stage channel roles and permissions: suppress + request_to_speak_timestamp
+// classify a voice state, and stage moderators hold Manage Channels, Mute
+// Members and Move Members together (administrators hold every permission).
 enum class StageRole : u8 {
     none,      // Not in the stage.
     audience,  // Suppressed, no raised hand.

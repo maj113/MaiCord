@@ -46,11 +46,11 @@ GuildFoldersError guild_folders_extract_proto(ConstSlice<u8> settings, Slice<u8>
 // Decodes a GuildFolders message. Unknown fields are skipped; malformed known
 // fields reject the whole group and leave output untouched.
 GuildFoldersError guild_folders_decode(ConstSlice<u8> group, GuildFolderSettings* output) noexcept;
-// Serializes settings as a GuildFolders message, the way the official client
-// writes it: each folder with packed guild_ids, then the Int64Value id, the
-// StringValue name (omitted when empty) and the UInt64Value color (omitted
-// without a custom color); packed guild_positions last. Returns the bytes
-// written, 0 on invalid input or short output (output is then unspecified).
+// Serializes settings as a GuildFolders message: each folder with packed
+// guild_ids, then the Int64Value id, the StringValue name (omitted when empty)
+// and the UInt64Value color (omitted without a custom color); packed
+// guild_positions last. Returns the bytes written, 0 on invalid input or short
+// output (output is then unspecified).
 u32 guild_folders_encode(const GuildFolderSettings& settings, Slice<u8> output) noexcept;
 // A partial PreloadedUserSettings message holding only field 14 (the group).
 u32 guild_folders_encode_settings_patch(const GuildFolderSettings& settings, Slice<u8> output) noexcept;

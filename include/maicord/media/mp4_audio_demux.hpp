@@ -25,7 +25,7 @@ struct Mp4AudioSampleWindow {
     i64 duration_100ns{};
 };
 // Exact original timebase/edit rational arithmetic, with only the final native
-// timestamp rounded DOWN to100ns. Source frame includes the endpoint sentinel;
+// timestamp rounded DOWN to 100ns. Source frame includes the endpoint sentinel;
 // no decoder priming/delay is inferred. Failure leaves caller output unchanged.
 bool mp4_audio_demux_frame_time_100ns(const Mp4AudioDemuxer&, u64 source_frame, i64*) noexcept;
 struct Mp4AudioFrameTimeBounds {

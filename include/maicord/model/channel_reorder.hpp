@@ -4,14 +4,12 @@
 
 namespace maicord {
 
-// Channel list drag-and-drop in the official client's ordering. Text-like channels (text,
-// announcement, forum, media), voice-like channels (voice, stage) and
-// categories are three independent sort groups. A group's guild-wide order is
-// its uncategorized channels, then each category's channels, categories in
-// (position, id) order and channels in (position, id) order. A move reassigns
-// positions 0..n-1 along the new order and sends only the changed entries
-// (as the official client computes position deltas), plus parent_id for a channel that
-// changes category. Hidden channels take no part.
+// Channel list drag-and-drop. Text-like (text, announcement, forum, media),
+// voice-like (voice, stage) and category channels are independent sort groups.
+// A group's guild-wide order is its uncategorized channels, then each
+// category's channels, ordered by (position, id). A move renumbers positions
+// 0..n-1 along the new order and sends only changed entries, plus parent_id
+// for a channel that changes category. Hidden channels take no part.
 
 enum class ChannelReorderDrop : u8 {
     before, // above the target row (same group, or a category for categories)

@@ -188,7 +188,7 @@ MessageCreateWriteResult write_message_poll_body(const PollCreate& poll, u64 non
         ok = (!i || protocol_writer_append_literal(&writer, ",")) &&
              protocol_writer_append_literal(&writer, "{\"poll_media\":{\"text\":") &&
              protocol_writer_append_json_string(&writer, answer.text);
-        // Custom emoji carry an empty name, as the client sends them.
+        // Custom emoji carry an empty name.
         if (ok && answer.emoji_id)
             ok = protocol_writer_append_literal(&writer, ",\"emoji\":{\"id\":\"") &&
                  protocol_writer_append_u64(&writer, answer.emoji_id) &&

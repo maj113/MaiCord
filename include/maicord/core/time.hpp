@@ -38,8 +38,8 @@ inline u64 clock_microseconds(const Clock& clock, i64 begin, i64 end) noexcept {
     if (whole_seconds > ~0ull / 1'000'000ull) {
         return ~0ull;
     }
-    // Splitting off whole seconds avoids the roughly multi-week overflow of
-    // delta * 1,000,000 on a long-running process.
+    // Splitting off whole seconds avoids overflowing delta * 1,000,000 after
+    // weeks of uptime.
     const u64 remainder = delta % frequency;
     return whole_seconds * 1'000'000ull +
            (remainder * 1'000'000ull) / frequency;

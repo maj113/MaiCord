@@ -343,8 +343,8 @@ const MemberListRow* member_list_view_row(
         const auto& store = *projection.source_members;
         if (row.member_slot >= store.capacity) return nullptr;
         const auto& member = store.records[row.member_slot];
-        // The list's own row names this member (the record's legacy position
-        // may belong to another list); revision and generation keep it current.
+        // The list's own row names this member (the record's list_index may
+        // belong to another list); revision and generation keep it current.
         if (!member.occupied || member.generation != row.member_generation || member.user_id != row.user_id ||
             member.guild_id != projection.guild_id) return nullptr;
     }

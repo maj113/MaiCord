@@ -36,9 +36,8 @@ bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentit
     const auto name = identity.display_name.bytes ? identity.display_name
                       : identity.username.bytes   ? identity.username
                                                   : utf8_literal("Your account");
-    // Copy before replacement so rebuilding from this model's old labels is
-    // safe. Invalid input leaves the current model intact.
-    // Whole code points only: a status longer than the row keeps a valid prefix.
+    // Labels are staged in `names` before *model is reset, so identity may point
+    // into the old model. A status longer than the row keeps a valid UTF-8 prefix.
     u32 status_bytes = minimum<u32>(identity.custom_status.bytes, kUiAccountMenuIdentityBytes);
     while (status_bytes < identity.custom_status.bytes && status_bytes &&
            (static_cast<u8>(identity.custom_status.data[status_bytes]) & 0xc0) == 0x80)
@@ -81,7 +80,6 @@ bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentit
                                                   UiAccountMenuAction::clear_custom_status, UiIcon::close);
         }
     }
-    // Copy user ID is a Developer Mode item, as in the official client.
     if (identity.developer_mode)
         model->items[model->count++] = action(utf8_literal("Copy user ID"), UiAccountMenuAction::copy_user_id,
                                               UiIcon::identifier, popup_item_separator_before);

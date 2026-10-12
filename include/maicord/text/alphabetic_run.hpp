@@ -1,13 +1,13 @@
 #pragma once
 #include "maicord/text/latin_run.hpp"
 namespace maicord {
-// Borrowed script roots, GSUB and metrics; GPOS reuses the parent subset when
-// sufficient, otherwise caller state owns a reachable subset. Parent and state
-// must remain live. No extra font reference or page arena. Latin, Greek, Cyrillic, Hebrew,
-// Han, kana, Hangul, Armenian, Georgian, Ethiopic, Cherokee, Runic and
-// unformatted Egyptian en-US (horizontal); kana composition is left to the font.
-// Internal tag jamo selects old Hangul's ordered feature stages over hang.
-// script tag zero selects the Common frontend using the same retained roots.
+// GSUB and metrics are borrowed from the parent plan. Script lookup roots (the
+// parent's for Latin) and any GPOS subset the parent lacks live in the caller's state
+// arena; parent and state must stay live. Horizontal en-US Latin, Greek, Cyrillic,
+// Hebrew, Han, kana, Hangul, Armenian, Georgian, Ethiopic, Cherokee, Runic and
+// unformatted Egyptian; kana composition is left to the font. The internal tag jamo
+// selects old Hangul's ordered feature stages instead of hang; script tag 0 selects
+// the Common frontend.
 struct NativeAlphabeticPlan {
     NativeRunPlanHandle run;
     ConstSlice<u16> substitution_roots,positioning_roots;

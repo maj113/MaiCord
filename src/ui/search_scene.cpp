@@ -463,7 +463,7 @@ bool build_items(UiSearchScene& s) noexcept {
             return false;
         if (row.unavailable || !row.hit)
             continue;
-        // Legacy pages can repeat a message as context in another group.
+        // A message can repeat as context in another result group.
         bool seen = false;
         for (u32 j = 0; j < p.item_count && !seen; ++j)
             seen = p.items[j].message_id == row.message_id;
@@ -553,7 +553,7 @@ UiRect item_screen(const UiSearchScene& s, const UiSearchItem& item) noexcept {
     const float dy = s.body.top - s.scroll_dips;
     return {item.rectangle.left, item.rectangle.top + dy, item.rectangle.right, item.rectangle.bottom + dy};
 }
-// Images fill their tile like the official grid: the quad covers it and the tile clips.
+// Images fill their tile: the quad covers it and the tile clips.
 UiRect tile_cover(const UiSearchScene& s, const UiSearchItem& item, UiRect tile) noexcept {
     float w = 0, h = 0;
     if (const auto* attachment = item_attachment(s, item)) {

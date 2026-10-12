@@ -1,6 +1,5 @@
-// Selective port from the supplied VP8 research.
-// Keeps the existing single-group schedule, bindings, 32-bit residual layout,
-// and 512-pixel admission limit. This is not the tiled research shader.
+// Residual inverse DCT pass (vp8_inverse_dct) for vp8_reconstruct_tiled.hlsl.
+// The single-group vp8_reconstruct entry point in this file is not built.
 #ifndef MAICORD_VP8_AC3_FAST_PATH
 #define MAICORD_VP8_AC3_FAST_PATH 0
 #endif
@@ -133,9 +132,9 @@ void predict_plane(uint plane, uint stride, uint macroblock_x,
             } else if (mode == 3u) {
                 prediction = left;
             }
-            // True-motion prediction is clipped ABOVE, before residual addition.
-            // Do not combine those two clipping stages. Each lane loads only
-            // its own residual, and writes the reconstructed pixel exactly once.
+            // True-motion prediction is clamped before residual addition; keep
+            // the two clamps separate. Each lane reads only its own residual and
+            // writes its pixel once.
             if (has_coefficients) {
                 const uint block = first_block + (y >> 2u) * (extent >> 2u) + (x >> 2u);
                 prediction = uint(clamp(int(prediction) +
@@ -231,8 +230,8 @@ void vp8_inverse_dct(uint3 dispatch_id : SV_DispatchThreadID) {
     const uint macroblock = dispatch_id.x / 24u;
     const uint block = dispatch_id.x % 24u;
     if (macroblock >= macroblock_columns * macroblock_rows) return;
-    // Both reconstruction paths honor this same flag. Stale residuals are
-    // deliberately left untouched, not cleared and never consumed.
+    // Prediction checks the same flag: stale residuals are left untouched and
+    // never consumed.
     if (load_byte(vp8_coefficients, macroblock * coefficient_record_bytes + 768u) == 0u) return;
 
     const uint source = macroblock * coefficient_record_bytes + block * 32u;

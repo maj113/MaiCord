@@ -138,7 +138,7 @@ UiAttachmentFileKind ui_attachment_file_kind(Utf8View filename) noexcept {
     const Utf8View extension{lowered, ui_attachment_file_extension(filename, {lowered, 8})};
     if (!extension.bytes)
         return UiAttachmentFileKind::unknown;
-    // The official client tests image/svg+xml (webcode) before the image family.
+    // svg counts as web code, so web code is tested before the image family.
     static constexpr const char* webcode[]{"html", "xhtml", "htm", "xml", "xsd", "css", "styl", "svg"};
     static constexpr const char* image[]{"png", "jpg", "jpeg", "jfif", "gif", "webp", "avif", "bmp",
                                          "heic", "heif", "tif", "tiff", "ico", "apng"};
@@ -211,7 +211,7 @@ u32 ui_attachment_format_size(u64 bytes, Slice<char> output) noexcept {
         scale *= 1024;
         ++unit;
     }
-    // One decimal below ten units, whole numbers above (the official client's formatter).
+    // One decimal below ten units, whole numbers above.
     const u64 tenths = (bytes * 10 + scale / 2) / scale;
     u32 used = 0;
     if (tenths < 100) {
@@ -300,7 +300,7 @@ UiComposerAttachmentTileGeometry ui_composer_attachment_tile_geometry(
     const float bar_width =
         static_cast<float>(geometry.button_count) * style.action + style.action_padding * 2;
     const float bar_height = style.action + style.action_padding * 2;
-    // The official client translates the bar by (25%, -25%) of its own size.
+    // The bar is offset by (25%, -25%) of its own size.
     const float bar_right = geometry.card.right + bar_width * .25f;
     const float bar_top = geometry.card.top - bar_height * .25f;
     geometry.actions = {bar_right - bar_width, bar_top, bar_right, bar_top + bar_height};

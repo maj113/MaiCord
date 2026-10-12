@@ -6,10 +6,8 @@
 
 namespace maicord {
 namespace {
-// The official "Edit Image" modal (md: 480 wide, 24 DIP sides, 16 DIP top, an
-// editor 350 or 200 tall, a 16 DIP tools row around a 128 DIP slider) and
-// the collectible pickers (3 tile columns of 80 DIP with 12 DIP gutters and a
-// 280 DIP preview panel).
+// Layout constants in DIPs: the image-crop dialog (editor 350 or 200 tall) and
+// the collectible pickers (3 tile columns with gutters, plus a preview panel).
 constexpr float kCropWidth = 480, kPickerWidth = 620, kSide = 24, kTop = 16, kTitleLine = 28, kBodyGap = 8;
 constexpr float kToolsPad = 16, kTool = 24, kSliderWidth = 128, kSliderGap = 8, kRotateBox = 36;
 constexpr float kFooterPad = 16, kFooterButton = 38, kFooterGap = 8, kClose = 32;
@@ -225,7 +223,7 @@ bool build_picker(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport)
              !add(s, root, viewport, {box.left, box.bottom + 8, right, box.bottom + 30}, role_preview_label,
                   UiProfileDialogAction::none, s->content.preview_label, 0, text_style_bold)))
             return false;
-        // Four small previews beside the large one (40, 32, 40, 32).
+        // Four small previews beside the large one.
         if (s->content.kind == UiProfileDialogKind::decoration) {
             const float sizes[] = {40, 32, 40, 32};
             float y = box.top + 8;
@@ -263,7 +261,7 @@ const UiProfileDialogPart* find(const UiProfileDialogScene& s, Role role, u32 so
 UiRect offset(ImageCropRect r, UiRect origin) noexcept {
     return {origin.left + r.left, origin.top + r.top, origin.left + r.right, origin.top + r.bottom};
 }
-// A decoration covers its avatar at 1.2x (the official avatar decoration ratio).
+// A decoration covers its avatar at 1.2x.
 UiRect decoration_rect(UiRect avatar) noexcept {
     const float grow = ui_rect_width(avatar) * .1f;
     return {avatar.left - grow, avatar.top - grow, avatar.right + grow, avatar.bottom + grow};

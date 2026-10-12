@@ -310,10 +310,9 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
     }
 
     // Stale logical identities are harmless until the open-addressed table is
-    // actually full. Sweeping every slot before every upload made a burst of N
-    // unique visible emoji O(N^2), even though the physical allocator still
-    // had room. When full, let the physical allocation perform its normal LRU
-    // eviction first, then reclaim only the identities it made stale.
+    // full; sweeping every slot before each upload would make a burst of N
+    // unique visible emoji O(N^2). When full, the physical allocator evicts by
+    // LRU first and only the identities that made stale are reclaimed.
     if (atlas->next_allocation_key == ~0ull) {
         media_atlas_reset(atlas);
     }
@@ -347,9 +346,8 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
 
     const u32 slot = find_free_slot(atlas);
     if (slot == 0xFFFFFFFFu || !insert_bucket(atlas, key, slot)) {
-        // A bookkeeping-capacity miss must never reset the shared GPU atlas:
-        // that would invalidate unrelated visible guild icons, avatars, and
-        // message media just because one more identity could not be retained.
+        // A bookkeeping-capacity miss must not reset the shared GPU atlas: that
+        // would invalidate unrelated visible media.
         ++atlas->rejected;
         return MediaAtlasResult{{}, 0, 0, width, height,
                                 allocation.evicted_entries,

@@ -4,8 +4,8 @@
 
 namespace maicord {
 
-// Renderer-neutral commands shared by the current and native font providers.
-// Layout is unchanged: existing shader uploads depend on the 28-byte command.
+// Renderer-neutral path commands. The 28-byte command layout is fixed: shader
+// uploads depend on it.
 enum class GlyphPathCommandKind : u8 {
     begin_filled, begin_hollow, line, cubic, end_open, end_closed,
 };

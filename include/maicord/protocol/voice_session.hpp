@@ -65,8 +65,8 @@ bool voice_session_initialize(VoiceSession* session, Slice<u8> input, Slice<u8> 
                               Slice<u32> scratch, ConstSlice<u8> client_key, u32 maximum_frame_bytes,
                               u32 maximum_message_bytes, u64 now_ms, bool resume) noexcept;
 bool voice_session_push(VoiceSession* session, ConstSlice<u8> decrypted) noexcept;
-VoiceSessionEvent voice_session_next(VoiceSession* session, u64 now_ms) noexcept;
-void voice_session_clear(VoiceSession* session) noexcept;
 // All event views expire on push/next/clear. Consume on the socket worker only:
 // binary MLS material and JSON Session Description can contain secrets.
+VoiceSessionEvent voice_session_next(VoiceSession* session, u64 now_ms) noexcept;
+void voice_session_clear(VoiceSession* session) noexcept;
 } // namespace maicord

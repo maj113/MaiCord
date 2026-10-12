@@ -361,7 +361,6 @@ void place_tiles(UiCallScene& s, UiRect area) noexcept {
         s.focus_user = 0;
         UiRect rects[kUiCallMaximumTiles];
         UiCallGridLayout layout{};
-        // Clamp the scroll against the measured content before placing.
         const auto measured = ui_call_grid_measure(ui_rect_width(area), ui_rect_height(area), count, s.gap);
         s.scroll = clampf(s.scroll, 0, maximum(0.f, measured.content_height - ui_rect_height(area)));
         if (!ui_call_grid_place(area, count, s.gap, s.scroll, {rects, count}, &layout))
@@ -588,7 +587,6 @@ bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, UiRect v
         return fallback;
     };
     if (relayout && !reduced_motion) {
-        // Every surviving tile morphs from where it is drawn now.
         for (u32 i = 0; i < s->tile_count; ++i)
             s->tiles[i].from = source(s->tiles[i].user_id, previous, s->tiles[i].target);
         ++s->morph_generation;
@@ -994,9 +992,7 @@ bool ui_call_scene_paint(const UiCallScene& s, const Theme& theme, PaintStream* 
     if (!paint_stream_push_clip(paint, v.left, v.top, v.right, v.bottom))
         return false;
     bool ok = ui_background_paint_canvas(paint, v, theme, theme.base_lowest, UiBackgroundTier::lowest);
-    // Header: speaker glyph before the title; a subtle rule under it.
     const float middle = (s.header.top + s.header.bottom) * .5f;
-    // A stage leads with the podcast glyph, green while a stage is live.
     ok = ok && ui_icon_paint(paint, s.stage_active ? UiIcon::podcast : UiIcon::speaker,
                              {s.header.left + 16, middle - 10, s.header.left + 36, middle + 10},
                              s.stage_live ? ui_icon_role_color(theme, UiIconRole::success) : theme.text_secondary);
@@ -1037,9 +1033,8 @@ bool ui_call_scene_paint(const UiCallScene& s, const Theme& theme, PaintStream* 
         } else if (video_ready(*p))
             ok = ok && paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, black, kTileRadius);
         else {
-            // Avatar tiles: the card plate tinted with the participant's
-            // identity colour, the avatar centred over it (the host draws a
-            // custom avatar over the placeholder; others get initials).
+            // Avatar tiles: the card plate tinted with the participant's identity
+            // colour. The host draws a custom avatar over the placeholder.
             const Color fill = theme.surface;
             ok = ok && ui_surface_paint(paint, r, theme, UiElevation::card, kTileRadius, &fill,
                                         &theme.tokens.border.subtle) &&
@@ -1078,7 +1073,6 @@ bool ui_call_scene_paint_foreground(const UiCallScene& s, const Theme& theme, Pa
         ok = paint_stream_push_clip(paint, tile.clip.left, tile.clip.top, tile.clip.right, tile.clip.bottom);
         const bool hovered = s.hovered_user == tile.user_id;
         const auto controls = tile_controls(s, tile, *p, hovered);
-        // State scrim over the stream's preview or last picture.
         if (ok && stream_scrim(*p) && p->stream != UiCallStream::ended)
             ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, theme.tokens.overlay.scrim_light,
                                            kTileRadius);
@@ -1273,7 +1267,6 @@ bool ui_call_scene_text_output(const UiCallScene& s, const Theme& theme, UiTextO
                                                            : s.header.right - 16;
     title_right = minimum(title_right, call_stage::header_left(s) - 12);
     const UiRect status{title_right - 160, s.header.top, title_right, s.header.bottom};
-    // A live stage is titled by its topic.
     const Utf8View title = s.stage_topic_bytes ? Utf8View{s.stage_topic, s.stage_topic_bytes}
                                                : Utf8View{s.title, s.title_bytes};
     const Utf8View status_text = s.stage_notice_bytes ? Utf8View{s.stage_notice, s.stage_notice_bytes}

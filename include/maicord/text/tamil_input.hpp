@@ -12,9 +12,9 @@ using SfntTamilInputResult=SfntIndicInputResult;
 // AU (U+0B94) remains nominal; this is shaping expansion, not Unicode NFD/NFC.
 // Other valid scalars pass through. No allocation, mapping, circles or reorder.
 // Output holds at most twice input.count records. All views/result are disjoint.
-// Invalid scalars, overlap, capacity or work errors precede output writes.
-// On output_too_small, result reports required sizes; other errors clear it.
-// Three work units per input scalar cover validation and expanded output.
+// Invalid scalars, overlap, capacity or work errors (three units per input
+// scalar) precede output writes. On output_too_small, result reports required
+// sizes; other errors clear it.
 SfntStatus sfnt_tamil_expand_cluster(ConstSlice<u32>,Slice<SfntTamilInputScalar>,
     SfntTamilInputResult*,u64 work_limit=1000000) noexcept;
 }

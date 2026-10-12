@@ -4,12 +4,12 @@
 
 namespace maicord {
 
-// Bound the complete animation separately from each compressed still frame.
-// Match the CDN body budget without allocating a decoded canvas per frame.
+// Encoded size limit for a whole animation, separate from each still frame's
+// limit; no decoded canvas is allocated per frame.
 inline constexpr u32 kAnimatedWebpEncodedMaximumBytes = 16u * 1024u * 1024u;
 inline constexpr u32 kAnimatedWebpInlineFrameCapacity = 256;
-// Match the playback timeline. Longer animations grow metadata on demand;
-// decoded frames still use a single reusable canvas.
+// Equals kAnimationTimelineFrameMaximum. Frame metadata beyond the inline
+// capacity grows on demand; decoded frames share one reusable canvas.
 inline constexpr u32 kAnimatedWebpFrameCapacity = 0xFFFFu;
 inline constexpr u64 kAnimatedWebpFrameFloorUs = 10'000;
 

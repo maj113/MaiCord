@@ -265,7 +265,7 @@ bool configure_controls(MessageComposerScene* scene, UiRect viewport, float chro
     root->spec.style = root_style(styles);
     surface_node->spec.style = surface_style(styles);
     reply->spec.style.padding = UiInsets{composer_metrics(styles).menu_gap, 0.f, 0.f, 0.f};
-    // Toggle, a 1 DIP divider and Cancel, as the official client's reply bar actions.
+    // The right margin clears Cancel and a 1 DIP divider.
     mention->spec.style.margin.right = kComposerReplyHeight + 2 * composer_metrics(styles).composer_padding + 1;
     // The upload strip spans the surface; the label row keeps its inset.
     attachments->spec.style.padding =
@@ -803,7 +803,7 @@ bool message_composer_scene_initialize(MessageComposerScene* scene, Slice<UiWidg
                                                  UiLayoutNodeSpec{utf8_literal("ReplyBanner"), banner_style,
                                                                   UiSize{}, 0.0f, kComposerReplyId}})
             : UiWidgetResult{};
-    // The official client's 8x12 padded "@ ON" switch: 16 DIP icon, 4 DIP gap, bold label.
+    // The "@ ON" switch is padded 8x12: 16 DIP icon, 4 DIP gap, bold label.
     UiLayoutStyle mention_style = fixed_control_style(kMessageComposerReplyMentionWidth);
     mention_style.height = ui_layout_fixed(kComposerReplyHeight);
     mention_style.horizontal_alignment = UiLayoutAlignment::end;
@@ -1484,7 +1484,6 @@ Utf8View message_composer_scene_reply_label(const MessageComposerScene& scene) n
 Utf8View message_composer_scene_reply_mention_label(const MessageComposerScene& scene) noexcept {
     if (!scene.active || !scene.reply_message_id || !scene.reply_mention_visible)
         return {};
-    // The label beside the @ icon (uppercase, small bold text).
     return scene.mention_reply_author ? utf8_literal("ON") : utf8_literal("OFF");
 }
 UiRect message_composer_scene_reply_mention_icon(const MessageComposerScene& scene) noexcept {

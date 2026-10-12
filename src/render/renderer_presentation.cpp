@@ -384,7 +384,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         (!presentation_stamp_pointer(&stamp, renderer.unread_banner_scene) ||
          !presentation_stamp_push(&stamp, renderer.unread_banner_scene->revision)))
         return stamp;
-    // Inactive tooltip ownership contributes nothing to the existing baseline.
+    // A hidden tooltip contributes nothing to the stamp.
     if (d3d11_renderer_tooltip_visible(renderer) &&
         (!presentation_stamp_pointer(&stamp, renderer.tooltip_scene) ||
          !presentation_stamp_push(&stamp, renderer.tooltip_scene->revision)))
@@ -431,8 +431,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
                                      !presentation_stamp_push(&stamp, renderer.settings_scene->active))))
         return stamp;
     // Name effects are shader-time driven and repaint through bounded damage
-    // (renderer_note_text_effect_damage). Profile effect layers still select
-    // media on the CPU per tick, so they keep rebuilding the scene.
+    // (renderer_note_text_effect_damage). Profile effect layers select media
+    // on the CPU each tick, so they rebuild the scene.
     const u64 now_ms = renderer.profile_scene ? GetTickCount64() : 0;
     if (profile_scene_animating(renderer.profile_scene, now_ms) &&
         !presentation_stamp_push(&stamp, now_ms / 42))
@@ -835,8 +835,8 @@ u64 text_signature(const D3D11Renderer& renderer) noexcept {
 
 // Batch markers decide how paint, media and text ranges interleave; they are
 // contiguous u32 fields from media_overlay_paint_first_batch onward. The
-// settings backdrop block between them (textures, its stamp and its 20 KiB
-// media record) is not layout: a backdrop redraw invalidates the whole frame.
+// settings backdrop block between them (textures, its stamp and its media
+// record) is not layout: a backdrop redraw invalidates the whole frame.
 u64 layout_signature(const D3D11Renderer& renderer) noexcept {
     const u8* first = reinterpret_cast<const u8*>(&renderer.media_overlay_paint_first_batch);
     const u8* backdrop = reinterpret_cast<const u8*>(&renderer.settings_backdrop);

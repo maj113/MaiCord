@@ -1,10 +1,9 @@
-// MaiCordPerfProbe: the shipping client sources built with MAICORD_PERF_PROBE.
-// The client loads MaiCordPerfAccount.dll (synthetic account, no network);
-// this file drives a deterministic scenario through the real main loop and
-// measures it in-process: startup to first present, main-thread CPU per
-// frame, wakes, context switches, allocation calls made by client code,
-// private working set and committed memory by owner. The report goes to
-// standard output; tools/perf/run_perf.ps1 aggregates several runs.
+// MaiCordPerfProbe: the shipping client sources built with MAICORD_PERF_PROBE. The
+// client loads MaiCordPerfAccount.dll (synthetic account, no network); this file
+// drives a deterministic scenario through the real main loop and reports startup to
+// first present, main-thread CPU per frame, wakes, context switches, client
+// allocation calls, private working set and committed memory by owner on standard
+// output. tools/perf/run_perf.ps1 aggregates several runs.
 #include "perf_probe.hpp"
 #include "../../src/app/application_state.hpp"
 #include "../../src/app/application_account_presentation.hpp"
@@ -79,7 +78,6 @@ namespace maicord::perf {
 namespace {
 using app_detail::g_app;
 
-// ------------------------------------------------------------- output
 struct Out {
     char text[256 * 1024];
     u32 used;
@@ -138,13 +136,13 @@ struct Out {
 };
 Out g_out;
 
-// --------------------------------------------------- original functions
 using VirtualAllocFunction = LPVOID(WINAPI*)(LPVOID, SIZE_T, DWORD, DWORD);
 using VirtualFreeFunction = BOOL(WINAPI*)(LPVOID, SIZE_T, DWORD);
 using HeapAllocFunction = LPVOID(WINAPI*)(HANDLE, DWORD, SIZE_T);
 using HeapReAllocFunction = LPVOID(WINAPI*)(HANDLE, DWORD, LPVOID, SIZE_T);
 using HeapFreeFunction = BOOL(WINAPI*)(HANDLE, DWORD, LPVOID);
-// Assigned in probe_initialize: this image has no dynamic initializers.
+// Originals of the hooked allocators, assigned in probe_initialize: this image
+// has no dynamic initializers.
 VirtualAllocFunction g_virtual_alloc = nullptr;
 VirtualFreeFunction g_virtual_free = nullptr;
 HeapAllocFunction g_heap_alloc = nullptr;
@@ -155,7 +153,6 @@ void* probe_alloc(u64 bytes) noexcept {
     return g_virtual_alloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 }
 
-// ------------------------------------------------- allocation tracking
 struct AllocCounters {
     volatile LONG64 virtual_alloc_calls;
     volatile LONG64 virtual_commit_bytes;
@@ -170,7 +167,6 @@ struct AllocCounters {
 };
 AllocCounters g_alloc{};
 
-// ---------------------------------------------- D3D11 context calls
 // Immediate-context calls counted by patching the context's vtable (probe
 // image only; slot indices follow the d3d11.h/d3d11_1.h vtable order). Media
 // decoder threads that share the device context are counted too. Draw and
@@ -352,12 +348,11 @@ u32 install_context_hooks(void* context, bool context1) noexcept {
     return installed;
 }
 
-// ------------------------------------------------- GPU frame replay
-// Timestamps around a presented frame include the wait for its back buffer,
-// which DWM releases only every ~250 ms while the display sleeps. After each
-// present the probe draws the same retained stream again, with the presented
-// damage, into an offscreen target of the back buffer's size and format and
-// times only that. Nothing is uploaded; the replay's main-thread cycles are
+// GPU frame replay. Timestamps around a presented frame include the wait for its
+// back buffer, which DWM releases only periodically while the display sleeps. So
+// after each present the probe draws the same retained stream again, with the
+// presented damage, into an offscreen target of the back buffer's size and format
+// and times only that. Nothing is uploaded; the replay's main-thread cycles are
 // excluded from the CPU columns.
 struct GpuReplayFrame {
     ID3D11Query* disjoint;
@@ -662,7 +657,6 @@ u32 install_import_hooks() noexcept {
     return installed;
 }
 
-// ------------------------------------------------ system information
 struct NtUnicodeString {
     USHORT length;
     USHORT maximum_length;
@@ -777,7 +771,6 @@ bool sample_process(ProcessSample* out) noexcept {
     return true;
 }
 
-// ------------------------------------------------------------ threads
 // Per-thread owner (Win32 start address), CPU cycles and context switches,
 // with the context switches of the final idle phase for idle attribution, and
 // the stack reservation and its committed pages (latest sample).
@@ -885,7 +878,6 @@ void collect_threads(bool idle_baseline) noexcept {
     }
 }
 
-// ------------------------------------------------------------ phases
 enum class Phase : u32 {
     startup,
     history_wait,
@@ -1094,7 +1086,6 @@ void next_phase(Phase phase) noexcept {
     begin_phase(phase);
 }
 
-// --------------------------------------------------------- navigation
 bool select_channel(u64 guild, u64 channel) noexcept {
     if (!g_app.account_ui)
         return false;
@@ -1155,7 +1146,6 @@ bool shell_ready() noexcept {
            g_app.account_ui->chat_state.guild_count >= kPerfGuilds;
 }
 
-// ---------------------------------------------------- memory snapshot
 enum MemoryCategory : u32 {
     cat_app_virtual,
     cat_heap,
@@ -1466,7 +1456,6 @@ bool take_snapshot(u32 index) noexcept {
     return true;
 }
 
-// ------------------------------------------------------------ report
 double cycles_per_us = 0;
 
 void calibrate_cycles() noexcept {
@@ -1483,7 +1472,7 @@ double cycles_to_us(u64 cycles) noexcept {
 }
 
 void sort_u64(u64* values, u32 count) noexcept {
-    // Heap sort; frame counts are a few thousand.
+    // Heap sort: no CRT qsort.
     auto sift = [&](u32 start, u32 end) noexcept {
         u32 root = start;
         while (root * 2 + 1 < end) {
@@ -1709,12 +1698,11 @@ void report_sites(const MemorySnapshot& snapshot) noexcept {
     }
 }
 
-// --------------------------------------------------- sampling profiler
-// Opt-in (MAICORD_PERF_PROFILE=1): a 1 kHz sampler suspends the main thread,
-// unwinds it with .pdata (no symbols, no locks: a module table built while
-// the main thread runs) and counts function-start RVAs per phase. Self time
-// in another module is charged to that module and to the nearest probe-image
-// caller; run_perf.ps1 resolves RVAs through the link map.
+// Sampling profiler, opt-in (MAICORD_PERF_PROFILE=1): a 1 kHz sampler suspends
+// the main thread, unwinds it with .pdata (no symbols, no locks: a module table
+// built while the main thread runs) and counts function-start RVAs per phase.
+// Self time in another module is charged to that module and to the nearest
+// probe-image caller; run_perf.ps1 resolves RVAs through the link map.
 struct ProfileModule {
     u64 base, end;
     const RUNTIME_FUNCTION* functions;

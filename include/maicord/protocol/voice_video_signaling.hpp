@@ -3,9 +3,9 @@
 #include "maicord/protocol/voice_media_events.hpp"
 
 namespace maicord {
-// Video negotiation on the voice gateway, matching the current desktop client:
-// Select Protocol (op 1) codec list, Session Update (op 14) and media sink
-// wants (op 15). Identify streams are written by voice_gateway_write_identify.
+// Video negotiation on the voice gateway: Select Protocol (op 1) codec list,
+// Session Update (op 14) and media sink wants (op 15). Identify streams are
+// written by voice_gateway_write_identify.
 enum class VoiceVideoCodec : u8 {
     none,
     h264,
@@ -34,9 +34,9 @@ struct VoiceSelectProtocolMedia {
     Utf8View rtc_connection_id;
 };
 // {"op":1,"d":{"protocol":"udp","data":{address,port,mode},address,port,mode,
-//  "codecs":[...],"rtc_connection_id":"...","experiments":[]}} — the official
-// UDP payload spreads the transport fields beside "data". Measures before
-// writing; any error leaves output unchanged; null/zero output is a size query.
+//  "codecs":[...],"rtc_connection_id":"...","experiments":[]}}: the transport
+// fields sit beside "data" as well. Measures before writing; any error leaves
+// output unchanged; null/zero output is a size query.
 GatewayCommandWriteResult voice_gateway_write_select_protocol_media(const VoiceSelectProtocolMedia& selection,
                                                                     Slice<u8> output) noexcept;
 // Formats 16 random bytes as a version-4 RFC 4122 UUID (36 characters).
@@ -45,7 +45,7 @@ bool voice_rtc_connection_id(ConstSlice<u8> random, Slice<char> output) noexcept
 // Media sink wants (op 15): the quality (0-100) this client wants per remote
 // SSRC, with "any" for unlisted SSRCs. 100 is full quality, 0 stops the stream.
 // Entries need not be sorted; they are written in ascending SSRC order before
-// "any" (JavaScript integer-key order, as the official client serializes).
+// "any" (JavaScript integer-key order).
 struct VoiceSinkWant {
     u32 ssrc;
     u8 quality;

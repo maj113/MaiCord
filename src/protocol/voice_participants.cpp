@@ -35,8 +35,7 @@ bool source_field(void* context, JsonString name, JsonValue value) noexcept {
     if (read.seen & (1u << index))
         return false;
     read.seen |= 1u << index;
-    // Null keeps the default (no SSRC, active, video, full quality), as the
-    // official stream conversion's null checks do.
+    // Null keeps the default (no SSRC, active, video, full quality).
     if (value.kind == JsonValueKind::null_value)
         return true;
     if (index == 4) {
@@ -55,7 +54,7 @@ bool source_field(void* context, JsonString name, JsonValue value) noexcept {
     JsonString type{};
     if (!json_value_as_string(value, &type) || !type.encoded.bytes)
         return false;
-    // Matches the current official conversion: unknown/missing types use video.
+    // Unknown or missing types stay video.
     if (json_string_equals_ascii(type, utf8_literal("audio")))
         read.source.kind = VoiceSourceKind::audio;
     else if (json_string_equals_ascii(type, utf8_literal("screen")))

@@ -7,8 +7,8 @@
 
 namespace maicord {
 // Soundboard: guild and default sounds, sending a sound into the current voice
-// channel and the Manage Expressions page. Bodies follow the official client's
-// field order. Default sounds belong to the pseudo-guild 0.
+// channel and the Manage Expressions page. Default sounds belong to the
+// pseudo-guild 0.
 inline constexpr u32 kSoundboardNameMinimum = 2;
 inline constexpr u32 kSoundboardNameMaximum = 32;
 inline constexpr u32 kSoundboardNameBytes = kSoundboardNameMaximum * 4;
@@ -166,10 +166,10 @@ struct GatewayVoiceChannelEffect {
 SoundboardDecodeResult soundboard_decode_effect(Utf8View object, Slice<u32> scratch,
                                                 GatewayVoiceChannelEffect* output) noexcept;
 
-// Who may play a sound in the current voice channel (the official client's
-// rules): Speak and Use Soundboard there, not muted or suppressed, the sound
-// available, and a sound from another server only with Nitro and Use
-// External Sounds. Default sounds (guild 0) play everywhere.
+// Who may play a sound in the current voice channel: Speak and Use Soundboard
+// there, not muted or suppressed, the sound available, and a sound from another
+// server only with Nitro and Use External Sounds. Default sounds (guild 0) play
+// everywhere.
 enum class SoundboardBlock : u8 {
     none,
     not_in_call,

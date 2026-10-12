@@ -14,12 +14,11 @@ enum class NavigationDragPhase : u8 {
     armed,    // pressed on a draggable row; the pointer has not moved far yet
     dragging, // captured; a target follows the pointer
 };
-// What a row is, for drop rules.
 enum class NavigationDragRowKind : u8 {
     none,         // not a drop target (threads, voice users, unavailable rows)
-    guild,        // top-level guild
+    guild,
     nested_guild, // guild inside an expanded folder
-    folder,       // folder header
+    folder,
     text,         // text-like channel
     voice,        // voice-like channel
     category,

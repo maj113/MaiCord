@@ -50,6 +50,6 @@ typedef _RTL_SRWLOCK RTL_SRWLOCK;
 typedef RTL_SRWLOCK SRWLOCK;
 
 namespace maicord {
-// WM_APP: private window messages start here (checked in application_window_runtime.cpp).
+// WM_APP: private window messages start here.
 inline constexpr UINT kWindowMessageApp = 0x8000;
 } // namespace maicord

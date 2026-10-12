@@ -93,7 +93,6 @@ struct Body {
     }
 };
 bool write_user(Body& b, const UserPatch& p) noexcept {
-    // Key order follows the client's request object.
     if ((p.fields & user_patch_avatar) &&
         (!b.image("avatar", p.avatar) ||
          (p.avatar.bytes && p.avatar_description.bytes && !b.text("avatar_description", p.avatar_description))))
@@ -540,7 +539,7 @@ bool error_member(void* opaque, JsonString key, JsonValue value) noexcept {
                                   utf8_literal("avatar"),      utf8_literal("banner"), utf8_literal("bio")};
     u32 slot = static_cast<u32>(ProfileEditErrorField::misc);
     if (json_string_equals_ascii(key, utf8_literal("username"))) {
-        // The official client maps a per-server username error to nick.
+        // A per-server username error is reported under nick.
         c.out->username = true;
         slot = static_cast<u32>(ProfileEditErrorField::nick);
     } else if (!json_string_equals_ascii(key, utf8_literal("_errors")))

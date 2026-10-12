@@ -46,7 +46,7 @@ void decorate_context_actions(MessageContextMenuModel* model) noexcept {
             icon = UiIcon::unpin;
             break;
         case MessageContextAction::mark_unread:
-            // The official client's chat bubble: every row of the menu keeps an icon.
+            // Every row of the menu keeps an icon; mark unread uses the chat bubble.
             icon = UiIcon::direct_message;
             break;
         case MessageContextAction::copy_text:
@@ -283,7 +283,6 @@ MessageContextMenuResult message_context_menu_build(MessageContextMenuModel* mod
             static_cast<u16>(popup_item_enabled | popup_item_danger |
                              (can_delete_authoritative ? 0 : popup_item_separator_before)),
             0};
-    // Copy ID is a Developer Mode item, as in the official client.
     if (developer_mode)
         candidate.items[candidate.count++] =
             PopupItem{utf8_literal("Copy message ID"), action(MessageContextAction::copy_id),

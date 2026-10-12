@@ -269,8 +269,7 @@ BrowserSignInWriteResult browser_sign_in_write_response(const BrowserSignInReque
     const auto decoded = json_string_decode_utf8(request.nonce, {nonce, sizeof(nonce)});
     EncodedString encoded{};
     if (!decoded.ok() || !decoded.bytes || !encoded_string({nonce, decoded.bytes}, true, &encoded)) { SecureZeroMemory(nonce, sizeof(nonce)); return {0, BrowserSignInError::invalid_input}; }
-    // Native dispatcher defaults undefined handler data to null and preserves
-    // cmd/evt/nonce. The BrowserHandoff handler has no return value.
+    // The reply echoes cmd and nonce; the handler returns nothing, so data and evt are null.
     const u32 body_bytes = sizeof("{\"cmd\":\"BROWSER_HANDOFF\",\"data\":null,\"evt\":null,\"nonce\":}") - 1 + encoded.bytes;
     constexpr char head[] = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: https://discord.com\r\nVary: Origin\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: ";
     u8 length[10]; const u32 length_bytes = decimal_write(length, body_bytes);

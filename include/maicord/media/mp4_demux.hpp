@@ -102,9 +102,9 @@ struct Mp4Demuxer {
     u64 mdat_cursor;
     u64 mdat_begin;
     u64 mdat_end;
-    // Edit-list timebase/bounds. Without edits, these use the media timebase
-    // and the presentation endpoint. The us fields are rounded; playback need
-    // not multiply them.
+    // Edit-list timebase and bounds in exact ticks; the *_us fields are
+    // rounded. Without edits they use the media timescale and the presentation
+    // endpoint.
     u32 movie_timescale;
     u64 empty_edit_ticks;
     u64 movie_duration_ticks;

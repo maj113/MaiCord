@@ -76,8 +76,7 @@ GuildCommunityWriteResult guild_community_write_target(const GuildCommunityReque
 u32 guild_community_write_interest_body(Slice<u8> body) noexcept;
 // The fixed body of guild_join ({}); returns the bytes written or 0.
 u32 guild_community_write_join_body(Slice<u8> body) noexcept;
-// guild_join's X-Context-Properties line: the server tag popout's join
-// passes context {source: undefined}, which the official client serializes as {} (e30=).
+// guild_join's X-Context-Properties line: base64 of an empty object (e30=).
 // Returns the bytes written (rest_append_extra_header) or 0.
 u32 guild_community_write_join_context(Slice<u8> output) noexcept;
 
@@ -92,7 +91,7 @@ enum class GuildCommunityOutcome : u8 {
 };
 GuildCommunityOutcome guild_community_classify(u16 http_status) noexcept;
 
-// ---- Membership screening ------------------------------------------------
+// Membership screening
 
 inline constexpr u32 kGuildVerificationFieldMaximum = 8;
 inline constexpr u32 kGuildVerificationValueMaximum = 32;
@@ -148,7 +147,7 @@ enum class GuildApplicationStatus : u8 { unknown, started, submitted, rejected, 
 // The join request returned by the PUT.
 GuildApplicationStatus guild_verification_decode_status(Utf8View body, Slice<u32> scratch) noexcept;
 
-// ---- Onboarding ------------------------------------------------------------
+// Onboarding
 
 inline constexpr u32 kGuildOnboardingPromptMaximum = 16;
 inline constexpr u32 kGuildOnboardingOptionMaximum = 128;
@@ -193,7 +192,7 @@ bool guild_onboarding_prompt_answered(const GuildOnboarding&, u32 prompt) noexce
 // at `seen_ms`. Returns the bytes written, 0 on failure.
 u32 guild_onboarding_write_responses(const GuildOnboarding&, u64 seen_ms, Slice<u8> output) noexcept;
 
-// ---- Scheduled events -------------------------------------------------------
+// Scheduled events
 
 inline constexpr u32 kScheduledEventNameBytes = 256;
 inline constexpr u32 kScheduledEventDescriptionBytes = 1024;
@@ -260,7 +259,7 @@ u32 scheduled_event_write_create(const ScheduledEventCreate&, Slice<u8> output) 
 // https://discord.com/events/{guild}/{event}
 u32 scheduled_event_write_link(u64 guild_id, u64 event_id, Slice<char> output) noexcept;
 
-// ---- Server profile (the server tag popout) --------------------------------
+// Server profile (the server tag popout)
 
 inline constexpr u32 kGuildProfileNameBytes = 256;
 inline constexpr u32 kGuildProfileDescriptionBytes = 1024;

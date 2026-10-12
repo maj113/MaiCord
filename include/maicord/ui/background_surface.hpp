@@ -17,10 +17,10 @@ inline constexpr float kUiBackgroundCanvasMarker = -8;
 inline bool ui_background_canvas_quad(const PaintQuad& quad) noexcept {
     return quad.reserved_x == kUiBackgroundCanvasMarker && (quad.border_width == -8 || quad.border_width == 0);
 }
-// Designated view canvases draw their own effects. Their base is first composed from the
-// actual flat fill or global gradient/tier; the renderer's effect pass then draws the
-// selected effect over it, before the widgets that follow.
-// Static widgets and modal surfaces use the separate surface material below.
+// Designated view canvases draw their own effects. The base is composed first
+// from the flat fill or global gradient/tier; the renderer's effect pass then
+// draws the selected effect over it, before the widgets that follow. Static
+// widgets and modal surfaces use the surface material below.
 inline bool ui_background_paint_canvas(PaintStream* stream, UiRect rectangle, const Theme& theme,
                                        Color fill,
                                        UiBackgroundTier tier = UiBackgroundTier::chat) noexcept {

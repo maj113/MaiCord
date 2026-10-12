@@ -28,12 +28,12 @@ struct UiAccountMenuIdentity {
     Utf8View display_name, username;
     u32 avatar_variant;
     bool avatar_animated;
-    // This is an authoritative self-status projection. A guild member's
-    // presence must not be substituted for a desired Invisible status.
+    // Authoritative self status; a guild member's presence must not stand in for a
+    // chosen Invisible.
     UiPresence presence = UiPresence::unknown;
     bool status_available = false;
     bool status_pending = false;
-    // The host provides current account authority. Unavailable logout is hidden.
+    // False hides the Log out row (the host decides).
     bool logout_available = false;
     // Saved accounts can be switched or added (opens the Switch accounts panel).
     bool switch_available = false;

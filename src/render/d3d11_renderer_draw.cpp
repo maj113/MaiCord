@@ -687,11 +687,9 @@ void renderer_release_settings_backdrop(D3D11Renderer* renderer) noexcept {
 }
 
 // Frames that draw only the modal begin a visibility epoch that pins just the
-// modal's media. Unpinned, the shell's images and animation frames behind the
-// scrim became eviction candidates, and with nothing pinned a full atlas
-// resets on the next upload (a GIF frame): every backdrop redraw then lost
-// the shell's media and the next one, after they were uploaded again, showed
-// them, flickering behind the dialog for as long as anything animated.
+// modal's media. Pinning the media the backdrop drew keeps it from being
+// evicted when a full atlas resets on the next upload (a GIF frame), which
+// would make the backdrop flicker while anything animates.
 void renderer_pin_settings_backdrop_media(D3D11Renderer* renderer) noexcept {
     if (!renderer || !renderer->settings_backdrop_valid || !settings_backdrop_wanted(*renderer))
         return;

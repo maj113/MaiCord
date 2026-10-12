@@ -302,8 +302,8 @@ bool visit_message(void* opaque, u32 index, JsonValue value) noexcept {
             return reject(context, MessageSearchDecodeError::invalid_group, value.source_offset);
         }
     }
-    // The legacy excerpt owns labels only; the rich sink consumes the reusable
-    // named-mention and media pools before the next message is decoded.
+    // Without a rich sink the excerpt keeps no mention views; a sink consumes the
+    // reusable named-mention and media pools before the next message is decoded.
     if (!context->rich_scratch) {
         message.mention_roles = {};
         message.mention_users = {};
@@ -478,7 +478,7 @@ bool term_valid(const char* text, u32 bytes, u32 capacity, bool hostname, bool e
     }
     return true;
 }
-// The official client's tab preset applies only when the user did not choose that filter.
+// The tab's preset applies only when the user did not choose that filter.
 u16 effective_has(const MessageSearchQuery& query) noexcept {
     if (query.has || query.has_excluded)
         return query.has;
@@ -772,7 +772,7 @@ static MessageSearchDecodeResult decode_search_page(
     auto read =
         json_visit_root_object(body, context.document.structurals, maximum_depth, visit_root, &context);
     if (read.ok() && (context.fields & 16)) {
-        // A tabs root never carries legacy page fields beside it.
+        // A tabs root never carries page fields beside it.
         if (context.fields & 3)
             context.result.error = MessageSearchDecodeError::duplicate_field;
         else

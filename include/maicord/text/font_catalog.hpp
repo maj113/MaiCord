@@ -25,30 +25,29 @@ struct NativeFontCatalogMatch {u32 candidate;NativeFontProperties properties;u32
 // Stable caller-provided arrays with initial counts of zero. Serialize appends; readers
 // need a catalog that is no longer being appended to. Views keep no mappings or handles.
 // One add opens a file read-only, enumerates every collection face and copies
-// native metadata, then closes it. No outline/cmap/preparation work is performed.
+// native metadata, then closes it; no outline/cmap/preparation work is done.
 // Path is NUL-terminated, at most 32,767 UTF-16 units, disjoint from storage/scratch.
 // All collection faces must be supported. Errors leave counts and existing data
-// unchanged; unused storage and name scratch can change. Output is UINT_MAX on error.
-// Physical file aliases are deduplicated, preserving the first path. Size/write/change-time
-// changes for an existing file identity return ERROR_RETRY. This is not a content
-// hash, refresh service or availability/precedence policy. Separate font collections
-// require separate catalogs. The caller must check every add result before using the catalog.
+// unchanged (unused storage and name scratch can change); the output index is
+// UINT_MAX. Physical file aliases are deduplicated, preserving the first path.
+// Size/write/change-time changes for an existing file identity return
+// ERROR_RETRY. Check every add result before using the catalog.
+// Optional disjoint metadata_scratch enables compact reads of catalog tables; a
+// too-small scratch falls back to the general mapping path with no loss of coverage.
+// Optional needed starts at the current counts and reports the failing array's
+// required capacity (other counts may include staged work); it is valid only for
+// capacity failures. Output, catalog and scratch must not overlap.
+// default_face_only projects only face zero's default axis instance. Use a
+// separate catalog per font collection and do not mix full-file and
+// default-face additions of the same physical file.
 NativeFontResult native_font_catalog_add(NativeFontCatalog*,const wchar_t* path,Slice<u16> name_scratch,
     u32* file_index,u32 maximum_faces=65536,u32 work_per_face=1000000,NativeFontCatalogCounts* needed=nullptr,bool default_face_only=false,Slice<u8> metadata_scratch={}) noexcept;
-// Optional disjoint metadata scratch enables compact reads of catalog tables.
-// Too-small scratch uses the general mapping path without reducing coverage.
-// Optional needed starts at the current counts and reports the failing array's
-// required capacity. Other counts may include staged work. It is valid only for
-// capacity failures; no output/catalog/scratch overlap is permitted.
-// default_face_only projects face zero's default axis instance, matching a private
-// single-face reference collection. Use a separate catalog per collection; do not
-// mix full-file and default-face additions of the same physical file.
 // Match English WWS names case-insensitively using Windows ordinal comparison.
 // No font service, file IO or allocation. Exact ties preserve file/face/instance
-// insertion order; compatibility of that order is a catalog-builder obligation.
-// Scratch arrays are disjoint and reusable; output clears on error. Query name is
-// counted and disjoint. Missing names return unsupported_sequence, never an alias
-// or fallback font. Numeric and localized name limitations follow font_family.
+// insertion order; keeping that order compatible is the catalog builder's job.
+// Scratch arrays and the query name are disjoint; output clears on error.
+// Missing names return unsupported_sequence, never an alias or fallback font.
+// Numeric and localized name limitations follow font_family.
 SfntStatus native_font_catalog_match(const NativeFontCatalog&,ConstSlice<u16> name,NativeFontProperties,
     Slice<NativeFontProperties> properties_scratch,Slice<u32> index_scratch,NativeFontCatalogMatch*,u32 maximum_faces=65536) noexcept;
 ConstSlice<u16> native_font_catalog_path(const NativeFontCatalog&,u32 file) noexcept;

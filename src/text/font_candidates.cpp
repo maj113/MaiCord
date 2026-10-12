@@ -39,7 +39,7 @@ SfntStatus native_font_candidates_open(const SfntFace& face,NativeFontCandidates
     NativeFontCandidates result{};result.base={attributes.weight,static_cast<u8>(attributes.width),static_cast<u8>(attributes.selection&512?1:attributes.selection&1?2:0)};
     status=font_axes_open(face,&result.axes,work);if(status!=SfntStatus::ok)return status;
     if(!result.axes.axis_count){result.count=1;*output=result;return SfntStatus::ok;}
-    // The required variable profile currently has only weight and width axes.
+    // The required variable profile has only weight and width axes.
     if(result.axes.axis_count>2)return SfntStatus::unsupported;
     if(!spend(work,result.axes.axis_count*(result.axes.axis_count+1)/2+result.axes.axis_count*result.axes.axis_count))return SfntStatus::resource_limit;
     status=stat_axes(face,result.axes);if(status!=SfntStatus::ok)return status;

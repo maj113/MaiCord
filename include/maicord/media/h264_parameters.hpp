@@ -64,7 +64,7 @@ H264Error h264_select_parameters(ConstSlice<u8> avcc, u8 pps_id,
 // max_dec_frame_buffering, else the level limit MaxDpbMbs / frame size (Table
 // A-1, at least max_num_ref_frames). 16 when the level is unknown or the SPS
 // contradicts it. Decoder surface pools size from this, not the 16-frame
-// syntax maximum (an unrestricted 1080p stream needs 4, not 16).
+// syntax maximum.
 u8 h264_sps_dpb_frames(const H264Sps& sps) noexcept;
 // Output (bumping) delay: max_num_reorder_frames when signalled, else the DPB.
 u8 h264_sps_output_reorder(const H264Sps& sps) noexcept;

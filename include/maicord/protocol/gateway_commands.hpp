@@ -33,8 +33,8 @@ struct GatewayMemberSubscriptionRange {
     u32 last;
 };
 
-// The official client keeps the five most recent channels of a guild subscribed
-// and writes them all in every frame, most recent first.
+// The five most recent channels of a guild stay subscribed and are all written
+// in every frame, most recent first.
 inline constexpr u32 kGatewayGuildSubscriptionMaximumChannels = 5;
 struct GatewayChannelSubscription {
     u64 channel_id;

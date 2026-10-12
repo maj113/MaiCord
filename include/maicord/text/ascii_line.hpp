@@ -15,14 +15,15 @@ struct NativeLinePosition {u32 source_first,source_count;float x,left,width;};
 struct NativeLinePoint {u32 source_position;bool inside;};
 struct NativeLineSelection {u32 source_first,source_count;float left,width;bool present;};
 static_assert(sizeof(NativeLineCluster)==12&&sizeof(NativeLinePosition)==20&&sizeof(NativeLinePoint)==8);
-// One unwrapped horizontal LTR ASCII line in one native font. Inherits the
-// run frontend's text/font restrictions. Noncontiguous/reordered source maps
-// require the general layout path and return unsupported_sequence.
-// Whitespace classification follows each cluster's first source character;
-// shaping can merge a space with adjacent letters. Optional nonnegative trailing spacing is in DIPs; no alignment.
+// One unwrapped horizontal LTR ASCII line in one native font; inherits the run
+// frontend's text/font restrictions. Noncontiguous or reordered source maps need
+// the general layout path and return unsupported_sequence.
+// Whitespace classification follows each cluster's first source character
+// (shaping can merge a space with adjacent letters). Optional trailing spacing
+// is nonnegative, in DIPs; no alignment.
 // Buffers are caller-provided and disjoint; output bytes can change on error.
-// Empty input represents one empty typographic line. Document-level empty-text
-// policy remains the caller's responsibility. No allocation or OS service.
+// Empty input is one empty typographic line; empty-text policy is the caller's.
+// No allocation or OS service.
 SfntStatus native_ascii_line(const NativeRunPlanStore& store,NativeRunPlanHandle plan,
     Utf8View input,bool independent_letters,float em_size,const NativeAsciiLineStorage& storage,
     NativeAsciiLineResult* result,SfntShapeLimits limits={},float trailing_spacing=0) noexcept;
@@ -33,8 +34,8 @@ SfntStatus native_ascii_line_position(ConstSlice<NativeLineCluster> clusters,
     const NativeAsciiLineResult& line,u32 source_position,bool trailing,
     NativeLinePosition* output) noexcept;
 // O(log clusters), relative line coordinates. Ordered nonnegative cluster
-// geometry is required. Returns the caret source boundary consumed by MaiCord,
-// without a leading/trailing cluster representation of that shared boundary.
+// geometry is required. Returns the caret source boundary, without a
+// leading/trailing cluster representation of that shared boundary.
 // Outside hits choose the nearest edge; inside includes the text rectangle's
 // boundary. Empty input returns position zero and inside=false. No allocation.
 SfntStatus native_ascii_line_point(ConstSlice<NativeLineCluster> clusters,

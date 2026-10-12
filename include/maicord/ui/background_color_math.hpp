@@ -170,7 +170,7 @@ inline bool background_color_anchors(const BackgroundTheme& draft, bool light,
     if (base.saturation)
         base.saturation = 1;
     base.lightness = light ? .9f : .05f;
-    // The source publishes these lightness values with two decimal places.
+    // Lightness is rounded to two decimal places.
     const double text_lightness = light ? .05 - draft.intensity * .0005 : .9 + draft.intensity * .001;
     text.lightness = static_cast<float>(static_cast<u32>(text_lightness * 100 + .500000001) / 100.0);
     *output = {background_color_from_hsl(base), background_color_from_hsl(text),
@@ -226,8 +226,8 @@ inline u32 background_color_random_index(u32& state, u32 count) noexcept {
     state ^= state << 5;
     return static_cast<u32>((static_cast<u64>(state) * count) >> 32);
 }
-// Original bounded generator implementing the observed harmony distribution.
-// Only palette/angle/intensity change; the caller's effect profile stays intact.
+// Randomized harmony palette: only palette/angle/intensity change; the caller's
+// effect profile stays intact.
 inline bool background_theme_randomized(const BackgroundTheme& draft, u32 seed,
                                         BackgroundTheme* output) noexcept {
     if (!output || !background_theme_valid(draft))

@@ -47,14 +47,13 @@ struct SfntOutlineVariation {
     Slice<SfntGvarDelta> deltas;
 };
 
-// Static callers reject gvar by default. Variable callers enable opening
-// and supply the matching prepared instance when decoding.
-// Opening checks table extents; glyph offset pairs are validated when used.
-// Instructions execute only when a separately prepared TtOutlineContext is
-// supplied. Its current positioning/transform coverage is incomplete. Geometry
-// without that context is a raw/varied outline with no hinting.
-// Contour-point attachments are supported; phantom-point attachments are
-// unsupported until vertical/phantom metric resolution exists.
+// Static callers reject gvar by default; variable callers enable opening and
+// supply the matching prepared instance when decoding. Opening checks table
+// extents; glyph offset pairs are validated when used. Instructions execute only
+// when a separately prepared TtOutlineContext is supplied; without it the
+// geometry is a raw/varied outline with no hinting. Component attachments by
+// contour point are supported; attachments to the four phantom points return
+// unsupported (no phantom metric resolution).
 SfntStatus sfnt_truetype_open(const SfntFace& face, SfntTrueType* font,bool allow_variations=false) noexcept;
 // Conservative command bound for a simple glyph, including contour delimiters.
 // Zero means unknown (composite/invalid view). The ordinary decoder still must
@@ -65,16 +64,16 @@ u32 sfnt_truetype_outline_capacity(const SfntTrueType& font,u16 glyph) noexcept;
 SfntStatus sfnt_truetype_has_instructions(const SfntTrueType& font,bool* present,
     u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 // Output is normalized to one em with y down, matching GlyphOutline. Scratch and
-// commands are caller-owned. On any failure, no partial outline is returned.
-// Capacity failure and work/depth exhaustion are reported as errors, never as missing glyphs.
+// commands are caller-owned. Any failure returns no partial outline; capacity
+// failure and work/depth exhaustion are errors, never missing glyphs.
 // Opt-in instruction discovery returns instructions_required with empty output;
 // prepare the context and retry the root glyph, including all its components.
-// Oblique is supported in text mode. It transforms final design points
-// before implied points/normalization and charges one work unit per point.
-// Static TrueType bold classifies original simple contours, stores component
-// directions in point padding, and widens final positioned points
-// before oblique. The prepared context supplies its recovery policy. Variable
-// bold, singular component transforms and simulated COLR remain unsupported.
+// Oblique (text mode only) transforms final design points before implied
+// points/normalization and charges one work unit per point. Static TrueType bold
+// classifies original simple contours, stores component directions in point
+// padding and widens final positioned points before oblique; the prepared
+// context supplies its recovery policy. Variable bold, singular component
+// transforms and simulated COLR are unsupported.
 SfntStatus sfnt_truetype_outline(const SfntTrueType& font, u16 glyph,
                                   SfntOutlineScratch* scratch, GlyphOutline* output,
                                   SfntOutlineMode mode=SfntOutlineMode::text,

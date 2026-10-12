@@ -196,11 +196,9 @@ AttachmentUrlResult parse_signed_attachment_url(Utf8View url, u64 attachment_id,
         return attachment_url_failure(AttachmentUrlError::invalid_path);
     }
 
-    // Unsigned attachment paths are no longer directly fetchable by Discord,
-    // but they remain useful stable identities in older message payloads.
-    // Return the pinned/validated target with an already-expired lifetime so
-    // the account layer requests a fresh message record instead of dropping
-    // the image permanently or issuing a doomed unauthenticated GET.
+    // Unsigned attachment paths are not fetchable but still identify the file in
+    // older message payloads. Return the validated target already expired, so the
+    // account layer requests a fresh message record instead of an unauthenticated GET.
     if (query == url.bytes) {
         if (target_bytes > target_output.count) {
             return attachment_url_failure(AttachmentUrlError::output_capacity);
@@ -242,9 +240,8 @@ AttachmentUrlResult parse_signed_attachment_url(Utf8View url, u64 attachment_id,
             return attachment_url_failure(AttachmentUrlError::invalid_query,
                                           AttachmentQueryError::missing_equals);
         }
-        // Discord currently emits a harmless empty `=` media-proxy marker in
-        // some attachment URLs. It grants nothing and is omitted when
-        // the client canonicalizes a bounded proxy target.
+        // Some attachment URLs carry an empty `=` media-proxy marker. It grants
+        // nothing and is dropped from the canonical target.
         if (equals == offset && equals + 1 == end) {
             offset = end < url.bytes ? end + 1 : end;
             continue;
@@ -288,9 +285,8 @@ AttachmentUrlResult parse_signed_attachment_url(Utf8View url, u64 attachment_id,
             }
             has_signature = true;
         } else if (ascii_equal(name, name_bytes, "backend")) {
-            // Attachment responses select B2 storage with
-            // this routing hint. Retain it in the target; accept no arbitrary
-            // backend or ambiguous repeated routing parameter.
+            // Routing hint selecting B2 storage; kept in the target. Any other
+            // backend value or a repeat is refused.
             if (has_backend || !ascii_equal(value, value_bytes, "b2")) {
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::backend_parameter);
@@ -316,8 +312,7 @@ AttachmentUrlResult parse_signed_attachment_url(Utf8View url, u64 attachment_id,
                                               AttachmentQueryError::unsupported_quality);
             }
         } else if (ascii_equal(name, name_bytes, "animated")) {
-            // Discord's public client requests animated WebP/GIF previews with
-            // this boolean hint. It carries no signed-attachment authority.
+            // Boolean animated-preview hint; carries no signed-attachment authority.
             if (!ascii_equal(value, value_bytes, "true") && !ascii_equal(value, value_bytes, "false")) {
                 return attachment_url_failure(AttachmentUrlError::invalid_query,
                                               AttachmentQueryError::animated_parameter);
@@ -407,8 +402,8 @@ MediaUrlResult parse_media_url(Utf8View url, Slice<u8> target_output) noexcept {
 }
 
 namespace {
-// Discord's Klipy asset filter, /^\/([a-zA-Z0-9/_-]+\.(gif|webp|webm|mp4|png))$/,
-// here also without empty path segments: one extension, no dots or escapes.
+// Klipy asset path: [a-zA-Z0-9/_-]+ plus the given extension, with no empty
+// segments, other dots or escapes.
 bool klipy_asset_valid(ConstSlice<u8> target, const char* suffix, u32 suffix_bytes) noexcept {
     if (!target.data || target.count <= 1 + suffix_bytes || target.count > kCdnMaximumTargetBytes ||
         target[0] != '/' ||
@@ -424,12 +419,11 @@ bool klipy_asset_valid(ConstSlice<u8> target, const char* suffix, u32 suffix_byt
     }
     return target[target.count - suffix_bytes - 1] != '/';
 }
-// A stored favourite's Klipy src: the asset path, alone or with the query the
-// official client's favourite action appends to a .webp/.avif/.gif gifSrc when
-// the favourited media came through Discord's proxy (a Klipy gifv embed):
-// format=webp (GIF/AVIF only) then animated=true, each at most once. Klipy's
-// CDN serves the same asset whatever the query, so callers fetch the bare
-// path. Returns the path's length, 0 for any other shape or parameter.
+// A stored favourite's Klipy src: the asset path, alone or with the query a
+// favourite of proxied media (a Klipy gifv embed) appends to its .webp/.avif/.gif
+// source: format=webp (GIF/AVIF only) then animated=true, each at most once.
+// Klipy's CDN serves the same asset whatever the query, so callers fetch the
+// bare path. Returns the path's length, 0 for any other shape or parameter.
 u32 klipy_favourite_path(ConstSlice<u8> target, const char* suffix, u32 suffix_bytes) noexcept {
     u32 query = 0;
     while (query < target.count && target[query] != '?')
@@ -718,13 +712,11 @@ void preview_box(u32 width, u32 height, u32* w, u32* h) noexcept {
     *w = static_cast<u32>(x);
     *h = static_cast<u32>(y);
 }
-// Discord's media-proxy path for an external resource, as embeds and the
-// favourites they produce carry it:
+// Media-proxy path for an external resource:
 //   /external/<signature>[/<%3F-encoded query>]/<https|http>/<host><path>[?query]
-// Discord's proxy authenticates the signature (an unsigned or altered path is
-// refused), so any external host is reachable only through a URL Discord
-// itself issued. The client bounds the shape: no dot or empty segments, no
-// encoded dot, slash or backslash, and a non-empty host.
+// The proxy refuses an unsigned or altered path, so an external host is
+// reachable only through a signed URL the service issued. Shape bounds: no dot
+// or empty path segments, no encoded dot, slash or backslash, non-empty host.
 struct ExternalProxyTarget {
     const char* host;
     const char* path;
@@ -812,11 +804,10 @@ MediaUrlResult external_proxy_webp(ConstSlice<u8> wrapped, u32 path_end, CdnHost
     copy_bytes(output.data, rewritten, writer.used);
     return {writer.used, host, MediaUrlError::none};
 }
-// A VIDEO favourite the picker plays as a muted looping tile, the way the
-// official picker gives FavoriteGIF.format VIDEO a <video> of its src: a
-// Klipy MP4 asset (stored when Klipy had no gif_src), a Discord attachment
-// MP4, or an MP4 behind Discord's external media proxy. Tenor and Giphy
-// videos keep their providers' tiny animated WebP instead (cheaper).
+// A VIDEO favourite played as a muted looping tile: a Klipy MP4 asset (stored
+// when Klipy had no gif_src), a Discord attachment MP4, or an MP4 behind the
+// external media proxy. Tenor and Giphy videos use their providers' tiny
+// animated WebP instead (cheaper).
 MediaUrlResult video_favourite(Utf8View url, Slice<u8> output) noexcept {
     const char* host = nullptr;
     const char* path = nullptr;
@@ -891,8 +882,8 @@ MediaUrlResult parse_catalog_preview_url(Utf8View url, Slice<u8> target_output,
         return parsed;
     }
     if (format == MediaAttachmentFormat::gif && klipy.bytes) {
-        // The official client favourites a Klipy GIF by its gif_src (.gif),
-        // from a proxied embed with ?format=webp&animated=true appended.
+        // A Klipy GIF favourite is stored as its gif_src (.gif), with
+        // ?format=webp&animated=true appended when it came from a proxied embed.
         const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + klipy.bytes), url.bytes - klipy.bytes};
         const u32 path = klipy_favourite_path(target, ".gif", 4);
         if (!path)
@@ -938,10 +929,9 @@ MediaUrlResult parse_catalog_preview_url(Utf8View url, Slice<u8> target_output,
         // Discord's category tiles: the exact animated WebP query it issued.
         if (images_ext && catalog_proxy_target_valid(wrapped))
             return parsed;
-        // Any other external favourite (an embed's proxied media, e.g. a
-        // Klipy gifv thumbnail or an animated WebP on its own host) keeps
-        // Discord's signed proxy path; Tenor and Giphy media load their
-        // providers' tiny rendition instead.
+        // Any other external favourite (proxied embed media such as a Klipy gifv
+        // thumbnail) keeps its signed proxy path; Tenor and Giphy media load
+        // their providers' tiny rendition instead.
         ExternalProxyTarget external{};
         if (!external_proxy_target(wrapped, &external))
             return media_url_failure(MediaUrlError::invalid_target);
@@ -961,8 +951,8 @@ MediaUrlResult parse_catalog_preview_url(Utf8View url, Slice<u8> target_output,
         u32 host_bytes = 0, path_bytes = 0;
         if (split_https(url.data, url.bytes, &host, &host_bytes, &path, &path_bytes) && !klipy.bytes) {
             if (host_is(host, host_bytes, kCdnHost) || host_is(host, host_bytes, kMediaProxyHost)) {
-                // An attachment GIF/WebP favourited from a message: the media
-                // proxy's animated WebP, like the official picker requests.
+                // An attachment GIF/WebP favourited from a message: fetched as the
+                // media proxy's animated WebP.
                 u8 source[kCdnMaximumTargetBytes];
                 const auto parsed = parse_media_url(url, {source, sizeof(source)});
                 u32 query = 0;
@@ -991,10 +981,9 @@ MediaUrlResult parse_catalog_preview_url(Utf8View url, Slice<u8> target_output,
     }
     if (!klipy.bytes)
         return media_url_failure(MediaUrlError::invalid_host);
-    // A direct Klipy animated WebP: Linux tinywebp, or an IMAGE favourite of a
-    // Klipy gifv embed (its thumbnail, stored with ?animated=true), fetched as
-    // the bare asset path. MP4 VIDEO favourites use the mp4 format; Klipy
-    // names no other rendition after a video asset.
+    // A direct Klipy animated WebP, or an IMAGE favourite of a Klipy gifv embed
+    // (its thumbnail, stored with ?animated=true), fetched as the bare asset
+    // path. MP4 VIDEO favourites use the mp4 format.
     const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + klipy.bytes), url.bytes - klipy.bytes};
     const u32 path = klipy_favourite_path(target, ".webp", 5);
     if (!path)

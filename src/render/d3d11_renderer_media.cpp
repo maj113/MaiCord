@@ -10,8 +10,8 @@ namespace maicord {
 namespace {
 
 void log_media_upload_failure(const MediaAtlasGpuResult& result, const char* event) noexcept {
-    // Capacity pressure is recoverable and rate-limited by the media owner.
-    // Do not emit a second error on every render/scroll wake for that condition.
+    // Capacity pressure is recoverable and rate-limited by the media owner;
+    // logging it here would repeat on every render wake.
     if (result.error == MediaAtlasGpuError::atlas_failure &&
         result.allocation.error == MediaAtlasError::no_capacity) return;
     log_write(LogLevel::error, "render", event);
@@ -58,8 +58,8 @@ MediaAtlasGpuResult ensure_preview_media_gpu(D3D11Renderer* renderer, const Medi
     if (renderer->media_gpu.preview_texture) {
         return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
     }
-    // A preview can finish before any avatar; initialization must not depend
-    // on the order in which independent media workers complete.
+    // A preview can finish before any primary media, so the primary surface
+    // is created first.
     const MediaAtlasGpuResult primary = ensure_primary_media_gpu(renderer);
     if (!primary.ok()) return primary;
     const MediaAtlasGpuResult initialized = media_atlas_gpu_initialize_preview(
@@ -173,10 +173,8 @@ MediaAtlasGpuResult renderer_present_video_frame(D3D11Renderer* renderer,
         const u32 step = gpu_video_frame_reduction(frame.width, frame.height, extent);
         const u32 width = gpu_video_frame_output_width(frame, step);
         const u32 height = gpu_video_frame_output_height(frame, step);
-        // A tile resize (chat split, focus, fullscreen) or a new stream
-        // resolution changes the picture extent under the same key. The old
-        // allocation cannot be reused at the new size; retire it instead of
-        // rejecting every frame until LRU eviction happens to reclaim it.
+        // A tile resize or new stream resolution changes the extent under the
+        // same key; retire the old allocation, which cannot hold the new size.
         const MediaAtlasResult resident = media_atlas_peek(atlas, key);
         if (resident.ok() && (resident.width != width || resident.height != height))
             media_atlas_forget(atlas, key);
@@ -244,10 +242,9 @@ bool renderer_capture_animation_frame(D3D11Renderer* renderer,
                                       const AnimationFrameCacheDescriptor& descriptor) noexcept {
     if (renderer && media_asset_large_preview(descriptor.key.asset)) {
         auto& cache = renderer->preview_animation_gpu;
-        // Lazy preview cache bounded by the visible area (8..32 MiB), starting
-        // at 256 rows and grown only by frames replayed recently; identity
-        // slots are a separate namespace. Identical encoded animations share
-        // the same frame tiles.
+        // Lazy preview cache sized to the viewport (8..32 MiB), starting at 256
+        // rows and grown only for recently replayed frames. Identity slots are
+        // a separate namespace; identical encoded animations share frame tiles.
         if (!cache.storage.entries.arena.base &&
             (!animation_frame_cache_gpu_initialize(
                  &cache, 4096, animation_frame_cache_gpu_preview_height(renderer->width, renderer->height), 512) ||
@@ -281,8 +278,8 @@ bool renderer_restore_animation_frame(D3D11Renderer* renderer, AnimationFrameCac
                 key, result, &presented) ||
             !animation_frame_cache_gpu_materialize(&cache, renderer->graphics.context1,
                 renderer->preview_media_atlas, renderer->media_gpu.preview_texture, key.asset)) return false;
-        // Preview drawing keeps its live-atlas UVs. This is a GPU-only copy,
-        // not a readback or a second decode, and cannot alias identity slots.
+        // Preview drawing keeps its live-atlas UVs. This is a GPU-only copy and
+        // cannot alias identity slots.
         note_media_mutation(renderer, presented, 1);
         return true;
     }

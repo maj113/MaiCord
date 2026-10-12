@@ -37,14 +37,14 @@ struct UiSearchFilterContext {
 };
 static_assert(sizeof(UiSearchFilterContext) <= 320);
 
-// Tolerates an unfinished quoted value, but invalid input/UTF-8/endpoints and
+// Tolerates an unfinished quoted value; invalid input/UTF-8/endpoints and
 // selections crossing a value return an entirely empty context. The prefix is
 // decoded only through the caret (an unfinished escape pair is excluded);
 // replacement always covers the whole value, including quote delimiters.
-// Counts are lexical occurrences, not a count of distinct IDs: callers must still run
-// full query validation and identity deduplication when committing.
-// other_value_count excludes this value and empty values; four populated
-// other values conservatively prevent introducing another identity filter.
+// Counts are lexical occurrences, not distinct IDs: callers must still run full
+// query validation and identity deduplication when committing.
+// other_value_count excludes this value and empty values; four populated other
+// values conservatively prevent introducing another identity filter.
 UiSearchFilterContext ui_search_filter_context(Utf8View query, u32 anchor, u32 caret) noexcept;
 
 struct UiSearchFilterChoiceView {

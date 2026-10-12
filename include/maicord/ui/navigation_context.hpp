@@ -3,8 +3,8 @@
 #include "maicord/ui/shell_navigation_scene.hpp"
 
 namespace maicord {
-// Resolve only the current bounded viewport projection. Account/model identity
-// checks are separate; no selected-conversation requirement is imposed here.
+// Resolves against the current bounded viewport projection only. Account/model
+// identity is checked separately; no selected conversation is required.
 inline bool channel_context_row_current(const NavigationView& view,
                                         const ShellNavigationScene& scene, u64 id) noexcept {
     if (!id || !scene.active || !scene.rows.data || scene.count > scene.rows.count ||

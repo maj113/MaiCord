@@ -52,12 +52,11 @@ constexpr SfntIndicProfile form_script_profile(u16 script) noexcept {
     return static_cast<SfntIndicProfile>(static_cast<u8>(SfntIndicProfile::bengali)+(script-bengali_script)/16);
 }
 static_assert(form_script_profile(odia_script)==SfntIndicProfile::odia&&form_script_profile(telugu_script)==SfntIndicProfile::telugu&&form_script_profile(kannada_script)==SfntIndicProfile::kannada&&form_script_profile(malayalam_script)==SfntIndicProfile::malayalam);
-// Reserve the final ID for the synthetic old-Jamo profile, independently of
-// ordinary script IDs. This also exercises the full packed identity range.
+// The final ID (255) is reserved for the synthetic old-Jamo profile.
 constexpr u16 han_script=80,kana_script=96,hangul_script=112,hiragana_script=120,old_hangul_script=255u<<3,armenian_script=160,georgian_script=176,thai_script=192,lao_script=208;
 struct NativeFormatFont {ConstSlice<u16> family;u32 scope;NativeFontProperties properties;};
-// The canonical family handle occupies former tail padding, preserving 48 bytes.
-// It names the first format owning this exact family/scope/property string.
+// family_handle fills tail padding (sizeof stays 48). It names the first format
+// owning this exact family/scope/property string.
 struct NativeFormat {NativeFormatFont font;float em,tab_stop;u64 identity;bool word_wrap;u32 family_handle;};
 volatile LONG64 format_identity_sequence=0;
 u64 next_format_identity() noexcept {
@@ -99,7 +98,7 @@ struct NativeTextContext {
     NativeArabicPlanStore arabic_store;
     u32 binding_count;u64 shaped,measured,attempts,prepare_failed,execute_failed,does_not_fit,reuses;
     // Single-line work and styled paragraph reset metadata have disjoint cache
-    // lifetimes. Reuse the descriptor storage without growing the context.
+    // lifetimes, so they share storage.
     union {NativeAsciiLineStorage last_storage;ConstSlice<u8> styled_reset;};
     NativeAsciiLineResult last_line;ConstSlice<char> last_text;
     const NativeFormat* last_format;float last_em,last_tracking;bool last_independent,last_valid,prefer_multiline;
@@ -112,8 +111,8 @@ struct NativeTextContext {
     float last_style_em;bool last_styled,last_fixed_weight;u8 last_mode;bool output_capacity_failed;
     Slice<NativeParagraphLine> styled_lines;
     NativeFormatIndex* formats;u32 format_count;u32 code_format;
-    // The common first format fits in space recovered from catalog scope flags.
-    // Its identity marks the inline slot; overflow records never move this slot.
+    // Inline slot for the common first format. Its identity marks the slot;
+    // overflow records never move it.
     NativeFormat first_format;u16 first_family[64];
     AlphabeticProfile* alphabetic_profiles;
     DevanagariProfile* devanagari_profiles;
@@ -160,7 +159,7 @@ bool latin_text(Utf8View text,bool* has_controls=nullptr,bool require_letter=tru
         if(script!=UnicodeScript::latn&&script!=UnicodeScript::zyyy&&script!=UnicodeScript::zinh&&(!alphabetic||(script!=UnicodeScript::grek&&script!=UnicodeScript::cyrl)))return false;
         if(single_script){const auto value=native_script_class(cp.codepoint);if(!(value.flags&native_script_contextual))scripts|=value.script==UnicodeScript::grek?16u:value.script==UnicodeScript::cyrl?32u:1u;if(scripts&(scripts-1))return false;}
         if(cp.codepoint>127&&p->has(UnicodeFlag::emoji))return false;
-        // A keycap without VS16 still receives the app's emoji font override.
+        // A keycap without VS16 still receives the emoji font override.
         // U+20E3 itself has no Emoji property, so the scalar-property gate alone
         // would incorrectly shape an ASCII-base keycap in the ordinary font.
         if(cp.codepoint==0x20e3&&at){const auto previous=static_cast<u8>(text.data[at-1]);if(previous=='#'||previous=='*'||previous-'0'<10u)return false;}
@@ -226,8 +225,8 @@ bool itemized_text(Utf8View text,bool* has_emoji=nullptr) noexcept {
         if((p->general_category()==UnicodeGeneralCategory::cf&&cp.codepoint!=0x200b&&cp.codepoint!=0x200c&&cp.codepoint!=0x200d&&!native_text_bidi_format(cp.codepoint))||
            (p->general_category()==UnicodeGeneralCategory::cc&&cp.codepoint!=9&&cp.codepoint!=10&&cp.codepoint!=13))return false;
         if(cp.codepoint==0x20e3&&at){const auto previous=static_cast<u8>(text.data[at-1]);if(previous=='#'||previous=='*'||previous-'0'<10u)return false;}
-        // Unmatched-pair compatibility is still under investigation. Keep its
-        // current renderer route until the native policy has been verified.
+        // Hebrew with unmatched bracket pairs is rejected here and keeps the
+        // general renderer route.
         const auto bracket=unicode_bidi_bracket(cp.codepoint);
         if(paired&&bracket.type==UnicodeBracketType::open){if(depth==61)paired=false;else closing[depth++]=bracket.paired;}
         else if(paired&&bracket.type==UnicodeBracketType::close){if(!depth||closing[depth-1]!=cp.codepoint)paired=false;else --depth;}
@@ -263,7 +262,7 @@ NativeTextFontQuery font_query(const NativeTextContext& owner,const NativeFormat
         else query.family={mono,8};
     }
     static constexpr u16 emoji[]{'S','e','g','o','e',' ','U','I',' ','E','m','o','j','i'};
-    // Match apply_emoji_font, including the original requested stretch/size.
+    // Emoji spans use Segoe UI Emoji at regular weight and style; the requested stretch is kept.
     if(font_flags==emoji_font_flag){query.scope=0;query.family={emoji,14};query.properties.weight=400;query.properties.style=0;}
     return query;
 }
@@ -352,9 +351,9 @@ const NativeDevanagariPlan* devanagari_profile(NativeTextContext& owner,const Bi
     const auto status=p?native_devanagari_plan_prepare(owner.store,selected.plan,&arena,&owner.scratch,probe.run.shaping,&p->plan):SfntStatus::resource_limit;
     arena_rewind(&owner.scratch,temporary);
     if(status!=SfntStatus::ok){++owner.prepare_failed;
-        // A neutral fallback span can repeatedly return to a face without
-        // dev2. Cache that immutable absence by parent generation as well;
-        // capacity/work failures remain retryable and are not cached.
+        // A neutral fallback span can repeatedly return to a face without dev2.
+        // Cache that absence per parent generation; capacity/work failures
+        // stay retryable and are not cached.
         if(p&&status==SfntStatus::unsupported_sequence){p->plan.run=selected.plan;p->next=owner.devanagari_profiles;owner.devanagari_profiles=p;}
         else arena_rewind(&arena,mark);return nullptr;}
     p->next=owner.devanagari_profiles;owner.devanagari_profiles=p;return &p->plan;
@@ -509,8 +508,8 @@ NativeAsciiLineStorage storage(Arena& arena,u32 source,u32 glyphs,bool arabic=fa
     s.character_glyphs=take<u32>(arena,source);s.targets=take<u32>(arena,glyphs);s.associations=take<SfntMarkAssociation>(arena,glyphs);s.advances=take<double>(arena,glyphs);
     s.flags=take<u8>(arena,glyphs);s.positions=take<SfntPosition>(arena,glyphs);s.placements=take<SfntPlacement>(arena,glyphs);
     // Nested match positions and component undo are reused after each edit.
-    // Start with a bounded working set; the existing retry restores the full
-    // source-scaled capacity if an unusually large context needs it.
+    // The first attempt caps this at 1024; the retry (full_actions) restores
+    // the source-scaled capacity.
     const u32 actions=full_actions?maximum<u32>(256,source*16):minimum(maximum<u32>(256,source*16),1024u);
     s.substitutions={take<SfntGsubExecutionFrame>(arena,64),take<u32>(arena,actions),take<u32>(arena,actions),take<u32>(arena,glyphs),
         take<u8>(arena,glyphs*sizeof(SfntComponentGlyph)),take<SfntComponentUndo>(arena,actions)};
@@ -530,9 +529,9 @@ const NativeOmissionSign* omission_sign(const NativeTextContext& owner,const Nat
     return nullptr;
 }
 bool prepare_omission_sign(NativeTextContext& owner,const TextSystem& system,const NativeFormat* format) noexcept {
-    // Internal sign scratch cannot classify the caller's output buffer.
+    // Overflow in the sign's own scratch must not leave output_capacity_failed set for the caller.
     struct RestoreFailure {bool& flag;bool previous;~RestoreFailure() noexcept {flag=previous;}} restore_failure{owner.output_capacity_failed,owner.output_capacity_failed};
-    // One UTF-8 scalar fits the existing producer's 3*4+16 glyph retry bound.
+    // One UTF-8 scalar fits the producer's 3*4+16 glyph retry bound.
     TextGlyph glyphs[32]{};TextRun runs[4]{};u16 clusters[1]{};ShapedText shaped{};
     shaped.glyphs=glyphs;shaped.glyph_capacity=32;shaped.runs=runs;shaped.run_capacity=4;shaped.clusters=clusters;shaped.cluster_capacity=1;
     struct Release {ShapedText& text;~Release() noexcept {
@@ -578,8 +577,7 @@ bool paragraph(NativeTextContext& owner,const Binding& binding,const TextSystem&
     if(owner.last_valid&&!owner.last_styled&&owner.last_paragraph&&owner.last_format==format&&owner.last_em==em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&
        owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes))++owner.reuses;
     else if(owner.last_valid&&!owner.last_styled&&!owner.last_paragraph&&owner.last_format==format&&owner.last_em==em&&owner.last_independent==system.independent_letters&&owner.last_tracking==system.tracking&&owner.last_text.count==text.bytes&&bytes_equal(owner.last_text.data,text.data,text.bytes)){
-        // Reuse the already shaped printable line. Only cluster/run descriptors
-        // are appended; no second shaping pass or glyph/placement copy is needed.
+        // Reuse the shaped printable line; only cluster/run descriptors are appended.
         owner.last_valid=false;owner.prefer_multiline=false;const auto& line=owner.last_line;const auto& source=owner.last_storage;
         NativeAsciiParagraphStorage s{};s.glyphs=source.run.glyphs;s.placements=source.run.placements;s.source_glyphs=source.run.character_glyphs;
         s.clusters=take<NativeParagraphCluster>(owner.scratch,line.cluster_count);auto runs=take<NativeParagraphRun>(owner.scratch,text.bytes);if(!s.clusters.data||!runs.data)return false;

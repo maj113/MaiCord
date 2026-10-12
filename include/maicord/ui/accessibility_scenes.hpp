@@ -2,16 +2,11 @@
 
 #include "maicord/ui/accessibility.hpp"
 
-// Accessibility projections of the overlay scenes: quick switcher, message
-// search, pinned messages, thread browser, inbox, call/stage view, forum post
-// and text-form dialogs, media viewer and the emoji/GIF/sticker picker.
-//
-// Each function adds one active scene beneath parent (usually the window root)
-// and returns the node of the scene (kUiAccessNone when the scene is inactive
-// or the snapshot is full). Drawn text still reaches these nodes through
-// ui_access_attribute_text; rows and controls get explicit names composed from
-// the scene's own data, list/grid/tab semantics, set positions, selection and
-// scroll state.
+// Accessibility projections of the overlay scenes. Each function adds one
+// active scene beneath parent (usually the window root) and returns the scene's
+// node, or kUiAccessNone when the scene is inactive or the snapshot is full.
+// Rows and controls are named from the scene's own data; drawn text still
+// reaches them through ui_access_attribute_text.
 //
 // UiAccessNode::item of rows, for host routing (scroll into view, actions):
 //   quick switcher rows   source index + 1

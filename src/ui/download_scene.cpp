@@ -181,7 +181,7 @@ bool surface(PaintStream* out, UiRect r, const Theme& t, Color fill, Color borde
         UiBackgroundSurfaceMode::gradient,UiBackgroundTier::highest);
 }
 // Disabled pager buttons (Previous on the first page, Next on the last)
-// fade to half opacity, as the official client's disabled buttons do.
+// fade to half opacity.
 constexpr float kDisabledOpacity = .5f;
 bool button(PaintStream* out, const UiDownloadScene& s, UiWidgetHandle handle, UiRect r,
     const Theme& t, bool enabled, bool filled = false) noexcept {

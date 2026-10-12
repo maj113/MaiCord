@@ -27,8 +27,8 @@ struct RegionalFlagSvg {
     u32 count;
 };
 
-// Strict, non-executing subset verified against all 262 pinned Twemoji flags.
-// The result borrows encoded bytes. No XML entities, external resources,
+// Strict, non-executing subset covering the pinned Twemoji flags. The result
+// borrows encoded bytes. No XML entities, external resources,
 // opacity, gradients, strokes, masks or arbitrary transforms are admitted.
 bool regional_flag_svg_parse(ConstSlice<u8> encoded, RegionalFlagSvg* output) noexcept;
 bool regional_flag_svg_outline(const RegionalFlagSvgLayer& layer, GlyphOutline* output) noexcept;

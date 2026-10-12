@@ -13,12 +13,11 @@ SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyph
     const u32 count=sfnt_glyph_count(glyphs);SfntStatus status=SfntStatus::ok;
     {
     for(u32 index=0;index<plan.positioning_roots.count;++index){const u16 root=plan.positioning_roots[index];SfntGposExecutionResult execution{};
-        // The first successful root validates the whole run. GPOS cannot edit
-        // glyph IDs, classes, nominal metrics or component/source associations;
-        // successful position writes remain finite. Later disjoint roots need
-        // only this bounded check, without repeating the immutable-run scan.
-        // Only mark-class glyphs trigger attachment roots. Base glyph IDs must
-        // not widen their coverage test.
+        // The first successful root validates the whole run. GPOS cannot edit glyph
+        // IDs, classes, nominal metrics or component/source associations, and
+        // successful position writes stay finite, so later disjoint roots need only
+        // this bounded check. Only mark-class glyphs trigger attachment roots; base
+        // glyph IDs must not widen their coverage test.
         const auto* prepared=sfnt_gpos_lookup(*plan.positioning,root);if(!prepared||!prepared->type)return SfntStatus::invalid_input;const auto& lookup=*prepared;
         const bool marks=lookup.type>=4&&lookup.type<=6;
         if(index&&((marks&&mark_bounds.first>mark_bounds.last)||sfnt_lookup_bounds_disjoint(lookup.bounds,marks?mark_bounds.first:glyph_bounds.first,marks?mark_bounds.last:glyph_bounds.last))){

@@ -5,11 +5,10 @@
 namespace maicord {
 // One elevation ladder for every surface that floats above a view canvas.
 // Gradient themes paint these with the global-gradient surface material: each
-// step adds a fixed lift of visible gradient above the view canvas (capped by
-// the text contrast check), so a higher surface shows more of the background
-// gradient (more contrast against what lies below it) and gets a palette edge. Flat themes keep the opaque fill and border of
-// the same role. Callers name a role; they never pick tiers, palette shares,
-// materials or border tones themselves, so new overlays inherit the styling.
+// step adds a fixed lift of visible gradient above the canvas (capped by the
+// text contrast check) and gets a palette edge. Flat themes keep the opaque fill
+// and border of the same role. Callers name a role and never pick tiers, shares,
+// materials or border tones, so new overlays inherit the styling.
 enum class UiElevation : u8 {
     card,    // inline timeline cards: embeds, audio, polls, attachments
     banner,  // in-view bars and pills: unread / jump to present, notices
@@ -113,16 +112,14 @@ inline bool ui_surface_paint_material(PaintStream* stream, UiRect rectangle, con
     return true;
 }
 
-// Drop shadow under a floating surface, approximated by six plates widening
-// 2 DIP each and offset downward so the falloff reads as a blur rather than a
-// ring. Light themes follow the official high shadow (0 8px 16px at 24%) with the
-// soft token; dark and gradient-dark themes follow its dark high elevation
-// (0 12px 24px black at 24%, paired with the surface's 1px border) with the
-// denser shadow token, since a black falloff over a dark canvas needs more
-// weight to read. Cards, banners and tooltips stay flat.
+// Drop shadow under a floating surface: six plates widening 2 DIP each, offset
+// downward so the falloff reads as a blur rather than a ring. Light themes use
+// the soft shadow token, dark and gradient-dark themes the denser one (a black
+// falloff over a dark canvas needs more weight to read). Only popovers and
+// dialogs cast one; cards, banners and tooltips stay flat.
 inline constexpr u32 kUiSurfaceShadowLayers = 6;
 inline constexpr float kUiSurfaceShadowStep = 2, kUiSurfaceShadowOffset = 4;
-// Dark themes drop the shadow further (elevation-high's 12px versus 8px).
+// Dark themes drop the shadow further (12:8 ratio).
 inline float ui_surface_shadow_offset(const Theme& theme) noexcept {
     return kUiSurfaceShadowOffset * (theme.appearance == ThemeAppearance::light ? 1.f : 1.5f);
 }

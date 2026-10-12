@@ -80,7 +80,7 @@ u32 add_widgets(UiAccessTree* tree, u32 parent, const UiWidgetManager& manager, 
     return node == kUiAccessNone || tree->count == first ? kUiAccessNone : node;
 }
 
-// ---- quick switcher ------------------------------------------------------
+// Quick switcher
 
 Utf8View quick_kind(UiQuickSwitcherKind kind) noexcept {
     switch (kind) {
@@ -168,7 +168,7 @@ void describe_quick(void* context, const UiWidgetManager&, UiWidgetHandle handle
     }
 }
 
-// ---- search --------------------------------------------------------------
+// Search
 
 enum SearchGroup : u8 {
     search_tabs = 1,
@@ -215,7 +215,6 @@ void search_group(void* context, u8 group, UiAccessNodeDesc* description) noexce
         description->name = utf8_literal("Search options");
         break;
     case search_sort:
-        // Radio group: Selection over the three sort choices.
         description->role = UiAccessRole::group;
         description->name = utf8_literal("Sort results by");
         description->actions = ui_access_action_select;
@@ -388,7 +387,7 @@ void describe_search(void* context, const UiWidgetManager& manager, UiWidgetHand
     }
 }
 
-// ---- pinned messages -----------------------------------------------------
+// Pinned messages
 
 void describe_pins(void* context, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&,
                    const UiLayoutNode&, UiAccessWidgetInfo* info) noexcept {
@@ -463,7 +462,7 @@ void describe_pins(void* context, const UiWidgetManager&, UiWidgetHandle handle,
     }
 }
 
-// ---- thread browser ------------------------------------------------------
+// Thread browser
 
 Utf8View thread_kind(u8 type) noexcept {
     return type == 10 ? utf8_literal("announcement thread")
@@ -606,7 +605,7 @@ void describe_threads(void* context, const UiWidgetManager&, UiWidgetHandle hand
     }
 }
 
-// ---- inbox ---------------------------------------------------------------
+// Inbox
 
 void inbox_group(void*, u8, UiAccessNodeDesc* description) noexcept {
     description->role = UiAccessRole::tab_list;
@@ -706,7 +705,7 @@ void describe_inbox(void* context, const UiWidgetManager& manager, UiWidgetHandl
     }
 }
 
-// ---- forum post ----------------------------------------------------------
+// Forum post
 
 void describe_forum(void* context, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&,
                     const UiLayoutNode&, UiAccessWidgetInfo* info) noexcept {
@@ -789,7 +788,7 @@ void describe_forum(void* context, const UiWidgetManager&, UiWidgetHandle handle
     }
 }
 
-// ---- text form -----------------------------------------------------------
+// Text form
 
 void describe_text_form(void* context, const UiWidgetManager&, UiWidgetHandle handle, const UiWidget&,
                         const UiLayoutNode&, UiAccessWidgetInfo* info) noexcept {
@@ -825,7 +824,6 @@ void describe_text_form(void* context, const UiWidgetManager&, UiWidgetHandle ha
         return;
     }
     if (element(TextFormElement::status)) {
-        // Validation and error text.
         info->role = UiAccessRole::status;
         info->state |= ui_access_live;
         info->leaf = true;
@@ -853,7 +851,7 @@ void describe_text_form(void* context, const UiWidgetManager&, UiWidgetHandle ha
     }
 }
 
-// ---- image viewer --------------------------------------------------------
+// Image viewer
 
 Utf8View viewer_button(u32 index, const UiImageViewer& v) noexcept {
     switch (index) {
@@ -917,7 +915,7 @@ void describe_viewer(void* context, const UiWidgetManager&, UiWidgetHandle handl
         }
 }
 
-// ---- media picker --------------------------------------------------------
+// Media picker
 
 struct PickerContext {
     const UiMediaPickerScene* scene;
@@ -1094,7 +1092,7 @@ void measure_picker_grid(PickerContext* context) noexcept {
     }
 }
 
-// ---- call ----------------------------------------------------------------
+// Call
 
 constexpr u64 kCallKey = 0x43414C4C00000000ull;
 
@@ -1239,7 +1237,6 @@ void mount_call(void* context, UiAccessTree* tree, u32 node) noexcept {
                                  ui_call_scene_tile_control(s, tile.user_id, control));
         }
     }
-    // Stage audience and hand raises.
     if (ui_rect_has_area(s.stage_audience)) {
         g_name.clear().add(utf8_literal("Audience, ")).number(s.stage_audience_count);
         const u32 audience =
@@ -1270,7 +1267,6 @@ void mount_call(void* context, UiAccessTree* tree, u32 node) noexcept {
                                  call_stage::invite_button(s, index));
         }
     }
-    // Control bar.
     const u32 bar = add_synthetic(tree, node, surface, 8, UiAccessRole::group, s.bar, s.viewport,
                                   utf8_literal("Call controls"));
     if (bar == kUiAccessNone)

@@ -36,8 +36,8 @@ bool shell_presentation_build_chrome(
     u64 visual_selected_channel_id = 0) noexcept;
 
 // Status badges are composited after avatar media so the avatar texture cannot
-// cover the badge. Keeping this as a distinct retained pass makes the layer
-// order explicit instead of depending on whether an avatar is resident.
+// cover them; a distinct retained pass keeps the layer order independent of
+// whether an avatar is resident.
 bool shell_presentation_build_member_status_overlay(
     const MemberListScene* member_scene, const Theme& theme,
     PaintStream* stream) noexcept;

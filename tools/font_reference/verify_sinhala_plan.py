@@ -67,9 +67,8 @@ def worker(args):
                         exact = exact and observed['result']['placement_bits'] == [[bits, 0, 0]]
                     checks.append(dict(name=case['name'], mode=mode, exact=exact, native=row,
                                        projected_glyph=glyph, reference=observed['glyph_names']))
-    # Independent metadata check of the installed-font snapshot used by the
-    # existing script probes. Expectations are explicit, not generated from
-    # the new planner's implementation.
+    # Independent metadata check of the installed-font snapshot. Expectations
+    # are explicit, not derived from the planner.
     if args.font:
         expected = [[[84, 0, 0], [85, 0, 1], [86, 0, 3], [87, 0, 3], [88, 0, 3],
                      [89, 0, 6], [90, 0, 6], [91, 0, 6], [92, 0, 6]], [[105, 0, 0]]]

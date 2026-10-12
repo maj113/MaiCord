@@ -61,8 +61,8 @@ SfntStatus colr_open(const SfntFace& face,ColrFont* output) noexcept {
                 if(first>last || last>=result.glyph_count || (i && first<=read16(result.clips,at-5)))return SfntStatus::malformed;
             }
         }
-        // These locations are retained for the variation resolver. Merely
-        // opening the color table does not validate or evaluate variation data.
+        // Only the locations are checked and kept for the variation resolver;
+        // variation data is neither validated nor evaluated at open.
         if((result.variation_map && !range(t,result.variation_map,4)) ||
            (result.variation_store && !range(t,result.variation_store,8)))return SfntStatus::truncated;
     }

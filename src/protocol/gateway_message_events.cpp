@@ -183,9 +183,8 @@ bool json_value_to_message_nonce(JsonValue value, u64* output) noexcept {
         JsonString string{};
         if (!json_value_as_string(value, &string))
             return false;
-        // Other clients may use opaque string nonces. Only our numeric
-        // identity can match the outbox; an unrelated string is not a bad
-        // message and must not reject an otherwise valid history page.
+        // Other clients use opaque string nonces. They cannot match the outbox
+        // and must not reject an otherwise valid history page.
         if (!json_string_to_u64(string, output))
             *output = 0;
         return true;
@@ -370,8 +369,8 @@ bool visit_author_member(void* opaque, JsonString name, JsonValue value) noexcep
     auto* context = static_cast<AuthorContext*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("public_flags")) ||
         json_string_equals_ascii(name, utf8_literal("flags"))) {
-        // User.hasFlag combines public and private flags; retain the low
-        // policy bits, including SPAMMER, without rejecting future high flags.
+        // Public and private flags combine; keep the low policy bits (including
+        // SPAMMER) and accept unknown high flags.
         const bool priv = json_string_equals_ascii(name, utf8_literal("flags"));
         const bool seen = priv ? context->private_flags_seen : context->public_flags_seen;
         u64 flags = 0;

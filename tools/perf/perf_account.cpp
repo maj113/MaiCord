@@ -1,13 +1,12 @@
 // MaiCordPerfAccount.dll: a synthetic account module for MaiCordPerfProbe.
 //
-// It implements the account module ABI without any network access. A large
+// Implements the account module ABI with no network access. A large
 // deterministic READY is decoded and projected by the production routes
-// (gateway_decode_ready + gateway_ready_project) on a worker thread, message
-// history, member lists, member chunks and generated media frames are served
-// from a second worker, and typing/presence/message churn arrives on demand.
-// Every REST submission receives a response so no client lane stays busy.
-// All module memory comes from one reservation so the probe can report it
-// separately from client memory.
+// (gateway_decode_ready + gateway_ready_project) on one worker; message history,
+// member lists, member chunks and generated media frames are served from a
+// second; typing/presence/message churn arrives on demand. Every REST
+// submission gets a response so no client lane stays busy. All module memory
+// comes from one reservation so the probe can report it separately.
 #include "perf_shared.hpp"
 #include "maicord/app/account_module_api.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
@@ -21,7 +20,7 @@
 namespace maicord::perf {
 namespace {
 
-// ------------------------------------------------------------------ memory
+// Memory
 struct Region {
     u8* base;
     u64 reserved;
@@ -47,7 +46,7 @@ void* region_take(u64 bytes) noexcept {
     return at;
 }
 
-// --------------------------------------------------------------- JSON text
+// JSON text
 struct Json {
     ProtocolWriter writer;
     bool ok = true;
@@ -131,7 +130,7 @@ void append_iso(Json& j, u64 unix_ms) noexcept {
     j.s("\"").s(text).s("\"");
 }
 
-// ------------------------------------------------------------ the account
+// Account
 u32 lab_channel_kind(u32 channel) noexcept { // 0 category, 1 text, 2 voice
     const u32 slot = channel % (kPerfLabTextPerCategory + 2);
     return slot == 0 ? 0 : slot == kPerfLabTextPerCategory + 1 ? 2 : 1;
@@ -309,7 +308,7 @@ u32 build_ready(char* output, u32 capacity) noexcept {
     return j.ok ? j.used() : 0;
 }
 
-// ------------------------------------------------------------- messages
+// Messages
 u32 author_of(u64 channel, u32 index) noexcept {
     return static_cast<u32>((index / 3 + (channel & 63)) % 48);
 }
@@ -449,7 +448,7 @@ void append_message(Json& j, u64 guild, u64 channel, u32 index, bool reference_d
     j.s("}");
 }
 
-// ---------------------------------------------------------- event queue
+// Event queue
 struct QueuedEvent {
     GatewayClientEvent event;
     u64 offset;
@@ -500,19 +499,15 @@ struct Module {
     HANDLE work_thread;
     HANDLE churn_thread;
     HANDLE churn_stop;
-    // Gateway mailbox.
     QueuedEvent* events;
     u8* event_payload;
     u32 event_count, event_cursor;
     u64 event_used;
-    // REST responses.
     RestEntry rest[kRestCapacity];
     u8* rest_bodies;
     u32 rest_head, rest_count;
-    // Work for the service worker.
     Work* work;
     u32 work_head, work_count;
-    // Media frames.
     MediaSlot media[kMediaSlots];
     u8* media_pixels;
     u32 media_head, media_count, media_taken_slot;
@@ -527,7 +522,6 @@ struct Module {
     Scratch service;
     Scratch churn_scratch;
     u64 member_request_ids[100];
-    // State.
     volatile LONG ready_published;
     u64 sequence;
     PerfAccountControl churn;
@@ -595,7 +589,7 @@ bool route_and_publish(Module& m, Scratch& scratch, const char* name, Utf8View d
     return publish(&m, event, payload);
 }
 
-// --------------------------------------------------------------- READY
+// READY worker
 DWORD WINAPI ready_thread(void* context) noexcept {
     Module& m = *static_cast<Module*>(context);
     const u32 bytes = build_ready(m.ready_json, 16 * 1024 * 1024);
@@ -629,7 +623,7 @@ DWORD WINAPI ready_thread(void* context) noexcept {
     return 0;
 }
 
-// -------------------------------------------------------------- service
+// Service worker
 bool push_work(Module& m, const Work& work) noexcept {
     AcquireSRWLockExclusive(&m.lock);
     const bool ok = m.work_count < kWorkCapacity;
@@ -700,7 +694,6 @@ void serve_history(Module& m, const Work& work) noexcept {
         newest = minimum<u32>(kMessagesPerChannel - 1, at + limit / 2);
     }
     const u32 count = minimum<u32>(limit, newest - oldest + 1);
-    // Guild of the channel (Perf Lab channels and other guild channels).
     u64 guild = 0;
     if (channel >= perf_guild_id(0) && channel < perf_guild_id(kPerfGuilds))
         guild = perf_guild_id(static_cast<u32>((channel - perf_guild_id(0)) / 10'000ull));
@@ -904,7 +897,7 @@ void serve_member_sync(Module& m, const Work& work) noexcept {
 }
 
 void serve_member_chunk(Module& m, const Work& work) noexcept {
-    // work.a guild, work.b nonce; user indexes were captured into work.c..d range.
+    // work.a guild, work.b nonce, work.e user count; the IDs are in member_request_ids.
     Json j{m.service.json, kScratchJsonBytes};
     j.s("{\"guild_id\":").id(work.a).s(",\"members\":[");
     const u32 count = work.e;
@@ -969,7 +962,7 @@ DWORD WINAPI work_thread(void* context) noexcept {
     }
 }
 
-// ---------------------------------------------------------------- churn
+// Churn worker
 void churn_typing(Module& m, Scratch& scratch, u64 tick) noexcept {
     char text[2048];
     Json j{text, sizeof(text)};
@@ -998,11 +991,10 @@ void churn_message(Module& m, Scratch& scratch, u64 channel, u64 guild, u64 tick
     char* text = scratch.json;
     Json j{text, kScratchJsonBytes};
     const u32 index = static_cast<u32>(tick % 12);
-    // Reuse the history generator, then patch nothing: IDs only need to be newer.
+    // Reuse the history generator, then replace the ID with a strictly newer snowflake.
     append_message(j, guild, channel, kMessagesPerChannel - 12 + index, true);
     if (!j.ok)
         return;
-    // Replace the ID with a strictly newer snowflake.
     const u64 fresh =
         ((kLatestMessageMs + 1'000 + tick * 500 - kSnowflakeEpochMs) << 22) | (tick & 0x3FFFFF);
     char digits[24];
@@ -1038,7 +1030,7 @@ DWORD WINAPI churn_thread(void* context) noexcept {
     return 0;
 }
 
-// ------------------------------------------------------------ module API
+// Module API
 AccountModuleStatus status_of(Module& m) noexcept {
     AccountModuleStatus status{};
     status.profile_id = 0x5045'5246'0000'0001ull;
@@ -1172,7 +1164,7 @@ bool WINAPI module_guild_members_request(void* instance, const GatewayGuildMembe
         return false;
     if (!request || !request->user_count)
         return true;
-    // The worker reads the user IDs from the header scratch tail; one chunk in flight.
+    // The worker reads the user IDs from member_request_ids; one chunk in flight.
     AcquireSRWLockExclusive(&m->lock);
     copy_bytes(m->member_request_ids, request->user_ids, minimum<u32>(request->user_count, 100) * 8);
     ReleaseSRWLockExclusive(&m->lock);
@@ -1340,7 +1332,6 @@ AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64
     return status;
 }
 
-// --------------------------------------------------------------- stubs
 // Typed zero results for every entry the scenarios never exercise. REST
 // submissions answer with a 404 so the client's single-flight lanes free up;
 // a null request pointer (cancellation) answers nothing.

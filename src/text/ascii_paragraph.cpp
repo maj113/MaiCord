@@ -48,19 +48,15 @@ SfntStatus native_line_trim_cut(ConstSlice<NativeParagraphCluster> clusters,floa
     const auto remove=[&]() noexcept {
         const auto& c=clusters[result.clusters-1];const bool is_tab=(c.flags&native_paragraph_tab)!=0;
         const float next=add(remaining,-(is_tab?tabs[tab_count-1]:c.width));
-        // Preserve the zero-remainder boundary used by the app. Replacing
-        // this with a minimum cluster count changes decimal-font cuts.
+        // A cut that would leave a zero remainder is refused: the final cluster is indivisible.
         if(next==0)return false;
         remaining=next;--result.clusters;if(is_tab)--tab_count;return true;
     };
-    // Height omission replaces a source suffix even when the last fitted
-    // line leaves spare box width. Start with one removable cluster; an exact
-    // zero remainder still preserves the indivisible final cluster.
+    // Height omission replaces a source suffix even when the line fits: start by removing one cluster.
     if(force&&result.clusters)remove();
     while(result.clusters&&remaining>available)if(!remove())break;
     while(result.clusters&&(clusters[result.clusters-1].flags&(native_paragraph_space|native_paragraph_tab)))if(!remove())break;
-    // Height forces the cut calculation, but an intact logical line has no
-    // source range to replace. Windows marks it trimmed without drawing a sign.
+    // An intact line has no source range to replace; Windows marks it trimmed without drawing a sign.
     result.sign=result.clusters<clusters.count;
     if(result.sign)result.width=result.extent=add(remaining,sign_width);
     // A height-trimmed indivisible whitespace line keeps its advance in the
@@ -121,8 +117,7 @@ SfntStatus paragraph_layout(const Utf8View* ascii,const NativeParagraphShape& sh
         if(!prepared){
         const u32 control=c.flags&~(native_paragraph_break_before|(styles.count?0xffffff00u|native_paragraph_metric_group:0));
         if(styles.count&&(c.flags>>native_paragraph_style_shift)>=styles.count)return SfntStatus::invalid_input;
-        // Keep the existing ordinary-control validation in the hot loop. Only
-        // extended encodings enter the outlined payload/adjacency checks.
+        // Only extended control encodings enter the outlined payload/adjacency checks.
         if(c.source_first!=source_end||c.source_end<=source_end||c.source_end>shape.source_units||c.glyph_first!=glyph_end||c.glyph_count>placements.count-glyph_end||!finite(c.width)||c.width<0||
            ((control>native_paragraph_newline||(control&(control-1)))&&!extended_control_valid(clusters,i,control))||(!i&&(c.flags&native_paragraph_break_before)))return SfntStatus::invalid_input;
         source_end=c.source_end;glyph_end+=c.glyph_count;
@@ -176,8 +171,8 @@ SfntStatus paragraph_layout(const Utf8View* ascii,const NativeParagraphShape& sh
             else if(first.flags&native_paragraph_nonvisual)while(last<end&&(clusters[last].flags&native_paragraph_nonvisual)&&!(clusters[last].flags&native_paragraph_metric_group)&&(!styles.count||(clusters[last].flags>>native_paragraph_style_shift)==style))++last;
             else if((first.flags&native_paragraph_crlf_prefix)&&last<end&&(!styles.count||(clusters[last].flags>>native_paragraph_style_shift)==style))++last;
             if(layout.run_count==runs.count)return SfntStatus::output_too_small;
-            // Preserve the run-origin round trip: a run is placed
-            // relative to its own font baseline, then drawn from that origin.
+            // A run is placed relative to its own font baseline, then drawn from that
+            // origin; keep the float round trip.
             const float run_baseline=styles.count?add(add(baseline,-styles[style].baseline),styles[style].baseline):baseline;
             const auto& final=clusters[last-1];runs[layout.run_count++]={static_cast<u16>(first.source_first),static_cast<u16>(final.source_end-first.source_first),first.glyph_first,final.glyph_first+final.glyph_count-first.glyph_first,x,run_baseline,0};
             float group_pen=0,tab_pen=metric,point_pen=x;

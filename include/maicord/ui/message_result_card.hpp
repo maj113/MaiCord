@@ -10,8 +10,8 @@ struct MessageResultCardStyle {
     float gap;
     u32 materialized_rows;
 };
-// The default card carries its Jump action in the heading row, as the official
-// client's search results do; a non-zero action_height reserves a separate footer.
+// The default card carries its Jump action in the heading row; a non-zero
+// action_height reserves a separate footer.
 inline constexpr MessageResultCardStyle kDefaultMessageResultCardStyle{32, 0, 8, 24};
 inline bool message_result_card_style_valid(const MessageResultCardStyle& s) noexcept {
     return ui_extent_valid(s.heading_height) && ui_extent_valid(s.action_height) && ui_extent_valid(s.gap) &&

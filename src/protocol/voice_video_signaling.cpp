@@ -116,7 +116,7 @@ GatewayCommandWriteResult voice_gateway_write_select_protocol_media(const VoiceS
         transport_fields(writer, address, transport);
         writer.literal("},");
         transport_fields(writer, address, transport);
-        // Opus carries no RTX type or encode/decode flags (they serialize as undefined).
+        // Opus carries no RTX type or encode/decode flags (omitted).
         writer.literal(",\"codecs\":[{\"name\":\"opus\",\"type\":\"audio\",\"priority\":1000,\"payload_type\":120}");
         for (u32 i = 0; i != selection.video.count; ++i) {
             const auto& codec = selection.video[i];

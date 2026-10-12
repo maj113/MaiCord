@@ -44,7 +44,7 @@ bool message_action_bar_presentation_build(const MessageActionBar& bar, const Th
         return true;
     }
     // Clipped to the timeline viewport minus the overlays above it (unread
-    // banner, jump pill), so the toolbar slides under them like the official client's.
+    // banner, jump pill), so the toolbar slides under them.
     const UiRect visible = message_action_bar_visible_rectangle(bar);
     if (!paint || bar.message_id == 0 || bar.item_count == 0 || bar.item_count > kMessageActionBarCapacity ||
         !bar.owner.manager || !ui_rect_has_area(bar.rectangle) || !ui_rect_has_area(visible) ||

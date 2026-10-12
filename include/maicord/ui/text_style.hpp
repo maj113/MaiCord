@@ -28,11 +28,9 @@ enum class UiTextFace : u8 {
     count
 };
 
-// The official desktop client (stable 1.0.9255) renders the quick-reaction glyphs at the same
-// optical size in its 44-DIP context targets and 28-DIP hover targets.  At
-// the observed 1.25 device scale their ink is 23-25 physical pixels, which is
-// the Segoe UI Emoji result from a 24-DIP em.  Keep the em independent from
-// the target extent so layout, rather than font size, owns centering.
+// Em size of quick-reaction glyphs, the same in the 44-DIP context targets and
+// the 28-DIP hover targets. Independent of the target extent so layout, rather
+// than font size, owns centering.
 inline constexpr float kPickerEmojiEmSize = 24.0f;
 
 enum TextStyleFlag : u32 {
@@ -65,7 +63,7 @@ enum TextStyleFlag : u32 {
     text_style_syntax_preprocessor = 1u << 25,
     text_style_timestamp = 1u << 26,
     text_style_interactive_hover = 1u << 27,
-    // Shapes an object-replacement cell but emits no glyph quad.  The retained
+    // Shapes an object-replacement cell but emits no glyph quad; the retained
     // media pass fills the semantic cell from the CDN atlas.
     text_style_custom_emoji = 1u << 28,
     // Uses MessageTextCommand::inline_role_color for an inline author while
@@ -75,15 +73,15 @@ enum TextStyleFlag : u32 {
     // thirty emoji. This flag selects the corresponding 48-DIP text/object
     // cell without changing ordinary message typography.
     text_style_jumbo_emoji = 1u << 30,
-    // Reaction pickers use a small fixed em inside independently sized
-    // targets.  They do not inherit 48-DIP emoji-only message typography.
+    // Reaction pickers use a small fixed em inside independently sized targets,
+    // not the 48-DIP emoji-only message typography.
     text_style_picker_emoji = 1u << 31,
 };
 
 // Shapers see one flags word: the text layer folds TextStyleSpan::size into
 // the heading bits (text_style_fold_size). One heading bit keeps its own
-// ratio (1.5, 1.25, 1.1); two together are a size code with the official rem
-// ratio. "#" and "##" sizes are the single heading bits.
+// ratio (1.5, 1.25, 1.1); two together are a size code with the rem ratio
+// noted below. "#" and "##" sizes are the single heading bits.
 inline constexpr u32 kTextStyleHeadingMask = text_style_heading_1 | text_style_heading_2 | text_style_heading_3;
 inline constexpr u32 kTextStyleSizeCodeMd = text_style_heading_1 | text_style_heading_2; // 1rem
 inline constexpr u32 kTextStyleSizeCodeSm = text_style_heading_1 | text_style_heading_3; // .875rem
@@ -113,7 +111,7 @@ inline constexpr u32 kTextStyleSyntaxMask = text_style_syntax_keyword | text_sty
 
 // The rem text scale (1rem is the body size), for runs whose size is not
 // the one their style flags select: markup headings and subtext, and the embed
-// text variants (text-xs/sm, heading-md). Zero keeps the flag-selected size.
+// text variants. Zero keeps the flag-selected size.
 enum TextSize : u8 {
     text_size_inherit,
     text_size_xs, // .75rem: embed footer and provider
@@ -121,7 +119,7 @@ enum TextSize : u8 {
     text_size_md, // 1rem: embed title, "###"
     text_size_lg, // 1.25rem: "##"
     text_size_xl, // 1.5rem: "#"
-    text_size_xxl, // 2rem: heading-xxl (channel-beginning header)
+    text_size_xxl, // 2rem: channel-beginning header
     text_size_count
 };
 

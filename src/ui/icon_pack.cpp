@@ -29,9 +29,9 @@ constexpr i32 read_i16(const u8* p) noexcept {
 
 static_assert(sizeof(kUiIconPackData) > kHeaderBytes && kUiIconPackData[0] == 'M' &&
               kUiIconPackData[1] == 'I' && kUiIconPackData[2] == 'P' && kUiIconPackData[3] == 'K');
-// The built-in pack ships zlib-compressed (~15 KB instead of ~29 KB) and is
-// inflated once, on first use, into private pages kept for the process
-// lifetime. Allocation or inflation failure leaves an empty pack.
+// The built-in pack ships zlib-compressed and is inflated once, on first use,
+// into private pages kept for the process lifetime. Allocation or inflation
+// failure leaves an empty pack.
 constexpr u32 kBuiltinIconCount = read_u16(kUiIconPackData + 6);
 IconPack g_builtin;
 volatile LONG builtin_state; // 0 packed, 1 inflating, 2 published

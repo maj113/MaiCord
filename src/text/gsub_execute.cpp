@@ -125,8 +125,8 @@ struct Executor {
             if(components)copy_bytes(record,&sfnt_glyph_at(sfnt_glyph_buffer_view(buffer),first),stride);
             copy_bytes(record,&replacement,sizeof(replacement));if(clusters)copy_bytes(record+4,&source_index,sizeof(source_index));}
         SfntGlyphEdit edit{{scratch.consumed.data,match.input_count},first,n,n-match.input_count+match.output_count,match.output_count,0};
-        // Prepare future scratch once. Errors invalidate scratch, but the glyph
-        // edit remains atomic. Its successful commit only needs the packed copy.
+        // Rebasing is prepared before the edit: an error invalidates scratch but
+        // leaves the glyph edit atomic, and a successful commit needs only the packed copy.
         auto s=rebase(edit);if(s!=SfntStatus::ok)return s;
         const bool component_change=components && (type==4 || (type==2 && match.output_count>1));SfntComponentEdit component_edit{};
         if(component_change){
@@ -148,8 +148,8 @@ struct Executor {
     }
     SfntStatus attempt(const SfntGsubExecutableLookup& lookup,u32 at,u32 end,bool* matched,u32* resume) noexcept {
         *matched=false;*resume=at+1;if(!spend(&work))return SfntStatus::resource_limit;
-        // The buffer is unchanged until a matching edit returns from attempt.
-        // Reuse this view across all rejected subtables of the current lookup.
+        // The buffer is unchanged until a matching edit returns, so one view
+        // serves all rejected subtables of the current lookup.
         const auto view=sfnt_glyph_buffer_view(buffer);const u16 first=sfnt_glyph_at(view,at).glyph;
         if(sfnt_lookup_bounds_disjoint(lookup.bounds,first,first))return SfntStatus::ok;
         // Preparation sets this certificate only on contextual lookups.
@@ -157,10 +157,10 @@ struct Executor {
         u32 shared_index=sfnt_not_covered;
         if(shared){shared_index=sfnt_coverage_index(sfnt_context_first_coverage(lookup.subtables[0].context),first);
             if(shared_index==sfnt_not_covered)return SfntStatus::ok;}
-        // Large contextual lookups often repeat a small glyph alphabet. Cache
-        // only first-coverage membership, never a context match or its action.
-        // Nested actions leave the outer lookup's cache intact. Enumerating
-        // set bits avoids revisiting hundreds of impossible subtables.
+        // Large contextual lookups often repeat a small glyph alphabet. Only
+        // first-coverage membership is cached, never a context match or action;
+        // nested actions leave the outer lookup's cache intact. Enumerating set
+        // bits avoids revisiting hundreds of impossible subtables.
         u32 cache_slot=0xffffffffu,known=0,block=0;u64 remaining=0;bool extending=false;
         if(!shared&&!depth&&lookup.bounds.ready&&(lookup.type==5||lookup.type==6)&&lookup.subtables.count>=16&&lookup.subtables.count<=256){
             u32 slot=0;for(;slot<coverage_cache.count;++slot){if(!spend(&work))return SfntStatus::resource_limit;if(coverage_cache.glyphs[slot]==first)break;}

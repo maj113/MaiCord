@@ -20,11 +20,10 @@ static_assert(sizeof(NativeDevanagariPlan)==184);
 // scratch, probe arrays, output and font views are otherwise disjoint.
 // Only probe.glyphs and probe.substitutions are used. Capacity errors propagate;
 // an incomplete form query never becomes a negative form classification.
-// Scratch rewinds on every return; failure also rewinds state and clears output.
-// Committed arena capacity may remain. The shared lookup budget covers all
+// Scratch rewinds on every return; failure also rewinds state (committed arena
+// capacity may remain) and clears output. The lookup budget is shared by all
 // form probes; stage_work bounds each directory/planner pass independently.
-// Missing dev2 language/halant returns unsupported_sequence. This gate does not
-// establish general font support or solve normalization/legacy fonts.
+// Missing dev2 language or halant returns unsupported_sequence.
 SfntStatus native_devanagari_plan_prepare(const NativeRunPlanStore&,NativeRunPlanHandle,
     Arena* state,Arena* scratch,SfntShapeStorage probe,NativeDevanagariPlan*,SfntShapeLimits limits={}) noexcept;
 // Reject stale parent handles before using any borrowed profile pointer.

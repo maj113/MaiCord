@@ -40,7 +40,7 @@ SfntStatus cpal_color(const CpalFont& font,u16 palette,u16 entry,CpalColor* outp
     *output={};
     if(!font.starts.data || !font.colors.data)return SfntStatus::invalid_input;
     if(palette>=font.palette_count)return SfntStatus::invalid_input;
-    if(entry==0xffff)return SfntStatus::unsupported_sequence; // Application foreground.
+    if(entry==0xffff)return SfntStatus::unsupported_sequence; // 0xFFFF selects the caller's foreground color.
     if(entry>=font.entry_count)return SfntStatus::invalid_input;
     const u32 at=(read16(font.starts,palette*2u)+entry)*4u;
     *output={font.colors[at+2],font.colors[at+1],font.colors[at],font.colors[at+3]};

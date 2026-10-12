@@ -43,8 +43,8 @@ HANDLE open_read(ConstSlice<wchar_t> path,Slice<wchar_t> scratch,bool* no_repars
     if(prepare(path,scratch,&name)){
         SECURITY_QUALITY_OF_SERVICE quality{sizeof(quality),SecurityImpersonation,TRUE,TRUE};
         Attributes attributes{sizeof(Attributes),nullptr,&name,no_reparse?0x1040u:0x40u,nullptr,&quality};Io io{};HANDLE file=nullptr;
-        // Match CreateFileW's observed read attributes and synchronous random
-        // access options. The sharing contract still excludes writes/deletion.
+        // Same read attributes and synchronous random-access options as CreateFileW;
+        // sharing still excludes writes/deletion.
         if(NtCreateFile(&file,GENERIC_READ|SYNCHRONIZE|FILE_READ_ATTRIBUTES,&attributes,&io,nullptr,
             FILE_ATTRIBUTE_NORMAL,FILE_SHARE_READ,1,0x860,nullptr,0)>=0){if(no_reparse)*no_reparse=true;return file;}
     }

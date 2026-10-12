@@ -16,7 +16,7 @@ enum class TextFormElement : u8 {
     label,
     edit,
     status,
-    option, // an optional checkbox row ("Trust example.com links from now on")
+    option, // optional checkbox row
     actions,
     cancel,
     accept,

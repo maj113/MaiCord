@@ -48,8 +48,8 @@ BrowserSignInParseResult browser_sign_in_parse_request(ConstSlice<u8> input, u16
 BrowserSignInWriteResult browser_sign_in_write_key(ConstSlice<u8> random, Slice<u8> output) noexcept;
 BrowserSignInWriteResult browser_sign_in_write_url(u16 port, Utf8View key, Slice<u8> output) noexcept;
 BrowserSignInWriteResult browser_sign_in_write_exchange(Utf8View key, Utf8View token, Slice<u8> output) noexcept;
-// Only confirms that the RPC request arrived. Neither this response nor the legacy
-// callback shows that the server accepted the key-bound exchange.
+// Only confirms that the RPC request arrived. Neither this response nor the
+// redirect callback shows that the server accepted the key-bound exchange.
 BrowserSignInWriteResult browser_sign_in_write_response(const BrowserSignInRequest& request,
     Slice<u8> output) noexcept;
 

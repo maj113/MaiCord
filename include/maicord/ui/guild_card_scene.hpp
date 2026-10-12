@@ -6,12 +6,11 @@
 #include "maicord/ui/transition.hpp"
 
 namespace maicord {
-// Server tag popout (the official guild profile popout, opened from a server tag
-// chip): a 300 DIP card with the server's banner (its custom banner picture,
-// else a gradient of its brand colour), icon, name, tag, online/member
-// counts, founding month, description, traits and one action. Pure geometry
-// and paint; the host fetches GET /guilds/{id}/profile, draws the banner,
-// icon and badge into ui_guild_card_media and runs the action.
+// Server tag popout, opened from a server tag chip: a card with the server's
+// banner (custom picture, else a gradient of its brand colour), icon, name, tag,
+// online/member counts, founding month, description, traits and one action. Pure
+// geometry and paint: the host fetches GET /guilds/{id}/profile, draws the
+// banner, icon and badge into ui_guild_card_media and runs the action.
 inline constexpr float kUiGuildCardWidth = 300, kUiGuildCardPadding = 16, kUiGuildCardGap = 8;
 inline constexpr float kUiGuildCardBanner = 120, kUiGuildCardIcon = 64;
 inline constexpr u32 kUiGuildCardNameBytes = 256, kUiGuildCardDescriptionBytes = 1024, kUiGuildCardTagBytes = 32;
@@ -24,7 +23,7 @@ enum class UiGuildCardPhase : u8 {
     private_profile, // 50001: "Private Server".
     failed,          // Anything else: "Unable to load server profile" (click retries).
 };
-// The one full-width button, chosen as the official client's profile does.
+// The card's single full-width button.
 enum class UiGuildCardAction : u8 {
     none,
     go_to_server, // Already a member.
@@ -103,8 +102,8 @@ bool ui_guild_card_media(const UiGuildCardScene&, u32 index, UiGuildCardMedia* o
 // icon and badge media.
 bool ui_guild_card_paint(const UiGuildCardScene&, const Theme&, PaintStream*) noexcept;
 bool ui_guild_card_paint_foreground(const UiGuildCardScene&, const Theme&, PaintStream*) noexcept;
-// The official fallback banner: radial-gradient(at 50% 127%, brighten(c, 1.75)
-// 20.65%, c 85.16%), drawn as a vertical ramp from c to the brightened colour.
+// Fallback banner: approximates radial-gradient(at 50% 127%, brighten(c, 1.75)
+// 20.65%, c 85.16%) as a vertical ramp from c to the brightened colour.
 Color ui_guild_card_banner_highlight(Color base) noexcept;
 bool ui_guild_card_text_output(const UiGuildCardScene&, const Theme&, UiTextOutput*) noexcept;
 } // namespace maicord

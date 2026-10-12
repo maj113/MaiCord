@@ -24,7 +24,6 @@ SfntStatus sfnt_hvar_advance_delta(const SfntHvar& view,ConstSlice<double> scala
 // Windows design-metric compatibility: compressed hmtx tails share the
 // last long metric's HVAR index; round to nearest with ties toward +infinity and
 // keep the unsigned 16-bit field. Raw OpenType per-glyph deltas remain above.
-// This does not establish final GetGlyphPlacements/raster/layout equivalence.
 SfntStatus sfnt_hvar_design_advance(const SfntHvar& view,ConstSlice<double> scalars,const SfntHorizontalMetrics& metrics,u16 glyph,u16* output) noexcept;
 SfntStatus sfnt_mvar_delta(const SfntMvar& view,ConstSlice<double> scalars,u32 tag,double* output) noexcept;
 } // namespace maicord

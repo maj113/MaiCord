@@ -505,8 +505,8 @@ bool ui_theme_metrics_equal(const UiThemeMetrics& a, const UiThemeMetrics& b) no
     return true;
 }
 float ui_theme_text_size(const UiThemeTypography& typography, float em, u32 flags) noexcept {
-    // Validated published typography is the precondition; no schema scan in a
-    // glyph loop. Keep the original semantic priority and fixed picker em.
+    // The typography must already be validated: no schema scan in a glyph
+    // loop. Flag priority is fixed; the picker em is constant.
     if (flags & text_style_picker_emoji)
         return kPickerEmojiEmSize;
     if (flags & text_style_jumbo_emoji)

@@ -10,11 +10,10 @@ extern "C" unsigned long __cdecl _byteswap_ulong(unsigned long value);
 
 namespace maicord {
 
-// Exact-width byte accesses support unaligned input and must not read beyond
-// the named width. The small big-endian loads are visible to packed table
-// searches under the project's conservative /Ob1; other loads remain shared.
-// Fixed-size intrinsic copies retain C++ aliasing/alignment semantics while
-// emitting exact-width x64 loads and swaps without a CRT dependency.
+// Loads and stores accept unaligned input and touch exactly the named width.
+// The 16/32-bit big-endian loads are inline so packed table searches see them
+// under /Ob1; fixed-size memcpy plus byteswap intrinsics compile to plain
+// loads and swaps without the CRT.
 u16 byte_load_le16(const u8* input) noexcept;
 inline u16 byte_load_be16(const u8* input) noexcept {
     u16 value; memcpy(&value, input, sizeof(value)); return _byteswap_ushort(value);

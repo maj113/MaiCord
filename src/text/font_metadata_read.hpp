@@ -4,12 +4,13 @@
 #include <Windows.h>
 
 namespace maicord::font_metadata {
-// Transient projection for family/candidate discovery only. Validate every
-// original directory span, but read only OS/2, STAT, fvar and name. This is not
-// a font image and must never reach outline/shaping preparation. Larger inputs
-// return output_too_small so callers can use the general mapped-file path.
-// The borrowed synchronous handle excludes writers/deletion. Reuse its prefix
-// across collection faces only while that same handle remains open.
+// Projection for family/candidate discovery: the table directory plus only OS/2,
+// STAT, fvar and name, after validating every original directory span. Not a
+// font image; never pass it to outline/shaping preparation. Returns
+// output_too_small for more than 64 tables or when the copied tables exceed
+// storage, so callers can use the general mapped-file path. The borrowed handle
+// must be synchronous and opened excluding writers/deletion; the cached file
+// prefix is reused across collection faces while that handle stays open.
 class Reader {
     HANDLE file;u32 bytes;u8 prefix[1024];bool ready=false;
 public:
@@ -54,7 +55,7 @@ public:
                 if(size>storage.count-required||storage.count-required-size<16)return error(SfntStatus::output_too_small);
                 required+=size+16;selected[selected_count++]=i;}
         }
-        // Preserve missing-table behavior even when none of the needed tags exists.
+        // No needed table: keep a one-entry directory (first record, zero offset/length).
         if(!selected_count){if(storage.count<16)return error(SfntStatus::output_too_small);copy_bytes(storage.data,directory,16);byte_store_be32(storage.data+8,0);byte_store_be32(storage.data+12,0);required=16;}
         u32 used=selected_count*16;
         for(u32 i=0;i<selected_count;++i){const auto* record=directory+selected[i]*16;const u32 at=byte_load_be32(record+8),size=byte_load_be32(record+12);

@@ -4,14 +4,12 @@
 #include "maicord/ui/widget_manager.hpp"
 
 // Platform-neutral accessibility projection of retained widget trees.
-//
-// A snapshot is a flat tree of nodes built on the UI thread from the same
-// widget/layout trees that drive hit testing, plus the text commands that the
-// renderer draws. Every widget is accessible by default: its role comes from
-// its kind, its state from its flags, its bounds from layout, its reading order
-// from the widget tree and its name from the text drawn inside it (falling
-// back to its debug name). Surfaces refine nodes through a describe callback.
-// The platform adapter (UI Automation) only reads finished snapshots.
+// A snapshot is a flat tree of nodes built on the UI thread from the widget and
+// layout trees plus the renderer's text commands. Every widget is accessible by
+// default (role from its kind, state from its flags, bounds from layout, reading
+// order from the tree, name from the text drawn inside it, else its debug name);
+// surfaces refine nodes through a describe callback. The platform adapter only
+// reads finished snapshots.
 
 namespace maicord {
 
@@ -379,13 +377,12 @@ struct UiAccessMessageCursor {
 bool ui_access_message_should_announce(UiAccessMessageCursor* cursor, u64 channel_id, u64 newest_message_id,
                                        bool authored_locally) noexcept;
 
-// ---- text units (Text pattern) -------------------------------------------
-// Offsets are UTF-8 byte offsets into a node value and always land on scalar
-// (and simple cluster) boundaries. Characters keep combining marks, variation
-// selectors, skin tones, ZWJ sequences, flag pairs and CRLF together; words are
-// a run of word or punctuation characters plus the spaces that follow; lines
-// and paragraphs end after a line feed; format, page and document are the
-// whole text.
+// Text pattern units. Offsets are UTF-8 byte offsets into a node value and
+// always land on scalar (and simple cluster) boundaries. Characters keep
+// combining marks, variation selectors, skin tones, ZWJ sequences, flag pairs
+// and CRLF together; words are a run of word or punctuation characters plus the
+// spaces that follow; lines and paragraphs end after a line feed; format, page
+// and document are the whole text.
 enum class UiAccessTextUnit : u8 {
     character,
     format,
@@ -406,7 +403,6 @@ i32 ui_access_text_move_endpoint(Utf8View text, UiAccessTextUnit unit, i32 count
 // a non-degenerate range becomes the unit count units away. Returns moved.
 i32 ui_access_text_move(Utf8View text, UiAccessTextUnit unit, i32 count, u32* start, u32* end) noexcept;
 
-// ---- status announcements ------------------------------------------------
 enum class UiAccessPoliteness : u8 {
     polite,    // queued after current speech; only the newest pending one survives
     assertive, // interrupts; reserved for failures that need attention
@@ -431,7 +427,6 @@ struct UiAccessAnnouncer {
 bool ui_access_announce_admit(UiAccessAnnouncer* announcer, Utf8View text, UiAccessPoliteness politeness,
                               u64 now_ms) noexcept;
 
-// ---- snapshot throttling -------------------------------------------------
 // Snapshots follow presented frames. Urgent frames (input, focus, actions,
 // structure) rebuild at once; others coalesce to one rebuild per interval and
 // leave a deferred rebuild for the trailing frame of an animation.
@@ -452,7 +447,6 @@ UiAccessThrottleDecision ui_access_throttle_frame(UiAccessThrottle* throttle, u6
 // Milliseconds until a deferred rebuild is due (0 when due or none pending).
 u64 ui_access_throttle_delay(const UiAccessThrottle& throttle, u64 now_ms) noexcept;
 
-// ---- name composition ----------------------------------------------------
 // Fixed buffer for describers composing names; ui_access_add copies at once.
 struct UiAccessNameBuilder {
     char data[kUiAccessNameMaximumBytes];

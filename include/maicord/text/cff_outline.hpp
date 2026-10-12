@@ -44,14 +44,13 @@ SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept;
 // design metrics as cff_outline, including flex/composite resolution.
 SfntStatus cff_glyph_metrics(const CffFont& font,u16 glyph,CffGlyphMetrics* metrics,
                             u32 work_limit=1000000) noexcept;
-// Oblique emission supports the uniform positive FontMatrix used by the app.
+// Oblique emission supports only a uniform positive FontMatrix.
 // It preserves base charstring metrics and transforms output ink/bounds only.
 SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output,
                         u32 work_limit = 1000000, CffGlyphMetrics* metrics = nullptr,bool oblique=false) noexcept;
 
-// Optional first-party bold prototype. Current app profiles fix CFF weights;
-// keeping a separate entry lets the app linker discard its code completely.
-// Uniform non-CID matrices only. Reuses output storage; no allocation.
+// Synthetic bold, kept as a separate entry so the linker can discard it when
+// unused. Uniform non-CID matrices only. Reuses output storage; no allocation.
 SfntStatus cff_outline_bold(const CffFont& font,u16 glyph,GlyphOutline* output,
                           u32 work_limit=1000000,CffGlyphMetrics* metrics=nullptr,bool oblique=false) noexcept;
 

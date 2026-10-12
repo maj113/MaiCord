@@ -7,8 +7,8 @@ namespace maicord {
 inline constexpr float kMessageContextPreferredWidth = 224.0f;
 inline constexpr u32 kMessageContextMaximumExtraItems = 8;
 inline constexpr u32 kMessageContextMaximumExtraLabelBytes = 128;
-// A right-clicked attachment's media and link groups (the official order puts
-// them after the message sections, before the developer-mode Copy ID).
+// A right-clicked attachment's media and link groups, placed after the message
+// sections and before the developer-mode Copy ID.
 inline constexpr u32 kMessageContextMaximumMediaItems = 4;
 inline constexpr u32 kMessageContextMaximumPopupItems =
     kMessageContextMaximumItems + kMessageContextMaximumMediaItems + kMessageContextMaximumExtraItems;

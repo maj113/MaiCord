@@ -274,8 +274,8 @@ bool item(void* opaque, u32, JsonValue value) noexcept {
                string(c, w.gif, &output.gif_url, kMediaCatalogMaximumUrlBytes, false, true, copying) &&
                string(c, w.url, &output.send_url, kMediaCatalogMaximumUrlBytes,
                       c.kind == MediaCatalogItemKind::gif, true, copying) &&
-               // Official sticker tags contain tabs, and descriptions may
-               // contain line breaks. Preserve these owned metadata strings.
+               // Sticker tags contain tabs and descriptions may contain line
+               // breaks; the owned strings keep them.
                string(c, w.description, &output.description, 512, false, false, copying, true) &&
                string(c, w.tags, &output.tags, 1024, false, false, copying, true);
     };
@@ -308,8 +308,8 @@ bool trending_preview(void* opaque, u32 index, JsonValue value) noexcept {
     auto& c = *static_cast<Context*>(opaque);
     if (!index)
         return item(&c, index, value);
-    // The official client uses gifs[0] as one navigation tile. Remaining provider records
-    // still receive complete validation without changing the gallery's indices.
+    // gifs[0] is the one navigation tile. The other provider records are still
+    // fully validated without changing the gallery's indices.
     Context validation = c;
     validation.limit = 0;
     validation.write = false;
@@ -449,8 +449,7 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
     u8 temporary[kMediaCatalogMaximumTargetBytes]{};
     RouteWriter w{};
     route_writer_initialize(&w, {temporary, sizeof(temporary)});
-    // The native REST transport takes a complete origin-form request target.
-    // Unlike the web client's endpoint helpers, it does not add the API prefix.
+    // The target is a complete origin-form path; the REST transport adds no API prefix.
     route_append(&w, utf8_literal("/api/v10"));
     switch (query.operation) {
     case MediaCatalogOperation::gif_categories:

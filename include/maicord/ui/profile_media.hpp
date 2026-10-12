@@ -25,7 +25,9 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
 bool user_guild_badge_media(const UserAppearance&, UiRect rectangle, UiRect clip, ProfileMedia*) noexcept;
 bool user_guild_badge_media(const UserAppearanceRecord&, UiRect rectangle, UiRect clip,
                             ProfileMedia*) noexcept;
-// Media representation changes do not invalidate retained text/widget handles.
+// One-way switch of an animated banner to its GIF representation after a WebP
+// failure; false when already switched. Only the media URL changes, so retained
+// text and widget handles stay valid.
 bool profile_media_use_compatibility_banner(ProfileScene* scene) noexcept;
 enum class MemberMedia : u8 {
     nameplate,
@@ -49,12 +51,12 @@ bool member_plain_avatar_resolve(const MemberListScene& scene, u32 index, Member
                                  bool visible_only = true) noexcept;
 bool member_plain_avatar_current(const MemberListScene& scene, MediaAssetKey key) noexcept;
 
-// Resolved member row media, keyed by user: keys and geometry relative to the
-// row's top-left corner, so a row that only moved (scrolling) is not resolved
-// again. The plain (shared) avatar takes the avatar slot when the member has
-// no per-guild avatar. Every store revision the resolution reads, the measure
-// cache generation and the guild clear the cache; hover and offline state and
-// the row width revalidate a single row.
+// Resolved member row media, keyed by user, with keys and geometry relative to the
+// row's top-left corner so a row that only moved (scrolling) is not resolved again.
+// The plain (shared) avatar takes the avatar slot when the member has no per-guild
+// avatar. A change in any store revision the resolution reads, the measure cache
+// generation or the guild clears the cache; hover, offline state and row width
+// revalidate a single row.
 inline constexpr u32 kMemberMediaLayerCount = 5;
 inline constexpr u32 kMemberMediaCacheCapacity = 128;
 inline constexpr u32 kMemberMediaRowMemory = 64;

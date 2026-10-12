@@ -34,8 +34,8 @@ bool regional_flag_svg_compile(const RegionalFlagSvg& image, ColrPaintProgram* p
         +[](void* p,u16 id) noexcept {const auto& s=*static_cast<Source*>(p);
             if(id>=s.image->count)return 0u;const auto& layer=s.image->layers[id];
             // Every added line needs at least two input bytes; an arc's seven
-            // parameters cover its at-most-four cubic pieces. Include figure
-            // starts/implicit fill closure, capped by the proved hard limit.
+            // parameters cover its at-most-four cubic pieces. Includes figure
+            // starts and implicit fill closure, capped by kRegionalFlagSvgMaximumCommands.
             return layer.path.bytes?minimum(kRegionalFlagSvgMaximumCommands,layer.path.bytes/2+8):8u;}};
     ColrPaintElement root_element{};root_element.kind=ColrPaintKind::layers;root_element.paint.layers.childCount=image.count;
     return colr_program_build(program,callbacks,root_element,{0,0,36,36},pixels_per_unit);

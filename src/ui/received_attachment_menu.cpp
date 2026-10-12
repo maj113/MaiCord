@@ -13,7 +13,7 @@ bool equal_ascii_case(const char* data, u32 bytes, const char* literal) noexcept
     }
     return index == bytes && !literal[index];
 }
-// The URL's path extension, matched like /\.(ext)(\?|$)/ against a pathname.
+// Whether the final segment of the URL path ends in one of the extensions (ASCII case-insensitive).
 bool path_extension(Utf8View path, const char* const* extensions, u32 count) noexcept {
     u32 dot = path.bytes;
     for (u32 index = path.bytes; index-- > 0;) {

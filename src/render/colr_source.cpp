@@ -28,8 +28,8 @@ bool clip_box(ColrNativeSource& s,u16 glyph,ColrRect* output) noexcept {
     *output={distance(s,clip.minimum_x),-distance(s,clip.maximum_y),distance(s,clip.maximum_x),-distance(s,clip.minimum_y)};return true;
 }
 // Reduce in half-turn units before evaluating a small-domain Taylor series.
-// This is first-party scalar math; Windows numeric compatibility is checked
-// separately and is not assumed from real-number equivalence.
+// Windows numeric behavior is reproduced explicitly, not assumed from
+// real-number equivalence.
 double product_error(double a,double b,double product) noexcept {
     constexpr double split=134217729.0;
     const double ca=split*a,cb=split*b,ah=ca-(ca-a),bh=cb-(cb-b),al=a-ah,bl=b-bh;
@@ -116,13 +116,13 @@ bool resolve(ColrNativeSource& s,ColrSourceFrame& frame,const ColrPaint& raw,Col
         frame.color_line=raw.color_line;frame.variable=raw.variable;
         ColrColorLine line{};const auto status=colr_color_line(*s.font,raw,&line);if(status!=SfntStatus::ok)return failed(s,status);
         frame.stop_count=line.count;
-        // OpenType repeat/reflect map to the corresponding current GPU modes.
+        // OpenType extend values pass through: 0 pad, 1 repeat, 2 reflect.
         const u32 extend=line.extend;
         if(format==4){out->kind=ColrPaintKind::linear_gradient;p.linearGradient={extend,line.count,distance(s,v[0]),-distance(s,v[1]),distance(s,v[2]),-distance(s,v[3]),distance(s,v[4]),-distance(s,v[5])};}
         else if(format==6){
-            // Current Windows paint readers sign-extend encoded radius words.
-            // Preserve that API behavior only in the compatibility policy;
-            // standard COLR radii remain unsigned before applying variations.
+            // Windows paint readers sign-extend encoded radius words. Reproduced
+            // only in the compatibility policy; standard COLR radii stay unsigned
+            // before variations apply.
             const bool compatibility=s.variation->mode==ColrVariationMode::paint_reader;
             const double r0=v[2]-(compatibility && raw.values[2]>=32768?65536:0),r1=v[5]-(compatibility && raw.values[5]>=32768?65536:0);
             out->kind=ColrPaintKind::radial_gradient;p.radialGradient={extend,line.count,distance(s,v[0]),-distance(s,v[1]),distance(s,r0),distance(s,v[3]),-distance(s,v[4]),distance(s,r1)};

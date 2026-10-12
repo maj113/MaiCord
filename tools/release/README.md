@@ -1,9 +1,9 @@
 # Release tooling
 
 Scripts used by `.github/workflows/release.yml` and `manifest-refresh.yml` to
-package, sign and publish MaiCord updates. They need only the Python standard
-library and Windows CNG (`bcrypt.dll`, through `ctypes`), so they run on any
-Windows machine with Python 3.10 or newer.
+package, sign and publish updates. They need only the Python standard library and
+Windows CNG (`bcrypt.dll`, through `ctypes`): any Windows machine with Python 3.10
+or newer will do.
 
 | File | Purpose |
 | --- | --- |
@@ -15,26 +15,25 @@ Windows machine with Python 3.10 or newer.
 
 ## Formats (they match the client's verifiers)
 
-- **Update package**: `MaiCord-x64-<version>.zip`. It holds exactly two
-  *stored* members, `MaiCord.exe` and then `MaiCordAccount.dll`. There are no
-  flags, extra fields or comments. Timestamps are fixed, so the same binaries
-  always give the same bytes. Checked by `src/app/update_pair_package.cpp`.
-- **Manifest**: `maicord-<channel>.manifest.json`. This is compact JSON with
-  exactly these fields: `format`, `product`, `arch`, `channel`, `version`,
-  `issued`, `expires`, `bytes`, `sha256` and `artifact`. It is at most 4096
-  bytes, and no string uses escapes. Checked by `src/app/update_manifest.cpp`.
+- **Update package**: `MaiCord-x64-<version>.zip`. Exactly two *stored* members,
+  `MaiCord.exe` then `MaiCordAccount.dll`, with no flags, extra fields or comments.
+  Timestamps are fixed, so the same binaries always give the same bytes. Checked by
+  `src/app/update_pair_package.cpp`.
+- **Manifest**: `maicord-<channel>.manifest.json`. Compact JSON with exactly the
+  fields `format`, `product`, `arch`, `channel`, `version`, `issued`, `expires`,
+  `bytes`, `sha256` and `artifact`; at most 4096 bytes; no string uses escapes.
+  Checked by `src/app/update_manifest.cpp`.
 - **Signature**: `maicord-<channel>.manifest.json.sig`. It is 64 raw bytes:
   an ECDSA P-256 signature in P1363 form (r ‖ s), over
   `SHA-256("MaiCord update manifest v1\n" ‖ manifest bytes)`.
-- **Version number**: computed as
-  `((major·1000 + minor)·1000 + patch)·1000 + n`. Here `n` is the preview
-  number (1–998) for a `vX.Y.Z-preview.n` tag, and 999 for a stable `vX.Y.Z`
-  tag. For example, `v1.2.3` is `1002003999` and `v1.2.3-preview.4` is
-  `1002003004`. This keeps the client's rollback floor monotonic, and the
-  client derives a package's release tag from it.
-- **Validity**: `issued` is set 10 minutes before signing, to allow for clock
-  skew. `expires` is 90 days later by default. `manifest-refresh.yml` re-signs
-  a channel manifest weekly once it is within 30 days of expiry.
+- **Version number**: `((major·1000 + minor)·1000 + patch)·1000 + n`, where `n`
+  is the preview number (1–998) for a `vX.Y.Z-preview.n` tag and 999 for a stable
+  `vX.Y.Z` tag. For example, `v1.2.3` is `1002003999` and `v1.2.3-preview.4` is
+  `1002003004`. This keeps the client's rollback floor monotonic, and the client
+  derives a package's release tag from it.
+- **Validity**: `issued` is 10 minutes before signing, to allow for clock skew;
+  `expires` is 90 days later by default. `manifest-refresh.yml` re-signs a channel
+  manifest weekly once it is within 30 days of expiry.
 
 ## Where clients fetch updates
 
@@ -73,19 +72,18 @@ rate limits are not involved.
 
 Clients up to 0.1.1 read
 `https://github.com/<repo>/releases/latest/download/maicord-stable.manifest.json`
-and download the package from `releases/latest/download/` too. Every release
-therefore also attaches its freshly signed manifests; those copies are
-immutable and stay valid for 90 days after publishing, after which a 0.1.x
-client reports an expired update until a newer stable release is published.
-The retired rolling `update-preview` prerelease is no longer updated.
+and download the package from `releases/latest/download/`, so every release also
+attaches its freshly signed manifests. Those copies are immutable and valid for
+90 days after publishing; after that a 0.1.x client reports an expired update
+until a newer stable release is published. The rolling `update-preview`
+prerelease is retired.
 
-However, 0.1.0 and 0.1.1 cannot install any later package: their installer
-requires the package's `MaiCordAccount.dll` to export the installer's own
-account API ordinal (114 or 115), and every release since exports a newer one.
-The download succeeds and the install fails with "Couldn't install the update."
-Replace such an install once by hand with the portable zip of a newer release;
-from then on updates install normally, because the installer now accepts the
-package's own API ordinal and the new `MaiCord.exe` checks its DLL when it
+0.1.0 and 0.1.1 cannot install any later package: their installer requires the
+package's `MaiCordAccount.dll` to export the installer's own account API ordinal
+(114 or 115), and later releases export a newer one. The download succeeds and
+the install fails with "Couldn't install the update." Replace such an install once
+by hand with the portable zip of a newer release. Later installers accept the
+package's own API ordinal, and the new `MaiCord.exe` checks its DLL when it
 confirms startup.
 
 ## Provenance
@@ -109,9 +107,8 @@ gh attestation verify MaiCord-0.2.0-windows-x64.zip -R maj113/MaiCord
   `github-pages`, allow the tag pattern `v*` to deploy, because `release.yml`
   runs on tags.
 - **Immutable releases**: Settings > General > Releases. Neither workflow
-  changes a published release any more, so this can be enabled as soon as
-  these workflows are on `master`, before the next tag. It applies to releases
-  published afterwards; the retired `update-preview` prerelease can be deleted.
+  modifies a published release, so this can be enabled. It applies to releases
+  published afterwards. The retired `update-preview` prerelease can be deleted.
 
 ## Key handling
 

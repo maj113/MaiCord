@@ -15,15 +15,16 @@ bool native_font_coverage_initialize(NativeFontSession*,Slice<NativeFontCoverage
 // drops the session reference. Instances and runs keep their own mappings.
 bool native_font_coverage_reset(NativeFontCoverageCache*) noexcept;
 bool native_font_coverage_release(NativeFontCoverageCache*) noexcept;
-// Coverage lookup for a physical face, loaded on first use in the session: no second
-// mapping store, instance preparation or per-scalar file IO on a hit. Catalog file
-// identity/size/time is validated when a miss loads the face. Reset to force revalidation.
-// A fixed-size LRU limits the cache; cached faces may share live mappings
-// with existing instances/runs. Missing glyphs are a successful false; IO, stale
-// catalogs, capacity and malformed-font failures remain errors. Output clears.
-// Optional face output borrows the cache's view, including an
-// ordinary missing-glyph result. It clears on failure and adds no reference.
-// Discard it before any later operation on this cache (including reset/release).
+// Coverage lookup for a physical face, loaded on first use in the session. A hit
+// needs no second mapping store, instance preparation or per-scalar file IO; a
+// miss validates the catalog file's identity/size/time (reset to force
+// revalidation). A fixed-size LRU bounds the cache; cached faces may share live
+// mappings with instances and runs. A missing glyph is a successful false; IO,
+// stale catalog, capacity and malformed-font failures are errors, with the
+// result false.
+// The optional face output borrows the cache's view (also for a missing glyph),
+// adds no reference and is cleared on failure. Discard it before any later
+// operation on this cache, including reset and release.
 NativeFontResult native_font_coverage_probe(NativeFontCoverageCache*,const NativeFontCatalog&,u32 candidate,u32 scalar,bool*,const NativeFontFace** borrowed=nullptr) noexcept;
 // Acquire a face with its own reference through the same cache, for immediate
 // preparation of the selected instance. The caller keeps the session alive and releases

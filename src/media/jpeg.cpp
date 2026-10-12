@@ -75,9 +75,7 @@ bool bytes_equal(const u8* left, const char* right, u32 count) noexcept {
 }
 
 bool parse_exif_orientation(const u8* payload, u32 bytes, JpegOrientation* orientation) noexcept {
-    // Chromium also treats the sixth Exif identifier byte as a fill byte.
-    // Accept that compatibility form while requiring the five-byte Exif
-    // discriminator and a complete TIFF header.
+    // The sixth identifier byte is a fill byte and is not checked, as in Chromium.
     if (!payload || !orientation || bytes < 14 || !bytes_equal(payload, "Exif\0", 5)) {
         return false;
     }
@@ -1460,9 +1458,6 @@ void build_decode_table(const JpegHuffmanTable& table, JpegDecodeTable* decode, 
     }
 }
 
-// Bit-serial canonical match over a 16-bit window: length << 8 | symbol, with
-// bit 16 set when the matching codeword indexes past the symbols; 0 if no
-// codeword of up to 16 bits matches.
 // Lookahead tables for the Huffman tables a baseline scan's components use.
 void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegDecodeTable* ac) noexcept {
     u32 built = 0;
@@ -1479,6 +1474,9 @@ void build_component_tables(const JpegImage& image, JpegDecodeTable* dc, JpegDec
     }
 }
 
+// Bit-serial canonical match over a 16-bit window: length << 8 | symbol, with
+// bit 16 set when the matching codeword indexes past the symbols; 0 if no
+// codeword of up to 16 bits matches.
 __declspec(noinline) u32 canonical_entry(const JpegHuffmanTable& table, u32 window) noexcept {
     for (u32 length = 0; length < 16; ++length) {
         const i32 code = static_cast<i32>(window >> (15u - length));

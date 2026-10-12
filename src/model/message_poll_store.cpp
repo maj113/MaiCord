@@ -365,9 +365,8 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
         }
     }
     next.fields |= input.fields & (ignore_results ? ~gateway_message_poll_field_results : ~u32{0});
-    // The official client maps poll.results.answer_counts to vote reactions; a poll that
-    // arrives without results (a fresh MESSAGE_CREATE) has none: zero votes and
-    // no own vote, which later vote events and fetched results then update.
+    // A poll that arrives without results (a fresh MESSAGE_CREATE) starts at zero
+    // votes and no own vote; later vote events and fetched results update it.
     if (!old && !(input.fields & gateway_message_poll_field_results)) {
         for (u32 i = 0; i < next.answer_count; ++i) {
             auto& target = next.answers[i];

@@ -3,21 +3,18 @@
 
 namespace maicord {
 
-// The official client's "Edit Image" cropper for avatar and profile banner
-// uploads. Geometry follows the web client: the image is laid out at the editor's
-// height (banners then fitted to 17:6), the mask is the largest shape of the
-// use that the laid-out image covers (avatars: its shorter side, banners: at
-// most 432 DIP wide at 17:6), zoom runs 1-2 about the image's own centre and
-// the image centre's offset from the mask centre is clamped so the mask is
-// always covered. Rotation turns the image 90 degrees clockwise per step.
-// All lengths are DIPs except the source rectangle (image pixels).
+// Cropper for avatar and profile banner uploads. The image is laid out at the
+// editor's height (banners fitted to 17:6) under the largest mask the use
+// allows; zoom (1-2) is about the image centre and the offset is clamped so the
+// mask stays covered. Rotation is 90 degrees clockwise per step. Lengths are
+// DIPs except the source rectangle (image pixels).
 enum class ImageCropUse : u8 {
     avatar,
     banner,
 };
 inline constexpr float kImageCropMinimumZoom = 1.0f;
 inline constexpr float kImageCropMaximumZoom = 2.0f;
-// Widest mask (the official client's 432 px) and the profile banner aspect (17:6).
+// Widest mask (DIP) and the profile banner aspect (17:6).
 inline constexpr float kImageCropMaximumMaskWidth = 432.0f;
 inline constexpr float kImageCropBannerAspect = 17.0f / 6.0f;
 // Editor height: 350, or 200 when the window is 800 DIP tall or less.
@@ -27,7 +24,7 @@ inline constexpr float kImageCropShortViewport = 800.0f;
 // Arrow keys pan 4 DIP, 40 with Shift.
 inline constexpr float kImageCropKeyStep = 4.0f;
 inline constexpr float kImageCropFastKeyStep = 40.0f;
-// Still output caps (per axis, never upscaled): avatars 1024x1024, banners 2400x848.
+// Output caps for still images (per axis, never upscaled): avatars 1024x1024, banners 2400x848.
 inline constexpr u32 kImageCropAvatarMaximum = 1024;
 inline constexpr u32 kImageCropBannerMaximumWidth = 2400;
 inline constexpr u32 kImageCropBannerMaximumHeight = 848;
@@ -61,7 +58,7 @@ inline float image_crop_editor_height(float viewport_height) noexcept {
 ImageCropState image_crop_begin(ImageCropUse use, u32 image_width, u32 image_height, float editor_width,
                                 float editor_height) noexcept;
 // Re-lays out for a new editor size, keeping zoom, rotation and the offset
-// ratio (the official client only refits at zoom 1; a ratio keeps the view stable).
+// ratio so the view stays stable.
 void image_crop_resize(ImageCropState* state, float editor_width, float editor_height) noexcept;
 // Largest offsets that keep the mask covered (>= 0 per axis).
 float image_crop_bound_x(const ImageCropState& state) noexcept;
@@ -77,9 +74,8 @@ bool image_crop_edited(const ImageCropState& state) noexcept;
 // (rotated orientation) and the mask.
 ImageCropRect image_crop_image_rect(const ImageCropState& state) noexcept;
 ImageCropRect image_crop_mask_rect(const ImageCropState& state) noexcept;
-// The official client's crop math (canvas crop of the laid-out image): the source
-// rectangle under the mask, rounded and clamped inside the image, and the
-// output size capped per axis for the use (never upscaled).
+// The source rectangle under the mask, rounded and clamped inside the image,
+// and the output size capped per axis for the use (never upscaled).
 ImageCropOutput image_crop_output(const ImageCropState& state) noexcept;
 // Maps a point in the output (visual) image, normalised to [0,1], to the
 // unrotated crop rectangle, normalised to [0,1].

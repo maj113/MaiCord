@@ -90,10 +90,9 @@ struct ShellNavigationScene {
     bool active;
     // Drag-and-drop reorder: the dimmed source and the drop line or ring.
     NavigationDragVisual drag;
-    // Server banner (host-set through shell_navigation_scene_set_banner): the
-    // list's extra top inset under the banner (84 DIP padding), the
-    // pointer over the header (its glass) and a revision the presentation
-    // stamp follows for the banner's media and hover changes.
+    // Host-set through shell_navigation_scene_set_banner: the list's extra top
+    // inset under the server banner, whether the pointer is over the header, and
+    // a revision the presentation stamp follows for banner media and hover changes.
     float banner_inset;
     bool banner_header_hovered;
     u32 banner_revision;

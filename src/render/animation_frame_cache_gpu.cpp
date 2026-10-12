@@ -312,9 +312,8 @@ bool animation_frame_cache_gpu_capture(AnimationFrameCacheGpu* gpu, ID3D11Device
     }
     if (!destination.cached) {
         unbind_media_resources(context);
-        // The production live atlas has one texel of padding. Preserve it
-        // when present so linear filtering can never sample a neighbouring
-        // animation tile; zero-padding test/alternate atlases remain safe.
+        // Copy the atlas's padding texel, when it has one, so linear filtering
+        // never samples a neighbouring animation tile.
         const UINT padding = media_atlas->allocations.padding != 0 ? 1u : 0u;
         const D3D11_BOX source_box{static_cast<UINT>(source.x - padding),
                                    static_cast<UINT>(source.y - padding),

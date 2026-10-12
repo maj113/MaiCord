@@ -27,10 +27,9 @@ enum class CdnHost : u8 {
     images_ext_2,
     flag_assets,   // Only the fixed regional-flag metadata targets, never general media URLs.
     catalog_klipy, // Only typed catalog preview requests; excluded from ordinary message URLs.
-    // GIF providers the official client loads favourites from directly
-    // (isAllowedGifProviderUrl). Only the tiny animated WebP renditions
-    // parse_catalog_preview_url derives (and Klipy's own GIF/MP4
-    // assets) are ever requested.
+    // GIF provider hosts that favourites load from directly. Only the tiny
+    // animated WebP renditions parse_catalog_preview_url derives (and Klipy's own
+    // GIF/MP4 assets) are ever requested.
     catalog_tenor,
     catalog_giphy,
     catalog_klipy2, // static2.klipy.com, under catalog_klipy's rules.
@@ -81,7 +80,7 @@ enum class AttachmentUrlError : u8 {
 };
 
 // Diagnostic categories never contain query names, values, or signed URLs.
-// Admission still reports its existing error and preserves authority checks.
+// They do not change the AttachmentUrlError that admission reports.
 enum class AttachmentQueryError : u8 {
     none,
     empty_component,
@@ -153,31 +152,29 @@ bool catalog_provider_target_valid(CdnHost host, ConstSlice<u8> target) noexcept
 bool sticker_json_target_valid(ConstSlice<u8> target) noexcept;
 // Exactly /soundboard-sounds/{id}.
 bool soundboard_target_valid(ConstSlice<u8> target) noexcept;
-// WebP previews also accept the src shapes GIF favourites synced from the
-// official client carry: Tenor/Giphy media in any rendition (including
-// mp4/webm VIDEO favourites), direct or behind Discord's external proxy, map
-// to the provider's tiny animated WebP; a Klipy .webp asset (Discord's
-// static.klipy.com filter: no credentials, port or fragment) loads by its bare
-// path, also when stored with the ?animated=true the official client appends
-// to a proxied gifv embed's thumbnail; Discord attachment images and any other external image behind Discord's
-// signed proxy (/external/<signature>/<scheme>/<host>/<path> on images-ext-N
-// or media.discordapp.net, e.g. a Klipy gifv thumbnail or an animated WebP on
-// its own host) load as the proxy's animated WebP sized to fit width x height
-// (0: 160 px). A raw URL on any other host is refused: Discord's proxy, not
-// the client, is the only route to an arbitrary origin.
-// GIF previews accept a direct Klipy .gif asset (the official picker's gif_src,
-// or with ?format=webp&animated=true from a proxied embed), fetched bare.
-// MP4 previews (VIDEO favourites the picker plays as muted looping tiles)
-// accept a Klipy .mp4 asset, a Discord attachment .mp4 and an .mp4 behind the
-// external proxy; Tenor/Giphy videos keep their WebP rendition.
+// Request target for the src of a synced GIF favourite; format selects the
+// accepted shapes.
+// webp: Tenor/Giphy media in any rendition (including mp4/webm VIDEO
+// favourites), direct or behind the external proxy, map to the provider's tiny
+// animated WebP. A Klipy .webp asset (static.klipy.com: no credentials, port or
+// fragment; ?animated=true allowed) loads by its bare path. Discord attachment
+// images and any other image behind the signed proxy
+// (/external/<signature>/<scheme>/<host>/<path> on images-ext-N or
+// media.discordapp.net) load as the proxy's animated WebP, fitted to
+// width x height and capped at 160 px (0: 160). A raw URL on any other host is
+// refused: the proxy is the only route to an arbitrary origin.
+// gif: a direct Klipy .gif asset, optionally with ?format=webp&animated=true,
+// fetched bare.
+// mp4 (muted looping tiles): a Klipy .mp4 asset, a Discord attachment .mp4 or
+// an .mp4 behind the proxy; Tenor/Giphy videos use their WebP rendition.
 MediaUrlResult parse_catalog_preview_url(
     Utf8View url, Slice<u8> target_output,
     MediaAttachmentFormat format = MediaAttachmentFormat::webp, u32 width = 0, u32 height = 0) noexcept;
 // The preview format for a stored GIF favourite src: a direct Klipy .gif is
 // fetched as GIF, an MP4 the mp4 format admits plays as video, and every
 // other shape (an IMAGE favourite's Klipy .webp among them) previews as an
-// animated WebP. The src decides rather than FavoriteGIF.format: the official
-// client stores IMAGE for any .webp/.avif/.gif src and VIDEO only for media.
+// animated WebP. The src decides, not FavoriteGIF.format: IMAGE is stored for any
+// .webp/.avif/.gif src and VIDEO only for media.
 MediaAttachmentFormat catalog_favorite_format(Utf8View src) noexcept;
 // Loggable fields of a media URL for diagnostics: " host=<host> ext=<ext>",
 // plus " via=<host>" for the origin behind Discord's /external/ proxy. Paths,
@@ -205,8 +202,8 @@ CdnTargetResult write_custom_emoji_cdn_target(u64 emoji_id, bool animated, u32 s
 // assets use WebP; the hash controls animation identity, not decoder choice.
 bool guild_icon_hash_valid(Utf8View icon_hash) noexcept;
 u32 cdn_guild_icon_variant(Utf8View icon_hash) noexcept;
-// Discord's getGuildIconURL: an a_ hash adds &animated=true only when it may
-// animate (canAnimate); otherwise the same .webp?size=N is the CDN's still.
+// An a_ hash adds &animated=true only when animate is set; otherwise the same
+// .webp?size=N is the CDN's still.
 CdnTargetResult write_guild_icon_cdn_target(u64 guild_id, Utf8View icon_hash, u32 size,
                                             Slice<u8> output, bool animate = true) noexcept;
 CdnTargetResult write_user_avatar_cdn_target(u64 user_id, Utf8View avatar_hash, u32 size,
@@ -215,7 +212,7 @@ CdnTargetResult write_user_avatar_cdn_target(u64 user_id, Utf8View avatar_hash, 
 CdnTargetResult write_channel_icon_cdn_target(u64 channel_id, Utf8View icon_hash, u32 size,
                                               Slice<u8> output) noexcept;
 
-// Hash-addressed avatar/icon requests default to the historical 128px.
+// Hash-addressed avatar/icon requests default to 128 px.
 inline constexpr u32 kCdnIdentityDefaultSize = 128;
 // Largest DIP extent at which shared user-avatar and group-icon identities are
 // drawn (message authors and settings rows: 40; member, DM and voter rows: 32).
@@ -232,7 +229,7 @@ constexpr u32 cdn_image_size(u32 display_dips, u32 dpi,
     return size;
 }
 
-// Sticker format types are the official PNG/APNG/Lottie/GIF values 1..4.
+// Sticker format types: PNG 1, APNG 2, Lottie 3, GIF 4.
 // GIF stickers use media.discordapp.net; all other formats use the CDN host.
 CdnTargetResult write_sticker_cdn_target(u64 sticker_id, u32 format_type,
                                          Slice<u8> output) noexcept;

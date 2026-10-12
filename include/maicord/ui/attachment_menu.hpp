@@ -20,9 +20,8 @@ enum AttachmentMenuAction : u32 {
 };
 inline constexpr u32 kAttachmentFileMenuItems = 5;
 // File-name storage belongs to the caller and must outlive the open popup.
-// This view has no upload, account or filesystem dependencies.
 u32 attachment_file_menu(Utf8View filename, bool spoiler, Slice<PopupItem> output) noexcept;
 inline constexpr u32 kAttachmentModifyMenuItems = 3;
-// The official client's Modify Attachment fields: filename and description (alt text).
+// Modify Attachment rows: filename and description (alt text).
 u32 attachment_modify_menu(Utf8View filename, bool described, Slice<PopupItem> output) noexcept;
 }

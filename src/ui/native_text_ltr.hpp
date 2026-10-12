@@ -1,7 +1,7 @@
 #pragma once
 #include "maicord/text/unicode.hpp"
 namespace maicord {
-// For the app's fixed LTR paragraph base, this closed set resolves entirely
+// For the fixed LTR paragraph base, this closed set resolves entirely
 // to level zero: W1/W4-W7 remove weak types, N0-N2 resolve neutrals to L.
 // AN, RTL, embedding/isolate controls and X9 removals require full analysis.
 constexpr bool native_text_ltr_class(UnicodeBidiClass type) noexcept {

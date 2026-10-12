@@ -9,27 +9,25 @@ struct SfntContextMatch {ConstSlice<u8> actions;u32 input_count,last_input;bool 
 struct SfntSequenceAction {u16 sequence_index,lookup_index;};
 struct SfntReverseSubstitution {ConstSlice<u8> table;ConstSlice<SfntCoverage> coverages;u32 glyph_limit;u16 backtrack_count,lookahead_count;};
 static_assert(sizeof(SfntContext)==64 && sizeof(SfntContextMatch)==32 && sizeof(SfntReverseSubstitution)==40);
-// Requirements inspect structural headers only, not all child data. Opens
-// validate referenced data into caller-owned storage, which is valid only on
-// success. Views and font mappings must remain alive, immutable and disjoint
-// from match scratch. No allocation or recursive lookup execution occurs here.
-// Optional work_used reports charged units on all open/match returns so nested
-// execution can retain an aggregate budget. It must not alias other inputs.
+// Requirements inspect structural headers only, not child data. Opens validate
+// referenced data into caller-owned storage, valid only on success. Views and font
+// mappings must stay alive, immutable and disjoint from match scratch. Optional
+// work_used reports charged units on every open/match return so nested execution can
+// keep an aggregate budget; it must not alias other inputs.
 SfntStatus sfnt_context_requirements(ConstSlice<u8> bytes,SfntContextKind kind,SfntContextRequirements* output) noexcept;
 SfntStatus sfnt_context_open(ConstSlice<u8> bytes,SfntContextKind kind,u32 glyph_limit,u16 lookup_limit,
                             Slice<SfntCoverage> coverages,Slice<SfntClassDef> classes,SfntContext* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 // Input is logical order. start<input_end<=glyphs.count bounds input matching;
-// backtrack/lookahead may extend outside that feature range within the run.
-// The first input glyph is not filtered. Backtrack order is nearest-first.
-// Actions keep their encoded order and refer to matched input sequence positions,
-// not raw run offsets. The nested executor must rebase after prior edits.
-// A zero-action matching rule still matches. No match returns ok/matched=false.
-// On output_too_small only input_count is set to the required scratch capacity.
-// feature_mask restricts the full input span (including ignored glyphs) as in
-// GSUB basic matching. Backtrack and lookahead do not require eligibility bits.
-// A non-sentinel first_coverage_index must be the already queried first-input
-// coverage index for this context and current glyph. Executors reuse
-// that result after rejecting impossible subtables; ordinary callers omit it.
+// backtrack/lookahead may extend outside that range within the run. The first input
+// glyph is not filtered; backtrack order is nearest-first. Actions keep their encoded
+// order and refer to matched input sequence positions, not raw run offsets, so the
+// nested executor must rebase after prior edits. A rule with no actions still
+// matches; no match returns ok with matched=false. On output_too_small only
+// input_count is set, to the required scratch capacity. feature_mask restricts the
+// full input span (including ignored glyphs) as in GSUB basic matching; backtrack
+// and lookahead need no eligibility bits. A non-sentinel first_coverage_index is the
+// already queried first-input coverage index for this context and glyph, which
+// executors pass to avoid repeating the lookup; other callers omit it.
 SfntStatus sfnt_context_match_view(const SfntContext& context,const SfntGdef& gdef,const SfntLookupFilter& filter,
                              SfntGlyphView glyphs,u32 start,u32 input_end,Slice<u32> positions,
                              SfntContextMatch* output,u32 work_limit=1000000,u32* work_used=nullptr,u8 feature_mask=0,u32 first_coverage_index=sfnt_not_covered) noexcept;

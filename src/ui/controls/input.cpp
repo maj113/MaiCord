@@ -10,7 +10,7 @@ bool ui_input_shell_paint(PaintStream* paint, const UiSettingsTokens& tokens, Ui
     bool ok = paint_stream_push_rounded_border(paint, field.left, field.top, field.right, field.bottom,
                                                ui_settings_color_alpha(c.input_background, alpha),
                                                ui_settings_color_alpha(border, alpha), radius, 1);
-    // Focus draws a 2-DIP brand outline over the border, inset like the official client's.
+    // Focus draws a 2-DIP brand outline over the border.
     if (ok && state.focused)
         ok = paint_stream_push_rounded_border(paint, field.left, field.top, field.right, field.bottom, {}, c.brand,
                                               radius, 2);

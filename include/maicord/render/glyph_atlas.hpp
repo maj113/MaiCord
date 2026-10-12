@@ -100,8 +100,8 @@ bool glyph_atlas_is_pinned(const GlyphAtlasAllocator& atlas,
 GlyphAtlasAllocation glyph_atlas_find(GlyphAtlasAllocator* atlas, u64 key) noexcept;
 GlyphAtlasAllocation glyph_atlas_allocate(GlyphAtlasAllocator* atlas, u64 key, u16 width,
                                            u16 height) noexcept;
-// The caller has already proved that key is absent. This avoids a second
-// linear identity lookup for hashed media/frame-cache inserts.
+// The caller has already established that key is absent, so the identity
+// lookup is skipped.
 GlyphAtlasAllocation glyph_atlas_allocate_unique(
     GlyphAtlasAllocator* atlas, u64 key, u16 width, u16 height) noexcept;
 bool glyph_atlas_validate(const GlyphAtlasAllocator& atlas, GlyphAtlasHandle handle,

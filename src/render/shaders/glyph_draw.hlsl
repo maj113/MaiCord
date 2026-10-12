@@ -39,15 +39,15 @@ static const float2 kGlyphCorners[6] = {
     float2(1.0f, 1.0f),
 };
 #else
-// One instanced strip preserves both triangles without shading shared corners twice.
+// Four-corner triangle strip; the list variant above repeats the shared corners.
 static const float2 kGlyphCorners[4] = {
     float2(0.0f, 0.0f), float2(1.0f, 0.0f),
     float2(0.0f, 1.0f), float2(1.0f, 1.0f),
 };
 #endif
 
-// Independent front/extrusion transforms share a four-second clock and rest
-// after the first half-cycle. Geometry remains retained across all frames.
+// Cubic-bezier easing through control points (p.x,p.y) and (p.z,p.w); Newton
+// iterations solve the curve parameter for t.
 float curve_ease(float t,float4 p) {
     float u=saturate(t);
     [unroll] for(int i=0;i<4;i++) {
@@ -69,6 +69,7 @@ float pop_offset(float cycle,bool shadow) {
     else {endpoints=offsets.zx;t=(cycle-.35)/.15;}
     return lerp(endpoints.x,endpoints.y,profile_ease(t));
 }
+// Four-second cycle shared by the independent front and extrusion transforms.
 float profile_cycle(TextEffectMaterial effect) { return frac((effect_seconds-effect.reserved.x+60)/4); }
 
 float gummy_scale(float cycle) {
@@ -195,7 +196,7 @@ float4 glyph_pixel(GlyphVertexOutput input) : SV_Target0 {
         else if(input.color.b>=0 && effect.kind==8)
             color=effect.colors[(uint)input.color.g%(uint)max(effect.count,1)].rgb;
         else if(input.color.b>=0 && effect.kind==9) {
-            // Enhanced role colours: c1,c2,c1 (or c1,c2,c3,c1) every 100 DIPs.
+            // Palette cycle: c1,c2,c1 (or c1,c2,c3,c1) every 100 DIPs.
             float segment=frac((input.position.x/effect_scale-effect.left)/100)*max(effect.count,1);
             uint a=min((uint)segment,7u),b=a+1u<(uint)max(effect.count,1)?a+1u:0u;
             color=lerp(effect.colors[a].rgb,effect.colors[b].rgb,frac(segment));

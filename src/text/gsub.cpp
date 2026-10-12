@@ -54,17 +54,17 @@ SfntStatus match(const SfntGsubSubtable& sub,const SfntGdef& gdef,const SfntLook
         if(sub.type==2){if(!count)return SfntStatus::ok;result.replacements={child.data+2,static_cast<u32>(count)*2};result.output_count=count;}
         else if(sub.type==3){if(alternate>=count)return SfntStatus::ok;result.single=r16(child,2+alternate*2);}
         else {
-            // Candidates share one immutable, filtered input stream. Retain its
-            // discovered prefix in the caller's consumed-position scratch;
-            // mismatching rules need not validate/skip those glyphs again.
-            // A short scratch still searches normally beyond its saved prefix.
+            // Candidates share one filtered input stream. Its discovered prefix is
+            // saved in the caller's consumed-position scratch so mismatching rules
+            // do not validate/skip those glyphs again; a short scratch still
+            // searches normally beyond the saved prefix.
             u32 ready=2,stop_distance=0,next_position=start;u16 next_glyph=0;u8 next_state=0;bool stopped=false;
             bool found=false;for(u32 candidate=0;candidate<count;++candidate){if(!spend(work))return SfntStatus::resource_limit;
                 const u32 offset=r16(child,2+candidate*2);const ConstSlice<u8> ligature{child.data+offset,child.count-offset};
                 const u16 components=r16(ligature,2);u32 at=start;bool matches=true;
-                // Reject the common first-component mismatch before entering
-                // the longer-prefix walker. A one-component rule must remain
-                // eligible without inspecting any following input glyph.
+                // Reject the common first-component mismatch before the longer-prefix
+                // walker. A one-component rule stays eligible without inspecting any
+                // following input glyph.
                 if(components>1){
                     if(next_state){const u32 distance=next_position-start;if(distance>*work){*work=0;return SfntStatus::resource_limit;}*work-=distance;}
                     else{next_state=2;

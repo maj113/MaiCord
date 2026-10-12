@@ -29,8 +29,8 @@ SfntStatus system_coverage(SystemMapping& m,const NativeFontCatalog& catalog,u32
 SfntStatus system_family_faces(SystemMapping& m,const FamilyOrder& family,u32 cp,u32* output) noexcept {
     *output=native_fallback_missing;if(!family.order.count)return SfntStatus::ok;
     // family_order already validated the immutable catalog, request and order.
-    // Range scanning needs only the first covered candidate. Store its font
-    // properties/simulations once, after native_font_fallback_map completes.
+    // Range scanning needs only the first covered candidate; catalog_range
+    // resolves its properties/simulations once, after the map completes.
     const auto& catalog=*family.catalog;
     for(u32 i=0;i<family.order.count;++i){
         if(i==1000000)return SfntStatus::resource_limit;

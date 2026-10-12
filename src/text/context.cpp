@@ -24,8 +24,7 @@ SfntStatus header(ConstSlice<u8> b,SfntContextKind kind,Header* h) noexcept {
 }
 struct Pattern {ConstSlice<u8> back,input,look,actions;u16 input_count;};
 inline Header prepared_header(const SfntContext& context) noexcept {
-    // Open already validated the complete immutable payload. Matching needs
-    // offsets/counts, not another structural validation of the same header.
+    // Open already validated the complete immutable payload; matching needs only offsets/counts.
     Header h{};h.format=context.format;const bool chained=context.kind==SfntContextKind::chained;
     if(h.format<=2){h.sets_at=h.format==1?6u:chained?12u:8u;h.sets=r16(context.table,h.sets_at-2);h.end=h.sets_at+static_cast<u32>(h.sets)*2;}
     else if(!chained){h.input=context.max_inputs;h.actions=r16(context.table,4);h.input_at=6;h.actions_at=6+static_cast<u32>(h.input)*2;}

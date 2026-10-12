@@ -4,10 +4,9 @@
 #include "maicord/ui/geometry.hpp"
 
 namespace maicord {
-// Server banners as the official client shows them: CDN URLs and media
-// identities for the guild banner, invite splash and discovery splash, and the
-// channel-list header banner: geometry that follows the channel list's scroll
-// and the rules that let an animated banner play.
+// Server banner CDN URLs and media identities (guild banner, invite splash,
+// discovery splash), the channel-list header banner geometry that follows the
+// list's scroll, and the rules that let an animated banner play.
 
 // Media proxy sizes: the smallest listed size at or above pixels, else the
 // largest (4096).
@@ -15,9 +14,9 @@ u32 ui_media_proxy_size(u32 pixels) noexcept;
 
 inline constexpr u32 kUiGuildImageUrlBytes = 192;
 // The longest side the CDN JPEG and WebP decoders accept (the media atlas's
-// 512 px images). The official client asks for size_dips * dpr; above 1x that
-// rendition (e.g. a 1024x576 splash at 150%) cannot decode, so every request
-// below asks for at most this many pixels and the renderer scales it up.
+// 512 px images). Larger renditions (e.g. a 1024x576 splash at 150%) cannot
+// decode, so every request below asks for at most this many pixels and the
+// renderer scales it up.
 inline constexpr u32 kUiGuildImageMaximumPixels = 512;
 struct UiGuildImageMedia {
     MediaAssetKey key; // profile_image identity of the exact URL
@@ -28,8 +27,8 @@ struct UiGuildImageMedia {
 // Guild banner URL:
 //   https://cdn.discordapp.com/banners/{guild}/{hash}.webp?size=ui_media_proxy_size(min(360*dpr, 512))
 // An a_ hash adds &animated=true while animating; gif selects the GIF
-// representation (a fallback for a failed animated WebP). Static banners are
-// the hash's first frame, which is what the official client shows when not animating.
+// representation (a fallback for a failed animated WebP). A static banner shows
+// the hash's first frame.
 bool ui_guild_banner_media(u64 guild_id, Utf8View hash, u32 dpi, bool animate, bool gif,
                            UiGuildImageMedia* output) noexcept;
 // Invite and discovery splash URLs: JPEG at ui_media_proxy_size(min(size_dips*dpr, 512)):
@@ -38,16 +37,14 @@ bool ui_guild_banner_media(u64 guild_id, Utf8View hash, u32 dpi, bool animate, b
 bool ui_guild_splash_media(u64 guild_id, Utf8View hash, bool discovery, u32 size_dips, u32 dpi,
                            UiGuildImageMedia* output) noexcept;
 // The server tag card's banner: a DISCOVERABLE profile's custom banner, from
-// the discovery-splash path at 512 DIPs (getGuildDiscoverySplashURL with
-// size 512 * dpr on the official card). False (the card's default gradient)
-// for any other profile or a malformed hash.
+// the discovery-splash path at 512 DIPs (size 512 * dpr). False (the card's
+// default gradient) for any other profile or a malformed hash.
 inline constexpr u32 kUiGuildCardBannerRequestDips = 512;
 bool ui_guild_card_banner_media(u64 guild_id, Utf8View custom_banner, bool discoverable, u32 dpi,
                                 UiGuildImageMedia* output) noexcept;
 
-// Channel-list header banner (its fixed height and the
-// header's scroll pinning: the banner fades and slides up over 88 DIP of
-// scroll; the channel list gains an 84 DIP top inset).
+// Channel-list header banner height and scroll pinning: the banner fades and
+// slides up over 88 DIP of scroll; the channel list gains an 84 DIP top inset.
 inline constexpr float kUiGuildBannerHeight = 130;
 inline constexpr float kUiGuildBannerListInset = 84;
 inline constexpr float kUiGuildBannerScrollRange = 88;

@@ -22,7 +22,7 @@ inline constexpr float kMessageActionBarRowRightInset = 16.0f;
 inline constexpr u32 kMessageActionBarNoItem = ~0u;
 // Timeline overlays drawn above the toolbar (the unread banner at the top,
 // the jump-to-present pill at the bottom). The toolbar lives inside the
-// timeline viewport, as in the official client: it is clipped there and slides under them.
+// timeline viewport: it is clipped there and slides under them.
 inline constexpr u32 kMessageActionBarOccluderCount = 2;
 
 enum class MessageActionBarAction : u8 {
@@ -185,10 +185,10 @@ UiRect message_action_bar_visible_rectangle(const MessageActionBar& bar) noexcep
 bool message_action_bar_set_occluders(MessageActionBar* bar, const UiRect* occluders, u32 count,
                                       bool* changed = nullptr) noexcept;
 
-// The official client hides the hover toolbar (and the row's hover highlight) as soon as
-// the timeline scrolls -- wheel, keys, scrollbar drag or a programmatic jump --
-// and only fresh pointer movement brings them back, never content moving
-// under a stationary pointer.
+// Hides the hover toolbar and the row's hover highlight as soon as the timeline
+// scrolls (wheel, keys, scrollbar drag or a programmatic jump); only fresh
+// pointer movement brings them back, never content moving under a stationary
+// pointer.
 struct MessageHoverScrollGate {
     double scroll;  // deliberate timeline offset (scroll units minus anchoring origin)
     float pointer_x, pointer_y;

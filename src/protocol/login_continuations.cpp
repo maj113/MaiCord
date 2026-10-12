@@ -83,7 +83,7 @@ bool visit_assertion(void* opaque, JsonString name, JsonValue value) noexcept {
             response.fields == 15;
     }
     if (bit == 16) {
-        // The current Windows serializer returns the actual supported empty extension tuple.
+        // Extension results must be an empty object.
         if (value.kind != JsonValueKind::object) return false;
         const auto read = json_visit_indexed_object(context->document, value, 4, nullptr, nullptr);
         return read.ok() && read.member_count == 0;

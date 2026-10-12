@@ -93,8 +93,8 @@ PollWriteResult write_poll_request(const PollRequest& request,
     const bool refresh=request.operation==PollOperation::refresh;
     const bool voters=request.operation==PollOperation::voters;
     // GET /channels/{c}/messages/{m} is bot-only (403, code 20002). A user
-    // client reads one message as the official client's single-message fetch does:
-    // /messages?limit=1&around={m}, an array whose element must match {m}.
+    // reads one message with /messages?limit=1&around={m}, an array whose
+    // element must match {m}.
     bool okay=route_writer_initialize(&route,{target,sizeof(target)}) &&
         route_append(&route,utf8_literal("/api/v10/channels/")) &&
         route_append_u64(&route,request.channel_id) &&

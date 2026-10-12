@@ -322,7 +322,7 @@ u32 gateway_stream_preview_target(const GatewayStreamKey& key, u64 version, Slic
     const u32 key_bytes = gateway_stream_key_write(key, {text, sizeof(text)});
     u8 built[kGatewayStreamPreviewMaximumTargetBytes];
     ProtocolWriter writer{{built, sizeof(built)}, 0};
-    // Colons are path-safe (RFC 3986 pchar); the official client sends them raw.
+    // Colons are path-safe (RFC 3986 pchar) and sent raw.
     const bool valid = key_bytes && version && protocol_writer_append_literal(&writer, "/api/v9/streams/") &&
                        protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(text), key_bytes) &&
                        protocol_writer_append_literal(&writer, "/preview?version=") &&

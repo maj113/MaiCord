@@ -12,12 +12,11 @@ struct D3D11_INPUT_ELEMENT_DESC;
 
 namespace maicord {
 
-// Shaders use deflate streams with an optional exact sparse variant patch.
-// Each call reconstructs one shader into
-// stack scratch right before the D3D11 Create* call, which copies the bytecode,
-// so nothing stays resident. The first-frame UI/glyph/media set adds well under
-// 0.1 ms of inflation to startup. Order matches the pack_shader_bytecode.py
-// arguments in CMakeLists.txt (checked at compile time).
+// Shaders are deflate streams, optionally with an exact sparse variant patch.
+// Each call inflates one shader into stack scratch right before the D3D11
+// Create* call, which copies the bytecode, so nothing stays resident. Order
+// must match the shader list in cmake/generated_sources.cmake (checked at
+// compile time).
 enum class ShaderId : u8 {
     ui_vertex, ui_pixel, glyph_vertex, glyph_pixel, media_vertex, media_pixel, glyph_compute,
     colr_compute, colr_wide_compute, colr_layers_compute, png_compute,

@@ -30,10 +30,10 @@ struct AnsiEntry {
     AnsiTag tag;
 };
 
-// The library's stack grows with every code. Equal consecutive tags are
-// counted in one entry and the innermost 64 distinct entries are kept; a
-// close can only remove an innermost <i>/<u>, so the oldest entries matter
-// only after 64 distinct tags were closed back to back.
+// Emulates the ansi-to-html tag stack, which grows with every code. Equal
+// consecutive tags share one entry and the innermost 64 distinct entries are
+// kept; a close can only remove an innermost <i>/<u>, so the oldest entries
+// matter only after 64 distinct tags were closed back to back.
 inline constexpr u32 kAnsiStackCapacity = 64;
 
 struct AnsiStack {
@@ -141,8 +141,7 @@ void apply_code(AnsiStack& stack, u32 code) noexcept {
         return;
     case 49:
     case 53:
-        // A transparent background lets an enclosing background show; an
-        // overline is not drawn by MaiCord's decorations.
+        // 49 lets an enclosing background show; overline (53) is not drawn.
         stack.push(AnsiTag::other, next);
         return;
     default:
@@ -205,7 +204,7 @@ bool channel_byte(const char* data, u32 begin, u32 end, u32* value) noexcept {
         *value = static_cast<u32>(number & 255u);
         return true;
     }
-    // Doubles at or above 1e19 > 2^63 are multiples of 2^11.
+    // Doubles of 1e19 or more (above 2^63) are multiples of 2^11: low byte 0.
     *value = 0;
     if (digits < 309)
         return true;
@@ -258,7 +257,8 @@ struct PendingText {
 };
 
 // One escape at input[at] (ESC). Returns the first byte after the removed
-// sequence, applying any SGR/colour effect, in the library's pattern order.
+// sequence, applying any SGR/colour effect. Patterns are tried in the order
+// ansi-to-html tries them.
 u32 consume_escape(Utf8View input, u32 at, AnsiStack& stack) noexcept {
     const char* s = input.data;
     const u32 n = input.bytes;

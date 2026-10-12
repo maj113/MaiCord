@@ -336,9 +336,8 @@ bool queue_media_quad(D3D11Renderer* renderer, const MediaAtlasResult& allocatio
     return true;
 }
 
-// A rail server icon as the official client shows it: the still rendition (the CDN's
-// .webp without animated=true) unless the row animates, when the animation
-// replaces it once resident. Either stands in while the other loads.
+// A rail server icon: the still rendition unless the row animates, when the
+// animation replaces it once resident. Either stands in while the other loads.
 MediaAtlasResult guild_icon_rail_allocation(MediaAtlas* atlas, const GuildRecord& guild,
                                             bool animate) noexcept {
     const bool animated = asset_hash_animated(chat_state_store_guild_icon_hash(guild));
@@ -866,10 +865,9 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     renderer->media_picker_paint_first_batch = renderer->media_picker_paint_end_batch = 0;
     renderer->media_picker_foreground_first_batch = 0;
     renderer->media_picker_media_first_batch = renderer->media_picker_media_end_batch = 0;
-    // Use the same fractional-DIP viewport as the retained scene.  Integer
-    // division would make the two layouts disagree at non-integral 125%/150%
-    // client sizes, and the rectangle guard below would then reject valid
-    // frames.
+    // Fractional-DIP viewport, as in the retained scene: integer division would
+    // disagree at 125%/150% scales and the rectangle guard below would reject
+    // valid frames.
     const float width_dip =
         static_cast<float>(renderer->width) * 96.0f / static_cast<float>(maximum<u32>(renderer->dpi, 1));
     const float height_dip =
@@ -1128,8 +1126,6 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             }
             const bool hovered = guild_rail_scene_resolve(*renderer->guild_rail_scene,
                                                           renderer->guild_rail_scene->widgets.hovered) == &row;
-            // The still rendition, or the animation while the row is hovered
-            // (guild_icon_rail_allocation).
             const MediaAtlasResult allocation = guild_icon_rail_allocation(renderer->media_atlas, *guild, hovered);
             if (!allocation.ok()) {
                 continue;
@@ -1977,9 +1973,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                                              ui_layout_content_bounds_allow_overlap))
                 return layout_step_failed(__LINE__);
             if (renderer->media_quad_count != before) {
-                // Clear only the scene's three neutral avatar shapes after a
-                // loaded quad was actually queued, so
-                // transparent image pixels reveal the original result card.
+                // Clear only the scene's three neutral avatar shapes, once a loaded
+                // quad is queued, so transparent image pixels reveal the result card.
                 for (u32 q = pins_paint_first; q < pins_paint_end; ++q) {
                     auto& quad = renderer->paint_stream.quads[q];
                     const UiRect bounds{quad.left, quad.top, quad.right, quad.bottom};

@@ -35,7 +35,7 @@ bool configure(PngImage* image, PngStreamLayout* layout, const u8* data) noexcep
     image->bytes_per_pixel = static_cast<u8>(maximum<u32>(1, (static_cast<u32>(channels) * depth + 7) / 8));
     image->row_bytes = static_cast<u32>(row_bytes);
     image->row_stride = static_cast<u32>(row_bytes + 1);
-    // Saturated: thumbnails never need the whole inflated image resident.
+    // Saturates at 32 bits; layout->inflated_bytes holds the exact size.
     image->inflated_bytes = static_cast<u32>(minimum<u64>((row_bytes + 1) * height, ~0u));
     layout->inflated_bytes = (row_bytes + 1) * height;
     layout->row_buffer_bytes = static_cast<u32>((row_bytes + 1) * 2);

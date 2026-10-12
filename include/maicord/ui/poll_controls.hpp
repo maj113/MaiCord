@@ -30,17 +30,14 @@ struct UiPollState {
     bool total_votes_known{}, supported{}, loading{}, error{}, can_vote{}, can_remove_vote{};
     bool can_view_results{}, can_view_voters{}, can_retry{};
 };
-// The official poll layout: a 16-DIP padded
-// card at most 472 wide; 50-DIP answer rows (8/16 padding, 8 radius, 8 gap)
-// with the selection icon on the right; a 38-DIP footer of vote details and
-// actions. Theme metrics override the lengths.
+// Default poll layout (DIP): a 16-padded card at most 472 wide; 50-high answer
+// rows (8/16 padding, 8 radius, 8 gap) with the selection icon on the right; a
+// 38-high footer of vote details and actions. Theme metrics override the lengths.
 struct UiPollStyle {
     float padding{16}, gap{8}, answer_padding{16}, answer_gap{8};
     float minimum_width{128}, maximum_width{472}, target{38}, marker{24}, emoji_extent{24};
     float question_minimum_height{20}, answer_minimum_height{50}, label_minimum_height{16};
     float radius{8};
-    // text-md/medium question, text-sm/semibold answers, text-sm/normal prompt
-    // and details, text-xs/semibold vote counts, text-md/bold percentages.
     u32 question_style{text_style_bold};
     u32 answer_style{text_style_fold_size(text_style_bold, text_size_sm)};
     u32 detail_style{text_style_fold_size(text_style_none, text_size_sm)};
@@ -90,8 +87,6 @@ struct UiPollProjection {
     UiPollGeometry geometry{};
     Color surface{}, foreground{}, secondary{}, accent{}, primary_foreground{}, border{}, selected{},
         error{};
-    // Answer fill (--background-mod-muted), hover outline (--border-strong),
-    // result bars (normal/voted/victor) and the victor colour.
     Color answer_fill{}, outline_hover{}, bar{}, bar_voted{}, bar_victor{}, victor{};
     char count_text[kUiPollMaximumAnswers][24]{};
     u8 count_bytes[kUiPollMaximumAnswers]{};

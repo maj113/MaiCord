@@ -15,8 +15,8 @@ bool valid_document(const BoundedEdit& edit) noexcept {
     u32 count = 0;
     for (u32 offset = 0; offset < text.bytes;) {
         const auto decoded = utf8_decode_one(text.data + offset, text.bytes - offset);
-        // A server-owned document can contain characters that this field does
-        // not admit as new input. Preserve them for selection/copy/removal.
+        // An existing document can contain characters this field does not admit as
+        // new input; they stay selectable, copyable and removable.
         if (!decoded.valid || !decoded.codepoint ||
             ++count > edit.maximum_codepoints) return false;
         offset += decoded.width;

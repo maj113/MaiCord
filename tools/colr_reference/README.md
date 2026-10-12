@@ -1,154 +1,195 @@
-# Native COLRv1 reference comparison
+# COLRv1 reference tools
 
-The `MaiCordColrReference` QA executable compares MaiCord's paint compiler and
-compute shader with Windows `DrawPaintGlyphRun`. Direct2D and the C runtime are
-reference-tool dependencies only; they are never added to the application.
+QA tools that compare MaiCord's COLRv1 paint compiler and compute shader with
+Windows (`DrawPaintGlyphRun` through Direct2D). Direct2D, DirectWrite and the C
+runtime link into these tools only, never into the application.
 
-`MaiCordColrReference` and `MaiCordColrBuildBenchmark` are optional targets of
-the Release build configured with `MAICORD_BUILD_FONT_REFERENCE=ON`
-(`cmake/reference_tools.cmake`).
-They link the actual renderer, text, native-font, native-paint and core libraries,
-including generated shaders. They do not recompile production code with different
-floating-point options.
+## Build and prerequisites
 
-In a scratch output directory:
+Optional Release targets (`cmake/reference_tools.cmake`), enabled by configuring
+the cache with `-DMAICORD_BUILD_FONT_REFERENCE=ON`:
 
-1. Run `corpus.py --sizes 32` to generate `glyphs.txt` for every COLRv1 base glyph in the installed Segoe UI Emoji font. Optional `--font`, `--sizes` and `--output` arguments select another font or sizes.
-2. Run `ColrReference.exe <absolute path to glyphs.txt>`. An optional second argument supplies an absolute private test-font path.
-3. Run `compare.py pixels.bin --output comparison.json` to report per-glyph and aggregate premultiplied RGBA differences.
+```powershell
+cmake --build <build> --config Release --target MaiCordColrReference MaiCordColrBuildBenchmark MaiCordNativeColrCost
+```
 
-`make_fixture.py` creates 56 synthetic COLRv1 paint cases, `paint-tests.ttf`, a matching glyph list and case-name map. These outlines and paint descriptions are first-party test data. Run the reference executable with the generated list and the absolute test-font path as its two arguments.
+`<build>` is `..\MaiCord-build\Release`. The probe and benchmark link the
+shipping archives by path and skip the freestanding contract; production code is
+not recompiled with other floating-point options.
 
-Corpus/fixture generation needs Python fontTools; comparison needs NumPy. Neither tool redistributes system font data. Output is `pixels.bin` (four little-endian uint32 fields: glyph, integer em size, width, height; followed by candidate then reference tightly packed RGBA pixels) and `timings.csv`. The log identifies the providers, adapter and driver. Timings include CPU submission and GPU readback, so they are not a pure GPU benchmark. Pixel-perfect equality is not expected against Direct2D's different edge rasterizer.
+The scripts need Python with fontTools (`corpus.py`, `make_fixture.py`,
+`run_native_matrix.py`) and NumPy (`compare.py`). Fixture fonts are first-party
+synthetic data; no system font data is redistributed.
 
-Use `compare.py <new pixels.bin> --baseline <old pixels.bin>` for exact candidate-to-candidate regression checks. Geometry and record counts must match.
+## GPU probe: MaiCordColrReference
 
-## Native provider and paired GPU gate
+```
+MaiCordColrReference.exe [glyphs.txt [font.ttf [mode [--weight <v>] [--width <v>] [--compare-limits]]]]
+```
 
-Pass `--native` as the third argument after the corpus and explicit font path to
-replace the candidate paint/outline provider with `ColrNativeSource`. The source
-opens mapped font views and default-instance scalar storage once, then reuses
-caller-owned scratch and the program arena. DirectWrite remains solely in the
-old-provider/Direct2D QA branches. No new library is linked by the application.
+`glyphs.txt` (default `glyphs.txt`) has lines of `<glyph id> <em size>` (id up to
+65535, em size 1-256). `font.ttf` is the absolute path of a private test font;
+the default is the installed Segoe UI Emoji. The probe needs a hardware D3D11
+adapter and writes `pixels.bin` and `timings.csv` to the current directory, so
+run it in a scratch directory.
 
-Pass `--paired-native` instead to write existing-app RGBA followed by first-party
-RGBA in each record. Both execute the unchanged application compute shader.
-The probe checks identical raster origin and extent before rendering the
-second image. Separate GPU resources are cleared to different poison colors
-before each bake, so an unwritten texel cannot pass by retaining its counterpart's
-pixels. This mode omits Direct2D draw/readback, but this QA executable still
-initializes Direct2D. It uses one allocation at (2,2) in a 512-square atlas and
-does not test the full app's atlas eviction or compositing into a window.
+| Mode | Candidate image | Second image |
+|---|---|---|
+| none | existing app provider (DirectWrite paint reader) | Direct2D |
+| `--native` | `ColrNativeSource` | Direct2D |
+| `--paired-native` | existing app provider | `ColrNativeSource` |
+| `--paired-app` | existing app provider | app path: native session, instance, run and renderer |
 
-`run_native_matrix.py --executable <ColrReference.exe> --fixtures <font fixture directory>
---output <scratch directory> --paired` runs the seven deterministic paint/variation
-fixtures and every installed Segoe UI Emoji COLRv1 base glyph at eight integer
-sizes. Generate the fixtures using `../font_reference/make_color_fixture.py`;
-the fixture filenames match the native paint-source evidence. Default instances
-are tested here; varied paint values were checked separately in the program
-oracle. `--sizes` and `--emoji` select an explicit size list/font.
+- Paired modes render both images with the unchanged app compute shader, without
+  a Direct2D draw. They require equal raster origin and extent and clear each GPU
+  resource to a different poison color before its bake. An empty-bounds glyph
+  becomes a 1x1 transparent record, counted as empty.
+- `--paired-app` only: `--weight` and `--width` (once each) set variation values;
+  palette 0 and a white foreground are fixed. `--compare-limits` logs a rejected
+  raster as a `LIMIT` line after checking both programs have equal bounds; kind
+  `app-raster-policy` is rejection by the shared app bounds function and
+  `probe-atlas` is this tool's 500-pixel usable extent. Without the flag an
+  oversized reference fails the run.
 
-The runner splits every selected record into batches of 128 by default, with a
-fixed **five-second timeout per GPU child**. `--batch-size` accepts 1-256;
-failed/timed-out children remain failed evidence. Runs are sequential to avoid
-contending GPU workloads. Capture logs, readbacks and comparisons live under
-`<output>/<font>/<first-record>/<mode>/`. The top-level `results.json` records
-partial progress and the completed totals. Use a new output directory each time.
+`pixels.bin` records: four little-endian uint32 (glyph, em size, width, height),
+then the candidate and second image as tightly packed RGBA (`width * height * 4`
+bytes each). `timings.csv` has one row per glyph (program statistics, times in
+microseconds).
 
-For quick ABI/shader development, explicitly select three synthetic sizes and
-one complete installed-emoji size:
+Exit codes: 0 pass; 1 a Direct3D, DirectWrite or Direct2D call failed; 2 Segoe UI
+Emoji missing; 3 paint build failed or glyph has no paint; 4 bounds differ or
+reference exceeds the 500-pixel extent; 5 rasterization failed; 6 paired
+placement or bounds differ; 10 bad argument or input; 11 native font or instance
+preparation failed; 12 I/O error.
+
+Limits: timings include CPU submission and GPU readback, so they are not a GPU
+benchmark. Pixel equality with Direct2D is not expected (different edge
+rasterizer). Paired modes use one allocation at (2,2) in a 512-square atlas and
+do not test atlas eviction or compositing into a window.
+
+### Compare against Direct2D
+
+In a scratch directory (`<repo>` is the repository root):
+
+```powershell
+python <repo>/tools/colr_reference/corpus.py --sizes 32
+MaiCordColrReference.exe glyphs.txt
+python <repo>/tools/colr_reference/compare.py pixels.bin --output comparison.json
+```
+
+`corpus.py` writes `glyphs.txt` for every COLRv1 base glyph of the installed
+Segoe UI Emoji; `--font`, `--sizes` (comma-separated) and `--output` select
+another font, sizes and file. `make_fixture.py` writes `paint-tests.ttf`, a
+matching glyph list (`glyphs-synthetic.txt`) and a case-name map
+(`synthetic-cases.json`) to the current directory; run the probe with that list
+and the absolute font path.
+
+`compare.py [pixels.bin] [--output comparison.json] [--baseline <old pixels.bin>]
+[--expected-records <count>] [--require-exact]` reports per-record and aggregate
+premultiplied RGBA differences. `--baseline` compares against an earlier
+candidate instead of the second image; geometry and record counts must match.
+`--require-exact` exits 1 if any channel differs. Truncated or empty input,
+mismatched geometry and a wrong record count raise an error;
+`python tools/colr_reference/test_compare.py` checks these cases.
+
+## Matrix runner: run_native_matrix.py
+
+Runs the probe in batches and requires zero changed RGBA channels.
+
+```powershell
+python tools/colr_reference/run_native_matrix.py --executable <ColrReference.exe> --fixtures <font fixture directory> --output <scratch directory> --paired
+```
+
+The fixture directory holds `paint-tests.ttf` (from `make_fixture.py`) and six
+fonts from `tools/font_reference/make_color_fixture.py <name>.ttf [flags]`:
+`all-formats` (no flag), `variation-stress` (`--variation-stress`),
+`empty-index-map` (`--empty-index-map`), `avar-remap` (`--avar-remap`),
+`avar-stress` (`--variation-stress --avar-remap`) and `map-last-active`
+(`--variation-stress --map-last-active`). The runner also covers every COLRv1
+base glyph of the installed emoji font (`--emoji` selects another).
+
+- `--output` must be a new directory. `--font <path>` (repeatable) replaces
+  `--fixtures`: only those fonts run, with distinct file stems.
+- `--sizes` (default `12,16,20,24,32,48,64,128`) and `--emoji-sizes` are integers
+  1-256; `--batch-size` is 1-256 records per probe child (default 128).
+- `--paired` runs `--paired-native`. Without it the existing-provider and
+  `--native` probes run separately and their pixels are compared; their headers
+  hold no raster origin, so placement is not checked.
+- `--app-instances` (needs `--paired`) runs `--paired-app` at each variable font's
+  default instance plus a fixed grid of `wght`/`wdth` settings between the axis
+  minimum and maximum; other axes are rejected. Static fonts run once per size.
+- `--compare-limits` (needs `--app-instances`, no `--baseline`) is passed to the
+  probe.
+- `--baseline <dir>` also requires pixels exactly equal to an earlier run with the
+  same corpus, sizes and batch size.
+
+Each child has a fixed five-second timeout and runs sequentially; a failed or
+timed-out child fails the run. Output goes to
+`<output>/<font>[/<instance>]/<first-record>/<mode>/` (`probe.log`, `pixels.bin`,
+`timings.csv`, plus `glyphs.txt` and `comparison.json` one level up).
+`results.json` holds progress, final totals and SHA-256 of the executable, fonts,
+corpus and readbacks; `status` is `running`, `failed`, `passed` or
+`completed-with-unrendered-records`. Records rejected under `--compare-limits`
+are listed under `unrendered` and never count as pixel passes. Each empty record
+(`empty_records`) adds four channels to `channels`; subtract them to get rendered
+channels. Palettes other than 0 and app atlas placement are not covered.
 
 ```powershell
 python tools/colr_reference/run_native_matrix.py --executable D:/MaiCord-build/Release/MaiCordColrReference.exe --fixtures <fixtures> --output <new-output> --paired --sizes 12,32,128 --emoji-sizes 32
 ```
 
-Add `--baseline <previous-output>` to require exact before/after pixels as well
-as paired native/Windows-provider equality. Keep the same sizes and batch size.
-Without the size options, the original full eight-size matrix remains available;
-batching does not drop cases. That default-only run excludes active instances;
-the actual-app mode below covers selected weight/width instances. Broader palette
-and full-app atlas-placement gates remain separate.
-
-## Actual app instances
-
-`--paired-app` selects native session, instance, run and renderer ownership for
-the second image. Unlike `--paired-native`, it does not construct a standalone
-paint-source owner. Add `--weight <value>` and/or `--width <value>` after that
-mode to create matching Windows and native instances. The settings are converted
-to the same float values for both providers. Palette zero and white foreground
-remain explicit probe inputs; the app currently uses palette zero.
-
-The matrix runner's `--app-instances --paired` includes default settings, selected
-weight/width extrema, intermediate values and avar breakpoints for the supplied
-variable fixtures. Static fonts, including installed emoji, run once per size.
-Every selected glyph/size remains accounted for with a five-second child cap.
-
 ```powershell
 python tools/colr_reference/run_native_matrix.py --executable D:/MaiCord-build/Release/MaiCordColrReference.exe --fixtures <fixtures> --output <new-output> --paired --app-instances --compare-limits --sizes 12,32,128 --emoji-sizes 32
 ```
 
-By default an oversized reference fails the probe. Explicit `--compare-limits`
-instead requires successful compilation and exactly equal bounds, then records
-the unrendered case separately. `app-raster-policy` identifies rejection by the
-shared application bounds function; `probe-atlas` identifies this tool's
-500-pixel usable extent. Neither counts as a pixel pass. A run with such records
-returns `completed-with-unrendered-records`, not `passed`; inspect `unrendered`
-and the totals. This option requires app-instance mode and does not support a
-saved-pixel baseline. Corpus multisets must equal pixel plus unrendered records.
+To test paint and outline variation together, generate a font with curved,
+simple and nested composite gvar outlines and phantom-point deltas
+(`--variation-stress` adds the second axis, `--avar-remap` adds remapping) and
+pass it with `--font`:
 
-When both paired programs have no bounds, the probe emits a canonical one-texel
-transparent record and counts it in `empty_records`. These records verify equal
-empty output, not a GPU draw. Subtract their four channels each from `channels`
-when reporting actual rendered channels. All ordinary records still compare
-actual readbacks, origins and extents with poisoned GPU resources.
+```powershell
+python tools/font_reference/make_color_fixture.py <font.ttf> --outline-variation
+```
 
-The coordinate-only checkpoint covers 8,328 selected records: 7,635 rendered
-exactly, 540 equal empty outputs and 153 equal application-policy rejections.
+## Program equality: MaiCordNativeColrCost
 
-To exercise paint and outline variation together, generate a first-party font
-with `../font_reference/make_color_fixture.py <font.ttf> --outline-variation`.
-Optional `--variation-stress` adds the second axis; `--avar-remap` adds remapping.
-The new outlines include quadratic curves, transformed/nested components and
-phantom-point deltas. The ordinary fixture generator output is unchanged.
+```powershell
+MaiCordNativeColrCost.exe <font.ttf> --program-work
+```
 
-Use one or more `--font <path>` arguments **instead of** `--fixtures` for an
-explicit corpus. Only those fonts run; the standard emoji corpus is not added.
-Combine with `--paired --app-instances --compare-limits --sizes 12,32,128` for
-the selected instance grid and separately reported raster rejections. Explicit
-font paths must have distinct file stems. The recorded combined-variation run
-covers 3,384 records in 5.39 seconds without rebuilding the app.
+Builds every COLRv1 base glyph at 32 px with the native source and the Windows
+reader and compares the paint programs. Prints one JSON line (program bytes, node
+counts, arena commitment); exits 0 when all programs are equal, otherwise 1 with
+`different glyph <id>`. `--program-work` is the default. `--program-cost <n>`
+instead times six rounds over a 128-glyph cohort from base-glyph index `n`, and
+`--program-stages <n>` profiles that cohort by build stage. Not in the CTest
+suite.
 
-`MaiCordNativeColrCost.exe <font.ttf> --program-work` performs a single full-corpus
-native/Windows paint-program equality pass, reporting bytes, node counts and
-arena commitment without the six timed benchmark rounds. On the current emoji
-font it takes about 0.46 seconds under the two-second correctness deadline.
+## CPU paint-build benchmark: MaiCordColrBuildBenchmark
 
-The runner requires the expected number of records and zero changed RGBA
-channels. It records per-glyph results and SHA-256 identities for fonts, corpus,
-executable and readbacks. `compare.py --require-exact --expected-records <count>`
-also exposes this gate directly; truncation, empty results, mismatched geometry
-and missing records fail explicitly. `test_compare.py` exercises those failures.
-Separate-process mode remains available by omitting `--paired`, but its binary
-headers do not store raster origins; use the paired probe for placement proof.
+```
+MaiCordColrBuildBenchmark <font.ttf> <glyphs.txt> <rounds> <results.csv>
+```
 
-## CPU paint-build benchmark
+`rounds` is 2-100. Times the complete per-glyph paint build (including root
+selection) for the existing and native providers, without a GPU device. Each
+provider has its own reusable program arena and one full warmup, and the order
+alternates by round. Warmup, font mapping, scratch allocation and percentile
+sorting are outside the timing; QPC sampling and byte accounting are inside it.
 
-`MaiCordColrBuildBenchmark <font.ttf> <glyphs.txt> <rounds> <results.csv>` measures only
-the complete per-glyph paint build (including root selection). It links the
-same existing/native implementations as the GPU probe, without creating a GPU
-device. Each provider keeps its own reusable program arena, receives one full
-warmup, and alternates execution order by round. Both font owners stay alive.
-Mapping/font construction, scratch allocation, warmup and percentile sorting
-are outside measurement. QPC sampling and byte accounting are included in
-batch wall time; process cycles include the measurement loop.
+`results.csv` columns: `round, order, provider, glyphs, seconds, process_cycles,
+program_bytes, p50_us, p95_us, p99_us`. Exit codes: 0 success; 1 bad arguments or
+files; 2 build failed; 3 cycle counter failed. Run several fresh processes after
+pixel testing has finished, then summarize:
 
-Run multiple fresh processes after pixel testing has finished. Results report
-batch time, process cycles, used program bytes and per-glyph p50/p95/p99 build
-time. This is a warm paint-compilation microbenchmark, not shaping, cache-hit
-rendering, cold start, whole-app latency, GPU cost, RAM/VRAM or shipping size.
-The QA owner's maximum-capacity buffers are not a production memory policy.
-`summarize_benchmark.py <directory>` validates and aggregates `<name>-glyphs.txt`
-with `<name>-1.csv` through `<name>-3.csv`, six alternating rounds each by
-default. It reports all measured regressions as well as improvements.
+```powershell
+python tools/colr_reference/summarize_benchmark.py <directory> [--runs 3] [--rounds 6]
+```
 
-`../measure_emoji_scroll.ps1` runs the full native picker catalog with a fresh process/atlas per run, alternating an optional baseline executable. It records per-page layout/submission times and whole-probe peak process memory under `MaiCord-build/qa`. Driver and OS caches are left alone.
+It validates `<name>-glyphs.txt` with `<name>-1.csv` through `<name>-<runs>.csv`
+(`--rounds` alternating rounds each), prints the native change in batch time, p95
+and p99 per corpus, and writes `<directory>/results.json`. Regressions are
+reported, not filtered.
+
+Limit: a warm paint-compilation microbenchmark only (not shaping, cache-hit
+rendering, cold start, whole-app latency, GPU cost, memory or shipping size).

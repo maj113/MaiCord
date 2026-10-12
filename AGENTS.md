@@ -12,9 +12,9 @@ has the same rules in more detail.
 - The only build directory is the sibling `..\MaiCord-build\Release`. Don't
   create other build trees, staging copies, QA directories or archives, and
   don't move unwanted output elsewhere: delete it.
-- If `MaiCord.exe` is running from the build directory, use `-SkipClient`; the
-  script won't overwrite a running client. Never close someone's running
-  client for them.
+- If `MaiCord.exe` is running from the build directory, add `-SkipClient` to a
+  `-Test` run; the script won't overwrite a running client. Never close
+  someone's running client for them.
 - The suite must finish within 20 seconds. Keep coverage when trimming test
   work. Tests assert outputs and counts (operations, allocations, bytes),
   never wall-clock times.

@@ -44,7 +44,7 @@ bool initialize(ColrPaintGpu* g, ID3D11Device* device, u16 extent, bool surface)
 namespace {
 // Only an already accumulated destination followed by one shaped source may
 // use the stack-free kernel. Nested groups, masks and other composite modes
-// keep the general interpreter and its original evaluation order.
+// keep the general interpreter and its evaluation order.
 bool layered_program(const ColrPaintProgram& p) noexcept {
     u32 at=p.first, depth=0;
     bool clipped=false;

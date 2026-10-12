@@ -31,13 +31,13 @@ struct UiPageResult {
 
 inline constexpr u32 kUiPageNoSelection = ~0u;
 
-// UI-thread only. Storage is caller-owned; descriptors are copied but labels
-// and contexts are borrowed and must remain valid until unregister/clear.
-// Labels must remain immutable. Unregister an owner before freeing its data or
-// unloading its module. No code is invoked by the registry, including on removal.
-// Pages enumerate in registration order; removals preserve survivor order.
-// First registration selects itself. Removing the selected page chooses the
-// next surviving page in order, or the previous page if none follows it.
+// UI-thread only. Storage is caller-owned. Descriptors are copied, but labels
+// and contexts are borrowed and must stay valid (labels immutable) until
+// unregister/clear: unregister an owner before freeing its data or unloading its
+// module. The registry never invokes code, including on removal.
+// Pages enumerate in registration order, which removals preserve. The first
+// registration selects itself; removing the selected page selects the next
+// survivor, or the previous one if none follows.
 struct UiPageRegistry {
     Slice<UiPage> storage;
     u32 count;
@@ -54,7 +54,7 @@ u32 ui_page_registry_unregister_owner(UiPageRegistry* registry, u64 owner_id) no
 UiPageResult ui_page_registry_select(UiPageRegistry* registry, UiPageKey key) noexcept;
 bool ui_page_registry_clear(UiPageRegistry* registry) noexcept;
 // Returned pointers borrow registry storage and must not be retained across
-// mutations. Query selected once on revision change for external scene binding.
+// mutations.
 const UiPage* ui_page_registry_at(const UiPageRegistry& registry, u32 index) noexcept;
 const UiPage* ui_page_registry_find(const UiPageRegistry& registry, UiPageKey key) noexcept;
 const UiPage* ui_page_registry_selected(const UiPageRegistry& registry) noexcept;

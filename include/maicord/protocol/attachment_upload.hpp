@@ -25,8 +25,8 @@ constexpr bool attachment_upload_is_voice(const UploadedAttachment& attachment) 
 bool attachment_upload_valid_filename(Utf8View filename) noexcept;
 AttachmentUploadWriteResult attachment_upload_write(u64 channel_id, u32 id, Utf8View filename,
     u64 file_bytes, Slice<u8> target, Slice<u8> body) noexcept;
-// duration_secs as the official clients send it: seconds with millisecond
-// precision and no trailing zeros ("4.48"). Zero bytes on capacity failure.
+// duration_secs: seconds with millisecond precision and no trailing zeros
+// ("4.48"). Zero bytes on capacity failure.
 u32 attachment_upload_write_duration(u32 duration_ms, Slice<char> output) noexcept;
 RestRouteKey attachment_upload_route(u64 channel_id) noexcept;
 // Exactly one matching response item. Output is usable only when ok is true.

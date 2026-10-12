@@ -39,18 +39,19 @@ SfntStatus sfnt_gsub_lookup_requirements(const SfntLayout&,u16,SfntGsubProgramRe
 SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout&,u16,const SfntGdef&,u32 glyph_limit,
     SfntGsubLookupStorage,SfntGsubExecutableLookup*,u32 payload_work_limit=1000000,u32 directory_limit=1000000,
     bool ignore_empty_sequences=false,bool ignore_unreachable_single_substitutions=false) noexcept;
-// Font mappings and prepared payloads are borrowed and must stay unchanged. Deferred
-// sources may fill empty directory slots. Prepare validates each new payload.
-// payload_work_limit is shared across subtable opens; directory_limit caps
-// visited directory entries. Optional child work reports preserve that budget.
+// Font mappings and prepared payloads are borrowed and must stay unchanged.
+// Deferred sources may fill empty directory slots; prepare validates each new
+// payload. payload_work_limit is shared across subtable opens; directory_limit
+// caps visited directory entries. Optional child work reports preserve that budget.
 // A supplied selection includes contextual children unless extending a deferred
 // directory in place; its source must prepare children before execution.
 // Unselected slots keep their indices and need preparation before execution.
 // Inherited storage is dense and must use this layout, GDEF, glyph limit and
-// compatibility policy. Selected inherited payloads are borrowed, so the inherited
-// program must outlive the result. Destination payloads/output must be disjoint.
-// The lookup directory may alias inherited storage if all existing entries
-// remain selected. On failure only new slots may be partial; the caller rolls them back.
+// compatibility policy; selected inherited payloads are borrowed, so the
+// inherited program must outlive the result. Destination payloads/output must be
+// disjoint. The lookup directory may alias inherited storage if all existing
+// entries remain selected. On failure only new slots may be partial; the caller
+// rolls them back.
 SfntStatus sfnt_gsub_program_requirements(const SfntLayout& layout,SfntGsubProgramRequirements* output,u32 directory_limit=1000000,ConstSlice<u64> selected={},const SfntGsubProgram* inherited=nullptr) noexcept;
 SfntStatus sfnt_gsub_program_prepare(const SfntLayout& layout,const SfntGdef& gdef,u32 glyph_limit,
                                    SfntGsubProgramStorage storage,SfntGsubProgram* output,
@@ -78,36 +79,31 @@ struct SfntGsubExecutionResult {u64 operations,edits,moved_records;u32 input_end
 static_assert(sizeof(SfntGsubExecutableSubtable)==64 && sizeof(SfntGsubExecutableLookup)==40 && sizeof(SfntGsubProgram)==88);
 static_assert(sizeof(SfntGsubExecutionFrame)==32 && sizeof(SfntGsubExecutionResult)==32);
 // Execute one caller-selected lookup over [start,input_end), in logical order
-// (type 8 visits positions in reverse). alternate is zero-based. No heap or
-// C++ recursion is used. Independent scratch arrays must be disjoint from each
-// other, buffer storage and all program mappings/prepared storage.
-// A supplied cluster map is prepared; its mutable storage is disjoint from all
-// glyph, scratch and program storage.
-// Replacement scratch is measured in bytes and uses the buffer's record stride.
-// Without clusters this layer edits 4-byte glyph/class records. With clusters it
-// edits 8-byte SfntClusterGlyph records and merges source boundaries on ligatures.
-// With a component forest (which also requires clusters), it edits 16-byte
-// SfntComponentGlyph records. Ligatures join stable component sequences;
-// decomposition partitions them and restores distinct source boundaries. The
-// caller supplies an initialized forest and disjoint mutation journal. A failed
-// glyph edit rolls back its forest changes. Export seals the forest against edits.
+// (type 8 visits positions in reverse). alternate is zero-based. No heap or C++
+// recursion. Scratch arrays must be disjoint from each other, buffer storage and
+// all program mappings/prepared storage; a supplied cluster map must be opened,
+// and its mutable storage is likewise disjoint from glyph, scratch and program
+// storage.
+// Replacement scratch is measured in bytes and uses the buffer's record stride:
+// 4-byte glyph/class records without clusters; 8-byte SfntClusterGlyph records
+// with clusters (ligatures merge source boundaries); 16-byte SfntComponentGlyph
+// records with a component forest, which also requires clusters. Ligatures join
+// stable component sequences; decomposition partitions them and restores
+// distinct source boundaries. The caller supplies an initialized forest and a
+// disjoint mutation journal. A failed glyph edit rolls back its forest changes;
+// export seals the forest against edits.
 // Cluster initialization, source indices and initial effective classes come from
 // the caller. Outputs inherit the first consumed glyph's source class, including
-// ligatures, matching Windows. Initial attachment affinity, final glyph
-// classes/flags, script scheduling and feature selection are separate policy.
-// Component history is optional; it is not inferred from final glyph IDs.
+// ligatures, as Windows does.
 // Capacity/work errors may follow earlier committed edits: discard the shaping
-// attempt and restart from the original input. Each edit is preflighted before
-// mutation. Result counters stay valid on execution errors. Scratch has no valid
-// continuation state after an error.
-// Exhausting frames is resource_limit; insufficient position/output storage is
-// output_too_small. Active cycles therefore end at a caller-set bound.
+// attempt and restart from the original input. Result counters stay valid on
+// execution errors. Exhausting frames is resource_limit; insufficient
+// position/output storage is output_too_small.
 // feature_mask selects eligibility bits in SfntGsubGlyph::reserved. Every glyph
 // in a matched input span, including ignored marks, must be eligible; lookaround
 // may cross eligibility boundaries. Nested actions keep this restriction.
 // Replacements inherit the first consumed glyph's bits unless a component
 // forest enables preserve_forms. Mask zero disables eligibility filtering.
-// Script stages and initial form analysis are external.
 SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,
                                    u32 start,u32 input_end,u32 alternate,SfntGsubExecutionScratch scratch,
                                    SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,

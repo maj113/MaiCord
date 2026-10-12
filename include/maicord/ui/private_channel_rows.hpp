@@ -14,7 +14,7 @@ struct UiPrivateRowSource {
     const TypingStore* typing;
 };
 enum class UiPrivateRowStatus : u8 { none, online, idle, dnd, offline };
-// 42-DIP conversation rows with 32-DIP avatars, as in the official client.
+// 42-DIP conversation rows with 32-DIP avatars.
 inline constexpr float kUiPrivateRowHeight = 42.f;
 inline constexpr float kUiPrivateRowAvatar = 32.f;
 inline constexpr float kUiPrivateHeaderAvatar = 24.f;

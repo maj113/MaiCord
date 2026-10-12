@@ -758,7 +758,6 @@ bool json_string_to_u64(JsonString value, u64* output) noexcept {
             codepoint = decoded;
         }
         const u32 digit = codepoint - '0';
-        // Fixed prefix/remainder bounds avoid recomputing (maximum - digit) / 10.
         if (digit > 9 || result > ~0ull / 10 || (result == ~0ull / 10 && digit > ~0ull % 10)) {
             return false;
         }

@@ -23,10 +23,9 @@ struct GlyphQuadBoundsResult {
     }
 };
 
-// Transactionally validates and clips one appended glyph range. Invalid
-// geometry leaves the stream untouched. Fully invisible quads are removed and
-// partial quads receive matching UV adjustment, so no picker glyph submitted
-// to the GPU can extend beyond its owning control rectangle.
+// Transactionally validates and clips one appended glyph range to `clip`.
+// Invalid geometry leaves the stream untouched. Fully clipped quads are
+// removed and partial quads get matching UV adjustment.
 GlyphQuadBoundsResult glyph_quad_clip_range(
     GlyphQuad* quads, u32 first, u32* count, UiRect clip) noexcept;
 

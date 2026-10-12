@@ -13,8 +13,7 @@ struct Descriptor {
 bool descriptor(ConstSlice<u8> source, u64* cursor, u64 end, Descriptor* output) noexcept {
     if (*cursor >= end || end > source.count)
         return false;
-    // Every descriptor offset is bounded above by the accepted source count
-    // (<=kEncodedVideoMaximumBytes); narrow only after the preceding range check.
+    // cursor < end <= source.count (a u32), so the narrowing below cannot truncate.
     const u8 tag = source[static_cast<u32>((*cursor)++)];
     u32 size{};
     bool terminal = false;
@@ -150,8 +149,7 @@ Mp4DemuxError description(Mp4AudioDemuxer& d, const Box& stsd) noexcept {
     if ((channels != configuration.core_channels && channels != configuration.channels) ||
         ((rate >> 16) != configuration.core_sample_rate && (rate >> 16) != configuration.sample_rate))
         return Mp4DemuxError::unsupported;
-    // ASC fixes the PCM domain: LC1024 or doubled SBR2048.
-    // No rounded clock or guessed duration can stand in for that contract.
+    // The ASC fixes the PCM domain: LC 1024 or doubled SBR 2048.
     for (u32 i = 0; i < d.samples.stts_count; ++i) {
         const u32 delta = read_u32(source.data + d.samples.stts_offset + u64{i} * 8 + 4);
         if (u64{delta} * d.sample_rate != u64{d.samples.timescale} * d.frames_per_packet)
@@ -278,9 +276,9 @@ Time negate_time(const Time& positive) noexcept {
                                      positive.denominator}
                               : Time{-positive.seconds, 0, 1};
 }
-// Scale a proper fraction without requiring a compiler-specific128-bit type.
-// Common timebases use the one-division fast path; extreme denominators use
-// at most32 modular double/add steps, each proven not to overflow u64.
+// Scale a proper fraction without a compiler-specific 128-bit type. Common
+// timebases use the one-division fast path; extreme denominators use 32
+// modular double/add steps, each proven not to overflow u64.
 void fraction_scale(u64 numerator, u64 denominator, u32 scale, u64* quotient, u64* remainder) noexcept {
     if (!scale) {
         *quotient = *remainder = 0;

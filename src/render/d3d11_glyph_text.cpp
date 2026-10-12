@@ -562,8 +562,8 @@ bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* co
                 return false;
         }
     }
-    // The official client draws ansi colours as authored in every theme: no readability
-    // adjustment, which would erase a light theme's white-on-black runs.
+    // ansi colours are drawn as authored in every theme; a readability adjustment
+    // would erase a light theme's white-on-black runs.
     const bool ansi_glyphs = request.theme && !request.cluster_effect &&
                              ansi_text_tag_glyphs(*request.text, request.source, request.styles);
     u16 ansi_code = kAnsiColorNone;

@@ -39,9 +39,9 @@ inline u32 native_thai_word_select(u32 position,u32 limit,void* context,NativeTh
         const auto seconds=lookup(context,following);
         if(chosen==8&&!seconds.lengths[0])continue;
         for(u32 j=0;j<8;++j){
-            // The reference reuses its sixth successor slot for third-word
-            // lookahead. Preserve that observable choice with just a cursor;
-            // immutable lookup reconstructs the slot without a stored tree.
+            // Segmentation reuses the sixth successor slot for third-word lookahead.
+            // That observable choice is kept with just a cursor; immutable lookup
+            // reconstructs the slot without a stored tree.
             if(i==5)following=sixth_position;
             const i32 candidate=i==5?lookup(context,following).lengths[j]:seconds.lengths[j];
             if(!candidate)break;

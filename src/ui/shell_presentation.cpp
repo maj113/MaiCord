@@ -37,10 +37,10 @@ UiIcon channel_row_icon(const ChannelViewRow& row) noexcept {
 }
 
 float pixel_truncated(float value) noexcept {
-    // Geometry is expressed in DIPs.  Truncating it to an integer DIP is not
-    // pixel snapping at 125%/150% DPI and made paint lag behind the exact text
-    // and hit-test layout during resize.  The renderer transform maps these
-    // coordinates to the physical pixel grid consistently.
+    // Geometry stays in fractional DIPs. Truncating to an integer DIP is not
+    // pixel snapping at 125%/150% DPI and lets paint drift from the exact text
+    // and hit-test layout. The renderer transform maps these coordinates to the
+    // physical pixel grid.
     return value;
 }
 
@@ -775,8 +775,8 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         return false;
     }
     const UiRect composer_rectangle = composer_surface ? composer_surface->rectangle : composer->rectangle;
-    // One rounded input surface, as the official client draws it: focus lifts the outer
-    // border instead of nesting a second outlined field inside.
+    // One rounded input surface: focus lifts the outer border instead of
+    // nesting a second outlined field inside.
     const bool composer_focused =
         composer_scene && composer_scene->active && composer_scene->model && composer_scene->model->focused;
     if (!ui_background_paint_surface(
@@ -1102,8 +1102,8 @@ bool shell_presentation_build_guild_rail_overlay(const UiScene& scene, const Gui
     if (!paint_stream_push_clip(stream, navigation->rectangle.left, navigation->rectangle.top,
                                 navigation->rectangle.right, navigation->rectangle.bottom))
         return false;
-    // The official lower badge masks a ring out of the icon (stroke 2 + the
-    // badge): here a rail-coloured ring drawn over the icon's media.
+    // A rail-coloured ring drawn over the icon's media separates the lower
+    // badge from the icon.
     const float cutout = ui_background_active(theme) ? 0.0f : theme.scale.space_1 * 1.5f;
     constexpr u16 overflow =
         static_cast<u16>(ui_layout_content_bounds_allow_overflow | ui_layout_content_bounds_allow_overlap);

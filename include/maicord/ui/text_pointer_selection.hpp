@@ -4,13 +4,11 @@
 
 namespace maicord {
 
-// Shared multi-click pointer selection for every text surface (composer,
-// form/search edit fields, message text). Windows decides the double click
-// (WM_LBUTTONDBLCLK, from the system double-click time and rectangle); the
-// third click arrives as an ordinary press and is recognized here with the
-// same time and distance limits. Counts are 1, 2 or 3: a third click needs a
-// real double click before it, so a plain press never escalates, and a
-// double click on an already selected word only reselects that word.
+// Shared multi-click pointer selection for every text surface. Windows decides
+// the double click (WM_LBUTTONDBLCLK, from the system double-click time and
+// rectangle); the third click arrives as an ordinary press and is recognized
+// here with the same limits. Counts are 1, 2 or 3; a third click needs a real
+// double click before it, so a plain press never escalates.
 struct UiClickPolicy {
     u32 interval_ms; // GetDoubleClickTime()
     float slop_x;    // half of SM_CXDOUBLECLK, in the caller's coordinate space

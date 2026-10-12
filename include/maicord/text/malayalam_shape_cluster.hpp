@@ -1,7 +1,7 @@
 #pragma once
 #include "maicord/text/shape_run.hpp"
 namespace maicord {
-// Experimental single original Malayalam cluster. Original-input grouping precedes
+// Single original Malayalam cluster. Original-input grouping precedes
 // split-vowel expansion. Retained font_forms covers its 128-scalar block.
 // Borrowed source/font views are disjoint from mutable caller storage.
 // No system shaping or heap allocation; failed calls publish no output lengths.

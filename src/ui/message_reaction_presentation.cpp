@@ -108,9 +108,9 @@ bool message_reaction_presentation_resolve(const MessageScene& scene, const Mess
     const u16 flag = reaction.emoji_id == 0 && store
         ? regional_flag_sequence(message_rich_store_string(*store, reaction.name)) : 0;
     UiRect text = layout->content_rectangle;
-    // The official client's 24-DIP reaction pill uses a one-DIP optical lift for both the
-    // emoji cell and the 14-DIP count. Geometric centering otherwise looks low
-    // because both glyph sets carry more descent than visible ink.
+    // The 24-DIP reaction pill lifts the emoji cell and the 14-DIP count by one
+    // DIP: geometric centering looks low because both glyph sets carry more
+    // descent than visible ink.
     constexpr float optical_lift = 1.0f;
     text.top -= optical_lift;
     text.bottom -= optical_lift;

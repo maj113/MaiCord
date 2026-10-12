@@ -841,8 +841,8 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
         return RestRequestWriteResult{0, RestRequestError::invalid_token};
     }
 
-    // Chromium declares an empty POST or PUT body; other bodyless methods
-    // carry no length.
+    // An empty POST or PUT body is declared with Content-Length: 0; other
+    // bodyless methods send no length.
     const bool empty_length =
         !request.json_body && (request.method == RestMethod::post || request.method == RestMethod::put);
     const bool audit_reason = request.audit_reason.count || request.send_empty_audit_reason;

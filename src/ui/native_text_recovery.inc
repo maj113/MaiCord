@@ -1,4 +1,4 @@
-// Recovery is cold: normal formatting keeps the existing one-arena layout.
+// Recovery is cold, so it is compiled for size.
 #pragma optimize("s",on)
 bool native_text_context_rebuild(const TextSystem& system,NativeTextRebuild attempt,void* context) noexcept {
     auto* owner=system.native_text;if(!owner||!attempt||owner->catalogs.operation_depth)return false;

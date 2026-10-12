@@ -8,9 +8,9 @@ struct ID3D11ShaderResourceView;
 namespace maicord {
 
 // Borrowed decoder output, valid until the next read/release. The renderer
-// must enqueue its copy or conversion before it returns the media-lane lease. Both producers
-// use the same multithread-protected D3D11 immediate context, so GPU command
-// ordering protects the pixels without a CPU wait or readback.
+// must enqueue its copy or conversion before it returns the media-lane lease.
+// Both producers use the same multithread-protected D3D11 immediate context,
+// so GPU command ordering protects the pixels without a CPU wait or readback.
 struct GpuVideoFrame {
     ID3D11Texture2D* texture;
     u32 subresource;

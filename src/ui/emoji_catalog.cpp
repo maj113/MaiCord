@@ -8,7 +8,7 @@
 namespace maicord {
 
 // The generated pools keep internal linkage: only their lengths are used here
-// (checked against the packed stream); the shipped bytes are the deflate stream.
+// (see the static_asserts below); the shipped bytes are the deflate stream.
 #include <unicode_emoji_16_optimized.inc>
 
 namespace emoji_pool_detail {
@@ -262,8 +262,8 @@ Utf8View skin_tone_variant(Utf8View base, u8 tone) noexcept {
     return {};
 }
 
-// Primary rows list emoji whose new settings key is neither the catalog name
-// nor the base's key with _toneN.
+// Primary rows are emoji whose shortcode key (favorites, frecency) is neither
+// the catalog name nor the base's key with _toneN.
 Utf8View primary_row(u32 index) noexcept {
     const auto glyph = kUnicodeEmoji16Entries[index].glyph();
     for (const u16 row : kEmojiPrimaryShortcodes)

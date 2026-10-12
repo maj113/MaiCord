@@ -194,9 +194,9 @@ bool scalar_boundary(Utf8View text, u32 position) noexcept {
            (position == text.bytes || (static_cast<u8>(text.data[position]) & 0xC0) != 0x80);
 }
 
-// Ctrl+Arrow/Ctrl+Delete keep their established policy: ASCII whitespace
-// (including line breaks), word characters (ASCII letters/digits/underscore
-// and every non-ASCII scalar) or ASCII punctuation.
+// Ctrl+Arrow/Ctrl+Delete classes: ASCII whitespace (including line breaks),
+// word characters (ASCII letters/digits/underscore and every non-ASCII scalar)
+// or ASCII punctuation.
 bool navigation_word_range(Utf8View text, u32 position, u32* first, u32* last) noexcept {
     const WordText t{text};
     const auto classify = [&t](u32 offset) noexcept {

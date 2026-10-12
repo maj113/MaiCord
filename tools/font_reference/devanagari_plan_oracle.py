@@ -82,10 +82,9 @@ def form_checks(font, face, native_rows, reference, output, *, script_tag='dev2'
             cmap.cmap[0xe100] = best[block+0x4d]
             for scalar, *_ in rows[0]['cases']:
                 cmap.cmap[0xe000 + scalar - block] = best[scalar]
-        # Preserve the complete raw lookup graph. Its unsigned internal offsets
-        # remain relative to their original owners; only the small directories
-        # in front change. Avoid recompiling hundreds of unrelated lookups and
-        # glyph outlines for each feature experiment.
+        # Keep the raw lookup graph: its internal offsets stay relative to their
+        # owners and only the directories in front change, so unrelated lookups
+        # and glyph outlines are not recompiled per feature experiment.
         raw_tables = {tag: font.reader[tag] for tag in font.reader.keys()}
         original_gsub = raw_tables['GSUB']
         if original_gsub[:4] != b'\0\1\0\0':

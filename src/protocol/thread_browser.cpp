@@ -33,7 +33,7 @@ struct PageParse {
     ThreadBrowserRequest request;
     Slice<ThreadBrowserRow> rows;
     Slice<char> names;
-    // Optional post metadata (null data: ignored exactly as before).
+    // Optional post metadata; null data is ignored.
     Slice<ThreadBrowserPost> posts;
     Slice<char> text;
     u64 self;
@@ -231,7 +231,7 @@ bool visit_thread(void* opaque, u32 index, JsonValue value) noexcept {
     ++page.count;
     return true;
 }
-// ---- first_messages: one starter per page thread ----------------------------
+// first_messages: one starter per page thread.
 struct AuthorParse {
     PageParse* page;
     u64 id{};

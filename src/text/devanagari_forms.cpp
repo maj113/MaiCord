@@ -16,7 +16,7 @@ SfntStatus sfnt_devanagari_probe_form(const SfntGsubProgram& program,ConstSlice<
     for(u32 i=0;i<steps.count;++i)if(steps[i].lookup>=program.lookups.count||steps[i].stage||steps[i].feature_mask||
         (i&&steps[i-1].lookup>=steps[i].lookup))return SfntStatus::invalid_input;
     if(!steps.count)return SfntStatus::ok;
-    // Fixed two-source setup, including map initialization and component open.
+    // Fixed cost of the two-source setup (map initialization and component open).
     if(!spend(16))return SfntStatus::resource_limit;
     const u16 pair[]{reverse?halant:consonant,reverse?consonant:halant};
     for(u32 i=0;i<2;++i)glyphs[i]={{pair[i],sfnt_gdef_glyph_class(program.gdef,pair[i]),0},i,0,0};

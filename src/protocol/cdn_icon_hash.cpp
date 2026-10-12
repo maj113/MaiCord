@@ -2,9 +2,8 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/model/asset_hash.hpp"
 
-// Its own object: the client keeps this check for every Gateway user record,
-// while the rest of cdn_url.cpp lives only in the account module (the client
-// forwards to it through AccountModuleCdnUrls).
+// Separate object: the client needs this check for every Gateway user record,
+// while the rest of cdn_url.cpp lives only in the account module.
 namespace maicord {
 
 bool guild_icon_hash_valid(Utf8View icon_hash) noexcept {

@@ -16,7 +16,7 @@ enum class UiSplitterEdge : u8 {
 
 // Half of the grip's width on each side of the edge.
 inline constexpr float kUiSplitterGripDips = 4.0f;
-// Side-pane limits, as in the official client.
+// Side-pane width limits.
 inline constexpr float kUiSplitterMinimumPaneDips = 180.0f;
 inline constexpr float kUiSplitterMaximumPaneDips = 420.0f;
 

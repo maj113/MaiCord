@@ -49,8 +49,8 @@ struct VoiceStateStore {
 bool voice_state_store_initialize(VoiceStateStore* store,
                                           Slice<VoiceState> records) noexcept;
 // Requires zero live records and writable caller-owned storage. Leaves array
-// bytes unchanged. Readers use count, and apply writes each complete new row.
-// The eager initializer above still clears the full array on each bind.
+// bytes unchanged (voice_state_store_initialize clears them). Readers use
+// count, and apply writes each complete new row.
 bool voice_state_store_initialize_sparse(VoiceStateStore* store, Slice<VoiceState> records) noexcept;
 bool voice_state_store_reset(VoiceStateStore* store) noexcept;
 // A zero channel removes the user's state in that guild.

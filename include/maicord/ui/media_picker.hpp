@@ -11,8 +11,8 @@ inline constexpr u32 kUiMediaPickerMaximumSections = 272;
 inline constexpr u32 kUiMediaPickerMaximumItems = 65'536;
 inline constexpr float kUiMediaPickerWidth = 432;
 inline constexpr float kUiMediaPickerHeight = 480;
-// The official reaction emoji popout: the standalone emoji picker, 498 x 440,
-// left of its control with the popout's 8 DIP spacing.
+// The reaction emoji popout: the standalone emoji picker, 498 x 440, left of
+// its control with the popout's 8 DIP spacing.
 inline constexpr float kUiMediaPickerReactionWidth = 498;
 inline constexpr float kUiMediaPickerReactionHeight = 440;
 // Value-owned DIP metrics let a theme choose spacing and control density without
@@ -65,8 +65,8 @@ constexpr UiMediaPickerStyle ui_media_picker_style() noexcept {
 // Non-finite, out-of-bounds or geometrically incompatible overrides fall back
 // as a complete style to these safe defaults, never to partially mixed metrics.
 bool ui_media_picker_style_valid(const UiMediaPickerStyle&) noexcept;
-// The reaction popout is the emoji picker without the tab selector, in the
-// official popout size and spacing; every other metric is shared.
+// The reaction popout is the emoji picker without the tab selector, at the
+// popout size and spacing; every other metric is shared.
 constexpr UiMediaPickerStyle ui_media_picker_reaction_style() noexcept {
     auto style = ui_media_picker_style();
     style.metrics.panel_width = kUiMediaPickerReactionWidth;
@@ -135,12 +135,12 @@ enum class UiMediaPickerSectionVisual : u8 {
     flags,
     guild
 };
-// Category rail and section artwork are emoji glyphs (the app's emoji
-// renderer), never icons. Guild sections show their server icon instead.
+// Category rail and section artwork are emoji glyphs, never icons. Guild
+// sections show their server icon instead.
 Utf8View ui_media_picker_section_glyph(UiMediaPickerSectionVisual) noexcept;
 // expression: the GIF/Sticker/Emoji picker above the composer.
-// reaction: the same emoji picker without the tab selector, beside the
-// anchor (a message's Add Reaction control), like the official reaction popout.
+// reaction: the same emoji picker without the tab selector, beside the anchor
+// (a message's Add Reaction control).
 enum class UiMediaPickerVariant : u8 {
     expression,
     reaction

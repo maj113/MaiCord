@@ -46,9 +46,9 @@ struct UiSettingsTokens {
 };
 
 UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept;
-// Entrance progress (0..1) of every modal and dialog, elapsed_ms after it
-// opened: the official client's modal spring (tension 1000, friction 48) over
-// modal_enter_ms, so Settings and each dialog open on one timeline.
+// Entrance progress (0..1) of every modal and dialog elapsed_ms after it
+// opened: a spring (tension 1000, friction 48) over modal_enter_ms, so Settings
+// and each dialog open on one timeline.
 float ui_settings_modal_entrance(const UiSettingsDurations& duration, u64 elapsed_ms) noexcept;
 Color ui_settings_color_unpack(u32 rgba) noexcept;
 Color ui_settings_color_mix(Color a, Color b, float t) noexcept;

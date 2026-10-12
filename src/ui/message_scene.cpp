@@ -115,8 +115,8 @@ UiLayoutStyle avatar_style(const Scene& scene, bool grouped, float reply_height)
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fixed(avatar_width(scene));
     style.height = ui_layout_fixed(avatar_height(scene, grouped));
-    // A reply preview precedes the current message header.  The large avatar
-    // belongs to the current author and must therefore start below that preview.
+    // The large avatar belongs to the current author, so it starts below the
+    // reply preview that precedes the header.
     style.margin.top = grouped ? 0.0f : reply_height + 0.f;
     if (grouped) {
         style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size);
@@ -463,12 +463,10 @@ bool row_is_grouped(const MessageScene& scene, const MessageRecord& record, cons
         return false;
     }
 
-    // The official client applies the seven-minute boundary from the first row in the
-    // current group, not from the immediately preceding message.  Locate the
-    // homogeneous run, then replay its bounded group-start transitions.  The
-    // retained store is currently capped, and only materialized rows ask for
-    // this projection; a persistent group-id column can replace the scan when
-    // the store grows beyond that bound.
+    // The seven-minute boundary is measured from the first row of the current
+    // group, not from the preceding message. Locate the homogeneous run, then
+    // replay its group-start transitions. The scan is bounded by the retained
+    // store's capacity, and only materialized rows ask for this projection.
     u32 run_first = source_index - 1u;
     while (run_first != 0) {
         const MessageRecord* left =
@@ -594,7 +592,7 @@ const MessageRichRecord* snapshot_rich(const MessageScene& scene, u64 message_id
 
 template <typename Scene>
 float snapshot_following_gap(const Scene& scene, const MessageRichRecord* outer) noexcept {
-    // Reuse the existing rich-media separation metric at the ownership boundary.
+    // Rich-media gap between a snapshot and the outer message's own rich content.
     return outer && (outer->attachment_count || outer->embed_count || outer->sticker_count ||
                      outer->component_count || outer->reaction_count || outer->truncations)
                ? metrics(scene).message_rich_gap
@@ -716,10 +714,9 @@ bool prepare_resident_measurements(MessageScene* scene, UiRect viewport) noexcep
             previous_group_start = record->timestamp_ms;
         previous = record;
         if (!scene->owns_rows) {
-            // Borrowed scenes keep their measured row heights in the
-            // timeline, even after the widgets leave the viewport.
-            // A read-state change must not replace those heights with body
-            // estimates, which can clamp an otherwise valid scroll anchor.
+            // Borrowed scenes keep their measured row heights in the timeline even
+            // after the widgets leave the viewport. A read-state change must not
+            // replace them with body estimates, which can clamp a valid scroll anchor.
             const float before = row_top_padding(scene, previous_grouped) +
                                  row_bottom_padding(scene, previous_grouped) +
                                  row_author_height(scene, previous_grouped) +
@@ -1705,7 +1702,7 @@ bool message_scene_intro_compose(MessageSceneIntro* intro, MessageSceneIntroKind
         out.add(name);
     }
     intro->header_bytes = out.used;
-    // Subtitle: a DM recipient's username (heading-xl/medium).
+    // Subtitle: a DM recipient's username.
     if (kind == MessageSceneIntroKind::direct_message) {
         out.add(username);
         intro->user_id = user_id;
@@ -1941,9 +1938,9 @@ MessageSceneResult message_scene_update(MessageScene* scene, UiRect viewport) no
     }
 
     const float local_scroll = maximum(0.0f, -ui_signed_extent_dips(range.first_offset_units));
-    // Short content sits against the bottom edge (like the official client's chat scroller):
-    // rows are laid out below a leading gap; scroll offsets are unaffected
-    // because such content has no scroll range.
+    // Short content sits against the bottom edge: rows are laid out below a
+    // leading gap; scroll offsets are unaffected because such content has no
+    // scroll range.
     const u64 total_units = scene->timeline->list->total_units;
     scene->lead_dips = scene->bottom_anchored && scene->timeline->list->count != 0 && total_units < viewport_units
                            ? ui_extent_dips(viewport_units - total_units)

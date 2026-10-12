@@ -146,10 +146,10 @@ bool voice_heartbeat_ack(VoiceHeartbeat* heartbeat, u64 generation, u64 nonce, u
         fail(heartbeat, VoiceHeartbeatFailure::ack_timeout);
         return false;
     }
-    // Nonces are consecutive, incremented only for accepted sends. Any nonce
-    // in this interval was actually sent; no nonce cache or per-send allocation
-    // is needed. Like the official client's health flag, a matching ACK proves
-    // liveness. Only the newest send has a stored timestamp for an RTT sample.
+    // Nonces are consecutive, incremented only for accepted sends, so any nonce
+    // in this interval was actually sent and needs no cache. A matching ACK
+    // proves liveness. Only the newest send has a stored timestamp for an RTT
+    // sample.
     if (nonce == heartbeat->last_nonce) {
         heartbeat->round_trip_ms = now_ms - heartbeat->last_send_ms;
         heartbeat->has_round_trip = true;

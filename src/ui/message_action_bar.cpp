@@ -102,7 +102,7 @@ bool plugins_current(const MessageActionBar& bar, bool failed) noexcept {
     return present == (failed ? 0u : plugin_count());
 }
 
-// Order follows the official client: expanded utilities lead; quick reactions only when collapsed.
+// Expanded utilities lead; quick reactions appear only when collapsed.
 bool build_items(MessageActionBar* bar, const MessageRecord& message, const ReactionPreferenceStore* preferences,
                  u16 capabilities) noexcept {
     using Action = MessageActionBarAction;

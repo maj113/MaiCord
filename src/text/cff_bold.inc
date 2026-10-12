@@ -1,6 +1,5 @@
-// Fixed-point staging borrows the coordinate bytes of the caller's output.
-// Commands stay intact; conversion to floats happens only after widening.
-// This avoids both a second point array and per-point linked allocations.
+// Fixed-point staging borrows the coordinate bytes of the caller's output (no
+// second point array); floats are written only after widening.
 struct CffBoldPoint { i32 x,y; };
 bool same(CffBoldPoint a,CffBoldPoint b) noexcept {return a.x==b.x&&a.y==b.y;}
 u32 cff_command_points(GlyphPathCommandKind kind) noexcept {
@@ -48,8 +47,8 @@ CffBoldPoint cff_bold_join(CffBoldPoint previous,CffBoldPoint current,CffBoldPoi
     if(a.bx!=b.ax||a.by!=b.ay){
         const double dx=a.bx-a.ax,dy=a.by-a.ay,ex=b.bx-b.ax,ey=b.by-b.ay,det=dx*ey-dy*ex;
         if(det){const double t=((a.ay-b.ay)*ex-(a.ax-b.ax)*ey)/det;x=dx*t+a.ax;y=dy*t+a.ay;}
-        // Clamp before integer conversion, including intersections beyond the
-        // fixed-point range. Within this interval truncation matches the reference implementation.
+        // Clamp before the truncating integer conversion; intersections can lie
+        // beyond the fixed-point range.
         x=minimum(static_cast<double>(current.x)+wx,maximum(static_cast<double>(current.x)-wx,x));
         y=minimum(static_cast<double>(current.y)+wy,maximum(static_cast<double>(current.y)-wy,y));
     }
@@ -110,8 +109,7 @@ SfntStatus cff_bolden(const CffFont& font,GlyphOutline& out,u32& work,bool obliq
         if(logical_end!=first)for(u32 i=logical_end;i<limit;i=path.next(i)){if(!path.spend())return SfntStatus::resource_limit;path.put(i,first_result);}
         first=limit+4;
     }
-    // Rebuild bounds from the final normalized ink, keeping raw CFF metrics
-    // separate. One int->float conversion per emitted coordinate.
+    // Bounds are rebuilt from the final emboldened outline; raw CFF metrics stay separate.
     const float em=1.0f/font.units_per_em;out.has_bounds=false;
     for(u32 command=0;command<out.count;++command)for(u32 part=0;part<cff_command_points(out.commands[command].kind);++part){
         if(!path.spend())return SfntStatus::resource_limit;

@@ -138,8 +138,8 @@ SfntStatus sfnt_tamil_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,C
         for(u32 i=begin;i<count;++i){const u8 value=mapped[i].glyph.reserved;matra|=(value&matra_role)!=0;above|=(value&above_role)!=0;
             if(matra&&!above&&(value&halant_role)){u32 end_at=i+1;while(end_at<count&&(mapped[end_at].glyph.reserved&matra_role)&&!(mapped[end_at].glyph.reserved&above_role))++end_at;
                 const auto saved=mapped[i];for(u32 at=i;at+1<end_at;++at)mapped[at]=mapped[at+1];mapped[end_at-1]=saved;i=end_at-1;}}
-        // Observed Indic terminal-control slot: the glyph immediately after
-        // the first matra becomes a control and follows the remaining matras.
+        // Indic terminal-control slot: the glyph immediately after the first matra
+        // becomes a control and follows the remaining matras.
         if(matra&&count>begin+1&&scalars[end-1]==0x200c&&(mapped[count-2].glyph.reserved&modifier_role)){
             u32 slot=begin;while(slot<count&&!(mapped[slot].glyph.reserved&matra_role))++slot;++slot;
             if(slot<count){mapped[slot].glyph={space,sfnt_gdef_glyph_class(plan.gdef,space),control_role};u32 after=slot+1;
@@ -147,8 +147,8 @@ SfntStatus sfnt_tamil_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,C
                 const auto saved=mapped[slot];for(u32 i=slot;i+1<after;++i)mapped[i]=mapped[i+1];mapped[after-1]=saved;}}
         for(u32 i=begin+1;i<count;++i)if((mapped[i].glyph.reserved&control_role)&&(mapped[i-1].glyph.reserved&modifier_role)){
             const auto saved=mapped[i];mapped[i]=mapped[i-1];mapped[i-1]=saved;}
-        // Expansion storage is dead after mapping; reuse its bytes for a stable
-        // linear pre-vowel partition instead of retaining another glyph array.
+        // Expansion storage is dead after mapping; its bytes hold a stable linear
+        // pre-vowel partition.
         static_assert(sizeof(SfntTamilInputScalar)==sizeof(SfntClusterGlyph));u32 reordered=0;
         for(u32 pass=0;pass<2;++pass)for(u32 i=begin;i<count;++i)if(((mapped[i].glyph.reserved&pre_role)!=0)==(pass==0))
             copy_bytes(expanded+reordered++,&mapped[i],sizeof(SfntClusterGlyph));
@@ -161,9 +161,9 @@ SfntStatus sfnt_tamil_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,C
     const SfntShapeGlyphPolicy glyph_policy{&policy,finish,nullptr};
     status=sfnt_shape_run(plan,{mapped,count},static_cast<u32>(units),{storage.targets.data,starts},rtl,em,storage,result,limits,steps,{},glyph_policy,nullptr,&stages);
     if(status!=SfntStatus::ok||!trailing_spacing)return status;
-    // A terminal matra may carry Indic tracking even if it has zero advance.
-    // Only a surviving control suppresses that slot. Use the live component
-    // metadata and final cluster flags, without retaining another source map.
+    // A terminal matra may carry Indic tracking even if it has zero advance; only
+    // a surviving control suppresses that slot. Decided from the live component
+    // metadata and final cluster flags.
     u64 work=limits.stage_work;
     for(u32 first=0;first<result->glyph_count;){u32 end=first+1;
         while(end<result->glyph_count&&!(storage.flags[end]&sfnt_position_cluster_start))++end;

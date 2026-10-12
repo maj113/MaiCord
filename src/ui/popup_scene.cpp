@@ -97,8 +97,8 @@ UiLayoutStyle panel_style(float left, float top, float width, float height, bool
     style.height = ui_layout_fixed(height);
     style.margin = UiInsets{left, top, 0.0f, 0.0f};
     style.padding = UiInsets{padding, padding, padding, padding + feedback_height};
-    // A popup is an independently sized overlay. Stretching a fixed-width
-    // child in an overlay made the context menu inherit the full root width.
+    // A popup is an independently sized overlay; stretching a fixed-width
+    // child would make the menu inherit the full root width.
     style.horizontal_alignment = UiLayoutAlignment::start;
     style.flags =
         static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
@@ -266,8 +266,8 @@ UiRect place_popup(UiRect anchor, UiRect viewport, float width, float height, bo
     if (below_only)
         return UiRect{left, top, left + width, top + height};
     // A pointer context menu (a cursor-sized anchor) opens right of the cursor
-    // and flips left of it when it would overflow, as the official menus do; it
-    // shifts up rather than flipping above the cursor.
+    // and flips left of it when it would overflow; it shifts up rather than
+    // flipping above the cursor.
     if (ui_rect_width(anchor) <= 1.f && ui_rect_height(anchor) <= 1.f && !prefer_above) {
         if (anchor.left + width > viewport.right - kPopupOuterMargin && anchor.left - width >= minimum_x)
             left = anchor.left - width;

@@ -42,9 +42,9 @@ void accumulate_stroke(float2 sample_position, float2 line_start, float2 line_en
     minimum_distance_squared = min(minimum_distance_squared, dot(distance_vector, distance_vector));
 }
 
-// Rounded after each binary32 operation, matching the original twelve unrolled
-// cubic_point evaluations. Check with tools/verify_glyph_cubic_weights.py.
-// Decimal constant expressions are folded differently by FXC; retain these bits.
+// Cubic Bezier weights at t = k/12 (k = 1..12), rounded after each binary32
+// operation; verify with tools/verify_glyph_cubic_weights.py. FXC folds decimal
+// constant expressions differently, so the bits are spelled out.
 static const float4 cubic_weights[12] = {
     asfloat(uint4(0x3f452f69u, 0x3e571c73u, 0x3c9c71c8u, 0x3a17b427u)),
     asfloat(uint4(0x3f1425ecu, 0x3eb1c71cu, 0x3d8e38e4u, 0x3b97b427u)),
@@ -156,8 +156,8 @@ void glyph_coverage(uint3 dispatch_id : SV_DispatchThreadID) {
     }
 
     const bool inside = fill_rule == 0 ? ((abs(winding) & 1) != 0) : winding != 0;
-    // Positive scaling and square root preserve the minimum. Apply them once,
-    // after retaining the original per-segment projection arithmetic.
+    // Square root and the positive pixel scale are monotonic, so they apply
+    // once to the minimum rather than per segment.
     const float distance = sqrt(minimum_distance_squared) * pixels_per_em;
     const float signed_distance = inside ? -distance : distance;
     float coverage = saturate(0.5f - signed_distance);

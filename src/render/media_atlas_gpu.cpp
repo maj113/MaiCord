@@ -15,9 +15,8 @@ bool dimensions_valid(u16 width, u16 height) noexcept {
     return width >= 16 && height >= 16 && width <= 4'096 && height <= 4'096;
 }
 
-// Retain geometrically sized upload resources. Exact-size growth turns a
-// sequence of gradually larger images into one D3D resource allocation per
-// image, even though every prior allocation is immediately discarded.
+// Upload resources grow geometrically: exact-size growth would allocate a new
+// D3D resource for every image in a sequence of gradually larger ones.
 u32 retained_upload_capacity(u32 current, u32 required) noexcept {
     if (required == 0 || required > 0xFFFFFFFCu) {
         return 0;

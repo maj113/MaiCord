@@ -127,10 +127,9 @@ bool ui_text_command_stream_push(UiTextCommandStream* stream, const UiTextComman
         saturating_increment_if(stream, stream->rejected);
         return false;
     }
-    // Virtualized lists retain overscan rows.  At a viewport
-    // boundary their text rectangle or inherited clip may collapse to zero
-    // area.  That is a valid invisible command, not a malformed layout.  A
-    // single overscan label must never reject the complete retained stream.
+    // Virtualized lists retain overscan rows whose text rectangle or inherited
+    // clip can collapse to zero area at a viewport boundary. That is a valid
+    // invisible command; one overscan label must not reject the whole stream.
     if (!command_visible(command)) {
         return true;
     }

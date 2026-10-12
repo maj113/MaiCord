@@ -145,8 +145,8 @@ struct UiThemeTypography {
     UiTextFace body_face{UiTextFace::normal}, code_face{UiTextFace::mono};
 };
 // Semantic DIP dimensions only. Colors/background stay in Theme; product labels,
-// capacities, permissions and widget identities are not theme data. Defaults match
-// current shared primitives. Consumers project these into their existing styles.
+// capacities, permissions and widget identities are not theme data. Defaults
+// match the shared primitives. Consumers project these into their own styles.
 struct UiThemeMetrics {
     float shell_rail_width{72}, shell_sidebar_width{240}, shell_member_width{240}, shell_header_height{48},
         shell_gutter{0};
@@ -161,8 +161,6 @@ struct UiThemeMetrics {
     float audio_padding{8}, audio_gap{6}, audio_target{32}, audio_minimum_width{160},
         audio_maximum_width{480};
     float audio_title_height{20}, audio_time_width{112}, audio_volume_width{64}, audio_radius{8};
-    // Poll: 16 padding, 8 gaps, 16 answer padding, 472 maximum width,
-    // 38 buttons, 24 selection icons and emoji, 8 radius.
     float poll_padding{16}, poll_gap{8}, poll_answer_padding{16}, poll_answer_gap{8};
     float poll_minimum_width{128}, poll_maximum_width{472}, poll_target{38}, poll_marker{24},
         poll_emoji{24}, poll_radius{8};
@@ -234,8 +232,8 @@ struct UiThemeMetricDescriptor {
     float minimum, maximum;
     u32 changes;
 };
-// Fixed compile-time vocabulary for the bounded document parser, not CSS or a
-// runtime property registry. IDs append only; names are the portable wire keys.
+// Fixed compile-time vocabulary for the bounded document parser. IDs append
+// only; names are the portable wire keys.
 ConstSlice<UiThemeMetricDescriptor> ui_theme_metric_descriptors() noexcept;
 bool ui_theme_metric_get(const UiThemeMetrics&, UiThemeMetric, float*) noexcept;
 bool ui_theme_metric_set(UiThemeMetrics*, UiThemeMetric, float) noexcept;
@@ -251,10 +249,10 @@ struct UiThemeIcons {
     u32 colors[7]{};
     float weight{1};
 };
-// Settings surface tokens with the official client's defaults. Colours are packed
-// 0xRRGGBBAA and zero derives the colour from the palette; sizes are DIPs,
-// durations milliseconds and ratios percent. Resolve through
-// ui_settings_tokens (maicord/ui/controls/settings_tokens.hpp).
+// Settings surface tokens. Colours are packed 0xRRGGBBAA and zero derives the
+// colour from the palette; sizes are DIPs, durations milliseconds and ratios
+// percent. Resolve through ui_settings_tokens
+// (maicord/ui/controls/settings_tokens.hpp).
 struct UiThemeSettings {
     u32 text_strong{}, text_subtle{}, nav_header{}, border_subtle{}, border_normal{}, mod_subtle{},
         mod_normal{}, mod_strong{}, input_background{}, input_border{}, brand_hover{}, critical{},

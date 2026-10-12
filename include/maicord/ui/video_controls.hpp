@@ -24,12 +24,12 @@ struct UiVideoPlaybackState {
     u32 volume{}; // Actual output volume, 0..100; UI never fabricates playback.
     bool playing{}, muted{}, buffering{}, error{}, can_play{}, can_seek{}, has_audio{}, can_volume{};
     bool can_expand{}, expanded{};
-    // Buffered media in 1/10000 of the duration, drawn on the seek track like the official player.
+    // Buffered media in 1/10000 of the duration, drawn on the seek track.
     u16 buffered_begin[4]{}, buffered_end[4]{};
     u8 buffered_count{};
 };
-// The official inline player: a 32 DIP bar, 24 DIP glyphs in 32 DIP targets and
-// 12-13 DIP tabular time. Seek/volume keys step by these amounts.
+// Inline player metrics: a 32 DIP bar, 24 DIP glyphs in 32 DIP targets and
+// 12-13 DIP tabular time. Seek/volume keys step by the amounts below.
 inline constexpr float kUiVideoControlBarHeight = 32.0f;
 inline constexpr float kUiVideoControlIconExtent = 24.0f;
 inline constexpr u64 kUiVideoSeekStepMs = 5'000;
@@ -76,10 +76,9 @@ struct UiVideoAction {
     bool value{}; // Requested playing/muted/expanded value, never an optimistic state.
 };
 // One selected player. No allocations, retained widgets, clocks or OS calls.
-// Metrics and labels are host-controlled reusable descriptors; the current
-// plugin ABI does not itself register media control surfaces. Borrowed labels
-// remain valid until the next projection. Time text is accessed from its owning
-// projection, so copying projections never retains a pointer to the old buffer.
+// Metrics and labels are host-controlled descriptors. Borrowed labels remain
+// valid until the next projection. Time text is read from its owning projection,
+// so copying projections never keeps a pointer to the old buffer.
 float ui_video_controls_height(const UiVideoControlsStyle&, float width) noexcept;
 bool ui_video_controls_project(const UiVideoPlaybackState&, UiRect,
     const UiVideoControlsStyle&, const Theme&, UiVideoControlsProjection*, bool volume_expanded = false) noexcept;

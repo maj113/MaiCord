@@ -31,8 +31,8 @@ bool valid_extras(ConstSlice<PopupItem> items, u32 maximum = kMessageContextMaxi
 
 // popup_scene_open preflights descriptors and capacity but can still fail in a
 // caller's measurement callback after resetting its shared arrays. Only this
-// bounded prefix can be touched by our plain context-menu tree; journal it so
-// the retained popup and all its handles survive such failures too.
+// bounded prefix can be touched by the plain context-menu tree; it is journaled
+// so the retained popup and all its handles survive such failures too.
 struct PopupRollback {
     static constexpr u32 maximum_widgets = 2 + kMessageContextMaximumPopupItems * kPopupWidgetsPerItem;
     PopupScene scene;

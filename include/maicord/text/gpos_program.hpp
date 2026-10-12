@@ -15,15 +15,13 @@ inline const SfntGposExecutableLookup* sfnt_gpos_lookup(const SfntGposProgram& p
 struct SfntGposProgramRequirements {u32 lookups,basic,attachments,contexts,coverages,classes,records;};
 struct SfntGposProgramStorage {Slice<SfntGposExecutableLookup> lookups;Slice<SfntGposSubtable> basic;Slice<SfntGposAttachment> attachments;Slice<SfntContext> contexts;Slice<SfntCoverage> coverages;Slice<SfntClassDef> classes;Slice<const SfntGposExecutableLookup*> entries={};};
 // Borrowed font mappings and prepared arrays; the font bytes must stay unchanged.
-// Separate typed arrays keep attachment/context records compact and work with the
-// existing scan executors.
 // Empty selection prepares every lookup. A supplied mask must include children;
 // unselected entries keep their indices and cannot execute.
-// An inherited program must come from this same font mapping. Its selected
+// An inherited program must come from this same font mapping; its selected
 // records borrow payloads instead of preparing them again, so keep it alive.
 // Output and destination arrays must be disjoint from all inherited storage.
 // Optional entries stores a compact directory: N pointers and only the newly
-// prepared records. Inherited entries borrow whole records from the inherited program.
+// prepared records; inherited entries borrow whole records from the inherited program.
 SfntStatus sfnt_gpos_program_requirements(const SfntLayout& layout,SfntGposProgramRequirements* output,u32 directory_limit=1000000,ConstSlice<u64> selected={},const SfntGposProgram* inherited=nullptr) noexcept;
 SfntStatus sfnt_gpos_program_prepare(const SfntLayout& layout,const SfntGdef& gdef,u32 glyph_limit,SfntGposProgramStorage storage,SfntGposProgram* output,u32 payload_work_limit=1000000,u32 directory_limit=1000000,ConstSlice<u64> selected={},const SfntGposProgram* inherited=nullptr) noexcept;
 struct SfntGposExecutionFrame {ConstSlice<u8> actions;u32 positions,count,next_action,input_end;};
@@ -33,22 +31,19 @@ struct SfntGposExecutionResult {u64 operations,matches,actions;u32 max_depth;};
 static_assert(sizeof(SfntGposExecutableLookup)==40 && sizeof(SfntGposProgram)==88 && sizeof(SfntGposExecutionFrame)==32 && sizeof(SfntGposExecutionResult)==32);
 // Natural horizontal execution of a caller-scheduled lookup. Contexts match
 // formats 1/2/3; extension lookups are resolved during preparation. Nested input
-// ranges stay within their parent match (including trailing ignored glyphs).
-// Lookaround and backward attachment may inspect outside that input range.
-// Root inputs are filtered; explicit child inputs bypass initial filtering.
-// No allocation, C++ recursion, glyph edits, script scheduling or raster policy.
+// ranges stay within their parent match (including trailing ignored glyphs);
+// lookaround and backward attachment may inspect outside it. Root inputs are
+// filtered; explicit child inputs bypass initial filtering. No allocation or
+// C++ recursion.
 // Associations supplied with a SfntComponentGlyph-sized view require
 // SfntComponentGlyph records, which keep their post-GSUB component metadata.
-// Frames and packed matched positions scale with active contexts.
-// Reverse contextual cursive uses 8 bytes per run glyph, initialized lazily on
-// its first child call. Root cursive keeps its compact connection bitset.
-// Growing reverse chains coalesce integer moves in 24 bytes of local state.
-// Short runs, callbacks, fractions and large values use eager arithmetic.
-// Nonmonotonic/fallback chain updates and nested attachment searches can still
-// have quadratic work; the shared operation limit bounds attempts.
+// Frames and packed matched positions scale with active contexts; reverse
+// contextual cursive uses 8 bytes per run glyph, initialized on its first child
+// call. Nonmonotonic chain updates and nested attachment searches can cost
+// quadratic work, bounded by the shared operation limit.
 // All scratch, positions, metrics, flags, associations and prepared font storage
-// are disjoint. Limits bound work and active cycles; positions may contain earlier
-// committed actions on failure. Discard failed attempts; never retry in place.
+// are disjoint. Limits bound work and active cycles. On failure positions may
+// hold earlier committed actions: discard the attempt, never retry in place.
 SfntStatus sfnt_gpos_execute_program_lookup(const SfntGposProgram& program,u16 lookup,SfntGlyphView glyphs,
     ConstSlice<double> nominal_advances,ConstSlice<u8> position_flags,ConstSlice<SfntMarkAssociation> associations,ConstSlice<u32> target_glyphs,
     Slice<SfntPosition> positions,u32 start,u32 input_end,bool rtl,const SfntPositionInstance& instance,

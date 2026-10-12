@@ -123,9 +123,8 @@ bool gateway_session_enable_output_growth(GatewaySession* session, Slice<u8> dec
 // maximum_compressed_bytes, and return to the initial storage afterwards.
 bool gateway_session_enable_compressed_growth(GatewaySession* session, u32 maximum_compressed_bytes,
     GatewaySessionGrowCompressed grow, void* context) noexcept;
+// Zero-copy event views remain valid until the next push/next call on this session.
 GatewaySessionEvent gateway_session_next(GatewaySession* session, u32 heartbeat_jitter,
                                          u64 now_ms) noexcept;
-
-// Zero-copy event views remain valid until the next push/next call on this session.
 
 } // namespace maicord

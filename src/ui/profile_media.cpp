@@ -148,7 +148,7 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         const auto format = webp ? MediaAttachmentFormat::webp : MediaAttachmentFormat::png;
         result.circular = part.media == ProfileMediaKind::activity_small;
         if (!result.circular) {
-            // 8 DIP artwork corners, as in the official client.
+            // 8 DIP artwork corners.
             result.mask = result.rectangle;
             result.mask_radius = 8;
         }
@@ -328,8 +328,8 @@ bool member_media_resolve(const MemberListScene& s, u32 index, MemberMedia layer
             return false;
         append(&url, utf8_literal("media/v1/collectibles-shop/"));
         id(&url, a->nameplate_sku);
-        // The row is already known; avoid searching all materialized rows to
-        // determine whether this row owns the hovered widget.
+        // Compare against this row's widgets directly instead of searching all
+        // materialized rows for the hovered widget.
         const u32 hovered = widget_bits(s.widgets.hovered);
         animated = (widget_bits(row.widget) == hovered || widget_bits(row.avatar) == hovered ||
                     widget_bits(row.label) == hovered || widget_bits(row.status) == hovered) &&

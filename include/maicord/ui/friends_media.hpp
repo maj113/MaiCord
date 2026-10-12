@@ -29,7 +29,6 @@ struct FriendsAvatarMediaVisitResult {
     bool ok, stopped;
 };
 // Only retained rows intersecting the current viewport can reach a request.
-// Residency and animation ownership use the application's existing pipeline.
 FriendsAvatarMediaVisitResult friends_avatar_media_visit(const UiFriendsScene&,
     const UserStore&, const FriendsAvatarMediaCallbacks&) noexcept;
 } // namespace maicord
