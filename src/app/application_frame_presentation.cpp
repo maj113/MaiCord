@@ -18,6 +18,7 @@
 #include "application_unread_banner.hpp"
 #include "application_downloads.hpp"
 #include "application_load_trace.hpp"
+#include "application_perf_mark.hpp"
 #include "application_frame_presentation.hpp"
 #include "application_media.hpp"
 #include "application_background.hpp"
@@ -153,6 +154,7 @@ bool application_present_frame() noexcept {
     if (!g_app.renderer_ready) {
         return true;
     }
+    MAICORD_PERF_MARK("frame_begin");
     // Consume a due spinner step first: a rejected draw below must not leave
     // the expired deadline armed (it is re-sampled once scenes are published).
     if (ui_spinner_clock_due(g_loading_spinner, clock_monotonic_milliseconds()))
@@ -251,6 +253,7 @@ bool application_present_frame() noexcept {
     // After every surface published its scene: sample the spinner phase for
     // this frame and arm (or disarm) the next spinner step.
     synchronize_loading_spinners(clock_monotonic_milliseconds());
+    MAICORD_PERF_MARK("frame_surfaces");
     const u64 before =
         static_cast<u64>(g_app.renderer.full_present_draws) + g_app.renderer.partial_present_draws;
     const bool presented = renderer_present(&g_app.renderer, application_theme());
@@ -260,6 +263,8 @@ bool application_present_frame() noexcept {
         application_media_posters_presented(g_app, presented, before, after);
     if (!presented)
         return present_rejected("renderer");
+    if (after != before)
+        MAICORD_PERF_FIRST_PRESENT();
     application_composer_text_input_notify_layout();
     if (after != before && !g_app.login.visible && !application_settings_active() &&
         !application_friends_active() && g_app.load_trace.channel_started) {

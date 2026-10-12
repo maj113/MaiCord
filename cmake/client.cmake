@@ -114,6 +114,17 @@ target_link_options(MaiCord PRIVATE
 if(MAICORD_GENERATE_LINK_MAPS)
     target_link_options(MaiCord PRIVATE "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCord.map")
 endif()
+# Startup: DLLs the device prestart does not need map on first use instead of
+# before the entry point, which the prestart waits for. The renderer maps
+# dcomp, shell32, ole32 and advapi32 (which GPU drivers import) on the main
+# thread while the worker creates the device; the rest load when first used.
+# dloadhelper resolves through kernel32's ResolveDelayLoadedAPI (no CRT).
+# tools/audit_pe.ps1 (-DelayLoad) and maicord_client_imports check the list.
+set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll secur32.dll ole32.dll advapi32.dll
+    api-ms-win-core-winrt-l1-1-0.dll api-ms-win-core-winrt-string-l1-1-0.dll)
+list(TRANSFORM MAICORD_CLIENT_DELAY_LOADS PREPEND /DELAYLOAD: OUTPUT_VARIABLE MAICORD_CLIENT_DELAY_LOAD_OPTIONS)
+target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
+target_link_libraries(MaiCord PRIVATE dloadhelper)
 add_dependencies(MaiCord MaiCordAccount maicord_app_icon)
 
 # Self-updater publisher. Environment variables override the official defaults,

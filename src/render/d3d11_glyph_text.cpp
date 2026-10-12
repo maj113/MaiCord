@@ -800,7 +800,8 @@ bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, ID3D11DeviceCont
 }
 
 D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* owner, ID3D11Device* device,
-                                                           ID3D11DeviceContext* context, u32 dpi) noexcept {
+                                                           ID3D11DeviceContext* context, u32 dpi,
+                                                           GlyphAtlasGpu* prestarted_atlas) noexcept {
     if (!owner || !device || !context || dpi == 0 || owner->storage.base || owner->system.native_text ||
         owner->gpu.texture || owner->color_glyphs) {
         return initialize_result(D3D11GlyphTextInitializeError::invalid_input, E_INVALIDARG);
@@ -829,8 +830,19 @@ D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* 
         d3d11_glyph_text_release(owner);
         return initialize_result(D3D11GlyphTextInitializeError::atlas_storage, E_INVALIDARG);
     }
-    const GlyphAtlasGpuResult gpu = glyph_atlas_gpu_initialize(
-        &owner->gpu, device, kRendererGlyphAtlasExtent, kRendererGlyphAtlasExtent, kRendererPathCapacity);
+    const bool adopt = prestarted_atlas && prestarted_atlas->texture && prestarted_atlas->texture_view &&
+                       prestarted_atlas->texture_uav && prestarted_atlas->command_view &&
+                       prestarted_atlas->raster_shader && prestarted_atlas->width == kRendererGlyphAtlasExtent &&
+                       prestarted_atlas->height == kRendererGlyphAtlasExtent &&
+                       prestarted_atlas->command_capacity == kRendererPathCapacity;
+    GlyphAtlasGpuResult gpu{S_OK, GlyphAtlasGpuError::none};
+    if (adopt) {
+        owner->gpu = *prestarted_atlas;
+        *prestarted_atlas = GlyphAtlasGpu{};
+    } else {
+        gpu = glyph_atlas_gpu_initialize(&owner->gpu, device, kRendererGlyphAtlasExtent, kRendererGlyphAtlasExtent,
+                                         kRendererPathCapacity);
+    }
     if (!gpu.ok()) {
         d3d11_glyph_text_release(owner);
         return initialize_result(D3D11GlyphTextInitializeError::atlas_gpu, gpu.native_error,

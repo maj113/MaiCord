@@ -202,6 +202,17 @@ maicord_test(MaiCordUpdateClientTests ENTRY maicord_update_client_tests_entry
     USES_CLIENT MaiCord MaiCordAccount
     TIMEOUT 15
     TEST maicord_update_client)
+# Startup: the DLLs MaiCord.exe maps before its entry point (static imports)
+# and those it delay-loads (MAICORD_CLIENT_DELAY_LOADS in cmake/client.cmake).
+list(JOIN MAICORD_CLIENT_DELAY_LOADS "," maicord_client_delay_load_list)
+maicord_test(MaiCordClientStartupImportsTests ENTRY maicord_client_startup_imports_entry
+    SOURCES tests/client_startup_imports.cpp
+    LIBS maicord_core kernel32
+    DEFINES "MAICORD_CLIENT_IMPORTS_EXECUTABLE=L\"$<TARGET_FILE:MaiCord>\""
+        "MAICORD_CLIENT_DELAY_LOADS=\"${maicord_client_delay_load_list}\""
+    USES_CLIENT MaiCord
+    TIMEOUT 5
+    TEST maicord_client_imports)
 # Plugin catalog: the index verifier against the vectors shared with
 # tools/release/test_plugin_index_tools.py (tests/fixtures/plugin_index), the
 # catalog policy, and the floor, providers, state and journal records.

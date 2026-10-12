@@ -34,10 +34,10 @@ bool create_glyph_instance_buffer(D3D11Renderer* renderer, u32 capacity) noexcep
     return true;
 }
 
-bool create_gpu_text_resources(D3D11Renderer* renderer) noexcept {
+bool create_gpu_text_resources(D3D11Renderer* renderer, GlyphAtlasGpu* prestarted_atlas) noexcept {
     const D3D11GlyphTextInitializeResult initialized =
         d3d11_glyph_text_initialize(&renderer->glyph_text, renderer->graphics.device,
-                                    renderer->graphics.context, renderer->dpi);
+                                    renderer->graphics.context, renderer->dpi, prestarted_atlas);
     if (!initialized.ok()) {
         log_write(LogLevel::error, "render", "gpu_text_resources_creation_failed");
         log_u64(LogLevel::error, "render", "gpu_text_initialize_stage",
@@ -57,13 +57,22 @@ constexpr D3D11DrawPipelineConfig kPipelineConfig{sizeof(PaintQuad), kD3D11Initi
                                                 sizeof(MediaQuad), kRendererMediaQuadCapacity};
 static_assert(kMaxPaintQuads == kD3D11MaximumUiInstanceCapacity);
 
-// Draw-pipeline objects built by the device prestart worker while the main
-// thread creates the swap chain, composition tree and text resources. The
-// device pointer identifies which device they belong to; it is not owned.
+// The glyph atlas and draw-pipeline objects built by the device prestart
+// worker while the main thread creates the swap chain, composition tree and
+// icon atlas. The atlas comes first: the main thread's first frame needs it,
+// and its texture and buffer contend less with the swap chain than shader
+// creation does. The device pointers identify which device they belong to;
+// they are not owned.
 D3D11DrawPipelineOwner g_prestarted_pipeline{};
 ID3D11Device* g_prestarted_pipeline_device = nullptr;
+GlyphAtlasGpu g_prestarted_glyph_atlas{};
+ID3D11Device* g_prestarted_glyph_atlas_device = nullptr;
 
 void prestart_pipeline(ID3D11Device* device, void*) noexcept {
+    if (glyph_atlas_gpu_initialize(&g_prestarted_glyph_atlas, device, kRendererGlyphAtlasExtent,
+                                   kRendererGlyphAtlasExtent, kRendererPathCapacity)
+            .ok())
+        g_prestarted_glyph_atlas_device = device;
     if (d3d11_draw_pipeline_create(&g_prestarted_pipeline, device, kPipelineConfig).ok())
         g_prestarted_pipeline_device = device;
 }
@@ -72,10 +81,25 @@ void release_prestarted_pipeline() noexcept {
     d3d11_device_prestart_finish();
     d3d11_draw_pipeline_release(&g_prestarted_pipeline);
     g_prestarted_pipeline_device = nullptr;
+    glyph_atlas_gpu_release(&g_prestarted_glyph_atlas);
+    g_prestarted_glyph_atlas_device = nullptr;
+}
+
+// Joins the prestart worker and lends its glyph atlas to the text resources
+// when it belongs to this device; null otherwise.
+GlyphAtlasGpu* prestarted_glyph_atlas(const D3D11Renderer& renderer) noexcept {
+    d3d11_device_prestart_finish();
+    return g_prestarted_glyph_atlas_device && g_prestarted_glyph_atlas_device == renderer.graphics.device
+               ? &g_prestarted_glyph_atlas
+               : nullptr;
 }
 
 D3D11DrawPipelineResult initialize_pipeline(D3D11Renderer* renderer) noexcept {
     d3d11_device_prestart_finish();
+    // An atlas the text resources did not take (another device, or their
+    // initialization failed first) is released with the worker's leftovers.
+    glyph_atlas_gpu_release(&g_prestarted_glyph_atlas);
+    g_prestarted_glyph_atlas_device = nullptr;
     D3D11DrawPipelineOwner staged = g_prestarted_pipeline;
     const bool prestarted = g_prestarted_pipeline_device && g_prestarted_pipeline_device == renderer->graphics.device;
     g_prestarted_pipeline = {};
@@ -297,12 +321,17 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window) noexcept {
     renderer->height = graphics.height;
     renderer->dpi = graphics.dpi;
     renderer->startup_prestart = graphics.prestarted ? 1 : 0;
-    if (!create_gpu_text_resources(renderer)) {
+    // The icon atlas is created here while the prestart worker still builds the
+    // glyph atlas and draw pipeline; the text resources then adopt its atlas.
+    if (!icon_atlas_initialize(&renderer->icon_atlas, renderer->graphics.device))
+        log_write(LogLevel::error, "render", "icon_atlas_creation_failed");
+    GlyphAtlasGpu* const prestarted_atlas = prestarted_glyph_atlas(*renderer);
+    if (!create_gpu_text_resources(renderer, prestarted_atlas)) {
         renderer_shutdown(renderer);
         return false;
     }
-    if (!icon_atlas_initialize(&renderer->icon_atlas, renderer->graphics.device))
-        log_write(LogLevel::error, "render", "icon_atlas_creation_failed");
+    if (prestarted_atlas && !prestarted_atlas->texture)
+        renderer->startup_prestart |= 4;
     const D3D11GpuTimerResult gpu_timer =
         d3d11_gpu_timer_initialize(&renderer->gpu_timer, renderer->graphics.device, gpu_timestamps_enabled);
     if (!gpu_timer.ok()) {

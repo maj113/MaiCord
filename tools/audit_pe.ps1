@@ -9,7 +9,11 @@ param(
     # File bytes allowed in the writable .data section (-1: unchecked). One
     # nonzero default member initializer moves a whole zero-filled global
     # (e.g. app_detail::g_app) from .bss into the file.
-    [int]$MaximumInitializedDataBytes = -1
+    [int]$MaximumInitializedDataBytes = -1,
+    # The exact set of delay-loaded DLLs (case-insensitive). Each must be
+    # absent from the static imports, which the loader maps before the entry
+    # point; an empty list requires no delay-load imports at all.
+    [string[]]$DelayLoad = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,6 +79,23 @@ if ($MaximumInitializedDataBytes -ge 0) {
     }
 }
 
+# dumpbin lists static imports first, then a delay-load section.
+$importParts = $imports -split 'Section contains the following delay load imports:', 2
+$staticDlls = @([regex]::Matches($importParts[0], '(?im)^\s+([^\s]+\.dll)\s*$') | ForEach-Object { $_.Groups[1].Value })
+$delayDlls = @(if ($importParts.Count -gt 1) {
+    [regex]::Matches($importParts[1], '(?im)^\s+([^\s]+\.dll)\s*$') | ForEach-Object { $_.Groups[1].Value }
+})
+$expectedDelay = @($DelayLoad | ForEach-Object { $_ -split ',' } | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique)
+$actualDelay = @($delayDlls | ForEach-Object { $_.ToLowerInvariant() } | Sort-Object -Unique)
+if (($expectedDelay -join ',') -ne ($actualDelay -join ',')) {
+    throw "Delay-loaded DLLs are [$($actualDelay -join ', ')], expected [$($expectedDelay -join ', ')]."
+}
+foreach ($name in $expectedDelay) {
+    if (@($staticDlls | Where-Object { $_ -ieq $name }).Count) {
+        throw "$name is delay-loaded but still a static import (mapped before the entry point)."
+    }
+}
+
 $forbidden = @(
     'ucrtbase.dll',
     'vcruntime',
@@ -111,8 +132,8 @@ if ($RequireD3D11) {
     $required += @('D3D11.dll')
 }
 foreach ($name in $required) {
-    if ($imports -notmatch [regex]::Escape($name)) {
-        throw "Expected platform import missing: $name"
+    if (!@($staticDlls | Where-Object { $_ -ieq $name }).Count) {
+        throw "Expected static platform import missing: $name"
     }
 }
 
@@ -133,8 +154,8 @@ $size = (Get-Item -LiteralPath $resolved).Length
     Executable = $resolved
     Bytes = $size
     KiB = [math]::Round($size / 1KB, 2)
-    ImportedDlls = @([regex]::Matches($imports, '(?im)^\s+([^\s]+\.dll)\s*$') |
-        ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique) -join ', '
+    ImportedDlls = @($staticDlls | Sort-Object -Unique) -join ', '
+    DelayLoadedDlls = @($delayDlls | Sort-Object -Unique) -join ', '
     CrtFree = $true
     DirectEntry = $true
     Mitigations = 'ASLR, HighEntropyVA, NX, CET-compatible'

@@ -9714,8 +9714,9 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return 246;
     }
-    // Both prestarted halves were adopted, not recreated on this thread.
-    if (g_probe.renderer.startup_prestart != 3) {
+    // The prestarted device, draw pipeline and glyph atlas were adopted, not
+    // recreated on this thread.
+    if (g_probe.renderer.startup_prestart != 7) {
         renderer_shutdown(&g_probe.renderer);
         DestroyWindow(g_probe.window);
         return 229;

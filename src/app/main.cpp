@@ -70,6 +70,7 @@
 #include "application_media_picker.hpp"
 #include "application_background.hpp"
 #include "application_load_trace.hpp"
+#include "application_perf_mark.hpp"
 #include "application_voice_message.hpp"
 #if defined(MAICORD_PERF_PROBE)
 #include "../../tools/perf/perf_probe.hpp"
@@ -111,36 +112,46 @@ bool initialize_ui_runtime() noexcept {
         goto failed;
     }
     application_preferences_apply();
+    MAICORD_PERF_MARK("ui_animations");
     ++stage;
     if (!message_composer_initialize_owned(&g_app.message_composer)) {
         goto failed;
     }
+    MAICORD_PERF_MARK("ui_composer");
     ++stage;
     if (!ui_scene_initialize_bootstrap(&g_app.shell_scene)) {
         goto failed;
     }
+    MAICORD_PERF_MARK("ui_bootstrap_scene");
     ++stage;
     if (!application_initialize_shell_scenes(g_app)) {
         goto failed;
     }
+    MAICORD_PERF_MARK("ui_shell_scenes");
     ++stage;
     if (!application_initialize_message_scene(g_app)) {
         goto failed;
     }
+    MAICORD_PERF_MARK("ui_message_scene");
     ++stage;
     if (!message_composer_scene_initialize_owned(&g_app.message_composer_scene)) {
         goto failed;
     }
+    MAICORD_PERF_MARK("ui_composer_scene");
     ++stage;
     if (!synchronize_shell_layout()) {
         goto failed;
     }
+    MAICORD_PERF_MARK("ui_shell_layout");
     ++stage;
     if (!application_initialize_login_ui()) {
         goto failed;
     }
+    MAICORD_PERF_MARK("ui_login");
     ++stage;
-    if (!application_synchronize_login_view()) {
+    // A prestarted saved account attaches next and replaces the sign-in form
+    // with the restoring view; skip shaping the form it would discard.
+    if (!application_account_prestart_pending() && !application_synchronize_login_view()) {
         goto failed;
     }
     return true;
@@ -153,14 +164,18 @@ failed:
 int application_run() noexcept {
     g_app.clock = clock_initialize();
     g_app.process_start = clock_now();
+    MAICORD_PERF_MARK("application_run");
     // GPU driver initialization is the longest startup step; overlap it with
     // the window and model setup below.
     renderer_prestart();
+    MAICORD_PERF_MARK("renderer_prestart");
     g_app.channel_pane_width = kGuildChannelShellLayoutMetrics.navigation_width;
     g_app.member_pane_width = kGuildChannelShellLayoutMetrics.member_sidebar_width;
     g_app.instance = module_instance();
     log_open();
+    MAICORD_PERF_MARK("log_open");
     application_preferences_initialize();
+    MAICORD_PERF_MARK("preferences");
 #if !defined(MAICORD_ISOLATED_MAIN)
     if (!application_notifications_initialize(&g_app))
         log_write(LogLevel::warning, "notifications", "early_activation_unavailable");
@@ -184,6 +199,7 @@ int application_run() noexcept {
     // Connect first: the saved account's DNS/TCP/TLS/Gateway handshake runs on
     // its workers while the window, D3D11 device and UI are created below.
     application_account_prestart();
+    MAICORD_PERF_MARK("account_prestart");
     const MessageViewRuntimeResult message_view_initialized = message_view_runtime_initialize(
         &g_app.message_view, ui_extent_units(kDefaultUiBootstrapMetrics.message_row_height), 1, true);
     if (!message_view_initialized.ok()) {
@@ -198,6 +214,7 @@ int application_run() noexcept {
     }
     log_u64(LogLevel::info, "model", "message_records", g_app.message_view.store.count);
     log_u64(LogLevel::info, "model", "message_text_bytes", g_app.message_view.store.text_used);
+    MAICORD_PERF_MARK("message_view");
     if (!application_create_main_window(application_window_proc)) {
         renderer_prestart_cancel();
         MessageBoxW(nullptr, L"MaiCord could not create its main window.", L"MaiCord",
@@ -212,6 +229,13 @@ int application_run() noexcept {
     application_desktop_window_created();
 #endif
     application_trace_load_stage("window_created");
+    MAICORD_PERF_MARK("window_created");
+    // Text services attach to the window, not the renderer: activate them while
+    // the prestart worker is still creating the GPU device (the main thread
+    // would otherwise wait idle). A failure is retried, and reported, by
+    // initialize_ui_runtime.
+    application_initialize_login_ui();
+    MAICORD_PERF_MARK("login_text_services");
 
     // Rendered content hides default-ignorable code points, as a browser does.
     text_set_browser_invisibles(true);
@@ -220,6 +244,7 @@ int application_run() noexcept {
         MessageBoxW(g_app.window,
                     L"MaiCord requires a hardware Direct3D 11 device and the D3D11.1 runtime.",
                     L"Direct3D 11 unavailable", MB_OK | MB_ICONERROR);
+        application_release_login_ui();
         DestroyWindow(g_app.window);
         application_account_prestart_cancel();
         message_view_runtime_release(&g_app.message_view);
@@ -228,6 +253,7 @@ int application_run() noexcept {
     }
     g_app.renderer_ready = true;
     application_trace_load_stage("renderer_ready");
+    MAICORD_PERF_MARK("renderer_ready");
     if (!initialize_ui_runtime()) {
         application_release_login_ui();
         application_release_widget_storage(g_app);
@@ -241,12 +267,15 @@ int application_run() noexcept {
         log_close();
         return 4;
     }
+    MAICORD_PERF_MARK("ui_runtime");
     if (!application_custom_theme_initialize())
         log_write(LogLevel::warning, "theme", "saved_theme_load_unavailable");
     application_trace_load_stage("ui_ready");
+    MAICORD_PERF_MARK("ui_ready");
     // Publish the early-started session (or resolve it now) before the first
     // visible paint. The handshake remains asynchronous behind the restoration view.
     application_account_attach_if_present();
+    MAICORD_PERF_MARK("account_attach");
 #if defined(MAICORD_PERF_PROBE)
     // Shown without activation at the bottom of the z-order: the probe never
     // takes keyboard focus or covers another window.
@@ -256,6 +285,7 @@ int application_run() noexcept {
     ShowWindow(g_app.window, application_desktop_initial_show());
 #endif
     application_trace_load_stage("window_shown");
+    MAICORD_PERF_MARK("window_shown");
     application_request_frame();
 #if !defined(MAICORD_ISOLATED_MAIN)
     application_updates_confirm_startup();
@@ -277,6 +307,7 @@ int application_run() noexcept {
     constexpr u64 kWakeLedgerSettleMs = 5'000;
     LoopWakeLedger wake_ledger{clock_monotonic_milliseconds() + kWakeLedgerSettleMs};
     application_trace_load_stage("loop_entered");
+    MAICORD_PERF_MARK("loop_entered");
     // Synchronization timer for tolerant background waits (SetWaitableTimerEx).
     const HANDLE wake_timer = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
     g_app.frame_loop_active = true;
@@ -390,6 +421,7 @@ int application_run() noexcept {
             else
                 CancelWaitableTimer(wake_timer);
         }
+        MAICORD_PERF_MARK("loop_wait");
         if (waited == WAIT_FAILED) {
             log_u64(LogLevel::error, "app", "message_wait_native_error", thread_last_error());
             exit_code = 5;
@@ -502,6 +534,7 @@ int application_run() noexcept {
         }
         if (quit)
             break;
+        MAICORD_PERF_MARK("loop_dispatch");
         if (!application_synchronize_theme_consumers()) {
             log_write(LogLevel::error, "theme", "theme_layout_refresh_failed");
             exit_code = 6;
@@ -533,6 +566,7 @@ int application_run() noexcept {
         if (account_work) {
             application_pump_account();
         }
+        MAICORD_PERF_MARK("loop_account");
         // A rejected scroll projection is a presentation failure, not a reason
         // to quit: the scroll keeps its position and the next frame rebuilds
         // the projection (presentation recovery relayouts persistent failures).
@@ -679,6 +713,7 @@ int application_run() noexcept {
             exit_code = 6;
             break;
         }
+        MAICORD_PERF_MARK("loop_before_present");
         application_present_pending_frame();
         // Shell integration (taskbar button state, notification-area icon)
         // follows the frame: its first COM activation and Shell_NotifyIcon
@@ -741,6 +776,7 @@ int application_run() noexcept {
     log_write(LogLevel::info, "shutdown", "normal_exit");
     log_close();
 #if defined(MAICORD_PERF_PROBE)
+    perf::startup_trace_report();
     perf::probe_finish(exit_code);
 #endif
     return exit_code;
@@ -752,6 +788,7 @@ int application_run() noexcept {
 
 extern "C" __declspec(noreturn) void WINAPI maicord_entry() noexcept {
 #if defined(MAICORD_PERF_PROBE)
+    maicord::perf::startup_trace_initialize();
     if (!maicord::perf::probe_initialize())
         ExitProcess(125);
 #endif

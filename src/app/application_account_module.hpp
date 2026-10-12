@@ -18,6 +18,9 @@ bool application_account_return_to_login(bool rejected) noexcept;
 bool application_account_prestart() noexcept;
 // Stops a worker that prestart started but attach never published.
 void application_account_prestart_cancel() noexcept;
+// A prestarted account waits for attach, which replaces the sign-in form with
+// the restoring view (and synchronizes that view itself).
+bool application_account_prestart_pending() noexcept;
 bool application_account_attach_if_present() noexcept;
 bool synchronize_member_subscription(u64 now_ms) noexcept;
 void synchronize_visible_author_hydration(u64 now_ms, bool pins_reset = false) noexcept;

@@ -109,6 +109,17 @@ D3D11DeviceOwnerResult d3d11_device_owner_initialize(
             0, 0, 0, E_INVALIDARG, D3D11DeviceOwnerError::invalid_input};
     }
 
+    // MaiCord.exe delay-loads these, so the loader does not map them before
+    // the entry point (which the device worker waits for). Map them here, in
+    // parallel with the worker, which is still creating the device: GPU
+    // user-mode drivers import shell32, ole32 (combase) and advapi32
+    // themselves, which would otherwise load on the device's critical path,
+    // and composition needs dcomp right after it. The references stay for the
+    // process lifetime.
+    static constexpr const wchar_t* kParallelLibraries[] = {L"dcomp.dll", L"shell32.dll", L"ole32.dll",
+                                                            L"advapi32.dll"};
+    for (const wchar_t* library : kParallelLibraries)
+        LoadLibraryExW(library, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     HRESULT result = adopt_prestart(owner);
     const bool prestarted = SUCCEEDED(result);
     if (FAILED(result)) {

@@ -224,7 +224,8 @@ try {
         Invoke-CMake -Arguments @('--build', $cacheRoot, '--target', 'MaiCord', 'MaiCordAccount', '--parallel', [string]$compileJobs)
         # Both images keep large zero-filled globals in .bss; 16 KiB of initialized
         # .data leaves room for small tables but not for a serialized aggregate.
-        & (Join-Path $PSScriptRoot 'audit_pe.ps1') -Executable $binary -RequireD3D11Only -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo -MaximumInitializedDataBytes 16384
+        # -DelayLoad matches MAICORD_CLIENT_DELAY_LOADS in cmake/client.cmake.
+        & (Join-Path $PSScriptRoot 'audit_pe.ps1') -Executable $binary -RequireD3D11Only -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo -MaximumInitializedDataBytes 16384 -DelayLoad dcomp.dll, shell32.dll, ws2_32.dll, secur32.dll, ole32.dll, advapi32.dll, api-ms-win-core-winrt-l1-1-0.dll, api-ms-win-core-winrt-string-l1-1-0.dll
         & (Join-Path $PSScriptRoot 'audit_pe.ps1') -Executable (Join-Path $cacheRoot 'MaiCordAccount.dll') -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo -MaximumInitializedDataBytes 16384
     }
     & (Join-Path $PSScriptRoot 'maintain_build_outputs.ps1') -Apply -ConfigureScratch

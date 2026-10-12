@@ -15,6 +15,7 @@
 #include "application_message_feedback.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "application_load_trace.hpp"
+#include "application_perf_mark.hpp"
 #include "application_commands.hpp"
 #include "application_account_module.hpp"
 #include "application_custom_status.hpp"
@@ -977,6 +978,10 @@ void application_account_prestart_cancel() noexcept {
     early = {};
 }
 
+bool application_account_prestart_pending() noexcept {
+    return g_early_start.instance != nullptr;
+}
+
 bool application_account_attach_if_present() noexcept {
     application_account_switch_initialize();
     AccountEarlyStart& early = g_early_start;
@@ -985,12 +990,18 @@ bool application_account_attach_if_present() noexcept {
         return true;
     }
     if (early.instance) {
-        if (!application_initialize_account_ui(g_app) || !rebuild_account_text_cache()) {
+        const bool ui_ready = application_initialize_account_ui(g_app);
+        MAICORD_PERF_MARK("account_ui_initialized");
+        if (!ui_ready || !rebuild_account_text_cache()) {
             application_release_account_ui(g_app);
             log_u64(LogLevel::error, "account", "ui_runtime_allocation_bytes", sizeof(AccountUiRuntime));
             application_account_prestart_cancel();
+            // UI startup left the sign-in form for this attach to replace.
+            if (!application_synchronize_login_view())
+                log_write(LogLevel::error, "ui", "login_view_restore_failed");
             return true;
         }
+        MAICORD_PERF_MARK("account_text_cache");
         g_app.account.instance = early.instance;
         early.instance = nullptr;
         application_plugins_account_scope_invalidated();

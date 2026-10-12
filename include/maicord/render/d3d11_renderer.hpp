@@ -486,8 +486,9 @@ struct D3D11Renderer {
     u64 paint_cpu_us_total;
     u64 paint_cpu_us_max;
     u64 first_frame_cpu_us;
-    // renderer_initialize adopted the prestarted device (bit 0) and draw
-    // pipeline (bit 1) instead of creating them on the main thread.
+    // renderer_initialize adopted the prestarted device (bit 0), draw
+    // pipeline (bit 1) and glyph atlas (bit 2) instead of creating them on the
+    // main thread.
     u8 startup_prestart;
     u32 painted_frames;
     u32 draw_calls_last_frame;

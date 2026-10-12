@@ -1,6 +1,7 @@
 """Bounded LLVM PE import audit for the native app and its account module.
 
-Static imports only: runtime module observation and feature acceptance are separate.
+Static and delay-load imports; tools/audit_pe.ps1 -DelayLoad checks which DLLs
+are delay-loaded. Runtime module observation and feature acceptance are separate.
 QA comparison executables intentionally import DirectWrite and should fail here.
 """
 from pathlib import Path
@@ -12,9 +13,8 @@ from verify_hangul_render import identity
 def inspect_headers(text):
     if 'file format coff-x86-64' not in text or '(PE32+)' not in text:
         raise ValueError('Expected an AMD64 PE32+ image')
-    delay = re.search(r'^Entry d ([0-9a-f]+) ([0-9a-f]+) Delay Import Directory$', text, re.M | re.I)
-    if not delay or int(delay[1], 16) or int(delay[2], 16):
-        raise ValueError('Missing or nonempty delay-import directory requires a separate audit')
+    if not re.search(r'^Entry d ([0-9a-f]+) ([0-9a-f]+) Delay Import Directory$', text, re.M | re.I):
+        raise ValueError('Missing delay-import directory entry')
     names = re.findall(r'^\s*DLL Name:\s*(\S+)', text, re.M)
     if not names:
         raise ValueError('No import descriptors were decoded')

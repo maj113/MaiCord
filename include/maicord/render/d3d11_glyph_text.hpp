@@ -119,8 +119,13 @@ struct D3D11GlyphTextAppendRequest {
 };
 
 // Initializes reusable resources; the standalone title is shaped on its first rebuild.
+// prestarted_atlas, when it holds a kRendererGlyphAtlasExtent atlas that another
+// thread created on `device` with kRendererPathCapacity commands, is moved into
+// the owner (and left empty) instead of creating a second one; otherwise it is
+// left untouched for its creator to release.
 D3D11GlyphTextInitializeResult d3d11_glyph_text_initialize(D3D11GlyphTextOwner* owner, ID3D11Device* device,
-                                                           ID3D11DeviceContext* context, u32 dpi) noexcept;
+                                                           ID3D11DeviceContext* context, u32 dpi,
+                                                           GlyphAtlasGpu* prestarted_atlas = nullptr) noexcept;
 bool d3d11_glyph_text_rebuild_title(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context, u32 dpi,
                                     bool reset_atlas) noexcept;
 bool d3d11_glyph_text_append(D3D11GlyphTextOwner* owner, ID3D11DeviceContext* context,
