@@ -23,13 +23,13 @@ get_target_property(maicord_perf_probe_sources MaiCord SOURCES)
 list(FILTER maicord_perf_probe_sources EXCLUDE REGEX "/application_pch_[A-Za-z0-9]+\\.cpp$")
 get_target_property(maicord_perf_probe_links MaiCord LINK_LIBRARIES)
 add_executable(MaiCordPerfProbe WIN32 ${maicord_perf_probe_sources}
-    tools/perf/perf_probe.cpp src/app/account_host.cpp)
+    tools/perf/perf_probe.cpp tools/perf/perf_startup.cpp src/app/account_host.cpp)
 target_link_libraries(MaiCordPerfProbe PRIVATE ${maicord_perf_probe_links})
 target_include_directories(MaiCordPerfProbe PRIVATE "${MAICORD_GENERATED_DIRECTORY}" src/app)
 target_compile_definitions(MaiCordPerfProbe PRIVATE MAICORD_PERF_PROBE=1)
 # run_perf.ps1 resolves allocation call stacks through the map.
 target_link_options(MaiCordPerfProbe PRIVATE /ENTRY:maicord_entry /SUBSYSTEM:WINDOWS,6.02
-    "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordPerfProbe.map")
+    "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordPerfProbe.map" ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
 set_target_properties(MaiCordPerfProbe PROPERTIES CXX_EXTENSIONS OFF MSVC_RUNTIME_LIBRARY "MultiThreaded")
 add_dependencies(MaiCordPerfProbe MaiCordPerfAccount)
 file(WRITE "${CMAKE_BINARY_DIR}/maicord-test-targets.txt" "MaiCordPerfProbe\nMaiCordPerfAccount\n")

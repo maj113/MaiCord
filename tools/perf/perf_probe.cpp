@@ -67,6 +67,7 @@
 #include "../../src/app/application_text_form.hpp"
 #include "../../src/app/application_voice.hpp"
 #include "../../src/app/account_ui_runtime.hpp"
+#include "../../src/render/d3d11_renderer_draw.hpp"
 #include "maicord/app/account_paths.hpp"
 #include "maicord/core/memory.hpp"
 #include <intrin.h>
@@ -168,6 +169,336 @@ struct AllocCounters {
     volatile LONG64 heap_realloc_calls;
 };
 AllocCounters g_alloc{};
+
+// ---------------------------------------------- D3D11 context calls
+// Immediate-context calls counted by patching the context's vtable (probe
+// image only; slot indices follow the d3d11.h/d3d11_1.h vtable order). Media
+// decoder threads that share the device context are counted too. Draw and
+// UpdateSubresource are not hooked: the runtime rewrites those slots itself.
+// Scissors that repeat the previous rectangle are counted separately.
+struct GpuApiCounters {
+    volatile LONG64 shader_binds, resource_binds, sampler_binds, constant_binds, input_binds, output_binds,
+        raster_binds, scissors, repeated_scissors, maps, map_discards, map_no_overwrites, copies, copy_pixels,
+        dispatches, dispatch_groups, compute_binds, clears, flushes;
+};
+D3D11_RECT g_last_scissor{};
+GpuApiCounters g_gpu_api{};
+constexpr u32 kContextSlots = 133;
+void* g_context_original[kContextSlots]{};
+
+template <class F> F context_original(u32 slot) noexcept {
+    return reinterpret_cast<F>(g_context_original[slot]);
+}
+#define MC_CTX_BIND(slot, counter, ...)                                                                            \
+    void STDMETHODCALLTYPE hook_slot_##slot(ID3D11DeviceContext* c, UINT a, UINT b, __VA_ARGS__ p) noexcept {      \
+        InterlockedIncrement64(&g_gpu_api.counter);                                                                \
+        context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, UINT, __VA_ARGS__)>(slot)(c, a, b, p); \
+    }
+MC_CTX_BIND(7, constant_binds, ID3D11Buffer* const*)
+MC_CTX_BIND(8, resource_binds, ID3D11ShaderResourceView* const*)
+MC_CTX_BIND(10, sampler_binds, ID3D11SamplerState* const*)
+MC_CTX_BIND(16, constant_binds, ID3D11Buffer* const*)
+MC_CTX_BIND(67, compute_binds, ID3D11ShaderResourceView* const*)
+MC_CTX_BIND(71, compute_binds, ID3D11Buffer* const*)
+#undef MC_CTX_BIND
+template <u32 Slot, class Shader>
+void STDMETHODCALLTYPE hook_shader(ID3D11DeviceContext* c, Shader* s, ID3D11ClassInstance* const* i, UINT n) noexcept {
+    InterlockedIncrement64(Slot == 69 ? &g_gpu_api.compute_binds : &g_gpu_api.shader_binds);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, Shader*, ID3D11ClassInstance* const*, UINT)>(
+        Slot)(c, s, i, n);
+}
+HRESULT STDMETHODCALLTYPE hook_map(ID3D11DeviceContext* c, ID3D11Resource* r, UINT s, D3D11_MAP type, UINT flags,
+                                   D3D11_MAPPED_SUBRESOURCE* mapped) noexcept {
+    InterlockedIncrement64(&g_gpu_api.maps);
+    if (type == D3D11_MAP_WRITE_DISCARD)
+        InterlockedIncrement64(&g_gpu_api.map_discards);
+    else if (type == D3D11_MAP_WRITE_NO_OVERWRITE)
+        InterlockedIncrement64(&g_gpu_api.map_no_overwrites);
+    return context_original<HRESULT(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11Resource*, UINT, D3D11_MAP,
+                                                        UINT, D3D11_MAPPED_SUBRESOURCE*)>(14)(c, r, s, type, flags,
+                                                                                              mapped);
+}
+void STDMETHODCALLTYPE hook_input_layout(ID3D11DeviceContext* c, ID3D11InputLayout* layout) noexcept {
+    InterlockedIncrement64(&g_gpu_api.input_binds);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11InputLayout*)>(17)(c, layout);
+}
+void STDMETHODCALLTYPE hook_vertex_buffers(ID3D11DeviceContext* c, UINT a, UINT n, ID3D11Buffer* const* b,
+                                           const UINT* strides, const UINT* offsets) noexcept {
+    InterlockedIncrement64(&g_gpu_api.input_binds);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, UINT, ID3D11Buffer* const*, const UINT*,
+                                              const UINT*)>(18)(c, a, n, b, strides, offsets);
+}
+void STDMETHODCALLTYPE hook_topology(ID3D11DeviceContext* c, D3D11_PRIMITIVE_TOPOLOGY topology) noexcept {
+    InterlockedIncrement64(&g_gpu_api.input_binds);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, D3D11_PRIMITIVE_TOPOLOGY)>(24)(c, topology);
+}
+void STDMETHODCALLTYPE hook_targets(ID3D11DeviceContext* c, UINT n, ID3D11RenderTargetView* const* t,
+                                    ID3D11DepthStencilView* d) noexcept {
+    InterlockedIncrement64(&g_gpu_api.output_binds);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, ID3D11RenderTargetView* const*,
+                                              ID3D11DepthStencilView*)>(33)(c, n, t, d);
+}
+void STDMETHODCALLTYPE hook_blend(ID3D11DeviceContext* c, ID3D11BlendState* s, const FLOAT f[4], UINT m) noexcept {
+    InterlockedIncrement64(&g_gpu_api.output_binds);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11BlendState*, const FLOAT*, UINT)>(35)(
+        c, s, f, m);
+}
+void STDMETHODCALLTYPE hook_dispatch(ID3D11DeviceContext* c, UINT x, UINT y, UINT z) noexcept {
+    InterlockedIncrement64(&g_gpu_api.dispatches);
+    InterlockedAdd64(&g_gpu_api.dispatch_groups, static_cast<LONG64>(x) * y * z);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, UINT, UINT)>(41)(c, x, y, z);
+}
+void STDMETHODCALLTYPE hook_raster_state(ID3D11DeviceContext* c, ID3D11RasterizerState* s) noexcept {
+    InterlockedIncrement64(&g_gpu_api.raster_binds);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11RasterizerState*)>(43)(c, s);
+}
+void STDMETHODCALLTYPE hook_viewports(ID3D11DeviceContext* c, UINT n, const D3D11_VIEWPORT* v) noexcept {
+    InterlockedIncrement64(&g_gpu_api.raster_binds);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, const D3D11_VIEWPORT*)>(44)(c, n, v);
+}
+void STDMETHODCALLTYPE hook_scissors(ID3D11DeviceContext* c, UINT n, const D3D11_RECT* r) noexcept {
+    InterlockedIncrement64(&g_gpu_api.scissors);
+    if (n == 1 && r) {
+        if (r->left == g_last_scissor.left && r->top == g_last_scissor.top && r->right == g_last_scissor.right &&
+            r->bottom == g_last_scissor.bottom)
+            InterlockedIncrement64(&g_gpu_api.repeated_scissors);
+        g_last_scissor = *r;
+    }
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, const D3D11_RECT*)>(45)(c, n, r);
+}
+void STDMETHODCALLTYPE hook_copy_region(ID3D11DeviceContext* c, ID3D11Resource* d, UINT ds, UINT x, UINT y, UINT z,
+                                        ID3D11Resource* s, UINT ss, const D3D11_BOX* box) noexcept {
+    InterlockedIncrement64(&g_gpu_api.copies);
+    if (box && box->right > box->left && box->bottom > box->top)
+        InterlockedAdd64(&g_gpu_api.copy_pixels, static_cast<LONG64>(box->right - box->left) * (box->bottom - box->top));
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11Resource*, UINT, UINT, UINT, UINT,
+                                              ID3D11Resource*, UINT, const D3D11_BOX*)>(46)(c, d, ds, x, y, z, s, ss,
+                                                                                            box);
+}
+void STDMETHODCALLTYPE hook_copy_resource(ID3D11DeviceContext* c, ID3D11Resource* d, ID3D11Resource* s) noexcept {
+    InterlockedIncrement64(&g_gpu_api.copies);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11Resource*, ID3D11Resource*)>(47)(c, d, s);
+}
+void STDMETHODCALLTYPE hook_clear_target(ID3D11DeviceContext* c, ID3D11RenderTargetView* t, const FLOAT f[4]) noexcept {
+    InterlockedIncrement64(&g_gpu_api.clears);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11RenderTargetView*, const FLOAT*)>(50)(c, t,
+                                                                                                               f);
+}
+void STDMETHODCALLTYPE hook_uavs(ID3D11DeviceContext* c, UINT a, UINT n, ID3D11UnorderedAccessView* const* u,
+                                 const UINT* counts) noexcept {
+    InterlockedIncrement64(&g_gpu_api.compute_binds);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, UINT, UINT, ID3D11UnorderedAccessView* const*,
+                                              const UINT*)>(68)(c, a, n, u, counts);
+}
+void STDMETHODCALLTYPE hook_flush(ID3D11DeviceContext* c) noexcept {
+    InterlockedIncrement64(&g_gpu_api.flushes);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*)>(111)(c);
+}
+void STDMETHODCALLTYPE hook_clear_view(ID3D11DeviceContext* c, ID3D11View* v, const FLOAT f[4], const D3D11_RECT* r,
+                                       UINT n) noexcept {
+    InterlockedIncrement64(&g_gpu_api.clears);
+    context_original<void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11View*, const FLOAT*, const D3D11_RECT*,
+                                              UINT)>(132)(c, v, f, r, n);
+}
+
+// Patches one context vtable; a slot already holding a hook stays as is.
+u32 install_context_hooks(void* context, bool context1) noexcept {
+    if (!context)
+        return 0;
+    struct Slot {
+        u32 index;
+        void* replacement;
+    };
+    const Slot slots[] = {
+        {7, reinterpret_cast<void*>(hook_slot_7)},
+        {8, reinterpret_cast<void*>(hook_slot_8)},
+        {9, reinterpret_cast<void*>(hook_shader<9, ID3D11PixelShader>)},
+        {10, reinterpret_cast<void*>(hook_slot_10)},
+        {11, reinterpret_cast<void*>(hook_shader<11, ID3D11VertexShader>)},
+        {14, reinterpret_cast<void*>(hook_map)},
+        {16, reinterpret_cast<void*>(hook_slot_16)},
+        {17, reinterpret_cast<void*>(hook_input_layout)},
+        {18, reinterpret_cast<void*>(hook_vertex_buffers)},
+        {24, reinterpret_cast<void*>(hook_topology)},
+        {33, reinterpret_cast<void*>(hook_targets)},
+        {35, reinterpret_cast<void*>(hook_blend)},
+        {41, reinterpret_cast<void*>(hook_dispatch)},
+        {43, reinterpret_cast<void*>(hook_raster_state)},
+        {44, reinterpret_cast<void*>(hook_viewports)},
+        {45, reinterpret_cast<void*>(hook_scissors)},
+        {46, reinterpret_cast<void*>(hook_copy_region)},
+        {47, reinterpret_cast<void*>(hook_copy_resource)},
+        {50, reinterpret_cast<void*>(hook_clear_target)},
+        {67, reinterpret_cast<void*>(hook_slot_67)},
+        {68, reinterpret_cast<void*>(hook_uavs)},
+        {69, reinterpret_cast<void*>(hook_shader<69, ID3D11ComputeShader>)},
+        {71, reinterpret_cast<void*>(hook_slot_71)},
+        {111, reinterpret_cast<void*>(hook_flush)},
+        {132, reinterpret_cast<void*>(hook_clear_view)},
+    };
+    void** table = *static_cast<void***>(context);
+    u32 installed = 0;
+    for (const Slot& slot : slots) {
+        if ((slot.index >= 112 && !context1) || table[slot.index] == slot.replacement)
+            continue;
+        DWORD old = 0;
+        if (!VirtualProtect(&table[slot.index], sizeof(void*), PAGE_READWRITE, &old))
+            continue;
+        g_context_original[slot.index] = table[slot.index];
+        table[slot.index] = slot.replacement;
+        VirtualProtect(&table[slot.index], sizeof(void*), old, &old);
+        ++installed;
+    }
+    return installed;
+}
+
+// ------------------------------------------------- GPU frame replay
+// Timestamps around a presented frame include the wait for its back buffer,
+// which DWM releases only every ~250 ms while the display sleeps. After each
+// present the probe draws the same retained stream again, with the presented
+// damage, into an offscreen target of the back buffer's size and format and
+// times only that. Nothing is uploaded; the replay's main-thread cycles are
+// excluded from the CPU columns.
+struct GpuReplayFrame {
+    ID3D11Query* disjoint;
+    ID3D11Query* begin;
+    ID3D11Query* end;
+    bool pending, full;
+};
+constexpr u32 kGpuReplayFrames = 8;
+struct GpuReplay {
+    ID3D11Texture2D* texture;
+    ID3D11RenderTargetView* target;
+    u32 width, height;
+    GpuReplayFrame frames[kGpuReplayFrames];
+    u32 cursor;
+    u64 full_presents;
+    volatile LONG64 cycles; // main-thread cycles spent replaying
+    u64 full_us, full_samples, partial_us, partial_samples, partial_pixels, skipped, failures, replays;
+};
+GpuReplay g_replay{};
+
+void gpu_replay_collect(ID3D11DeviceContext* context) noexcept {
+    if (!context)
+        return;
+    for (GpuReplayFrame& frame : g_replay.frames) {
+        if (!frame.pending)
+            continue;
+        D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
+        u64 begin = 0, end = 0;
+        if (context->GetData(frame.disjoint, &disjoint, sizeof(disjoint), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
+            context->GetData(frame.begin, &begin, sizeof(begin), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK ||
+            context->GetData(frame.end, &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH) != S_OK)
+            continue;
+        frame.pending = false;
+        if (disjoint.Disjoint || !disjoint.Frequency || end < begin) {
+            ++g_replay.failures;
+            continue;
+        }
+        const u64 us = (end - begin) * 1'000'000ull / disjoint.Frequency;
+        if (frame.full) {
+            g_replay.full_us += us;
+            ++g_replay.full_samples;
+        } else {
+            g_replay.partial_us += us;
+            ++g_replay.partial_samples;
+        }
+    }
+}
+
+bool gpu_replay_target(D3D11Renderer& renderer) noexcept {
+    if (g_replay.target && g_replay.width == renderer.width && g_replay.height == renderer.height)
+        return true;
+    if (g_replay.target)
+        g_replay.target->Release();
+    if (g_replay.texture)
+        g_replay.texture->Release();
+    g_replay.target = nullptr;
+    g_replay.texture = nullptr;
+    ID3D11Resource* source = nullptr;
+    renderer.graphics.target->GetResource(&source);
+    ID3D11Texture2D* back_buffer = nullptr;
+    D3D11_TEXTURE2D_DESC description{};
+    if (source && SUCCEEDED(source->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&back_buffer)))) {
+        back_buffer->GetDesc(&description);
+        back_buffer->Release();
+    }
+    if (source)
+        source->Release();
+    if (!description.Width)
+        return false;
+    description.Width = renderer.width;
+    description.Height = renderer.height;
+    description.MipLevels = description.ArraySize = 1;
+    description.Usage = D3D11_USAGE_DEFAULT;
+    description.BindFlags = D3D11_BIND_RENDER_TARGET;
+    description.CPUAccessFlags = description.MiscFlags = 0;
+    if (FAILED(renderer.graphics.device->CreateTexture2D(&description, nullptr, &g_replay.texture)) ||
+        FAILED(renderer.graphics.device->CreateRenderTargetView(g_replay.texture, nullptr, &g_replay.target)))
+        return false;
+    g_replay.width = renderer.width;
+    g_replay.height = renderer.height;
+    return true;
+}
+
+void gpu_replay(bool full) noexcept {
+    ULONG64 start = 0;
+    QueryThreadCycleTime(GetCurrentThread(), &start);
+    D3D11Renderer& renderer = g_app.renderer;
+    ID3D11DeviceContext* context = renderer.graphics.context;
+    gpu_replay_collect(context);
+    GpuReplayFrame& frame = g_replay.frames[g_replay.cursor];
+    if (frame.pending || !renderer.graphics.target || !gpu_replay_target(renderer)) {
+        ++g_replay.skipped;
+    } else {
+        const D3D11_QUERY_DESC disjoint{D3D11_QUERY_TIMESTAMP_DISJOINT, 0}, stamp{D3D11_QUERY_TIMESTAMP, 0};
+        if (!frame.disjoint && (FAILED(renderer.graphics.device->CreateQuery(&disjoint, &frame.disjoint)) ||
+                                FAILED(renderer.graphics.device->CreateQuery(&stamp, &frame.begin)) ||
+                                FAILED(renderer.graphics.device->CreateQuery(&stamp, &frame.end)))) {
+            ++g_replay.failures;
+        } else {
+            const RECT damage = *renderer.present_dirty_rect.native();
+            ID3D11RenderTargetView* presented = renderer.graphics.target;
+            const u32 draws = renderer.draw_calls_last_frame, media = renderer.media_draws_last_frame;
+            const u32 draws_max = renderer.draw_calls_max, media_total = renderer.media_draws_total;
+            const u64 effect_next = renderer.text_effect_next_ms;
+            // The replay's own context calls stay out of the per-frame counts.
+            const GpuApiCounters api = g_gpu_api;
+            const bool timer = renderer.gpu_timer.enabled;
+            renderer.gpu_timer.enabled = false;
+            renderer.graphics.target = g_replay.target;
+            context->Begin(frame.disjoint);
+            context->End(frame.begin);
+            const bool drawn =
+                d3d11_renderer_draw_stream(&renderer, app_detail::application_theme(), false, false,
+                                           full ? nullptr : &damage);
+            context->End(frame.end);
+            context->End(frame.disjoint);
+            renderer.graphics.target = presented;
+            context->OMSetRenderTargets(1, &renderer.graphics.target, nullptr);
+            renderer.gpu_timer.enabled = timer;
+            renderer.text_effect_next_ms = effect_next;
+            g_gpu_api = api;
+            ++g_replay.replays;
+            renderer.draw_calls_last_frame = draws;
+            renderer.media_draws_last_frame = media;
+            renderer.draw_calls_max = draws_max;
+            renderer.media_draws_total = media_total;
+            if (drawn) {
+                frame.pending = true;
+                frame.full = full;
+                if (!full)
+                    g_replay.partial_pixels += static_cast<u64>(damage.right - damage.left) * (damage.bottom - damage.top);
+                g_replay.cursor = (g_replay.cursor + 1) % kGpuReplayFrames;
+            } else {
+                ++g_replay.failures;
+            }
+        }
+    }
+    ULONG64 stop = 0;
+    QueryThreadCycleTime(GetCurrentThread(), &stop);
+    InterlockedAdd64(&g_replay.cycles, static_cast<LONG64>(stop - start));
+}
 
 constexpr u32 kSiteFrames = 4;
 struct TrackedRegion {
@@ -407,10 +738,11 @@ bool sample_process(ProcessSample* out) noexcept {
     QueryPerformanceCounter(&qpc);
     out->qpc = static_cast<u64>(qpc.QuadPart);
     ULONG64 cycles = 0;
+    const u64 replay = static_cast<u64>(g_replay.cycles);
     QueryThreadCycleTime(GetCurrentThread(), &cycles);
-    out->main_cycles = cycles;
+    out->main_cycles = cycles - replay;
     QueryProcessCycleTime(GetCurrentProcess(), &cycles);
-    out->process_cycles = cycles;
+    out->process_cycles = cycles - replay;
     if (g_query_system && g_spi_buffer) {
         ULONG needed = 0;
         if (g_query_system(5, g_spi_buffer, kSpiBytes, &needed) >= 0) {
@@ -583,10 +915,19 @@ struct TextWork {
     u64 markdown_parses, markdown_hits, text_builds, shell_reuses, paint_builds;
     u64 paint_upload_bytes, text_upload_bytes, media_upload_bytes, member_media_resolves, shell_replays;
 };
+// GPU work: immediate-context calls, draw-stream GPU time (timestamp
+// queries), renderer paint CPU time and texture traffic.
+struct GpuWork {
+    GpuApiCounters api;
+    u64 full_us, full_samples, partial_us, partial_samples, replay_pixels, replay_failures, replays, replay_cycles,
+        painted,
+        partial_pixels, media_upload_bytes, animation_copy_pixels, glyph_pixels, instance_uploads;
+};
 struct PhaseStats {
     ProcessSample begin, end;
     AllocCounters alloc_begin, alloc_end;
     TextWork text_begin, text_end;
+    GpuWork gpu_begin, gpu_end;
     // Animation timeline at the end of the phase: entries, playing entries,
     // and whether presentation was suspended (inactive window, reduced motion).
     u32 anim_entries, anim_visible;
@@ -631,6 +972,7 @@ struct Probe {
     PerfAccountCountersFunction counters;
     PerfAccountCounters module_counters;
     u32 hooks;
+    u32 context_hooks;
     u32 client_width, client_height;
     u32 zero_streak;
     u32 final_messages, final_guilds, final_channels, final_members;
@@ -696,6 +1038,29 @@ TextWork sample_text_work() noexcept {
     return work;
 }
 
+GpuWork sample_gpu_work() noexcept {
+    GpuWork work{};
+    work.api = g_gpu_api;
+    const auto& r = g_app.renderer;
+    gpu_replay_collect(r.graphics.context);
+    work.full_us = g_replay.full_us;
+    work.full_samples = g_replay.full_samples;
+    work.partial_us = g_replay.partial_us;
+    work.partial_samples = g_replay.partial_samples;
+    work.replay_pixels = g_replay.partial_pixels;
+    work.replay_failures = g_replay.failures + g_replay.skipped;
+    work.replays = g_replay.replays;
+    work.replay_cycles = static_cast<u64>(g_replay.cycles);
+    work.painted = r.painted_frames;
+    work.partial_pixels = r.partial_present_pixels;
+    work.media_upload_bytes = r.media_gpu.uploaded_bytes;
+    work.animation_copy_pixels = r.animation_gpu.copied_pixels + r.preview_animation_gpu.copied_pixels;
+    work.glyph_pixels = r.glyph_text.gpu.dispatched_pixels;
+    work.instance_uploads =
+        static_cast<u64>(r.paint_instance_uploads) + r.text_instance_uploads + r.media_instance_uploads;
+    return work;
+}
+
 void begin_phase(Phase phase) noexcept {
     PhaseStats& stats = g_phases[static_cast<u32>(phase)];
     sample_process(&stats.begin);
@@ -706,6 +1071,7 @@ void begin_phase(Phase phase) noexcept {
     trace(kPhaseNames[static_cast<u32>(phase)]);
     g_probe.phase_start_qpc = stats.begin.qpc;
     stats.text_begin = sample_text_work();
+    stats.gpu_begin = sample_gpu_work();
     g_probe.actions = 0;
     g_probe.next_action_qpc = stats.begin.qpc;
 }
@@ -714,6 +1080,7 @@ void end_phase() noexcept {
     sample_process(&stats.end);
     stats.alloc_end = g_alloc;
     stats.text_end = sample_text_work();
+    stats.gpu_end = sample_gpu_work();
     const auto& timeline = g_app.animations.timeline;
     stats.anim_entries = timeline.entry_count;
     stats.anim_visible = 0;
@@ -1204,6 +1571,47 @@ void report_phase(Phase phase) noexcept {
     o.kv("ctxsw", stats.end.context_switches - stats.begin.context_switches);
     o.kv("ctxsw_main", stats.end.main_context_switches - stats.begin.main_context_switches);
     o.kv("draws", stats.draw_calls);
+    {
+        const GpuApiCounters& a = stats.gpu_end.api;
+        const GpuApiCounters& b = stats.gpu_begin.api;
+        const auto d = [](LONG64 end, LONG64 begin) noexcept { return static_cast<u64>(end - begin); };
+        o.kv("g_shader", d(a.shader_binds, b.shader_binds));
+        o.kv("g_srv", d(a.resource_binds, b.resource_binds));
+        o.kv("g_sampler", d(a.sampler_binds, b.sampler_binds));
+        o.kv("g_cb", d(a.constant_binds, b.constant_binds));
+        o.kv("g_ia", d(a.input_binds, b.input_binds));
+        o.kv("g_om", d(a.output_binds, b.output_binds));
+        o.kv("g_rs", d(a.raster_binds, b.raster_binds));
+        o.kv("g_scissor", d(a.scissors, b.scissors));
+        o.kv("g_scissor_same", d(a.repeated_scissors, b.repeated_scissors));
+        o.kv("g_maps", d(a.maps, b.maps));
+        o.kv("g_discard", d(a.map_discards, b.map_discards));
+        o.kv("g_nooverwrite", d(a.map_no_overwrites, b.map_no_overwrites));
+        o.kv("g_copies", d(a.copies, b.copies));
+        o.kv("g_copy_px", d(a.copy_pixels, b.copy_pixels));
+        o.kv("g_dispatch", d(a.dispatches, b.dispatches));
+        o.kv("g_groups", d(a.dispatch_groups, b.dispatch_groups));
+        o.kv("g_cs", d(a.compute_binds, b.compute_binds));
+        o.kv("g_clears", d(a.clears, b.clears));
+        o.kv("g_flushes", d(a.flushes, b.flushes));
+        const GpuWork& e = stats.gpu_end;
+        const GpuWork& w = stats.gpu_begin;
+        o.kv("gpu_full_us", e.full_us - w.full_us);
+        o.kv("gpu_full_n", e.full_samples - w.full_samples);
+        o.kv("gpu_partial_us", e.partial_us - w.partial_us);
+        o.kv("gpu_partial_n", e.partial_samples - w.partial_samples);
+        o.kv("gpu_partial_px", e.replay_pixels - w.replay_pixels);
+        o.kv("gpu_replay_fail", e.replay_failures - w.replay_failures);
+        // Main-thread CPU of the replayed draw streams: submission cost alone.
+        o.kv("replays", e.replays - w.replays);
+        o.kvf("replay_cpu_us", cycles_to_us(e.replay_cycles - w.replay_cycles));
+        o.kv("painted", e.painted - w.painted);
+        o.kv("partial_px", e.partial_pixels - w.partial_pixels);
+        o.kv("media_up_b", e.media_upload_bytes - w.media_upload_bytes);
+        o.kv("anim_copy_px", e.animation_copy_pixels - w.animation_copy_pixels);
+        o.kv("glyph_px", e.glyph_pixels - w.glyph_pixels);
+        o.kv("inst_uploads", e.instance_uploads - w.instance_uploads);
+    }
     o.kv("va_calls", static_cast<u64>(stats.alloc_end.virtual_alloc_calls - stats.alloc_begin.virtual_alloc_calls));
     o.kv("va_commit_kb",
          static_cast<u64>(stats.alloc_end.virtual_commit_bytes - stats.alloc_begin.virtual_commit_bytes) / 1024);
@@ -2057,6 +2465,7 @@ bool probe_step_phases(int* exit_code) noexcept {
     if (presents != g_probe.present_counter) {
         ULONG64 cycles = 0;
         QueryThreadCycleTime(GetCurrentThread(), &cycles);
+        cycles -= static_cast<u64>(g_replay.cycles);
         if (g_probe.present_counter == 0 && !g_probe.first_present_100ns)
             g_probe.first_present_100ns = now_100ns();
         if (g_frame_cycle_count < kFrameSampleCapacity && g_probe.last_present_cycles) {
@@ -2082,6 +2491,19 @@ bool probe_step_phases(int* exit_code) noexcept {
         stats.draw_calls += g_app.renderer.draw_calls_last_frame;
         g_probe.last_present_cycles = cycles;
         g_probe.present_counter = presents;
+        if (g_probe.context_hooks && g_app.renderer.has_presented && !g_app.renderer.login_visible) {
+            const bool full = g_app.renderer.full_present_draws != g_replay.full_presents;
+            g_replay.full_presents = g_app.renderer.full_present_draws;
+            gpu_replay(full);
+        }
+    }
+    if (!g_probe.context_hooks && g_app.renderer.graphics.context) {
+        // Count context calls; frames are timed by gpu_replay.
+        g_probe.context_hooks = install_context_hooks(g_app.renderer.graphics.context, false);
+        if (static_cast<void*>(g_app.renderer.graphics.context1) == static_cast<void*>(g_app.renderer.graphics.context))
+            g_probe.context_hooks += install_context_hooks(g_app.renderer.graphics.context1, true);
+        if (!g_probe.context_hooks)
+            g_probe.context_hooks = ~0u;
     }
     if (!g_probe.control && g_app.account.module) {
         trace("module");
@@ -2257,6 +2679,7 @@ void probe_finish(int exit_code) noexcept {
     o.s("MAICORD_PERF v1");
     o.kv("exit", static_cast<u64>(exit_code));
     o.kv("hooks", g_probe.hooks);
+    o.kv("context_hooks", g_probe.context_hooks);
     o.kv("dpi", g_app.renderer.dpi);
     o.kv("width", g_probe.client_width);
     o.kv("height", g_probe.client_height);

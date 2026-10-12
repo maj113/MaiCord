@@ -44,7 +44,17 @@ threads and handles, plus a retained-work table: Markdown parser runs against
 cache hits, content text streams built (and how many kept the shell's
 glyphs) and paint streams built, and an upload table: paint, glyph and media
 instance bytes written to the GPU per presented frame, member list rows
-resolved for media and shell segments replayed instead of built. Memory
+resolved for media and shell segments replayed instead of built.
+
+A GPU table counts immediate-context work per painted frame through the
+context's vtable (state binds, scissor rectangles and those repeating the
+bound one, buffer maps, copies, compute dispatches and binds; draws come from
+the renderer's own count). Timestamps around a presented frame would include
+the swap chain's wait for its back buffer, so after each present the probe
+draws the same retained stream again, with the presented damage, into an
+offscreen target of the back buffer's format and times that replay: GPU
+microseconds for full and damage-clipped frames, and the replay's main-thread
+CPU (draw submission alone, excluded from the CPU columns). Memory
 snapshots (shell, after scroll, end) attribute committed, resident and
 private-resident bytes to client `VirtualAlloc` regions (aggregated by
 allocation call stack and resolved through `MaiCordPerfProbe.map`), heaps,
@@ -53,7 +63,16 @@ mapped files and sections; synthetic module and probe memory are reported
 separately.
 
 The startup table adds the client's `load_trace` stages (ms since
-`application_run`) per cold/warm run. `-Sampling` adds a 1 kHz in-process
+`application_run`) per cold/warm run, then a startup timeline from
+`perf_startup.cpp`: named main-thread points (`MAICORD_PERF_MARK`, compiled
+only into the probe) as ms since process creation with main-thread CPU, the
+time to the entry point, memory at the first present, and for the first cold
+and warm run every DLL mapped before the first present (with its thread),
+timed system calls made through the probe image's import tables (window,
+`D3D11CreateDevice`, DirectComposition, COM, module loads, waits), D3D11
+device, DXGI factory, swap chain and DirectComposition calls reached through
+their vtables (main thread and worker separately), the first presents, and
+main-thread waits and module loads over 0.2 ms with their callers. `-Sampling` adds a 1 kHz in-process
 sampling profiler of the main thread (unwound through `.pdata`, no symbols
 needed): CPU-weighted hot functions per phase (self, inclusive, and time in
 system DLLs charged to the nearest client caller); the startup phase is
