@@ -115,6 +115,7 @@ u32 test_thread_member_viewport() noexcept;
 void test_thread_member_pump(void (*check)(bool, const char*) noexcept) noexcept;
 void test_thread_subscriptions(void (*check)(bool, const char*) noexcept) noexcept;
 void test_role_lookup_performance(void (*check)(bool, const char*) noexcept) noexcept;
+void test_role_order(void (*check)(bool, const char*) noexcept) noexcept;
 void test_guild_role_replacement(void (*check)(bool, const char*) noexcept) noexcept;
 void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept;
 void test_guild_channel_validation(void (*check)(bool, const char*) noexcept) noexcept;
@@ -250,6 +251,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_native_extensions_entry() no
     test_thread_member_pump(check);
     test_thread_subscriptions(check);
     test_role_lookup_performance(check);
+    test_role_order(check);
     test_guild_role_replacement(check);
     test_permission_prefix(check);
     test_guild_channel_validation(check);

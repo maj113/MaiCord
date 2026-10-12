@@ -579,12 +579,18 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
     if (!s->state || !p.guild_id)
         return 0;
     const auto policy = role_edit_policy(*s->state, p.guild_id);
+    // The profile lists the member's roles in wire order; pills follow the role hierarchy.
+    const RoleRecord* ranked[128];
+    u32 ranked_count = 0;
+    for (u32 i = 0; i < p.role_count && i < 128; ++i)
+        if (const auto* role = chat_state_store_find_role(*s->state, p.guild_id, p.roles[i]))
+            ranked[ranked_count++] = role;
+    heap_sort(ranked, ranked_count,
+              [](const RoleRecord* left, const RoleRecord* right) noexcept { return role_before(*left, *right); });
     RoleItem items[128];
     u32 count = 0;
-    for (u32 i = 0; i < p.role_count && i < 128; ++i) {
-        const auto* role = chat_state_store_find_role(*s->state, p.guild_id, p.roles[i]);
-        if (!role)
-            continue;
+    for (u32 i = 0; i < ranked_count; ++i) {
+        const auto* role = ranked[i];
         const auto name = chat_state_store_role_name(*s->state, *role);
         const bool removable = interactive(*s) && !s->roles_busy && role_editable(policy, *role);
         const float label = text_width(s, name, width, kXs);

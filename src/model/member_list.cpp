@@ -1,6 +1,7 @@
 #include "maicord/model/member_list.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "maicord/model/role_policy.hpp"
 
 namespace maicord {
 namespace {
@@ -63,10 +64,8 @@ bool member_less(const GuildMemberStore& members, const UserStore& users, u32 le
         if (right_group == kMemberListOnlineGroup) {
             return true;
         }
-        if (left.group_position != right.group_position) {
-            return left.group_position > right.group_position;
-        }
-        return left_group > right_group;
+        return role_rank_before(left.guild_id, left.group_position, left_group, right.group_position,
+                                right_group);
     }
     const int names = compare_text(member_name(left, users), member_name(right, users));
     return names != 0 ? names < 0 : left.user_id < right.user_id;

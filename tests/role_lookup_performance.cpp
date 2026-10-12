@@ -112,12 +112,14 @@ void test_role_lookup_performance(void (*check)(bool, const char*) noexcept) noe
           "role lookup: reclaimed slots refill before all resident guilds without stale identities");
     const RoleRecord* previous = nullptr;
     bool displayed = true;
-    for (u32 role = 1; role <= 259; ++role) {
-        previous = role_display_next(state, 1, {state.roles, state.role_count}, previous);
-        displayed = previous && previous->guild_id == 1 && previous->id == role && displayed;
+    for (u32 step = 0; step < 259; ++step) {
+        previous = role_display_next(1, {state.roles, state.role_count}, previous);
+        // All positions are equal: ascending ids, with @everyone (id 1) last.
+        displayed = previous && previous->guild_id == 1 && previous->id == (step < 258 ? step + 2 : 1) &&
+                    displayed;
         if (!previous) break;
     }
-    check(displayed && !role_display_next(state, 1, {state.roles, state.role_count}, previous),
+    check(displayed && !role_display_next(1, {state.roles, state.role_count}, previous),
           "role chooser: complete display traversal exceeds 256 roles and excludes mixed-guild backing records");
     chat_state_store_clear(&state);
     bool cleared = state.role_count == 0 && state.roles == records && state.role_capacity == 8192;
@@ -173,25 +175,21 @@ void test_role_lookup_performance(void (*check)(bool, const char*) noexcept) noe
     bool display_order = chat_state_store_upsert_role(&named.state,
         {65, 50, 0, utf8_literal("zeta"), 99}) &&
         chat_state_store_upsert_role(&named.state, {60, 50, 0, utf8_literal("alpha"), 99});
-    const u64 display_ids[]{60, 70, 65, 50};
+    // Equal positions rank by ID, not by name (alpha, green, zeta); @everyone is last.
+    const u64 display_ids[]{60, 65, 70, 50};
     previous = nullptr;
     for (u32 index = 0; index < 4; ++index) {
-        previous = role_display_next(named.state, 50,
-            {named.state.roles, named.state.role_count}, previous);
+        previous = role_display_next(50, {named.state.roles, named.state.role_count}, previous);
         display_order = previous && previous->id == display_ids[index] && display_order;
         if (!previous) break;
     }
-    check(display_order && !role_display_next(named.state, 50,
-              {named.state.roles, named.state.role_count}, previous),
-          "role chooser: position then name then ID order survives lookup-order storage and excludes foreign guild");
+    check(display_order && !role_display_next(50, {named.state.roles, named.state.role_count}, previous),
+          "role chooser: position then ID order, @everyone last, survives lookup-order storage and excludes foreign guild");
     u16 named_order[4]{};
-    bool named_sorted = role_display_order({named.state.roles, 4}, {named_order, 4},
-        [&named](const RoleRecord& left, const RoleRecord& right) noexcept {
-            return role_display_before(named.state, left, right);
-        });
+    bool named_sorted = role_display_order({named.state.roles, 4}, {named_order, 4}, role_before);
     for (u32 index = 0; index < 4; ++index)
         named_sorted = named.state.roles[named_order[index]].id == display_ids[index] && named_sorted;
-    check(named_sorted, "role chooser: transient heap order uses position/name/ID comparator without reordering records");
+    check(named_sorted, "role chooser: transient heap order uses the shared role comparator without reordering records");
     chat_state_store_recompute_guild_permissions(&named.state, 50);
     const auto* guild = chat_state_store_find_guild(named.state, 50);
     check(guild && guild->permissions_resolved && guild->base_permissions == 5 &&
@@ -222,13 +220,18 @@ void test_role_lookup_performance(void (*check)(bool, const char*) noexcept) noe
     u16 order[8192];
     u32 comparisons = 0;
     bool sorted = role_display_order({records, 8192}, {order, 8192},
-        [&state, &comparisons](const RoleRecord& left, const RoleRecord& right) noexcept {
+        [&comparisons](const RoleRecord& left, const RoleRecord& right) noexcept {
             ++comparisons;
-            return role_display_before(state, left, right);
+            return role_before(left, right);
         });
-    for (u32 rank = 0; rank < 8192; ++rank) {
-        sorted = order[rank] < 8192 && records[order[rank]].position == 8191 - rank && sorted;
+    // Record 7 is the guild's @everyone and ranks last whatever its position.
+    const u32 everyone_position = records[6].position;
+    u32 expected_position = 8191;
+    for (u32 rank = 0; rank < 8191; ++rank, --expected_position) {
+        if (expected_position == everyone_position) --expected_position;
+        sorted = order[rank] < 8192 && records[order[rank]].position == expected_position && sorted;
     }
+    sorted = order[8191] < 8192 && records[order[8191]].id == 7 && sorted;
     bool backing_unchanged = true;
     for (u32 index = 0; index < 8192; ++index)
         backing_unchanged = records[index].id == index + 1 && records[index].guild_id == 7 &&
@@ -264,10 +267,7 @@ void test_role_lookup_performance(void (*check)(bool, const char*) noexcept) noe
     check(window_matches && expected_count == 16,
           "role chooser: deep 16-row window matches independent rank oracle after assigned/managed exclusions");
     u16 too_small[1]{0xA5A5};
-    check(!role_display_order({records, 8192}, {too_small, 1},
-              [&state](const RoleRecord& left, const RoleRecord& right) noexcept {
-                  return role_display_before(state, left, right);
-              }) && too_small[0] == 0xA5A5,
+    check(!role_display_order({records, 8192}, {too_small, 1}, role_before) && too_small[0] == 0xA5A5,
           "role chooser: insufficient transient index capacity rejects before writing for complete fallback traversal");
 
     bool policy_fixture = chat_state_store_upsert_guild(&state,

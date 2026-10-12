@@ -141,7 +141,7 @@ void test_role_hydration(void (*check)(bool, const char*) noexcept) noexcept {
     const bool hydrated = apply(full);
     const auto* member = guild_member_store_find(f.members, 7, 20);
     const u64 assigned[] = {19, 18, 17};
-    const auto* effective = role_effective_color(f.state, 7, {assigned, 3});
+    const auto* effective = role_member_display(f.state, 7, {assigned, 3}).color;
     check(hydrated && member && member->roles_known && member->role_count == 3 &&
               member->color_role_id == 17 && member->role_color == 0x9922CC &&
               member->group_role_id == 18 && effective && effective->id == 17,

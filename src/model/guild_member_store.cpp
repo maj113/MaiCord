@@ -111,25 +111,11 @@ bool erase_slot(GuildMemberStore* store, u32 slot) noexcept {
 
 void resolve_roles(const ChatStateStore& state, u64 guild_id, ConstSlice<u64> role_ids,
                    u64* group_role_id, u32* group_position, u64* color_role_id, u32* role_color) noexcept {
-    *group_role_id = 0;
-    *group_position = 0;
-    *color_role_id = 0;
-    *role_color = 0;
-    const auto* color_role = role_effective_color(state, guild_id, role_ids);
-    if (color_role) {
-        *color_role_id = color_role->id;
-        *role_color = color_role->color;
-    }
-    for (u32 index = 0; index < role_ids.count; ++index) {
-        const RoleRecord* role = chat_state_store_find_role(state, guild_id, role_ids[index]);
-        if (!role) {
-            continue;
-        }
-        if (role->hoist && role_rank_above(*role, *group_position, *group_role_id)) {
-            *group_role_id = role->id;
-            *group_position = role->position;
-        }
-    }
+    const MemberRoleDisplay display = role_member_display(state, guild_id, role_ids);
+    *color_role_id = display.color ? display.color->id : 0;
+    *role_color = display.color ? display.color->color : 0;
+    *group_role_id = display.hoist ? display.hoist->id : 0;
+    *group_position = display.hoist ? display.hoist->position : 0;
 }
 
 bool role_ids_equal(const GuildMemberRecord& record, ConstSlice<u64> role_ids) noexcept {

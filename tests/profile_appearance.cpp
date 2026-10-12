@@ -794,6 +794,22 @@ void test_profile_popout_layout(Check check) noexcept {
     for (u32 i = 0; i < s.part_count; ++i)
         pills += s.parts[i].look == ProfileLook::role;
     check(ok && pills == 30 && find_part(s, ProfileAction::roles_toggle), "profile popout: +N expands every role");
+    // The profile lists its roles lowest first. Pills rank by position, then the
+    // older ID (roles 104 and 119 now tie at 20).
+    roles[4].position = 20;
+    ok = profile_scene_layout(&s, viewport, true);
+    u64 ranked_ids[30]{};
+    u32 ranked_count = 0;
+    for (u32 position = 30; position; --position)
+        for (u32 i = 0; i < 30; ++i)
+            if (roles[i].position == position)
+                ranked_ids[ranked_count++] = roles[i].id;
+    u32 shown = 0;
+    bool ranked = ok && ranked_count == 30;
+    for (u32 i = 0; i < s.part_count; ++i)
+        if (s.parts[i].look == ProfileLook::role)
+            ranked = ranked && shown < 30 && s.parts[i].target == ranked_ids[shown++];
+    check(ranked && shown == 30, "profile popout: role pills follow position then older ID, not the profile's order");
     // Self: Edit Profile footer instead of the message field, no header buttons.
     s.roles_expanded = false;
     s.self_id = 42;

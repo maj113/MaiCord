@@ -173,22 +173,18 @@ u32 collect_roles(u64 guild_id, u64 user_id, u64* ids, bool* held, u32 capacity)
     if (!member || !guild_member_store_role_ids_known(*member))
         return 0;
     const auto member_roles = guild_member_store_role_ids(*member);
-    const RoleRecord* found[kUserContextRoleItems];
+    // Rank every editable role before cutting to the menu size; the store holds them by id.
+    const RoleRecord* found[kGuildRoleMaximum];
     u32 count = 0;
-    for (u32 i = 0; i < state.role_count && count < capacity && count < kUserContextRoleItems; ++i) {
+    for (u32 i = 0; i < state.role_count && count < kGuildRoleMaximum; ++i) {
         const auto& role = state.roles[i];
         if (role.guild_id != guild_id || role.id == guild_id || role.managed || !role_editable(policy, role))
             continue;
         found[count++] = &role;
     }
-    for (u32 i = 1; i < count; ++i)
-        for (u32 j = i; j > 0 && (found[j]->position > found[j - 1]->position ||
-                                  (found[j]->position == found[j - 1]->position && found[j]->id < found[j - 1]->id));
-             --j) {
-            const auto* swap = found[j];
-            found[j] = found[j - 1];
-            found[j - 1] = swap;
-        }
+    heap_sort(found, count,
+              [](const RoleRecord* left, const RoleRecord* right) noexcept { return role_before(*left, *right); });
+    count = minimum(count, minimum<u32>(capacity, kUserContextRoleItems));
     for (u32 i = 0; i < count; ++i) {
         ids[i] = found[i]->id;
         held[i] = false;

@@ -174,14 +174,11 @@ bool open_role_menu(ApplicationProfile& p, UiRect anchor) noexcept {
     const ConstSlice<RoleRecord> roles{state.roles ? state.roles + begin : nullptr, end - begin};
     const auto policy = role_edit_policy(state, guild);
     u16 order[8192];
-    const bool ordered = roles.count && role_display_order(roles, {order, 8192},
-                                                           [&](const RoleRecord& a, const RoleRecord& b) noexcept {
-                                                               return role_display_before(state, a, b);
-                                                           });
+    const bool ordered = roles.count && role_display_order(roles, {order, 8192}, role_before);
     u32 count = 0;
     const RoleRecord* previous = nullptr;
     for (u32 i = 0; i < roles.count && count < 100; ++i) {
-        const auto* role = ordered ? &roles[order[i]] : role_display_next(state, guild, roles, previous);
+        const auto* role = ordered ? &roles[order[i]] : role_display_next(guild, roles, previous);
         if (!role)
             break;
         previous = role;
