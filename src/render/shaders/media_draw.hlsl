@@ -96,14 +96,16 @@ float4 media_pixel(MediaVertexOutput input) : SV_Target0 {
     }else{
         sample=sample_level(cached_animation?1:large_preview?2:0,texture_coordinate);
     }
+    // Radii are uniform per quad: square media (emoji, video, the viewer)
+    // skip both rounded-rectangle distances instead of selecting them away.
     float coverage=1.0f;
-    if(input.shape.z>0.0f){
+    [branch] if(input.shape.z>0.0f){
         float radius=min(input.shape.z,min(input.shape.x,input.shape.y));
         float2 corner=abs(input.local)-input.shape.xy+radius;
         float distance=length(max(corner,0))+min(max(corner.x,corner.y),0)-radius;
         float aa=max(fwidth(distance),.25f);coverage=1-smoothstep(-aa,aa,distance);
     }
-    if(input.clip_radius>0){
+    [branch] if(input.clip_radius>0){
         float radius=min(input.clip_radius,min(input.clip_local.z,input.clip_local.w));
         float2 q=abs(input.clip_local.xy)-input.clip_local.zw+radius;
         float distance=length(max(q,0))+min(max(q.x,q.y),0)-radius;

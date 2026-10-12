@@ -79,9 +79,34 @@ float3 background_dither(float3 color, float2 pixel_position) {
     return saturate(color + (background_hash(floor(pixel_position)) - 0.5f) / 255.0f);
 }
 
+float rounded_distance(float2 local, float2 half_size, float radius) {
+    const float2 corner_distance = abs(local) - (half_size - radius);
+    return length(max(corner_distance, 0.0f)) + min(max(corner_distance.x, corner_distance.y), 0.0f) - radius;
+}
+
+// Premultiplied fill inside the border, then the border ring, antialiased.
+float4 surface_pixel(float4 fill, float4 border, float signed_distance, float border_width,
+                     float antialias_width, float outer_coverage) {
+    const float fill_coverage = saturate(0.5f - (signed_distance + border_width) / antialias_width);
+    const float border_coverage = outer_coverage - fill_coverage;
+    return float4(fill.rgb * fill.a, fill.a) * fill_coverage +
+           float4(border.rgb * border.a, border.a) * border_coverage;
+}
+
 float4 ui_pixel(VertexOutput input) : SV_Target0 {
     const float2 local = input.local_and_half_size.xy;
     const float2 half_size = input.local_and_half_size.zw;
+    // A non-negative y is an ordinary rounded rectangle's border width: most
+    // of every frame's pixels skip the special kinds (negative y) below.
+    if (input.parameters.y >= 0.0f) {
+        const float radius = min(input.parameters.x, min(half_size.x, half_size.y));
+        const float border_width = min(input.parameters.y, min(half_size.x, half_size.y));
+        const float signed_distance = rounded_distance(local, half_size, radius);
+        const float antialias_width = max(fwidth(signed_distance), 0.0001f);
+        const float outer_coverage = saturate(0.5f - signed_distance / antialias_width);
+        return surface_pixel(input.fill, input.border, signed_distance, border_width, antialias_width,
+                             outer_coverage);
+    }
     if (input.parameters.y == -3.0f) {
         return float4(background_dither(background_gradient(local, half_size), input.position.xy) *
                           input.fill.a,
@@ -109,20 +134,19 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
                                    : input.parameters.y == -8.0f ? 0.0f
                                                                  : input.parameters.y,
                                    min(half_size.x, half_size.y));
-    const float2 corner_distance = abs(local) - (half_size - radius);
-    const float signed_distance =
-        length(max(corner_distance, 0.0f)) + min(max(corner_distance.x, corner_distance.y), 0.0f) - radius;
+    const float signed_distance = rounded_distance(local, half_size, radius);
     const float antialias_width = max(fwidth(signed_distance), 0.0001f);
     const float outer_coverage = saturate(0.5f - signed_distance / antialias_width);
-    const float2 uv = saturate((local + half_size) / max(half_size * 2.0f, 0.0001f));
     if (input.parameters.y == -4.0f) {
+        const float2 uv = saturate((local + half_size) / max(half_size * 2.0f, 0.0001f));
         const float3 color = lerp(float3(1, 1, 1), input.fill.rgb, uv.x) * (1.0f - uv.y);
         const float alpha = input.fill.a * outer_coverage;
         return float4(color * alpha, alpha);
     }
     if (input.parameters.y == -5.0f) {
+        const float u = saturate((local.x + half_size.x) / max(half_size.x * 2.0f, 0.0001f));
         const float3 color =
-            saturate(abs(frac(uv.x + float3(0, 2.0f / 3.0f, 1.0f / 3.0f)) * 6.0f - 3.0f) - 1.0f);
+            saturate(abs(frac(u + float3(0, 2.0f / 3.0f, 1.0f / 3.0f)) * 6.0f - 3.0f) - 1.0f);
         const float alpha = input.fill.a * outer_coverage;
         return float4(color * alpha, alpha);
     }
@@ -170,9 +194,6 @@ float4 ui_pixel(VertexOutput input) : SV_Target0 {
             surface_border.rgb = lerp(surface_fill.rgb, edge_tone, 0.12f);
         }
     }
-    const float fill_coverage = saturate(0.5f - (signed_distance + border_width) / antialias_width);
-    const float border_coverage = outer_coverage - fill_coverage;
-    const float4 fill = float4(surface_fill.rgb * surface_fill.a, surface_fill.a) * fill_coverage;
-    const float4 border = float4(surface_border.rgb * surface_border.a, surface_border.a) * border_coverage;
-    return fill + border;
+    return surface_pixel(surface_fill, surface_border, signed_distance, border_width, antialias_width,
+                         outer_coverage);
 }

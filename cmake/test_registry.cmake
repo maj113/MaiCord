@@ -568,6 +568,12 @@ maicord_test(MaiCordSurfaceMotionHostTests ENTRY maicord_surface_motion_host_ent
     INCLUDES src/app
     TIMEOUT 10
     TEST maicord_surface_motion_host)
+# Draw submission: pipeline, shared-state and scissor binds, merged draw runs.
+maicord_test(MaiCordDrawSubmissionTests ENTRY maicord_draw_submission_entry
+    SOURCES tests/draw_submission.cpp
+    LIBS maicord_core kernel32
+    TIMEOUT 5
+    TEST maicord_draw_submission)
 maicord_test(MaiCordTooltipRuntimeTests ENTRY maicord_tooltip_runtime_entry
     SOURCES tests/application_tooltip_runtime.cpp src/app/application_tooltip.cpp src/app/application_state.cpp
         src/core/log.cpp
