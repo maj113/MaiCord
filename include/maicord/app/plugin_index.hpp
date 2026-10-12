@@ -196,6 +196,27 @@ PluginIndexResult plugin_index_parse_unsigned(Utf8View document, KdfSha256Worksp
 // maximum bytes (nonempty when required).
 bool plugin_index_display_text_valid(Utf8View text, u32 maximum, bool required) noexcept;
 
+// provider.key of a document whose signature has NOT been checked: only the
+// candidate key a first-use or key-change flow verifies the same document
+// with. Never makes a document trusted. malformed: not JSON (or a BOM), a
+// repeated provider or key member, or not a 130-hex uncompressed point. key
+// is written only when present.
+enum class PluginIndexKeyPeek : u8 { absent, present, malformed };
+PluginIndexKeyPeek plugin_index_unverified_key(Utf8View document, Slice<u32> structural_scratch, u8* key) noexcept;
+
+// Buffers of one check, probe or cache load (about 910 KiB), allocated per
+// operation. record is the cache file layout: the 64-byte signature (zero when
+// unsigned) then the document, so the pair cannot tear.
+struct PluginIndexWork {
+    u8 record[64 + kPluginIndexMaximumBytes];
+    u32 document_bytes;
+    u32 scratch[kPluginIndexStructuralCapacity];
+    PluginIndex index;
+};
+inline Utf8View plugin_index_work_document(const PluginIndexWork& work) noexcept {
+    return {reinterpret_cast<const char*>(work.record + 64), work.document_bytes};
+}
+
 // Unescapes one text field of the document the index was parsed from.
 JsonStringDecodeResult plugin_index_text_decode(Utf8View document, PluginIndexText text, Slice<char> output) noexcept;
 

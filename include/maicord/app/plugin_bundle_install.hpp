@@ -13,8 +13,18 @@ struct NativePluginBundleInstallResult {
     NativePluginBundleInstallError error{};
     NativePluginCatalogResult filesystem{};
     u64 owner_id{};
-    bool update{}, idempotent{}, committed{}, cleanup_pending{};
+    // DLLs the post-commit trim or an uninstall deleted, and owner-named files
+    // kept because their content does not match the name (referenced DLLs are not counted).
+    u32 removed{}, kept{};
+    // committed: for an uninstall, the manifest was deleted.
+    bool update{}, idempotent{}, committed{}, cleanup_pending{}, uninstall{};
     bool ok() const noexcept { return error==NativePluginBundleInstallError::none; }
+};
+struct NativePluginBundleInstallOptions {
+    // Keep the replaced managed DLL as the previous version: 3 may exist while
+    // staged; after commit the owner's DLLs are trimmed to {installed, replaced},
+    // each removal hash-verified against its name and unreferenced.
+    bool retain_previous{};
 };
 // Stable-address, zero-initialized UI object; do not copy or free before release.
 // One occasional worker stages the local manifest and declared DLL, waits for
@@ -27,13 +37,40 @@ struct NativePluginBundleInstall {
 // destination is the canonical local-data-root\MaiCord\plugins directory.
 // Existing ancestors are pinned; only the final MaiCord/plugins may be created.
 // Files are limited by the manifest/DLL limits. Content-addressed managed DLLs
-// are limited to 2 files/128MiB per owner before new creation. Unknown files,
+// are limited to 2 files/128MiB per owner before new creation (3 files/192MiB
+// with retain_previous). Unknown files,
 // legacy DLLs and conflicting destinations are never overwritten or deleted.
 // A file is managed only if it has the reserved owner/hash basename, matches the
 // authenticated prior manifest/file identity, and no other manifest references
-// it. Orphans left by a hard crash are never guessed at or removed.
+// it. The installer never guesses at orphans left by a hard crash; only
+// native_plugin_bundle_recover removes them, for an owner a caller's journal names.
 NativePluginBundleInstallError native_plugin_bundle_install_start(NativePluginBundleInstall*,
     ConstSlice<wchar_t> manifest_path, ConstSlice<wchar_t> destination) noexcept;
+NativePluginBundleInstallError native_plugin_bundle_install_start(NativePluginBundleInstall*,
+    ConstSlice<wchar_t> manifest_path, ConstSlice<wchar_t> destination, NativePluginBundleInstallOptions options) noexcept;
+// Uninstall with the same object, owner lock and handshake. Commit deletes the
+// owner's manifest through its pinned handle after an identity and content
+// recheck; cleanup deletes the owner's managed DLLs whose content matches
+// their names and that nothing references. A missing manifest is `manifest`.
+NativePluginBundleInstallError native_plugin_bundle_uninstall_start(NativePluginBundleInstall*, u64 owner_id,
+    ConstSlice<wchar_t> destination) noexcept;
+// Startup recovery for an owner the plugin manager's journal names, before
+// anything is loaded; synchronous, under the owner lock (`busy` otherwise).
+// Deletes the staged "<owner16>.maicord-plugin.json.new<16 hex>" manifests and
+// every unreferenced "<owner16>-<sha256>.dll" outside keep whose content
+// matches its name.
+struct NativePluginBundleKeep {
+    u8 sha256[2][32];
+    u32 count;
+};
+struct NativePluginBundleRecoveryResult {
+    NativePluginBundleInstallError error;
+    NativePluginCatalogResult filesystem;
+    u32 removed_dlls, removed_manifests, kept;
+    bool ok() const noexcept { return error==NativePluginBundleInstallError::none; }
+};
+NativePluginBundleRecoveryResult native_plugin_bundle_recover(u64 owner_id, ConstSlice<wchar_t> destination,
+    const NativePluginBundleKeep& keep) noexcept;
 NativePluginBundleInstallResult native_plugin_bundle_install_status(const NativePluginBundleInstall*) noexcept;
 bool native_plugin_bundle_install_manifest(const NativePluginBundleInstall*, NativePluginManifest*) noexcept;
 // Copies metadata only: the staged snapshot plus the committed row. Output
@@ -66,8 +103,9 @@ NativePluginBundleInstallResources native_plugin_bundle_install_resources(const 
 #if defined(MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE)
 // Test-only control, compiled only into the backend test. Failure1 forces
 // unsupported extended rename; failure2 keeps filesystem cleanup pending;
-// failure4 refuses the final rename with access denied before anything is
-// committed.
+// failure4 refuses the final rename (or an uninstall's delete) with access
+// denied before anything is committed; failure8 is a hard crash just before
+// the commit: the created DLL and the staged manifest stay on disk.
 void native_plugin_bundle_install_fixture_failures(u32 mask) noexcept;
 #endif
 } // namespace maicord

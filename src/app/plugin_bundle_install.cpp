@@ -32,7 +32,11 @@ struct Runtime {
     u8 copy_scratch[8192]{};
     BY_HANDLE_FILE_INFORMATION old_identity{},retired_identity{};
     volatile LONG wait_failed{};
-    bool created_dll{},staged_file{},retire_old{},old_deleted{},cleanup_only{},catalog_ready{};
+    // Set only by the catalog start functions, so local-bundle-only builds never link them.
+    Error (*after_commit)(Runtime&){};
+    u8 keep[2][32]{},candidates[8][32]{};
+    u32 keep_count{};
+    bool created_dll{},staged_file{},retire_old{},old_deleted{},cleanup_only{},catalog_ready{},retain_previous{},after_done{},abandoned{};
 };
 static_assert(sizeof(Runtime)<=96*1024,"Plugin bundle staging runtime must stay within 96 KiB");
 LONG phase_value(Phase phase) noexcept {return static_cast<LONG>(phase);}
@@ -158,7 +162,21 @@ Error retention_limit(Runtime& r,bool new_file) noexcept {
     if(!FindClose(directory.scan))return fail(r,Error::release,{NativePluginCatalogError::release,GetLastError()});
     directory.scan=nullptr;
     if(error!=Error::none)return fail(r,error);
-    if(count>2 || (new_file&&count>=2) || bytes+(new_file?r.source_dll.bytes:0)>2*kNativePluginDllMaximumBytes)return fail(r,Error::retained_limit);
+    // Retaining the previous version allows a third file while an update is staged.
+    const u32 limit=r.retain_previous?3:2;
+    if(count>limit || (new_file&&count>=limit) || bytes+(new_file?r.source_dll.bytes:0)>limit*kNativePluginDllMaximumBytes)
+        return fail(r,Error::retained_limit);
+    return Error::none;
+}
+// The cooperative per-owner lock shared by install, uninstall and recovery.
+Error lock_owner(Runtime& r,u64 owner_id) noexcept {
+    wchar_t lock[128]{};constexpr wchar_t lock_prefix[]=L"maicord-install-";
+    for(u32 i=0;i<15;++i)lock[i]=lock_prefix[i];hexadecimal(owner_id,lock+15);
+    constexpr wchar_t lock_suffix[]=L".lock";for(u32 i=0;i<6;++i)lock[31+i]=lock_suffix[i];
+    const auto checked=native_plugin_pinned_file_open(r.destination_directory,{lock,36},&r.lock,GENERIC_READ|GENERIC_WRITE|DELETE,FILE_SHARE_READ,
+        CREATE_NEW,FILE_FLAG_DELETE_ON_CLOSE|FILE_ATTRIBUTE_TEMPORARY);
+    checkpoint(r);if(!checked.ok())return fail(r,checked.win32_error==ERROR_FILE_EXISTS||checked.win32_error==ERROR_ALREADY_EXISTS||
+        checked.win32_error==ERROR_SHARING_VIOLATION||checked.win32_error==ERROR_ACCESS_DENIED?Error::busy:Error::open,checked);
     return Error::none;
 }
 Error stage(Runtime& r) noexcept {
@@ -173,13 +191,7 @@ Error stage(Runtime& r) noexcept {
     for(u32 i=0;i<85;++i)r.installed.dll[i]=static_cast<char>(name[i]);r.installed.dll_bytes=85;
     checked=native_plugin_directory_pin({r.destination,r.destination_characters},&r.destination_directory,2);
     checkpoint(r);if(!checked.ok())return fail(r,Error::path,checked);
-    wchar_t lock[128]{};constexpr wchar_t lock_prefix[]=L"maicord-install-";
-    for(u32 i=0;i<15;++i)lock[i]=lock_prefix[i];hexadecimal(r.source.owner_id,lock+15);
-    constexpr wchar_t lock_suffix[]=L".lock";for(u32 i=0;i<6;++i)lock[31+i]=lock_suffix[i];
-    checked=native_plugin_pinned_file_open(r.destination_directory,{lock,36},&r.lock,GENERIC_READ|GENERIC_WRITE|DELETE,FILE_SHARE_READ,
-        CREATE_NEW,FILE_FLAG_DELETE_ON_CLOSE|FILE_ATTRIBUTE_TEMPORARY);
-    checkpoint(r);if(!checked.ok())return fail(r,checked.win32_error==ERROR_FILE_EXISTS||checked.win32_error==ERROR_ALREADY_EXISTS||
-        checked.win32_error==ERROR_SHARING_VIOLATION||checked.win32_error==ERROR_ACCESS_DENIED?Error::busy:Error::open,checked);
+    if(lock_owner(r,r.source.owner_id)!=Error::none)return r.result.error;
     if(inventory(r)!=Error::none)return r.result.error;
     u32 found=~u32{0};
     for(u32 i=0;i<r.catalog.count;++i)if(r.catalog.entries[i].manifest.owner_id==r.source.owner_id){
@@ -204,7 +216,7 @@ Error stage(Runtime& r) noexcept {
             if(!checked.ok())return fail(r,Error::release,checked);
         }
         r.result.update=true;r.result.idempotent=same_manifest(r.old,r.installed);
-        r.retire_old=managed(r.old)&&!same_dll(r.old,r.installed);
+        r.retire_old=!r.retain_previous&&managed(r.old)&&!same_dll(r.old,r.installed);
         if(r.retire_old&&other_reference(r,r.old))return fail(r,Error::conflict);
     }else{
         if(r.catalog.count==kNativePluginCatalogMaximumEntries)return fail(r,Error::catalog,{NativePluginCatalogError::capacity});
@@ -291,6 +303,7 @@ Error publish(Runtime& r) noexcept {
     if(r.result.update&&!manifest_still_expected(r))return fail(r,Error::conflict);
     if(cancelled(r))return fail(r,Error::cancelled);
     BOOL renamed=FALSE;
+    if(forced(8)){r.abandoned=true;return fail(r,Error::commit,{NativePluginCatalogError::file,ERROR_PROCESS_ABORTED});}
     if(r.result.update&&forced(1))SetLastError(ERROR_NOT_SUPPORTED);
     else if(forced(4))SetLastError(ERROR_ACCESS_DENIED);
     else renamed=SetFileInformationByHandle(r.staged_manifest.file,r.result.update?FileRenameInfoEx:FileRenameInfo,&rename,
@@ -312,8 +325,112 @@ bool disposition(NativePluginVerifiedFile& file) noexcept {
     FILE_DISPOSITION_INFO disposition{};disposition.DeleteFile=TRUE;
     return !file.file||SetFileInformationByHandle(file.file,FileDispositionInfo,&disposition,sizeof(disposition))!=0;
 }
+bool keeps(const Runtime& r,const u8* sha256) noexcept {
+    for(u32 i=0;i<r.keep_count&&i<2;++i)if(bytes_equal(r.keep[i],sha256,32))return true;
+    return false;
+}
+// Deletes the owner's unreferenced managed DLLs outside r.keep whose content
+// matches their name. Rescans manifests, so the staged write handle must be closed.
+Error trim(Runtime& r) noexcept {
+    if(inventory(r)!=Error::none)return r.result.error;
+    auto& directory=r.destination_directory;const u32 base=directory.path_characters;
+    if(base+3>=kNativePluginCatalogPathCapacity)return fail(r,Error::path);
+    wchar_t pattern[kNativePluginCatalogPathCapacity]{};
+    for(u32 i=0;i<base;++i)pattern[i]=directory.path[i];pattern[base]=L'\\';pattern[base+1]=L'*';
+    WIN32_FIND_DATAW data{};directory.scan=FindFirstFileExW(pattern,FindExInfoBasic,&data,FindExSearchNameMatch,nullptr,FIND_FIRST_EX_LARGE_FETCH);
+    if(directory.scan==INVALID_HANDLE_VALUE){directory.scan=nullptr;return fail(r,Error::catalog,{NativePluginCatalogError::scan,GetLastError()});}
+    u32 visited{},found{};wchar_t prefix[16];hexadecimal(r.installed.owner_id,prefix);Error error=Error::none;
+    do{
+        if(++visited>kNativePluginCatalogMaximumDirectoryEntries){error=Error::catalog;break;}
+        u32 length{};while(length<MAX_PATH&&data.cFileName[length])++length;
+        if(length!=85||data.cFileName[16]!=L'-'||data.cFileName[81]!=L'.'||ascii_lower(data.cFileName[82])!=L'd'||
+            ascii_lower(data.cFileName[83])!=L'l'||ascii_lower(data.cFileName[84])!=L'l')continue;
+        bool match=true;for(u32 i=0;i<16;++i)if(ascii_lower(data.cFileName[i])!=prefix[i])match=false;
+        u8 digest[32]{};
+        for(u32 i=0;match&&i<64;++i){const auto c=ascii_lower(data.cFileName[17+i]);
+            const i32 nibble=c>=L'0'&&c<=L'9'?c-L'0':c>=L'a'&&c<=L'f'?c-L'a'+10:-1;
+            if(nibble<0)match=false;else digest[i/2]=static_cast<u8>(i%2?(digest[i/2]<<4)|nibble:nibble);}
+        if(!match||keeps(r,digest))continue;
+        if(found==8||(data.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))){++r.result.kept;continue;}
+        copy_bytes(r.candidates[found++],digest,32);
+    }while(FindNextFileW(directory.scan,&data));
+    if(error==Error::none&&GetLastError()!=ERROR_NO_MORE_FILES)error=Error::catalog;
+    if(!FindClose(directory.scan))return fail(r,Error::release,{NativePluginCatalogError::release,GetLastError()});
+    directory.scan=nullptr;
+    if(error!=Error::none)return fail(r,error);
+    for(u32 i=0;i<found;++i){
+        NativePluginManifest candidate{};candidate.owner_id=r.installed.owner_id;copy_bytes(candidate.sha256,r.candidates[i],32);
+        wchar_t name[128]{};managed_name(candidate,name);
+        for(u32 j=0;j<85;++j)candidate.dll[j]=static_cast<char>(name[j]);candidate.dll_bytes=85;
+        if(other_reference(r,candidate))continue; // an installed manifest (or an unreadable one) holds it
+        // Authenticate the DELETE handle against the digest its name claims.
+        const auto opened=native_plugin_pinned_file_open(directory,{name,85},&r.retired_dll,GENERIC_READ|DELETE,FILE_SHARE_READ);
+        const bool verified=opened.ok()&&r.retired_dll.bytes<=kNativePluginDllMaximumBytes&&
+            native_plugin_verified_file_hash(&r.retired_dll,{candidate.sha256,32}).ok()&&final_path_equal(r.retired_dll);
+        if(verified&&disposition(r.retired_dll))++r.result.removed;else ++r.result.kept;
+        const auto released=native_plugin_verified_file_release(&r.retired_dll);
+        if(!released.ok())return fail(r,Error::release,released);
+    }
+    return Error::none;
+}
+// After a retain_previous commit: keep the installed and the replaced DLL.
+Error trim_retained(Runtime& r) noexcept {
+    if(!native_plugin_verified_file_release(&r.staged_manifest).ok())return fail(r,Error::release);
+    copy_bytes(r.keep[0],r.installed.sha256,32);r.keep_count=1;
+    if(managed(r.old)){copy_bytes(r.keep[1],r.old.sha256,32);r.keep_count=2;}
+    return trim(r);
+}
+// After an uninstall commit: every owner-managed DLL goes.
+Error trim_uninstalled(Runtime& r) noexcept {r.keep_count=0;return trim(r);}
+Error stage_uninstall(Runtime& r) noexcept {
+    if(!destination_valid(r))return fail(r,Error::path);
+    auto checked=native_plugin_directory_pin({r.destination,r.destination_characters},&r.destination_directory);
+    checkpoint(r);if(!checked.ok())return fail(r,Error::path,checked);
+    r.result.owner_id=r.installed.owner_id;
+    if(lock_owner(r,r.installed.owner_id)!=Error::none||inventory(r)!=Error::none)return r.result.error;
+    u32 found=~u32{0};
+    for(u32 i=0;i<r.catalog.count;++i)if(r.catalog.entries[i].manifest.owner_id==r.installed.owner_id){
+        if(found!=~u32{0}||r.catalog.entries[i].status!=NativePluginCatalogError::none)return fail(r,Error::conflict);found=i;}
+    if(found==~u32{0})return fail(r,Error::manifest,{NativePluginCatalogError::open,ERROR_FILE_NOT_FOUND});
+    const auto& entry=r.catalog.entries[found];r.manifest_characters=entry.filename_characters;
+    for(u32 i=0;i<=r.manifest_characters;++i)r.manifest_leaf[i]=entry.filename[i];
+    // A delete-sharing pin keeps the bytes the user confirmed; commit rechecks them.
+    checked=native_plugin_pinned_manifest_read(r.destination_directory,{r.manifest_leaf,r.manifest_characters},&r.old,&r.target_manifest,
+        FILE_SHARE_READ|FILE_SHARE_DELETE);
+    checkpoint(r);
+    if(!checked.ok()||!same_manifest(r.old,entry.manifest)||!GetFileInformationByHandle(r.target_manifest.file,&r.old_identity))
+        return fail(r,Error::conflict,checked);
+    return Error::none;
+}
+Error publish_uninstall(Runtime& r) noexcept {
+    if(cancelled(r))return fail(r,Error::cancelled);
+    if(!manifest_still_expected(r))return fail(r,Error::conflict);
+    auto checked=native_plugin_pinned_file_open(r.destination_directory,{r.manifest_leaf,r.manifest_characters},&r.staged_manifest,
+        GENERIC_READ|DELETE,FILE_SHARE_READ|FILE_SHARE_DELETE);
+    if(!checked.ok())return fail(r,Error::conflict,checked);
+    BY_HANDLE_FILE_INFORMATION identity{};
+    if(!GetFileInformationByHandle(r.staged_manifest.file,&identity)||!identity_equal(identity,r.old_identity)||!final_path_equal(r.staged_manifest))
+        return fail(r,Error::conflict);
+    if(cancelled(r))return fail(r,Error::cancelled);
+    if(forced(4)){SetLastError(ERROR_ACCESS_DENIED);return fail(r,Error::commit,{NativePluginCatalogError::file,ERROR_ACCESS_DENIED});}
+    if(!disposition(r.staged_manifest))return fail(r,Error::commit,{NativePluginCatalogError::file,GetLastError()});
+    // Closing both pins removes the name; the snapshot drops the owner.
+    r.result.committed=true;
+    for(u32 i=0;i<r.catalog.count;++i)if(r.catalog.entries[i].manifest.owner_id==r.installed.owner_id){
+        for(u32 j=i+1;j<r.catalog.count;++j)r.catalog.entries[j-1]=r.catalog.entries[j];--r.catalog.count;break;}
+    checked=native_plugin_verified_file_release(&r.staged_manifest);
+    if(checked.ok())checked=native_plugin_verified_file_release(&r.target_manifest);
+    if(!checked.ok())return fail(r,Error::release,checked);
+    return Error::none;
+}
 bool cleanup(Runtime& r) noexcept {
     if(forced(2)){r.result.cleanup_pending=true;return false;}
+    // A simulated hard crash (fixture 8) leaves its files for recovery.
+    if(r.abandoned){r.staged_file=false;r.created_dll=false;}
+    if(r.result.committed&&r.after_commit&&!r.after_done){
+        if(r.after_commit(r)!=Error::none){r.result.cleanup_pending=true;return false;}
+        r.after_done=true;
+    }
     if(r.result.committed&&r.retire_old&&!r.old_deleted){
         // The write handle must close before a fresh manifest scan
         // can open its new name with the existing read-only sharing contract.
@@ -335,10 +452,11 @@ bool cleanup(Runtime& r) noexcept {
     for(auto* file:directories)if(!native_plugin_verified_file_release(file).ok()){r.result.cleanup_pending=true;return false;}
     r.result.cleanup_pending=false;return true;
 }
-DWORD WINAPI worker(void* pointer) noexcept {
-    auto& r=*static_cast<Runtime*>(pointer);
+// One operation: prepare, publish the prepared snapshot, wait for the UI's
+// commit or cancel, commit, then clean up.
+DWORD run(Runtime& r,Error (*prepare)(Runtime&),Error (*commit)(Runtime&)) noexcept {
     if(!r.cleanup_only){
-        if(stage(r)==Error::none){
+        if(prepare(r)==Error::none){
             if(cancelled(r))fail(r,Error::cancelled);
             else {
                 checkpoint(r);r.resources.published=true;
@@ -356,7 +474,7 @@ DWORD WINAPI worker(void* pointer) noexcept {
                     SetEvent(r.owner->notification);return 0;
                 }
                 if(cancelled(r)||!InterlockedCompareExchange(&r.owner->commit_requested,0,0))fail(r,Error::cancelled);
-                else publish(r);
+                else commit(r);
                 }
             }
         }
@@ -364,6 +482,8 @@ DWORD WINAPI worker(void* pointer) noexcept {
     cleanup(r);checkpoint(r);r.resources.published=true;
     InterlockedExchange(&r.owner->phase,phase_value(Phase::complete));SetEvent(r.owner->notification);return 0;
 }
+DWORD WINAPI worker(void* pointer) noexcept {return run(*static_cast<Runtime*>(pointer),stage,publish);}
+DWORD WINAPI uninstall_worker(void* pointer) noexcept {return run(*static_cast<Runtime*>(pointer),stage_uninstall,publish_uninstall);}
 bool input(ConstSlice<wchar_t> value) noexcept {
     if(!value.data||value.count<3||value.count>=kNativePluginCatalogPathCapacity||
         !byte_range_valid({reinterpret_cast<const u8*>(value.data),value.count*2}))return false;
@@ -372,26 +492,119 @@ bool input(ConstSlice<wchar_t> value) noexcept {
 bool readable(const NativePluginBundleInstall* owner) noexcept {
     return owner&&owner->runtime&&(phase(*owner)==Phase::prepared||phase(*owner)==Phase::complete);
 }
+Runtime* allocate_runtime() noexcept {
+    SYSTEM_INFO system{};GetSystemInfo(&system);if(!system.dwPageSize)return nullptr;
+    const usize bytes=(sizeof(Runtime)+system.dwPageSize-1)/system.dwPageSize*system.dwPageSize;
+    auto* r=static_cast<Runtime*>(VirtualAlloc(nullptr,bytes,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
+    if(r)r->resources={bytes,sizeof(Runtime),sizeof(r->copy_scratch),3,3,false};
+    return r;
 }
-NativePluginBundleInstallError native_plugin_bundle_install_start(NativePluginBundleInstall* owner,
-    ConstSlice<wchar_t> manifest_path,ConstSlice<wchar_t> destination) noexcept {
-    if(!owner||!input(manifest_path)||!input(destination))return Error::invalid_input;
+struct Launch {
+    LPTHREAD_START_ROUTINE thread;
+    Error (*after_commit)(Runtime&);
+    u64 uninstall_owner;
+    bool retain_previous;
+};
+// manifest_path is empty for an uninstall.
+Error launch(NativePluginBundleInstall* owner,ConstSlice<wchar_t> manifest_path,ConstSlice<wchar_t> destination,const Launch& with) noexcept {
+    if(!owner||(with.uninstall_owner?manifest_path.count!=0:!input(manifest_path))||!input(destination))return Error::invalid_input;
     if(owner->runtime||owner->thread||owner->notification||owner->command)return Error::busy;
     const ConstSlice<u8> own{reinterpret_cast<const u8*>(owner),sizeof(*owner)};
-    if(!byte_range_valid(own)||byte_ranges_overlap(own,{reinterpret_cast<const u8*>(manifest_path.data),manifest_path.count*2})||
+    if(!byte_range_valid(own)||(manifest_path.count&&byte_ranges_overlap(own,{reinterpret_cast<const u8*>(manifest_path.data),manifest_path.count*2}))||
         byte_ranges_overlap(own,{reinterpret_cast<const u8*>(destination.data),destination.count*2}))return Error::invalid_input;
-    SYSTEM_INFO system{};GetSystemInfo(&system);if(!system.dwPageSize)return Error::memory;
-    const usize bytes=(sizeof(Runtime)+system.dwPageSize-1)/system.dwPageSize*system.dwPageSize;
-    auto* r=static_cast<Runtime*>(VirtualAlloc(nullptr,bytes,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!r)return Error::memory;
-    r->owner=owner;r->resources={bytes,sizeof(Runtime),sizeof(r->copy_scratch),3,3,false};
+    auto* r=allocate_runtime();if(!r)return Error::memory;
+    r->owner=owner;r->after_commit=with.after_commit;r->retain_previous=with.retain_previous;
+    r->installed.owner_id=with.uninstall_owner;r->result.uninstall=with.uninstall_owner!=0;
     r->input_characters=manifest_path.count;r->destination_characters=destination.count;
     for(u32 i=0;i<manifest_path.count;++i)r->input[i]=manifest_path[i];for(u32 i=0;i<destination.count;++i)r->destination[i]=destination[i];
     owner->runtime=r;owner->notification=CreateEventW(nullptr,TRUE,FALSE,nullptr);owner->command=CreateEventW(nullptr,FALSE,FALSE,nullptr);
     if(!owner->notification||!owner->command){r->result.error=Error::memory;InterlockedExchange(&owner->phase,phase_value(Phase::complete));
         native_plugin_bundle_install_release(owner);return Error::memory;}
-    InterlockedExchange(&owner->phase,phase_value(Phase::staging));owner->thread=CreateThread(nullptr,256*1024,worker,r,STACK_SIZE_PARAM_IS_A_RESERVATION,nullptr);
+    InterlockedExchange(&owner->phase,phase_value(Phase::staging));owner->thread=CreateThread(nullptr,256*1024,with.thread,r,STACK_SIZE_PARAM_IS_A_RESERVATION,nullptr);
     if(!owner->thread){r->result.error=Error::thread;InterlockedExchange(&owner->phase,phase_value(Phase::complete));native_plugin_bundle_install_release(owner);return Error::thread;}
     return Error::none;
+}
+// Recovery: the installer's staged "<owner16>.maicord-plugin.json.new<16 hex>" names.
+bool staged_manifest_name(const wchar_t* name,u64 owner_id) noexcept {
+    wchar_t prefix[16];hexadecimal(owner_id,prefix);
+    constexpr wchar_t suffix[]=L".maicord-plugin.json.new";constexpr u32 suffix_characters=sizeof(suffix)/sizeof(wchar_t)-1;
+    u32 length{};while(length<MAX_PATH&&name[length])++length;
+    if(length!=16+suffix_characters+16)return false;
+    for(u32 i=0;i<16;++i)if(ascii_lower(name[i])!=prefix[i])return false;
+    for(u32 i=0;i<suffix_characters;++i)if(ascii_lower(name[16+i])!=suffix[i])return false;
+    for(u32 i=16+suffix_characters;i<length;++i){const auto c=ascii_lower(name[i]);if(!((c>=L'0'&&c<=L'9')||(c>=L'a'&&c<=L'f')))return false;}
+    return true;
+}
+Error remove_staged_manifests(Runtime& r,NativePluginBundleRecoveryResult* out) noexcept {
+    auto& directory=r.destination_directory;const u32 base=directory.path_characters;
+    if(base+3>=kNativePluginCatalogPathCapacity)return fail(r,Error::path);
+    wchar_t pattern[kNativePluginCatalogPathCapacity]{};
+    for(u32 i=0;i<base;++i)pattern[i]=directory.path[i];pattern[base]=L'\\';pattern[base+1]=L'*';
+    constexpr u32 kNameCharacters=56;wchar_t names[8][kNameCharacters+1]{};u32 found{},visited{};
+    WIN32_FIND_DATAW data{};directory.scan=FindFirstFileExW(pattern,FindExInfoBasic,&data,FindExSearchNameMatch,nullptr,FIND_FIRST_EX_LARGE_FETCH);
+    if(directory.scan==INVALID_HANDLE_VALUE){directory.scan=nullptr;return fail(r,Error::catalog,{NativePluginCatalogError::scan,GetLastError()});}
+    Error error=Error::none;
+    do{
+        if(++visited>kNativePluginCatalogMaximumDirectoryEntries){error=Error::catalog;break;}
+        if(!staged_manifest_name(data.cFileName,r.installed.owner_id))continue;
+        if(found==8||(data.dwFileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_REPARSE_POINT))||data.nFileSizeHigh||
+            data.nFileSizeLow>kNativePluginManifestMaximumBytes){++out->kept;continue;}
+        for(u32 i=0;i<=kNameCharacters;++i)names[found][i]=data.cFileName[i];++found;
+    }while(FindNextFileW(directory.scan,&data));
+    if(error==Error::none&&GetLastError()!=ERROR_NO_MORE_FILES)error=Error::catalog;
+    if(!FindClose(directory.scan))return fail(r,Error::release,{NativePluginCatalogError::release,GetLastError()});
+    directory.scan=nullptr;
+    if(error!=Error::none)return fail(r,error);
+    for(u32 i=0;i<found;++i){
+        const auto opened=native_plugin_pinned_file_open(directory,{names[i],kNameCharacters},&r.staged_manifest,DELETE|FILE_READ_ATTRIBUTES,FILE_SHARE_READ);
+        if(opened.ok()&&final_path_equal(r.staged_manifest)&&disposition(r.staged_manifest))++out->removed_manifests;else ++out->kept;
+        const auto released=native_plugin_verified_file_release(&r.staged_manifest);
+        if(!released.ok())return fail(r,Error::release,released);
+    }
+    return Error::none;
+}
+} // namespace
+NativePluginBundleInstallError native_plugin_bundle_install_start(NativePluginBundleInstall* owner,
+    ConstSlice<wchar_t> manifest_path,ConstSlice<wchar_t> destination) noexcept {
+    return launch(owner,manifest_path,destination,{worker,nullptr,0,false});
+}
+NativePluginBundleInstallError native_plugin_bundle_install_start(NativePluginBundleInstall* owner,
+    ConstSlice<wchar_t> manifest_path,ConstSlice<wchar_t> destination,NativePluginBundleInstallOptions options) noexcept {
+    return launch(owner,manifest_path,destination,{worker,options.retain_previous?trim_retained:nullptr,0,options.retain_previous});
+}
+NativePluginBundleInstallError native_plugin_bundle_uninstall_start(NativePluginBundleInstall* owner,u64 owner_id,
+    ConstSlice<wchar_t> destination) noexcept {
+    if(owner_id<=1)return Error::invalid_input;
+    return launch(owner,{},destination,{uninstall_worker,trim_uninstalled,owner_id,false});
+}
+NativePluginBundleRecoveryResult native_plugin_bundle_recover(u64 owner_id,ConstSlice<wchar_t> destination,
+    const NativePluginBundleKeep& keep) noexcept {
+    NativePluginBundleRecoveryResult out{};
+    if(owner_id<=1||!input(destination)||keep.count>2){out.error=Error::invalid_input;return out;}
+    auto* r=allocate_runtime();if(!r){out.error=Error::memory;return out;}
+    r->installed.owner_id=owner_id;r->keep_count=keep.count;copy_bytes(r->keep,keep.sha256,sizeof(r->keep));
+    r->destination_characters=destination.count;for(u32 i=0;i<destination.count;++i)r->destination[i]=destination[i];
+    Error error=destination_valid(*r)?Error::none:fail(*r,Error::path);
+    if(error==Error::none){
+        const auto pinned=native_plugin_directory_pin({r->destination,r->destination_characters},&r->destination_directory);
+        if(!pinned.ok())error=fail(*r,Error::path,pinned);
+    }
+    // The owner lock excludes installers; the caller's journal names the owner.
+    if(error==Error::none)error=lock_owner(*r,owner_id);
+    if(error==Error::none)error=remove_staged_manifests(*r,&out);
+    if(error==Error::none)error=trim(*r);
+    out.removed_dlls=r->result.removed;out.kept+=r->result.kept;
+    out.error=error;out.filesystem=r->result.filesystem;
+    NativePluginVerifiedFile* files[]{&r->validation,&r->retired_dll,&r->staged_manifest};
+    bool released=true;
+    for(auto* file:files)released=native_plugin_verified_file_release(file).ok()&&released;
+    released=native_plugin_catalog_release(&r->catalog).ok()&&released;
+    NativePluginVerifiedFile* directories[]{&r->lock,&r->destination_directory};
+    for(auto* file:directories)released=native_plugin_verified_file_release(file).ok()&&released;
+    // A failed release keeps its handles (and the runtime) rather than freeing live state.
+    if(!released){if(out.error==Error::none)out.error=Error::release;return out;}
+    VirtualFree(r,0,MEM_RELEASE);
+    return out;
 }
 NativePluginBundleInstallResult native_plugin_bundle_install_status(const NativePluginBundleInstall* owner) noexcept {
     NativePluginBundleInstallResult result{};if(!owner)return {Phase::empty,Error::invalid_input};result.phase=phase(*owner);
@@ -473,6 +686,6 @@ NativePluginBundleInstallResources native_plugin_bundle_install_resources(const 
     return static_cast<const Runtime*>(owner->runtime)->resources;
 }
 #if defined(MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE)
-void native_plugin_bundle_install_fixture_failures(u32 mask) noexcept {InterlockedExchange(&failure_mask,static_cast<LONG>(mask&7));}
+void native_plugin_bundle_install_fixture_failures(u32 mask) noexcept {InterlockedExchange(&failure_mask,static_cast<LONG>(mask&15));}
 #endif
 } // namespace maicord

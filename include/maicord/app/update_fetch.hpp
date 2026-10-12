@@ -128,6 +128,13 @@ struct UpdateFetchResult {
     u64 retry_at_unix;
     constexpr bool ok() const noexcept { return error == UpdateFetchError::none; }
 };
+// Body sink into a fixed buffer; refuses bytes beyond capacity.
+struct UpdateBufferSink {
+    u8* data;
+    u32 capacity, used;
+};
+bool update_buffer_sink(void* context, ConstSlice<u8> bytes) noexcept;
+
 // Starts at `start` and follows at most five allowlisted redirects, logging
 // each response (host, status, sizes; never targets). A nonzero exact_bytes
 // requires that body size. 429, or 403/503 with rate-limit fields, report the

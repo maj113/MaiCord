@@ -768,7 +768,55 @@ void hex(u64 value, u32 digits, char* out) noexcept {
     constexpr char alphabet[] = "0123456789abcdef";
     for (u32 i = 0; i < digits; ++i) out[i] = alphabet[(value >> ((digits - 1 - i) * 4)) & 15];
 }
+
+// ---- unverified provider.key -----------------------------------------------------
+struct Peek {
+    JsonIndexedDocument document;
+    u8 key[65];
+    bool provider, found, malformed;
+};
+bool peek_provider_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& p = *static_cast<Peek*>(context);
+    if (!json_string_equals_ascii(name, utf8_literal("key"))) return true;
+    char text[131];
+    JsonString string{};
+    if (p.found || !json_value_as_string(value, &string)) { p.malformed = true; return false; }
+    const auto decoded = json_string_decode_utf8(string, {text, sizeof(text)});
+    if (!decoded.ok() || !update_public_key_from_hex({text, decoded.bytes}, {p.key, 65})) { p.malformed = true; return false; }
+    p.found = true;
+    return true;
+}
+bool peek_root_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& p = *static_cast<Peek*>(context);
+    if (!json_string_equals_ascii(name, utf8_literal("provider"))) return true;
+    if (p.provider || value.kind != JsonValueKind::object) { p.malformed = true; return false; }
+    p.provider = true;
+    return json_visit_indexed_object(p.document, value, kPluginIndexMaximumDepth, peek_provider_member, &p).ok();
+}
 } // namespace
+
+PluginIndexKeyPeek plugin_index_unverified_key(Utf8View document, Slice<u32> scratch, u8* key) noexcept {
+    using Peeked = PluginIndexKeyPeek;
+    if (!key || !document.data || !document.bytes || document.bytes > kPluginIndexMaximumBytes || !scratch.data || !scratch.count ||
+        scratch.count > ~u32{0} / sizeof(u32))
+        return Peeked::malformed;
+    const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(document.data), document.bytes},
+        {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))}, {key, 65}};
+    for (u32 i = 0; i < 3; ++i) {
+        if (!byte_range_valid(ranges[i])) return Peeked::malformed;
+        for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(ranges[i], ranges[j])) return Peeked::malformed;
+    }
+    if (document.bytes >= 3 && static_cast<u8>(document.data[0]) == 0xEF && static_cast<u8>(document.data[1]) == 0xBB &&
+        static_cast<u8>(document.data[2]) == 0xBF) return Peeked::malformed;
+    const auto scan = json_scan_structurals_avx1(document, scratch);
+    if (!scan.ok()) return Peeked::malformed;
+    Peek p{{document, {scratch.data, scan.count}}, {}, false, false, false};
+    const auto visited = json_visit_root_object(document, {scratch.data, scan.count}, kPluginIndexMaximumDepth, peek_root_member, &p);
+    if (!visited.ok() || p.malformed) return Peeked::malformed;
+    if (!p.found) return Peeked::absent;
+    copy_bytes(key, p.key, 65);
+    return Peeked::present;
+}
 
 Utf8View plugin_index_category_name(u32 index) noexcept {
     return index < kPluginIndexCategoryCount ? kCategories[index] : Utf8View{};

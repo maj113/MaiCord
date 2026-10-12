@@ -2,10 +2,23 @@
 #include "maicord/app/plugin_manifest.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
+bool child_path(const wchar_t* parent, u32 parent_count, const wchar_t* leaf, wchar_t* output, u32* count) noexcept {
+    u32 length = 0;
+    output[0] = 0;
+    if (parent_count >= kPluginManagerPathCapacity) return false;
+    copy_bytes(output, parent, parent_count * static_cast<u32>(sizeof(wchar_t)));
+    length = parent_count;
+    output[length] = 0;
+    if (!wide_append(output, kPluginManagerPathCapacity, &length, L"\\") || !wide_append(output, kPluginManagerPathCapacity, &length, leaf))
+        return false;
+    *count = length;
+    return true;
+}
 using RE = AcceptanceRecordError;
 constexpr u8 kStateMagic[8]{'M','A','I','P','S','T','A','T'};
 constexpr u8 kJournalMagic[8]{'M','A','I','P','J','R','N','L'};
@@ -54,6 +67,53 @@ void seal(Slice<u8> record) noexcept {
     byte_store_le64(record.data + 24, plugin_record_checksum({record.data, record.count}));
 }
 } // namespace
+
+bool plugin_manager_paths_build(ConstSlice<wchar_t> base, PluginManagerPaths* paths) noexcept {
+    if (!paths || !base.data || !base.count || base.count > kPluginManagerBaseMaximumCharacters || !acceptance_record_path_valid(base) ||
+        base[base.count - 1] == L'\\' || base[base.count - 1] == L'/' ||
+        !disjoint({reinterpret_cast<const u8*>(base.data), base.count * static_cast<u32>(sizeof(wchar_t))},
+            {reinterpret_cast<const u8*>(paths), static_cast<u32>(sizeof(*paths))}))
+        return false;
+    clear_bytes(paths, sizeof(*paths));
+    PluginManagerPaths& p = *paths;
+    copy_bytes(p.base, base.data, base.count * static_cast<u32>(sizeof(wchar_t)));
+    p.base_count = base.count;
+    const bool built = child_path(p.base, p.base_count, L"plugins", p.plugins, &p.plugins_count) &&
+        child_path(p.base, p.base_count, L"plugins.bin", p.trust, &p.trust_count) &&
+        child_path(p.base, p.base_count, L"plugin-data", p.data, &p.data_count) &&
+        child_path(p.base, p.base_count, L"plugin-manager", p.manager, &p.manager_count) &&
+        child_path(p.manager, p.manager_count, L"acceptance.bin", p.acceptance, &p.acceptance_count) &&
+        child_path(p.manager, p.manager_count, L"providers.bin", p.providers, &p.providers_count) &&
+        child_path(p.manager, p.manager_count, L"state.bin", p.state, &p.state_count) &&
+        child_path(p.manager, p.manager_count, L"journal.bin", p.journal, &p.journal_count) &&
+        child_path(p.manager, p.manager_count, L"staging", p.staging, &p.staging_count) &&
+        child_path(p.manager, p.manager_count, L"rollback", p.rollback, &p.rollback_count) &&
+        child_path(p.manager, p.manager_count, L"cache", p.cache, &p.cache_count);
+    if (!built) clear_bytes(paths, sizeof(*paths));
+    return built;
+}
+
+bool plugin_manager_paths_ensure(const PluginManagerPaths& paths, u32* native_error) noexcept {
+    const wchar_t* directories[]{paths.manager, paths.staging, paths.rollback, paths.cache};
+    if (!paths.manager_count) return false;
+    for (const wchar_t* directory : directories)
+        if (!directory_ensure(directory, native_error)) return false;
+    return true;
+}
+
+u32 plugin_manager_id_path(const wchar_t* directory, u32 count, u64 id, const wchar_t* suffix,
+    wchar_t (&output)[kPluginManagerPathCapacity]) noexcept {
+    u32 length = 0;
+    if (!directory || !count || count >= kPluginManagerPathCapacity) return 0;
+    copy_bytes(output, directory, count * static_cast<u32>(sizeof(wchar_t)));
+    length = count;
+    output[length] = 0;
+    if (!wide_append(output, kPluginManagerPathCapacity, &length, L"\\") ||
+        !wide_append_hex(output, kPluginManagerPathCapacity, &length, id) ||
+        !wide_append(output, kPluginManagerPathCapacity, &length, suffix ? suffix : L""))
+        return 0;
+    return length;
+}
 
 bool plugin_manager_state_valid(const PluginManagerState& state) noexcept {
     if (state.count > kPluginManagerStateMaximumEntries) return false;
@@ -196,6 +256,21 @@ AcceptanceRecordResult plugin_journal_save(ConstSlice<wchar_t> path, const Plugi
     u8 record[kPluginJournalRecordBytes];
     const auto result = plugin_journal_encode(journal, {record, sizeof(record)});
     return result.ok() ? plugin_record_write(path, {record, sizeof(record)}) : result;
+}
+
+PluginRecoveryAction plugin_manager_recovery_plan(const PluginJournal& journal, const u8* manifest) noexcept {
+    switch (journal.operation) {
+    case PluginJournalOperation::none: return PluginRecoveryAction::none;
+    case PluginJournalOperation::uninstall: return manifest ? PluginRecoveryAction::restart_uninstall : PluginRecoveryAction::finish_uninstall;
+    default: break;
+    }
+    if (journal.phase == PluginJournalPhase::intent) return PluginRecoveryAction::discard;
+    if (manifest && bytes_equal(manifest, journal.to_sha256, 32)) return PluginRecoveryAction::finish;
+    if (journal.phase == PluginJournalPhase::staged) {
+        const bool fresh = zero(journal.from_sha256, 32);
+        if (fresh ? !manifest : manifest && bytes_equal(manifest, journal.from_sha256, 32)) return PluginRecoveryAction::discard;
+    }
+    return PluginRecoveryAction::clear;
 }
 
 } // namespace maicord

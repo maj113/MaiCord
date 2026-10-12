@@ -208,6 +208,12 @@ void update_http_observe_field(UpdateHttpResponse* r, ConstSlice<u8> name, Const
     }
 }
 
+bool update_buffer_sink(void* context, ConstSlice<u8> bytes) noexcept {
+    auto* b = static_cast<UpdateBufferSink*>(context);
+    if (bytes.count > b->capacity - b->used) return false;
+    copy_bytes(b->data + b->used, bytes.data, bytes.count); b->used += bytes.count; return true;
+}
+
 UpdateFetchResult update_fetch(const UpdateTransport& transport, const UpdateLocation& start, u64 maximum_bytes,
     u64 exact_bytes, UpdateBodySink sink, void* sink_context, u64 now) noexcept {
     UpdateFetchResult result{};

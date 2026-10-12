@@ -98,6 +98,119 @@ u32 managed_count(Fixture& f,u64* bytes) noexcept {
     do{if(++count>16)break;*bytes+=(u64{found.nFileSizeHigh}<<32)|found.nFileSizeLow;}while(FindNextFileW(scan,&found));
     if(!FindClose(scan))return ~u32{0};return count;
 }
+// Catalog lifecycle (retained versions, trim, crash recovery, uninstall) with
+// its own owner and sources, so the local-bundle sequence is unaffected.
+constexpr u64 kCatalogOwner=0x0fedcba987654321ull;
+struct Catalog {
+    wchar_t directory[1024]{},input[3][1024]{},dlls[3][1024]{},sentinel[1024]{};
+    NativePluginManifest manifest[3]{};
+};
+bool catalog_setup(Fixture& f,Catalog& c) noexcept {
+    if(!join(c.directory,f.root,L"catalog")||!CreateDirectoryW(c.directory,nullptr))return false;
+    for(u32 i=0;i<3;++i){auto& m=c.manifest[i];m.owner_id=kCatalogOwner;m.abi_version=5;
+        text(m.name,m.name_bytes,utf8_literal("Catalog fixture"));
+        m.version[0]='1';m.version[1]='.';m.version[2]=static_cast<char>('0'+i);m.version[3]='.';m.version[4]='0';m.version_bytes=5;
+        constexpr char dll[]="cat1.dll";for(u32 j=0;j<sizeof(dll)-1;++j)m.dll[j]=dll[j];m.dll[3]=static_cast<char>('1'+i);m.dll_bytes=sizeof(dll)-1;
+        u8 bytes[64];for(u32 j=0;j<64;++j)bytes[j]=static_cast<u8>(j*3+100+i*7);
+        if(!hash(bytes,64,m.sha256))return false;
+        wchar_t dll_leaf[16]{};for(u32 j=0;j<m.dll_bytes;++j)dll_leaf[j]=static_cast<wchar_t>(m.dll[j]);
+        if(!join(c.dlls[i],c.directory,dll_leaf))return false;
+        HANDLE file=CreateFileW(c.dlls[i],GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+        DWORD written{};bool okay=file!=INVALID_HANDLE_VALUE&&WriteFile(file,bytes,64,&written,nullptr)&&written==64;
+        if(file!=INVALID_HANDLE_VALUE)okay=CloseHandle(file)&&okay;
+        wchar_t leaf[]=L"catalog1.maicord-plugin.json";leaf[7]=static_cast<wchar_t>(L'1'+i);
+        char record[4096];u32 used{};
+        if(!okay||!join(c.input[i],c.directory,leaf)||!native_plugin_manifest_write(m,{record,4096},&used).ok())return false;
+        file=CreateFileW(c.input[i],GENERIC_WRITE,0,nullptr,CREATE_NEW,FILE_ATTRIBUTE_NORMAL,nullptr);
+        okay=file!=INVALID_HANDLE_VALUE&&WriteFile(file,record,used,&written,nullptr)&&written==used;
+        if(file!=INVALID_HANDLE_VALUE)okay=CloseHandle(file)&&okay;
+        if(!okay)return false;
+    }
+    return true;
+}
+// Files in the destination named for kCatalogOwner: its manifest, managed
+// DLLs and the installer's staged manifests.
+struct OwnerFiles {u32 manifests,dlls,staged;};
+OwnerFiles owner_files(Fixture& f) noexcept {
+    OwnerFiles files{};wchar_t pattern[1024]{};
+    if(!join(pattern,f.destination,L"0fedcba987654321*"))return {~u32{0},~u32{0},~u32{0}};
+    WIN32_FIND_DATAW found{};const HANDLE scan=FindFirstFileW(pattern,&found);
+    if(scan==INVALID_HANDLE_VALUE)return files;
+    u32 guard{};
+    do{if(++guard>32)break;const u32 n=length(found.cFileName);
+        if(n==85&&found.cFileName[16]==L'-')++files.dlls;
+        else if(n==36)++files.manifests;
+        else if(n==56)++files.staged;
+    }while(FindNextFileW(scan,&found));
+    FindClose(scan);return files;
+}
+bool files_are(Fixture& f,u32 manifests,u32 dlls,u32 staged) noexcept {
+    const auto files=owner_files(f);return files.manifests==manifests&&files.dlls==dlls&&files.staged==staged;
+}
+bool present(Fixture& f,const NativePluginManifest& m) noexcept {
+    wchar_t leaf[128]{},path[1024]{};managed_leaf(m,leaf);
+    return join(path,f.destination,leaf)&&GetFileAttributesW(path)!=INVALID_FILE_ATTRIBUTES;
+}
+// Starts, commits at prepared and releases one catalog operation.
+NativePluginBundleInstallResult catalog_run(Fixture& f,const wchar_t* source,bool retain,u32* handles,u32* staged_dlls=nullptr) noexcept {
+    NativePluginBundleInstallResult failed{};failed.error=Error::wait;
+    const auto started=source?native_plugin_bundle_install_start(&f.owner,{source,length(source)},{f.destination,length(f.destination)},
+            NativePluginBundleInstallOptions{retain}):
+        native_plugin_bundle_uninstall_start(&f.owner,kCatalogOwner,{f.destination,length(f.destination)});
+    if(started!=Error::none){failed.error=started;return failed;}
+    if(!await(f.owner,Phase::prepared)){
+        if(await(f.owner,Phase::complete)){failed=native_plugin_bundle_install_status(&f.owner);release(f.owner);}
+        return failed;
+    }
+    if(staged_dlls)*staged_dlls=owner_files(f).dlls;
+    if(native_plugin_bundle_install_commit(&f.owner)!=Error::none||!await(f.owner,Phase::complete))return failed;
+    const auto result=native_plugin_bundle_install_status(&f.owner);
+    *handles=native_plugin_bundle_install_resources(&f.owner).attached_handles;
+    return release(f.owner)?result:failed;
+}
+void catalog_lifecycle(Fixture& f,void (*check)(bool,const char*) noexcept) noexcept {
+    static Catalog c{};
+    const bool ready=catalog_setup(f,c);
+    check(ready,"bundle catalog: three versions of a second owner in their own source directory");
+    if(!ready)return;
+    u32 handles{},staged{};
+    auto result=catalog_run(f,c.input[0],true,&handles);
+    check(result.ok()&&result.committed&&!result.update&&files_are(f,1,1,0)&&handles==3,
+        "bundle catalog: a fresh install leaves 2 owner files (manifest and DLL) and handles back at baseline");
+    result=catalog_run(f,c.input[1],true,&handles);
+    check(result.ok()&&result.committed&&result.update&&result.removed==0&&files_are(f,1,2,0)&&present(f,c.manifest[0])&&
+        present(f,c.manifest[1])&&handles==3, "bundle catalog: an update retaining the previous version leaves 3 owner files");
+    result=catalog_run(f,c.input[2],true,&handles,&staged);
+    check(result.ok()&&result.committed&&staged==3&&result.removed==1&&result.kept==0&&files_are(f,1,2,0)&&!present(f,c.manifest[0])&&
+        present(f,c.manifest[1])&&present(f,c.manifest[2])&&handles==3,
+        "bundle catalog: a third update stages 3 DLLs, then trims the oldest by name and hash back to 3 owner files");
+    native_plugin_bundle_install_fixture_failures(8);
+    result=catalog_run(f,c.input[0],true,&handles);
+    native_plugin_bundle_install_fixture_failures(0);
+    check(result.error==Error::commit&&!result.committed&&files_are(f,1,3,1)&&present(f,c.manifest[0])&&handles==3,
+        "bundle catalog: a hard crash before commit leaves the new DLL and the staged manifest behind");
+    NativePluginBundleKeep keep{};copy_bytes(keep.sha256[0],c.manifest[1].sha256,32);keep.count=1;
+    const auto recovered=native_plugin_bundle_recover(kCatalogOwner,{f.destination,length(f.destination)},keep);
+    check(recovered.ok()&&recovered.removed_dlls==1&&recovered.removed_manifests==1&&recovered.kept==0&&files_are(f,1,2,0)&&
+        !present(f,c.manifest[0])&&present(f,c.manifest[1])&&present(f,c.manifest[2]),
+        "bundle recovery: exactly 1 orphan DLL and 1 staged manifest are removed; current and kept previous stay");
+    check(native_plugin_bundle_recover(kCatalogOwner,{f.destination,length(f.destination)},keep).removed_dlls==0&&files_are(f,1,2,0),
+        "bundle recovery: a second recovery finds nothing to remove");
+    // An unknown file with a managed-looking name: its content is not its digest.
+    wchar_t sentinel_leaf[128]{};managed_leaf(c.manifest[0],sentinel_leaf);
+    const u8 junk[3]{1,2,3};
+    const bool sentinel=join(c.sentinel,f.destination,sentinel_leaf)&&write(f,c.sentinel,junk,3);
+    result=catalog_run(f,nullptr,false,&handles);
+    check(sentinel&&result.ok()&&result.uninstall&&result.committed&&result.removed==2&&result.kept==1&&files_are(f,0,1,0)&&
+        GetFileAttributesW(c.sentinel)!=INVALID_FILE_ATTRIBUTES&&handles==3,
+        "bundle uninstall: the manifest and both verified DLLs go (0 owner files), the unknown sentinel stays");
+    result=catalog_run(f,nullptr,false,&handles);
+    check(result.error==Error::manifest&&!result.committed&&GetFileAttributesW(c.sentinel)!=INVALID_FILE_ATTRIBUTES,
+        "bundle uninstall: an owner without a manifest is refused");
+    DeleteFileW(c.sentinel);
+    for(u32 i=0;i<3;++i){DeleteFileW(c.input[i]);DeleteFileW(c.dlls[i]);}
+    RemoveDirectoryW(c.directory);
+}
 void cleanup(Fixture& f) noexcept {
     native_plugin_bundle_install_fixture_failures(0);
     Owner* owners[]{&f.owner,&f.second};for(auto* owner:owners){
@@ -127,6 +240,7 @@ void test_plugin_bundle_install(void (*check)(bool,const char*) noexcept) noexce
     check(native_plugin_manifest_write(f.manifest[0],{record,1},&count).error==NativePluginManifestError::capacity&&record[0]=='!'&&count==77&&
         native_plugin_manifest_write(f.manifest[0],{reinterpret_cast<char*>(&f.manifest[0]),sizeof(f.manifest[0])},&count).error==NativePluginManifestError::invalid_input,
         "bundle manifest: capacity and alias refusals preserve outputs atomically");
+    catalog_lifecycle(f,check);
     check(start(f,f.owner,0)&&await(f.owner,Phase::prepared),"bundle install: worker stages off caller with final manifest absent");
     if(native_plugin_bundle_install_status(&f.owner).phase!=Phase::prepared)return;
     NativePluginManifest prepared{};const auto resources=native_plugin_bundle_install_resources(&f.owner);

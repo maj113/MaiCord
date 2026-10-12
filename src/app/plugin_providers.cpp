@@ -2,6 +2,8 @@
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/app/plugin_index.hpp"
 #include "maicord/app/update_fetch.hpp"
+#include "maicord/app/update_log.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/hash.hpp"
@@ -59,7 +61,253 @@ bool entry_valid(const PluginProviderRecord& e) noexcept {
         zero(e.path + e.path_bytes, kPluginProviderPathCapacity - e.path_bytes) &&
         zero(e.name + e.name_bytes, kPluginProviderNameCapacity - e.name_bytes);
 }
+
+// ---- addresses -------------------------------------------------------------------
+using AE = PluginProviderAddressError;
+bool alnum(char c) noexcept { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'); }
+// RFC 3986 pchar without percent-encoding: provider bases are plain paths.
+bool path_char(char c) noexcept {
+    if (alnum(c)) return true;
+    for (const char* a = "-._~!$&'()*+,;=:@"; *a; ++a) if (c == *a) return true;
+    return false;
+}
+i32 hex_value(char c) noexcept {
+    return c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+}
+bool overlap_free(ConstSlice<ConstSlice<u8>> ranges) noexcept {
+    for (u32 i = 0; i < ranges.count; ++i) {
+        if (!byte_range_valid(ranges[i])) return false;
+        for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(ranges[i], ranges[j])) return false;
+    }
+    return true;
+}
+bool sha256_parts(KdfSha256Workspace& workspace, Utf8View domain, ConstSlice<u8> data, u8* digest) noexcept {
+    const ConstSlice<u8> parts[]{{reinterpret_cast<const u8*>(domain.data), domain.bytes}, data};
+    return sha256(workspace, {parts, 2}, {digest, 32}).ok();
+}
+
+// ---- probe -----------------------------------------------------------------------
+using PE = PluginProviderProbeError;
+PluginProviderProbe probe_failed(PluginProviderProbe r, PE error, const char* phase) noexcept {
+    r.error = error;
+    UpdateLog line("plugins", "provider_probe");
+    line.add(" phase=").add(phase);
+    line.field("error", static_cast<u8>(error)).field("fetch", static_cast<u8>(r.fetch_error))
+        .field("index", static_cast<u8>(r.index_error)).field("status", r.status).field("native", r.native_error);
+    if (r.retry_at_unix) line.field("retry_at", r.retry_at_unix);
+    line.write(LogLevel::warning);
+    return r;
+}
+bool fetched(PluginProviderProbe* r, const UpdateFetchResult& f) noexcept {
+    ++r->requests;
+    r->fetch_error = f.error; r->status = f.status; r->native_error = f.native_error; r->retry_at_unix = f.retry_at_unix;
+    return f.ok();
+}
 } // namespace
+
+PluginProviderAddressError plugin_provider_address_parse(Utf8View text, KdfSha256Workspace& workspace,
+    PluginProviderAddress* output) noexcept {
+    if (!output || (!text.data && text.bytes)) return AE::invalid_input;
+    const ConstSlice<u8> ranges[]{{reinterpret_cast<const u8*>(text.data), text.bytes},
+        {reinterpret_cast<const u8*>(output), sizeof(*output)}, {reinterpret_cast<const u8*>(&workspace), sizeof(workspace)}};
+    if (!overlap_free({ranges, 3})) return AE::invalid_input;
+    if (text.bytes > kPluginProviderAddressMaximumBytes) return AE::length;
+    u32 begin = 0, end = text.bytes;
+    while (begin < end && (text.data[begin] == ' ' || text.data[begin] == '\t')) ++begin;
+    while (end > begin && (text.data[end - 1] == ' ' || text.data[end - 1] == '\t')) --end;
+    if (begin == end) return AE::length;
+    const char* s = text.data + begin;
+    const u32 n = end - begin;
+    for (u32 i = 0; i < n; ++i) if (static_cast<u8>(s[i]) < 0x21 || static_cast<u8>(s[i]) > 0x7E) return AE::character;
+    constexpr Utf8View scheme = utf8_literal("https://");
+    if (n < scheme.bytes || !ascii_equal_ignore_case({s, scheme.bytes}, scheme)) return AE::scheme;
+    u32 at = scheme.bytes;
+    while (at < n && s[at] != '/' && s[at] != '?' && s[at] != '#') ++at;
+    const Utf8View authority{s + scheme.bytes, at - scheme.bytes};
+    for (u32 i = 0; i < authority.bytes; ++i) if (authority.data[i] == '@') return AE::userinfo;
+    if (authority.bytes && authority.data[0] == '[') return AE::host;
+    for (u32 i = 0; i < authority.bytes; ++i) if (authority.data[i] == ':') return AE::port;
+    if (!update_origin_host_valid(authority)) return AE::host;
+    PluginProviderAddress a{};
+    for (u32 i = 0; i < authority.bytes; ++i) a.host[i] = ascii_lower(authority.data[i]);
+    a.host_bytes = authority.bytes;
+    u32 path_end = at;
+    while (path_end < n && s[path_end] != '?' && s[path_end] != '#') ++path_end;
+    if (path_end < n && s[path_end] == '?') return AE::query;
+    if (at == path_end) {
+        a.path[0] = '/';
+        a.path_bytes = 1;
+    } else {
+        // Segments between slashes: none empty (a final empty one is the
+        // trailing '/'), none "." or "..", plain path characters only.
+        for (u32 i = at + 1, start = at + 1; i <= path_end; ++i) {
+            if (i < path_end && s[i] != '/') {
+                if (!path_char(s[i])) return AE::path;
+                continue;
+            }
+            const u32 length = i - start;
+            if (!length && i != path_end) return AE::path;
+            if ((length == 1 && s[start] == '.') || (length == 2 && s[start] == '.' && s[start + 1] == '.')) return AE::path;
+            start = i + 1;
+        }
+        const bool slash = s[path_end - 1] == '/';
+        const u32 bytes = path_end - at + (slash ? 0 : 1);
+        if (bytes > kPluginProviderPathCapacity) return AE::length;
+        copy_bytes(a.path, s + at, path_end - at);
+        if (!slash) a.path[bytes - 1] = '/';
+        a.path_bytes = bytes;
+    }
+    if (path_end < n) { // '#': only the key pin
+        constexpr Utf8View pin = utf8_literal("sha256=");
+        const char* fragment = s + path_end + 1;
+        const u32 fragment_bytes = n - path_end - 1;
+        if (fragment_bytes < pin.bytes || !bytes_equal(fragment, pin.data, pin.bytes)) return AE::fragment;
+        if (fragment_bytes != pin.bytes + 64) return AE::pin;
+        for (u32 i = 0; i < 64; ++i) {
+            const i32 v = hex_value(fragment[pin.bytes + i]);
+            if (v < 0) return AE::pin;
+            a.pin[i / 2] = static_cast<u8>(i % 2 ? (a.pin[i / 2] << 4) | v : v);
+        }
+        a.has_pin = true;
+    }
+    char base[kPluginProviderBaseMaximumBytes];
+    const u32 base_bytes = plugin_provider_address_text(a, {base, sizeof(base)});
+    u8 digest[32]{};
+    if (!base_bytes || !sha256_parts(workspace, kPluginProviderIdDomain, {reinterpret_cast<const u8*>(base), base_bytes}, digest))
+        return AE::invalid_input;
+    a.id = static_cast<u64>(byte_load_be32(digest)) << 32 | byte_load_be32(digest + 4);
+    if (a.id <= kPluginProviderOfficial) return AE::host; // 0 and 1 are reserved (a 2^-63 chance)
+    *output = a;
+    return AE::none;
+}
+
+u32 plugin_provider_address_text(const PluginProviderAddress& a, Slice<char> output) noexcept {
+    constexpr Utf8View scheme = utf8_literal("https://");
+    if (!output.data || !a.host_bytes || a.host_bytes > kPluginProviderHostCapacity || !a.path_bytes ||
+        a.path_bytes > kPluginProviderPathCapacity) return 0;
+    const u32 bytes = scheme.bytes + a.host_bytes + a.path_bytes;
+    if (bytes > output.count) return 0;
+    copy_bytes(output.data, scheme.data, scheme.bytes);
+    copy_bytes(output.data + scheme.bytes, a.host, a.host_bytes);
+    copy_bytes(output.data + scheme.bytes + a.host_bytes, a.path, a.path_bytes);
+    return bytes;
+}
+
+bool plugin_provider_index_location(Utf8View host, Utf8View path, bool signature, UpdateLocation* output) noexcept {
+    constexpr Utf8View leaf = utf8_literal("v1/index.json.sig");
+    const u32 leaf_bytes = signature ? leaf.bytes : leaf.bytes - 4;
+    if (!output || !path.data || !base_path_valid(path.data, path.bytes)) return false;
+    char target[kPluginProviderPathCapacity + 17];
+    copy_bytes(target, path.data, path.bytes);
+    copy_bytes(target + path.bytes, leaf.data, leaf_bytes);
+    return update_provider_location(host, {target, path.bytes + leaf_bytes}, output);
+}
+
+bool plugin_provider_fingerprint(KdfSha256Workspace& workspace, const u8* key, u8* fingerprint) noexcept {
+    if (!key || !fingerprint || key[0] != 4) return false;
+    u8 digest[32]{};
+    if (!sha256_parts(workspace, kPluginProviderKeyDomain, {key, 65}, digest)) return false;
+    copy_bytes(fingerprint, digest, 32);
+    return true;
+}
+
+u32 plugin_provider_fingerprint_text(const u8* fingerprint, Slice<char> output) noexcept {
+    if (!fingerprint || !output.data || output.count < kPluginProviderFingerprintTextBytes) return 0;
+    constexpr char digits[] = "0123456789ABCDEF";
+    u32 at = 0;
+    for (u32 i = 0; i < 16; ++i) {
+        if (i && !(i % 2)) output[at++] = ' ';
+        output[at++] = digits[fingerprint[i] >> 4];
+        output[at++] = digits[fingerprint[i] & 15];
+    }
+    return at;
+}
+
+PluginProviderProbe plugin_provider_probe(const PluginProviderAddress& address, const UpdateTransport& transport,
+    KdfSha256Workspace& workspace, PluginIndexWork* work, bool allow_unsigned, u64 now) noexcept {
+    PluginProviderProbe r{};
+    UpdateLocation location{};
+    const Utf8View host{address.host, address.host_bytes}, path{address.path, address.path_bytes};
+    if (!work || !transport.get || !now || address.id <= kPluginProviderOfficial || address.host_bytes > kPluginProviderHostCapacity ||
+        !plugin_provider_index_location(host, path, false, &location)) { r.error = PE::invalid_input; return r; }
+    UpdateTransport plugins = transport;
+    plugins.log_category = "plugins";
+    clear_bytes(work->record, 64);
+    work->document_bytes = 0;
+    UpdateBufferSink document{work->record + 64, kPluginIndexMaximumBytes, 0};
+    if (!fetched(&r, update_fetch(plugins, location, kPluginIndexMaximumBytes, 0, update_buffer_sink, &document, now)))
+        return probe_failed(r, PE::fetch, "index");
+    work->document_bytes = document.used;
+    const Utf8View text = plugin_index_work_document(*work);
+    const Slice<u32> scratch{work->scratch, kPluginIndexStructuralCapacity};
+    PluginIndexPolicy policy{};
+    policy.now_unix = now;
+    const auto peeked = plugin_index_unverified_key(text, scratch, r.key);
+    if (peeked == PluginIndexKeyPeek::malformed) return probe_failed(r, PE::unreadable, "key");
+    if (peeked == PluginIndexKeyPeek::absent) {
+        // A share link's pin promises a signing key.
+        if (address.has_pin) return probe_failed(r, PE::pin, "pin");
+        if (!allow_unsigned) return probe_failed(r, PE::unsigned_provider, "unsigned");
+        policy.kind = PluginProviderKind::custom_unsigned;
+        r.index_error = plugin_index_parse_unsigned(text, workspace, policy, scratch, &work->index).error;
+    } else {
+        if (!plugin_provider_fingerprint(workspace, r.key, r.fingerprint)) return probe_failed(r, PE::invalid_input, "fingerprint");
+        if (address.has_pin && !bytes_equal(address.pin, r.fingerprint, 32)) return probe_failed(r, PE::pin, "pin");
+        if (!plugin_provider_index_location(host, path, true, &location)) return probe_failed(r, PE::invalid_input, "location");
+        UpdateBufferSink signature{work->record, 64, 0};
+        if (!fetched(&r, update_fetch(plugins, location, 64, 64, update_buffer_sink, &signature, now)))
+            return probe_failed(r, PE::fetch, "signature");
+        policy.kind = PluginProviderKind::custom_signed;
+        copy_bytes(policy.pinned_key, r.key, 65);
+        P256Key key{};
+        if (!p256_import_public(&key, P256Kind::ecdsa, {r.key, 65}).ok()) return probe_failed(r, PE::unreadable, "key");
+        r.index_error = plugin_index_verify(text, {work->record, 64}, key, workspace, policy, scratch, &work->index).error;
+        p256_release(&key);
+        r.signed_provider = r.index_error == PluginIndexError::none;
+        r.pin_matched = r.signed_provider && address.has_pin;
+    }
+    if (r.index_error != PluginIndexError::none) return probe_failed(r, PE::document, "verify");
+    r.sequence = work->index.sequence;
+    r.plugin_count = work->index.plugin_count;
+    UpdateLog("plugins", "provider_probe").host("host", host).field("signed", r.signed_provider).field("pinned", r.pin_matched)
+        .field("sequence", r.sequence).field("plugins", r.plugin_count).field("requests", r.requests).write();
+    return r;
+}
+
+const PluginProviderRecord* plugin_providers_find(const PluginProviders& providers, u64 id) noexcept {
+    for (u32 i = 0; i < providers.count && i < kPluginProviderMaximum; ++i)
+        if (providers.entries[i].id == id) return &providers.entries[i];
+    return nullptr;
+}
+
+PluginProviderInsertError plugin_providers_insert(PluginProviders* providers, const PluginProviderAddress& address,
+    const PluginProviderProbe& probe, Utf8View name, u64 now) noexcept {
+    using IE = PluginProviderInsertError;
+    if (!providers || probe.error != PE::none || !now || !name.data || !name.bytes || name.bytes > kPluginProviderNameCapacity ||
+        address.host_bytes > kPluginProviderHostCapacity || address.path_bytes > kPluginProviderPathCapacity)
+        return IE::invalid_input;
+    if (plugin_providers_find(*providers, address.id)) return IE::duplicate;
+    if (providers->count >= kPluginProviderMaximum) return IE::capacity;
+    PluginProviders next = *providers;
+    PluginProviderRecord& e = next.entries[next.count++];
+    e = {};
+    e.id = address.id;
+    e.added = now;
+    e.flags = kPluginProviderEnabled | kPluginProviderCheckDaily | (probe.signed_provider ? kPluginProviderSigned : 0);
+    e.host_bytes = address.host_bytes;
+    e.path_bytes = address.path_bytes;
+    e.name_bytes = name.bytes;
+    copy_bytes(e.host, address.host, address.host_bytes);
+    copy_bytes(e.path, address.path, address.path_bytes);
+    copy_bytes(e.name, name.data, name.bytes);
+    if (probe.signed_provider) {
+        copy_bytes(e.key, probe.key, 65);
+        copy_bytes(e.fingerprint, probe.fingerprint, 32);
+    }
+    if (!plugin_providers_valid(next)) return IE::invalid_input;
+    *providers = next;
+    return IE::none;
+}
 
 u64 plugin_record_checksum(ConstSlice<u8> record) noexcept {
     return hash64_bytes(hash64_bytes(kHash64Seed, record.data, 24), record.data + 32, record.count - 32);

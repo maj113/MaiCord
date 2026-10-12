@@ -127,12 +127,6 @@ bool create_enrollment(const UpdatePaths& paths, const u8* inventory) noexcept {
 UpdateInstallLimits limits(const UpdateService& s) noexcept {
     return {s.config.maximum_artifact_bytes, kUpdateMaximumValiditySeconds, kUpdateInstallMaximumRetainedBytes, kUpdateFreeSpaceReserveBytes};
 }
-struct BufferSink { u8* data; u32 capacity, used; };
-bool buffer_sink(void* context, ConstSlice<u8> bytes) noexcept {
-    auto* b = static_cast<BufferSink*>(context);
-    if (bytes.count > b->capacity - b->used) return false;
-    copy_bytes(b->data + b->used, bytes.data, bytes.count); b->used += bytes.count; return true;
-}
 bool file_sink(void* context, ConstSlice<u8> bytes) noexcept {
     auto* s = static_cast<UpdateService*>(context);
     if (!write_exact(s->download, bytes.data, bytes.count)) return false;
@@ -370,13 +364,13 @@ UpdateCheckResult update_service_check(UpdateService* s, const UpdateTransport& 
     UpdateManifest manifest{};
     UpdateManifestPolicy policy{};
     // 1. Channel manifest and detached signature from the Pages site.
-    BufferSink document{reinterpret_cast<u8*>(s->document), sizeof(s->document), 0};
+    UpdateBufferSink document{reinterpret_cast<u8*>(s->document), sizeof(s->document), 0};
     if (!update_asset_location(repository, channel, UpdateAsset::manifest, 0, &location)) return report(failed(SE::configuration), "location");
-    auto fetched = update_fetch(transport, location, kUpdateManifestMaximumBytes, 0, buffer_sink, &document, now);
+    auto fetched = update_fetch(transport, location, kUpdateManifestMaximumBytes, 0, update_buffer_sink, &document, now);
     if (!fetched.ok()) return report(fetch_failed(fetched), "manifest");
-    BufferSink signature{s->signature, sizeof(s->signature), 0};
+    UpdateBufferSink signature{s->signature, sizeof(s->signature), 0};
     if (!update_asset_location(repository, channel, UpdateAsset::signature, 0, &location)) return report(failed(SE::configuration), "location");
-    fetched = update_fetch(transport, location, 64, 64, buffer_sink, &signature, now);
+    fetched = update_fetch(transport, location, 64, 64, update_buffer_sink, &signature, now);
     if (!fetched.ok()) return report(fetch_failed(fetched), "signature");
     s->document_bytes = document.used; s->signature_bytes = signature.used;
     const Utf8View text{s->document, s->document_bytes};

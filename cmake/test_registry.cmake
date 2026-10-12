@@ -215,14 +215,26 @@ maicord_test(MaiCordClientStartupImportsTests ENTRY maicord_client_startup_impor
     TEST maicord_client_imports)
 # Plugin catalog: the index verifier against the vectors shared with
 # tools/release/test_plugin_index_tools.py (tests/fixtures/plugin_index), the
-# catalog policy, and the floor, providers, state and journal records.
+# catalog policy, the floor, providers, state and journal records, provider
+# addresses and the add probe, and the check service against a fake server.
 maicord_test(MaiCordPluginIndexTests ENTRY maicord_plugin_index_tests_entry
     SOURCES tests/plugin_index_entry.cpp tests/plugin_index.cpp tests/plugin_index_policy.cpp
-        tests/plugin_manager_records.cpp
+        tests/plugin_manager_records.cpp tests/plugin_providers.cpp tests/plugin_index_client.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_manager maicord_plugin_modules kernel32 bcrypt
     DEFINES "MAICORD_PLUGIN_INDEX_FIXTURES=L\"${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/plugin_index\""
     TIMEOUT 10
     TEST maicord_plugin_index)
+# Plugin manager: catalog install, update, rollback and uninstall through the
+# bundle installer (compiled with its fault fixture), and a simulated crash at
+# each journal phase followed by recovery. A fake transport serves a signed
+# index and the MaiCordPluginFixture DLL, which is never loaded.
+maicord_test(MaiCordPluginManagerTests ENTRY maicord_plugin_manager_tests_entry
+    SOURCES tests/plugin_manager_install.cpp src/app/plugin_bundle_install.cpp
+    LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_manager maicord_plugin_modules kernel32 bcrypt
+    DEFINES MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE=1
+    DEPENDS MaiCordPluginFixture
+    TIMEOUT 10
+    TEST maicord_plugin_manager)
 maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
     SOURCES tests/application_settings_runtime.cpp tests/application_custom_theme.cpp
         tests/application_plugin_catalog_runtime.cpp tests/application_plugin_navigation_runtime.cpp

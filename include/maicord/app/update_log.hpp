@@ -41,6 +41,12 @@ struct UpdateLog {
         for (u32 i = 0; i < n && bytes + 1 < sizeof(text); ++i) text[bytes++] = digits[i];
         return *this;
     }
+    // 16 lowercase hex digits (plugin owner ids).
+    UpdateLog& hex(const char* key, u64 value) noexcept {
+        add(" "); add(key); add("=");
+        for (u32 shift = 64; shift && bytes + 1 < sizeof(text);) { shift -= 4; text[bytes++] = "0123456789abcdef"[(value >> shift) & 15]; }
+        return *this;
+    }
     // Host names only; anything but [A-Za-z0-9.-] is dropped.
     UpdateLog& host(const char* key, Utf8View name) noexcept {
         add(" "); add(key); add("=");
