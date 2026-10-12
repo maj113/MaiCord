@@ -121,7 +121,7 @@ endif()
 # dloadhelper resolves through kernel32's ResolveDelayLoadedAPI (no CRT).
 # tools/audit_pe.ps1 (-DelayLoad) and maicord_client_imports check the list.
 set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll secur32.dll ole32.dll advapi32.dll
-    api-ms-win-core-winrt-l1-1-0.dll api-ms-win-core-winrt-string-l1-1-0.dll)
+    combase.dll)
 list(TRANSFORM MAICORD_CLIENT_DELAY_LOADS PREPEND /DELAYLOAD: OUTPUT_VARIABLE MAICORD_CLIENT_DELAY_LOAD_OPTIONS)
 target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
 target_link_libraries(MaiCord PRIVATE dloadhelper)

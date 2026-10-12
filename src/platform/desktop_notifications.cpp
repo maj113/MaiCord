@@ -1,20 +1,17 @@
 #include "maicord/platform/desktop_notifications.hpp"
-#include <roapi.h>
-#include <winstring.h>
 #include <NotificationActivationCallback.h>
 #include "toast_abi.hpp"
 
 namespace maicord {
 namespace {
 namespace toast = toast_abi;
-namespace xml = toast_abi;
+using toast::Object;
+using toast::StringReference;
+using toast::call;
+using toast::query;
+using toast::release;
 constexpr wchar_t kActivationPrefix[] = L"mc1:p=";
 constexpr u32 kActivationUnits = 60;
-struct String {
-    HSTRING value{};
-    ~String() noexcept { if (value) WindowsDeleteString(value); }
-    HRESULT set(const wchar_t* p, u32 n) noexcept { return WindowsCreateString(p, n, &value); }
-};
 DesktopNotificationResult failed(DesktopNotificationError e, HRESULT h) noexcept { return {e, static_cast<u32>(h)}; }
 bool same_guid(REFIID a, REFIID b) noexcept { return bytes_equal(&a, &b, sizeof(GUID)); }
 u32 bounded_length(const wchar_t* s, u32 bound) noexcept {
@@ -74,13 +71,14 @@ struct Server final : IClassFactory, INotificationActivationCallback {
     wchar_t app_id[129]{}; u32 app_units{};
     DesktopNotificationActivation queue[kDesktopNotificationActivationCapacity]{};
     u32 head{}, count{};
-    toast::IToastNotifier* notifier{};
-    toast::IToastNotificationFactory* factory{};
-    toast::IToastNotificationHistory* history{};
+    Object* notifier{};
+    Object* factory{};
+    Object* history{};
+    Object* xml_factory{};
     struct HistoryRequest {u64 profile{},channel{};bool refresh{};};
     HistoryRequest history_requests[8]{};
     u32 history_head{},history_count{},history_cursor{},history_size{};
-    toast::IToastNotificationVectorView* history_snapshot{};
+    Object* history_snapshot{};
     i64 performance_frequency{};
     static void* operator new(usize, void* p) noexcept { return p; }
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override {
@@ -125,8 +123,8 @@ struct Server final : IClassFactory, INotificationActivationCallback {
 static_assert(sizeof(Server)<=2048, "early activation owner remains bounded");
 Server* owner(DesktopNotifications* n) noexcept {return n?static_cast<Server*>(n->runtime):nullptr;}
 bool ui_owner(Server* s) noexcept {return s && s->active && s->thread==GetCurrentThreadId();}
-void drop_transport(Server* s) noexcept {com_release(s->notifier);com_release(s->factory);com_release(s->history);}
-void drop_snapshot(Server* s) noexcept {com_release(s->history_snapshot);s->history_cursor=s->history_size=0;}
+void drop_transport(Server* s) noexcept {release(s->notifier);release(s->factory);release(s->history);release(s->xml_factory);}
+void drop_snapshot(Server* s) noexcept {release(s->history_snapshot);s->history_cursor=s->history_size=0;}
 void retire_history_request(Server* s) noexcept {
     drop_snapshot(s);if(s->history_count){s->history_requests[s->history_head]={};s->history_head=(s->history_head+1)%8;--s->history_count;}
 }
@@ -141,53 +139,49 @@ HRESULT transport(Server* s) noexcept {
     if(!s->enrolled)return E_ACCESSDENIED;
     if(s->notifier&&s->factory&&s->history)return S_OK;
     drop_transport(s);
-    String manager_name,toast_name,id;
-    HRESULT h=manager_name.set(toast::kToastNotificationManagerClass,
-        static_cast<u32>(sizeof(toast::kToastNotificationManagerClass)/sizeof(wchar_t)-1));
-    if(SUCCEEDED(h))h=toast_name.set(toast::kToastNotificationClass,
-        static_cast<u32>(sizeof(toast::kToastNotificationClass)/sizeof(wchar_t)-1));
-    if(SUCCEEDED(h))h=id.set(s->app_id,s->app_units);
-    toast::IToastNotificationManagerStatics* manager=nullptr;
-    toast::IToastNotificationManagerStatics2* second=nullptr;
-    if(SUCCEEDED(h))h=RoGetActivationFactory(manager_name.value,__uuidof(toast::IToastNotificationManagerStatics),reinterpret_cast<void**>(&manager));
-    if(SUCCEEDED(h))h=manager->CreateToastNotifierWithId(id.value,&s->notifier);
-    if(SUCCEEDED(h))h=manager->QueryInterface(__uuidof(toast::IToastNotificationManagerStatics2),reinterpret_cast<void**>(&second));
-    if(SUCCEEDED(h))h=second->get_History(&s->history);
-    if(SUCCEEDED(h))h=RoGetActivationFactory(toast_name.value,__uuidof(toast::IToastNotificationFactory),reinterpret_cast<void**>(&s->factory));
-    com_release(second);com_release(manager);if(FAILED(h))drop_transport(s);return h;
+    StringReference manager_name(toast::kToastNotificationManagerClass),toast_name(toast::kToastNotificationClass),id(s->app_id,s->app_units);
+    Object* manager=nullptr;Object* second=nullptr;
+    HRESULT h=RoGetActivationFactory(manager_name.get(),toast::kIidToastNotificationManagerStatics,reinterpret_cast<void**>(&manager));
+    if(SUCCEEDED(h))h=call(manager,toast::kCreateNotifierWithId,id.get(),&s->notifier);
+    if(SUCCEEDED(h))h=query(manager,toast::kIidToastNotificationManagerStatics2,&second);
+    if(SUCCEEDED(h))h=call(second,toast::kManagerHistory,&s->history);
+    if(SUCCEEDED(h))h=RoGetActivationFactory(toast_name.get(),toast::kIidToastNotificationFactory,reinterpret_cast<void**>(&s->factory));
+    release(second);release(manager);if(FAILED(h))drop_transport(s);return h;
 }
-HRESULT document(const DesktopNotificationXml& text,xml::IXmlDocument** out) noexcept {
+HRESULT document(Server* s,const DesktopNotificationXml& text,Object** out) noexcept {
     *out=nullptr;
+    // One unit stays free for the NUL a string reference requires.
     wchar_t wide[kDesktopNotificationXmlBytes];
-    const int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.bytes,static_cast<int>(text.count),wide,kDesktopNotificationXmlBytes);
+    const int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,text.bytes,static_cast<int>(text.count),wide,kDesktopNotificationXmlBytes-1);
     if(!n)return E_INVALIDARG;
-    String name,content;IInspectable* instance=nullptr;xml::IXmlDocumentIO* io=nullptr;
-    HRESULT h=name.set(xml::kXmlDocumentClass,static_cast<u32>(sizeof(xml::kXmlDocumentClass)/sizeof(wchar_t)-1));
-    if(SUCCEEDED(h))h=content.set(wide,static_cast<u32>(n));
-    if(SUCCEEDED(h))h=RoActivateInstance(name.value,&instance);
-    if(SUCCEEDED(h))h=instance->QueryInterface(__uuidof(xml::IXmlDocumentIO),reinterpret_cast<void**>(&io));
-    if(SUCCEEDED(h))h=io->LoadXml(content.value);
-    if(SUCCEEDED(h))h=instance->QueryInterface(__uuidof(xml::IXmlDocument),reinterpret_cast<void**>(out));
-    com_release(io);com_release(instance);return h;
+    wide[n]=0;
+    HRESULT h=S_OK;
+    if(!s->xml_factory){StringReference name(toast::kXmlDocumentClass);h=RoGetActivationFactory(name.get(),toast::kIidActivationFactory,reinterpret_cast<void**>(&s->xml_factory));}
+    StringReference content(wide,static_cast<u32>(n));Object* instance=nullptr;Object* io=nullptr;
+    if(SUCCEEDED(h))h=call(s->xml_factory,toast::kActivateInstance,&instance);
+    if(SUCCEEDED(h))h=query(instance,toast::kIidXmlDocumentIO,&io);
+    if(SUCCEEDED(h))h=call(io,toast::kXmlLoad,content.get());
+    if(SUCCEEDED(h))h=query(instance,toast::kIidXmlDocument,out);
+    release(io);release(instance);return h;
 }
 HRESULT show_once(Server* s,const DesktopNotificationPayload& p,const DesktopNotificationXml& text,bool* attempted) noexcept {
-    HRESULT h=transport(s); xml::IXmlDocument* dom=nullptr;toast::IToastNotification* item=nullptr;toast::IToastNotification2* identity=nullptr;
-    String tag,group;wchar_t tag_buffer[17],group_buffer[17];desktop_notification_hex_id(p.target.message_id,{tag_buffer,17});desktop_notification_hex_id(p.target.profile_id,{group_buffer,17});
-    if(SUCCEEDED(h))h=tag.set(tag_buffer,16);if(SUCCEEDED(h))h=group.set(group_buffer,16);
-    if(SUCCEEDED(h))h=document(text,&dom);
-    if(SUCCEEDED(h))h=s->factory->CreateToastNotification(dom,&item);
-    if(SUCCEEDED(h))h=item->QueryInterface(__uuidof(toast::IToastNotification2),reinterpret_cast<void**>(&identity));
-    if(SUCCEEDED(h))h=identity->put_Tag(tag.value);if(SUCCEEDED(h))h=identity->put_Group(group.value);
-    if(SUCCEEDED(h))h=identity->put_SuppressPopup(p.suppress_popup?TRUE:FALSE);
-    if(SUCCEEDED(h)){*attempted=true;h=s->notifier->Show(item);}
-    com_release(identity);com_release(item);com_release(dom);return h;
+    wchar_t tag_text[17],group_text[17];desktop_notification_hex_id(p.target.message_id,{tag_text,17});desktop_notification_hex_id(p.target.profile_id,{group_text,17});
+    StringReference tag(tag_text,16),group(group_text,16);Object* dom=nullptr;Object* item=nullptr;Object* identity=nullptr;
+    HRESULT h=transport(s);
+    if(SUCCEEDED(h))h=document(s,text,&dom);
+    if(SUCCEEDED(h))h=call(s->factory,toast::kCreateToast,dom,&item);
+    if(SUCCEEDED(h))h=query(item,toast::kIidToastNotification2,&identity);
+    if(SUCCEEDED(h))h=call(identity,toast::kToastPutTag,tag.get());if(SUCCEEDED(h))h=call(identity,toast::kToastPutGroup,group.get());
+    if(SUCCEEDED(h))h=call(identity,toast::kToastPutSuppressPopup,static_cast<u8>(p.suppress_popup));
+    if(SUCCEEDED(h)){*attempted=true;h=call(s->notifier,toast::kNotifierShow,item);}
+    release(identity);release(item);release(dom);return h;
 }
 HRESULT remove_once(Server* s,u64 profile,u64 message) noexcept {
-    HRESULT h=transport(s);String id,group,tag;wchar_t g[17],t[17];desktop_notification_hex_id(profile,{g,17});desktop_notification_hex_id(message,{t,17});
-    if(SUCCEEDED(h))h=id.set(s->app_id,s->app_units);if(SUCCEEDED(h))h=group.set(g,16);
-    if(message){if(SUCCEEDED(h))h=tag.set(t,16);if(SUCCEEDED(h))h=s->history->RemoveGroupedTagWithId(tag.value,group.value,id.value);}
-    else if(SUCCEEDED(h))h=s->history->RemoveGroupWithId(group.value,id.value);
-    return h;
+    wchar_t g[17],t[17];desktop_notification_hex_id(profile,{g,17});
+    StringReference id(s->app_id,s->app_units),group(g,16),tag(t,16);
+    HRESULT h=transport(s);if(FAILED(h))return h;
+    if(message){desktop_notification_hex_id(message,{t,17});return call(s->history,toast::kHistoryRemoveTag,tag.get(),group.get(),id.get());}
+    return call(s->history,toast::kHistoryRemoveGroup,group.get(),id.get());
 }
 }
 bool desktop_notification_hex_id(u64 id,Slice<wchar_t> out) noexcept {
@@ -227,14 +221,15 @@ DesktopNotificationResult desktop_notification_xml(const DesktopNotificationPayl
 DesktopNotificationResult desktop_notifications_initialize(DesktopNotifications* n,const DesktopNotificationConfig& c) noexcept {
     if(!n||n->runtime||!app_id_valid(c.app_id)||same_guid(c.activator_id,GUID{})||
         (c.wake_window&&(c.wake_message<WM_APP||c.wake_message>0xBFFF)))return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);
-    HRESULT h=S_OK;if(c.register_activator)h=RoInitialize(RO_INIT_SINGLETHREADED);
+    // The flags RoInitialize(RO_INIT_SINGLETHREADED) passes for a desktop STA.
+    HRESULT h=S_OK;if(c.register_activator)h=CoInitializeEx(nullptr,COINIT_APARTMENTTHREADED|COINIT_DISABLE_OLE1DDE);
     if(FAILED(h))return failed(DesktopNotificationError::apartment,h);
-    void* allocation=CoTaskMemAlloc(sizeof(Server));if(!allocation){if(c.register_activator)RoUninitialize();return failed(DesktopNotificationError::memory,E_OUTOFMEMORY);}
+    void* allocation=CoTaskMemAlloc(sizeof(Server));if(!allocation){if(c.register_activator)CoUninitialize();return failed(DesktopNotificationError::memory,E_OUTOFMEMORY);}
     auto* s=new(allocation) Server; s->thread=GetCurrentThreadId();s->apartment=c.register_activator;s->enrolled=c.register_activator;
     LARGE_INTEGER frequency{};if(QueryPerformanceFrequency(&frequency))s->performance_frequency=frequency.QuadPart;
     s->wake_window=c.wake_window;s->wake_message=c.wake_message;s->app_units=c.app_id.count;copy_bytes(s->app_id,c.app_id.data,c.app_id.count*sizeof(wchar_t));
     if(c.register_activator)h=CoRegisterClassObject(c.activator_id,static_cast<IClassFactory*>(s),CLSCTX_LOCAL_SERVER,REGCLS_MULTIPLEUSE,&s->cookie);
-    if(FAILED(h)){s->active=false;s->Release();RoUninitialize();return failed(DesktopNotificationError::identity,h);}n->runtime=s;return {};
+    if(FAILED(h)){s->active=false;s->Release();CoUninitialize();return failed(DesktopNotificationError::identity,h);}n->runtime=s;return {};
 }
 DesktopNotificationShowState desktop_notification_show_state(DesktopNotificationResult result) noexcept {
     if(result.ok())return DesktopNotificationShowState::submitted;
@@ -286,24 +281,23 @@ DesktopNotificationResult desktop_notifications_history_step(DesktopNotification
     const auto target=s->history_requests[s->history_head];LARGE_INTEGER start{};QueryPerformanceCounter(&start);
     HRESULT h=S_OK;
     if(!s->history_snapshot){
-        h=transport(s);toast::IToastNotificationHistory2* history=nullptr;String id;
-        if(SUCCEEDED(h))h=id.set(s->app_id,s->app_units);
-        if(SUCCEEDED(h))h=s->history->QueryInterface(__uuidof(toast::IToastNotificationHistory2),reinterpret_cast<void**>(&history));
-        if(SUCCEEDED(h))h=history->GetHistoryWithId(id.value,&s->history_snapshot);
-        if(SUCCEEDED(h))h=s->history_snapshot->get_Size(&s->history_size);com_release(history);
+        h=transport(s);Object* history=nullptr;StringReference id(s->app_id,s->app_units);
+        if(SUCCEEDED(h))h=query(s->history,toast::kIidToastNotificationHistory2,&history);
+        if(SUCCEEDED(h))h=call(history,toast::kHistoryGetWithId,id.get(),&s->history_snapshot);
+        if(SUCCEEDED(h))h=call(s->history_snapshot,toast::kViewSize,&s->history_size);release(history);
     }
-    String launch;if(SUCCEEDED(h))h=launch.set(L"launch",6);
+    StringReference launch(L"launch");
     u32 visited=0;
     while(SUCCEEDED(h)&&s->history_cursor<s->history_size&&visited<4){
         LARGE_INTEGER now{};QueryPerformanceCounter(&now);
         if(visited&&s->performance_frequency>0&&now.QuadPart-start.QuadPart>=maximum<i64>(1,s->performance_frequency/500))break;
-        toast::IToastNotification* item=nullptr;xml::IXmlDocument* dom=nullptr;xml::IXmlElement* element=nullptr;String args;
-        h=s->history_snapshot->GetAt(s->history_cursor++,&item);++visited;
-        if(SUCCEEDED(h))h=item->get_Content(&dom);if(SUCCEEDED(h))h=dom->get_DocumentElement(&element);
-        if(SUCCEEDED(h))h=element->GetAttribute(launch.value,&args.value);UINT count{};const wchar_t* raw=WindowsGetStringRawBuffer(args.value,&count);
+        Object* item=nullptr;Object* dom=nullptr;Object* element=nullptr;HSTRING args=nullptr;
+        h=call(s->history_snapshot,toast::kViewGetAt,s->history_cursor++,&item);++visited;
+        if(SUCCEEDED(h))h=call(item,toast::kToastContent,&dom);if(SUCCEEDED(h))h=call(dom,toast::kXmlDocumentElement,&element);
+        if(SUCCEEDED(h))h=call(element,toast::kXmlGetAttribute,launch.get(),&args);
         DesktopNotificationActivation a{};
-        if(SUCCEEDED(h)&&desktop_notification_activation_parse({raw,count},&a)&&a.profile_id==target.profile&&a.channel_id==target.channel)h=remove_once(s,target.profile,a.message_id);
-        com_release(element);com_release(dom);com_release(item);
+        if(SUCCEEDED(h)&&desktop_notification_activation_parse(toast::string_text(args),&a)&&a.profile_id==target.profile&&a.channel_id==target.channel)h=remove_once(s,target.profile,a.message_id);
+        if(args)WindowsDeleteString(args);release(element);release(dom);release(item);
     }
     if(FAILED(h))retire_history_request(s);
     else if(s->history_cursor==s->history_size){
@@ -315,8 +309,8 @@ DesktopNotificationResult desktop_notifications_history_step(DesktopNotification
 }
 DesktopNotificationResult desktop_notifications_setting(DesktopNotifications* n,u32* out) noexcept {
     auto* s=owner(n);if(!ui_owner(s)||!out)return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);*out=0;
-    HRESULT h=transport(s);toast::NotificationSetting value{};if(SUCCEEDED(h))h=s->notifier->get_Setting(&value);
-    if(disconnected(h)){drop_transport(s);h=transport(s);if(SUCCEEDED(h))h=s->notifier->get_Setting(&value);}
+    HRESULT h=transport(s);toast::NotificationSetting value{};if(SUCCEEDED(h))h=call(s->notifier,toast::kNotifierSetting,&value);
+    if(disconnected(h)){drop_transport(s);h=transport(s);if(SUCCEEDED(h))h=call(s->notifier,toast::kNotifierSetting,&value);}
     // An unpackaged AUMID has no per-app record until its first toast; Windows
     // then reports Element not found, which means the default (enabled).
     if(h==HRESULT_FROM_WIN32(ERROR_NOT_FOUND)){h=S_OK;value=toast::NotificationSetting_Enabled;}
@@ -343,7 +337,7 @@ void desktop_notifications_release(DesktopNotifications* n) noexcept {
     auto* s=owner(n);if(!s||s->thread!=GetCurrentThreadId())return;n->runtime=nullptr;
     AcquireSRWLockExclusive(&s->lock);s->active=false;s->wake_window=nullptr;clear_bytes(s->queue,sizeof(s->queue));s->head=s->count=0;ReleaseSRWLockExclusive(&s->lock);
     if(s->cookie)CoRevokeClassObject(s->cookie);drop_snapshot(s);clear_bytes(s->history_requests,sizeof(s->history_requests));s->history_count=0;
-    drop_transport(s);const bool apartment=s->apartment;s->Release();if(apartment)RoUninitialize();
+    drop_transport(s);const bool apartment=s->apartment;s->Release();if(apartment)CoUninitialize();
 }
 u32 desktop_notifications_owned_bytes(const DesktopNotifications* n) noexcept {return n&&n->runtime?sizeof(Server):0;}
 }

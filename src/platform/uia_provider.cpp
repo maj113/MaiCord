@@ -638,13 +638,7 @@ constexpr usize kGrid = offsetof(Element, grid);
 constexpr usize kGridItem = offsetof(Element, grid_item);
 constexpr usize kText = offsetof(Element, text);
 
-void* interface_for(Element* element, const GUID& iid) noexcept {
-    if (guid_equal(iid, kIidUnknown) || guid_equal(iid, kIidSimple))
-        return &element->simple;
-    if (guid_equal(iid, kIidFragment))
-        return &element->fragment;
-    if (guid_equal(iid, kIidFragmentRoot))
-        return element->root ? &element->fragment_root : nullptr;
+void* pattern_interface(Element* element, const GUID& iid) noexcept {
     struct Pattern {
         const GUID* iid;
         int id;
@@ -675,23 +669,36 @@ void* interface_for(Element* element, const GUID& iid) noexcept {
     return nullptr;
 }
 
-template <usize Offset> HRESULT STDMETHODCALLTYPE query_interface(void* self, const GUID* iid, void** out) noexcept {
+// The identity interfaces depend only on fields fixed at creation, so the
+// calling thread answers them; pattern support reads the snapshot on the
+// window thread.
+__declspec(noinline) HRESULT element_query(Element* element, const GUID* iid, void** out) noexcept {
     if (!out)
         return E_POINTER;
     *out = nullptr;
     if (!iid)
         return E_INVALIDARG;
-    auto* element = element_from<Offset>(self);
     void* result = nullptr;
-    on_window_thread(element->host, [&]() noexcept -> HRESULT {
-        result = interface_for(element, *iid);
-        return S_OK;
-    });
+    if (guid_equal(*iid, kIidUnknown) || guid_equal(*iid, kIidSimple)) {
+        result = &element->simple;
+    } else if (guid_equal(*iid, kIidFragment)) {
+        result = &element->fragment;
+    } else if (guid_equal(*iid, kIidFragmentRoot)) {
+        result = element->root ? &element->fragment_root : nullptr;
+    } else {
+        on_window_thread(element->host, [&]() noexcept -> HRESULT {
+            result = pattern_interface(element, *iid);
+            return S_OK;
+        });
+    }
     if (!result)
         return E_NOINTERFACE;
     element_add_ref(element);
     *out = result;
     return S_OK;
+}
+template <usize Offset> HRESULT STDMETHODCALLTYPE query_interface(void* self, const GUID* iid, void** out) noexcept {
+    return element_query(element_from<Offset>(self), iid, out);
 }
 
 // IRawElementProviderSimple

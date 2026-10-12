@@ -1,0 +1,7 @@
+; combase.dll exports that MaiCord.exe imports by name: the Windows Runtime
+; activation and string calls of the toast path (src/platform/toast_abi.hpp).
+; cmake/libraries.cmake builds the import library from this file.
+LIBRARY combase.dll
+EXPORTS
+    RoGetActivationFactory
+    WindowsDeleteString

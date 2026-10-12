@@ -9,6 +9,7 @@
 #include "maicord/core/win32_process.hpp"
 #include "hevc_gpu_geometry.hpp"
 #include "hevc_gpu_references.hpp"
+#include "gpu_decoder_fence.hpp"
 #include <d3d11_4.h>
 #include <initguid.h>
 #include <dxva.h>
@@ -48,10 +49,7 @@ struct State {
     ID3D11VideoDecoder* decoder;
     ID3D11Texture2D* texture;
     ID3D11VideoDecoderOutputView* views[32];
-    ID3D11DeviceContext4* wait_context;
-    ID3D11Fence* fence;
-    HANDLE wake;
-    u64 signal;
+    GpuDecoderFence wait;
     GpuVideoFrame frame;
     VideoDisplayExtent display;
     u32 feedback;
@@ -775,10 +773,7 @@ void hevc_gpu_decoder_release(H264GpuDecoder* handle) noexcept {
             com_release(view);
         com_release(s->texture);
         com_release(s->decoder);
-        com_release(s->fence);
-        com_release(s->wait_context);
-        if (s->wake)
-            CloseHandle(s->wake);
+        gpu_decoder_fence_release(&s->wait);
         com_release(s->guard);
         com_release(s->context);
         com_release(s->device);
@@ -793,41 +788,7 @@ bool hevc_gpu_decoder_wait(H264GpuDecoder* handle, u32 timeout) noexcept {
     if (!handle || !handle->state || !timeout || timeout > 16)
         return false;
     auto& s = *static_cast<State*>(handle->state);
-    HRESULT result = S_OK;
-    if (!s.wait_context)
-        result = s.context->QueryInterface(__uuidof(ID3D11DeviceContext4),
-                                           reinterpret_cast<void**>(&s.wait_context));
-    if (SUCCEEDED(result) && !s.fence) {
-        ID3D11Device* device{};
-        ID3D11Device5* device5{};
-        s.context->GetDevice(&device);
-        result = device
-                     ? device->QueryInterface(__uuidof(ID3D11Device5), reinterpret_cast<void**>(&device5))
-                     : E_NOINTERFACE;
-        if (SUCCEEDED(result))
-            result = device5->CreateFence(0, D3D11_FENCE_FLAG_NONE, __uuidof(ID3D11Fence),
-                                          reinterpret_cast<void**>(&s.fence));
-        com_release(device5);
-        com_release(device);
-    }
-    if (SUCCEEDED(result) && !s.wake) {
-        s.wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (!s.wake)
-            result = HRESULT_FROM_WIN32(thread_last_error());
-    }
-    if (SUCCEEDED(result)) {
-        s.guard->Enter();
-        result = s.wait_context->Signal(s.fence, ++s.signal);
-        if (SUCCEEDED(result))
-            result = s.fence->SetEventOnCompletion(s.signal, s.wake);
-        s.wait_context->Flush();
-        s.guard->Leave();
-        if (SUCCEEDED(result)) {
-            const DWORD waited = WaitForSingleObject(s.wake, timeout);
-            if (waited != WAIT_OBJECT_0)
-                result = HRESULT_FROM_WIN32(waited == WAIT_TIMEOUT ? ERROR_TIMEOUT : thread_last_error());
-        }
-    }
+    const HRESULT result = gpu_decoder_fence_wait(&s.wait, s.context, s.guard, timeout);
     if (FAILED(result))
         handle->status = result;
     return SUCCEEDED(result);

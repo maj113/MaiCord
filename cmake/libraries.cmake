@@ -41,6 +41,18 @@ maicord_library(maicord_voice_encoder src/media/opus_encoder.cpp LIBS maicord_co
 maicord_library(maicord_cdn_media src/app/cdn_media_pipeline.cpp
     LIBS maicord_core maicord_media_core maicord_media_codec maicord_protocol)
 
+# The combase.dll exports the toast path calls, imported by name from combase
+# itself rather than through runtimeobject.lib's api-ms-win-core-winrt API sets.
+set(maicord_combase_import_library "${MAICORD_GENERATED_DIRECTORY}/maicord_combase.lib")
+add_custom_command(OUTPUT "${maicord_combase_import_library}"
+    COMMAND "${CMAKE_AR}" /NOLOGO /MACHINE:X64 "/DEF:${CMAKE_CURRENT_SOURCE_DIR}/src/platform/combase.def"
+        "/OUT:${maicord_combase_import_library}"
+    DEPENDS src/platform/combase.def
+    VERBATIM)
+add_custom_target(maicord_combase_import_library DEPENDS "${maicord_combase_import_library}")
+add_library(maicord_combase INTERFACE)
+target_link_libraries(maicord_combase INTERFACE "${maicord_combase_import_library}")
+add_dependencies(maicord_combase maicord_combase_import_library)
 maicord_library(maicord_platform
     src/platform/staged_file.cpp src/platform/browser_sign_in_launcher.cpp src/platform/aac_decoder.cpp
     src/platform/media_audio.cpp src/platform/aead.cpp src/platform/aes_gcm.cpp src/platform/aes_gcm64.cpp
@@ -53,12 +65,7 @@ maicord_library(maicord_platform
     src/platform/notification_identity.cpp src/platform/taskbar_attention.cpp
     src/platform/desktop_integration.cpp src/platform/system_tray.cpp src/platform/spell_checker.cpp
     src/platform/speech.cpp src/platform/voice_audio_output.cpp src/platform/voice_audio_capture.cpp
-    LIBS maicord_core ws2_32 secur32 bcrypt crypt32 ole32 user32 shell32 mfuuid ntdll runtimeobject advapi32)
-# Raw WinRT SDK declarations otherwise serialize tens of MiB of unused ABI
-# types into MSVC LTCG objects. These COM boundaries remain optimized native
-# objects; the rest of the application retains whole-program optimization.
-set_source_files_properties(src/platform/desktop_notifications.cpp src/platform/notification_audio.cpp
-    PROPERTIES COMPILE_OPTIONS "/GL-")
+    LIBS maicord_core ws2_32 secur32 bcrypt crypt32 ole32 user32 shell32 mfuuid ntdll maicord_combase advapi32)
 
 maicord_library(maicord_notification_pcm src/media/notification_pcm.cpp
     LIBS maicord_core maicord_compression maicord_media_codec)

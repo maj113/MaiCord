@@ -11,6 +11,7 @@
 #include <initguid.h>
 #include <dxva.h>
 #include "h264_dxva_parameters.hpp"
+#include "gpu_decoder_fence.hpp"
 
 namespace maicord {
 namespace {
@@ -26,10 +27,7 @@ struct State {
     ID3D11VideoDecoder* decoder;
     ID3D11Texture2D* texture;
     ID3D11VideoDecoderOutputView* views[32];
-    ID3D11DeviceContext4* wait_context;
-    ID3D11Fence* fence;
-    HANDLE wake;
-    u64 signal;
+    GpuDecoderFence wait;
     GpuVideoFrame frame;
     VideoDisplayExtent display;
     u32 feedback;
@@ -404,8 +402,7 @@ void h264_gpu_decoder_release(H264GpuDecoder* probe) noexcept {
     if (auto* s = static_cast<State*>(probe->state)) {
         for (auto*& view : s->views) com_release(view);
         com_release(s->texture); com_release(s->decoder);
-        com_release(s->fence); com_release(s->wait_context);
-        if (s->wake) CloseHandle(s->wake);
+        gpu_decoder_fence_release(&s->wait);
         com_release(s->guard); com_release(s->context); com_release(s->device);
         VirtualFree(s, 0, MEM_RELEASE);
     }
@@ -417,38 +414,49 @@ bool h264_gpu_decoder_busy(const H264GpuDecoder& decoder) noexcept {
         decoder.status == DXGI_ERROR_WAS_STILL_DRAWING;
 }
 
-bool h264_gpu_decoder_wait(H264GpuDecoder* decoder, u32 timeout_ms) noexcept {
-    if (!decoder || !decoder->state || !timeout_ms || timeout_ms > 16) return false;
-    auto* s = static_cast<State*>(decoder->state);
+HRESULT gpu_decoder_fence_wait(GpuDecoderFence* f, ID3D11VideoContext* context, ID3D11Multithread* guard,
+                               u32 timeout_ms) noexcept {
     HRESULT status = S_OK;
-    if (!s->wait_context) status = s->context->QueryInterface(__uuidof(ID3D11DeviceContext4),
-        reinterpret_cast<void**>(&s->wait_context));
-    if (SUCCEEDED(status) && !s->fence) {
+    if (!f->context) status = context->QueryInterface(__uuidof(ID3D11DeviceContext4),
+        reinterpret_cast<void**>(&f->context));
+    if (SUCCEEDED(status) && !f->fence) {
         ID3D11Device* device = nullptr;
         ID3D11Device5* device5 = nullptr;
-        s->context->GetDevice(&device);
+        context->GetDevice(&device);
         status = device ? device->QueryInterface(__uuidof(ID3D11Device5),
             reinterpret_cast<void**>(&device5)) : E_NOINTERFACE;
         if (SUCCEEDED(status)) status = device5->CreateFence(0, D3D11_FENCE_FLAG_NONE,
-            __uuidof(ID3D11Fence), reinterpret_cast<void**>(&s->fence));
+            __uuidof(ID3D11Fence), reinterpret_cast<void**>(&f->fence));
         com_release(device5); com_release(device);
     }
-    if (SUCCEEDED(status) && !s->wake) {
-        s->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (!s->wake) status = HRESULT_FROM_WIN32(thread_last_error());
+    if (SUCCEEDED(status) && !f->wake) {
+        f->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        if (!f->wake) status = HRESULT_FROM_WIN32(thread_last_error());
     }
     if (SUCCEEDED(status)) {
-        s->guard->Enter();
-        status = s->wait_context->Signal(s->fence, ++s->signal);
-        if (SUCCEEDED(status)) status = s->fence->SetEventOnCompletion(s->signal, s->wake);
-        s->wait_context->Flush();
-        s->guard->Leave();
+        guard->Enter();
+        status = f->context->Signal(f->fence, ++f->signal);
+        if (SUCCEEDED(status)) status = f->fence->SetEventOnCompletion(f->signal, f->wake);
+        f->context->Flush();
+        guard->Leave();
         if (SUCCEEDED(status)) {
-            const DWORD waited = WaitForSingleObject(s->wake, timeout_ms);
+            const DWORD waited = WaitForSingleObject(f->wake, timeout_ms);
             if (waited != WAIT_OBJECT_0) status = HRESULT_FROM_WIN32(
                 waited == WAIT_TIMEOUT ? ERROR_TIMEOUT : thread_last_error());
         }
     }
+    return status;
+}
+
+void gpu_decoder_fence_release(GpuDecoderFence* f) noexcept {
+    com_release(f->fence); com_release(f->context);
+    if (f->wake) CloseHandle(f->wake);
+}
+
+bool h264_gpu_decoder_wait(H264GpuDecoder* decoder, u32 timeout_ms) noexcept {
+    if (!decoder || !decoder->state || !timeout_ms || timeout_ms > 16) return false;
+    auto* s = static_cast<State*>(decoder->state);
+    const HRESULT status = gpu_decoder_fence_wait(&s->wait, s->context, s->guard, timeout_ms);
     if (FAILED(status)) decoder->status = status;
     return SUCCEEDED(status);
 }

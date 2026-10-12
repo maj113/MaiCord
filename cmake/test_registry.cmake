@@ -887,10 +887,11 @@ maicord_test(MaiCordNotificationTests ENTRY maicord_notifications_tests_entry
         tests/notification_sound_admission.cpp tests/notification_controls.cpp
     LIBS maicord_core maicord_model maicord_protocol kernel32
     TEST maicord_notifications)
+# runtimeobject: the SDK string calls tests/toast_abi.cpp compares the client's against.
 maicord_test(MaiCordNativeNotificationTests ENTRY maicord_native_notifications_tests_entry
     SOURCES tests/native_notifications_entry.cpp tests/native_notifications.cpp tests/toast_abi.cpp
         tests/integration/desktop_notifications_probe.cpp
-    LIBS maicord_core maicord_platform kernel32
+    LIBS maicord_core maicord_platform kernel32 runtimeobject
     TEST maicord_native_notifications)
 maicord_test(MaiCordApplicationNotificationTests ENTRY maicord_application_notifications_tests_entry
     SOURCES tests/application_notifications.cpp tests/application_notifications_entry.cpp

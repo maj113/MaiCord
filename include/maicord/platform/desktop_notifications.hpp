@@ -79,7 +79,8 @@ void desktop_notifications_discard_activations(DesktopNotifications*) noexcept;
 // releases it. This accessor does not modify the class registry.
 DesktopNotificationResult desktop_notifications_factory(DesktopNotifications*, void**) noexcept;
 // Call on the same UI thread. Clears the wake target/queue, revokes the factory and
-// balances RoInitialize. An outstanding COM callback keeps its own inert state alive.
+// balances its COM apartment initialization. An outstanding COM callback keeps its own
+// inert state alive.
 void desktop_notifications_release(DesktopNotifications*) noexcept;
 // Counts the attached runtime storage only; outstanding external COM references may
 // keep the inert callback object alive until their final Release.

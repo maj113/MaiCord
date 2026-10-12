@@ -18,7 +18,6 @@ inline constexpr TsViewCookie kSecureTextView = 1;
 using TfCreateThreadMgrFunction = HRESULT(WINAPI*)(ITfThreadMgr** manager);
 using TfCreateCategoryMgrFunction = HRESULT(WINAPI*)(ITfCategoryMgr** manager);
 using TfCreateDisplayAttributeMgrFunction = HRESULT(WINAPI*)(ITfDisplayAttributeMgr** manager);
-using CoTaskMemAllocFunction = void*(WINAPI*)(SIZE_T bytes);
 
 inline constexpr GUID kDisplayAttributeProperty{0x34b45670,
                                                 0x7526,
@@ -171,8 +170,6 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     bool deferred_queued = false;
     bool cleanup_active = false;
     HMODULE msctf_module = nullptr;
-    HMODULE ole32_module = nullptr;
-    CoTaskMemAllocFunction task_allocate = nullptr;
     ITfThreadMgr* thread_manager = nullptr;
     ITfKeystrokeMgr* keystroke_manager = nullptr;
     ITfDocumentMgr* document_manager = nullptr;
@@ -685,10 +682,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         }
         *scopes = nullptr;
         *count = 0;
-        if (!ensure_task_allocator()) {
-            return E_OUTOFMEMORY;
-        }
-        auto* values = static_cast<InputScope*>(task_allocate(sizeof(InputScope)));
+        auto* values = static_cast<InputScope*>(CoTaskMemAlloc(sizeof(InputScope)));
         if (!values) {
             return E_OUTOFMEMORY;
         }
@@ -875,7 +869,7 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         }
         CallbackScope cleanup(this, true);
         msctf_module = LoadLibraryExW(L"msctf.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        if (!msctf_module || !ensure_task_allocator()) {
+        if (!msctf_module) {
             detach();
             return false;
         }
@@ -939,11 +933,6 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         client_id = TF_CLIENTID_NULL;
         com_release(thread_manager);
         clear_sink();
-        task_allocate = nullptr;
-        if (ole32_module) {
-            FreeLibrary(ole32_module);
-            ole32_module = nullptr;
-        }
         if (msctf_module) {
             FreeLibrary(msctf_module);
             msctf_module = nullptr;
@@ -1370,21 +1359,6 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
         pending_lock_flags = 0;
     }
 
-    bool ensure_task_allocator() noexcept {
-        if (task_allocate) {
-            return true;
-        }
-        if (!ole32_module) {
-            ole32_module = LoadLibraryExW(L"ole32.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
-        }
-        if (!ole32_module) {
-            return false;
-        }
-        task_allocate =
-            reinterpret_cast<CoTaskMemAllocFunction>(GetProcAddress(ole32_module, "CoTaskMemAlloc"));
-        return task_allocate != nullptr;
-    }
-
     bool create_context() noexcept {
         if (!document_manager || context || client_id == TF_CLIENTID_NULL) {
             return false;
@@ -1448,9 +1422,9 @@ class SecureTextStoreImplementation final : public ITextStoreACP,
     }
 };
 
-// Four COM interface pointers plus the private composition-view/sink cookie
-// remain within the same single committed page as the preceding owner.
-static_assert(sizeof(SecureTextStoreImplementation) == 1480);
+// Four COM interface pointers plus the composition-view/sink cookie; the
+// implementation must stay within one committed page.
+static_assert(sizeof(SecureTextStoreImplementation) == 1464);
 
 SecureTextStoreImplementation* implementation(SecureTextStore* store) noexcept {
     return store ? static_cast<SecureTextStoreImplementation*>(store->implementation) : nullptr;
