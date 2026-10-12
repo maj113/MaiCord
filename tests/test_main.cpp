@@ -10914,7 +10914,7 @@ void test_message_event_pump() noexcept {
     message_event_pump_set_reaction_observers(&pump, nullptr, nullptr, nullptr, nullptr);
     message_event_pump_reset(&deferred_pump);
     expect(!pump.reaction_observe && !pump.reaction_source_observe && !pump.reaction_delete_observe &&
-        !pump.reaction_observe_context && !deferred_pump.reaction_source_observe && sizeof(MessageEventPump) == 320 + sizeof(ReservedBytes),
+        !pump.reaction_observe_context && !deferred_pump.reaction_source_observe && sizeof(MessageEventPump) == 328 + sizeof(ReservedBytes),
         "message_event_pump_reaction_observers_clear_without_extra_owner_or_work_bank");
 }
 
@@ -19407,10 +19407,12 @@ void test_channel_permissions() noexcept {
     const bool packet_role_read =
         gateway_client_event_guild_role(permission_body_event, permission_body, 0, &packet_role, &packet_role_name);
     u64 raw_packet_role = 0;
-    const bool raw_packet_role_read = permission_body_valid && static_cast<u32>(permission_body_event.state.name_bytes) + 8u <= permission_body.count;
+    // Roles follow the guild strings: name, icon, banner and the details record.
+    const u32 packet_roles = gateway_client_guild_strings_bytes(permission_body_event.state);
+    const bool raw_packet_role_read = permission_body_valid && packet_roles + 8u <= permission_body.count;
     if (raw_packet_role_read) {
         for (u32 byte = 0; byte < 8; ++byte) {
-            raw_packet_role |= static_cast<u64>(permission_body[permission_body_event.state.name_bytes + byte]) << (byte * 8);
+            raw_packet_role |= static_cast<u64>(permission_body[packet_roles + byte]) << (byte * 8);
         }
     }
     const bool permission_packet_valid =

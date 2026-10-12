@@ -19,7 +19,7 @@ set_target_properties(MaiCordAccount PROPERTIES
 # DLL ignores, and would cost the image a .rsrc section.
 target_link_options(MaiCordAccount PRIVATE
     /ENTRY:maicord_account_module_entry
-    /EXPORT:maicord_account_get_api,@123,NONAME
+    /EXPORT:maicord_account_get_api,@124,NONAME
     /SUBSYSTEM:WINDOWS,6.02
     /MANIFEST:NO)
 if(MAICORD_GENERATE_LINK_MAPS)
@@ -74,7 +74,12 @@ add_executable(MaiCord WIN32
     src/app/application_media_picker.cpp src/app/application_gif_favorites.cpp
     src/app/application_emoji_preferences.cpp src/app/application_action_captcha.cpp
     src/app/application_channel_overview.cpp src/app/application_settings_layer.cpp
-    src/app/application_guild_settings.cpp src/app/application_poll_create.cpp
+    src/app/application_guild_settings.cpp src/app/application_guild_settings_profile.cpp
+    src/app/application_guild_settings_engagement.cpp src/app/application_guild_settings_expressions.cpp
+    src/app/application_guild_settings_members.cpp src/app/application_guild_settings_roles.cpp
+    src/app/application_guild_settings_invites.cpp src/app/application_guild_settings_safety.cpp
+    src/app/application_guild_settings_audit_log.cpp src/app/application_guild_settings_bans.cpp
+    src/app/application_poll_create.cpp
     src/app/application_self_status.cpp src/app/application_browser_auth.cpp
     src/app/application_captcha_auth.cpp src/app/application_media_animation.cpp
     src/app/application_media_requests.cpp src/app/application_message_delete.cpp

@@ -624,8 +624,13 @@ struct GatewayClientStateMutation {
     // plus the banner hash bytes that follow the icon (1: a null banner).
     // Zero on channel records and every other event.
     u8 guild_banner;
-    // Channel: slowmode seconds plus one (0 through 21601); zero means absent.
-    u16 rate_limit_per_user;
+    union {
+        // Channel: slowmode seconds plus one (0 through 21601); zero means absent.
+        u16 rate_limit_per_user;
+        // Guild create/update: bytes of the GatewayGuildDetails record that
+        // follows the banner; zero when the record has none.
+        u16 guild_details_bytes;
+    };
     // Guild settings (GUILD_CREATE/UPDATE) and the current member's timeout
     // (GUILD_CREATE members, own GUILD_MEMBER_UPDATE); see GuildSettings.
     u64 system_channel_id;
@@ -1351,12 +1356,44 @@ constexpr u32 gateway_client_guild_banner_bytes(const GatewayClientStateMutation
     return state.guild_banner ? state.guild_banner - 1u : 0u;
 }
 constexpr u32 gateway_client_guild_strings_bytes(const GatewayClientStateMutation& state) noexcept {
-    return static_cast<u32>(state.name_bytes) + state.icon_bytes + gateway_client_guild_banner_bytes(state);
+    return static_cast<u32>(state.name_bytes) + state.icon_bytes + gateway_client_guild_banner_bytes(state) +
+           state.guild_details_bytes;
 }
 // The banner hash (empty for a null banner); false when the event carried no
 // banner key or the payload is malformed.
 bool gateway_client_event_guild_banner(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                        Utf8View* banner_hash) noexcept;
+// Server details after the banner: this header, then the description, the
+// vanity code and the feature names. Each name is one length byte and its
+// UTF-8 bytes, in the order the server sent them. Fields are valid only
+// where `known` (GuildDetailField) has their bit.
+struct GatewayGuildDetails {
+    u64 rules_channel_id;
+    u64 public_updates_channel_id;
+    u64 safety_alerts_channel_id;
+    // incidents_data, Unix milliseconds; zero when absent or null.
+    u64 invites_disabled_until_ms;
+    u64 dms_disabled_until_ms;
+    u64 raid_detected_at_ms;
+    u64 dm_spam_detected_at_ms;
+    u32 system_channel_flags;
+    u32 premium_subscription_count;
+    u32 member_count;
+    u16 known;
+    u16 description_bytes;
+    u16 feature_names_bytes;
+    u16 feature_count;
+    u8 vanity_bytes;
+    u8 premium_tier;
+    // incidents_data lockdown_duration_hours, saturated to 255.
+    u8 lockdown_duration_hours;
+    bool premium_progress_bar_enabled;
+};
+static_assert(sizeof(GatewayGuildDetails) == 80);
+// False when the event carries no details record or it is malformed.
+bool gateway_client_event_guild_details(const GatewayClientEvent& event, ConstSlice<u8> payload,
+                                        GatewayGuildDetails* details, Utf8View* description,
+                                        Utf8View* vanity_url_code, ConstSlice<u8>* feature_names) noexcept;
 bool gateway_client_event_next_guild_channel(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                              u32* cursor, u32* index, GatewayClientStateMutation* channel,
                                              Utf8View* name, ConstSlice<u8>* overwrite_payload) noexcept;

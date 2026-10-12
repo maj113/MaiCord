@@ -1,369 +1,77 @@
-#include "application_guild_settings.hpp"
-#include "application_settings_layer.hpp"
+#include "application_guild_settings_internal.hpp"
 #include "maicord/render/layer_presentation.hpp"
-#include "application_state.hpp"
 #include "application_settings.hpp"
 #include "application_account_module.hpp"
 #include "application_account_presentation.hpp"
 #include "application_attachments.hpp"
 #include "application_composer_text_input.hpp"
 #include "application_media_picker.hpp"
-#include "application_member_moderation.hpp"
 #include "application_message_interaction.hpp"
 #include "application_profile.hpp"
-#include "application_text_form.hpp"
-#include "maicord/model/guild_ban_store.hpp"
-#include "maicord/model/guild_settings_model.hpp"
-#include "maicord/model/member_moderation.hpp"
-#include "maicord/model/permission_grid.hpp"
-#include "maicord/ui/member_context_policy.hpp"
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/model/channel_settings_model.hpp"
-#include "maicord/platform/file_picker.hpp"
-#include "maicord/protocol/guild_assets.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include "application_soundboard.hpp"
 
 #include <Windows.h>
 
-namespace maicord::app_detail {
+namespace maicord::app_detail::server_settings {
+
+Settings* owner;
+u64 next_form;
+u64 next_form_item;
+
 namespace {
-constexpr u64 kPageOwner = 0x4D41494753455454ull;
-enum class Page : u8 {
-    none,
-    overview,
-    roles,
-    members,
-    bans,
-    invites,
-    audit_log,
-    emoji,
-    stickers,
-    soundboard,
-    safety,
-    count
-};
-constexpr u32 kPageCount = static_cast<u32>(Page::count) - 1;
-constexpr UiPageKey page_key(Page page) noexcept {
-    return {kPageOwner, static_cast<u64>(page)};
-}
-constexpr u32 kControlCapacity = 2'400;
-constexpr u32 kRowCapacity = 2'000;
-constexpr u32 kBankBytes = 224 * 1024;
-constexpr u32 kBanCapacity = 1'000;
-// One GET /bans?limit=1000, the official client's batch; after= only continues.
-constexpr u32 kBanPage = kGuildAdminPageMaximum;
-constexpr u32 kScratchUnits = 48 * 1024;
-constexpr u32 kPopupCapacity = 512;
-constexpr u32 kSearchBytes = 400;
-constexpr u32 kRowBase = 1'000;
-constexpr u64 kEchoMs = 8'000;
-constexpr u32 kInviteCapacity = 200;
-constexpr u32 kAuditCapacity = 400;
-constexpr u32 kAuditPage = 50;
-constexpr u32 kAuditUsers = 400;
-constexpr u32 kStickerCapacity = 120;
-constexpr u64 kDeleteServerAction = 0x44454C5345525645ull;
+u64 lifetime_serial;
 constexpr u64 kTwoFactorRequired = 60'003;
 constexpr u64 kMaximumEmoji = 30'008;
 constexpr u64 kMaximumStickers = 30'039;
 
-// Inline editors: server or role name, role colour hex and list search.
-enum Editor : u32 {
-    editor_name,
-    editor_hex,
-    editor_search,
-    editor_count
+constexpr PageDefinition kPages[]{
+    {Page::profile, PageGroup::none, UiIcon::guild, guild_settings_profile, utf8_literal("Server Profile"),
+     utf8_literal("Server Profile"), &kProfilePage},
+    {Page::engagement, PageGroup::none, UiIcon::activity, guild_settings_engagement, utf8_literal("Engagement"),
+     utf8_literal("Engagement"), &kEngagementPage},
+    {Page::emoji, PageGroup::expression, UiIcon::emoji, guild_settings_expressions, utf8_literal("Emoji"),
+     utf8_literal("Emoji"), &kExpressionPage},
+    {Page::stickers, PageGroup::expression, UiIcon::sticker, guild_settings_expressions, utf8_literal("Stickers"),
+     utf8_literal("Stickers"), &kExpressionPage},
+    {Page::soundboard, PageGroup::expression, UiIcon::audio_lines, guild_settings_expressions,
+     utf8_literal("Soundboard"), utf8_literal("Soundboard"), &kExpressionPage},
+    {Page::members, PageGroup::people, UiIcon::members, guild_settings_members, utf8_literal("Members"),
+     utf8_literal("Members"), &kMembersPage},
+    {Page::roles, PageGroup::people, UiIcon::shield, guild_settings_roles, utf8_literal("Roles"),
+     utf8_literal("Roles"), &kRolesPage},
+    {Page::invites, PageGroup::people, UiIcon::user_plus, guild_settings_invites, utf8_literal("Invites"),
+     utf8_literal("Invites"), &kInvitesPage},
+    {Page::safety, PageGroup::moderation, UiIcon::shield_check, guild_settings_safety, utf8_literal("Safety Setup"),
+     utf8_literal("Safety Setup"), &kSafetyPage},
+    {Page::audit_log, PageGroup::moderation, UiIcon::audit_log, guild_settings_audit_log, utf8_literal("Audit Log"),
+     utf8_literal("Audit Log"), &kAuditLogPage},
+    {Page::bans, PageGroup::moderation, UiIcon::gavel, guild_settings_bans, utf8_literal("Bans"),
+     utf8_literal("Bans"), &kBansPage},
 };
-// Control ids of the fixed rows; list rows start at kRowBase.
-enum Control : u64 {
-    control_header = 1,
-    control_name,
-    control_system_channel,
-    control_afk_channel,
-    control_afk_timeout,
-    control_notifications,
-    control_notice,
-    control_create,
-    control_search,
-    control_list_category,
-    control_color,
-    control_hex,
-    control_hoist,
-    control_mentionable,
-    control_display_category,
-    control_delete,
-    control_delete_category,
-    control_filter_user,
-    control_filter_action,
-    control_more,
-    control_icon,
-    control_icon_remove,
-    control_banner,
-    control_banner_remove,
-    control_role_icon,
-    control_role_icon_remove,
-    control_upload,
-    control_verification,
-    control_content_filter,
-    control_mfa,
-    control_banner_category,
-    control_permission_category = 100,
-    control_permission = 200,
-};
-enum class Op : u8 {
-    none,
-    guild_update,
-    role_counts,
-    role_create,
-    role_update,
-    role_delete,
-    role_reorder,
-    ban_list,
-    ban_remove,
-    invite_list,
-    invite_delete,
-    audit_page,
-    guild_fetch,
-    icon,
-    banner,
-    role_icon,
-    emoji_create,
-    emoji_rename,
-    emoji_delete,
-    sticker_list,
-    sticker_create,
-    sticker_update,
-    sticker_delete,
-    safety_update,
-    mfa,
-    guild_delete,
-};
-// Image picks waiting for the file dialog.
-enum class Pick : u8 {
-    none,
-    icon,
-    banner,
-    role_icon,
-    emoji,
-    sticker,
-    sound,
-};
-// Popup menus owned by this layer; actions are offset by kind.
-enum class Menu : u8 {
-    none,
-    system_channel,
-    afk_channel,
-    afk_timeout,
-    member,
-    timeout,
-    ban,
-    audit_user,
-    audit_action,
-    emoji,
-    sticker,
-    sound,
-};
-constexpr u32 kMenuChoiceBase = 1'000;
-constexpr MemberModerationMenuActions kModerationActions{11, 12, 13, 14, 15, 100};
-constexpr Utf8View kNotificationChoices[]{utf8_literal("All messages"), utf8_literal("Only @mentions")};
-constexpr Utf8View kAfkLabels[]{utf8_literal("1 minute"), utf8_literal("5 minutes"), utf8_literal("15 minutes"),
-                                utf8_literal("30 minutes"), utf8_literal("1 hour")};
-static_assert(sizeof(kAfkLabels) / sizeof(kAfkLabels[0]) == sizeof(kGuildAfkTimeouts) / sizeof(u32));
-constexpr Utf8View kVerificationChoices[]{utf8_literal("None"), utf8_literal("Low"), utf8_literal("Medium"),
-                                          utf8_literal("High"), utf8_literal("Highest")};
-static_assert(sizeof(kVerificationChoices) / sizeof(kVerificationChoices[0]) == kGuildVerificationLevels);
-constexpr Utf8View kVerificationDetails[]{
-    utf8_literal("Unrestricted."),
-    utf8_literal("Members need a verified email."),
-    utf8_literal("Members need a verified email and an account older than 5 minutes."),
-    utf8_literal("Members also need to have been in the server for 10 minutes."),
-    utf8_literal("Members need a verified phone number.")};
-constexpr Utf8View kFilterChoices[]{utf8_literal("Don't scan any media"),
-                                    utf8_literal("Scan media from members without roles"),
-                                    utf8_literal("Scan media from all members")};
-static_assert(sizeof(kFilterChoices) / sizeof(kFilterChoices[0]) == kGuildContentFilterLevels);
-enum ExpressionAction : u32 {
-    expression_rename = 1,
-    expression_tags,
-    expression_description,
-    expression_delete,
-    // Soundboard sounds.
-    expression_preview,
-    expression_emoji,
-    expression_volume,
-};
+static_assert(sizeof(kPages) / sizeof(kPages[0]) == kPageCount);
+constexpr bool pages_in_order() noexcept {
+    for (u32 i = 0; i < kPageCount; ++i)
+        if (static_cast<u32>(kPages[i].page) != i + 1)
+            return false;
+    return true;
+}
+static_assert(pages_in_order());
+constexpr Utf8View kGroupHeaders[]{{}, utf8_literal("EXPRESSION"), utf8_literal("PEOPLE"), utf8_literal("MODERATION")};
 
-struct Request {
-    Op op;
-    u64 target;
-    bool queued;
-};
+const PageOps& ops() noexcept {
+    return *page_definition(owner->page).ops;
+}
+} // namespace
 
-struct Bank {
-    char* data;
-    u32 capacity, used;
-    Utf8View add(Utf8View text) noexcept {
-        const u32 take = minimum(text.bytes, capacity - used);
-        copy_bytes(data + used, text.data, take);
-        used += take;
-        return {data + used - take, take};
-    }
-    // Concatenation helper; returns everything appended since mark.
-    u32 mark() const noexcept {
-        return used;
-    }
-    Utf8View since(u32 start) const noexcept {
-        return {data + start, used - start};
-    }
-    void number(u64 value) noexcept {
-        char digits[20];
-        u32 count = 0;
-        do {
-            digits[count++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value && count < 20);
-        while (count && used < capacity)
-            data[used++] = digits[--count];
-    }
-};
-
-// A picked image held until it is saved: the file bytes (prepared again by the
-// account module at submit) and what preparation reported. `clear` removes.
-struct Picked {
-    u8* data;
-    u32 bytes, capacity;
-    GuildImageInfo info;
-    bool set, clear;
-};
-
-struct Settings {
-    UiSettingsScene scene;
-    SettingsLayer layer;
-    UiPageRegistry registry;
-    UiPage pages[kPageCount];
-    UiSettingsPageContent content[kPageCount];
-    UiSettingsNavEntry nav[20];
-    u32 nav_count, nav_revision;
-    UiSettingsControl controls[kControlCapacity];
-    UiSettingsControlPresentation presentation[kControlCapacity];
-    UiSettingsAvatarMedia avatar_media[kControlCapacity];
-    u32 control_count;
-    UiSettingsEditor editors[editor_count];
-    UiSettingsFooter footer;
-    MessageComposer models[editor_count];
-    BoundedEdit bindings[editor_count];
-    char name_text[kGuildAdminNameBytes], hex_text[16], search_text[kSearchBytes];
-    u64 lifetime, guild_id, account_scope, profile_id, self_user_id;
-    u16 guild_generation;
-    GuildSettingsAccess access;
-    Page page;
-    u64 signature;
-    UiWidgetManager* previous_focus;
-    // Overview.
-    GuildOverviewDraft overview_base, overview_draft;
-    bool overview_conflict, overview_echo;
-    u64 overview_echo_until;
-    // Roles.
-    u64 order[kGuildRoleMaximum];
-    u32 order_count;
-    bool order_dirty;
-    u64 count_role[kGuildRoleMaximum];
-    u32 count_value[kGuildRoleMaximum];
-    u32 counts;
-    bool counts_requested;
-    u64 editing_role, open_after_create;
-    GuildRoleDraft role_base, role_draft;
-    bool role_conflict, role_echo, role_missing, hex_invalid;
-    u64 role_echo_until;
-    // Members and bans.
-    u64 row_ids[kRowCapacity];
-    u32 row_count;
-    u64 menu_user;
-    Menu menu;
-    u64 menu_channel[kPopupCapacity];
-    GuildBanStore bans;
-    bool bans_requested, bans_failed;
-    // Invites and audit log.
-    GuildAdminInvite invites[kInviteCapacity];
-    u32 invite_count;
-    bool invites_requested, invites_loaded;
-    GuildAdminAuditEntry audit[kAuditCapacity];
-    GuildAdminUser audit_users[kAuditUsers];
-    u32 audit_count, audit_user_count;
-    u64 audit_filter_user;
-    u16 audit_filter_action;
-    bool audit_requested, audit_complete, audit_filter_action_set;
-    GuildAdminAuditEntry audit_page[kAuditPage];
-    GuildAdminUser audit_page_users[kAuditPage * 2];
-    u64 menu_users[kPopupCapacity];
-    Utf8View audit_user_choice[1], audit_action_choice[1];
-    // Server details (GET /guilds/{g}): boost tier, features and banner.
-    u16 features;
-    u8 premium_tier;
-    bool guild_info_requested, guild_info_loaded, has_banner;
-    // Picked images and the dialog that picks them.
-    Picked icon, banner, role_icon, upload;
-    NativeFilePicker picker;
-    Pick pick;
-    bool picker_consumed;
-    u64 pick_role;
-    char upload_filename[128];
-    u32 upload_filename_bytes;
-    // Safety.
-    GuildSafetyDraft safety_base, safety_draft;
-    bool safety_echo;
-    u64 safety_echo_until;
-    // Stickers.
-    GuildStickerRecord stickers[kStickerCapacity];
-    u32 sticker_count;
-    bool stickers_requested, stickers_loaded;
-    // Text for the queued expression request and the open expression form.
-    char asset_name[kGuildStickerNameBytes], asset_tags[kGuildStickerTagsBytes],
-        asset_description[kGuildStickerDescriptionBytes];
-    u16 asset_name_bytes, asset_tags_bytes, asset_description_bytes;
-    u8 asset_fields;
-    // Soundboard upload: the name between its name and emoji steps.
-    char sound_name[kSoundboardNameBytes];
-    u32 sound_name_bytes;
-    u32 soundboard_revision;
-    u64 menu_item;
-    Utf8View form_status;
-    u32 form_revision;
-    // Transport.
-    Request request;
-    u64 request_id, retry_at;
-    Utf8View status;
-    bool failed;
-    // Two banks so labels borrowed by the previous projection stay valid
-    // until the scene has taken the next one.
-    char banks[2][kBankBytes];
-    u32 bank_index;
-    char popup_text[32 * 1024];
-    PopupItem popup_items[kPopupCapacity];
-    // Projection scratch: choice labels, member chips and popup sorting.
-    Utf8View system_choice[1], afk_choice[1], color_names[kGuildRoleColorCount + 1];
-    u32 member_order[kRowCapacity];
-    // Packed RGBA for list-row accents, resolved through the palette source.
-    u32 row_accent[kRowCapacity];
-    u64 palette_revision;
-    Utf8View chips[kRowCapacity][4];
-    u32 chip_colors[kRowCapacity][4];
-    struct PopupRow {
-        PopupItem item;
-        u64 id;
-        u32 position;
-    } popup_rows[kPopupCapacity];
-    u32 scratch[kScratchUnits];
-    GuildAdminRoleCount role_counts[kGuildRoleMaximum];
-    GuildBanRecord ban_records[kBanCapacity];
-};
-
-Settings* owner;
-u64 lifetime_serial;
+const PageDefinition& page_definition(Page page) noexcept {
+    const u32 index = static_cast<u32>(page);
+    return kPages[index && index <= kPageCount ? index - 1 : 0];
+}
 
 // Identity --------------------------------------------------------------
 
@@ -372,6 +80,20 @@ bool available() noexcept {
 }
 const ChatStateStore& state() noexcept {
     return g_app.account_ui->chat_state;
+}
+const GuildDetailStore& details() noexcept {
+    return g_app.account_ui->guild_details;
+}
+const GuildDetailRecord* guild_details() noexcept {
+    return guild_detail_store_find(details(), owner->guild_id);
+}
+u8 premium_tier() noexcept {
+    const auto* record = guild_details();
+    return record ? record->premium_tier : 0;
+}
+u64 guild_features() noexcept {
+    const auto* record = guild_details();
+    return record ? record->features : 0;
 }
 bool scope_current() noexcept {
     if (!owner || !available())
@@ -388,40 +110,35 @@ bool connected() noexcept {
 bool busy() noexcept {
     return owner->request.queued || owner->request_id;
 }
-bool mutation_pending() noexcept {
-    const Op op = owner->request.op;
-    return busy() && op != Op::role_counts && op != Op::ban_list && op != Op::invite_list && op != Op::audit_page &&
-           op != Op::guild_fetch && op != Op::sticker_list;
-}
+namespace {
 bool read_op(Op op) noexcept {
     return op == Op::role_counts || op == Op::ban_list || op == Op::invite_list || op == Op::audit_page ||
-           op == Op::guild_fetch || op == Op::sticker_list;
+           op == Op::sticker_list || op == Op::widget_get || op == Op::profile_get;
+}
+} // namespace
+bool mutation_pending() noexcept {
+    return busy() && !read_op(owner->request.op);
 }
 bool page_allowed(Page page) noexcept {
-    const u8 s = owner->access.sections;
-    switch (page) {
-    case Page::overview: return s & guild_settings_overview;
-    case Page::roles: return s & guild_settings_roles;
-    case Page::members: return s & guild_settings_members;
-    case Page::bans: return s & guild_settings_bans;
-    case Page::invites: return s & guild_settings_invites;
-    case Page::audit_log: return s & guild_settings_audit_log;
-    case Page::emoji:
-    case Page::stickers:
-    case Page::soundboard: return s & guild_settings_expressions;
-    case Page::safety: return s & guild_settings_safety;
-    default: return false;
-    }
+    return page != Page::none && page < Page::count && (owner->access.sections & page_definition(page).section);
 }
+bool can_manage_guild() noexcept {
+    return guild_settings_can_manage_guild(owner->access);
+}
+namespace {
 Page first_page() noexcept {
-    for (u32 i = 1; i <= kPageCount; ++i)
-        if (page_allowed(static_cast<Page>(i)))
-            return static_cast<Page>(i);
+    for (const auto& definition : kPages)
+        if (page_allowed(definition.page))
+            return definition.page;
     return Page::none;
 }
 UiSettingsPageContent& page_content(Page page) noexcept {
     return owner->content[static_cast<u32>(page) - 1];
 }
+bool page_dirty() noexcept {
+    return owner->page != Page::none && ops().dirty && ops().dirty();
+}
+} // namespace
 
 // Drafts ------------------------------------------------------------------
 
@@ -438,56 +155,20 @@ void release_picked(Picked* picked) noexcept {
     }
     *picked = {};
 }
-bool overview_dirty() noexcept {
-    return !guild_overview_equal(owner->overview_base, owner->overview_draft) || pending(owner->icon) ||
-           pending(owner->banner);
-}
-bool role_dirty() noexcept {
-    return owner->editing_role &&
-           (!guild_role_draft_equal(owner->role_base, owner->role_draft) || pending(owner->role_icon));
-}
-bool safety_dirty() noexcept {
-    return !guild_safety_equal(owner->safety_base, owner->safety_draft);
-}
-bool page_dirty() noexcept {
-    switch (owner->page) {
-    case Page::overview: return overview_dirty();
-    case Page::roles: return owner->editing_role ? role_dirty() : owner->order_dirty;
-    case Page::safety: return safety_dirty();
-    default: return false;
-    }
-}
 bool editable() noexcept {
     return owner && owner->scene.active && scope_current() && !mutation_pending() && !owner->layer.choice &&
            !g_app.text_form;
 }
-bool role_writable() noexcept {
-    const auto* r = role(owner->editing_role);
-    return r && !owner->role_missing && guild_settings_role_editable(owner->access, *r);
-}
-void load_order() noexcept {
-    const RoleRecord* sorted[kGuildRoleMaximum];
-    owner->order_count = guild_settings_sorted_roles(state(), owner->guild_id, {sorted, kGuildRoleMaximum});
-    for (u32 i = 0; i < owner->order_count; ++i)
-        owner->order[i] = sorted[i]->id;
-    owner->order_dirty = false;
-}
-// Resolves the draft order; rows for deleted roles are skipped.
-u32 resolve_order(const RoleRecord** output) noexcept {
-    u32 count = 0;
-    for (u32 i = 0; i < owner->order_count; ++i)
-        if (const auto* r = role(owner->order[i]))
-            output[count++] = r;
-    return count;
-}
 
 // Editors -----------------------------------------------------------------
 
+namespace {
 bool binding_ready(void* model, u64 identity) noexcept {
     MessageComposer* focused = nullptr;
     return owner && owner->lifetime == identity && editable() &&
            settings_layer_editor(&owner->layer, nullptr, &focused, nullptr, nullptr) && focused == model;
 }
+} // namespace
 void set_editor(Editor index, Utf8View text) noexcept {
     application_composer_text_input_suspend();
     auto& model = owner->models[index];
@@ -501,33 +182,21 @@ void set_editor(Editor index, Utf8View text) noexcept {
     const u32 limit = index == editor_name ? kGuildAdminNameCodepoints : index == editor_hex ? 7 : 100;
     bounded_edit_bind(&owner->bindings[index], &model, limit, false, owner->lifetime, binding_ready, &model);
 }
+namespace {
 Editor editor_of(u64 control) noexcept {
     return control == control_name ? editor_name
            : control == control_hex ? editor_hex
            : control == control_search ? editor_search
                                        : editor_count;
 }
+} // namespace
 Utf8View editor_text(Editor index) noexcept {
     return message_composer_text(owner->models[index]);
-}
-void load_role_editor(const RoleRecord& r) noexcept {
-    owner->editing_role = r.id;
-    owner->role_base = owner->role_draft = guild_role_draft_from(state(), r);
-    owner->role_conflict = owner->role_echo = owner->role_missing = owner->hex_invalid = false;
-    set_editor(editor_name, {owner->role_draft.name, owner->role_draft.name_bytes});
-    char hex[8];
-    const u32 bytes = owner->role_draft.color ? guild_role_color_format(owner->role_draft.color, {hex, 8}) : 0;
-    set_editor(editor_hex, {hex, bytes});
-}
-void load_overview() noexcept {
-    owner->overview_base = owner->overview_draft = guild_overview_from_state(state(), owner->guild_id);
-    owner->overview_conflict = owner->overview_echo = false;
-    set_editor(editor_name, {owner->overview_draft.name, owner->overview_draft.name_bytes});
 }
 
 // Projection --------------------------------------------------------------
 
-u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation = {}) noexcept {
+u32 push(const UiSettingsControl& control, UiSettingsControlPresentation presentation) noexcept {
     if (owner->control_count >= kControlCapacity)
         return ~0u;
     owner->controls[owner->control_count] = control;
@@ -540,10 +209,10 @@ void push_avatar(u32 index, u64 user_id) noexcept {
     if (index < kControlCapacity)
         owner->avatar_media[index] = application_user_avatar_media(user_id);
 }
-UiSettingsControl category(u64 id, Utf8View label, Utf8View description = {}) noexcept {
+UiSettingsControl category(u64 id, Utf8View label, Utf8View description) noexcept {
     return {id, label, description, UiSettingsControlKind::category, true, false, {}, 0, {}, nullptr};
 }
-UiSettingsControl notice(Utf8View label, Utf8View description, Utf8View action = {}) noexcept {
+UiSettingsControl notice(Utf8View label, Utf8View description, Utf8View action) noexcept {
     return {control_notice, label, description, UiSettingsControlKind::notice, true, false, {}, 0, action, nullptr};
 }
 Utf8View channel_label(Bank& bank, u64 channel_id, Utf8View none) noexcept {
@@ -605,6 +274,7 @@ void image_summary(Bank& bank, const GuildImageInfo& info) noexcept {
         bank.number(info.source_height);
     }
 }
+namespace {
 Utf8View image_error_text(GuildImageProfile profile, GuildImageError error) noexcept {
     const bool sticker = profile == GuildImageProfile::sticker;
     switch (error) {
@@ -629,6 +299,7 @@ Utf8View image_error_text(GuildImageProfile profile, GuildImageError error) noex
     }
 }
 // Description of an image row: the pending change, or the current state.
+} // namespace
 Utf8View picked_text(Bank& bank, const Picked& picked, Utf8View current) noexcept {
     if (picked.clear)
         return utf8_literal("Removed when you save.");
@@ -641,548 +312,7 @@ Utf8View picked_text(Bank& bank, const Picked& picked, Utf8View current) noexcep
     return bank.since(start);
 }
 
-void project_overview(Bank& bank) noexcept {
-    const bool edit = editable() && page_allowed(Page::overview);
-    auto& d = owner->overview_draft;
-    const auto* guild = chat_state_store_find_guild(state(), owner->guild_id);
-    const Utf8View guild_name = guild ? bank.add(chat_state_store_guild_name(state(), *guild)) : Utf8View{};
-    const bool has_icon = guild && guild->icon_hash_bytes;
-    const bool animated_icon = guild_animated_icon_available(owner->premium_tier, owner->features);
-    const u32 header_row = push(
-        {control_header, guild_name.bytes ? guild_name : utf8_literal("Server"),
-         picked_text(bank, owner->icon,
-                     animated_icon ? utf8_literal("Server icon. PNG, GIF, JPEG or WebP; square images look best.")
-                                   : utf8_literal("Server icon. PNG, JPEG or WebP; square images look best.")),
-         UiSettingsControlKind::action, true, false, {}, 0, utf8_literal("Change icon"), nullptr},
-        {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
-    // The server's own icon covers the initials; a pending removal previews them.
-    if (header_row < kControlCapacity && !owner->icon.clear)
-        owner->avatar_media[header_row] = application_guild_icon_media(owner->guild_id);
-    if (has_icon || pending(owner->icon))
-        push({control_icon_remove, utf8_literal("Remove icon"), {}, UiSettingsControlKind::action,
-              edit && (owner->icon.set || (has_icon && !owner->icon.clear)), false, {}, 0,
-              owner->icon.set && !has_icon ? utf8_literal("Discard") : utf8_literal("Remove"), nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-    if (owner->overview_conflict)
-        push(notice(utf8_literal("Changed elsewhere"),
-                    utf8_literal("Someone else updated these settings. Load the latest values or keep editing."),
-                    utf8_literal("Load latest")),
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    push({control_name, utf8_literal("Server name"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
-          &editor_view(editor_name, control_name, utf8_literal("Server name"), edit)});
-    push(category(control_list_category, utf8_literal("System messages")));
-    auto& system_choice = owner->system_choice;
-    system_choice[0] = channel_label(bank, d.system_channel_id, utf8_literal("No system messages"));
-    push({control_system_channel, utf8_literal("System messages channel"),
-          utf8_literal("Where welcome messages and server notices are posted."), UiSettingsControlKind::choice, edit,
-          false, {system_choice, 1}, 0, {}, nullptr});
-    push(category(control_display_category, utf8_literal("Inactive members")));
-    auto& afk_choice = owner->afk_choice;
-    afk_choice[0] = channel_label(bank, d.afk_channel_id, utf8_literal("No inactive channel"));
-    push({control_afk_channel, utf8_literal("Inactive channel"),
-          utf8_literal("Members idle in voice for longer than the timeout are moved here."),
-          UiSettingsControlKind::choice, edit, false, {afk_choice, 1}, 0, {}, nullptr});
-    u32 timeout = 1;
-    for (u32 i = 0; i < sizeof(kGuildAfkTimeouts) / sizeof(u32); ++i)
-        if (kGuildAfkTimeouts[i] == d.afk_timeout_seconds)
-            timeout = i;
-    push({control_afk_timeout, utf8_literal("Inactive timeout"), {}, UiSettingsControlKind::choice,
-          edit && d.afk_channel_id, false, {kAfkLabels, sizeof(kAfkLabels) / sizeof(kAfkLabels[0])}, timeout, {},
-          nullptr});
-    push(category(control_delete_category, utf8_literal("Notifications")));
-    push({control_notifications, utf8_literal("Default notifications"),
-          utf8_literal("Members who haven't chosen their own setting get notified for these messages."),
-          UiSettingsControlKind::radio, edit, false, {kNotificationChoices, 2}, d.default_notifications, {},
-          nullptr});
-    push(category(control_banner_category, utf8_literal("Banner")));
-    // The official client's "Server Banner Background" (BANNER, boost level 2; GIFs need
-    // ANIMATED_BANNER, level 3).
-    const bool banner = guild_banner_available(owner->premium_tier, owner->features);
-    push({control_banner, utf8_literal("Server Banner Background"),
-          picked_text(bank, owner->banner,
-                      !owner->guild_info_loaded ? utf8_literal("Checking which uploads this server allows…")
-                      : banner ? utf8_literal("This image will display at the top of your channels list. The "
-                                              "recommended minimum size is 960x540 and recommended aspect ratio is 16:9.")
-                               : utf8_literal("Unlock with Boosting: server banners need boost level 2.")),
-          UiSettingsControlKind::action, edit && connected() && banner, false, {}, 0,
-          utf8_literal("Upload Background"), nullptr});
-    if (owner->has_banner || pending(owner->banner))
-        push({control_banner_remove, utf8_literal("Remove banner"), {}, UiSettingsControlKind::action,
-              edit && (owner->banner.set || (owner->has_banner && !owner->banner.clear)), false, {}, 0,
-              owner->banner.set && !owner->has_banner ? utf8_literal("Discard") : utf8_literal("Remove"), nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-}
 
-void project_emoji(Bank& bank) noexcept {
-    auto& p = *owner;
-    const bool can = editable() && connected() && page_allowed(Page::emoji);
-    const auto counts = guild_emoji_counts(state(), p.guild_id);
-    const u32 slots = guild_emoji_slots(p.premium_tier, p.features);
-    const u32 start = bank.mark();
-    bank.add(utf8_literal("Static "));
-    bank.number(counts.static_count);
-    bank.add(utf8_literal(" of "));
-    bank.number(slots);
-    bank.add(utf8_literal(" · Animated "));
-    bank.number(counts.animated_count);
-    bank.add(utf8_literal(" of "));
-    bank.number(slots);
-    bank.add(utf8_literal(". PNG, GIF, JPEG or WebP up to 256 KB; larger PNGs are resized to 128×128."));
-    const bool full = counts.static_count >= slots && counts.animated_count >= slots;
-    push({control_upload, utf8_literal("Emoji"), bank.since(start), UiSettingsControlKind::action, can && !full, false,
-          {}, 0, utf8_literal("Upload emoji"), nullptr},
-         {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
-    if (p.failed && p.status.bytes)
-        push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    push({control_search, utf8_literal("Search emoji"), {}, UiSettingsControlKind::edit, editable(), false, {}, 0, {},
-          &editor_view(editor_search, control_search, utf8_literal("Search emoji"), editable())});
-    const auto query = editor_text(editor_search);
-    const auto& s = state();
-    p.row_count = 0;
-    for (u32 i = 0; i < s.emoji_count && p.row_count < kRowCapacity; ++i) {
-        const auto& emoji = s.emojis[i];
-        if (emoji.guild_id != p.guild_id || !guild_settings_text_matches(query, {emoji.name, emoji.name_bytes}))
-            continue;
-        p.member_order[p.row_count] = i;
-        p.row_ids[p.row_count++] = emoji.id;
-    }
-    const u32 heading = bank.mark();
-    bank.add(utf8_literal("Emoji — "));
-    bank.number(counts.static_count + counts.animated_count);
-    push(category(control_list_category, bank.since(heading)));
-    if (!p.row_count)
-        push(notice({}, query.bytes ? utf8_literal("No emoji match this search.")
-                                    : utf8_literal("This server has no custom emoji yet.")));
-    for (u32 row = 0; row < p.row_count; ++row) {
-        const CustomEmojiRecord* emoji = &s.emojis[p.member_order[row]];
-        const u32 label = bank.mark();
-        bank.add(utf8_literal(":"));
-        bank.add({emoji->name, emoji->name_bytes});
-        bank.add(utf8_literal(":"));
-        const auto name = bank.since(label);
-        const u32 detail = bank.mark();
-        const bool managed = emoji->flags & custom_emoji_managed;
-        bank.add(emoji->flags & custom_emoji_animated ? utf8_literal("Animated") : utf8_literal("Static"));
-        if (managed)
-            bank.add(utf8_literal(" · Managed by an integration"));
-        if (!(emoji->flags & custom_emoji_available))
-            bank.add(utf8_literal(" · Unavailable"));
-        if (emoji->role_count)
-            bank.add(utf8_literal(" · Limited to some roles"));
-        const bool editable_row = p.access.manage_expressions && !managed;
-        push({kRowBase + row, name, bank.since(detail), UiSettingsControlKind::action, can && editable_row, false, {},
-              0, editable_row ? utf8_literal("Edit") : Utf8View{}, nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-    }
-}
-
-void project_stickers(Bank& bank) noexcept {
-    auto& p = *owner;
-    const bool can = editable() && connected() && page_allowed(Page::stickers);
-    const u32 slots = guild_sticker_slots(p.premium_tier, p.features);
-    const u32 start = bank.mark();
-    bank.number(p.sticker_count);
-    bank.add(utf8_literal(" of "));
-    bank.number(slots);
-    bank.add(utf8_literal(" slots used. PNG, APNG, GIF or Lottie JSON, 320×320 and up to 512 KB."));
-    push({control_upload, utf8_literal("Stickers"), bank.since(start), UiSettingsControlKind::action,
-          can && p.stickers_loaded && p.sticker_count < slots, false, {}, 0, utf8_literal("Upload sticker"), nullptr},
-         {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
-    if (p.failed && p.status.bytes)
-        push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    else if (!p.stickers_loaded)
-        push(notice({}, utf8_literal("Loading stickers…")));
-    const u32 heading = bank.mark();
-    bank.add(utf8_literal("Stickers — "));
-    bank.number(p.sticker_count);
-    push(category(control_list_category, bank.since(heading)));
-    if (p.stickers_loaded && !p.sticker_count)
-        push(notice({}, utf8_literal("This server has no stickers yet.")));
-    constexpr Utf8View formats[]{{}, utf8_literal("PNG"), utf8_literal("APNG"), utf8_literal("Lottie"),
-                                 utf8_literal("GIF")};
-    for (u32 i = 0; i < p.sticker_count; ++i) {
-        const auto& sticker = p.stickers[i];
-        const u32 detail = bank.mark();
-        bank.add(formats[sticker.format_type <= 4 ? sticker.format_type : 0]);
-        if (sticker.tags_bytes) {
-            bank.add(utf8_literal(" · "));
-            bank.add({sticker.tags, sticker.tags_bytes});
-        }
-        if (sticker.description_bytes) {
-            bank.add(utf8_literal(" · "));
-            bank.add({sticker.description, sticker.description_bytes});
-        }
-        if (!sticker.available)
-            bank.add(utf8_literal(" · Unavailable"));
-        push({kRowBase + i, bank.add({sticker.name, sticker.name_bytes}), bank.since(detail),
-              UiSettingsControlKind::action, can && p.access.manage_expressions, false, {}, 0,
-              p.access.manage_expressions ? utf8_literal("Edit") : Utf8View{}, nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-    }
-    p.row_count = p.sticker_count;
-}
-
-// Soundboard sounds live in the soundboard module (catalog, edits, notices).
-void project_soundboard(Bank& bank) noexcept {
-    auto& p = *owner;
-    const auto view = application_soundboard_guild(p.guild_id);
-    p.soundboard_revision = application_soundboard_revision();
-    const bool can = editable() && connected() && page_allowed(Page::soundboard);
-    const u32 slots = kSoundboardGuildSlots[p.premium_tier <= 3 ? p.premium_tier : 3];
-    const u32 start = bank.mark();
-    bank.number(view.count);
-    bank.add(utf8_literal(" of "));
-    bank.number(slots);
-    bank.add(utf8_literal(" slots used. MP3 or Ogg, up to 512 KB and 5.2 seconds."));
-    push({control_upload, utf8_literal("Soundboard"), bank.since(start), UiSettingsControlKind::action,
-          can && view.loaded && !view.busy && view.count < slots, false, {}, 0, utf8_literal("Upload sound"), nullptr},
-         {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
-    if (view.notice.bytes)
-        push(notice({}, view.notice), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    else if (view.busy)
-        push(notice({}, utf8_literal("Saving…")));
-    else if (!view.loaded)
-        push(notice({}, view.loading ? utf8_literal("Loading sounds…") : utf8_literal("Couldn't load sounds yet.")));
-    const u32 heading = bank.mark();
-    bank.add(utf8_literal("Sounds — "));
-    bank.number(view.count);
-    push(category(control_list_category, bank.since(heading)));
-    if (view.loaded && !view.count)
-        push(notice({}, utf8_literal("This server has no sounds yet.")));
-    const u32 count = minimum(view.count, kRowCapacity);
-    for (u32 i = 0; i < count; ++i) {
-        const auto& sound = view.sounds[i];
-        const u32 detail = bank.mark();
-        if (sound.emoji_name_bytes && !sound.emoji_id) {
-            bank.add({sound.emoji_name, sound.emoji_name_bytes});
-            bank.add(utf8_literal(" · "));
-        }
-        bank.number((sound.volume + 5) / 10);
-        bank.add(utf8_literal("% volume"));
-        if (!sound.available)
-            bank.add(utf8_literal(" · Unavailable"));
-        p.row_ids[i] = sound.sound_id;
-        push({kRowBase + i, bank.add({sound.name, sound.name_bytes}), bank.since(detail),
-              UiSettingsControlKind::action, can && p.access.manage_expressions && !view.busy, false, {}, 0,
-              p.access.manage_expressions ? utf8_literal("Edit") : Utf8View{}, nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-    }
-    p.row_count = count;
-}
-
-void project_safety(Bank&) noexcept {
-    auto& p = *owner;
-    const bool edit = editable() && page_allowed(Page::safety);
-    auto& d = p.safety_draft;
-    push(category(control_list_category, utf8_literal("Verification level"),
-                  utf8_literal("Members must meet this before they can send messages or start conversations.")));
-    push({control_verification, utf8_literal("Verification level"), kVerificationDetails[d.verification_level],
-          UiSettingsControlKind::radio, edit, false, {kVerificationChoices, kGuildVerificationLevels},
-          d.verification_level, {}, nullptr});
-    push(category(control_display_category, utf8_literal("Explicit image filter"),
-                  utf8_literal("Automatically scan and delete explicit images and embeds.")));
-    push({control_content_filter, utf8_literal("Explicit image filter"), {}, UiSettingsControlKind::radio, edit,
-          false, {kFilterChoices, kGuildContentFilterLevels}, d.explicit_content_filter, {}, nullptr});
-    push(category(control_delete_category, utf8_literal("Moderation")));
-    const bool can_mfa = guild_settings_can_set_mfa(p.access);
-    const bool self_mfa = state().self_mfa != SelfMfaState::disabled;
-    push({control_mfa, utf8_literal("Require 2FA for moderator actions"),
-          !can_mfa    ? utf8_literal("Only the server owner can change this.")
-          : !self_mfa ? utf8_literal("Turn on two-factor authentication for your account first.")
-                      : utf8_literal("Moderators must have two-factor authentication to ban, kick or delete messages."),
-          UiSettingsControlKind::toggle, edit && can_mfa && (self_mfa || d.mfa_level), d.mfa_level != 0, {}, 0, {},
-          nullptr});
-}
-
-void project_role_list(Bank& bank) noexcept {
-    const bool manage = page_allowed(Page::roles) && editable();
-    push({control_create, utf8_literal("Roles"),
-          utf8_literal("Members combine the permissions of all their roles. Drag roles to change their order."),
-          UiSettingsControlKind::action, manage && !owner->order_dirty, false, {}, 0, utf8_literal("Create role"),
-          nullptr},
-         {UiSettingsVariant::primary, 0, kUiSettingsNoDefault});
-    push({control_search, utf8_literal("Search roles"), {}, UiSettingsControlKind::edit, editable(), false, {}, 0,
-          {}, &editor_view(editor_search, control_search, utf8_literal("Search roles"), editable())});
-    const RoleRecord* sorted[kGuildRoleMaximum];
-    const u32 count = resolve_order(sorted);
-    const auto query = editor_text(editor_search);
-    const u32 heading = bank.mark();
-    bank.add(utf8_literal("Roles — "));
-    bank.number(count);
-    push(category(control_list_category, bank.since(heading)));
-    if (owner->status.bytes && owner->failed)
-        push(notice({}, owner->status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    // Row ids follow the draft order so drops and activation map back to it.
-    for (u32 i = 0; i < owner->order_count; ++i) {
-        const auto* resolved = role(owner->order[i]);
-        if (!resolved)
-            continue;
-        const auto& r = *resolved;
-        const auto name = chat_state_store_role_name(state(), r);
-        if (!guild_settings_text_matches(query, name))
-            continue;
-        const bool everyone = r.id == owner->guild_id;
-        const bool editable_role = guild_settings_role_editable(owner->access, r);
-        const u32 start = bank.mark();
-        if (everyone)
-            bank.add(utf8_literal("Default permissions for all members"));
-        else {
-            u32 members = ~0u;
-            for (u32 j = 0; j < owner->counts; ++j)
-                if (owner->count_role[j] == r.id)
-                    members = owner->count_value[j];
-            if (members != ~0u) {
-                bank.number(members);
-                bank.add(members == 1 ? utf8_literal(" member") : utf8_literal(" members"));
-            }
-            if (r.managed)
-                bank.add(members != ~0u ? utf8_literal(" · Managed by an app") : utf8_literal("Managed by an app"));
-        }
-        const auto description = bank.since(start);
-        u8 flags = ui_settings_presentation_compact;
-        if (manage && editable_role && !everyone && !query.bytes)
-            flags |= ui_settings_presentation_grip;
-        push({kRowBase + i, bank.add(name), description, UiSettingsControlKind::action, true, false, {}, 0,
-              editable_role && manage ? utf8_literal("Edit") : utf8_literal("View"), nullptr},
-             {UiSettingsVariant::standard, static_cast<u8>(flags | (everyone ? 0 : ui_settings_presentation_accent)),
-              kUiSettingsNoDefault});
-        owner->row_accent[i] = everyone ? 0u : guild_role_color_rgba(r.color);
-    }
-}
-
-void project_role_editor(Bank& bank) noexcept {
-    const auto* r = role(owner->editing_role);
-    const bool everyone = owner->editing_role == owner->guild_id;
-    const bool writable = editable() && role_writable();
-    auto& d = owner->role_draft;
-    const u32 start = bank.mark();
-    if (owner->role_missing)
-        bank.add(utf8_literal("This role was deleted."));
-    else if (!role_writable())
-        bank.add(utf8_literal("Read-only: this role is not below your highest role."));
-    else if (everyone)
-        bank.add(utf8_literal("Applies to every member of the server."));
-    else
-        bank.add(utf8_literal("Editing role"));
-    const auto header_description = bank.since(start);
-    const auto header_name = bank.add({d.name, d.name_bytes});
-    push({control_header, header_name, header_description, UiSettingsControlKind::action, true,
-          false, {}, 0, utf8_literal("Back to roles"), nullptr},
-         {UiSettingsVariant::standard, static_cast<u8>(everyone ? 0 : ui_settings_presentation_accent),
-          kUiSettingsNoDefault});
-    if (owner->role_conflict)
-        push(notice(utf8_literal("Changed elsewhere"),
-                    utf8_literal("Someone else updated this role. Load the latest values or keep editing."),
-                    utf8_literal("Load latest")),
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    if (!everyone) {
-        push(category(control_display_category, utf8_literal("Display")));
-        push({control_name, utf8_literal("Role name"), {}, UiSettingsControlKind::edit,
-              writable && !(r && r->managed), false, {}, 0, {},
-              &editor_view(editor_name, control_name, utf8_literal("Role name"), writable && !(r && r->managed))});
-        auto& color_names = owner->color_names;
-        color_names[0] = utf8_literal("Default");
-        u32 selected = d.color ? kUiSettingsNoChoice : 0;
-        for (u32 i = 0; i < kGuildRoleColorCount; ++i) {
-            color_names[i + 1] = utf8_literal("Colour");
-            if (kGuildRoleColors[i] == d.color)
-                selected = i + 1;
-        }
-        push({control_color, utf8_literal("Role colour"),
-              utf8_literal("Members show the colour of their highest coloured role."), UiSettingsControlKind::swatches,
-              writable, false, {color_names, kGuildRoleColorCount + 1}, selected, {}, nullptr},
-             {UiSettingsVariant::standard, 0, kUiSettingsNoDefault});
-        push({control_hex, utf8_literal("Custom colour"),
-              owner->hex_invalid ? utf8_literal("Use six hex digits, like #3498DB.") : Utf8View{},
-              UiSettingsControlKind::edit, writable, false, {}, 0, {},
-              &editor_view(editor_hex, control_hex, utf8_literal("#000000"), writable)});
-        push({control_hoist, utf8_literal("Show members separately"),
-              utf8_literal("List members with this role in their own group in the member list."),
-              UiSettingsControlKind::toggle, writable, d.hoist, {}, 0, {}, nullptr});
-        push({control_mentionable, utf8_literal("Allow anyone to mention this role"),
-              utf8_literal("Members with the right permission can always mention it."), UiSettingsControlKind::toggle,
-              writable, d.mentionable, {}, 0, {}, nullptr});
-        if (guild_role_icons_available(owner->premium_tier, owner->features)) {
-            const bool has_icon = r && r->has_icon;
-            push({control_role_icon, utf8_literal("Role icon"),
-                  picked_text(bank, owner->role_icon,
-                              utf8_literal("Shown next to member names. PNG, JPEG or WebP, at least 64×64.")),
-                  UiSettingsControlKind::action, writable && connected() && !(r && r->managed), false, {}, 0,
-                  utf8_literal("Upload icon"), nullptr});
-            if (has_icon || pending(owner->role_icon))
-                push({control_role_icon_remove, utf8_literal("Remove role icon"), {}, UiSettingsControlKind::action,
-                      writable && (owner->role_icon.set || (has_icon && !owner->role_icon.clear)), false, {}, 0,
-                      owner->role_icon.set && !has_icon ? utf8_literal("Discard") : utf8_literal("Remove"), nullptr},
-                     {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-        }
-    }
-    const auto entries = permission_grid_entries();
-    const PermissionSet grantable = guild_settings_grantable(owner->access);
-    for (u32 group = 0; group < static_cast<u32>(PermissionGroup::count); ++group) {
-        bool first = true;
-        for (u32 i = 0; i < entries.count; ++i) {
-            const auto& entry = entries[i];
-            if (static_cast<u32>(entry.group) != group || !permission_grid_applies(entry, permission_scope_guild))
-                continue;
-            if (first) {
-                push(category(control_permission_category + group,
-                              permission_group_label(static_cast<PermissionGroup>(group))));
-                first = false;
-            }
-            const bool on = (d.permissions & entry.bit) != 0;
-            push({control_permission + i, entry.label, entry.description, UiSettingsControlKind::toggle,
-                  writable && (on || (grantable & entry.bit) == entry.bit), on, {}, 0, {}, nullptr});
-        }
-    }
-    if (r && guild_settings_role_deletable(owner->access, *r)) {
-        push(category(control_delete_category, utf8_literal("Delete role")));
-        push({control_delete, utf8_literal("Delete this role"),
-              utf8_literal("Members lose the role and its permissions. This can't be undone."),
-              UiSettingsControlKind::action, writable, false, {}, 0, utf8_literal("Delete role"), nullptr},
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    }
-}
-
-void project_members(Bank& bank) noexcept {
-    push({control_search, utf8_literal("Search members"), {}, UiSettingsControlKind::edit, editable(), false, {}, 0,
-          {}, &editor_view(editor_search, control_search, utf8_literal("Search by name"), editable())});
-    const auto& members = g_app.account_ui->guild_member_store;
-    const auto query = editor_text(editor_search);
-    // Sort loaded members by display name.
-    auto& order = owner->member_order;
-    u32 count = 0;
-    for (u32 i = 0; i < members.capacity && count < kRowCapacity; ++i) {
-        const auto& m = members.records[i];
-        if (!m.occupied || m.guild_id != owner->guild_id)
-            continue;
-        Utf8View username{};
-        const auto name = member_name(m, &username);
-        if (guild_settings_text_matches(query, name) || guild_settings_text_matches(query, username))
-            order[count++] = i;
-    }
-    const auto fold = [](char c) noexcept { return c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c; };
-    heap_sort(order, count, [&](u32 a, u32 b) noexcept {
-        Utf8View ua{}, ub{};
-        const auto na = member_name(members.records[a], &ua), nb = member_name(members.records[b], &ub);
-        const u32 n = minimum(na.bytes, nb.bytes);
-        for (u32 i = 0; i < n; ++i)
-            if (fold(na.data[i]) != fold(nb.data[i]))
-                return fold(na.data[i]) < fold(nb.data[i]);
-        return na.bytes < nb.bytes;
-    });
-    const u32 heading = bank.mark();
-    bank.add(utf8_literal("Members — "));
-    bank.number(count);
-    push(category(control_list_category, bank.since(heading),
-                  utf8_literal("Members loaded on this device. Open a channel's member list to load more.")));
-    if (!count)
-        push(notice({}, query.bytes ? utf8_literal("No loaded members match this search.")
-                                    : utf8_literal("No members are loaded for this server yet.")));
-    auto& chips = owner->chips;
-    auto& chip_colors = owner->chip_colors;
-    owner->row_count = 0;
-    const u64 now = clock_unix_milliseconds() / 1000;
-    for (u32 i = 0; i < count && owner->row_count < kRowCapacity; ++i) {
-        const auto& m = members.records[order[i]];
-        Utf8View username{};
-        const auto name = bank.add(member_name(m, &username));
-        const u32 start = bank.mark();
-        if (username.bytes && !utf8_equal(username, name)) {
-            bank.add(utf8_literal("@"));
-            bank.add(username);
-        }
-        if (m.user_id == owner->access.owner_id)
-            bank.add(bank.since(start).bytes ? utf8_literal(" · Owner") : utf8_literal("Server owner"));
-        if (m.communication_disabled_known && m.communication_disabled_until > now)
-            bank.add(bank.since(start).bytes ? utf8_literal(" · Timed out") : utf8_literal("Timed out"));
-        const auto description = bank.since(start);
-        // Highest roles first, up to three chips and an overflow count.
-        const auto ids = guild_member_store_role_ids(m);
-        const RoleRecord* held[kGuildMemberRoleIdCapacity];
-        u32 held_count = 0;
-        for (u32 j = 0; j < ids.count && held_count < kGuildMemberRoleIdCapacity; ++j)
-            if (const auto* r = role(ids[j]); r && r->id != owner->guild_id)
-                held[held_count++] = r;
-        heap_sort(held, held_count, [](const RoleRecord* a, const RoleRecord* b) noexcept {
-            return a->position > b->position || (a->position == b->position && a->id < b->id);
-        });
-        const u32 row = owner->row_count;
-        u32 chip_count = 0;
-        for (u32 j = 0; j < held_count && chip_count < 3; ++j) {
-            chips[row][chip_count] = bank.add(chat_state_store_role_name(state(), *held[j]));
-            chip_colors[row][chip_count++] = guild_role_color_rgba(held[j]->color);
-        }
-        if (held_count > 3) {
-            const u32 more = bank.mark();
-            bank.add(utf8_literal("+"));
-            bank.number(held_count - 3);
-            chips[row][chip_count] = bank.since(more);
-            chip_colors[row][chip_count++] = 0;
-        }
-        const auto capabilities =
-            moderation_capabilities(state(), members, owner->guild_id, m.user_id, now);
-        owner->row_ids[row] = m.user_id;
-        const u32 top_color = held_count && held[0]->color ? guild_role_color_rgba(held[0]->color) : 0;
-        push_avatar(push({kRowBase + row, name, description, UiSettingsControlKind::action, true, false,
-                          {chips[row], chip_count}, 0, capabilities.visible ? utf8_literal("Manage") : Utf8View{},
-                          nullptr},
-                         {UiSettingsVariant::standard,
-                          static_cast<u8>(ui_settings_presentation_avatar | ui_settings_presentation_compact |
-                                          ui_settings_presentation_accent),
-                          kUiSettingsNoDefault}),
-                    m.user_id);
-        owner->row_accent[row] = top_color ? top_color : person_color(m.user_id);
-        ++owner->row_count;
-    }
-}
-
-void project_bans(Bank& bank) noexcept {
-    push({control_search, utf8_literal("Search bans"), {}, UiSettingsControlKind::edit, editable(), false, {}, 0, {},
-          &editor_view(editor_search, control_search, utf8_literal("Search by name or user ID"), editable())});
-    const auto& store = owner->bans;
-    if (owner->bans_failed)
-        push(notice(utf8_literal("Couldn't load bans"), owner->status, utf8_literal("Try again")),
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    else if (!store.complete)
-        push(notice({}, utf8_literal("Loading bans…")));
-    const auto query = editor_text(editor_search);
-    const u32 heading = bank.mark();
-    bank.add(utf8_literal("Bans — "));
-    bank.number(store.count);
-    push(category(control_list_category, bank.since(heading)));
-    owner->row_count = 0;
-    const bool can_unban = editable() && page_allowed(Page::bans);
-    for (u32 i = 0; i < store.count && owner->row_count < kRowCapacity; ++i) {
-        const auto& ban = store.records[i];
-        const Utf8View name{ban.name, ban.name_bytes};
-        char id_text[24];
-        u32 id_bytes = 0;
-        for (u64 v = ban.user_id; v && id_bytes < 20; v /= 10)
-            id_text[id_bytes++] = static_cast<char>('0' + v % 10);
-        for (u32 a = 0, b = id_bytes; a + 1 < b; ++a, --b) {
-            const char t = id_text[a];
-            id_text[a] = id_text[b - 1];
-            id_text[b - 1] = t;
-        }
-        if (!guild_settings_text_matches(query, name) && !guild_settings_text_matches(query, {id_text, id_bytes}))
-            continue;
-        owner->row_ids[owner->row_count] = ban.user_id;
-        push_avatar(push({kRowBase + owner->row_count, name.bytes ? bank.add(name) : bank.add({id_text, id_bytes}),
-                          ban.reason_bytes ? bank.add({ban.reason, ban.reason_bytes}) : utf8_literal("No reason given"),
-                          UiSettingsControlKind::action, can_unban, false, {}, 0, utf8_literal("Revoke ban"), nullptr},
-                         {UiSettingsVariant::standard,
-                          static_cast<u8>(ui_settings_presentation_avatar | ui_settings_presentation_compact |
-                                          ui_settings_presentation_accent),
-                          kUiSettingsNoDefault}),
-                    ban.user_id);
-        owner->row_accent[owner->row_count] = person_color(ban.user_id);
-        ++owner->row_count;
-    }
-}
-
-// Invites and audit log ----------------------------------------------------
-
-constexpr u64 kSnowflakeEpochMs = 1'420'070'400'000ull;
 void relative_time(Bank& bank, u64 then_ms, u64 now_ms, bool future) noexcept {
     const u64 delta = future ? (then_ms > now_ms ? then_ms - now_ms : 0) : (now_ms > then_ms ? now_ms - then_ms : 0);
     const u64 minutes = delta / 60'000, hours = minutes / 60, days = hours / 24;
@@ -1214,268 +344,29 @@ Utf8View user_label(u64 id) noexcept {
     }
     return {};
 }
-struct AuditAction {
-    u16 type;
-    Utf8View verb;
-    // 0 none, 1 user, 2 channel, 3 role.
-    u8 target;
-};
-constexpr AuditAction kAuditActions[]{
-    {1, utf8_literal("updated the server"), 0},
-    {10, utf8_literal("created channel"), 2},
-    {11, utf8_literal("updated channel"), 2},
-    {12, utf8_literal("deleted a channel"), 0},
-    {13, utf8_literal("added permissions in"), 2},
-    {14, utf8_literal("changed permissions in"), 2},
-    {15, utf8_literal("removed permissions in"), 2},
-    {20, utf8_literal("removed"), 1},
-    {21, utf8_literal("pruned inactive members"), 0},
-    {22, utf8_literal("banned"), 1},
-    {23, utf8_literal("revoked the ban for"), 1},
-    {24, utf8_literal("updated"), 1},
-    {25, utf8_literal("changed the roles of"), 1},
-    {26, utf8_literal("moved members in voice"), 0},
-    {27, utf8_literal("disconnected members from voice"), 0},
-    {28, utf8_literal("added the app"), 1},
-    {30, utf8_literal("created role"), 3},
-    {31, utf8_literal("updated role"), 3},
-    {32, utf8_literal("deleted a role"), 0},
-    {40, utf8_literal("created an invite"), 0},
-    {41, utf8_literal("updated an invite"), 0},
-    {42, utf8_literal("revoked an invite"), 0},
-    {50, utf8_literal("created a webhook"), 0},
-    {51, utf8_literal("updated a webhook"), 0},
-    {52, utf8_literal("deleted a webhook"), 0},
-    {60, utf8_literal("added an emoji"), 0},
-    {61, utf8_literal("updated an emoji"), 0},
-    {62, utf8_literal("deleted an emoji"), 0},
-    {72, utf8_literal("deleted a message from"), 1},
-    {73, utf8_literal("bulk deleted messages"), 0},
-    {74, utf8_literal("pinned a message from"), 1},
-    {75, utf8_literal("unpinned a message from"), 1},
-    {80, utf8_literal("added an integration"), 0},
-    {82, utf8_literal("removed an integration"), 0},
-    {90, utf8_literal("added a sticker"), 0},
-    {92, utf8_literal("deleted a sticker"), 0},
-    {100, utf8_literal("created an event"), 0},
-    {101, utf8_literal("updated an event"), 0},
-    {102, utf8_literal("cancelled an event"), 0},
-    {110, utf8_literal("created a thread"), 0},
-    {111, utf8_literal("updated a thread"), 0},
-    {112, utf8_literal("deleted a thread"), 0},
-    {140, utf8_literal("created an AutoMod rule"), 0},
-    {141, utf8_literal("updated an AutoMod rule"), 0},
-    {142, utf8_literal("deleted an AutoMod rule"), 0},
-    {143, utf8_literal("had a message blocked by AutoMod"), 0},
-};
-// Filter choices after "All actions": common moderation and setup changes.
-constexpr u16 kAuditFilters[]{1, 10, 11, 12, 14, 20, 22, 23, 24, 25, 30, 31, 32, 40, 42, 72};
-const AuditAction* audit_action(u16 type) noexcept {
-    for (const auto& action : kAuditActions)
-        if (action.type == type)
-            return &action;
-    return nullptr;
-}
 
-void project_invites(Bank& bank) noexcept {
-    auto& p = *owner;
-    if (p.failed && p.status.bytes)
-        push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    else if (!p.invites_loaded)
-        push(notice({}, utf8_literal("Loading invites…")));
-    const u32 heading = bank.mark();
-    bank.add(utf8_literal("Active invites — "));
-    bank.number(p.invite_count);
-    push(category(control_list_category, bank.since(heading)));
-    if (p.invites_loaded && !p.invite_count)
-        push(notice({}, utf8_literal("No active invites.")));
-    const u64 now = clock_unix_milliseconds();
-    p.row_count = 0;
-    for (u32 i = 0; i < p.invite_count; ++i) {
-        const auto& invite = p.invites[i];
-        const auto code = bank.add({invite.code, invite.code_bytes});
-        const u32 start = bank.mark();
-        if (const auto* channel = chat_state_store_find_channel(state(), invite.channel_id)) {
-            bank.add(channel->type == 2 ? utf8_literal("") : utf8_literal("#"));
-            bank.add(chat_state_store_channel_name(state(), *channel));
-            bank.add(utf8_literal(" · "));
-        }
-        const auto inviter = user_label(invite.inviter_id);
-        if (inviter.bytes) {
-            bank.add(utf8_literal("by "));
-            bank.add(inviter);
-            bank.add(utf8_literal(" · "));
-        }
-        bank.number(invite.uses);
-        if (invite.max_uses) {
-            bank.add(utf8_literal("/"));
-            bank.number(invite.max_uses);
-        }
-        bank.add(invite.uses == 1 && !invite.max_uses ? utf8_literal(" use · ") : utf8_literal(" uses · "));
-        if (invite.expires_at_ms) {
-            bank.add(utf8_literal("expires "));
-            relative_time(bank, invite.expires_at_ms, now, true);
-        } else
-            bank.add(utf8_literal("never expires"));
-        const auto description = bank.since(start);
-        push({kRowBase + i, code, description, UiSettingsControlKind::action, editable(), false, {}, 0,
-              utf8_literal("Revoke"), nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-        ++p.row_count;
-    }
-}
-
-// The actor's avatar from the response's users (hash or the default avatar),
-// else the cached user's; an actor outside both keeps the initials.
-UiSettingsAvatarMedia audit_avatar(u64 user_id) noexcept {
-    for (u32 i = 0; i < owner->audit_user_count; ++i) {
-        const auto& user = owner->audit_users[i];
-        if (user.id == user_id)
-            return application_listed_user_avatar_media(user_id, {user.avatar, user.avatar_bytes},
-                                                        user.discriminator);
-    }
-    return application_user_avatar_media(user_id);
-}
-
-void project_audit(Bank& bank) noexcept {
-    auto& p = *owner;
-    p.audit_user_choice[0] = p.audit_filter_user ? bank.add(user_label(p.audit_filter_user)) : utf8_literal("All members");
-    if (!p.audit_user_choice[0].bytes)
-        p.audit_user_choice[0] = utf8_literal("Selected member");
-    const auto* filter = p.audit_filter_action_set ? audit_action(p.audit_filter_action) : nullptr;
-    p.audit_action_choice[0] = filter ? filter->verb : utf8_literal("All actions");
-    push({control_filter_user, utf8_literal("Filter by member"), {}, UiSettingsControlKind::choice, editable(), false,
-          {p.audit_user_choice, 1}, 0, {}, nullptr});
-    push({control_filter_action, utf8_literal("Filter by action"), {}, UiSettingsControlKind::choice, editable(),
-          false, {p.audit_action_choice, 1}, 0, {}, nullptr});
-    if (p.failed && p.status.bytes)
-        push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    else if (!p.audit_complete && !p.audit_count)
-        push(notice({}, utf8_literal("Loading the audit log…")));
-    push(category(control_list_category, utf8_literal("Recent actions")));
-    if (p.audit_complete && !p.audit_count)
-        push(notice({}, utf8_literal("No matching actions.")));
-    const u64 now = clock_unix_milliseconds();
-    for (u32 i = 0; i < p.audit_count; ++i) {
-        const auto& entry = p.audit[i];
-        const auto* action = audit_action(entry.action_type);
-        const u32 start = bank.mark();
-        const auto actor = user_label(entry.user_id);
-        bank.add(actor.bytes ? actor : utf8_literal("Someone"));
-        bank.add(utf8_literal(" "));
-        if (action) {
-            bank.add(action->verb);
-            Utf8View target{};
-            if (action->target == 1)
-                target = user_label(entry.target_id);
-            else if (action->target == 2) {
-                if (const auto* channel = chat_state_store_find_channel(state(), entry.target_id))
-                    target = chat_state_store_channel_name(state(), *channel);
-            } else if (action->target == 3) {
-                if (const auto* r = role(entry.target_id))
-                    target = chat_state_store_role_name(state(), *r);
-            }
-            if (target.bytes) {
-                bank.add(utf8_literal(" "));
-                bank.add(target);
-            }
-        } else {
-            bank.add(utf8_literal("made a change (type "));
-            bank.number(entry.action_type);
-            bank.add(utf8_literal(")"));
-        }
-        const auto label = bank.since(start);
-        const u32 detail = bank.mark();
-        relative_time(bank, (entry.id >> 22) + kSnowflakeEpochMs, now, false);
-        if (entry.reason_bytes) {
-            bank.add(utf8_literal(" · "));
-            bank.add({entry.reason, entry.reason_bytes});
-        }
-        const auto description = bank.since(detail);
-        const u32 row =
-            push({kRowBase + i, label, description, UiSettingsControlKind::action, true, false, {}, 0, {}, nullptr},
-                 {UiSettingsVariant::standard,
-                  static_cast<u8>(ui_settings_presentation_avatar | ui_settings_presentation_compact |
-                                  ui_settings_presentation_accent),
-                  kUiSettingsNoDefault});
-        if (row < kControlCapacity)
-            p.avatar_media[row] = audit_avatar(entry.user_id);
-        p.row_accent[i] = person_color(entry.user_id);
-    }
-    if (p.audit_count && !p.audit_complete)
-        push({control_more, utf8_literal("Older actions"), {}, UiSettingsControlKind::action, !busy(), false, {}, 0,
-              utf8_literal("Load more"), nullptr});
-}
+namespace {
 
 Utf8View footer_status() noexcept {
     if (owner->request_id && mutation_pending())
         return utf8_literal("Saving changes…");
     if (owner->failed && owner->status.bytes)
         return owner->status;
-    if (owner->page == Page::overview && !guild_overview_name_valid({owner->overview_draft.name,
-                                                                     owner->overview_draft.name_bytes}))
-        return utf8_literal("Server names need 2–100 characters.");
-    if (owner->page == Page::roles && owner->editing_role && owner->editing_role != owner->guild_id &&
-        !guild_role_name_valid({owner->role_draft.name, owner->role_draft.name_bytes}))
-        return utf8_literal("Role names need 1–100 characters.");
+    if (ops().invalid) {
+        const auto invalid = ops().invalid();
+        if (invalid.bytes)
+            return invalid;
+    }
     return utf8_literal("You have unsaved changes.");
 }
-bool overview_patch_pending() noexcept {
-    GuildSettingsPatch patch{};
-    return guild_overview_patch(owner->overview_base, owner->overview_draft, &patch);
-}
-bool role_patch_pending() noexcept {
-    RolePatch patch{};
-    return guild_role_patch(owner->role_base, owner->role_draft, &patch);
-}
-bool safety_patch_pending() noexcept {
-    GuildSettingsPatch patch{};
-    return guild_safety_patch(owner->safety_base, owner->safety_draft, &patch);
-}
 bool can_save() noexcept {
-    if (!editable() || !connected())
-        return false;
-    switch (owner->page) {
-    case Page::overview:
-        return !owner->overview_conflict && guild_overview_name_valid({owner->overview_draft.name,
-                                                                        owner->overview_draft.name_bytes}) &&
-               (overview_patch_pending() || pending(owner->icon) || pending(owner->banner));
-    case Page::roles:
-        if (owner->editing_role)
-            return !owner->role_conflict && role_writable() && !owner->hex_invalid &&
-                   (owner->editing_role == owner->guild_id ||
-                    guild_role_name_valid({owner->role_draft.name, owner->role_draft.name_bytes})) &&
-                   (role_patch_pending() || pending(owner->role_icon));
-        return owner->order_dirty;
-    case Page::safety:
-        return safety_patch_pending() ||
-               (owner->safety_draft.mfa_level != owner->safety_base.mfa_level &&
-                guild_settings_can_set_mfa(owner->access));
-    default:
-        return false;
-    }
+    return editable() && connected() && ops().can_save && ops().can_save();
 }
-// The next request of a multi-part save: text fields first, then images.
+// The next request of a multi-part save.
 Op next_save_op() noexcept {
-    switch (owner->page) {
-    case Page::overview:
-        return overview_patch_pending() ? Op::guild_update
-               : pending(owner->icon)    ? Op::icon
-               : pending(owner->banner)  ? Op::banner
-                                         : Op::none;
-    case Page::roles:
-        if (!owner->editing_role)
-            return owner->order_dirty ? Op::role_reorder : Op::none;
-        return role_patch_pending() ? Op::role_update : pending(owner->role_icon) ? Op::role_icon : Op::none;
-    case Page::safety:
-        return safety_patch_pending() ? Op::safety_update
-               : owner->safety_draft.mfa_level != owner->safety_base.mfa_level ? Op::mfa
-                                                                               : Op::none;
-    default: return Op::none;
-    }
+    return ops().next_save ? ops().next_save() : Op::none;
 }
 
-// Palette source: row accents, member chip dots and role colour swatches.
 bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
     if (!owner || !theme)
         return false;
@@ -1495,31 +386,14 @@ bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
     theme->color_count = 1;
     return true;
 }
-bool project() noexcept {
+bool project_page() noexcept {
     if (!owner || !owner->scene.active || owner->page == Page::none)
         return true;
     auto& p = *owner;
     p.bank_index ^= 1;
     Bank bank{p.banks[p.bank_index], kBankBytes, 0};
     p.control_count = 0;
-    switch (p.page) {
-    case Page::overview: project_overview(bank); break;
-    case Page::roles:
-        if (p.editing_role)
-            project_role_editor(bank);
-        else
-            project_role_list(bank);
-        break;
-    case Page::members: project_members(bank); break;
-    case Page::bans: project_bans(bank); break;
-    case Page::invites: project_invites(bank); break;
-    case Page::audit_log: project_audit(bank); break;
-    case Page::emoji: project_emoji(bank); break;
-    case Page::stickers: project_stickers(bank); break;
-    case Page::soundboard: project_soundboard(bank); break;
-    case Page::safety: project_safety(bank); break;
-    default: break;
-    }
+    ops().project(bank);
     const bool dirty = page_dirty();
     p.footer = {footer_status(),
                 utf8_literal("Save changes"),
@@ -1543,19 +417,13 @@ bool project() noexcept {
                 bank.add({p.role_draft.name, p.role_draft.name_bytes});
                 content.title = bank.since(start);
             } else
-                content.title = p.pages[i - 1].label;
+                content.title = page_definition(p.page).title;
             ++content.revision;
         }
     }
     ui_settings_scene_set_focus_visible(&p.scene, g_app.keyboard_focus_visible);
     ui_settings_scene_bind_palette(&p.scene, {owner, resolve_color, ++p.palette_revision});
     return ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips());
-}
-bool repaint() noexcept {
-    if (!project())
-        return false;
-    application_request_frame();
-    return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
 }
 
 void build_navigation() noexcept {
@@ -1575,46 +443,38 @@ void build_navigation() noexcept {
     p.nav_count = 0;
     const auto add = [&](UiSettingsNavEntry entry) noexcept { p.nav[p.nav_count++] = entry; };
     add({UiSettingsNavKind::header, false, UiIcon::count,
-         header_bytes ? Utf8View{header, header_bytes} : utf8_literal("Server"), {}, 0});
-    if (page_allowed(Page::overview))
-        add({UiSettingsNavKind::page, false, UiIcon::settings, utf8_literal("Overview"), page_key(Page::overview), 0});
-    if (page_allowed(Page::roles))
-        add({UiSettingsNavKind::page, false, UiIcon::shield, utf8_literal("Roles"), page_key(Page::roles), 0});
-    if (page_allowed(Page::emoji)) {
-        add({UiSettingsNavKind::header, false, UiIcon::count, utf8_literal("EXPRESSIONS"), {}, 0});
-        add({UiSettingsNavKind::page, false, UiIcon::emoji, utf8_literal("Emoji"), page_key(Page::emoji), 0});
-        add({UiSettingsNavKind::page, false, UiIcon::sticker, utf8_literal("Stickers"), page_key(Page::stickers), 0});
-        add({UiSettingsNavKind::page, false, UiIcon::audio_lines, utf8_literal("Soundboard"), page_key(Page::soundboard),
-             0});
-    }
-    if (page_allowed(Page::audit_log) || page_allowed(Page::bans) || page_allowed(Page::safety)) {
-        add({UiSettingsNavKind::header, false, UiIcon::count, utf8_literal("MODERATION"), {}, 0});
-        if (page_allowed(Page::safety))
-            add({UiSettingsNavKind::page, false, UiIcon::shield_check, utf8_literal("Safety"), page_key(Page::safety),
-                 0});
-        if (page_allowed(Page::audit_log))
-            add({UiSettingsNavKind::page, false, UiIcon::audit_log, utf8_literal("Audit log"), page_key(Page::audit_log),
-                 0});
-        if (page_allowed(Page::bans))
-            add({UiSettingsNavKind::page, false, UiIcon::gavel, utf8_literal("Bans"), page_key(Page::bans), 0});
-    }
-    if (page_allowed(Page::members) || page_allowed(Page::invites)) {
-        add({UiSettingsNavKind::header, false, UiIcon::count, utf8_literal("PEOPLE"), {}, 0});
-        if (page_allowed(Page::members))
-            add({UiSettingsNavKind::page, false, UiIcon::members, utf8_literal("Members"), page_key(Page::members), 0});
-        if (page_allowed(Page::invites))
-            add({UiSettingsNavKind::page, false, UiIcon::user_plus, utf8_literal("Invites"), page_key(Page::invites), 0});
+         header_bytes ? Utf8View{header, header_bytes} : utf8_literal("SERVER SETTINGS"), {}, 0});
+    PageGroup group = PageGroup::none;
+    for (const auto& definition : kPages) {
+        if (!page_allowed(definition.page))
+            continue;
+        if (definition.group != group) {
+            group = definition.group;
+            if (group != PageGroup::none)
+                add({UiSettingsNavKind::header, false, UiIcon::count, kGroupHeaders[static_cast<u32>(group)], {},
+                     0});
+        }
+        add({UiSettingsNavKind::page, false, definition.icon, definition.label, page_key(definition.page), 0});
     }
     if (guild_settings_can_delete(p.access)) {
         add({UiSettingsNavKind::separator, false, UiIcon::count, {}, {}, 0});
-        add({UiSettingsNavKind::action, true, UiIcon::trash, utf8_literal("Delete server"), {}, kDeleteServerAction});
+        add({UiSettingsNavKind::action, true, UiIcon::trash, utf8_literal("Delete Server"), {}, kDeleteServerAction});
     }
     ui_settings_scene_bind_navigation(&p.scene, {p.nav, p.nav_count}, ++p.nav_revision);
 }
 
+} // namespace
+
+bool repaint() noexcept {
+    if (!project_page())
+        return false;
+    application_request_frame();
+    return !g_app.renderer_ready || renderer_rebuild_content_text(&g_app.renderer, application_theme());
+}
+
 // Requests ----------------------------------------------------------------
 
-void queue(Op op, u64 target = 0) noexcept {
+void queue(Op op, u64 target) noexcept {
     auto& r = owner->request;
     r = {};
     r.op = op;
@@ -1625,6 +485,7 @@ void queue(Op op, u64 target = 0) noexcept {
     owner->status = {};
     application_request_frame();
 }
+namespace {
 Utf8View failure_text(const RestClientResponse& response) noexcept {
     if (response.error != RestClientError::none)
         return utf8_literal("Couldn't reach Discord. Try again.");
@@ -1649,35 +510,12 @@ Utf8View failure_text(const RestClientResponse& response, Utf8View body) noexcep
     }
     return failure_text(response);
 }
-void select_page(Page page) noexcept;
 void ensure_page_data() noexcept {
     if (owner->page == Page::soundboard && connected())
         application_soundboard_request_guild(owner->guild_id);
-    if (busy() || !connected())
+    if (busy() || !connected() || !ops().ensure_data)
         return;
-    const bool needs_info = owner->page == Page::overview || owner->page == Page::roles ||
-                            owner->page == Page::emoji || owner->page == Page::stickers ||
-                            owner->page == Page::soundboard;
-    if (needs_info && !owner->guild_info_requested) {
-        owner->guild_info_requested = true;
-        queue(Op::guild_fetch);
-    } else if (owner->page == Page::stickers && !owner->stickers_requested) {
-        owner->stickers_requested = true;
-        queue(Op::sticker_list);
-    } else if (owner->page == Page::roles && !owner->counts_requested) {
-        owner->counts_requested = true;
-        queue(Op::role_counts);
-    } else if (owner->page == Page::bans && !owner->bans_requested) {
-        owner->bans_requested = true;
-        owner->bans_failed = false;
-        queue(Op::ban_list, 0);
-    } else if (owner->page == Page::invites && !owner->invites_requested) {
-        owner->invites_requested = true;
-        queue(Op::invite_list);
-    } else if (owner->page == Page::audit_log && !owner->audit_requested) {
-        owner->audit_requested = true;
-        queue(Op::audit_page);
-    }
+    ops().ensure_data();
 }
 
 // Channel creation from menus; independent of the open layer.
@@ -1737,33 +575,15 @@ void creation_closed(TextFormOwnerKey key) noexcept {
         creation = {};
 }
 
+} // namespace
+
 // Activation ----------------------------------------------------------------
 
-void request_close() noexcept;
 bool guard_dirty() noexcept {
     if (!page_dirty())
         return false;
     settings_layer_shake(&owner->layer, clock_monotonic_milliseconds());
     return true;
-}
-void open_role(u64 id) noexcept {
-    const auto* r = role(id);
-    if (!r || guard_dirty())
-        return;
-    release_picked(&owner->role_icon);
-    load_role_editor(*r);
-    owner->scene.content_offset = 0;
-    owner->scene.focus = {UiSettingsTargetKind::control, page_key(Page::roles), control_header};
-    repaint();
-}
-void close_role() noexcept {
-    if (guard_dirty())
-        return;
-    owner->editing_role = 0;
-    release_picked(&owner->role_icon);
-    set_editor(editor_search, {});
-    owner->scene.content_offset = 0;
-    repaint();
 }
 TextFormOwnerKey form_key(u64 kind, u64 item) noexcept {
     return {owner ? owner->lifetime : 0, kind, item};
@@ -1775,102 +595,24 @@ bool form_save(TextFormOwnerKey key, Utf8View) noexcept {
     if (!form_valid(key) || busy())
         return false;
     application_text_form_close(false, false);
-    if (key.collection == 1) {
+    if (key.collection == form_role_delete) {
         const auto* r = role(key.item);
         if (r && guild_settings_role_deletable(owner->access, *r))
             queue(Op::role_delete, key.item);
-    } else if (key.collection == 2) {
-        if (page_allowed(Page::bans))
+    } else if (key.collection == form_unban) {
+        if (guild_settings_can_unban(owner->access))
             queue(Op::ban_remove, key.item);
-    } else if (key.collection == 3) {
+    } else if (key.collection == form_invite_revoke) {
         if (page_allowed(Page::invites) && key.item < owner->invite_count)
             queue(Op::invite_delete, key.item);
     }
     repaint();
     return true;
 }
-void confirm_delete_role() noexcept {
-    const auto* r = role(owner->editing_role);
-    if (!r || !guild_settings_role_deletable(owner->access, *r))
-        return;
-    static char title[160];
-    Bank bank{title, sizeof(title), 0};
-    bank.add(utf8_literal("Delete "));
-    bank.add(chat_state_store_role_name(state(), *r));
-    bank.add(utf8_literal("?"));
-    ApplicationTextFormRequest request{};
-    request.title = bank.since(0);
-    request.context = utf8_literal("Members with this role lose it and its permissions. This can't be undone.");
-    request.accept = utf8_literal("Delete role");
-    request.owner = form_key(1, r->id);
-    request.valid = form_valid;
-    request.save = form_save;
-    request.confirmation_only = true;
-    request.danger = true;
-    application_text_form_open(request);
-}
-void confirm_unban(u64 user) noexcept {
-    const auto* ban = guild_ban_store_find(owner->bans, user);
-    if (!ban)
-        return;
-    static char title[200];
-    Bank bank{title, sizeof(title), 0};
-    bank.add(utf8_literal("Revoke ban for "));
-    bank.add(ban->name_bytes ? Utf8View{ban->name, ban->name_bytes} : utf8_literal("this user"));
-    // A plain confirmation: the official client unbans without a reason.
-    ApplicationTextFormRequest request{};
-    request.title = bank.since(0);
-    request.context = utf8_literal("They can join again with an invite.");
-    request.accept = utf8_literal("Revoke ban");
-    request.owner = form_key(2, user);
-    request.valid = form_valid;
-    request.save = form_save;
-    request.confirmation_only = true;
-    application_text_form_open(request);
-}
-void confirm_revoke_invite(u32 index) noexcept {
-    if (index >= owner->invite_count)
-        return;
-    static char title[96];
-    Bank bank{title, sizeof(title), 0};
-    bank.add(utf8_literal("Revoke invite "));
-    bank.add({owner->invites[index].code, owner->invites[index].code_bytes});
-    bank.add(utf8_literal("?"));
-    // A plain confirmation: the official client revokes without a reason.
-    ApplicationTextFormRequest request{};
-    request.title = bank.since(0);
-    request.context = utf8_literal("The link stops working for everyone.");
-    request.accept = utf8_literal("Revoke");
-    request.danger = true;
-    request.owner = form_key(3, index);
-    request.valid = form_valid;
-    request.save = form_save;
-    request.confirmation_only = true;
-    application_text_form_open(request);
-}
-// Images and expressions ------------------------------------------------------
 
-enum FormKind : u64 {
-    form_emoji_create = 4,
-    form_emoji_rename,
-    form_emoji_delete,
-    form_sticker_name,
-    form_sticker_tags,
-    form_sticker_rename,
-    form_sticker_retag,
-    form_sticker_describe,
-    form_sticker_delete,
-    form_delete_server,
-    form_sound_name,
-    form_sound_emoji,
-    form_sound_rename,
-    form_sound_emoji_edit,
-    form_sound_volume,
-    form_sound_delete,
-};
-u64 next_form;
-u64 next_form_item;
+// Images ----------------------------------------------------------------------
 
+namespace {
 GuildImageProfile pick_profile(Pick pick) noexcept {
     switch (pick) {
     case Pick::icon: return GuildImageProfile::icon;
@@ -1881,6 +623,7 @@ GuildImageProfile pick_profile(Pick pick) noexcept {
     default: return GuildImageProfile::count;
     }
 }
+} // namespace
 void show_failure(Utf8View text) noexcept {
     owner->failed = true;
     owner->status = text;
@@ -1907,6 +650,7 @@ void start_pick(Pick pick) noexcept {
     }
 }
 // Reads the whole file into a fresh allocation bounded by the source limit.
+namespace {
 bool read_picked_file(ConstSlice<wchar_t> path, Picked* out, Utf8View* error) noexcept {
     *error = utf8_literal("Couldn't read that file.");
     if (!path.data || !path.count || path.count >= kNativeFilePickerMaximumPathUnits)
@@ -2004,9 +748,9 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
         show_failure(error);
         return;
     }
-    // An animated banner needs ANIMATED_BANNER (the official client offers boosting instead).
+    // An animated banner needs ANIMATED_BANNER or boost level 3.
     if (pick == Pick::banner && picked.info.animated &&
-        !guild_animated_banner_available(p.premium_tier, p.features)) {
+        !guild_animated_banner_available(premium_tier(), guild_features())) {
         release_picked(&picked);
         show_failure(utf8_literal("Animated server banners need boost level 3."));
         return;
@@ -2044,497 +788,37 @@ void poll_picker() noexcept {
     native_file_picker_release(&p.picker, 0);
 }
 
-const GuildStickerRecord* sticker(u64 id) noexcept {
-    for (u32 i = 0; i < owner->sticker_count; ++i)
-        if (owner->stickers[i].id == id)
-            return &owner->stickers[i];
-    return nullptr;
-}
-const CustomEmojiRecord* emoji(u64 id) noexcept {
-    const auto& s = state();
-    for (u32 i = 0; i < s.emoji_count; ++i)
-        if (s.emojis[i].id == id && s.emojis[i].guild_id == owner->guild_id)
-            return &s.emojis[i];
-    return nullptr;
-}
-void set_asset_text(char* storage, u16* bytes, u32 capacity, Utf8View text) noexcept {
-    *bytes = static_cast<u16>(minimum(text.bytes, capacity));
-    copy_bytes(storage, text.data, *bytes);
-}
-ApplicationTextFormProgress expression_progress(TextFormOwnerKey key) noexcept {
-    ApplicationTextFormProgress view{};
-    if (!form_valid(key)) {
-        view.complete = true;
-        return view;
-    }
-    view.revision = owner->form_revision;
-    view.status = owner->form_status;
-    return view;
-}
-const SoundboardSound* sound_of(u64 id) noexcept {
-    const auto* sound = application_soundboard_find(id);
-    return sound && sound->guild_id == owner->guild_id ? sound : nullptr;
-}
-// Edits resend every field the official client sends, with one changed.
-bool sound_update(u64 id, const Utf8View* name, const Utf8View* emoji, const u16* volume) noexcept {
-    const auto* sound = sound_of(id);
-    if (!sound)
-        return false;
-    const Utf8View current_emoji{sound->emoji_name, sound->emoji_name_bytes};
-    return application_soundboard_update(owner->guild_id, id, name ? *name : Utf8View{sound->name, sound->name_bytes},
-                                         emoji ? *emoji : current_emoji, emoji ? 0 : sound->emoji_id,
-                                         volume ? *volume : sound->volume);
-}
-void expression_closed(TextFormOwnerKey key) noexcept {
-    // A sound upload abandoned at its name or emoji step drops the picked file.
-    if (owner && key.scope == owner->lifetime &&
-        ((key.collection == form_sound_name && next_form != form_sound_emoji) || key.collection == form_sound_emoji))
-        release_picked(&owner->upload);
-    // An upload abandoned at its name or tag step drops the picked file.
-    if (owner && key.scope == owner->lifetime &&
-        (key.collection == form_emoji_create || key.collection == form_sticker_name ||
-         key.collection == form_sticker_tags) &&
-        !owner->request.queued && !owner->request_id && next_form != form_sticker_tags)
-        release_picked(&owner->upload);
-}
-bool expression_save(TextFormOwnerKey key, Utf8View text) noexcept {
-    if (!form_valid(key) || busy())
-        return false;
-    auto& p = *owner;
-    const auto reject = [&](Utf8View message) noexcept {
-        p.form_status = message;
-        ++p.form_revision;
-        return false;
-    };
-    p.asset_fields = 0;
-    switch (key.collection) {
-    case form_emoji_create:
-    case form_emoji_rename:
-        if (!guild_emoji_name_valid(text))
-            return reject(utf8_literal("Use 2–32 letters, numbers or underscores."));
-        set_asset_text(p.asset_name, &p.asset_name_bytes, sizeof(p.asset_name), text);
-        if (key.collection == form_emoji_create)
-            queue(Op::emoji_create);
-        else
-            queue(Op::emoji_rename, key.item);
-        break;
-    case form_sticker_name:
-    case form_sticker_rename:
-        if (!guild_sticker_name_valid(text))
-            return reject(utf8_literal("Sticker names need 2–30 characters."));
-        set_asset_text(p.asset_name, &p.asset_name_bytes, sizeof(p.asset_name), text);
-        if (key.collection == form_sticker_name) {
-            // The related emoji opens next, after this form has closed.
-            next_form = form_sticker_tags;
-            next_form_item = 0;
-        } else {
-            p.asset_fields = guild_asset_field_name;
-            queue(Op::sticker_update, key.item);
-        }
-        break;
-    case form_sticker_tags:
-    case form_sticker_retag:
-        if (!guild_sticker_tags_valid(text))
-            return reject(utf8_literal("Enter 1–200 characters, like an emoji name."));
-        set_asset_text(p.asset_tags, &p.asset_tags_bytes, sizeof(p.asset_tags), text);
-        if (key.collection == form_sticker_tags) {
-            p.asset_description_bytes = 0;
-            queue(Op::sticker_create);
-        } else {
-            p.asset_fields = guild_asset_field_tags;
-            queue(Op::sticker_update, key.item);
-        }
-        break;
-    case form_sticker_describe:
-        if (!guild_sticker_description_valid(text))
-            return reject(utf8_literal("Descriptions are empty or 2–100 characters."));
-        set_asset_text(p.asset_description, &p.asset_description_bytes, sizeof(p.asset_description), text);
-        p.asset_fields = guild_asset_field_description;
-        queue(Op::sticker_update, key.item);
-        break;
-    case form_emoji_delete:
-        queue(Op::emoji_delete, key.item);
-        break;
-    case form_sound_name:
-    case form_sound_rename:
-        if (!soundboard_name_valid(text))
-            return reject(utf8_literal("Sound names need 2–32 characters."));
-        if (key.collection == form_sound_name) {
-            p.sound_name_bytes = static_cast<u32>(minimum<u32>(text.bytes, sizeof(p.sound_name)));
-            copy_bytes(p.sound_name, text.data, p.sound_name_bytes);
-            // The emoji step opens next, after this form has closed.
-            next_form = form_sound_emoji;
-            next_form_item = 0;
-        } else if (!sound_update(key.item, &text, nullptr, nullptr))
-            return reject(utf8_literal("Couldn't save that sound. Try again in a moment."));
-        break;
-    case form_sound_emoji:
-    case form_sound_emoji_edit:
-        if (!soundboard_emoji_name_valid(text) || text.bytes > 32)
-            return reject(utf8_literal("Enter one emoji, or leave it empty."));
-        if (key.collection == form_sound_emoji) {
-            if (!p.upload.data || !application_soundboard_create(p.guild_id, {p.sound_name, p.sound_name_bytes}, text,
-                                                                 kSoundboardVolumeScale,
-                                                                 {p.upload.data, p.upload.bytes}))
-                return reject(utf8_literal("Couldn't upload that sound. Try again in a moment."));
-            release_picked(&p.upload);
-        } else if (!sound_update(key.item, nullptr, &text, nullptr))
-            return reject(utf8_literal("Couldn't save that sound. Try again in a moment."));
-        break;
-    case form_sound_volume: {
-        u32 percent = 0, digits = 0;
-        for (u32 i = 0; i < text.bytes; ++i) {
-            const char c = text.data[i];
-            if (c == '%' && i + 1 == text.bytes && digits)
-                break;
-            if (c < '0' || c > '9' || digits == 3)
-                return reject(utf8_literal("Enter a volume from 0 to 100."));
-            percent = percent * 10 + static_cast<u32>(c - '0');
-            ++digits;
-        }
-        if (!digits || percent > 100)
-            return reject(utf8_literal("Enter a volume from 0 to 100."));
-        const u16 volume = static_cast<u16>(percent * 10);
-        if (!sound_update(key.item, nullptr, nullptr, &volume))
-            return reject(utf8_literal("Couldn't save that sound. Try again in a moment."));
-        break;
-    }
-    case form_sound_delete:
-        if (!application_soundboard_remove(p.guild_id, key.item))
-            return reject(utf8_literal("Couldn't delete that sound. Try again in a moment."));
-        break;
-    case form_sticker_delete:
-        queue(Op::sticker_delete, key.item);
-        break;
-    case form_delete_server: {
-        const auto* guild = chat_state_store_find_guild(state(), p.guild_id);
-        if (!guild || !guild_delete_confirmed(text, chat_state_store_guild_name(state(), *guild)))
-            return reject(utf8_literal("Type the server name exactly as it appears."));
-        queue(Op::guild_delete);
-        break;
-    }
-    default: return false;
-    }
-    p.form_status = {};
-    repaint();
-    return true;
-}
-void open_expression_form(u64 kind, u64 item) noexcept {
-    auto& p = *owner;
-    static char title[200];
-    static char initial[kGuildStickerTagsBytes];
-    Bank bank{title, sizeof(title), 0};
-    ApplicationTextFormRequest request{};
-    request.owner = form_key(kind, item);
-    request.valid = form_valid;
-    request.save = expression_save;
-    request.progress = expression_progress;
-    request.closed = expression_closed;
-    request.single_line = true;
-    p.form_status = {};
-    ++p.form_revision;
-    u32 initial_bytes = 0;
-    const auto copy_initial = [&](Utf8View text) noexcept {
-        initial_bytes = minimum(text.bytes, static_cast<u32>(sizeof(initial)));
-        copy_bytes(initial, text.data, initial_bytes);
-    };
-    const auto* em = emoji(item);
-    const auto* st = sticker(item);
-    const auto* so = kind >= form_sound_name ? sound_of(item) : nullptr;
-    switch (kind) {
-    case form_sound_name: {
-        request.title = utf8_literal("Name your sound");
-        const u32 start = bank.mark();
-        bank.add({p.upload_filename, p.upload_filename_bytes});
-        request.context = bank.since(start);
-        request.label = utf8_literal("Sound name");
-        request.accept = utf8_literal("Next");
-        // The file name without its extension, cut to the limit.
-        u32 bytes = p.upload_filename_bytes;
-        for (u32 i = bytes; i > 0; --i)
-            if (p.upload_filename[i - 1] == '.') {
-                bytes = i - 1;
-                break;
-            }
-        copy_initial({p.upload_filename, bytes});
-        const u32 copied = initial_bytes;
-        initial_bytes = minimum<u32>(initial_bytes, kSoundboardNameMaximum);
-        while (initial_bytes && initial_bytes < copied && (static_cast<u8>(initial[initial_bytes]) & 0xc0) == 0x80)
-            --initial_bytes;
-        request.maximum_codepoints = kSoundboardNameMaximum;
-        request.maximum_bytes = kSoundboardNameBytes;
-        break;
-    }
-    case form_sound_emoji:
-    case form_sound_emoji_edit:
-        if (kind == form_sound_emoji_edit && !so)
-            return;
-        request.title = utf8_literal("Sound emoji");
-        request.context = utf8_literal("Shown next to the sound. Optional.");
-        request.label = utf8_literal("Emoji");
-        request.accept = kind == form_sound_emoji ? utf8_literal("Upload") : utf8_literal("Save");
-        if (so && !so->emoji_id)
-            copy_initial({so->emoji_name, so->emoji_name_bytes});
-        request.maximum_codepoints = 8;
-        request.maximum_bytes = 32;
-        break;
-    case form_sound_rename:
-        if (!so)
-            return;
-        request.title = utf8_literal("Rename sound");
-        request.label = utf8_literal("Sound name");
-        request.accept = utf8_literal("Save");
-        copy_initial({so->name, so->name_bytes});
-        request.maximum_codepoints = kSoundboardNameMaximum;
-        request.maximum_bytes = kSoundboardNameBytes;
-        break;
-    case form_sound_volume: {
-        if (!so)
-            return;
-        request.title = utf8_literal("Sound volume");
-        request.context = utf8_literal("How loud the sound plays for everyone, from 0 to 100.");
-        request.label = utf8_literal("Volume (%)");
-        request.accept = utf8_literal("Save");
-        char digits[4];
-        u32 value = (so->volume + 5) / 10, count = 0;
-        do {
-            digits[count++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value && count < 4);
-        for (u32 i = 0; i < count; ++i)
-            initial[i] = digits[count - 1 - i];
-        initial_bytes = count;
-        request.maximum_codepoints = request.maximum_bytes = 4;
-        break;
-    }
-    case form_sound_delete:
-        if (!so)
-            return;
-        bank.add(utf8_literal("Delete "));
-        bank.add({so->name, so->name_bytes});
-        bank.add(utf8_literal("?"));
-        request.title = bank.since(0);
-        request.context = utf8_literal("It's removed from everyone's soundboard. This can't be undone.");
-        request.accept = utf8_literal("Delete sound");
-        request.confirmation_only = request.danger = true;
-        break;
-    case form_emoji_create: {
-        request.title = utf8_literal("Name your emoji");
-        const u32 start = bank.mark();
-        image_summary(bank, p.upload.info);
-        request.context = bank.since(start);
-        request.label = utf8_literal("Emoji name");
-        request.accept = utf8_literal("Upload");
-        initial_bytes = guild_emoji_name_from_filename({p.upload_filename, p.upload_filename_bytes},
-                                                       {initial, sizeof(initial)});
-        request.maximum_codepoints = request.maximum_bytes = kGuildEmojiNameMaximum;
-        break;
-    }
-    case form_emoji_rename:
-        if (!em)
-            return;
-        request.title = utf8_literal("Rename emoji");
-        request.label = utf8_literal("Emoji name");
-        request.accept = utf8_literal("Save");
-        copy_initial({em->name, em->name_bytes});
-        request.maximum_codepoints = request.maximum_bytes = kGuildEmojiNameMaximum;
-        break;
-    case form_emoji_delete:
-        if (!em)
-            return;
-        bank.add(utf8_literal("Delete :"));
-        bank.add({em->name, em->name_bytes});
-        bank.add(utf8_literal(":?"));
-        request.title = bank.since(0);
-        request.context = utf8_literal("Messages that used it show its name instead. This can't be undone.");
-        request.accept = utf8_literal("Delete emoji");
-        request.confirmation_only = request.danger = true;
-        break;
-    case form_sticker_name: {
-        request.title = utf8_literal("Name your sticker");
-        const u32 start = bank.mark();
-        image_summary(bank, p.upload.info);
-        request.context = bank.since(start);
-        request.label = utf8_literal("Sticker name");
-        request.accept = utf8_literal("Next");
-        request.maximum_codepoints = kGuildStickerNameMaximum;
-        request.maximum_bytes = kGuildStickerNameBytes;
-        break;
-    }
-    case form_sticker_tags:
-    case form_sticker_retag:
-        if (kind == form_sticker_retag && !st)
-            return;
-        request.title = utf8_literal("Related emoji");
-        request.context = utf8_literal("The emoji name that suggests this sticker, like smile or thumbsup.");
-        request.label = utf8_literal("Related emoji");
-        request.accept = kind == form_sticker_tags ? utf8_literal("Upload") : utf8_literal("Save");
-        if (st)
-            copy_initial({st->tags, st->tags_bytes});
-        request.maximum_codepoints = kGuildStickerTagsMaximum;
-        request.maximum_bytes = kGuildStickerTagsBytes;
-        break;
-    case form_sticker_rename:
-        if (!st)
-            return;
-        request.title = utf8_literal("Rename sticker");
-        request.label = utf8_literal("Sticker name");
-        request.accept = utf8_literal("Save");
-        copy_initial({st->name, st->name_bytes});
-        request.maximum_codepoints = kGuildStickerNameMaximum;
-        request.maximum_bytes = kGuildStickerNameBytes;
-        break;
-    case form_sticker_describe:
-        if (!st)
-            return;
-        request.title = utf8_literal("Sticker description");
-        request.label = utf8_literal("Description (optional)");
-        request.accept = utf8_literal("Save");
-        copy_initial({st->description, st->description_bytes});
-        request.maximum_codepoints = kGuildStickerDescriptionMaximum;
-        request.maximum_bytes = kGuildStickerDescriptionBytes;
-        break;
-    case form_sticker_delete:
-        if (!st)
-            return;
-        bank.add(utf8_literal("Delete "));
-        bank.add({st->name, st->name_bytes});
-        bank.add(utf8_literal("?"));
-        request.title = bank.since(0);
-        request.context = utf8_literal("Members can no longer send it. This can't be undone.");
-        request.accept = utf8_literal("Delete sticker");
-        request.confirmation_only = request.danger = true;
-        break;
-    case form_delete_server: {
-        const auto* guild = chat_state_store_find_guild(state(), p.guild_id);
-        if (!guild || !guild_settings_can_delete(p.access))
-            return;
-        bank.add(utf8_literal("Delete "));
-        bank.add(chat_state_store_guild_name(state(), *guild));
-        request.title = bank.since(0);
-        request.context = utf8_literal("This permanently deletes the server with all of its channels and messages. "
-                                       "Type the server name to confirm.");
-        request.label = utf8_literal("Server name");
-        request.accept = utf8_literal("Delete server");
-        request.danger = true;
-        request.maximum_codepoints = kGuildAdminNameCodepoints;
-        request.maximum_bytes = kGuildAdminNameBytes;
-        break;
-    }
-    default: return;
-    }
-    request.initial = {initial, initial_bytes};
-    application_text_form_open(request);
-}
-void open_expression_menu(Menu menu, u64 id, UiRect anchor) noexcept {
-    auto& p = *owner;
-    u32 count = 0;
-    const auto item = [&](Utf8View label, u32 action, bool danger) noexcept {
-        p.popup_items[count] = {};
-        p.popup_items[count].label = label;
-        p.popup_items[count].action = kMenuChoiceBase + action;
-        p.popup_items[count].flags = static_cast<u16>(popup_item_enabled | (danger ? popup_item_danger : 0) |
-                                                      (danger ? popup_item_separator_before : 0));
-        ++count;
-    };
-    item(utf8_literal("Rename"), expression_rename, false);
-    if (menu == Menu::sticker) {
-        item(utf8_literal("Change related emoji"), expression_tags, false);
-        item(utf8_literal("Change description"), expression_description, false);
-    }
-    item(utf8_literal("Delete"), expression_delete, true);
-    p.menu = menu;
-    p.menu_item = id;
-    settings_layer_open_choice(&p.layer, id, {p.popup_items, count}, anchor, 240);
-}
+} // namespace
 
-void open_sound_menu(u64 id, UiRect anchor) noexcept {
+void open_channel_menu(Menu menu, u32 types, u64 current, Utf8View none, PermissionSet required,
+                       UiRect anchor) noexcept {
     auto& p = *owner;
-    u32 count = 0;
-    const auto item = [&](Utf8View label, u32 action, bool danger) noexcept {
-        p.popup_items[count] = {};
-        p.popup_items[count].label = label;
-        p.popup_items[count].action = kMenuChoiceBase + action;
-        p.popup_items[count].flags = static_cast<u16>(popup_item_enabled | (danger ? popup_item_danger : 0) |
-                                                      (danger ? popup_item_separator_before : 0));
-        ++count;
-    };
-    item(utf8_literal("Preview"), expression_preview, false);
-    item(utf8_literal("Rename"), expression_rename, false);
-    item(utf8_literal("Change emoji"), expression_emoji, false);
-    item(utf8_literal("Change volume"), expression_volume, false);
-    item(utf8_literal("Delete"), expression_delete, true);
-    p.menu = Menu::sound;
-    p.menu_item = id;
-    settings_layer_open_choice(&p.layer, id, {p.popup_items, count}, anchor, 240);
-}
-
-void reset_audit() noexcept {
-    owner->audit_count = 0;
-    owner->audit_complete = false;
-    owner->audit_requested = true;
-    owner->scene.content_offset = 0;
-    queue(Op::audit_page);
-}
-void open_audit_menu(Menu menu, UiRect anchor) noexcept {
-    auto& p = *owner;
-    u32 count = 0;
-    const auto item = [&](Utf8View label, bool checked) noexcept {
-        p.popup_items[count] = {};
-        p.popup_items[count].label = label;
-        p.popup_items[count].action = kMenuChoiceBase + count;
-        p.popup_items[count].flags = static_cast<u16>(popup_item_enabled | (checked ? popup_item_checked : 0) |
-                                                      (count == 1 ? popup_item_separator_before : 0));
-        ++count;
-    };
-    if (menu == Menu::audit_user) {
-        Bank bank{p.popup_text, sizeof(p.popup_text), 0};
-        item(utf8_literal("All members"), !p.audit_filter_user);
-        p.menu_users[0] = 0;
-        for (u32 i = 0; i < p.audit_user_count && count < kPopupCapacity; ++i) {
-            const auto& u = p.audit_users[i];
-            p.menu_users[count] = u.id;
-            item(bank.add(u.display_bytes ? Utf8View{u.display, u.display_bytes} : Utf8View{u.username, u.username_bytes}),
-                 u.id == p.audit_filter_user);
-        }
-    } else {
-        item(utf8_literal("All actions"), !p.audit_filter_action_set);
-        for (const u16 type : kAuditFilters) {
-            const auto* action = audit_action(type);
-            item(action ? action->verb : utf8_literal("Other"),
-                 p.audit_filter_action_set && p.audit_filter_action == type);
-        }
-    }
-    p.menu = menu;
-    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 300);
-}
-void open_channel_menu(Menu menu, UiRect anchor) noexcept {
-    auto& p = *owner;
-    const bool voice = menu == Menu::afk_channel;
     Bank bank{p.popup_text, sizeof(p.popup_text), 0};
     u32 count = 0;
-    const u64 current = voice ? p.overview_draft.afk_channel_id : p.overview_draft.system_channel_id;
     p.popup_items[count] = {};
-    p.popup_items[count].label = voice ? utf8_literal("No inactive channel") : utf8_literal("No system messages");
+    p.popup_items[count].label = none;
     p.popup_items[count].action = kMenuChoiceBase;
     p.popup_items[count].flags = static_cast<u16>(popup_item_enabled | (!current ? popup_item_checked : 0));
     p.menu_channel[count++] = 0;
     const auto& s = state();
-    u32 first = count;
+    const u32 first = count;
     for (u32 i = 0; i < s.channel_capacity && count < kPopupCapacity; ++i) {
         const auto& channel = s.channels[i];
-        if (!channel.occupied || channel.guild_id != p.guild_id || channel.type != (voice ? 2 : 0))
+        if (!channel.occupied || channel.guild_id != p.guild_id || channel.type >= 32 ||
+            !(types & (1u << channel.type)))
+            continue;
+        // Channels the account cannot reach stay out unless already chosen.
+        if (channel.id != current && channel.permissions_resolved &&
+            (channel.effective_permissions & required) != required)
             continue;
         const u32 start = bank.mark();
-        if (!voice)
+        if (channel.type != 2 && channel.type != 13)
             bank.add(utf8_literal("#"));
         bank.add(chat_state_store_channel_name(s, channel));
         p.popup_items[count] = {};
         p.popup_items[count].label = bank.since(start);
-        p.popup_items[count].action = kMenuChoiceBase + count;
         p.popup_items[count].flags =
-            static_cast<u16>(popup_item_enabled | (channel.id == current ? popup_item_checked : 0) |
-                             (count == first ? popup_item_separator_before : 0));
+            static_cast<u16>(popup_item_enabled | (channel.id == current ? popup_item_checked : 0));
         p.menu_channel[count++] = channel.id;
     }
     // Channel list order: by position, then ID.
@@ -2557,32 +841,8 @@ void open_channel_menu(Menu menu, UiRect anchor) noexcept {
     p.menu = menu;
     settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 280);
 }
-void open_timeout_menu(UiRect anchor) noexcept {
-    auto& p = *owner;
-    u32 count = 0;
-    for (u32 i = 0; i < sizeof(kGuildAfkTimeouts) / sizeof(u32); ++i) {
-        p.popup_items[count] = {};
-        p.popup_items[count].label = kAfkLabels[i];
-        p.popup_items[count].action = kMenuChoiceBase + i;
-        p.popup_items[count].flags = static_cast<u16>(
-            popup_item_enabled | (kGuildAfkTimeouts[i] == p.overview_draft.afk_timeout_seconds ? popup_item_checked : 0));
-        ++count;
-    }
-    p.menu = Menu::afk_timeout;
-    settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 240);
-}
-void open_member_menu(u64 user, UiRect anchor) noexcept {
-    auto& p = *owner;
-    const auto capabilities = moderation_capabilities(state(), g_app.account_ui->guild_member_store, p.guild_id, user,
-                                                      clock_unix_milliseconds() / 1000);
-    const u32 count = member_context_moderation_build(capabilities, kModerationActions, {p.popup_items, 8});
-    if (!count)
-        return;
-    p.popup_items[0].flags = static_cast<u16>(p.popup_items[0].flags & ~popup_item_separator_before);
-    p.menu = Menu::member;
-    p.menu_user = user;
-    settings_layer_open_choice(&p.layer, user, {p.popup_items, count}, anchor, 240);
-}
+
+namespace {
 
 void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
     if (!owner)
@@ -2616,18 +876,8 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
             return;
         p.failed = false;
         p.status = {};
-        if (p.page == Page::overview) {
-            release_picked(&p.icon);
-            release_picked(&p.banner);
-            load_overview();
-        } else if (p.page == Page::roles && p.editing_role) {
-            release_picked(&p.role_icon);
-            if (const auto* r = role(p.editing_role))
-                load_role_editor(*r);
-        } else if (p.page == Page::roles)
-            load_order();
-        else if (p.page == Page::safety)
-            p.safety_base = p.safety_draft = guild_safety_from_state(state(), p.guild_id);
+        if (ops().load)
+            ops().load();
         repaint();
         return;
     case UiSettingsTargetKind::action:
@@ -2641,161 +891,18 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         return;
     }
     const u64 id = target.control_id;
-    const Editor editor = editor_of(id);
-    if (editor != editor_count) {
+    if (editor_of(id) != editor_count) {
         settings_layer_focus(&p.layer, target);
         return;
     }
     if (id == control_notice) {
-        if (p.page == Page::overview && p.overview_conflict)
-            load_overview();
-        else if (p.page == Page::roles && p.role_conflict) {
-            if (const auto* r = role(p.editing_role))
-                load_role_editor(*r);
-        } else if (p.page == Page::bans && p.bans_failed) {
-            p.bans_requested = false;
-            guild_ban_store_reset(&p.bans, p.guild_id);
-            ensure_page_data();
-        }
+        if (ops().notice)
+            ops().notice();
         repaint();
         return;
     }
-    if (!editable())
-        return;
-    if (p.page == Page::overview) {
-        auto& d = p.overview_draft;
-        const auto* guild = chat_state_store_find_guild(state(), p.guild_id);
-        if (id == control_header) {
-            if (activation.button || !activation.pointer)
-                start_pick(Pick::icon);
-        } else if (id == control_banner)
-            start_pick(Pick::banner);
-        else if (id == control_icon_remove || id == control_banner_remove) {
-            auto& picked = id == control_icon_remove ? p.icon : p.banner;
-            const bool stored = id == control_icon_remove ? guild && guild->icon_hash_bytes : p.has_banner;
-            release_picked(&picked);
-            picked.clear = stored;
-            repaint();
-        } else if (id == control_system_channel)
-            open_channel_menu(Menu::system_channel, activation.anchor);
-        else if (id == control_afk_channel)
-            open_channel_menu(Menu::afk_channel, activation.anchor);
-        else if (id == control_afk_timeout)
-            open_timeout_menu(activation.anchor);
-        else if (id == control_notifications && activation.value.selected_choice < 2) {
-            d.default_notifications = static_cast<u8>(activation.value.selected_choice);
-            repaint();
-        }
-        return;
-    }
-    if (p.page == Page::roles && !p.editing_role) {
-        if (id == control_create) {
-            if (!p.order_dirty && guard_dirty() == false)
-                queue(Op::role_create);
-            repaint();
-        } else if (id >= kRowBase && id < kRowBase + p.order_count)
-            open_role(p.order[id - kRowBase]);
-        return;
-    }
-    if (p.page == Page::roles) {
-        auto& d = p.role_draft;
-        if (id == control_header) {
-            if (activation.button || !activation.pointer)
-                close_role();
-            return;
-        }
-        if (!role_writable())
-            return;
-        if (id == control_role_icon) {
-            start_pick(Pick::role_icon);
-            return;
-        }
-        if (id == control_role_icon_remove) {
-            const auto* r = role(p.editing_role);
-            release_picked(&p.role_icon);
-            p.role_icon.clear = r && r->has_icon;
-            repaint();
-            return;
-        }
-        if (id == control_delete)
-            confirm_delete_role();
-        else if (id == control_hoist)
-            d.hoist = activation.value.checked;
-        else if (id == control_mentionable)
-            d.mentionable = activation.value.checked;
-        else if (id == control_color && activation.value.selected_choice <= kGuildRoleColorCount) {
-            d.color = activation.value.selected_choice ? kGuildRoleColors[activation.value.selected_choice - 1] : 0;
-            char hex[8];
-            set_editor(editor_hex, {hex, d.color ? guild_role_color_format(d.color, {hex, 8}) : 0});
-            p.hex_invalid = false;
-        } else if (id >= control_permission && id < control_permission + permission_grid_entries().count) {
-            const auto& entry = permission_grid_entries()[static_cast<u32>(id - control_permission)];
-            if (!guild_role_toggle(&d, p.access, entry.bit, activation.value.checked))
-                return;
-        }
-        if (activation.value.kind == UiSettingsControlKind::toggle)
-            ui_settings_scene_animate_toggle(&p.scene, target, activation.value.checked, clock_monotonic_milliseconds());
-        repaint();
-        return;
-    }
-    if (p.page == Page::members && id >= kRowBase && id < kRowBase + p.row_count) {
-        if (activation.button)
-            open_member_menu(p.row_ids[id - kRowBase], activation.anchor);
-        return;
-    }
-    if (p.page == Page::bans && id >= kRowBase && id < kRowBase + p.row_count) {
-        if (activation.button && !busy())
-            confirm_unban(p.row_ids[id - kRowBase]);
-        return;
-    }
-    if (p.page == Page::invites && id >= kRowBase && id < kRowBase + p.invite_count) {
-        if (activation.button && !busy())
-            confirm_revoke_invite(static_cast<u32>(id - kRowBase));
-        return;
-    }
-    if (p.page == Page::emoji || p.page == Page::stickers) {
-        const bool emoji_page = p.page == Page::emoji;
-        if (id == control_upload && !busy())
-            start_pick(emoji_page ? Pick::emoji : Pick::sticker);
-        else if (id >= kRowBase && id < kRowBase + p.row_count && activation.button && !busy() &&
-                 p.access.manage_expressions)
-            open_expression_menu(emoji_page ? Menu::emoji : Menu::sticker,
-                                 emoji_page ? p.row_ids[id - kRowBase] : p.stickers[id - kRowBase].id,
-                                 activation.anchor);
-        return;
-    }
-    if (p.page == Page::soundboard) {
-        if (id == control_upload)
-            start_pick(Pick::sound);
-        else if (id >= kRowBase && id < kRowBase + p.row_count && activation.button && p.access.manage_expressions)
-            open_sound_menu(p.row_ids[id - kRowBase], activation.anchor);
-        return;
-    }
-    if (p.page == Page::safety) {
-        auto& d = p.safety_draft;
-        if (id == control_verification && activation.value.selected_choice < kGuildVerificationLevels)
-            d.verification_level = static_cast<u8>(activation.value.selected_choice);
-        else if (id == control_content_filter && activation.value.selected_choice < kGuildContentFilterLevels)
-            d.explicit_content_filter = static_cast<u8>(activation.value.selected_choice);
-        else if (id == control_mfa && guild_settings_can_set_mfa(p.access)) {
-            d.mfa_level = activation.value.checked ? 1 : 0;
-            ui_settings_scene_animate_toggle(&p.scene, target, activation.value.checked,
-                                             clock_monotonic_milliseconds());
-        }
-        repaint();
-        return;
-    }
-    if (p.page == Page::audit_log) {
-        if (id == control_filter_user)
-            open_audit_menu(Menu::audit_user, activation.anchor);
-        else if (id == control_filter_action)
-            open_audit_menu(Menu::audit_action, activation.anchor);
-        else if (id == control_more && !busy()) {
-            p.audit_requested = true;
-            queue(Op::audit_page);
-            repaint();
-        }
-    }
+    if (editable() && ops().activate)
+        ops().activate(activation);
 }
 
 void choose(SettingsLayer*, u32 action) noexcept {
@@ -2804,91 +911,9 @@ void choose(SettingsLayer*, u32 action) noexcept {
     auto& p = *owner;
     const Menu menu = p.menu;
     p.menu = Menu::none;
-    if (!action || !editable())
+    if (!action || !editable() || !ops().choose)
         return;
-    if (menu == Menu::emoji || menu == Menu::sticker) {
-        if (action < kMenuChoiceBase || busy() || !p.access.manage_expressions)
-            return;
-        const bool emoji_menu = menu == Menu::emoji;
-        const u64 kind = action - kMenuChoiceBase == expression_rename
-                             ? (emoji_menu ? form_emoji_rename : form_sticker_rename)
-                         : action - kMenuChoiceBase == expression_tags        ? form_sticker_retag
-                         : action - kMenuChoiceBase == expression_description ? form_sticker_describe
-                         : action - kMenuChoiceBase == expression_delete
-                             ? (emoji_menu ? form_emoji_delete : form_sticker_delete)
-                             : 0;
-        // The menu closes first; the form opens on the next tick.
-        next_form = kind;
-        next_form_item = p.menu_item;
-        application_request_frame();
-        return;
-    }
-    if (menu == Menu::sound) {
-        if (action < kMenuChoiceBase || !p.access.manage_expressions)
-            return;
-        const u32 choice = action - kMenuChoiceBase;
-        if (choice == expression_preview) {
-            if (const auto* sound = sound_of(p.menu_item))
-                application_soundboard_preview(sound->sound_id, sound->volume);
-            return;
-        }
-        next_form = choice == expression_rename   ? form_sound_rename
-                    : choice == expression_emoji  ? form_sound_emoji_edit
-                    : choice == expression_volume ? form_sound_volume
-                    : choice == expression_delete ? form_sound_delete
-                                                  : 0;
-        next_form_item = p.menu_item;
-        application_request_frame();
-        return;
-    }
-    if (menu == Menu::system_channel || menu == Menu::afk_channel) {
-        const u32 index = action - kMenuChoiceBase;
-        if (action < kMenuChoiceBase || index >= kPopupCapacity)
-            return;
-        (menu == Menu::afk_channel ? p.overview_draft.afk_channel_id : p.overview_draft.system_channel_id) =
-            p.menu_channel[index];
-    } else if (menu == Menu::afk_timeout) {
-        const u32 index = action - kMenuChoiceBase;
-        if (action >= kMenuChoiceBase && index < sizeof(kGuildAfkTimeouts) / sizeof(u32))
-            p.overview_draft.afk_timeout_seconds = kGuildAfkTimeouts[index];
-    } else if (menu == Menu::member) {
-        const u64 user = p.menu_user;
-        if (action == kModerationActions.timeout || action == kModerationActions.ban) {
-            const bool timeout = action == kModerationActions.timeout;
-            const u32 count = timeout ? member_context_timeout_choices(kModerationActions, {p.popup_items, 16})
-                                      : member_context_ban_choices(kModerationActions, {p.popup_items, 16});
-            p.menu = timeout ? Menu::timeout : Menu::ban;
-            settings_layer_open_choice(&p.layer, user, {p.popup_items, count}, g_app.popup_scene.anchor, 240);
-            return;
-        }
-        const u8 bit = action == kModerationActions.nickname      ? moderation_action_nickname
-                       : action == kModerationActions.end_timeout ? moderation_action_end_timeout
-                       : action == kModerationActions.kick        ? moderation_action_kick
-                                                                  : 0;
-        if (bit)
-            application_member_moderation_start(p.guild_id, user, bit, 0);
-    } else if (menu == Menu::audit_user || menu == Menu::audit_action) {
-        const u32 index = action - kMenuChoiceBase;
-        if (action < kMenuChoiceBase || index >= kPopupCapacity || busy())
-            return;
-        if (menu == Menu::audit_user)
-            p.audit_filter_user = p.menu_users[index];
-        else {
-            p.audit_filter_action_set = index > 0 && index <= sizeof(kAuditFilters) / sizeof(kAuditFilters[0]);
-            p.audit_filter_action = p.audit_filter_action_set ? kAuditFilters[index - 1] : 0;
-        }
-        reset_audit();
-    } else if (menu == Menu::timeout || menu == Menu::ban) {
-        const u32 index = action - kModerationActions.choice_first;
-        const bool timeout = menu == Menu::timeout;
-        const u32 limit = timeout ? sizeof(kModerationTimeoutChoices) / sizeof(u32)
-                                  : sizeof(kModerationBanDeleteChoices) / sizeof(u32);
-        if (action >= kModerationActions.choice_first && index < limit)
-            application_member_moderation_start(p.guild_id, p.menu_user,
-                                                timeout ? moderation_action_timeout : moderation_action_ban,
-                                                timeout ? kModerationTimeoutChoices[index]
-                                                        : kModerationBanDeleteChoices[index]);
-    }
+    ops().choose(menu, action);
 }
 
 bool edited(SettingsLayer*, u64 control) noexcept {
@@ -2898,9 +923,9 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     const Editor editor = editor_of(control);
     const auto text = editor_text(editor);
     if (editor == editor_name) {
-        if (p.page == Page::overview) {
-            p.overview_draft.name_bytes = static_cast<u16>(minimum(text.bytes, kGuildAdminNameBytes));
-            copy_bytes(p.overview_draft.name, text.data, p.overview_draft.name_bytes);
+        if (p.page == Page::profile) {
+            p.profile_draft.name_bytes = static_cast<u16>(minimum(text.bytes, kGuildAdminNameBytes));
+            copy_bytes(p.profile_draft.name, text.data, p.profile_draft.name_bytes);
         } else if (p.page == Page::roles && p.editing_role) {
             p.role_draft.name_bytes = static_cast<u16>(minimum(text.bytes, kGuildAdminNameBytes));
             copy_bytes(p.role_draft.name, text.data, p.role_draft.name_bytes);
@@ -2936,57 +961,50 @@ bool editable_hook(SettingsLayer*) noexcept {
     return editable();
 }
 void drop(SettingsLayer*, u64 dragged, u64 target, bool after) noexcept {
-    if (!owner || owner->page != Page::roles || owner->editing_role || !editable() ||
-        editor_text(editor_search).bytes || dragged < kRowBase || target < kRowBase)
-        return;
-    auto& p = *owner;
-    const u32 from = static_cast<u32>(dragged - kRowBase), at = static_cast<u32>(target - kRowBase);
-    if (from >= p.order_count || at >= p.order_count)
-        return;
-    u32 to = after ? at + 1 : at;
-    if (to > from)
-        --to;
-    const RoleRecord* order[kGuildRoleMaximum];
-    for (u32 i = 0; i < p.order_count; ++i) {
-        order[i] = role(p.order[i]);
-        if (!order[i])
-            return;
-    }
-    if (!guild_settings_role_move(p.access, {order, p.order_count}, from, to))
-        return;
-    for (u32 i = 0; i < p.order_count; ++i)
-        p.order[i] = order[i]->id;
-    // A move back to the stored order clears the draft.
-    const RoleRecord* stored[kGuildRoleMaximum];
-    const u32 count = guild_settings_sorted_roles(state(), p.guild_id, {stored, kGuildRoleMaximum});
-    bool same = count == p.order_count;
-    for (u32 i = 0; same && i < count; ++i)
-        same = stored[i]->id == p.order[i];
-    p.order_dirty = !same;
-    repaint();
+    roles_drop(dragged, target, after);
 }
 constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose, close_hook, repaint_hook, drop,
                                     editable_hook};
+
+// Store reconciliation: rebaseline clean drafts, flag dirty ones.
+bool reconcile() noexcept {
+    return ops().reconcile && ops().reconcile(clock_monotonic_milliseconds());
+}
+u64 signature() noexcept {
+    const auto& s = state();
+    u64 h = s.guild_mutations;
+    h = h * 1'000'003 + s.permission_mutations;
+    h = h * 1'000'003 + s.channel_mutations;
+    if (owner->page == Page::members) {
+        h = h * 1'000'003 + g_app.account_ui->guild_member_store.revision;
+        h = h * 1'000'003 + g_app.account_ui->user_store.revision;
+    }
+    if (owner->page == Page::emoji)
+        h = h * 1'000'003 + s.emoji_mutations;
+    h = h * 1'000'003 + details().revision;
+    h = h * 1'000'003 + owner->bans.revision;
+    h = h * 1'000'003 + g_app.keyboard_focus_visible;
+    return h;
+}
+
+} // namespace
 
 void select_page(Page page) noexcept {
     auto& p = *owner;
     settings_layer_close_choice(&p.layer);
     p.page = page;
     p.editing_role = 0;
+    p.profile_requested = false;
     p.failed = false;
     p.status = {};
     release_picked(&p.icon);
     release_picked(&p.banner);
     release_picked(&p.role_icon);
     set_editor(editor_search, {});
-    if (page == Page::overview)
-        load_overview();
-    else if (page == Page::roles)
-        load_order();
-    else if (page == Page::safety)
-        p.safety_base = p.safety_draft = guild_safety_from_state(state(), p.guild_id);
+    if (ops().load)
+        ops().load();
     ui_page_registry_select(&p.registry, page_key(page));
-    project();
+    project_page();
     ui_settings_scene_focus(&p.scene, {UiSettingsTargetKind::page, page_key(page), 0});
     ensure_page_data();
     repaint();
@@ -3004,94 +1022,11 @@ void request_close() noexcept {
 }
 
 // Store reconciliation: rebaseline clean drafts, flag dirty ones.
-bool reconcile() noexcept {
-    auto& p = *owner;
-    bool changed = false;
-    const u64 now = clock_monotonic_milliseconds();
-    if (p.page == Page::overview) {
-        const auto current = guild_overview_from_state(state(), p.guild_id);
-        if (p.overview_echo) {
-            if (guild_overview_equal(current, p.overview_base) || deadline_due(now, p.overview_echo_until))
-                p.overview_echo = false;
-        } else if (!guild_overview_equal(current, p.overview_base)) {
-            if (overview_dirty() && !mutation_pending())
-                changed = !p.overview_conflict, p.overview_conflict = true;
-            else if (!mutation_pending()) {
-                load_overview();
-                changed = true;
-            }
-        }
-    }
-    if (p.page == Page::safety) {
-        const auto current = guild_safety_from_state(state(), p.guild_id);
-        if (p.safety_echo) {
-            if (guild_safety_equal(current, p.safety_base) || deadline_due(now, p.safety_echo_until))
-                p.safety_echo = false;
-        } else if (!guild_safety_equal(current, p.safety_base) && !mutation_pending()) {
-            // A clean draft follows the store; a dirty one keeps its edits.
-            if (!safety_dirty())
-                p.safety_draft = current;
-            p.safety_base = current;
-            changed = true;
-        }
-    }
-    if (p.page == Page::roles && p.editing_role) {
-        const auto* r = role(p.editing_role);
-        if (!r) {
-            changed = !p.role_missing;
-            p.role_missing = true;
-        } else if (p.role_echo) {
-            const auto current = guild_role_draft_from(state(), *r);
-            if (guild_role_draft_equal(current, p.role_base) || deadline_due(now, p.role_echo_until))
-                p.role_echo = false;
-        } else if (!mutation_pending()) {
-            const auto current = guild_role_draft_from(state(), *r);
-            if (!guild_role_draft_equal(current, p.role_base)) {
-                if (role_dirty())
-                    changed = !p.role_conflict, p.role_conflict = true;
-                else {
-                    load_role_editor(*r);
-                    changed = true;
-                }
-            }
-        }
-    }
-    if (p.page == Page::roles && !p.editing_role && !p.order_dirty && !mutation_pending()) {
-        const RoleRecord* stored[kGuildRoleMaximum];
-        const u32 count = guild_settings_sorted_roles(state(), p.guild_id, {stored, kGuildRoleMaximum});
-        bool same = count == p.order_count;
-        for (u32 i = 0; same && i < count; ++i)
-            same = stored[i]->id == p.order[i];
-        if (!same) {
-            load_order();
-            changed = true;
-        }
-    }
-    if (p.open_after_create && role(p.open_after_create) && p.page == Page::roles && !p.editing_role) {
-        const u64 id = p.open_after_create;
-        p.open_after_create = 0;
-        load_order();
-        open_role(id);
-        changed = true;
-    }
-    return changed;
-}
-u64 signature() noexcept {
-    const auto& s = state();
-    u64 h = s.guild_mutations;
-    h = h * 1'000'003 + s.permission_mutations;
-    h = h * 1'000'003 + s.channel_mutations;
-    if (owner->page == Page::members) {
-        h = h * 1'000'003 + g_app.account_ui->guild_member_store.revision;
-        h = h * 1'000'003 + g_app.account_ui->user_store.revision;
-    }
-    if (owner->page == Page::emoji)
-        h = h * 1'000'003 + s.emoji_mutations;
-    h = h * 1'000'003 + owner->bans.revision;
-    h = h * 1'000'003 + g_app.keyboard_focus_visible;
-    return h;
-}
-} // namespace
+
+} // namespace maicord::app_detail::server_settings
+
+namespace maicord::app_detail {
+using namespace server_settings;
 
 bool application_guild_settings_available(u64 guild_id) noexcept {
     if (!g_app.account_ui)
@@ -3106,29 +1041,13 @@ bool application_guild_settings_active() noexcept {
 u32 application_guild_settings_page_items(u64 guild_id, u32 action_base, Slice<PopupItem> output) noexcept {
     if (!g_app.account_ui || !action_base || !output.data)
         return 0;
-    const u8 sections = guild_settings_access(g_app.account_ui->chat_state, guild_id).sections;
-    // The official client's Server Settings submenu order.
-    constexpr struct {
-        Page page;
-        u8 section;
-        Utf8View label;
-    } pages[]{{Page::overview, guild_settings_overview, utf8_literal("Overview")},
-              {Page::roles, guild_settings_roles, utf8_literal("Roles")},
-              {Page::emoji, guild_settings_expressions, utf8_literal("Emoji")},
-              {Page::stickers, guild_settings_expressions, utf8_literal("Stickers")},
-              {Page::soundboard, guild_settings_expressions, utf8_literal("Soundboard")},
-              {Page::safety, guild_settings_safety, utf8_literal("Safety setup")},
-              {Page::audit_log, guild_settings_audit_log, utf8_literal("Audit log")},
-              {Page::bans, guild_settings_bans, utf8_literal("Bans")},
-              {Page::members, guild_settings_members, utf8_literal("Members")},
-              {Page::invites, guild_settings_invites, utf8_literal("Invites")}};
-    static_assert(sizeof(pages) / sizeof(pages[0]) == kGuildSettingsPageCount && kPageCount == kGuildSettingsPageCount);
+    const u32 sections = guild_settings_access(g_app.account_ui->chat_state, guild_id).sections;
     u32 used = 0;
-    for (const auto& entry : pages)
-        if ((sections & entry.section) && used < output.count) {
+    for (const auto& definition : kPages)
+        if ((sections & definition.section) && used < output.count) {
             output[used] = {};
-            output[used].label = entry.label;
-            output[used].action = action_base + static_cast<u32>(entry.page);
+            output[used].label = definition.label;
+            output[used].action = action_base + static_cast<u32>(definition.page);
             output[used].flags = popup_item_enabled;
             ++used;
         }
@@ -3168,6 +1087,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     p.counts_requested = p.bans_requested = p.bans_failed = false;
     p.invite_count = p.audit_count = p.audit_user_count = 0;
     p.invites_requested = p.invites_loaded = p.audit_requested = p.audit_complete = false;
+    p.invites_failed = p.audit_failed = p.stickers_failed = false;
     p.audit_filter_user = 0;
     p.audit_filter_action = 0;
     p.audit_filter_action_set = false;
@@ -3176,9 +1096,9 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     p.failed = false;
     p.status = {};
     p.menu = Menu::none;
-    p.features = 0;
-    p.premium_tier = 0;
-    p.guild_info_requested = p.guild_info_loaded = p.has_banner = false;
+    p.engagement_base = p.engagement_draft = {};
+    p.engagement_conflict = p.engagement_echo = p.engagement_guild_sent = false;
+    p.widget_requested = p.widget_loaded = p.widget_failed = p.profile_requested = false;
     release_picked(&p.icon);
     release_picked(&p.banner);
     release_picked(&p.role_icon);
@@ -3191,16 +1111,12 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     next_form = next_form_item = 0;
     guild_ban_store_reset(&p.bans, guild_id);
     settings_layer_reset(&p.layer);
-    constexpr Utf8View titles[]{utf8_literal("Server overview"), utf8_literal("Roles"), utf8_literal("Members"),
-                                utf8_literal("Bans"),           utf8_literal("Invites"), utf8_literal("Audit log"),
-                                utf8_literal("Emoji"),          utf8_literal("Stickers"), utf8_literal("Soundboard"),
-                                utf8_literal("Safety setup")};
-    static_assert(sizeof(titles) / sizeof(titles[0]) == kPageCount);
     if (!ui_page_registry_initialize(&p.registry, {p.pages, kPageCount}))
         return false;
     for (u32 i = 0; i < kPageCount; ++i) {
-        p.content[i] = {titles[i], {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
-        if (!ui_page_registry_register(&p.registry, {page_key(static_cast<Page>(i + 1)), titles[i], &p.content[i]}).ok())
+        const auto& definition = kPages[i];
+        p.content[i] = {definition.title, {}, {}, 1, kUiSettingsPageFormat, &kUiDefaultSettingsStyle, nullptr};
+        if (!ui_page_registry_register(&p.registry, {page_key(definition.page), definition.title, &p.content[i]}).ok())
             return false;
     }
     p.page = requested_page && requested_page <= kPageCount && page_allowed(static_cast<Page>(requested_page))
@@ -3214,13 +1130,9 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     g_app.message_composer.focused = false;
     ui_settings_scene_set_presentation(&p.scene, UiSettingsPresentation::layer);
     ui_page_registry_select(&p.registry, page_key(p.page));
-    if (p.page == Page::overview)
-        load_overview();
-    else if (p.page == Page::roles)
-        load_order();
-    else if (p.page == Page::safety)
-        p.safety_base = p.safety_draft = guild_safety_from_state(state(), guild_id);
     set_editor(editor_search, {});
+    if (ops().load)
+        ops().load();
     // The first update activates the scene; navigation binds before it.
     build_navigation();
     p.scene.focus = {UiSettingsTargetKind::page, page_key(p.page), 0};
@@ -3234,7 +1146,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
         }
     }
     p.signature = signature();
-    if (!project()) {
+    if (!project_page()) {
         application_guild_settings_close(false);
         return false;
     }
@@ -3249,6 +1161,7 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     application_guild_settings_close(false);
     return false;
 }
+
 
 void application_guild_settings_close(bool restore_focus) noexcept {
     if (!owner || !owner->scene.active)
@@ -3415,6 +1328,7 @@ bool application_guild_settings_create_channel(u64 guild_id, u64 category_id, u8
     return false;
 }
 
+
 bool application_guild_settings_submit(u64 now) noexcept {
     if (creation.queued && !creation.request_id && (!creation.retry_at || creation.retry_at <= now) &&
         g_app.details_request_owner == MessageHistoryRequestOwner::none && connected()) {
@@ -3527,24 +1441,38 @@ bool application_guild_settings_submit(u64 now) noexcept {
     if (assets)
         valid = valid && g_app.account.api.guild_assets && guild_asset_request_valid(asset);
     else switch (p.request.op) {
-    case Op::guild_fetch:
-        request.operation = GuildAdminOperation::guild_fetch;
+    case Op::widget_get:
+        request.operation = GuildAdminOperation::widget_get;
+        break;
+    case Op::profile_get:
+        request.operation = GuildAdminOperation::profile_get;
+        break;
+    case Op::engagement_update:
+        request.operation = GuildAdminOperation::guild_update;
+        valid = can_manage_guild() && engagement_guild_patch(&guild_patch);
+        request.guild = &guild_patch;
+        break;
+    case Op::widget_update:
+        request.operation = GuildAdminOperation::widget_update;
+        valid = can_manage_guild();
+        engagement_widget_patch(&guild_patch);
+        request.guild = &guild_patch;
         break;
     case Op::safety_update:
         request.operation = GuildAdminOperation::guild_update;
         valid = guild_safety_patch(p.safety_base, p.safety_draft, &guild_patch);
         request.guild = &guild_patch;
         break;
-    case Op::guild_update:
+    case Op::server_name:
         request.operation = GuildAdminOperation::guild_update;
-        valid = guild_overview_patch(p.overview_base, p.overview_draft, &guild_patch);
+        valid = guild_server_profile_patch(p.profile_base, p.profile_draft, &guild_patch);
         request.guild = &guild_patch;
         break;
     case Op::role_counts:
         request.operation = GuildAdminOperation::role_member_counts;
         break;
     case Op::role_create:
-        // No patch: the official client's default "new role" body.
+        // No patch: the default "new role" body.
         request.operation = GuildAdminOperation::role_create;
         break;
     case Op::role_update:
@@ -3634,9 +1562,11 @@ bool application_guild_settings_submit(u64 now) noexcept {
     return true;
 }
 
+
 bool application_guild_settings_owns_response(u64 request_id) noexcept {
     return request_id && ((owner && owner->request_id == request_id) || creation.request_id == request_id);
 }
+
 
 bool application_guild_settings_response(const RestClientResponse& response, Utf8View body) noexcept {
     if (!application_guild_settings_owns_response(response.request_id))
@@ -3665,13 +1595,28 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
             p.retry_at = response.retry_at_ms ? response.retry_at_ms : deadline_after(clock_monotonic_milliseconds(), 2'000);
             return true;
         }
-        // Server details only tune limits; uploads stay available on defaults.
-        p.failed = op != Op::role_counts && op != Op::guild_fetch;
+        p.failed = op != Op::role_counts && op != Op::widget_get && op != Op::profile_get;
         p.status = failure_text(response, body);
         if (op == Op::ban_list)
             p.bans_failed = true;
-        if (op == Op::guild_fetch)
-            p.guild_info_loaded = true;
+        p.invites_failed = p.invites_failed || op == Op::invite_list;
+        p.audit_failed = p.audit_failed || (op == Op::audit_page && !p.audit_count);
+        p.stickers_failed = p.stickers_failed || op == Op::sticker_list;
+        if (op == Op::widget_get)
+            engagement_widget_loaded(nullptr);
+        if (op == Op::profile_get)
+            engagement_profile_loaded(nullptr);
+        if (op == Op::engagement_update || op == Op::widget_update) {
+            // The widget PATCH still follows a failed guild PATCH.
+            engagement_saved(op, false, clock_monotonic_milliseconds());
+            const Op next = next_save_op();
+            const Utf8View status = p.status;
+            if (op == Op::engagement_update && next == Op::widget_update) {
+                queue(next);
+                p.failed = true;
+                p.status = status;
+            }
+        }
         if (op == Op::sticker_list)
             p.stickers_loaded = true;
         if (op == Op::emoji_create || op == Op::sticker_create)
@@ -3687,27 +1632,32 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
             queue(next, next == Op::role_icon ? p.editing_role : 0);
     };
     switch (op) {
-    case Op::guild_update:
-        p.overview_base = p.overview_draft;
-        p.overview_echo = true;
-        p.overview_echo_until = deadline_after(now, kEchoMs);
+    case Op::server_name:
+        p.profile_base = p.profile_draft;
+        p.profile_echo = true;
+        p.profile_echo_until = deadline_after(now, kEchoMs);
         continue_save();
         break;
-    case Op::guild_fetch: {
-        GuildSettingsSnapshot snapshot{};
-        if (guild_admin_decode_settings(body, {p.scratch, kScratchUnits}, &snapshot).ok()) {
-            p.premium_tier = snapshot.premium_tier;
-            p.features = snapshot.features;
-            p.has_banner = snapshot.banner_bytes != 0;
-        }
-        p.guild_info_loaded = true;
+    case Op::engagement_update:
+    case Op::widget_update:
+        engagement_saved(op, true, now);
+        continue_save();
+        break;
+    case Op::widget_get: {
+        GuildAdminWidget widget{};
+        const bool decoded = guild_admin_decode_widget(body, {p.scratch, kScratchUnits}, &widget).ok();
+        engagement_widget_loaded(decoded ? &widget : nullptr);
         ensure_page_data();
+        break;
+    }
+    case Op::profile_get: {
+        GuildAdminProfile profile{};
+        const bool decoded = guild_admin_decode_profile(body, {p.scratch, kScratchUnits}, &profile).ok();
+        engagement_profile_loaded(decoded ? &profile : nullptr);
         break;
     }
     case Op::icon:
     case Op::banner:
-        if (op == Op::banner)
-            p.has_banner = p.banner.set;
         release_picked(op == Op::icon ? &p.icon : &p.banner);
         continue_save();
         break;
@@ -3856,6 +1806,7 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
     repaint();
     return true;
 }
+
 
 void application_guild_settings_gateway(const GatewayClientEvent& event, Utf8View body) noexcept {
     if (!owner || event.kind != GatewayClientEventKind::dispatch)

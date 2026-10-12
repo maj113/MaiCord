@@ -11,12 +11,12 @@ namespace maicord::app_detail {
 // pages. Shares the channel settings lane and text input routing through
 // application_channel_overview, which forwards while this layer is active.
 bool application_guild_settings_available(u64 guild_id) noexcept;
-// page: 0 opens the first permitted page, else a kGuildSettingsPage* value
-// (falls back to the first permitted page when that one is not allowed).
+// page: 0 opens the first permitted page, else a submenu page value (falls
+// back to the first permitted page when that one is not allowed).
 bool application_guild_settings_open(u64 guild_id, u8 page = 0) noexcept;
-// Server Settings pages for the server menu's submenu, in the official client's order,
-// each permitted page as a row with action = action_base + its page value.
-inline constexpr u32 kGuildSettingsPageCount = 10;
+// The server menu's Server Settings submenu, in sidebar order: each permitted
+// page as a row with action = action_base + its page value.
+inline constexpr u32 kGuildSettingsPageCount = 11;
 u32 application_guild_settings_page_items(u64 guild_id, u32 action_base, Slice<PopupItem> output) noexcept;
 bool application_guild_settings_active() noexcept;
 void application_guild_settings_close(bool restore_focus = true) noexcept;

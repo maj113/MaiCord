@@ -311,17 +311,17 @@ void test_routes() noexcept {
                                            {51, 0, 1, guild_admin_position_parent}};
     const InviteCreate invite{3'600, 5, true, false};
 
-    Row rows[24]{};
+    Row rows[32]{};
     u32 count = 0;
     auto add = [&](GuildAdminRequest request, RestMethod method, Utf8View target, Utf8View body) noexcept {
         rows[count++] = {request, method, target, body};
     };
-    auto r = guild_request(GuildAdminOperation::guild_fetch);
-    add(r, RestMethod::get, utf8_literal("/api/v10/guilds/10"), {});
+    auto r = guild_request(GuildAdminOperation::widget_get);
+    add(r, RestMethod::get, utf8_literal("/api/v10/guilds/10/widget"), {});
     r = guild_request(GuildAdminOperation::guild_update);
     r.guild = &settings;
     add(r, RestMethod::patch, utf8_literal("/api/v10/guilds/10"),
-        utf8_literal(R"({"name":"Lab \"one\"","icon":null,"system_channel_id":null,"afk_timeout":900,"verification_level":2})"));
+        utf8_literal(R"({"name":"Lab \"one\"","icon":null,"afk_timeout":900,"system_channel_id":null,"verification_level":2})"));
     r = guild_request(GuildAdminOperation::role_create);
     add(r, RestMethod::post, utf8_literal("/api/v10/guilds/10/roles"),
         utf8_literal(R"({"name":"new role","color":0,"colors":{"primary_color":0,"secondary_color":null,)"
@@ -406,6 +406,33 @@ void test_routes() noexcept {
         utf8_literal(
             R"({"name":"Mods","color":3368703,"colors":{"primary_color":3368703,"secondary_color":null,)"
             R"("tertiary_color":null},"permissions":"0"})"));
+    GuildSettingsPatch widget{};
+    widget.fields = guild_settings_patch_widget;
+    widget.widget_enabled = true;
+    widget.widget_channel_id = 50;
+    r = guild_request(GuildAdminOperation::widget_update);
+    r.guild = &widget;
+    add(r, RestMethod::patch, utf8_literal("/api/v10/guilds/10/widget"), utf8_literal(R"({"enabled":true,"channel_id":"50"})"));
+    r = guild_request(GuildAdminOperation::profile_get);
+    add(r, RestMethod::get, utf8_literal("/api/v10/guilds/10/profile"), {});
+    // Every Engagement scalar, and the features list in its given order.
+    constexpr u8 names[] = "\x04" "NEWS" "\x09" "COMMUNITY" "\x1D" "ACTIVITY_FEED_ENABLED_BY_USER";
+    GuildSettingsPatch engagement{};
+    engagement.fields = guild_settings_patch_features | guild_settings_patch_afk_channel |
+                        guild_settings_patch_afk_timeout | guild_settings_patch_system_channel |
+                        guild_settings_patch_default_notifications | guild_settings_patch_system_channel_flags;
+    engagement.feature_names = {names, sizeof(names) - 1};
+    engagement.feature_count = 3;
+    engagement.afk_channel_id = 60;
+    engagement.afk_timeout_seconds = 3'600;
+    engagement.default_message_notifications = 1;
+    engagement.system_channel_flags = 0x881;
+    r = guild_request(GuildAdminOperation::guild_update);
+    r.guild = &engagement;
+    add(r, RestMethod::patch, utf8_literal("/api/v10/guilds/10"),
+        utf8_literal(R"({"features":["NEWS","COMMUNITY","ACTIVITY_FEED_ENABLED_BY_USER"],"afk_channel_id":"60",)"
+                     R"("afk_timeout":3600,"system_channel_id":null,"default_message_notifications":1,)"
+                     R"("system_channel_flags":2177})"));
 
     bool exact = true, short_buffers = true;
     for (u32 n = 0; n < count; ++n) {
@@ -426,7 +453,7 @@ void test_routes() noexcept {
         exact = exact && row_exact;
         short_buffers = bounded(row.request) && short_buffers;
     }
-    check(exact && count == 24,
+    check(exact && count == 27,
           "guild admin protocol: every operation writes its exact method, path and body");
     const auto leave = rows[21].request;
     check(guild_admin_route(leave).major == RestMajorParameter::guild && guild_admin_route(leave).major_key == 10 &&
@@ -442,7 +469,25 @@ void test_routes() noexcept {
     // Rejections: each request differs from a valid one by one property.
     auto bad = guild_request(GuildAdminOperation::member_kick);
     bool rejected = !guild_admin_request_valid(bad);
-    bad = guild_request(GuildAdminOperation::guild_fetch, 5);
+    bad = guild_request(GuildAdminOperation::widget_get, 5);
+    rejected = rejected && !guild_admin_request_valid(bad);
+    bad = guild_request(GuildAdminOperation::widget_update);
+    bad.guild = &settings;
+    rejected = rejected && !guild_admin_request_valid(bad);
+    GuildSettingsPatch mixed = widget;
+    mixed.fields |= guild_settings_patch_name;
+    mixed.name = utf8_literal("Lab");
+    bad = guild_request(GuildAdminOperation::guild_update);
+    bad.guild = &mixed;
+    rejected = rejected && !guild_admin_request_valid(bad);
+    bad.guild = &widget;
+    rejected = rejected && !guild_admin_request_valid(bad);
+    GuildSettingsPatch miscounted = engagement;
+    miscounted.feature_count = 2;
+    bad.guild = &miscounted;
+    rejected = rejected && !guild_admin_request_valid(bad);
+    constexpr u8 empty_name[] = "\x04" "NEWS" "\x00";
+    miscounted.feature_names = {empty_name, sizeof(empty_name) - 1};
     rejected = rejected && !guild_admin_request_valid(bad);
     bad = guild_request(GuildAdminOperation::ban_add, 20);
     bad.delete_message_seconds = kGuildAdminBanDeleteMaximumSeconds + 1;
@@ -720,29 +765,33 @@ void test_role_toggle() noexcept {
 
 void test_decoders() noexcept {
     u32 scratch[4096];
-    GuildSettingsSnapshot settings{};
-    const auto decoded = guild_admin_decode_settings(
-        utf8_literal(R"({"id":"10","name":"Lab","icon":null,"owner_id":"1","mfa_level":1,"verification_level":3,)"
-                     R"("default_message_notifications":1,"explicit_content_filter":2,"system_channel_id":"50",)"
-                     R"("afk_channel_id":null,"afk_timeout":300,"features":["COMMUNITY"]})"),
-        {scratch, 4096}, &settings);
-    check(decoded.ok() && settings.id == 10 && settings.owner_id == 1 && settings.mfa_level == 1 &&
-              settings.verification_level == 3 && settings.default_message_notifications == 1 &&
-              settings.explicit_content_filter == 2 && settings.system_channel_id == 50 && !settings.afk_channel_id &&
-              settings.afk_timeout_seconds == 300 && settings.name_bytes == 3 && !settings.icon_bytes,
-          "guild admin decode: overview settings decode with nulls and unknown fields");
-    GuildSettingsSnapshot untouched = settings;
-    check(guild_admin_decode_settings(utf8_literal(R"({"id":"10","name":"A","name":"B"})"), {scratch, 4096}, &settings)
-                  .error == GuildAdminError::duplicate &&
-              guild_admin_decode_settings(utf8_literal(R"({"id":"10"})"), {scratch, 4096}, &settings).error ==
+    GuildAdminWidget widget{};
+    check(guild_admin_decode_widget(utf8_literal(R"({"enabled":true,"channel_id":"50","extra":1})"), {scratch, 4096},
+                                    &widget)
+                  .ok() &&
+              widget.enabled && widget.channel_id == 50 &&
+              guild_admin_decode_widget(utf8_literal(R"({"channel_id":null,"enabled":false})"), {scratch, 4096},
+                                        &widget)
+                  .ok() &&
+              !widget.enabled && !widget.channel_id,
+          "guild admin decode: the widget reads enabled and a nullable channel");
+    const GuildAdminWidget kept = widget;
+    check(guild_admin_decode_widget(utf8_literal(R"({"channel_id":"50"})"), {scratch, 4096}, &widget).error ==
                   GuildAdminError::identity &&
-              guild_admin_decode_settings(utf8_literal(R"({"id":"10","name":"A","mfa_level":2})"), {scratch, 4096},
-                                          &settings)
-                      .error == GuildAdminError::field &&
-              guild_admin_decode_settings(utf8_literal(R"({"id":"10","name":"A")"), {scratch, 4096}, &settings).error ==
-                  GuildAdminError::json &&
-              bytes_equal(&settings, &untouched, sizeof(settings)),
-          "guild admin decode: duplicate, missing, out-of-range and truncated settings leave output untouched");
+              guild_admin_decode_widget(utf8_literal(R"({"enabled":true,"enabled":false})"), {scratch, 4096}, &widget)
+                      .error == GuildAdminError::duplicate &&
+              guild_admin_decode_widget(utf8_literal(R"({"enabled":1})"), {scratch, 4096}, &widget).error ==
+                  GuildAdminError::field &&
+              bytes_equal(&widget, &kept, sizeof(widget)),
+          "guild admin decode: a widget without enabled, duplicated or mistyped is refused untouched");
+    GuildAdminProfile profile{};
+    check(guild_admin_decode_profile(utf8_literal(R"({"name":"Lab","visibility":3,"traits":[]})"), {scratch, 4096},
+                                     &profile)
+                  .ok() &&
+              profile.visibility_known && profile.visibility == 3 &&
+              guild_admin_decode_profile(utf8_literal(R"({"visibility":null})"), {scratch, 4096}, &profile).ok() &&
+              !profile.visibility_known,
+          "guild admin decode: the server profile's visibility is read, null leaves it unknown");
 
     GuildAdminRole roles[4]{};
     const auto role_list = guild_admin_decode_roles(
@@ -937,7 +986,7 @@ void test_abi() noexcept {
     check(loaded.ok(), "guild admin account: shipping DLL loads without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 123 && kAccountModuleApiVersion == 123 && kAccountModuleApiOrdinal == 123 &&
+    check(host.api.version == 124 && kAccountModuleApiVersion == 124 && kAccountModuleApiOrdinal == 124 &&
               host.api.bytes == sizeof(AccountModuleApi) &&
               offsetof(AccountModuleApi, guild_admin) == 640 && host.api.guild_admin &&
               host.api.guild_admin(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,

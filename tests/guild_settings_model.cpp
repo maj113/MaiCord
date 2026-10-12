@@ -78,26 +78,29 @@ void test_access() noexcept {
           "access: a member without administrative permissions gets no Server Settings sections");
     check(build(kOwner, kPermissionManageRoles), "access: manage roles fixture");
     access = guild_settings_access(model.state, kGuild);
-    check(access.sections == (guild_settings_roles | guild_settings_members) && access.top_role_id == kRoleSelf,
-          "access: Manage Roles opens Roles and Members only");
+    constexpr u32 always = guild_settings_profile | guild_settings_engagement;
+    check(access.sections == (always | guild_settings_roles | guild_settings_members) &&
+              access.top_role_id == kRoleSelf && !guild_settings_can_manage_guild(access),
+          "access: Manage Roles opens Roles and Members beside the read-only Profile and Engagement");
     check(build(kOwner, kPermissionBanMembers | kPermissionViewAuditLog | kPermissionManageGuild),
           "access: moderator fixture");
     access = guild_settings_access(model.state, kGuild);
-    check(access.sections == (guild_settings_overview | guild_settings_invites | guild_settings_members |
-                              guild_settings_bans | guild_settings_audit_log | guild_settings_safety) &&
+    check(access.sections == (always | guild_settings_invites | guild_settings_members | guild_settings_bans |
+                              guild_settings_audit_log | guild_settings_safety) &&
+              guild_settings_can_manage_guild(access) && guild_settings_can_unban(access) &&
               !access.manage_expressions && !guild_settings_can_delete(access) && !guild_settings_can_set_mfa(access),
           "access: Manage Server, Ban Members and View Audit Log open their sections; owner actions stay closed");
     check(build(kOwner, kPermissionCreateExpressions), "access: create expressions fixture");
     access = guild_settings_access(model.state, kGuild);
-    check(access.sections == guild_settings_expressions && !access.manage_expressions,
+    check(access.sections == (always | guild_settings_expressions) && !access.manage_expressions,
           "access: Create Expressions opens Emoji and Stickers for uploads only");
     check(build(kOwner, kPermissionManageExpressions), "access: manage expressions fixture");
     access = guild_settings_access(model.state, kGuild);
-    check(access.sections == guild_settings_expressions && access.manage_expressions,
+    check(access.sections == (always | guild_settings_expressions) && access.manage_expressions,
           "access: Manage Expressions (bit 30) edits and deletes any expression");
     check(build(kSelf, 0), "access: owner fixture");
     access = guild_settings_access(model.state, kGuild);
-    check(access.owner && access.sections == 0xff && guild_settings_grantable(access) == kPermissionKnownMask &&
+    check(access.owner && access.sections == 0x1ff && guild_settings_grantable(access) == kPermissionKnownMask &&
               access.manage_expressions && guild_settings_can_delete(access) && guild_settings_can_set_mfa(access),
           "access: the owner sees every section, may grant every known permission, delete and set 2FA");
     check(build(kOwner, kPermissionManageRoles), "access: two-factor fixture");
@@ -108,6 +111,47 @@ void test_access() noexcept {
     check(chat_state_store_set_guild_settings(&model.state, kGuild, settings) &&
               guild_settings_access(model.state, kGuild).sections == 0,
           "access: a two-factor requirement strips Manage Roles for an account without it");
+    check(build(kSelf, 0), "access: owner deletion fixture");
+    model.state.self_mfa = SelfMfaState::disabled;
+    check(chat_state_store_set_guild_settings(&model.state, kGuild, settings) &&
+              !guild_settings_can_delete(guild_settings_access(model.state, kGuild)),
+          "access: an owner without 2FA cannot delete a server that requires it");
+    check(build(kOwner, kPermissionAdministrator), "access: administrator fixture");
+    access = guild_settings_access(model.state, kGuild);
+    check(access.sections == 0x1ff && guild_settings_can_manage_guild(access) && !guild_settings_can_delete(access),
+          "access: Administrator opens every section but not the owner actions");
+}
+
+// Guild-level permissions to the sections they open.
+void test_section_matrix() noexcept {
+    constexpr u32 p = guild_settings_profile | guild_settings_engagement;
+    const struct {
+        PermissionSet permissions;
+        u32 sections;
+    } rows[]{
+        {0, 0},
+        {kPermissionKickMembers, 0},
+        {kPermissionModerateMembers | kPermissionKickMembers, 0},
+        {kPermissionSendMessages | kPermissionManageChannels, 0},
+        {kPermissionManageGuild, p | guild_settings_invites | guild_settings_safety | guild_settings_members},
+        {kPermissionManageRoles, p | guild_settings_members | guild_settings_roles},
+        {kPermissionBanMembers, p | guild_settings_members | guild_settings_bans},
+        {kPermissionViewAuditLog, p | guild_settings_audit_log | guild_settings_bans},
+        {kPermissionManageNicknames, p | guild_settings_members},
+        {kPermissionManageNicknames | kPermissionKickMembers, p | guild_settings_members},
+        {kPermissionCreateExpressions, p | guild_settings_expressions},
+        {kPermissionManageExpressions, p | guild_settings_expressions},
+        {kPermissionManageWebhooks, p},
+        {kPermissionViewGuildInsights, p},
+        {kPermissionAdministrator, 0x1ff},
+        {kPermissionAll, 0x1ff},
+    };
+    u32 matched = 0;
+    for (const auto& row : rows)
+        matched += guild_settings_sections(row.permissions) == row.sections;
+    check(matched == sizeof(rows) / sizeof(rows[0]),
+          "section matrix: the opening permissions, Members with Manage Server, Bans with View Audit Log, and "
+          "Kick or Timeout Members alone opening nothing");
 }
 
 void test_hierarchy() noexcept {
@@ -164,26 +208,21 @@ void test_reorder() noexcept {
 
 void test_drafts() noexcept {
     check(build(kSelf, 0), "drafts: owner fixture");
-    auto base = guild_overview_from_state(model.state, kGuild);
+    auto base = guild_server_profile_from_state(model.state, kGuild);
     auto draft = base;
     GuildSettingsPatch patch{};
-    check(!guild_overview_patch(base, draft, &patch), "drafts: an unchanged overview has nothing to save");
+    check(!guild_server_profile_patch(base, draft, &patch), "drafts: an unchanged server name has nothing to save");
     copy_bytes(draft.name, "Renamed", 7);
     draft.name_bytes = 7;
-    draft.system_channel_id = kChannel;
-    draft.default_notifications = 1;
-    check(guild_overview_patch(base, draft, &patch) &&
-              patch.fields == (guild_settings_patch_name | guild_settings_patch_system_channel |
-                               guild_settings_patch_default_notifications),
-          "drafts: only changed overview fields are patched");
+    check(guild_server_profile_patch(base, draft, &patch) && patch.fields == guild_settings_patch_name,
+          "drafts: a changed server name is its only field");
     GuildAdminRequest request{};
     request.operation = GuildAdminOperation::guild_update;
     request.guild_id = kGuild;
     request.guild = &patch;
-    check(body_equals(request, R"({"name":"Renamed","system_channel_id":"500","default_message_notifications":1})"),
-          "drafts: the overview request body carries the changed fields");
+    check(body_equals(request, R"({"name":"Renamed"})"), "drafts: the server name request body");
     draft.name_bytes = 1;
-    check(!guild_overview_patch(base, draft, &patch), "drafts: one-character server names are refused");
+    check(!guild_server_profile_patch(base, draft, &patch), "drafts: one-character server names are refused");
     const auto* mid = chat_state_store_find_role(model.state, kGuild, kRoleMid);
     auto role_base = guild_role_draft_from(model.state, *mid), role_draft = role_base;
     u32 color = 0;
@@ -362,12 +401,136 @@ void test_expressions_and_safety() noexcept {
           "delete: the confirmation needs the exact server name");
 }
 
+// Synthetic details: flags 0x880 (two bits the page never shows) and four
+// names, one of them unknown, in server order.
+struct Details {
+    GuildDetailStore store;
+    GuildDetailRecord records[2];
+    char text[1024];
+};
+Details details;
+constexpr u8 kNames[] = "\x04" "NEWS" "\x09" "COMMUNITY" "\x1E" "ACTIVITY_FEED_DISABLED_BY_USER" "\x0E"
+                        "FUTURE_FEATURE";
+
+bool engagement_fixture(u64 owner, PermissionSet permissions, u32 member_count) noexcept {
+    if (!build(owner, permissions))
+        return false;
+    clear_bytes(&details, sizeof(details));
+    if (!guild_detail_store_bind(&details.store, {details.records, 2}, {details.text, sizeof(details.text)}))
+        return false;
+    GuildDetailInput input{};
+    input.guild_id = kGuild;
+    input.known = static_cast<u16>(guild_detail_all & ~guild_detail_member_count);
+    if (member_count) {
+        input.known = guild_detail_all;
+        input.member_count = member_count;
+    }
+    input.system_channel_flags = 0x880;
+    input.feature_names = {kNames, sizeof(kNames) - 1};
+    input.feature_count = 4;
+    input.keep_feature_names = true;
+    GuildSettings settings{};
+    settings.known = guild_settings_system_channel | guild_settings_afk_timeout;
+    settings.system_channel_id = kChannel;
+    settings.afk_timeout_seconds = 900;
+    return guild_detail_store_apply(&details.store, input) &&
+           chat_state_store_set_guild_settings(&model.state, kGuild, settings);
+}
+
+bool engagement_body(const GuildEngagementDraft& base, const GuildEngagementDraft& draft, const char* expected) noexcept {
+    const auto* record = guild_detail_store_find(details.store, kGuild);
+    u8 names[512];
+    GuildSettingsPatch patch{};
+    if (!record || !guild_engagement_patch(base, draft, guild_detail_store_feature_names(details.store, *record),
+                                           record->feature_count, {names, sizeof(names)}, &patch))
+        return false;
+    GuildAdminRequest request{};
+    request.operation = GuildAdminOperation::guild_update;
+    request.guild_id = kGuild;
+    request.guild = &patch;
+    return body_equals(request, expected);
+}
+
+void test_engagement() noexcept {
+    check(engagement_fixture(kOwner, kPermissionManageGuild, 9'999), "engagement: fixture builds");
+    const auto base = guild_engagement_from_state(model.state, details.store, kGuild);
+    auto draft = base;
+    check(base.system_channel_id == kChannel && base.afk_timeout_seconds == 900 && base.system_channel_flags == 0x880 &&
+              (base.features & guild_feature_activity_feed_disabled) && guild_engagement_equal(base, draft) &&
+              guild_engagement_next_step(base, draft, false) == GuildEngagementStep::none,
+          "engagement: the draft mirrors the gateway settings and details; nothing to save");
+    check(guild_engagement_message_enabled(draft, guild_system_suppress_join), "engagement: a clear bit reads as send");
+    guild_engagement_set_message(&draft, guild_system_suppress_join, false);
+    check(draft.system_channel_flags == 0x881 && !guild_engagement_message_enabled(draft, guild_system_suppress_join),
+          "engagement: turning one message off sets only its suppress bit (0x880 to 0x881)");
+    check(engagement_body(base, draft,
+                          R"({"afk_channel_id":null,"afk_timeout":900,"system_channel_id":"500",)"
+                          R"("default_message_notifications":0,"system_channel_flags":2177})"),
+          "engagement: the PATCH sends all five scalars in order, without features when the set is unchanged");
+    guild_engagement_set_message(&draft, guild_system_suppress_join, true);
+    check(guild_engagement_equal(base, draft) && draft.system_channel_flags == 0x880,
+          "engagement: turning it back on restores the stored flags");
+
+    check(!guild_engagement_activity_feed(draft, 9'999, true), "engagement: the disabled feature wins over the size");
+    guild_engagement_set_activity_feed(&draft, true);
+    check(guild_engagement_activity_feed(draft, 50'000, true) && guild_engagement_features_changed(base, draft) &&
+              engagement_body(base, draft,
+                              R"({"features":["NEWS","COMMUNITY","FUTURE_FEATURE","ACTIVITY_FEED_ENABLED_BY_USER"],)"
+                              R"("afk_channel_id":null,"afk_timeout":900,"system_channel_id":"500",)"
+                              R"("default_message_notifications":0,"system_channel_flags":2176})"),
+          "engagement: enabling the feed sends the full list in server order, the new name appended and the "
+          "disabled one removed");
+    guild_engagement_set_activity_feed(&draft, false);
+    check(!guild_engagement_features_changed(base, draft) && guild_engagement_equal(base, draft),
+          "engagement: switching the feed back leaves the same set, so features are not sent");
+    GuildEngagementDraft fresh{};
+    check(guild_engagement_activity_feed(fresh, 9'999, true) && !guild_engagement_activity_feed(fresh, 10'000, true) &&
+              !guild_engagement_activity_feed(fresh, 0, false),
+          "engagement: without either feature the feed is on below 10,000 known members");
+    draft = base;
+    guild_engagement_set_activity_feed(&draft, true);
+    u8 names[512];
+    GuildSettingsPatch patch{};
+    check(!guild_engagement_patch(base, draft, {}, 0, {names, sizeof(names)}, &patch),
+          "engagement: a features change without the stored names cannot be saved");
+
+    // Footer: a widget-only change still sends the guild PATCH first, then the widget.
+    auto loaded = base, widget = base;
+    guild_engagement_set_widget(&loaded, false, 0);
+    widget = loaded;
+    guild_engagement_set_widget(&widget, true, kChannel);
+    check(!guild_engagement_equal(loaded, widget) &&
+              guild_engagement_next_step(loaded, widget, false) == GuildEngagementStep::guild &&
+              guild_engagement_next_step(loaded, widget, true) == GuildEngagementStep::widget,
+          "engagement: the Save bar sends the guild PATCH for any change, then the widget PATCH");
+    guild_engagement_widget_patch(widget, &patch);
+    GuildAdminRequest request{};
+    request.operation = GuildAdminOperation::widget_update;
+    request.guild_id = kGuild;
+    request.guild = &patch;
+    check(body_equals(request, R"({"enabled":true,"channel_id":"500"})"), "engagement: the widget PATCH body");
+    auto saved = widget;
+    check(guild_engagement_next_step(saved, widget, true) == GuildEngagementStep::none &&
+              guild_engagement_next_step(saved, widget, false) == GuildEngagementStep::none &&
+              guild_engagement_next_step(base, base, true) == GuildEngagementStep::none,
+          "engagement: after both PATCHes the page is clean; with no widget change the guild PATCH ends the save");
+
+    const auto manager = guild_settings_access(model.state, kGuild);
+    check(engagement_fixture(kOwner, kPermissionBanMembers, 0), "engagement: moderator fixture");
+    const auto moderator = guild_settings_access(model.state, kGuild);
+    check(guild_settings_can_manage_guild(manager) && (moderator.sections & guild_settings_engagement) &&
+              !guild_settings_can_manage_guild(moderator),
+          "engagement: visible to anyone who opens Server Settings, editable only with Manage Server");
+}
+
 } // namespace guild_settings_test
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_guild_settings_entry() noexcept {
     using namespace maicord::guild_settings_test;
     test_access();
+    test_section_matrix();
+    test_engagement();
     test_hierarchy();
     test_reorder();
     test_drafts();

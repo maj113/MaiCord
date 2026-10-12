@@ -155,6 +155,7 @@ using MessagePresenceVisibleFunction = bool (*)(void*, u64 guild_id, u64 user_id
 struct MessageEventPump {
     MessageTimeline* timeline;
     ChatStateStore* state;
+    GuildDetailStore* guild_details;
     UserStore* users;
     GuildMemberStore* members;
     ThreadMemberStore* thread_members;
@@ -232,6 +233,8 @@ void message_event_pump_set_presence_visibility(MessageEventPump*, MessagePresen
 bool message_event_pump_set_state_store(MessageEventPump* pump, ChatStateStore* state,
                                         Slice<u64> guild_id_scratch) noexcept;
 bool message_event_pump_set_user_store(MessageEventPump* pump, UserStore* users) noexcept;
+// Guild create/update details follow the state store; null detaches.
+void message_event_pump_set_guild_detail_store(MessageEventPump* pump, GuildDetailStore* details) noexcept;
 bool message_event_pump_set_member_store(MessageEventPump* pump, GuildMemberStore* members) noexcept;
 bool message_event_pump_set_thread_member_store(MessageEventPump* pump,
                                                 ThreadMemberStore* members) noexcept;

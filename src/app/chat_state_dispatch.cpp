@@ -1282,4 +1282,49 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
     return result;
 }
 
+bool guild_detail_store_apply_gateway_event(GuildDetailStore* store, const ChatStateStore& state,
+                                            const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
+    if (!store || !store->records)
+        return false;
+    if (event.kind == GatewayClientEventKind::ready) {
+        const u32 revision = store->revision;
+        guild_detail_store_clear(store);
+        return revision != store->revision;
+    }
+    if (event.kind != GatewayClientEventKind::dispatch)
+        return false;
+    if (event.dispatch_kind == GatewayClientDispatchKind::guild_delete)
+        return !(event.state.unavailable && (event.state.fields & gateway_client_state_field_unavailable)) &&
+               guild_detail_store_remove(store, event.state.id);
+    GatewayGuildDetails details{};
+    Utf8View description{}, vanity{};
+    ConstSlice<u8> names{};
+    if (!gateway_client_event_guild_details(event, payload, &details, &description, &vanity, &names))
+        return false;
+    const GuildRecord* guild = chat_state_store_find_guild(state, event.state.id);
+    constexpr u64 manage = kPermissionManageGuild | kPermissionAdministrator;
+    GuildDetailInput input{};
+    input.guild_id = event.state.id;
+    input.rules_channel_id = details.rules_channel_id;
+    input.public_updates_channel_id = details.public_updates_channel_id;
+    input.safety_alerts_channel_id = details.safety_alerts_channel_id;
+    input.invites_disabled_until_ms = details.invites_disabled_until_ms;
+    input.dms_disabled_until_ms = details.dms_disabled_until_ms;
+    input.raid_detected_at_ms = details.raid_detected_at_ms;
+    input.dm_spam_detected_at_ms = details.dm_spam_detected_at_ms;
+    input.description = description;
+    input.vanity_url_code = vanity;
+    input.feature_names = names;
+    input.system_channel_flags = details.system_channel_flags;
+    input.premium_subscription_count = details.premium_subscription_count;
+    input.member_count = details.member_count;
+    input.feature_count = details.feature_count;
+    input.known = details.known;
+    input.premium_tier = details.premium_tier;
+    input.lockdown_duration_hours = details.lockdown_duration_hours;
+    input.premium_progress_bar_enabled = details.premium_progress_bar_enabled;
+    input.keep_feature_names = !guild || !guild->permissions_resolved || (guild->base_permissions & manage);
+    return guild_detail_store_apply(store, input);
+}
+
 } // namespace maicord

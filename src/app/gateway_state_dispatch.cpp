@@ -4,6 +4,7 @@
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/model/chat_state.hpp"
 
+#include "gateway_guild_details.hpp"
 #include "gateway_payload_writer.hpp"
 #include "gateway_state_payload.hpp"
 #include "gateway_user_payload.hpp"
@@ -44,6 +45,7 @@ struct StateObjectContext {
     JsonValue thread_metadata;
     JsonValue thread_member;
     JsonValue safety_warnings;
+    GatewayGuildDetailValues details;
     u64 allow;
     u64 deny;
     GatewayEventDecodeError error;
@@ -230,7 +232,7 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
     bool setting = false;
     if (!visit_guild_setting(context, name, value, &setting))
         return false;
-    if (setting)
+    if (setting || gateway_guild_detail_visit(&context->details, name, value))
         return true;
     // Message request and DM safety fields are advisory: malformed values are
     // ignored rather than rejecting the channel.
@@ -1088,6 +1090,11 @@ bool merge_guild_properties(StateObjectContext* object, const StateObjectContext
         object->banner = properties.banner;
         object->banner_seen = true;
     }
+    if (properties.features_seen && !object->features_seen) {
+        object->features = properties.features;
+        object->features_seen = true;
+    }
+    gateway_guild_detail_merge(&object->details, properties.details);
     const u16 settings = properties.mutation.guild_settings_known &
                          ~static_cast<u16>(guild_settings_self_timeout | guild_settings_self_member);
     auto& to = object->mutation;
@@ -2217,6 +2224,13 @@ GatewayClientDispatchRouteResult route_state_dispatch(
             } else {
                 event->state.guild_banner = static_cast<u8>(1u + bytes);
             }
+        }
+        event->state.guild_details_bytes = 0;
+        if ((guild_create && !unavailable) || guild_update) {
+            if (!gateway_guild_details_append(object.details, object.features, object.features_seen,
+                                              structural_scratch, maximum_depth, &writer,
+                                              &event->state.guild_details_bytes))
+                return route_error(GatewayClientDispatchRouteError::payload_capacity);
         }
         if ((guild_create && !unavailable) || guild_update) {
             GatewayEventDecodeResult appended =

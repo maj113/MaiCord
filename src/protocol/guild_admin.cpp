@@ -76,9 +76,27 @@ bool channel_major(Op op) noexcept {
     return !guild_major(op) && op != Op::invite_delete;
 }
 
+// A complete run of non-empty names whose count matches.
+bool feature_names_valid(ConstSlice<u8> names, u16 count) noexcept {
+    if ((!names.data && names.count) || names.count > 0xFFFF)
+        return false;
+    u32 cursor = 0, seen = 0;
+    while (cursor < names.count) {
+        const u32 bytes = names[cursor];
+        if (!bytes || bytes > names.count - cursor - 1 ||
+            !text_valid({reinterpret_cast<const char*>(names.data + cursor + 1), bytes}, 1, 255, true))
+            return false;
+        cursor += 1 + bytes;
+        ++seen;
+    }
+    return seen == count;
+}
+
 bool guild_patch_valid(const GuildSettingsPatch& patch) noexcept {
     const u16 f = patch.fields;
     return f && !(f & ~guild_settings_patch_all) &&
+           (!(f & guild_settings_patch_widget) || f == guild_settings_patch_widget) &&
+           (!(f & guild_settings_patch_features) || feature_names_valid(patch.feature_names, patch.feature_count)) &&
            (!(f & guild_settings_patch_name) || text_valid(patch.name, 2, kGuildAdminNameCodepoints, true)) &&
            (!(f & guild_settings_patch_icon) || !patch.icon.bytes || data_uri_valid(patch.icon)) &&
            (!(f & guild_settings_patch_banner) || !patch.banner.bytes || data_uri_valid(patch.banner)) &&
@@ -215,7 +233,7 @@ bool reason_valid(const GuildAdminRequest& request) noexcept {
         return false;
     if (!request.reason.data)
         return true;
-    // The official client lifts bans and revokes invites without a reason.
+    // Lifting a ban and revoking an invite carry no reason.
     if (request.operation == Op::ban_remove || request.operation == Op::invite_delete)
         return false;
     if (!request.reason.bytes)
@@ -284,6 +302,7 @@ struct Body {
     }
 };
 
+// Key order is fixed, whichever fields are set.
 void write_guild(Body& b, const GuildSettingsPatch& p) noexcept {
     b.begin_object();
     if (p.fields & guild_settings_patch_name) {
@@ -298,9 +317,17 @@ void write_guild(Body& b, const GuildSettingsPatch& p) noexcept {
         b.key("banner");
         b.nullable_string(p.banner);
     }
-    if (p.fields & guild_settings_patch_system_channel) {
-        b.key("system_channel_id");
-        b.nullable_snowflake(p.system_channel_id);
+    if (p.fields & guild_settings_patch_features) {
+        b.key("features");
+        b.byte('[');
+        for (u32 cursor = 0, index = 0; cursor < p.feature_names.count; ++index) {
+            const u32 bytes = p.feature_names[cursor];
+            if (index)
+                b.byte(',');
+            b.string({reinterpret_cast<const char*>(p.feature_names.data + cursor + 1), bytes});
+            cursor += 1 + bytes;
+        }
+        b.byte(']');
     }
     if (p.fields & guild_settings_patch_afk_channel) {
         b.key("afk_channel_id");
@@ -309,6 +336,10 @@ void write_guild(Body& b, const GuildSettingsPatch& p) noexcept {
     if (p.fields & guild_settings_patch_afk_timeout) {
         b.key("afk_timeout");
         b.number(p.afk_timeout_seconds);
+    }
+    if (p.fields & guild_settings_patch_system_channel) {
+        b.key("system_channel_id");
+        b.nullable_snowflake(p.system_channel_id);
     }
     if (p.fields & guild_settings_patch_verification_level) {
         b.key("verification_level");
@@ -321,6 +352,10 @@ void write_guild(Body& b, const GuildSettingsPatch& p) noexcept {
     if (p.fields & guild_settings_patch_explicit_content_filter) {
         b.key("explicit_content_filter");
         b.number(p.explicit_content_filter);
+    }
+    if (p.fields & guild_settings_patch_system_channel_flags) {
+        b.key("system_channel_flags");
+        b.number(p.system_channel_flags);
     }
     b.end_object();
 }
@@ -358,7 +393,7 @@ void write_role(Body& b, const RolePatch& p) noexcept {
     b.end_object();
 }
 
-// The official client's createRole body, every key in its order.
+// The role create body: every key, in this order.
 void write_role_create(Body& b, const RolePatch* p) noexcept {
     const u8 f = p ? p->fields : 0;
     const u32 color = (f & role_patch_color) ? p->color : 0;
@@ -538,6 +573,14 @@ void write_body(const GuildAdminRequest& r, Body& b) noexcept {
     case Op::guild_update:
         write_guild(b, *r.guild);
         break;
+    case Op::widget_update:
+        b.begin_object();
+        b.key("enabled");
+        b.boolean(r.guild->widget_enabled);
+        b.key("channel_id");
+        b.nullable_snowflake(r.guild->widget_channel_id);
+        b.end_object();
+        break;
     case Op::role_create:
         write_role_create(b, r.role);
         break;
@@ -582,7 +625,7 @@ void write_body(const GuildAdminRequest& r, Body& b) noexcept {
         break;
     }
     case Op::guild_leave:
-        // The official client's leave body; a member is never lurking here.
+        // A member is never lurking here.
         b.raw("{\"lurking\":false}");
         break;
     case Op::invite_create: {
@@ -759,74 +802,45 @@ bool decode_user(const JsonIndexedDocument& document, JsonValue value, GuildAdmi
     return user->id || fail(error, GuildAdminError::identity);
 }
 
-// Settings ----------------------------------------------------------------
+// Widget and server profile -------------------------------------------------
 
-struct SettingsParse {
-    GuildSettingsSnapshot value;
+struct WidgetParse {
+    GuildAdminWidget value;
     Fields fields;
     GuildAdminError error;
-    const JsonIndexedDocument* document;
 };
-constexpr const char* kSettingsFields[] = {"id", "name", "icon", "banner", "owner_id", "mfa_level",
-                                           "verification_level", "default_message_notifications",
-                                           "explicit_content_filter", "system_channel_id", "afk_channel_id",
-                                           "afk_timeout", "premium_tier", "features"};
+constexpr const char* kWidgetFields[] = {"enabled", "channel_id"};
 
-constexpr struct {
-    const char* name;
-    u16 flag;
-} kFeatureNames[] = {{"MORE_EMOJI", guild_feature_more_emoji},     {"MORE_STICKERS", guild_feature_more_stickers},
-                     {"ROLE_ICONS", guild_feature_role_icons},     {"BANNER", guild_feature_banner},
-                     {"ANIMATED_ICON", guild_feature_animated_icon}, {"ANIMATED_BANNER", guild_feature_animated_banner},
-                     {"COMMUNITY", guild_feature_community}};
-
-bool visit_feature(void* opaque, u32, JsonValue value) noexcept {
-    JsonString name{};
-    if (!json_value_as_string(value, &name))
+bool visit_widget(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& p = *static_cast<WidgetParse*>(opaque);
+    const u32 field = p.fields.find(name);
+    if (field == ~0u)
         return false;
-    for (const auto& feature : kFeatureNames)
-        if (json_string_equals_ascii(name, {feature.name, Fields::c_string_bytes(feature.name)}))
-            *static_cast<u16*>(opaque) |= feature.flag;
-    return true;
+    const bool valid = field == 0   ? json_value_to_bool(value, &p.value.enabled)
+                       : field == 1 ? nullable_snowflake(value, &p.value.channel_id)
+                                    : true;
+    return valid || fail(&p.error);
 }
 
-bool visit_settings(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& p = *static_cast<SettingsParse*>(opaque);
-    auto& v = p.value;
+struct ProfileParse {
+    GuildAdminProfile value;
+    Fields fields;
+    GuildAdminError error;
+};
+constexpr const char* kProfileFields[] = {"visibility"};
+
+// An unknown or null visibility leaves it unknown.
+bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& p = *static_cast<ProfileParse*>(opaque);
     const u32 field = p.fields.find(name);
     if (field == ~0u)
         return false;
     u32 number = 0;
-    bool valid = true;
-    switch (field) {
-    case 0: valid = json_value_to_snowflake(value, &v.id); break;
-    case 1:
-        valid = decode_text(value, v.name, kGuildAdminNameBytes, &v.name_bytes, false) && v.name_bytes;
-        break;
-    case 2: valid = decode_text(value, v.icon, kGuildAdminHashBytes, &v.icon_bytes, true); break;
-    case 3: valid = decode_text(value, v.banner, kGuildAdminHashBytes, &v.banner_bytes, true); break;
-    case 4: valid = json_value_to_snowflake(value, &v.owner_id); break;
-    case 5: valid = decode_u32(value, &number, 1); v.mfa_level = static_cast<u8>(number); break;
-    case 6: valid = decode_u32(value, &number, 4); v.verification_level = static_cast<u8>(number); break;
-    case 7:
-        valid = decode_u32(value, &number, 1);
-        v.default_message_notifications = static_cast<u8>(number);
-        break;
-    case 8:
-        valid = decode_u32(value, &number, 2);
-        v.explicit_content_filter = static_cast<u8>(number);
-        break;
-    case 9: valid = nullable_snowflake(value, &v.system_channel_id); break;
-    case 10: valid = nullable_snowflake(value, &v.afk_channel_id); break;
-    case 11: valid = decode_u32(value, &v.afk_timeout_seconds, 86'400); break;
-    case 12: valid = decode_u32(value, &number, 3); v.premium_tier = static_cast<u8>(number); break;
-    case 13:
-        valid = value.kind == JsonValueKind::array && p.document &&
-                json_visit_indexed_array(*p.document, value, kDepth, visit_feature, &v.features).ok();
-        break;
-    default: break;
+    if (field == 0 && value.kind != JsonValueKind::null_value && decode_u32(value, &number, 255)) {
+        p.value.visibility = static_cast<u8>(number);
+        p.value.visibility_known = true;
     }
-    return valid || fail(&p.error);
+    return true;
 }
 
 // Roles -------------------------------------------------------------------
@@ -1159,6 +1173,7 @@ RestMethod guild_admin_method(GuildAdminOperation op) noexcept {
     case Op::member_profile_self:
     case Op::channel_update:
     case Op::channel_reorder:
+    case Op::widget_update:
         return RestMethod::patch;
     case Op::role_create:
     case Op::channel_create:
@@ -1210,7 +1225,9 @@ bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
     const bool positions = op == Op::role_reorder || op == Op::channel_reorder;
     if (positions ? !positions_valid(r.positions, op == Op::channel_reorder) : r.positions.count != 0)
         return false;
-    if ((op == Op::guild_update) != (r.guild != nullptr) || (r.guild && !guild_patch_valid(*r.guild)))
+    const bool guild_patch = op == Op::guild_update || op == Op::widget_update;
+    if (guild_patch != (r.guild != nullptr) || (r.guild && !guild_patch_valid(*r.guild)) ||
+        (r.guild && (op == Op::widget_update) != (r.guild->fields == guild_settings_patch_widget)))
         return false;
     if (r.role && op != Op::role_create && op != Op::role_update)
         return false;
@@ -1288,11 +1305,13 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
         case Op::channel_create:
         case Op::channel_reorder: text("/channels"); break;
         case Op::invite_list_guild: text("/invites"); break;
+        case Op::widget_get:
+        case Op::widget_update: text("/widget"); break;
+        case Op::profile_get: text("/profile"); break;
         default: break;
         }
-        // The official client sends a kick's reason as a query parameter
-        // (encodeURIComponent), never as the audit header; an untouched
-        // reason box still sends "?reason=".
+        // A kick's reason is a query parameter (encodeURIComponent), never
+        // the audit header; an empty reason still sends "?reason=".
         if (op == Op::member_kick && r.reason.data) {
             text("?reason=");
             const Slice<u8> room{target + w.used, kGuildAdminMaximumTargetBytes - w.used};
@@ -1454,21 +1473,34 @@ u32 guild_admin_member_roles_toggle(ConstSlice<u64> current, u64 role_id, bool a
     return count;
 }
 
-GuildAdminResult guild_admin_decode_settings(Utf8View body, Slice<u32> scratch,
-                                             GuildSettingsSnapshot* output) noexcept {
+GuildAdminResult guild_admin_decode_widget(Utf8View body, Slice<u32> scratch, GuildAdminWidget* output) noexcept {
     if (!output)
         return {0, 0, GuildAdminError::input};
     const Scan s = scan(body, scratch);
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
-    SettingsParse p{};
-    p.fields = {kSettingsFields, sizeof(kSettingsFields) / sizeof(kSettingsFields[0]), 0, &p.error};
-    p.document = &s.document;
-    const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_settings, &p);
+    WidgetParse p{};
+    p.fields = {kWidgetFields, 2, 0, &p.error};
+    const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_widget, &p);
     if (!read.ok())
         return {0, 0, p.error == GuildAdminError::none ? GuildAdminError::json : p.error};
-    if (!(p.fields.seen & 1u) || !(p.fields.seen & 2u) || !p.value.id)
+    if (!(p.fields.seen & 1u))
         return {0, 0, GuildAdminError::identity};
+    *output = p.value;
+    return {body.bytes, 1, GuildAdminError::none};
+}
+
+GuildAdminResult guild_admin_decode_profile(Utf8View body, Slice<u32> scratch, GuildAdminProfile* output) noexcept {
+    if (!output)
+        return {0, 0, GuildAdminError::input};
+    const Scan s = scan(body, scratch);
+    if (s.error != GuildAdminError::none)
+        return {0, 0, s.error};
+    ProfileParse p{};
+    p.fields = {kProfileFields, 1, 0, &p.error};
+    const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_profile, &p);
+    if (!read.ok())
+        return {0, 0, p.error == GuildAdminError::none ? GuildAdminError::json : p.error};
     *output = p.value;
     return {body.bytes, 1, GuildAdminError::none};
 }

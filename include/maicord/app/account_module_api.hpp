@@ -59,8 +59,11 @@ namespace maicord {
 // v122: cdn_urls (CDN URL parsing and target writers) live only in the module.
 // v123: MemberPatch carries the timeout end in milliseconds; member roles change
 // through guild_admin member_update (profile_get operations 5 and 6 are gone).
-inline constexpr u32 kAccountModuleApiVersion = 123;
-inline constexpr u16 kAccountModuleApiOrdinal = 123;
+// v124: guild create/update records carry a details record after the banner;
+// guild_admin drops guild_fetch, adds widget_get, widget_update and profile_get,
+// and GuildSettingsPatch appends system_channel_flags, features and the widget.
+inline constexpr u32 kAccountModuleApiVersion = 124;
+inline constexpr u16 kAccountModuleApiOrdinal = 124;
 inline constexpr u32 kAccountHistoryResponseBytes = 256 * 1024;
 inline constexpr wchar_t kAccountModuleFileNameWide[] = L"MaiCordAccount.dll";
 

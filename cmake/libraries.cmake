@@ -53,6 +53,7 @@ add_custom_target(maicord_combase_import_library DEPENDS "${maicord_combase_impo
 add_library(maicord_combase INTERFACE)
 target_link_libraries(maicord_combase INTERFACE "${maicord_combase_import_library}")
 add_dependencies(maicord_combase maicord_combase_import_library)
+
 maicord_library(maicord_platform
     src/platform/staged_file.cpp src/platform/browser_sign_in_launcher.cpp src/platform/aac_decoder.cpp
     src/platform/media_audio.cpp src/platform/aead.cpp src/platform/aes_gcm.cpp src/platform/aes_gcm64.cpp
@@ -188,6 +189,8 @@ maicord_library(maicord_app_core
     src/app/call_video_presenter.cpp src/app/stream_preview_cache.cpp src/app/stream_watch_view.cpp
     # Durable floor records shared by update_acceptance and the plugin catalog.
     src/app/acceptance_record.cpp
+    # Server details carried in guild create/update records.
+    src/app/gateway_guild_details.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_media_core
         maicord_voice_encoder)
 
@@ -381,6 +384,7 @@ maicord_library(maicord_model
     src/model/desktop_notification_queue.cpp src/model/notification_sound_policy.cpp
     src/model/notification_sound_admission.cpp src/model/notification_retention.cpp
     src/model/permission_grid.cpp src/model/guild_settings_model.cpp src/model/channel_settings_model.cpp
+    src/model/guild_detail_store.cpp
     LIBS maicord_core maicord_edit_history maicord_protocol)
 
 maicord_library(maicord_message_runtime

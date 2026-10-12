@@ -436,6 +436,9 @@ bool application_initialize_account_ui(Application& application) noexcept {
         !message_event_pump_set_state_store(
             &application.message_pump, &runtime->chat_state,
             Slice<u64>{runtime->guild_id_scratch, kChatStateGuildCapacity}) ||
+        !guild_detail_store_bind(&runtime->guild_details,
+                                 Slice<GuildDetailRecord>{runtime->guild_detail_records, kChatStateGuildCapacity},
+                                 Slice<char>{runtime->guild_detail_text, kGuildDetailTextBytes}) ||
         !message_event_pump_set_user_store(&application.message_pump, &runtime->user_store) ||
         !message_event_pump_set_member_store(&application.message_pump, &runtime->guild_member_store) ||
         !message_event_pump_set_thread_member_store(&application.message_pump,
@@ -478,6 +481,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
         return false;
     }
     application.account_ui = runtime;
+    message_event_pump_set_guild_detail_store(&application.message_pump, &runtime->guild_details);
     runtime->message_poll_binding = {
         &runtime->message_poll_store,
         &runtime->text_measure_cache,

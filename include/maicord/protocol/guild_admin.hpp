@@ -10,7 +10,6 @@ namespace maicord {
 // call; the account layer serializes it through guild_admin_write_* and the
 // shared DETAILS owner. All views are borrowed for the call only.
 enum class GuildAdminOperation : u8 {
-    guild_fetch,         // GET    /guilds/{g}
     guild_update,        // PATCH  /guilds/{g}
     role_list,           // GET    /guilds/{g}/roles
     role_create,         // POST   /guilds/{g}/roles     {"name","color","colors","permissions"}
@@ -37,6 +36,9 @@ enum class GuildAdminOperation : u8 {
     invite_delete,       // DELETE /invites/{code}
     guild_leave,         // DELETE /users/@me/guilds/{g}  {"lurking":false}
     member_profile_self, // PATCH  /guilds/{g}/profile/@me    {"pronouns","bio","banner"}
+    widget_get,          // GET    /guilds/{g}/widget
+    widget_update,       // PATCH  /guilds/{g}/widget           {"enabled","channel_id"}
+    profile_get,         // GET    /guilds/{g}/profile
     count,
 };
 
@@ -72,11 +74,17 @@ enum GuildSettingsPatchField : u16 {
     guild_settings_patch_verification_level = 1u << 6,
     guild_settings_patch_default_notifications = 1u << 7,
     guild_settings_patch_explicit_content_filter = 1u << 8,
-    guild_settings_patch_all = (1u << 9) - 1,
+    guild_settings_patch_system_channel_flags = 1u << 9,
+    guild_settings_patch_features = 1u << 10,
+    // widget_update only, and alone: enabled and channel_id.
+    guild_settings_patch_widget = 1u << 11,
+    guild_settings_patch_all = (1u << 12) - 1,
 };
 
 // Image fields carry a complete data URI; an empty view with the field set
-// clears the image. Channel IDs of zero serialize as null.
+// clears the image. Channel IDs of zero serialize as null. The guild PATCH
+// writes keys in one fixed order whatever the set fields. Features are the
+// complete list, each name one length byte and its bytes, in the order sent.
 struct GuildSettingsPatch {
     Utf8View name;
     Utf8View icon;
@@ -88,6 +96,11 @@ struct GuildSettingsPatch {
     u8 verification_level;
     u8 default_message_notifications;
     u8 explicit_content_filter;
+    u32 system_channel_flags;
+    ConstSlice<u8> feature_names;
+    u16 feature_count;
+    bool widget_enabled;
+    u64 widget_channel_id;
 };
 
 enum RolePatchField : u8 {
@@ -103,8 +116,8 @@ enum RolePatchField : u8 {
 
 // Icon is a data URI and the emoji a short UTF-8 sequence; empty clears.
 // role_create takes only name, color and permissions (or no patch) and always
-// sends the official client's full body: unset fields default to "new role",
-// colour 0 and no permissions.
+// sends the full body: unset fields default to "new role", colour 0 and no
+// permissions.
 struct RolePatch {
     Utf8View name;
     Utf8View icon;
@@ -128,8 +141,8 @@ enum MemberPatchField : u8 {
     member_patch_all = (1u << 7) - 1,
 };
 
-// Empty nickname resets it (null for another member, "" for oneself, as the
-// official client sends). A zero timeout clears it; otherwise it is a Unix time in
+// Empty nickname resets it (null for another member, "" for oneself). A zero
+// timeout clears it; otherwise it is a Unix time in
 // milliseconds, sent as YYYY-MM-DDTHH:MM:SS.mmmZ. Roles replace the member's
 // whole list (guild_admin_member_roles_toggle). A zero voice channel
 // disconnects the member. The avatar is a complete data URI; empty removes
@@ -235,9 +248,9 @@ struct GuildAdminRequest {
     // Role, user or overwrite target depending on the operation.
     u64 target_id;
     // Recorded in the audit log for mutations: the X-Audit-Log-Reason header,
-    // or the reason query parameter for a kick. Like the official client's
-    // null versus "", a null view (no data) sends nothing, while any other
-    // view is sent even when empty (an empty header value, or "?reason=").
+    // or the reason query parameter for a kick. A null view (no data) sends
+    // nothing, while any other view is sent even when empty (an empty header
+    // value, or "?reason=").
     Utf8View reason;
     Utf8View invite_code;
     const GuildSettingsPatch* guild;
@@ -292,8 +305,8 @@ u32 guild_admin_format_timestamp(u64 unix_seconds, Slice<char> output) noexcept;
 // Date.prototype.toISOString's form, YYYY-MM-DDTHH:MM:SS.mmmZ (24 bytes), as
 // the member timeout field takes it. Zero for short output or years past 9999.
 u32 guild_admin_format_timestamp_ms(u64 unix_milliseconds, Slice<char> output) noexcept;
-// The member's role list after one role toggle, as the official client sends
-// it in the member PATCH: the current IDs in their current order, with an
+// The member's role list after one role toggle, as the member PATCH sends
+// it: the current IDs in their current order, with an
 // added role appended unless already held, or a removed role filtered out.
 // Returns the count, or ~0u for a zero role, invalid views or short output.
 u32 guild_admin_member_roles_toggle(ConstSlice<u64> current, u64 role_id, bool add,
@@ -303,38 +316,6 @@ u32 guild_admin_member_roles_toggle(ConstSlice<u64> current, u64 role_id, bool a
 // absent or null. Decoders tolerate unknown fields and refuse duplicates of
 // known ones. Single-object outputs are untouched on failure; list slices hold
 // unspecified rows after a failure and only `count` rows after success.
-struct GuildSettingsSnapshot {
-    u64 id;
-    u64 owner_id;
-    u64 system_channel_id;
-    u64 afk_channel_id;
-    u32 afk_timeout_seconds;
-    u16 name_bytes;
-    u8 icon_bytes;
-    u8 banner_bytes;
-    u8 mfa_level;
-    u8 verification_level;
-    u8 default_message_notifications;
-    u8 explicit_content_filter;
-    char name[kGuildAdminNameBytes];
-    char icon[kGuildAdminHashBytes];
-    char banner[kGuildAdminHashBytes];
-    // guild_feature_* flags from "features"; unknown names are ignored.
-    u16 features;
-    u8 premium_tier;
-};
-
-// Features that change what Server Settings may upload.
-enum GuildFeatureFlag : u16 {
-    guild_feature_more_emoji = 1u << 0,
-    guild_feature_more_stickers = 1u << 1,
-    guild_feature_role_icons = 1u << 2,
-    guild_feature_banner = 1u << 3,
-    guild_feature_animated_icon = 1u << 4,
-    guild_feature_animated_banner = 1u << 5,
-    guild_feature_community = 1u << 6,
-};
-
 struct GuildAdminRole {
     u64 id;
     PermissionSet permissions;
@@ -405,8 +386,19 @@ struct GuildAdminInvite {
     char code[kGuildAdminInviteCodeBytes];
 };
 
-GuildAdminResult guild_admin_decode_settings(Utf8View body, Slice<u32> scratch,
-                                             GuildSettingsSnapshot* output) noexcept;
+// GET /guilds/{g}/widget: a null channel decodes as zero.
+struct GuildAdminWidget {
+    u64 channel_id;
+    bool enabled;
+};
+GuildAdminResult guild_admin_decode_widget(Utf8View body, Slice<u32> scratch, GuildAdminWidget* output) noexcept;
+// GET /guilds/{g}/profile, the fields Server Settings reads. Visibility:
+// 0 not specified, 1 public, 2 restricted, 3 public with recruitment.
+struct GuildAdminProfile {
+    u8 visibility;
+    bool visibility_known;
+};
+GuildAdminResult guild_admin_decode_profile(Utf8View body, Slice<u32> scratch, GuildAdminProfile* output) noexcept;
 GuildAdminResult guild_admin_decode_role(Utf8View body, Slice<u32> scratch, GuildAdminRole* output) noexcept;
 GuildAdminResult guild_admin_decode_roles(Utf8View body, Slice<u32> scratch, Slice<GuildAdminRole> output) noexcept;
 GuildAdminResult guild_admin_decode_role_counts(Utf8View body, Slice<u32> scratch,

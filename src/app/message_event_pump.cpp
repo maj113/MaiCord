@@ -9,7 +9,7 @@
 namespace maicord {
 namespace {
 
-static_assert(sizeof(MessageEventPump) == 320 + sizeof(ReservedBytes));
+static_assert(sizeof(MessageEventPump) == 328 + sizeof(ReservedBytes));
 
 ReadStateEntry read_model_entry(const GatewayClientReadStateMutation& record) noexcept {
     return {record.channel_id,
@@ -735,6 +735,11 @@ bool message_event_pump_set_state_store(MessageEventPump* pump, ChatStateStore* 
     return synchronize_thread_scope(pump);
 }
 
+void message_event_pump_set_guild_detail_store(MessageEventPump* pump, GuildDetailStore* details) noexcept {
+    if (pump)
+        pump->guild_details = details;
+}
+
 bool message_event_pump_set_user_store(MessageEventPump* pump, UserStore* users) noexcept {
     if (!pump || !users || !users->records || !users->order || !users->names) {
         return false;
@@ -925,6 +930,8 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             result.state_incomplete = true;
             return result;
         }
+        if (pump->guild_details)
+            guild_detail_store_apply_gateway_event(pump->guild_details, *pump->state, event, payload);
         if (pump->members) {
             guild_member_store_reset_lists(pump->members);
             guild_member_store_retire_role_authority(pump->members);
@@ -1233,6 +1240,10 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             pump->member_roles_refresh) {
             pump->member_roles_refresh(pump->member_roles_refresh_context, event.state.guild_id);
         }
+        if (pump->guild_details && (event.dispatch_kind == GatewayClientDispatchKind::guild_create ||
+                                    event.dispatch_kind == GatewayClientDispatchKind::guild_update ||
+                                    event.dispatch_kind == GatewayClientDispatchKind::guild_delete))
+            guild_detail_store_apply_gateway_event(pump->guild_details, *pump->state, event, payload);
         result.kind = MessageEventPumpConsumeKind::state_applied;
         result.repaint = true;
         if (!synchronize_thread_scope(pump))

@@ -15,6 +15,7 @@
 #include "maicord/model/thread_member_store.hpp"
 #include "maicord/model/read_state.hpp"
 #include "maicord/model/message_poll_store.hpp"
+#include "maicord/model/guild_detail_store.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/ui/profile_media.hpp"
@@ -28,6 +29,9 @@ inline constexpr u32 kChatStateOverwriteCapacity = 32'768;
 inline constexpr u32 kChatStateEmojiCapacity = 4'096;
 inline constexpr u32 kChatStateEmojiRoleCapacity = 16'384;
 inline constexpr u32 kChatStateNameBytes = 256 * 1024;
+// Descriptions and vanity codes of every guild plus the feature names of
+// those the account manages.
+inline constexpr u32 kGuildDetailTextBytes = 64 * 1024;
 inline constexpr u32 kUserCapacity = 4'096;
 inline constexpr u32 kUserNameBytes = 128 * 1024;
 inline constexpr u32 kGuildMemberCapacity = 512;
@@ -159,6 +163,7 @@ struct AccountUiRuntime {
     VisibleAuthorHydration author_hydration;
     PrivateConversationRequest private_conversation;
     ChatStateStore chat_state;
+    GuildDetailStore guild_details;
     ReadStateStore read_state_store;
     StableStorage read_state_bank;
     StableStorage role_storage;
@@ -189,6 +194,8 @@ struct AccountUiRuntime {
     ReactionPreferenceStore reaction_preferences;
     MessageComposerController message_composer_controller;
     GuildRecord guild_record_storage[kChatStateGuildCapacity];
+    GuildDetailRecord guild_detail_records[kChatStateGuildCapacity];
+    char guild_detail_text[kGuildDetailTextBytes];
     ChannelRecord channel_record_storage[kChatStateChannelCapacity];
     CustomEmojiRecord emoji_record_storage[kChatStateEmojiCapacity];
     u64 emoji_role_storage[kChatStateEmojiRoleCapacity];
@@ -314,7 +321,8 @@ static_assert(sizeof(AccountUiRuntime) ==
                   kChatStateGuildCapacity * (sizeof(GuildRecord) - 120) +
                   (sizeof(UserAppearanceStore) - 2 * sizeof(StableStorage) - 16) +
                   (sizeof(UserActivityStore) - 2 * sizeof(StableStorage) - 16) +
-                  sizeof(MemberListPositionTable));
+                  sizeof(MemberListPositionTable) + sizeof(GuildDetailStore) +
+                  kChatStateGuildCapacity * sizeof(GuildDetailRecord) + kGuildDetailTextBytes);
 
 inline bool application_history_decode_storage_initialize(AccountUiRuntime& ui) noexcept {
     return stable_storage_initialize(&ui.history_decode_storage,

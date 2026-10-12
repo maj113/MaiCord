@@ -2,6 +2,7 @@
 
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/model/chat_state.hpp"
+#include "maicord/model/guild_detail_store.hpp"
 #include "maicord/model/user_store.hpp"
 
 namespace maicord {
@@ -42,5 +43,12 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                                                           ConstSlice<u8> payload,
                                                           Slice<u64> guild_id_scratch,
                                                           UserStore* users = nullptr) noexcept;
+// Server details of a guild create/update, applied after `state` took the
+// same event so its permissions decide whether the raw feature names are
+// kept: with Manage Server, or while permissions are still unresolved. A
+// guild delete that is not an outage drops the guild and READY clears the
+// store. True when the store changed.
+bool guild_detail_store_apply_gateway_event(GuildDetailStore* store, const ChatStateStore& state,
+                                            const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept;
 
 } // namespace maicord

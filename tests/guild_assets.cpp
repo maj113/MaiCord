@@ -374,19 +374,6 @@ void test_protocol() noexcept {
               !guild_asset_error_code(utf8_literal("<html>"), {units, 2048}),
           "guild assets decode: sticker lists and error codes");
 
-    GuildSettingsSnapshot snapshot{};
-    check(guild_admin_decode_settings(
-              utf8_literal(R"({"id":"10","name":"Lab","premium_tier":2,"banner":"0123456789abcdef0123456789abcdef",)"
-                           R"("features":["ROLE_ICONS","MORE_EMOJI","NEWS","BANNER"]})"),
-              {units, 2048}, &snapshot)
-                  .ok() &&
-              snapshot.premium_tier == 2 && snapshot.banner_bytes == 32 &&
-              snapshot.features == (guild_feature_role_icons | guild_feature_more_emoji | guild_feature_banner) &&
-              guild_admin_decode_settings(utf8_literal(R"({"id":"10","name":"Lab","premium_tier":4})"), {units, 2048},
-                                          &snapshot)
-                      .error == GuildAdminError::field,
-          "guild details: boost tier and upload features decode from GET /guilds/{id}");
-
     u8 head[2048];
     RestRequestHead request{};
     request.target = text_bytes(utf8_literal("/api/v10/guilds/10/stickers"));

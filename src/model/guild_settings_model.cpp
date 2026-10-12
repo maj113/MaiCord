@@ -67,60 +67,73 @@ GuildSettingsAccess guild_settings_access(const ChatStateStore& store, u64 guild
         access.top_role_id = top->id;
         access.top_position = top->position;
     }
-    const PermissionSet p = access.permissions;
-    if (permission_has(p, kPermissionManageGuild))
-        access.sections |= guild_settings_overview | guild_settings_invites;
-    if (permission_has(p, kPermissionManageRoles))
-        access.sections |= guild_settings_roles;
-    if (permission_has(p, kPermissionKickMembers) || permission_has(p, kPermissionBanMembers) ||
-        permission_has(p, kPermissionModerateMembers) || permission_has(p, kPermissionManageNicknames) ||
-        permission_has(p, kPermissionManageRoles))
-        access.sections |= guild_settings_members;
-    if (permission_has(p, kPermissionBanMembers))
-        access.sections |= guild_settings_bans;
-    if (permission_has(p, kPermissionViewAuditLog))
-        access.sections |= guild_settings_audit_log;
-    if (permission_has(p, kPermissionManageGuild))
-        access.sections |= guild_settings_safety;
-    access.manage_expressions = permission_has(p, kPermissionManageExpressions);
-    if (access.manage_expressions || permission_has(p, kPermissionCreateExpressions))
-        access.sections |= guild_settings_expressions;
+    access.sections = guild_settings_sections(access.permissions);
+    access.manage_expressions = permission_has(access.permissions, kPermissionManageExpressions);
+    const bool server_mfa = (guild->settings.known & guild_settings_mfa_level) && guild->settings.mfa_level;
+    access.delete_allowed = access.owner && (store.self_mfa == SelfMfaState::enabled || !server_mfa);
     return access;
 }
 
+u32 guild_settings_sections(PermissionSet p) noexcept {
+    if (!(p & kGuildSettingsOpenPermissions))
+        return 0;
+    u32 sections = guild_settings_profile | guild_settings_engagement;
+    if (permission_has(p, kPermissionManageGuild))
+        sections |= guild_settings_invites | guild_settings_safety;
+    if (permission_has(p, kPermissionManageExpressions) || permission_has(p, kPermissionCreateExpressions))
+        sections |= guild_settings_expressions;
+    if (p & kGuildSettingsMemberPermissions)
+        sections |= guild_settings_members;
+    if (permission_has(p, kPermissionManageRoles))
+        sections |= guild_settings_roles;
+    if (permission_has(p, kPermissionViewAuditLog))
+        sections |= guild_settings_audit_log;
+    if (permission_has(p, kPermissionBanMembers) || permission_has(p, kPermissionViewAuditLog))
+        sections |= guild_settings_bans;
+    return sections;
+}
+
+bool guild_settings_can_manage_guild(const GuildSettingsAccess& access) noexcept {
+    return access.guild_id && access.sections && permission_has(access.permissions, kPermissionManageGuild);
+}
+
+bool guild_settings_can_unban(const GuildSettingsAccess& access) noexcept {
+    return access.guild_id && access.sections && permission_has(access.permissions, kPermissionBanMembers);
+}
+
 bool guild_settings_can_delete(const GuildSettingsAccess& access) noexcept {
-    return access.guild_id && access.owner;
+    return access.guild_id && access.delete_allowed;
 }
 
 bool guild_settings_can_set_mfa(const GuildSettingsAccess& access) noexcept {
     return access.guild_id && access.owner;
 }
 
-u32 guild_emoji_slots(u8 premium_tier, u16 features) noexcept {
+u32 guild_emoji_slots(u8 premium_tier, u64 features) noexcept {
     constexpr u32 slots[]{50, 100, 150, 250};
     const u32 tier = slots[premium_tier < 4 ? premium_tier : 3];
     return (features & guild_feature_more_emoji) ? maximum(tier, 200u) : tier;
 }
 
-u32 guild_sticker_slots(u8 premium_tier, u16 features) noexcept {
+u32 guild_sticker_slots(u8 premium_tier, u64 features) noexcept {
     constexpr u32 slots[]{5, 15, 30, 60};
     const u8 tier = premium_tier < 4 ? premium_tier : 3;
     return (features & guild_feature_more_stickers) && tier == 3 ? 120u : slots[tier];
 }
 
-bool guild_banner_available(u8 premium_tier, u16 features) noexcept {
+bool guild_banner_available(u8 premium_tier, u64 features) noexcept {
     return premium_tier >= 2 || (features & guild_feature_banner);
 }
 
-bool guild_animated_banner_available(u8 premium_tier, u16 features) noexcept {
+bool guild_animated_banner_available(u8 premium_tier, u64 features) noexcept {
     return premium_tier >= 3 || (features & guild_feature_animated_banner);
 }
 
-bool guild_role_icons_available(u8 premium_tier, u16 features) noexcept {
+bool guild_role_icons_available(u8 premium_tier, u64 features) noexcept {
     return premium_tier >= 2 || (features & guild_feature_role_icons);
 }
 
-bool guild_animated_icon_available(u8 premium_tier, u16 features) noexcept {
+bool guild_animated_icon_available(u8 premium_tier, u64 features) noexcept {
     return premium_tier >= 1 || (features & guild_feature_animated_icon);
 }
 
@@ -298,60 +311,188 @@ u32 guild_settings_role_positions(ConstSlice<const RoleRecord*> order, u64 guild
     return used;
 }
 
-GuildOverviewDraft guild_overview_from_state(const ChatStateStore& store, u64 guild_id) noexcept {
-    GuildOverviewDraft draft{};
+GuildServerProfileDraft guild_server_profile_from_state(const ChatStateStore& store, u64 guild_id) noexcept {
+    GuildServerProfileDraft draft{};
+    if (const auto* guild = chat_state_store_find_guild(store, guild_id))
+        copy_name(chat_state_store_guild_name(store, *guild), draft.name, &draft.name_bytes);
+    return draft;
+}
+
+bool guild_server_profile_equal(const GuildServerProfileDraft& a, const GuildServerProfileDraft& b) noexcept {
+    return same_text(a.name, a.name_bytes, b.name, b.name_bytes);
+}
+
+bool guild_server_name_valid(Utf8View text) noexcept {
+    return name_valid(text, 2);
+}
+
+bool guild_server_profile_patch(const GuildServerProfileDraft& baseline, const GuildServerProfileDraft& draft,
+                                GuildSettingsPatch* patch) noexcept {
+    if (!patch || same_text(baseline.name, baseline.name_bytes, draft.name, draft.name_bytes) ||
+        !guild_server_name_valid({draft.name, draft.name_bytes}))
+        return false;
+    GuildSettingsPatch value{};
+    value.fields = guild_settings_patch_name;
+    value.name = {draft.name, draft.name_bytes};
+    *patch = value;
+    return true;
+}
+
+// Engagement ----------------------------------------------------------------
+
+GuildEngagementDraft guild_engagement_from_state(const ChatStateStore& store, const GuildDetailStore& details,
+                                                 u64 guild_id) noexcept {
+    GuildEngagementDraft draft{};
     const auto* guild = chat_state_store_find_guild(store, guild_id);
     if (!guild)
         return draft;
-    copy_name(chat_state_store_guild_name(store, *guild), draft.name, &draft.name_bytes);
     draft.system_channel_id = guild->settings.system_channel_id;
     draft.afk_channel_id = guild->settings.afk_channel_id;
     draft.afk_timeout_seconds = guild->settings.afk_timeout_seconds ? guild->settings.afk_timeout_seconds : 300;
     draft.default_notifications = guild->settings.default_message_notifications ? 1 : 0;
+    if (const auto* record = guild_detail_store_find(details, guild_id)) {
+        draft.system_channel_flags = record->system_channel_flags;
+        draft.features = record->features;
+    }
     return draft;
 }
 
-bool guild_overview_equal(const GuildOverviewDraft& a, const GuildOverviewDraft& b) noexcept {
-    return same_text(a.name, a.name_bytes, b.name, b.name_bytes) && a.system_channel_id == b.system_channel_id &&
-           a.afk_channel_id == b.afk_channel_id && a.afk_timeout_seconds == b.afk_timeout_seconds &&
-           a.default_notifications == b.default_notifications;
+void guild_engagement_set_widget(GuildEngagementDraft* draft, bool enabled, u64 channel_id) noexcept {
+    if (draft) {
+        draft->widget_enabled = enabled;
+        draft->widget_channel_id = channel_id;
+    }
 }
 
-bool guild_overview_name_valid(Utf8View text) noexcept {
-    return name_valid(text, 2);
+bool guild_engagement_features_changed(const GuildEngagementDraft& a, const GuildEngagementDraft& b) noexcept {
+    return a.features != b.features;
 }
 
-bool guild_overview_patch(const GuildOverviewDraft& baseline, const GuildOverviewDraft& draft,
-                          GuildSettingsPatch* patch) noexcept {
-    if (!patch)
+bool guild_engagement_widget_changed(const GuildEngagementDraft& a, const GuildEngagementDraft& b) noexcept {
+    return a.widget_enabled != b.widget_enabled || a.widget_channel_id != b.widget_channel_id;
+}
+
+bool guild_engagement_equal(const GuildEngagementDraft& a, const GuildEngagementDraft& b) noexcept {
+    return a.system_channel_id == b.system_channel_id && a.afk_channel_id == b.afk_channel_id &&
+           a.afk_timeout_seconds == b.afk_timeout_seconds && a.system_channel_flags == b.system_channel_flags &&
+           a.default_notifications == b.default_notifications && !guild_engagement_features_changed(a, b) &&
+           !guild_engagement_widget_changed(a, b);
+}
+
+bool guild_engagement_message_enabled(const GuildEngagementDraft& draft, u32 suppress_bit) noexcept {
+    return !(draft.system_channel_flags & suppress_bit);
+}
+
+void guild_engagement_set_message(GuildEngagementDraft* draft, u32 suppress_bit, bool send) noexcept {
+    if (draft)
+        draft->system_channel_flags = send ? draft->system_channel_flags & ~suppress_bit
+                                           : draft->system_channel_flags | suppress_bit;
+}
+
+void guild_engagement_add_feature(GuildEngagementDraft* draft, u64 bit) noexcept {
+    if (!draft || !bit || (draft->features & bit) || draft->appended_count >= 4)
+        return;
+    draft->features |= bit;
+    draft->appended[draft->appended_count++] = bit;
+}
+
+void guild_engagement_remove_feature(GuildEngagementDraft* draft, u64 bit) noexcept {
+    if (!draft || !bit || !(draft->features & bit))
+        return;
+    draft->features &= ~bit;
+    u32 kept = 0;
+    for (u32 i = 0; i < draft->appended_count; ++i)
+        if (draft->appended[i] != bit)
+            draft->appended[kept++] = draft->appended[i];
+    draft->appended_count = static_cast<u8>(kept);
+}
+
+bool guild_engagement_activity_feed(const GuildEngagementDraft& draft, u32 member_count,
+                                    bool member_count_known) noexcept {
+    const bool enabled = draft.features & guild_feature_activity_feed_enabled;
+    if (enabled || (draft.features & guild_feature_activity_feed_disabled))
+        return enabled;
+    return member_count_known && member_count < kGuildActivityFeedDefaultMembers;
+}
+
+void guild_engagement_set_activity_feed(GuildEngagementDraft* draft, bool on) noexcept {
+    const u64 add = on ? guild_feature_activity_feed_enabled : guild_feature_activity_feed_disabled;
+    const u64 remove = on ? guild_feature_activity_feed_disabled : guild_feature_activity_feed_enabled;
+    guild_engagement_add_feature(draft, add);
+    guild_engagement_remove_feature(draft, remove);
+}
+
+bool guild_engagement_patch(const GuildEngagementDraft& baseline, const GuildEngagementDraft& draft,
+                            ConstSlice<u8> stored_names, u16 stored_count, Slice<u8> names,
+                            GuildSettingsPatch* patch) noexcept {
+    bool timeout = false;
+    for (const u32 value : kGuildAfkTimeouts)
+        timeout = timeout || value == draft.afk_timeout_seconds;
+    if (!patch || draft.default_notifications > 1 || !timeout)
         return false;
     GuildSettingsPatch value{};
-    if (!same_text(baseline.name, baseline.name_bytes, draft.name, draft.name_bytes)) {
-        if (!guild_overview_name_valid({draft.name, draft.name_bytes}))
+    value.fields = guild_settings_patch_afk_channel | guild_settings_patch_afk_timeout |
+                   guild_settings_patch_system_channel | guild_settings_patch_default_notifications |
+                   guild_settings_patch_system_channel_flags;
+    value.afk_channel_id = draft.afk_channel_id;
+    value.afk_timeout_seconds = draft.afk_timeout_seconds;
+    value.system_channel_id = draft.system_channel_id;
+    value.default_message_notifications = draft.default_notifications;
+    value.system_channel_flags = draft.system_channel_flags;
+    if (guild_engagement_features_changed(baseline, draft)) {
+        if (!stored_names.data || !names.data)
             return false;
-        value.fields |= guild_settings_patch_name;
-        value.name = {draft.name, draft.name_bytes};
+        // Stored names keep their place unless removed or re-added; appended
+        // names follow in the order they were added.
+        u32 used = 0, count = 0, cursor = 0, stored = 0;
+        Utf8View name{};
+        const auto append = [&](Utf8View text) noexcept {
+            if (!text.bytes || text.bytes > 255 || 1 + text.bytes > names.count - used)
+                return false;
+            names[used] = static_cast<u8>(text.bytes);
+            copy_bytes(names.data + used + 1, text.data, text.bytes);
+            used += 1 + text.bytes;
+            ++count;
+            return true;
+        };
+        while (guild_feature_name_next(stored_names, &cursor, &name)) {
+            ++stored;
+            const u64 bit = guild_feature_bit(name);
+            bool appended = false;
+            for (u32 i = 0; i < draft.appended_count; ++i)
+                appended = appended || draft.appended[i] == bit;
+            if (bit && (!(draft.features & bit) || appended))
+                continue;
+            if (!append(name))
+                return false;
+        }
+        if (cursor != stored_names.count || stored != stored_count)
+            return false;
+        for (u32 i = 0; i < draft.appended_count; ++i)
+            if (!append(guild_feature_name(draft.appended[i])))
+                return false;
+        value.fields |= guild_settings_patch_features;
+        value.feature_names = {names.data, used};
+        value.feature_count = static_cast<u16>(count);
     }
-    if (baseline.system_channel_id != draft.system_channel_id) {
-        value.fields |= guild_settings_patch_system_channel;
-        value.system_channel_id = draft.system_channel_id;
-    }
-    if (baseline.afk_channel_id != draft.afk_channel_id) {
-        value.fields |= guild_settings_patch_afk_channel;
-        value.afk_channel_id = draft.afk_channel_id;
-    }
-    if (baseline.afk_timeout_seconds != draft.afk_timeout_seconds) {
-        value.fields |= guild_settings_patch_afk_timeout;
-        value.afk_timeout_seconds = draft.afk_timeout_seconds;
-    }
-    if (baseline.default_notifications != draft.default_notifications) {
-        value.fields |= guild_settings_patch_default_notifications;
-        value.default_message_notifications = draft.default_notifications;
-    }
-    if (!value.fields)
-        return false;
     *patch = value;
     return true;
+}
+
+void guild_engagement_widget_patch(const GuildEngagementDraft& draft, GuildSettingsPatch* patch) noexcept {
+    if (!patch)
+        return;
+    *patch = {};
+    patch->fields = guild_settings_patch_widget;
+    patch->widget_enabled = draft.widget_enabled;
+    patch->widget_channel_id = draft.widget_channel_id;
+}
+
+GuildEngagementStep guild_engagement_next_step(const GuildEngagementDraft& baseline,
+                                               const GuildEngagementDraft& draft, bool guild_sent) noexcept {
+    if (!guild_sent)
+        return guild_engagement_equal(baseline, draft) ? GuildEngagementStep::none : GuildEngagementStep::guild;
+    return guild_engagement_widget_changed(baseline, draft) ? GuildEngagementStep::widget : GuildEngagementStep::none;
 }
 
 GuildRoleDraft guild_role_draft_from(const ChatStateStore& store, const RoleRecord& role) noexcept {
