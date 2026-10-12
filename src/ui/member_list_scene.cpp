@@ -10,18 +10,6 @@ namespace {
 
 inline constexpr u32 kMemberListRootId = 1;
 
-UiLayoutStyle root_style() noexcept {
-    UiLayoutStyle style = ui_layout_style();
-    style.flow = UiLayoutFlow::vertical;
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.horizontal_alignment = UiLayoutAlignment::stretch;
-    style.vertical_alignment = UiLayoutAlignment::stretch;
-    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
-                                   ui_layout_node_scroll_vertical);
-    return style;
-}
-
 UiLayoutStyle row_style() noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.flow = UiLayoutFlow::overlay;
@@ -220,7 +208,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
         &scene->widgets, ui_widget_invalid_handle(),
         UiWidgetDesc{
             kMemberListRootId, UiWidgetKind::scroll_view, ui_widget_enabled,
-            UiLayoutNodeSpec{utf8_literal("MemberList"), root_style(), UiSize{}, 0.0f, kMemberListRootId}});
+            UiLayoutNodeSpec{utf8_literal("MemberList"), ui_layout_scroll_root_style(), UiSize{}, 0.0f, kMemberListRootId}});
     if (!root.ok()) {
         clear_materialization(scene);
         return failure(scene, MemberListSceneError::widget);
@@ -648,15 +636,6 @@ void member_media_cache_reset(MemberMediaCache* cache) noexcept {
     clear_bytes(cache, sizeof(*cache));
     cache->resolves = resolves;
     cache->hits = hits;
-}
-
-const MemberMediaCacheEntry* member_media_cache_row(const MemberListScene& s, u32 index,
-                                                    UiPoint* origin) noexcept {
-    const UiLayoutNode* node = nullptr;
-    const auto* entry = origin ? member_media_entry(s, index, &node) : nullptr;
-    if (entry)
-        *origin = {node->rectangle.left, node->rectangle.top};
-    return entry;
 }
 
 bool member_media_place(const MemberListScene& s, u32 index, MemberMedia layer,

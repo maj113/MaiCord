@@ -23,27 +23,6 @@ GuildRailSceneResult scene_error(GuildRailScene* scene, GuildRailSceneError erro
                                 scene ? scene->scroll_dips : 0.0f, false};
 }
 
-UiLayoutStyle root_style() noexcept {
-    UiLayoutStyle style = ui_layout_style();
-    style.flow = UiLayoutFlow::vertical;
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.horizontal_alignment = UiLayoutAlignment::stretch;
-    style.vertical_alignment = UiLayoutAlignment::stretch;
-    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
-                                   ui_layout_node_scroll_vertical);
-    return style;
-}
-
-UiLayoutStyle spacer_style(float height) noexcept {
-    UiLayoutStyle style = ui_layout_style();
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fixed(height);
-    style.horizontal_alignment = UiLayoutAlignment::stretch;
-    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size);
-    return style;
-}
-
 UiLayoutStyle row_style(float reveal) noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.width = ui_layout_fixed(kGuildRailRowExtent);
@@ -315,7 +294,7 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
     const UiWidgetResult root = ui_widget_manager_add_prevalidated(
         &scene->widgets, ui_widget_invalid_handle(),
         UiWidgetDesc{kGuildRailRootWidgetId, UiWidgetKind::scroll_view, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("GuildRail"), root_style(), UiSize{}, 0.0f,
+                     UiLayoutNodeSpec{utf8_literal("GuildRail"), ui_layout_scroll_root_style(), UiSize{}, 0.0f,
                                       kGuildRailRootWidgetId}});
     if (!root.ok()) {
         clear_materialization(scene);
@@ -325,7 +304,7 @@ GuildRailSceneResult guild_rail_scene_update(GuildRailScene* scene, const Naviga
     const UiWidgetResult spacer = ui_widget_manager_add_prevalidated(
         &scene->widgets, root.handle,
         UiWidgetDesc{kGuildRailSpacerWidgetId, UiWidgetKind::container, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("TopInset"), spacer_style(range.spacer), UiSize{}, 0.0f,
+                     UiLayoutNodeSpec{utf8_literal("TopInset"), ui_layout_spacer_style(range.spacer), UiSize{}, 0.0f,
                                       kGuildRailSpacerWidgetId}});
     if (!spacer.ok()) {
         clear_materialization(scene);

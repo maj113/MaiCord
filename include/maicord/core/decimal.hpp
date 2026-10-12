@@ -46,16 +46,6 @@ template <typename Char> constexpr u32 decimal_write_grouped(Char* output, u64 v
     return count;
 }
 
-// Appends the digits at *used. False, leaving the output unchanged, when they
-// do not fit in capacity.
-template <typename Char>
-constexpr bool decimal_append(Char* output, u32 capacity, u32* used, u64 value) noexcept {
-    if (*used > capacity || decimal_digits(value) > capacity - *used)
-        return false;
-    *used += decimal_write(output + *used, value);
-    return true;
-}
-
 // 1-20 ASCII digits (leading zeros allowed) that fit in a u64.
 constexpr bool decimal_parse(Utf8View text, u64* value) noexcept {
     if (text.bytes == 0 || text.bytes > 20)

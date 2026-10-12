@@ -85,18 +85,6 @@ MessageSceneResult scene_error(MessageScene* scene, MessageSceneError error) noe
     return MessageSceneResult{error, scene ? scene->first : 0, scene ? scene->count : 0, false};
 }
 
-UiLayoutStyle root_style() noexcept {
-    UiLayoutStyle style = ui_layout_style();
-    style.flow = UiLayoutFlow::vertical;
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.horizontal_alignment = UiLayoutAlignment::stretch;
-    style.vertical_alignment = UiLayoutAlignment::stretch;
-    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
-                                   ui_layout_node_scroll_vertical);
-    return style;
-}
-
 template <typename Scene> float row_top_padding(const Scene& scene, bool grouped) noexcept {
     return grouped ? metrics(scene).message_grouped_top : group_top(scene);
 }
@@ -1932,7 +1920,7 @@ MessageSceneResult message_scene_update(MessageScene* scene, UiRect viewport) no
         const UiWidgetResult root = ui_widget_manager_add(
             &scene->widgets, ui_widget_invalid_handle(),
             UiWidgetDesc{kMessageRootWidgetId, UiWidgetKind::scroll_view, ui_widget_enabled,
-                         UiLayoutNodeSpec{utf8_literal("MessageTimeline"), root_style(), UiSize{}, 0.0f,
+                         UiLayoutNodeSpec{utf8_literal("MessageTimeline"), ui_layout_scroll_root_style(), UiSize{}, 0.0f,
                                           kMessageRootWidgetId}});
         if (!root.ok()) {
             clear_materialization(scene);

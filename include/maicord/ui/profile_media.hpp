@@ -92,10 +92,6 @@ struct MemberMediaPlacement {
     UiRect rectangle, clip;
     bool circular;
 };
-// The cached row (null for group, unresident or empty rows); *origin is the
-// row's top-left corner. Without a scene cache it is always null.
-const MemberMediaCacheEntry* member_media_cache_row(const MemberListScene& scene, u32 index,
-                                                    UiPoint* origin) noexcept;
 // member_media_resolve without the URL, through the scene cache when it has one.
 bool member_media_place(const MemberListScene& scene, u32 index, MemberMedia layer,
                         MemberMediaPlacement* output) noexcept;

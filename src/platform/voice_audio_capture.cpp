@@ -1,4 +1,5 @@
 #include "maicord/platform/voice_audio_capture.hpp"
+#include "audio_endpoint_watch.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include <mmdeviceapi.h>
@@ -9,7 +10,6 @@ namespace maicord {
 namespace {
 constexpr u32 kRate = 48000;
 constexpr REFERENCE_TIME kBufferDuration = 400'000; // 40 ms in 100 ns units.
-constexpr LONG kDefaultChanged = 1, kTopologyChanged = 2;
 // PKEY_Device_FriendlyName without INITGUID.
 constexpr PROPERTYKEY kFriendlyName{{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}},
                                     14};
@@ -17,62 +17,6 @@ constexpr PROPERTYKEY kFriendlyName{{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x
 u64 now_us() noexcept {
     return clock_microseconds(clock_initialize(), 0, clock_now());
 }
-// COM-owned endpoint observer holding a duplicate of the wake event, so a
-// callback racing unregistration never touches the thread's runtime.
-struct EndpointNotify final : IMMNotificationClient {
-    static void* operator new(usize, void* p) noexcept {
-        return p;
-    }
-    volatile LONG references{1}, dirty{};
-    HANDLE event{};
-    bool follow_default{};
-    void signal(LONG flags) noexcept {
-        InterlockedOr(&dirty, flags);
-        SetEvent(event);
-    }
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** p) override {
-        if (!p)
-            return E_POINTER;
-        *p = nullptr;
-        if (iid != __uuidof(IUnknown) && iid != __uuidof(IMMNotificationClient))
-            return E_NOINTERFACE;
-        *p = static_cast<IMMNotificationClient*>(this);
-        AddRef();
-        return S_OK;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() override {
-        return static_cast<ULONG>(InterlockedIncrement(&references));
-    }
-    ULONG STDMETHODCALLTYPE Release() override {
-        const LONG count = InterlockedDecrement(&references);
-        if (!count) {
-            if (event)
-                CloseHandle(event);
-            this->~EndpointNotify();
-            CoTaskMemFree(this);
-        }
-        return static_cast<ULONG>(count);
-    }
-    HRESULT STDMETHODCALLTYPE OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR) override {
-        if (follow_default && flow == eCapture && role == eCommunications)
-            signal(kDefaultChanged);
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE OnDeviceStateChanged(LPCWSTR, DWORD) override {
-        signal(kTopologyChanged);
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE OnDeviceAdded(LPCWSTR) override {
-        signal(kTopologyChanged);
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE OnDeviceRemoved(LPCWSTR) override {
-        return S_OK; // Loss of the open endpoint surfaces as AUDCLNT_E_DEVICE_INVALIDATED.
-    }
-    HRESULT STDMETHODCALLTYPE OnPropertyValueChanged(LPCWSTR, const PROPERTYKEY) override {
-        return S_OK;
-    }
-};
 struct Runtime {
     VoiceAudioCaptureSink sink;
     VoiceAudioCaptureTick tick;
@@ -84,7 +28,7 @@ struct Runtime {
 };
 struct Engine {
     IMMDeviceEnumerator* enumerator;
-    EndpointNotify* notify;
+    AudioEndpointNotify* notify;
     IAudioClient* client;
     IAudioCaptureClient* capture;
 };
@@ -184,19 +128,7 @@ HRESULT open_stream(Runtime& r, Engine& e) noexcept {
     return h;
 }
 HRESULT watch(Runtime& r, Engine& e) noexcept {
-    HRESULT h = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_INPROC_SERVER,
-                                 __uuidof(IMMDeviceEnumerator), reinterpret_cast<void**>(&e.enumerator));
-    if (FAILED(h))
-        return h;
-    void* memory = CoTaskMemAlloc(sizeof(EndpointNotify));
-    if (!memory)
-        return E_OUTOFMEMORY;
-    e.notify = new (memory) EndpointNotify;
-    e.notify->follow_default = !r.device[0];
-    if (!DuplicateHandle(GetCurrentProcess(), r.notify, GetCurrentProcess(), &e.notify->event, 0, FALSE,
-                         DUPLICATE_SAME_ACCESS))
-        return HRESULT_FROM_WIN32(GetLastError());
-    return e.enumerator->RegisterEndpointNotificationCallback(e.notify);
+    return audio_endpoint_watch(eCapture, eCommunications, !r.device[0], r.notify, &e.enumerator, &e.notify);
 }
 void arm(Runtime& r, u64 wake_us) noexcept {
     if (!wake_us || !r.timer)
@@ -229,7 +161,7 @@ DWORD WINAPI capture_thread(void* parameter) noexcept {
         const DWORD waited = WaitForMultipleObjects(r.timer ? 5 : 4, events, FALSE, e.client ? 200 : 250);
         if (waited == WAIT_OBJECT_0 || waited == WAIT_FAILED)
             break;
-        if (InterlockedExchange(&e.notify->dirty, 0) & kDefaultChanged)
+        if (InterlockedExchange(&e.notify->dirty, 0) & kAudioEndpointDefaultChanged)
             close_stream(e);
         if (e.client) {
             const HRESULT drained = drain(r, e);
@@ -243,10 +175,7 @@ DWORD WINAPI capture_thread(void* parameter) noexcept {
         arm(r, r.tick(r.context, now_us()));
     }
     close_stream(e);
-    if (e.enumerator && e.notify)
-        e.enumerator->UnregisterEndpointNotificationCallback(e.notify);
-    com_release(e.notify);
-    com_release(e.enumerator);
+    audio_endpoint_unwatch(e.enumerator, e.notify);
     if (SUCCEEDED(apartment))
         CoUninitialize();
     publish(r, VoiceCaptureState::stopped);

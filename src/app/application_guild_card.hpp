@@ -19,7 +19,6 @@ namespace maicord::app_detail {
 // profile (50001) shows "Private Server"; other failures retry on click.
 bool application_guild_card_open(u64 guild_id, UiRect anchor) noexcept;
 void application_guild_card_close() noexcept;
-bool application_guild_card_active() noexcept;
 // The community lane's answer for the card: its profile, or its join.
 void application_guild_card_response(u64 guild_id, bool join, const RestClientResponse& response,
                                      Utf8View body) noexcept;

@@ -22,27 +22,6 @@ ShellNavigationSceneResult scene_error(ShellNavigationScene* scene,
                                       scene ? scene->scroll_dips : 0.0f, false};
 }
 
-UiLayoutStyle root_style() noexcept {
-    UiLayoutStyle style = ui_layout_style();
-    style.flow = UiLayoutFlow::vertical;
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.horizontal_alignment = UiLayoutAlignment::stretch;
-    style.vertical_alignment = UiLayoutAlignment::stretch;
-    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
-                                   ui_layout_node_scroll_vertical);
-    return style;
-}
-
-UiLayoutStyle spacer_style(float height) noexcept {
-    UiLayoutStyle style = ui_layout_style();
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fixed(height);
-    style.horizontal_alignment = UiLayoutAlignment::stretch;
-    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size);
-    return style;
-}
-
 UiLayoutStyle row_style(const ChannelViewRow& row) noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.flow = UiLayoutFlow::overlay;
@@ -262,7 +241,7 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
     const UiWidgetResult root = ui_widget_manager_add_prevalidated(
         &scene->widgets, ui_widget_invalid_handle(),
         UiWidgetDesc{kNavigationRootWidgetId, UiWidgetKind::scroll_view, ui_widget_enabled,
-                     UiLayoutNodeSpec{utf8_literal("ChannelNavigation"), root_style(), UiSize{}, 0.0f,
+                     UiLayoutNodeSpec{utf8_literal("ChannelNavigation"), ui_layout_scroll_root_style(), UiSize{}, 0.0f,
                                       kNavigationRootWidgetId}});
     if (!root.ok()) {
         clear_materialization(scene);
@@ -273,7 +252,7 @@ ShellNavigationSceneResult shell_navigation_scene_update(ShellNavigationScene* s
         const UiWidgetResult spacer = ui_widget_manager_add_prevalidated(
             &scene->widgets, root.handle,
             UiWidgetDesc{kNavigationSpacerWidgetId, UiWidgetKind::container, ui_widget_enabled,
-                         UiLayoutNodeSpec{utf8_literal("TopInset"), spacer_style(inset), UiSize{}, 0.0f,
+                         UiLayoutNodeSpec{utf8_literal("TopInset"), ui_layout_spacer_style(inset), UiSize{}, 0.0f,
                                           kNavigationSpacerWidgetId}});
         if (!spacer.ok()) {
             clear_materialization(scene);

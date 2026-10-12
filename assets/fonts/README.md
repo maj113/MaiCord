@@ -1,6 +1,6 @@
 # Profile display fonts
 
-These fonts come from independently licensed upstream releases, not a Discord installation or CDN font bundle. User-selected profile typography loads lazily through DirectWrite; MaiCord interface text continues to use the system font. No font parsing/conversion library is shipped.
+These fonts come from independently licensed upstream releases, not a Discord installation or CDN font bundle. User-selected profile typography is registered lazily with MaiCord's native font engine; MaiCord interface text continues to use the system font. No third-party font parsing or conversion library is shipped.
 
 | Wire ID | File | Family / style | Bytes | License |
 | --- | --- | --- | ---: | --- |

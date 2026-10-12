@@ -277,10 +277,6 @@ void application_guild_card_close() noexcept {
     application_request_frame();
 }
 
-bool application_guild_card_active() noexcept {
-    return open_now();
-}
-
 void application_guild_card_response(u64 guild_id, bool join, const RestClientResponse& response,
                                      Utf8View body) noexcept {
     const bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300;

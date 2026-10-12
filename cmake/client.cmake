@@ -15,10 +15,13 @@ target_link_libraries(MaiCordAccount PRIVATE
 set_target_properties(MaiCordAccount PROPERTIES
     CXX_EXTENSIONS OFF
     MSVC_RUNTIME_LIBRARY "MultiThreaded")
+# No manifest: LINK's default one holds only an asInvoker trustInfo, which a
+# DLL ignores, and would cost the image a .rsrc section.
 target_link_options(MaiCordAccount PRIVATE
     /ENTRY:maicord_account_module_entry
     /EXPORT:maicord_account_get_api,@122,NONAME
-    /SUBSYSTEM:WINDOWS,6.02)
+    /SUBSYSTEM:WINDOWS,6.02
+    /MANIFEST:NO)
 if(MAICORD_GENERATE_LINK_MAPS)
     target_link_options(MaiCordAccount PRIVATE "/MAP:${CMAKE_CURRENT_BINARY_DIR}/MaiCordAccount.map")
 endif()
@@ -216,13 +219,14 @@ file(GLOB MAICORD_COLD_APPLICATION_SOURCES CONFIGURE_DEPENDS
 maicord_compact_sources(
     SOURCES ${MAICORD_COLD_APPLICATION_SOURCES}
         src/app/account_media.cpp src/app/account_media_worker.cpp src/app/regional_flag_assets.cpp
+        src/app/game_detection.cpp src/core/log.cpp src/ui/clipboard.cpp
         src/platform/staged_file.cpp src/platform/browser_sign_in_launcher.cpp
         src/platform/network_file.cpp src/platform/file_picker.cpp src/platform/clipboard_attachment.cpp
         src/platform/file_identity.cpp src/platform/timezone.cpp src/platform/secure_buffer.cpp
     TARGETS maicord_protocol maicord_model maicord_plugin_host maicord_plugin_modules
         maicord_account_host maicord_client_preferences maicord_account_paths maicord_webauthn
     EXCLUDE
-        "/application_(frame_presentation|scrolling|scroll_host|surface_motion|ui_runtime|input_routing|scheduler|media_animation|account_pump|poll|window_runtime|composer_input|composer_text_input|content_input|shell_input|keyboard_focus|video|image_viewer|tooltip|pane_resize)\\.cpp$"
+        "/application_(frame_presentation|scrolling|scroll_host|surface_motion|ui_runtime|input_routing|scheduler|media_animation|account_pump|window_runtime|composer_input|composer_text_input|content_input|shell_input|keyboard_focus|video|image_viewer|tooltip|pane_resize)\\.cpp$"
         "/model/message_(rich_)?store\\.cpp$"
         "/protocol/(message_history|websocket_frame|websocket_message|http1|http_response_stream|json_write|writer|json_ids|gateway_payload|gateway_events|gateway_message_events|gateway_message_rich|gateway_reaction_events|gateway_typing_events|media_packet|dave_frame|dave_replay|voice_media_events|p256_signature)\\.cpp$")
 # Cold pages, overlays and popups rebuilt on interaction (settings, server and

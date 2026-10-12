@@ -252,6 +252,31 @@ constexpr UiLayoutStyle ui_layout_style() noexcept {
     };
 }
 
+// The viewport of a virtualized list: fills its parent, stretches its rows and
+// clips and scrolls them vertically.
+constexpr UiLayoutStyle ui_layout_scroll_root_style() noexcept {
+    UiLayoutStyle style = ui_layout_style();
+    style.flow = UiLayoutFlow::vertical;
+    style.width = ui_layout_fill();
+    style.height = ui_layout_fill();
+    style.horizontal_alignment = UiLayoutAlignment::stretch;
+    style.vertical_alignment = UiLayoutAlignment::stretch;
+    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
+                                   ui_layout_node_scroll_vertical);
+    return style;
+}
+
+// A full-width filler of a fixed (possibly zero) height, standing in for the
+// unrealized rows above a virtualized list's first realized row.
+constexpr UiLayoutStyle ui_layout_spacer_style(float height) noexcept {
+    UiLayoutStyle style = ui_layout_style();
+    style.width = ui_layout_fill();
+    style.height = ui_layout_fixed(height);
+    style.horizontal_alignment = UiLayoutAlignment::stretch;
+    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_zero_size);
+    return style;
+}
+
 // The anchor guide shares parent origin, padding and scroll coordinates with
 // arrangement. It may be a point/line, unlike a drawable child rectangle.
 constexpr UiRect ui_layout_anchor_rectangle(const UiLayoutNode& parent,
