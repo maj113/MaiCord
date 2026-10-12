@@ -3,7 +3,7 @@
   "name": "Example (MaiCord defaults)",
   "base": "dark",
   "palette": {
-    "blurple": [0.3451, 0.3961, 0.949, 1]
+    "indigo": [0.3451, 0.3961, 0.949, 1]
   },
   "colors": {
     "base_lowest": [0.0588, 0.0588, 0.0706, 1],
@@ -13,7 +13,7 @@
     "surface_high": [0.2078, 0.2078, 0.2275, 1],
     "interactive": [0.2667, 0.2667, 0.2941, 1],
     "interactive_hover": [0.3216, 0.3216, 0.3529, 1],
-    "accent": "{palette.blurple}",
+    "accent": "{palette.indigo}",
     "text_primary": [0.949, 0.9569, 0.9686, 1],
     "avatar_placeholder": [0.3804, 0.3882, 0.4196, 1],
     "notification": [0.949, 0.3216, 0.3216, 1],
