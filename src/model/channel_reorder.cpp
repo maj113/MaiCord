@@ -34,6 +34,19 @@ u64 visible_parent(const ChatStateStore& state, const ChannelRecord& channel) no
     const auto* parent = channel.parent_id ? chat_state_store_find_channel(state, channel.parent_id) : nullptr;
     return parent && parent->type == 4 && listed(state, *parent, channel.guild_id) ? parent->id : 0;
 }
+// A category sorts ahead of its own channels (id 0, position 0).
+struct ListPlace {
+    u64 category, id;
+    u32 category_position, position;
+};
+ListPlace list_place(const ChatStateStore& state, const ChannelRecord& channel) noexcept {
+    if (channel.type == 4)
+        return {channel.id, 0, channel.position, 0};
+    const auto* parent = channel.parent_id ? chat_state_store_find_channel(state, channel.parent_id) : nullptr;
+    const bool categorized = parent && parent->type == 4 && parent->guild_id == channel.guild_id;
+    return {categorized ? parent->id : 0, channel.id, categorized ? parent->position : 0u,
+            channel_list_position(channel.type, channel.position)};
+}
 bool categories(const ChatStateStore& state, u64 guild_id, Ordering* output) noexcept {
     output->count = 0;
     for (u32 order = 0; order < state.channel_count; ++order) {
@@ -121,6 +134,24 @@ ChannelSortGroup channel_sort_group(u8 type) noexcept {
     default:
         return ChannelSortGroup::none;
     }
+}
+
+u32 channel_list_position(u8 type, u32 position) noexcept {
+    constexpr u32 kVoiceOffset = 10'000;
+    if (channel_sort_group(type) != ChannelSortGroup::voice)
+        return position;
+    return position > ~0u - kVoiceOffset ? ~0u : position + kVoiceOffset;
+}
+
+bool channel_list_before(const ChatStateStore& state, const ChannelRecord& a, const ChannelRecord& b) noexcept {
+    const ListPlace x = list_place(state, a), y = list_place(state, b);
+    if ((x.category != 0) != (y.category != 0))
+        return x.category == 0;
+    if (x.category_position != y.category_position)
+        return x.category_position < y.category_position;
+    if (x.category != y.category)
+        return x.category < y.category;
+    return x.position != y.position ? x.position < y.position : x.id < y.id;
 }
 
 bool channel_reorder_valid(const ChatStateStore& state, u64 source_id, u64 target_id,

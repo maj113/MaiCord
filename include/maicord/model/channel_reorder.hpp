@@ -20,6 +20,18 @@ enum class ChannelReorderDrop : u8 {
 enum class ChannelSortGroup : u8 { none, text, voice, category };
 ChannelSortGroup channel_sort_group(u8 type) noexcept;
 
+// Channel list order. Uncategorized channels lead, then each category by
+// (position, id). Inside one, every channel except voice and stage lists by
+// position, then voice and stage channels by position; equal positions fall
+// back to ascending ID. The channel rail and any picker that lists a server's
+// channels share it.
+//
+// A channel's position key inside its category: voice and stage channels sit
+// 10000 positions later, behind any text-like channel a server really has.
+u32 channel_list_position(u8 type, u32 position) noexcept;
+// Whether guild channel `a` lists before `b` (categories included, threads not).
+bool channel_list_before(const ChatStateStore&, const ChannelRecord& a, const ChannelRecord& b) noexcept;
+
 // Whether a drop is meaningful (same guild, compatible groups, visible rows).
 // Permission checks belong to the caller.
 bool channel_reorder_valid(const ChatStateStore&, u64 source_id, u64 target_id, ChannelReorderDrop) noexcept;

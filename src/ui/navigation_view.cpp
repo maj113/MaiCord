@@ -1,4 +1,5 @@
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/model/channel_reorder.hpp"
 #include "maicord/model/stage_instance_store.hpp"
 #include "maicord/core/heap_sort.hpp"
 
@@ -75,12 +76,13 @@ bool visual_key(const ChatStateStore& state, const ChannelRecord& channel,
 
     const bool thread = channel.type == 10 || channel.type == 11 || channel.type == 12;
     const ChannelRecord* base = thread && parent && parent->type != 4 ? parent : &channel;
+    // Uncategorized channels share one group and sort like a category's own.
     *key = ChannelSortKey{};
     key->group_rank = category ? 1 : 0;
-    key->group_id = category ? category->id : base->id;
-    key->group_position = category ? category->position : base->position;
-    key->base_id = category ? (channel.type == 4 ? 0 : base->id) : base->id;
-    key->base_position = category ? (channel.type == 4 ? 0 : base->position) : base->position;
+    key->group_id = category ? category->id : 0;
+    key->group_position = category ? category->position : 0;
+    key->base_id = channel.type == 4 ? 0 : base->id;
+    key->base_position = channel.type == 4 ? 0 : channel_list_position(base->type, base->position);
     key->row_id = channel.id;
     key->row_position = channel.position;
     key->row_rank = channel.type == 4 ? 0 : thread ? 2 : 1;

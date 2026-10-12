@@ -1,5 +1,7 @@
-// Server lifecycle requests, guild folder edits, channel reordering, drag
-// state machines, text-in-voice capability and the server menu policy.
+// Server lifecycle requests, guild folder edits, channel reordering, channel
+// list order, drag state machines, text-in-voice capability and the server
+// menu policy.
+#include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/channel_reorder.hpp"
 #include "maicord/model/guild_folder_edit.hpp"
@@ -557,7 +559,219 @@ void channel_opt_in() noexcept {
           "channel opt-in: Show all channels restores the full list");
 }
 
+// ---- channel list order ------------------------------------------------------------
+struct List {
+    State s;
+    GuildViewRow guild_rows[4];
+    ChannelViewRow channel_rows[16];
+    u16 sorting[16];
+    u8 visible[16];
+    ChannelSortKey keys[16];
+    NavigationView view;
+};
+bool list_ready(List& l, u64 guild = 1) noexcept {
+    return navigation_view_initialize(&l.view, {l.guild_rows, 4}, {l.channel_rows, 16}, {l.sorting, 16},
+                                      {l.visible, 16}, {l.keys, 16}) &&
+           chat_state_store_select_guild(&l.s.store, guild).ok();
+}
+bool rows_are(const NavigationView& view, const u64* ids, u32 count) noexcept {
+    if (view.channel_count != count)
+        return false;
+    for (u32 i = 0; i < count; ++i)
+        if (view.channel_rows[i].id != ids[i])
+            return false;
+    return true;
+}
+template <u32 N>
+bool list_is(List& l, const u64 (&ids)[N]) noexcept {
+    return navigation_view_rebuild(&l.view, l.s.store).ok() && rows_are(l.view, ids, N);
+}
+// The picker comparator and the rail agree on every pair of listed channels.
+bool comparator_agrees(const List& l) noexcept {
+    for (u32 i = 0; i < l.view.channel_count; ++i)
+        for (u32 j = i + 1; j < l.view.channel_count; ++j) {
+            const auto* a = chat_state_store_find_channel(l.s.store, l.view.channel_rows[i].id);
+            const auto* b = chat_state_store_find_channel(l.s.store, l.view.channel_rows[j].id);
+            if (!a || !b || !channel_list_before(l.s.store, *a, *b) || channel_list_before(l.s.store, *b, *a))
+                return false;
+        }
+    return true;
+}
+
+void list_order_kinds() noexcept {
+    List l{};
+    // Text-like first, voice and stage after; equal positions fall back to the ID.
+    check(initialize(l.s) && add_guild(l.s, 1, "Lab") && add_channel(l.s, 100, 1, 0, 4, 1, "Cat") &&
+              add_channel(l.s, 12, 1, 100, 0, 0, "b") && add_channel(l.s, 11, 1, 100, 2, 0, "v1") &&
+              add_channel(l.s, 10, 1, 100, 0, 0, "a") && add_channel(l.s, 13, 1, 100, 2, 0, "v2") &&
+              add_channel(l.s, 14, 1, 100, 13, 0, "stage") && add_channel(l.s, 16, 1, 100, 0, 5, "c") &&
+              add_channel(l.s, 17, 1, 100, 2, 1, "v3") && list_ready(l),
+          "list order: kinds fixture");
+    constexpr u64 expected[]{100, 10, 12, 16, 11, 13, 14, 17};
+    check(list_is(l, expected) && comparator_agrees(l),
+          "list order: equal positions list text by id, then voice and stage by id; later voice stays below text");
+    check(channel_list_position(2, 5) == 10'005 && channel_list_position(13, 0) == 10'000 &&
+              channel_list_position(0, 5) == 5 && channel_list_position(15, 10'000) == 10'000 &&
+              channel_list_position(2, ~0u) == ~0u,
+          "list order: voice and stage positions sit 10000 later, saturating");
+
+    // Announcement, forum and media rows sort by position with text; voice-like rows follow.
+    List m{};
+    check(initialize(m.s) && add_guild(m.s, 1, "Lab") && add_channel(m.s, 200, 1, 0, 4, 0, "Cat") &&
+              add_channel(m.s, 20, 1, 200, 0, 3, "text") && add_channel(m.s, 21, 1, 200, 5, 1, "news") &&
+              add_channel(m.s, 22, 1, 200, 15, 2, "forum") && add_channel(m.s, 23, 1, 200, 16, 0, "media") &&
+              add_channel(m.s, 24, 1, 200, 2, 0, "voice") && add_channel(m.s, 25, 1, 200, 13, 0, "stage") &&
+              list_ready(m),
+          "list order: text-like types fixture");
+    constexpr u64 mixed[]{200, 23, 21, 22, 20, 24, 25};
+    check(list_is(m, mixed) && comparator_agrees(m),
+          "list order: announcement, forum and media interleave with text by position, ahead of voice");
+}
+
+void list_order_voice_and_uncategorized() noexcept {
+    // A stage among voice channels, all uncategorized: by position, ties by ID.
+    List v{};
+    check(initialize(v.s) && add_guild(v.s, 1, "Lab") && add_channel(v.s, 30, 1, 0, 2, 2, "v") &&
+              add_channel(v.s, 31, 1, 0, 13, 0, "s0") && add_channel(v.s, 32, 1, 0, 2, 1, "v1") &&
+              add_channel(v.s, 33, 1, 0, 13, 1, "s1") && add_channel(v.s, 34, 1, 0, 0, 9, "text") &&
+              list_ready(v),
+          "list order: stage fixture");
+    constexpr u64 stage[]{34, 31, 32, 33, 30};
+    check(list_is(v, stage) && comparator_agrees(v),
+          "list order: stage channels order among voice channels by position, then ID");
+
+    // Uncategorized channels (including one whose category is unknown) lead every category;
+    // categories order by position, then ID.
+    List u{};
+    check(initialize(u.s) && add_guild(u.s, 1, "Lab") && add_channel(u.s, 52, 1, 0, 4, 0, "A") &&
+              add_channel(u.s, 70, 1, 0, 4, 0, "B") && add_channel(u.s, 50, 1, 0, 4, 1, "C") &&
+              add_channel(u.s, 53, 1, 52, 0, 0, "a") && add_channel(u.s, 71, 1, 70, 0, 0, "b") &&
+              add_channel(u.s, 51, 1, 50, 0, 0, "c") && add_channel(u.s, 54, 1, 50, 2, 0, "cv") &&
+              add_channel(u.s, 60, 1, 0, 0, 5, "u1") && add_channel(u.s, 61, 1, 0, 2, 0, "u2") &&
+              add_channel(u.s, 62, 1, 9999, 0, 0, "orphan") && list_ready(u),
+          "list order: uncategorized fixture");
+    constexpr u64 top[]{62, 60, 61, 52, 53, 70, 71, 50, 51, 54};
+    check(list_is(u, top) && comparator_agrees(u) && u.view.channel_rows[0].depth == 0 &&
+              u.view.channel_rows[3].depth == 0 && u.view.channel_rows[4].depth == 1,
+          "list order: uncategorized channels lead; categories follow by position then ID");
+    // A category move re-sorts the rail: C onto the lead position, then A to the end.
+    check(add_channel(u.s, 50, 1, 0, 4, 0, "C"), "list order: category position update");
+    constexpr u64 first[]{62, 60, 61, 50, 51, 54, 52, 53, 70, 71};
+    check(list_is(u, first) && comparator_agrees(u), "list order: a category moved to the lead position goes first");
+    check(add_channel(u.s, 52, 1, 0, 4, 7, "A"), "list order: second category update");
+    constexpr u64 last[]{62, 60, 61, 50, 51, 54, 70, 71, 52, 53};
+    check(list_is(u, last) && comparator_agrees(u), "list order: a category moved later goes last");
+}
+
+void list_order_threads() noexcept {
+    List t{};
+    check(initialize(t.s) && add_guild(t.s, 1, "Lab") && add_channel(t.s, 80, 1, 0, 0, 1, "text") &&
+              add_channel(t.s, 91, 1, 80, 11, 0, "t2") && add_channel(t.s, 90, 1, 80, 11, 0, "t1") &&
+              add_channel(t.s, 81, 1, 0, 0, 2, "later") && add_channel(t.s, 82, 1, 0, 2, 0, "voice") &&
+              add_channel(t.s, 100, 1, 0, 4, 0, "Cat") && add_channel(t.s, 101, 1, 100, 0, 0, "in") &&
+              add_channel(t.s, 102, 1, 101, 11, 0, "thread") && add_channel(t.s, 103, 1, 100, 2, 0, "cv") &&
+              list_ready(t),
+          "list order: thread fixture");
+    constexpr u64 expected[]{80, 90, 91, 81, 82, 100, 101, 102, 103};
+    check(list_is(t, expected) && t.view.channel_rows[1].depth == 1 && t.view.channel_rows[7].depth == 2,
+          "list order: threads follow their parent, before the next channel, in both placements");
+}
+
+// Gateway-driven re-sorting: GUILD_CREATE replaces a server's channels, CHANNEL_UPDATE moves one.
+struct Wire {
+    ChatStateStore store;
+    GuildRecord guild[1];
+    ChannelRecord channels[16];
+    RoleRecord roles[4];
+    PermissionOverwriteRecord overwrites[8];
+    u16 guild_order[1], channel_order[16];
+    u8 names[2048];
+    u32 structurals[2048];
+    char payload[8192];
+    GuildViewRow guild_rows[1];
+    ChannelViewRow channel_rows[16];
+    u16 sorting[16];
+    u8 visible[16];
+    ChannelSortKey keys[16];
+    NavigationView view;
+    bool apply(Utf8View wire) noexcept {
+        GatewayEnvelope envelope{};
+        GatewayClientEvent event{};
+        ConstSlice<u8> output{};
+        bool handled = false;
+        event.kind = GatewayClientEventKind::dispatch;
+        if (!gateway_decode_envelope(wire, {structurals, 2048}, 32, &envelope).ok() ||
+            !gateway_client_route_state_dispatch(envelope, {structurals, 2048}, 32, {payload, sizeof(payload)}, 1,
+                                                 &event, &output, &handled)
+                 .ok() ||
+            !handled)
+            return false;
+        event.dispatch_payload_bytes = output.count;
+        return chat_state_apply_gateway_event(&store, event, output, {}).ok();
+    }
+    template <u32 N>
+    bool listed(const u64 (&ids)[N]) noexcept {
+        return navigation_view_rebuild(&view, store).ok() && rows_are(view, ids, N);
+    }
+};
+Wire g_wire{};
+
+void list_order_gateway() noexcept {
+    auto& w = g_wire;
+    check(chat_state_store_initialize(&w.store, {w.guild, 1}, {w.guild_order, 1}, {w.channels, 16},
+                                      {w.channel_order, 16}, {w.names, sizeof(w.names)}) &&
+              chat_state_store_bind_permissions(&w.store, {w.roles, 4}, {w.overwrites, 8}) &&
+              navigation_view_initialize(&w.view, {w.guild_rows, 1}, {w.channel_rows, 16}, {w.sorting, 16},
+                                         {w.visible, 16}, {w.keys, 16}),
+          "list order gateway: fixture");
+    w.store.self_user_id = 1;
+    // Payload order is unrelated to the list order; channel 30 is denied View Channel.
+    check(w.apply(utf8_literal(
+              R"({"op":0,"t":"GUILD_CREATE","d":{"id":"7","name":"Guild","owner_id":"2","roles":[{"id":"7","name":"Everyone","permissions":"1024"}],)"
+              R"("members":[{"user":{"id":"1"},"roles":[]}],"channels":[)"
+              R"({"id":"20","type":2,"name":"voice","position":0,"parent_id":"10","permission_overwrites":[]},)"
+              R"({"id":"21","type":0,"name":"text","position":3,"parent_id":"10","permission_overwrites":[]},)"
+              R"({"id":"22","type":0,"name":"late","position":4,"parent_id":"10","permission_overwrites":[]},)"
+              R"({"id":"10","type":4,"name":"Cat","position":1,"permission_overwrites":[]},)"
+              R"({"id":"11","type":4,"name":"Other","position":0,"permission_overwrites":[]},)"
+              R"({"id":"30","type":0,"name":"secret","position":0,"parent_id":"11","permission_overwrites":[{"id":"7","type":0,"allow":"0","deny":"1024"}]},)"
+              R"({"id":"31","type":15,"name":"forum","position":1,"parent_id":"11","permission_overwrites":[]}]}})")) &&
+              chat_state_store_select_guild(&w.store, 7).ok(),
+          "list order gateway: GUILD_CREATE");
+    constexpr u64 created[]{11, 31, 10, 21, 22, 20};
+    check(w.listed(created), "list order gateway: GUILD_CREATE lists by position, hides a denied channel");
+    check(w.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"10","guild_id":"7","type":4,"name":"Cat","position":0,"parent_id":null}})")),
+          "list order gateway: category CHANNEL_UPDATE");
+    constexpr u64 tied[]{10, 21, 22, 20, 11, 31};
+    check(w.listed(tied), "list order gateway: a category moved onto a tie lists by ID");
+    check(w.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"22","guild_id":"7","type":0,"name":"late","position":1,"parent_id":"10"}})")),
+          "list order gateway: channel CHANNEL_UPDATE");
+    constexpr u64 reordered[]{10, 22, 21, 20, 11, 31};
+    check(w.listed(reordered), "list order gateway: a channel moved up passes its siblings");
+    check(w.apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","d":{"id":"10","guild_id":"7","type":4,"name":"Cat","position":5,"parent_id":null}})")),
+          "list order gateway: category moved later");
+    constexpr u64 later[]{11, 31, 10, 22, 21, 20};
+    check(w.listed(later), "list order gateway: a category moved later follows the others");
+    check(w.apply(utf8_literal(
+              R"({"op":0,"t":"GUILD_CREATE","d":{"id":"7","name":"Guild","owner_id":"2","roles":[{"id":"7","name":"Everyone","permissions":"1024"}],)"
+              R"("members":[{"user":{"id":"1"},"roles":[]}],"channels":[)"
+              R"({"id":"31","type":15,"name":"forum","position":0,"parent_id":"11","permission_overwrites":[]},)"
+              R"({"id":"11","type":4,"name":"Other","position":3,"permission_overwrites":[]},)"
+              R"({"id":"21","type":0,"name":"text","position":2,"parent_id":"10","permission_overwrites":[]},)"
+              R"({"id":"22","type":0,"name":"late","position":1,"parent_id":"10","permission_overwrites":[]},)"
+              R"({"id":"20","type":2,"name":"voice","position":0,"parent_id":"10","permission_overwrites":[]},)"
+              R"({"id":"10","type":4,"name":"Cat","position":0,"permission_overwrites":[]}]}})")),
+          "list order gateway: GUILD_CREATE again");
+    constexpr u64 resynced[]{10, 22, 21, 20, 11, 31};
+    check(w.listed(resynced) && !chat_state_store_find_channel(w.store, 30),
+          "list order gateway: a repeated GUILD_CREATE replaces and re-sorts the channels");
+}
+
 void run() noexcept {
+    list_order_kinds();
+    list_order_voice_and_uncategorized();
+    list_order_threads();
+    list_order_gateway();
     hide_muted();
     channel_opt_in();
     lifecycle_requests();
