@@ -274,3 +274,27 @@ probes cover all 4,803 newly assigned characters in six contexts each.
 other unresolved mismatch. `MaiCordLineWindowsTests` runs unit/stress checks
 without arguments and replays a corpus when passed its path. It imports only
 KERNEL32.dll.
+
+## Thai word breaking data
+
+Thai has no spaces between words, so `native_thai_word_breaks` finds break
+opportunities with a word list and, for text the list lacks, a syllable
+grammar. Both tables are generated from open or first-party inputs only:
+
+```powershell
+python -I tools/unicode/thai_break_data.py --icu <thaidict.txt> --pythainlp <words_th.txt> [--report <generation.json>]
+python -I tools/unicode/thai_syllable_data.py
+```
+
+`thai_break_data.py` pins ICU 78.3 `thaidict.txt` (Unicode License v3 and the
+ICU 1.8.1-57.1 license, `assets/licenses/ICU-Thai-dictionary.txt`) and
+PyThaiNLP 5.3.8 `words_th.txt` (CC0-1.0, `assets/licenses/PyThaiNLP-corpus.txt`)
+by URL and SHA-256, and rejects other input. It keeps every lexical ICU word
+and the PyThaiNLP words that are not compounds of shorter listed words, up to
+20 scalars, and writes `src/text/generated/thai_lexical_data.inc` as a
+suffix-shared word graph that it decodes again and compares with the word
+list. `thai_syllable_data.py` holds an authored grammar of Thai vowel
+spellings and writes the minimized machine to
+`src/text/generated/thai_syllable_data.inc`; it reads no input. Neither table
+is derived from a platform text service, and the breaks differ from
+DirectWrite's where the dictionaries do (see `tests/thai_context_cases.inc`).

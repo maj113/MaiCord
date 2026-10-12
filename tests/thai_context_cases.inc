@@ -1,58 +1,141 @@
-// Reference comparisons for contextual lookahead and rejected two-word guesses.
-bool native_thai_context_cases() noexcept {
-    const wchar_t* samples[]{
-        L"\u0e01\u0e23\u0e21\u0e01\u0e23\u0e2d\u0e21\u0e41\u0e25\u0e49\u0e27\u0e2d\u0e22\u0e32\u0e01\u0e2d\u0e36\u0e4a\u0e1a",
-        L"\u0e01\u0e23\u0e38\u0e1a\u0e01\u0e23\u0e34\u0e1a\u0e22\u0e34\u0e21",
-        L"\u0e01\u0e30\u0e23\u0e30\u0e15\u0e30\u0e2d\u0e30\u0e40\u0e01\u0e15",
-        L"\u0e01\u0e38\u0e25\u0e17\u0e39\u0e2a\u0e01\u0e1d\u0e23\u0e31\u0e48\u0e19\u0e02\u0e2d\u0e07\u0e23\u0e30\u0e1a\u0e32\u0e14\u0e1b\u0e31\u0e07\u0e15\u0e2d",
-        L"\u0e07\u0e32\u0e19\u0e1a\u0e23\u0e34\u0e2b\u0e32\u0e23\u0e40\u0e2b\u0e35\u0e48\u0e22",
-        L"\u0e14\u0e2d\u0e01\u0e1c\u0e25\u0e18\u0e23\u0e23\u0e21\u0e14\u0e32\u0e41\u0e2d\u0e4a\u0e04\u0e0a\u0e31\u0e48\u0e19\u0e2d\u0e32\u0e01\u0e31\u0e1b\u0e01\u0e23\u0e34\u0e22\u0e32\u0e1b\u0e30\u0e15\u0e34\u0e22\u0e32\u0e19",
-        L"\u0e15\u0e22\u0e32\u0e04\u0e14\u0e2d\u0e01\u0e1c\u0e25\u0e18\u0e23\u0e23\u0e21\u0e14\u0e32\u0e41\u0e1a\u0e47\u0e01\u0e2d\u0e31\u0e1b",
-        L"\u0e15\u0e30\u0e1a\u0e2d\u0e22\u0e17\u0e30\u0e17\u0e48\u0e32\u0e27\u0e27\u0e34\u0e25\u0e32\u0e27\u0e31\u0e13\u0e22\u0e4c\u0e21\u0e31\u0e0a\u0e0a\u0e32\u0e23\u0e4c",
-        L"\u0e17\u0e49\u0e2d\u0e41\u0e17\u0e49\u0e40\u0e01\u0e40\u0e2a\u0e2b\u0e32\u0e07\u0e01\u0e23\u0e30\u0e2b\u0e21\u0e27\u0e14\u0e02\u0e23\u0e38\u0e02\u0e23\u0e30\u0e2a\u0e49\u0e19\u0e15\u0e35\u0e19\u0e2a\u0e49\u0e19\u0e21\u0e37\u0e2d",
-        L"\u0e19\u0e34\u0e40\u0e27\u0e28\u0e27\u0e34\u0e17\u0e22\u0e32\u0e02\u0e27\u0e31\u0e01\u0e44\u0e02\u0e27\u0e48\u0e16\u0e49\u0e2d\u0e22\u0e04\u0e33\u0e17\u0e38\u0e1e\u0e1e\u0e25\u0e20\u0e32\u0e1e",
-        L"\u0e21\u0e19\u0e38\u0e1e\u0e25\u0e35\u0e23\u0e31\u0e07\u0e2a\u0e34\u0e21\u0e32\u0e40\u0e23\u0e47\u0e01\u0e04\u0e2d\u0e23\u0e4c\u0e14",
-        L"\u0e21\u0e32\u0e22\u0e32\u0e04\u0e15\u0e34\u0e2d\u0e30\u0e25\u0e38\u0e48\u0e21\u0e2d\u0e25\u0e48\u0e27\u0e22",
-        L"\u0e23\u0e30\u0e1a\u0e32\u0e19\u0e35\u0e49\u0e40\u0e1f\u0e2d\u0e23\u0e4c\u0e40\u0e1a\u0e2d\u0e44\u0e23\u0e15\u0e4c",
-        L"\u0e25\u0e33\u0e42\u0e1e\u0e07\u0e1b\u0e37\u0e19\u0e15\u0e48\u0e2d\u0e2a\u0e39\u0e49\u0e2d\u0e32\u0e01\u0e32\u0e28\u0e22\u0e32\u0e19\u0e40\u0e2e\u0e34\u0e23\u0e15\u0e4c\u0e42\u0e01\u0e23\u0e0d\u0e08",
-        L"\u0e27\u0e34\u0e17\u0e22\u0e32\u0e04\u0e21\u0e40\u0e14\u0e35\u0e22\u0e19",
-        L"\u0e2a\u0e34\u0e42\u0e23\u0e14\u0e21\u0e04\u0e27\u0e34\u0e42\u0e15\u0e1e\u0e48\u0e2d\u0e15\u0e32\u0e02\u0e22\u0e31\u0e1a\u0e40\u0e02\u0e22\u0e37\u0e49\u0e2d\u0e19\u0e40\u0e1b\u0e25",
-        L"\u0e2d\u0e31\u0e21\u0e1e\u0e38\u0e17\u0e01\u0e23\u0e23\u0e17\u0e1a\u0e40\u0e27\u0e2a\u0e1b\u0e2d\u0e22\u0e15\u0e4c",
-        L"\u0e2d\u0e32\u0e22\u0e38\u0e02\u0e31\u0e22\u0e27\u0e40\u0e2d\u0e14\u0e08\u0e4c",
-        L"\u0e2d\u0e38\u0e17\u0e38\u0e21\u0e1e\u0e23\u0e04\u0e19\u0e35",
-        L"\u0e40\u0e1e\u0e2a\u0e25\u0e32\u0e14\u0e44\u0e1a\u0e23\u0e17\u0e4c\u0e44\u0e21\u0e48\u0e21\u0e35",
-        L"\u0e40\u0e2a\u0e47\u0e01\u0e2d\u0e21\u0e32\u0e27\u0e32\u0e2a\u0e35\u0e2a\u0e38\u0e08\u0e23\u0e34\u0e15\u0e43\u0e08\u0e21\u0e39\u0e01\u0e2b\u0e25\u0e27\u0e07\u0e40\u0e1b\u0e2d\u0e23\u0e4c\u0e42\u0e15\u0e23\u0e34\u0e42\u0e01",
-        L"\u0e40\u0e2d\u0e01\u0e21\u0e31\u0e22\u0e41\u0e19\u0e27\u0e17\u0e35\u0e48\u0e2b\u0e49\u0e32\u0e2d\u0e32\u0e15\u0e21\u0e20\u0e32\u0e1e\u0e40\u0e23\u0e35\u0e22\u0e25\u0e25\u0e34\u0e2a\u0e15\u0e4c\u0e2a\u0e21\u0e43\u0e08",
-        L"\u0e40\u0e2d\u0e01\u0e23\u0e39\u0e1b\u0e21\u0e39\u0e1f\u0e27\u0e35\u0e48",
-        L"\u0e44\u0e1e\u0e23\u0e08\u0e34\u0e15\u0e23\u0e15\u0e36\u0e49\u0e01",
-        L"\u0e27\u0e34\u0e0d\u0e0d\u0e31\u0e15\u0e34",
-        L"\u0e40\u0e0b\u0e1b\u0e31\u0e01\u0e15\u0e23\u0e30\u0e01\u0e23\u0e49\u0e2d\u0e44\u0e2e\u0e42\u0e14\u0e23\u0e40\u0e08\u0e19\u0e0b\u0e31\u0e25\u0e44\u0e1f\u0e14\u0e4c\u0e27\u0e34\u0e0d\u0e0d\u0e31\u0e15\u0e34",
-        L"\u0e1a\u0e39\u0e23\u0e13\u0e30\u0e2a\u0e31\u0e15\u0e27\u0e32\u0e23\u0e2b\u0e25\u0e31\u0e1a\u0e43\u0e19\u0e27\u0e34\u0e0d\u0e0d\u0e31\u0e15\u0e34",
-        L"\u0e22\u0e30\u0e2b\u0e34\u0e17\u0e32\u0e01\u0e25\u0e48\u0e2d\u0e07\u0e40\u0e1e\u0e25\u0e07\u0e01\u0e30\u0e42\u0e1a\u0e21\u0e17\u0e23\u0e07\u0e21\u0e31\u0e13\u0e11\u0e4c",
-        L"\u0e01\u0e32\u0e23\u0e4c\u0e1f\u0e34\u0e25\u0e14\u0e4c\u0e14\u0e33\u0e41\u0e14\u0e07",
-        L"\u0e22\u0e32\u0e08\u0e19\u0e01\u0e40\u0e17\u0e1e\u0e1a\u0e23\u0e34\u0e29\u0e31\u0e17\u0e42\u0e21\u0e42\u0e2b\u0e42\u0e01\u0e32\u0e23\u0e15\u0e23\u0e27\u0e08\u0e08\u0e31\u0e1a",
-        L"\u0e2a\u0e22\u0e32\u0e21\u0e34\u0e19\u0e17\u0e23\u0e4c\u0e25\u0e33\u0e40\u0e2d\u0e35\u0e22\u0e01\u0e08\u0e35\u0e19\u0e01\u0e25\u0e32\u0e07\u0e25\u0e38\u0e01\u0e40\u0e1b\u0e47\u0e19\u0e44\u0e1f\u0e01\u0e32\u0e23\u0e15\u0e34\u0e14\u0e42\u0e23\u0e04",
-        L"\u0e2b\u0e23\u0e1a\u0e46\u0e31\u0e20\u0e32\u0e29\u0e32",
-        L"\u0e2b\u0e23\u0e1a\u0e46\u0e33\u0e20\u0e32\u0e29\u0e32",
-        L"\u0e2b\u0e23\u0e1a\u0e46\u0e3a\u0e20\u0e32\u0e29\u0e32",
-        L"\u0e2b\u0e23\u0e1a\u0e46\u0e4c\u0e20\u0e32\u0e29\u0e32",
+// Thai break opportunities from the native word breaker: the open ICU and
+// PyThaiNLP lexicon (tools/unicode/thai_break_data.py) and the first-party
+// syllable grammar for unknown text (tools/unicode/thai_syllable_data.py).
+// '|' marks each expected opportunity after cluster projection. The cases
+// cover contextual lookahead, rejected two-word guesses, silent letters,
+// attached marks and the wrapped corpus samples whose breaks differ.
+//
+// DirectWrite segments with its own dictionary, so its cluster metrics are an
+// oracle only for the cases marked true. The others differ where the lexicons
+// do, and stay covered by the expectations here:
+// - ICU/PyThaiNLP list a word DirectWrite splits: ธรรมดา, วิญญัติ, ขรุขระ,
+//   กรุบกริบ, ถ้อยคำ, ไม่มี, ขยับเขยื้อน, เซปักตระกร้อ, วิลาวัณย์;
+// - DirectWrite knows a word they lack, or the lookahead then settles
+//   differently: เกเส, หางกระหมวด, เดียน, โการ (after which โมโห splits);
+// - malformed mark sequences (corpus 21-23): marks stay with their base and
+//   the grammar, not DirectWrite's, resynchronizes after them.
+// Primitive contracts of the word breaker. Candidate lengths are the lexicon
+// words starting at a position, longest first; syllable results and recovery
+// lengths are one more than the scalars consumed (negative: open syllable).
+bool native_thai_primitive_cases() noexcept {
+    u32 scalars[32]{};
+    const auto decode=[&](const char* value) noexcept {
+        u32 count=0,bytes=0;while(value[bytes])++bytes;
+        for(u32 at=0;at<bytes&&count<32;){const auto d=utf8_decode_one(value+at,bytes-at);if(!d.valid)return 0u;scalars[count++]=d.codepoint;at+=d.width;}
+        return count;
     };
-    for(const auto* sample:samples){
-        ++cases;u32 count=0;while(sample[count])++count;CHECK(count&&count<256);
-        u32 scalars[256]{};for(u32 i=0;i<count;++i)scalars[i]=sample[i];
+    struct LexicalCase {const char* text;u32 position;i32 lengths[4];};
+    const LexicalCase lexical[]{
+        {"ภาษาไทยไม่มีช่องว่าง",0,{4,2}},{"ภาษาไทยไม่มีช่องว่าง",4,{3,2}},{"ภาษาไทยไม่มีช่องว่าง",7,{5,3}},
+        {"ภาษาไทยไม่มีช่องว่าง",9,{}},{"ภาษาไทยไม่มีช่องว่าง",12,{4,3}},
+        {"จันทร์เจ้า",0,{6}},     // not จัน before the silent ทร์
+        {"ต่างๆ",0,{4}},{"ต่างๆ",4,{1}},{"ตากลม",0,{5,3,2}},{"มากกว่า",0,{7,3,2}},
+        {"ไม่ิ",0,{}},            // not before an attached mark
+        {"กระทรวงการต่างประเทศ",0,{7,3}},  // PyThaiNLP compounds are left out
+    };
+    for(const auto& sample:lexical){
+        ++cases;const u32 count=decode(sample.text);CHECK(count);
+        const auto actual=native_thai_lexical_candidates({scalars,count},sample.position);
+        for(u32 i=0;i<8;++i)if(actual.lengths[i]!=(i<4?sample.lengths[i]:0)){
+            print("Thai lexical case/slot/actual=");number(cases);print("/");number(i);print("/");number(static_cast<u32>(actual.lengths[i]));print("\n");return false;}
+    }
+    struct SyllableCase {const char* text;i32 result;u32 recovery;};
+    const SyllableCase syllables[]{
+        {"กะ",3,3},{"กาน",-3,4},{"กานิ",-3,3},{"กัน",4,4},{"ตั๋ว",5,5},{"คือ",4,4},{"ค่ำ",4,4},{"คน",3,3},
+        {"ปลา",-4,4},{"เกาะ",5,5},{"เรียนรู้",-5,6},{"เกิด",5,5},{"เป็น",5,5},{"แกง",4,4},{"ไม่",4,4},
+        {"ควร",4,4},{"สวัสดี",5,5},{"จันทร์",4,7},{"กำ๊",3,4},{"ฤๅ",3,3},{"ิก",0,0},{"เ",0,0},
+    };
+    for(const auto& sample:syllables){
+        ++cases;const u32 count=decode(sample.text);CHECK(count);
+        const i32 result=native_thai_syllable_result({scalars,count},0);const u32 recovery=native_thai_unknown_recovery({scalars,count},0);
+        if(result!=sample.result||recovery!=sample.recovery){
+            print("Thai syllable case/result/recovery=");number(cases);print("/");number(static_cast<u32>(result));print("/");number(recovery);print("\n");return false;}
+    }
+    CHECK(native_thai_syllable_result({},0)==0&&native_thai_unknown_recovery({},0)==0);
+    CHECK(native_thai_lexical_candidates({scalars,2},2).lengths[0]==0);
+    const u32 attached[]{0xe30,0xe31,0xe32,0xe33,0xe34,0xe3a,0xe45,0xe47,0xe48,0xe4c,0xe4e};
+    const u32 begins[]{0,0x20,0xe01,0xe2e,0xe2f,0xe3b,0xe3f,0xe40,0xe44,0xe46,0xe4f,0xe5b,0xe80};
+    for(u32 cp:attached)CHECK(!native_thai_boundary_class(cp));
+    for(u32 cp:begins)CHECK(native_thai_boundary_class(cp));
+    native_cases+=sizeof(lexical)/sizeof(lexical[0])+sizeof(syllables)/sizeof(syllables[0]);
+    return true;
+}
+bool native_thai_context_cases() noexcept {
+    if(!native_thai_primitive_cases())return false;
+    struct ThaiBreakCase {const char* segmented;bool directwrite;};
+    const ThaiBreakCase samples[]{
+        {"กรมกรอม|แล้วอยาก|อึ๊บ",false},
+        {"กรุบกริบ|ยิม",false},
+        {"กะระตะ|อะเกต",false},
+        {"กุล|ทู|สก|ฝรั่น|ของ|ระบาด|ปังตอ",false},
+        {"งา|นบ|ริ|หาร|เหี่ย",true},
+        {"ดอก|ผล|ธรรมดา|แอ๊คชั่น|อากัป|กริยา|ปะ|ติ|ยาน",false},
+        {"ตยาค|ดอก|ผล|ธรรมดา|แบ็กอัป",false},
+        {"ตะบอย|ทะท่าว|วิลาวัณย์|มัชชาร์",false},
+        {"ท้อแท้|เก|เส|หางกระ|หมวด|ขรุขระ|ส้นตีน|ส้น|มือ",false},
+        {"นิเวศวิทยา|ขวักไขว่|ถ้อยคำ|ทุพพลภาพ",false},
+        {"มนุ|พลี|รังสิมา|เร็กคอร์ด",false},
+        {"มายาคติ|อะลุ่มอล่วย",false},
+        {"ระ|บา|นี้|เฟอร์เบอไรต์",false},
+        {"ลำโพง|ปืน|ต่อสู้|อากาศยาน|เฮิรต์|โกรญจ",true},
+        {"วิทยา|คม|เดีย|น",false},
+        {"สิโรดม|ควิโต|พ่อตา|ขยับเขยื้อน|เปล",false},
+        {"อัมพุทกรร|ทบ|เวสปอยต์",false},
+        {"อา|ยุ|ขัย|วเอดจ์",true},
+        {"อุ|ทุม|พร|คนี",true},
+        {"เพสลาด|ไบรท์|ไม่มี",false},
+        {"เส็ก|อมาวาสี|สุจริต|ใจ|มูก|หลวง|เปอร์โตริโก",false},
+        {"เอกมัย|แนวที่ห้า|อาตมภาพ|เรียลลิสต์|สมใจ",false},
+        {"เอกรูป|มูฟวี่",true},
+        {"ไพรจิตร|ตึ้ก",true},
+        {"วิญญัติ",false},
+        {"เซปักตระกร้อ|ไฮโดรเจนซัลไฟด์|วิญญัติ",false},
+        {"บูรณะ|สัตวาร|หลับใน|วิญญัติ",false},
+        {"ยะหิทา|กล่อง|เพลง|กะโบม|ทรงมัณฑ์",false},
+        {"การ์ฟิลด์|ดำแดง",true},
+        {"ยาจนก|เทพบริษัท|โม|โห|โการต|รวจ|จับ",false},
+        {"สยามินทร์|ลำเอียก|จีนกลาง|ลุก|เป็น|ไฟ|การ|ติด|โรค",true},
+        {"หรบๆ|ัภาษา",true},
+        {"หรบๆ|ำภาษา",true},
+        {"หรบๆ|ฺภาษา",true},
+        {"หรบๆ|์ภาษา",true},
+        // Wrapped corpus samples 6, 21, 22 and 23 (thai_cases.inc).
+        {"ภาษา|ไทย|ไม่มี|ช่อง|ว่าง",false},
+        {"ลัก|ขณะฺ|ภาษา |กฅ|ฆะฺ|ภาษา |กกะฺ |กกะฺ์ |กกะฺก์",false},
+        {"ฟำ๎|ฬม๊ฒิผ",false},
+        {"กำั |กำิ |กำี |กำึ |กำื |กำุ |กำู |กำฺ |กำ็ |กำ่ |กำ้ |กำ๊ |กำ๋ |กำ์ |กำํ |กำ๎ |กำำ |ะฺ |ำฺ |าฺ |เฺ",false},
+    };
+    u32 failures=0,agreeing=0;
+    for(const auto& sample:samples){
+        ++cases;u32 count=0,bytes=0;while(sample.segmented[bytes])++bytes;
+        u32 scalars[256]{};wchar_t text[256]{};u8 expected[257]{};
+        for(u32 at=0;at<bytes;){
+            if(sample.segmented[at]=='|'){expected[count]=1;++at;continue;}
+            const auto decoded=utf8_decode_one(sample.segmented+at,bytes-at);
+            CHECK(decoded.valid&&decoded.codepoint<0x10000&&count<255);
+            scalars[count]=decoded.codepoint;text[count++]=static_cast<wchar_t>(decoded.codepoint);at+=decoded.width;
+        }
         u8 native[257]{};CHECK(line_windows_candidate({scalars,count},{native,257}));
         CHECK(native_thai_word_breaks({scalars,count},{native,257}));
         // Cluster metrics expose opportunities only at shaped-cluster ends.
         // Project through the actual native provider, not a scalar-pair guess.
         CHECK(thai_project_native_clusters({scalars,count},{native,257}));
-        IDWriteTextLayout* layout=nullptr;CHECK(SUCCEEDED(owner.factory->CreateTextLayout(sample,count,owner.format,1000000,1000000,&layout)));
+        bool equal=true;for(u32 i=1;i<count;++i)equal=equal&&(native[i]!=0)==(expected[i]!=0);
+        if(!equal){
+            char actual[1024];u32 size=0;
+            for(u32 i=0;i<count;++i){if(i&&native[i])actual[size++]='|';size+=utf8_encode(scalars[i],actual+size);}
+            actual[size]=0;print("Thai break case/actual=");number(cases);print("/");print(actual);print("\n");++failures;continue;
+        }
+        if(!sample.directwrite){++native_cases;continue;}
+        IDWriteTextLayout* layout=nullptr;CHECK(SUCCEEDED(owner.factory->CreateTextLayout(text,count,owner.format,1000000,1000000,&layout)));
         struct Release {IDWriteTextLayout* p;~Release() noexcept {com_release(p);}} release{layout};
         DWRITE_CLUSTER_METRICS metrics[256]{};u32 clusters=0;
-        CHECK(SUCCEEDED(layout->GetClusterMetrics(metrics,256,&clusters)));u8 expected[257]{};u32 source=0;
-        for(u32 i=0;i<clusters;++i){source+=metrics[i].length;CHECK(source<=count);expected[source]=metrics[i].canWrapLineAfter?1u:0u;}
+        CHECK(SUCCEEDED(layout->GetClusterMetrics(metrics,256,&clusters)));u8 reference[257]{};u32 source=0;
+        for(u32 i=0;i<clusters;++i){source+=metrics[i].length;CHECK(source<=count);reference[source]=metrics[i].canWrapLineAfter?1u:0u;}
         CHECK(source==count);
-        for(u32 i=1;i<count;++i){if(native[i]!=expected[i]){print("Thai context sample/boundary/native/reference=");number(cases);print("/");number(i);print("/");number(native[i]);print("/");number(expected[i]);print("\n");return false;}}
-        ++native_cases;
+        for(u32 i=1;i<count;++i)if(native[i]!=reference[i]){print("Thai DirectWrite case/boundary/native/reference=");number(cases);print("/");number(i);print("/");number(native[i]);print("/");number(reference[i]);print("\n");return false;}
+        ++agreeing;++native_cases;
     }
-    return true;
+    print("thai_break_cases=");number(sizeof(samples)/sizeof(samples[0]));print(" directwrite_agreeing=");number(agreeing);print("\n");
+    return failures==0&&agreeing==12;
 }

@@ -194,7 +194,8 @@ include their notices:
 | Unicode data | Unicode License v3 | [`assets/licenses/Unicode-3.0.txt`](assets/licenses/Unicode-3.0.txt) |
 | [gemoji](https://github.com/github/gemoji) emoji aliases | MIT | [`assets/licenses/gemoji-MIT.txt`](assets/licenses/gemoji-MIT.txt) |
 | [Emojibase](https://emojibase.dev/) shortcodes (incl. JoyPixels and emoji-data presets) | MIT | [`assets/licenses/emojibase-MIT.txt`](assets/licenses/emojibase-MIT.txt) |
-| PyThaiNLP Thai word list | CC0 1.0 | [`assets/licenses/PyThaiNLP-corpus.txt`](assets/licenses/PyThaiNLP-corpus.txt) |
+| [ICU](https://icu.unicode.org/) 78.3 Thai word list | Unicode License v3 and ICU 1.8.1–57.1 license | [`assets/licenses/ICU-Thai-dictionary.txt`](assets/licenses/ICU-Thai-dictionary.txt) |
+| [PyThaiNLP](https://github.com/PyThaiNLP/pythainlp) 5.3.8 Thai word list | CC0 1.0 | [`assets/licenses/PyThaiNLP-corpus.txt`](assets/licenses/PyThaiNLP-corpus.txt) |
 | Profile display fonts | SIL Open Font License 1.1 | [`assets/fonts/`](assets/fonts/README.md) |
 | MaiCord notification sounds (original) | CC0 1.0 | [`assets/licenses/MaiCord-sounds.txt`](assets/licenses/MaiCord-sounds.txt) |
 

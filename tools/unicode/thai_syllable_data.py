@@ -1,199 +1,323 @@
-"""Normalize the pinned Windows Thai fallback grammar into a stack-free machine.
+"""Generate the Thai orthographic syllable machine used for unknown-word recovery.
 
-Generation/QA only. The output is Windows-derived compatibility data, not an
-independently authored linguistic grammar. No DLL or private call is used by
-the native runtime.
+The grammar below is first-party, written from the standard Thai vowel
+spellings (an optional leading vowel, one or two initial consonants, vowel
+signs and tone marks in Unicode order, an optional final consonant) and needs
+no input data. It recognizes one syllable from a starting position with one
+scalar of lookahead and reports how it ended:
+
+- closed: the syllable is complete (a short vowel such as SARA A, a vowel
+  that includes its final such as SARA AM, or a consumed final consonant);
+- open: a following consonant may still be this syllable's final, which
+  native_thai_unknown_recovery decides from the scalar after it;
+- fail: no syllable starts here, or it is malformed.
+
+Each state may consume the scalar (a transition) or finish before or
+including it. The machine is acyclic, so recognition reads a bounded number of
+scalars. It is minimized, its character classes merged where they behave
+identically, and the emitted tables are decoded again and compared with the
+grammar before the output is written.
+
+    python -I tools/unicode/thai_syllable_data.py [--output <file>]
 """
 import argparse
 from collections import Counter
-import ctypes
 import hashlib
 import json
 from pathlib import Path
-import struct
 
-from thai_selection_probe import Reference
-from thai_unknown_probe import DLL_SHA256
+OUTPUT = Path(__file__).resolve().parents[2] / 'src/text/generated/thai_syllable_data.inc'
+
+# Character classes over U+0E00..U+0E5B; anything else, including the end of
+# the span, is 'other'.
+CLASSES = {
+    'consonant': [c for c in range(0xe01, 0xe2f) if c not in (0xe22, 0xe23, 0xe24, 0xe25, 0xe26, 0xe27, 0xe2d)],
+    'cluster': [0xe23, 0xe25],  # RO RUA, LO LING: second consonant of a cluster
+    'wo': [0xe27],               # WO WAEN: cluster consonant and part of the vowel -UA
+    'yo': [0xe22],               # YO YAK: part of the vowel -IA
+    'o': [0xe2d],                # O ANG: vowel carrier in -O, -UEA, -OE
+    'ru': [0xe24, 0xe26],        # RU, LU: vowel letters
+    'e': [0xe40],                # SARA E
+    'ae_o': [0xe41, 0xe42],      # SARA AE, SARA O
+    'ai': [0xe43, 0xe44],        # SARA AI MAIMUAN, SARA AI MAIMALAI
+    'a': [0xe30],                # SARA A
+    'han': [0xe31],              # MAI HAN-AKAT
+    'aa': [0xe32],               # SARA AA
+    'am': [0xe33],               # SARA AM
+    'i': [0xe34],                # SARA I
+    'ii': [0xe35],               # SARA II
+    'ue': [0xe36],               # SARA UE
+    'uee': [0xe37],              # SARA UEE
+    'u': [0xe38, 0xe39],         # SARA U, SARA UU
+    'phinthu': [0xe3a],
+    'lakkhangyao': [0xe45],
+    'taikhu': [0xe47],           # MAITAIKHU
+    'tone': [0xe48, 0xe49, 0xe4a, 0xe4b],
+    'silent': [0xe4c],           # THANTHAKHAT
+    'nikhahit': [0xe4d, 0xe4e],  # NIKHAHIT, YAMAKKAN
+}
+CONSONANTS = ('consonant', 'cluster', 'wo', 'yo', 'o')
+NOT_O = ('consonant', 'cluster', 'wo', 'yo')
+BREAK = ('e', 'ae_o', 'ai', 'other')  # A leading vowel or non-Thai scalar starts something new.
+OUTCOMES = {'closed': 251, 'open': 252, 'open+': 253, 'closed+': 254, 'fail': 255}
+# A trailing '+' consumes the scalar that finishes the syllable.
+
+# state: ({class or class group: target}, target for every other class)
+GRAMMAR = {
+    'start': ({CONSONANTS: 'initial', 'ru': 'ru', 'e': 'e', 'ae_o': 'ae_o', 'ai': 'ai'}, 'fail'),
+    'ru': ({'lakkhangyao': 'closed+'}, 'closed'),
+    # One initial consonant. Without a vowel sign it is a syllable with an
+    # inherent vowel, whose final the recovery decides.
+    'initial': ({('consonant', 'cluster', 'yo'): 'initials', 'wo': 'initial_wo', 'o': 'vowel_o', 'tone': 'toned',
+                 'a': 'closed+', 'am': 'closed+', 'aa': 'vowel_aa', ('i', 'ii', 'ue', 'u'): 'vowel',
+                 'uee': 'vowel_uee', 'han': 'han',
+                 'taikhu': 'taikhu', 'silent': 'closed+', 'nikhahit': 'nikhahit', 'phinthu': 'closed+',
+                 'lakkhangyao': 'closed+', BREAK: 'open'}, 'fail'),
+    # Two consonants: a cluster when vowel signs follow, else an inherent
+    # vowel and a final.
+    'initials': ({'o': 'vowel_o', 'tone': 'toned', 'a': 'closed+', 'am': 'closed+', 'aa': 'vowel_aa',
+                  ('i', 'ii', 'ue', 'u'): 'vowel', 'uee': 'vowel_uee', 'han': 'han', 'taikhu': 'taikhu',
+                  'silent': 'closed+', NOT_O: 'closed', BREAK: 'closed'}, 'fail'),
+    # Consonant and WO WAEN: a cluster before vowel signs, else the vowel -UA
+    # spelled without MAI HAN-AKAT before a final.
+    'initial_wo': ({'o': 'vowel_o', 'tone': 'toned', 'a': 'closed+', 'am': 'closed+', 'aa': 'vowel_aa',
+                    ('i', 'ii', 'ue', 'u'): 'vowel', 'uee': 'vowel_uee', 'han': 'han', 'taikhu': 'taikhu',
+                    'silent': 'closed+', NOT_O: 'final', BREAK: 'closed'}, 'fail'),
+    'toned': ({'aa': 'vowel_aa', 'a': 'closed+', 'am': 'closed+', 'o': 'vowel_o', 'wo': 'vowel_wo',
+               ('consonant', 'cluster', 'yo'): 'final', BREAK: 'closed'}, 'fail'),
+    'vowel_wo': ({CONSONANTS: 'final', 'silent': 'closed+', BREAK: 'closed'}, 'fail'),
+    'vowel_o': ({CONSONANTS: 'open', BREAK: 'open', 'silent': 'closed+'}, 'fail'),
+    'vowel': ({'tone': 'vowel_toned', CONSONANTS: 'open', BREAK: 'open', 'silent': 'closed+'}, 'fail'),
+    'vowel_toned': ({CONSONANTS: 'open', BREAK: 'open', 'silent': 'closed+'}, 'fail'),
+    'vowel_uee': ({'tone': 'vowel_uee_toned', 'o': 'closed+', NOT_O: 'final'}, 'fail'),
+    'vowel_uee_toned': ({'o': 'closed+', NOT_O: 'final'}, 'fail'),
+    'vowel_aa': ({CONSONANTS: 'open', BREAK: 'open'}, 'fail'),
+    'han': ({'tone': 'han_toned', 'wo': 'closed+', ('consonant', 'cluster', 'yo', 'o'): 'final'}, 'fail'),
+    'han_toned': ({'wo': 'closed+', ('consonant', 'cluster', 'yo', 'o'): 'final'}, 'fail'),
+    'taikhu': ({CONSONANTS: 'final', BREAK: 'closed'}, 'fail'),
+    'nikhahit': ({'aa': 'closed+'}, 'closed'),
+    'final': ({'silent': 'closed+', CONSONANTS: 'closed', BREAK: 'closed'}, 'fail'),
+    # Leading vowels SARA AI MAIMUAN and MAIMALAI include their final.
+    'ai': ({CONSONANTS: 'ai_initial'}, 'fail'),
+    'ai_initial': ({'tone': 'ai_toned', ('cluster', 'wo'): 'ai_cluster', CONSONANTS: 'closed',
+                    BREAK: 'closed'}, 'fail'),
+    'ai_cluster': ({'tone': 'ai_toned', CONSONANTS: 'closed', BREAK: 'closed'}, 'fail'),
+    'ai_toned': ({CONSONANTS: 'closed', BREAK: 'closed'}, 'fail'),
+    # SARA AE and SARA O: open, with SARA A, with MAITAIKHU and a final, or with a final.
+    'ae_o': ({CONSONANTS: 'ae_o_initial'}, 'fail'),
+    'ae_o_initial': ({'tone': 'ae_o_toned', 'a': 'closed+', 'taikhu': 'short_final', CONSONANTS: 'ae_o_initials',
+                      BREAK: 'open'}, 'fail'),
+    'ae_o_toned': ({'a': 'closed+', CONSONANTS: 'open', BREAK: 'open'}, 'fail'),
+    'ae_o_initials': ({'tone': 'ae_o_toned', 'a': 'closed+', 'taikhu': 'short_final', 'silent': 'closed+',
+                       CONSONANTS: 'closed', BREAK: 'closed'}, 'fail'),
+    'short_final': ({CONSONANTS: 'final'}, 'fail'),
+    # SARA E spellings: -E, -E with SARA A, -AO, -AW (with SARA A), -OE,
+    # -OE with a final (SARA I), -IA and -UEA (each optionally with SARA A).
+    'e': ({CONSONANTS: 'e_initial'}, 'fail'),
+    'e_initial': ({'tone': 'e_toned', 'a': 'closed+', 'aa': 'e_aa', 'ii': 'e_ii', 'uee': 'e_uee',
+                   'i': 'e_i', 'taikhu': 'short_final', 'o': 'e_o', NOT_O: 'e_initials', BREAK: 'open'}, 'fail'),
+    'e_initials': ({'tone': 'e_toned', 'a': 'closed+', 'aa': 'e_aa', 'ii': 'e_ii', 'uee': 'e_uee',
+                    'i': 'e_i', 'taikhu': 'short_final', 'o': 'e_o', 'silent': 'closed+',
+                    NOT_O: 'closed', BREAK: 'closed'}, 'fail'),
+    'e_toned': ({'a': 'closed+', 'aa': 'e_aa', 'o': 'e_o', NOT_O: 'open', BREAK: 'open'}, 'fail'),
+    'e_aa': ({'a': 'closed+', CONSONANTS: 'closed', BREAK: 'closed'}, 'fail'),
+    'e_ii': ({'tone': 'e_ii_toned', 'yo': 'e_ia'}, 'fail'),
+    'e_ii_toned': ({'yo': 'e_ia'}, 'fail'),
+    'e_uee': ({'tone': 'e_uee_toned', 'o': 'e_ia'}, 'fail'),
+    'e_uee_toned': ({'o': 'e_ia'}, 'fail'),
+    'e_ia': ({'a': 'closed+', CONSONANTS: 'open', BREAK: 'open'}, 'fail'),
+    'e_i': ({'tone': 'e_i_toned', CONSONANTS: 'final'}, 'fail'),
+    'e_i_toned': ({CONSONANTS: 'final'}, 'fail'),
+    'e_o': ({'a': 'closed+', CONSONANTS: 'open', BREAK: 'open'}, 'fail'),
+}
+
+# (text, expected native_thai_syllable_result) examples; results are
+# consumed length plus one, negative when the syllable is open.
+EXAMPLES = [
+    ('กะ', 3), ('กา', -3), ('กาน', -3), ('กัน', 4), ('กัน ', 4), ('ตัว', 4), ('ตั๋ว', 5), ('คือ', 4),
+    ('ชื่อ', 5), ('คืน', 4), ('ค่ำ', 4), ('คน', 3), ('คนไ', 3), ('ปลา', -4), ('ก็', 3), ('เก', -3),
+    ('เกาะ', 5), ('เขา', 4), ('เรียน', -5), ('เมือง', -5), ('เกิด', 5), ('เป็น', 5), ('แข็ง', 5),
+    ('แกง', 4), ('โต', -3), ('ไป', 3), ('ใคร', 4), ('ไม่', 4), ('ฤๅ', 3), ('ฤดู', 2), ('ร์', 3),
+    ('กํา', 4), ('ิก', 0), ('เ', 0), ('', 0), ('ก', -2), ('ข้า', -4), ('เกี๊ยะ', 7), ('ควร', 4),
+    ('ด่วน', 5), ('ขวา', -4), ('เปลี่ยน', -7), ('เดือน', -5), ('ก่อน', -4),
+]
 
 
-def machine():
-    reference = Reference()
-    base = reference.dll._handle
-    def table(rva, count, fmt='B'):
-        return struct.unpack('<' + str(count) + fmt,
-                             ctypes.string_at(base + rva, count * struct.calcsize(fmt)))
-    starts = table(0x417120, 80, 'H')
-    ends = table(0x416c50, 79, 'H')
-    symbols = table(0x416f20, 508)
-    ops = table(0x416d20, 508)
-    params = table(0x4171c0, 508)
-    lhs = table(0x416cf0, 41)
-    pops = table(0x416c18, 41)
-    semantics = table(0x4174c0, 8)
-    tokens = table(0x4173c0, 256)
-    classes = table(0x394b20, 256, 'i')
-    alphabet = sorted(set(tokens))
-    assert starts[-1] == 508
-    assert [(s, symbols[starts[s]:ends[s]]) for s in (6, 7, 33)] == [(6, (3,)), (7, (3,)), (33, (3,))]
-    assert all(3 not in symbols[starts[s]:ends[s]] for s in range(79) if s not in (6, 7, 33))
-    assert pops[4] == 0 and lhs[4] == 6
-    assert pops[6:8] == (2, 2) and lhs[6:8] == (1, 1) and semantics[6:8] == (1, 2)
-    for state, production in ((6, 7), (7, 6)):
-        assert (ops[ends[state]], params[ends[state]]) == (5, 4)
-        assert (symbols[starts[state+1]-1], ops[starts[state+1]-1], params[starts[state+1]-1]) == (6, 2, production)
-    assert (symbols[ends[0]+1], ops[ends[0]+1]) == (1, 0)
+def classes():
+    table = {cp: 'other' for cp in range(0xe00, 0xe5c)}
+    for name, members in CLASSES.items():
+        for cp in members:
+            if table[cp] != 'other':
+                raise ValueError(f'U+{cp:04X} is in two classes')
+            table[cp] = name
+    return table
 
-    def outcome(state, token, visited=()):
-        assert state not in visited and state not in (6, 7, 33)
-        first, end = starts[state], ends[state]
-        index = next((i for i in range(first, end) if symbols[i] == token), end)
-        op, param = ops[index], params[index]
-        if op == 1:  # Consuming transition.
-            return param
-        if op == 7:  # No error transition exists on the unfinished syllable stack.
-            return -1
-        if op == 3:  # Shift and complete the only syllable.
-            assert lhs[param] in (2, 7)
-            return -2 if lhs[param] == 2 else -3
-        if op == 8:  # Empty optional tone, fused with its goto.
-            assert [(symbols[i], ops[i], params[i]) for i in range(end + 1, starts[state + 1])] == [(12, 1, param)]
-            return outcome(param, token, visited + (state,))
-        assert op == 5
-        if lhs[param] == 7:  # Complete without consuming the lookahead.
-            return -4
-        assert lhs[param] == 12
-        if param == 11:
-            # State 19 is entered only by a tone after state 3. Reduce that
-            # one token and follow state 3's optional-tone goto, state 18.
-            assert state == 19
-            return outcome(18, token, visited + (state,))
-        assert param == 10  # Empty tone followed by a fused syllable reduction.
-        goto = [(symbols[i], ops[i], params[i]) for i in range(end + 1, starts[state + 1])]
-        assert len(goto) == 1 and goto[0][:2] == (12, 3) and lhs[goto[0][2]] in (2, 7)
-        return -4 if lhs[goto[0][2]] == 7 else -5
 
-    # Reachability and minimization operate on observable consuming/terminal
-    # outcomes, after zero-width grammar operations have been folded away.
-    rows, pending = {}, [0]
-    for state in pending:
-        row = tuple(outcome(state, token) for token in alphabet)
+def expand():
+    """Resolve each reachable state to {class: target}, rejecting cycles."""
+    names = [*CLASSES, 'other']
+    rows = {}
+    for state, (transitions, default) in GRAMMAR.items():
+        row = dict.fromkeys(names, default)
+        seen = set()
+        # A class named alone may appear once; a group fills only the classes
+        # that earlier entries left unset.
+        for keys, target in transitions.items():
+            group = not isinstance(keys, str)
+            for key in keys if group else (keys,):
+                if key not in row or (key in seen and not group):
+                    raise ValueError(f'{state}: unknown or repeated class {key}')
+                if key not in seen:
+                    seen.add(key)
+                    row[key] = target
+        for target in row.values():
+            if target not in OUTCOMES and target not in GRAMMAR:
+                raise ValueError(f'{state}: unknown target {target}')
         rows[state] = row
-        for target in row:
-            if target >= 0 and target not in pending:
+    reachable, pending = ['start'], ['start']
+    while pending:
+        for target in rows[pending.pop()].values():
+            if target in GRAMMAR and target not in reachable:
+                reachable.append(target)
                 pending.append(target)
-    assert all(s not in (6, 7, 33) for s in rows)
-    assert [(s, alphabet[i]) for s, row in rows.items() for i, v in enumerate(row) if v == 19] == [(3, 9)]
-    partitions = {s: 0 for s in rows}
+    if set(reachable) != set(GRAMMAR):
+        raise ValueError(f'Unreachable states: {sorted(set(GRAMMAR) - set(reachable))}')
+
+    def depth(state, path=()):
+        if state in path:
+            raise ValueError('Consuming cycle through ' + ' -> '.join(path + (state,)))
+        return 1 + max((depth(t, path + (state,)) for t in set(rows[state].values()) if t in GRAMMAR), default=0)
+
+    return {s: rows[s] for s in reachable}, names, depth('start')
+
+
+def minimize(rows, names):
+    partition = {s: 0 for s in rows}
     while True:
-        signatures, following = {}, {}
+        signatures, refined = {}, {}
         for state, row in rows.items():
-            signature = tuple(partitions[v] if v >= 0 else v for v in row)
-            following[state] = signatures.setdefault(signature, len(signatures))
-        if following == partitions:
+            key = tuple(partition[t] if t in rows else t for t in (row[n] for n in names))
+            refined[state] = signatures.setdefault(key, len(signatures))
+        if refined == partition:
             break
-        partitions = following
-    reduced = [None] * (max(partitions.values()) + 1)
+        partition = refined
+    matrix = [None] * (max(partition.values()) + 1)
     for state, row in rows.items():
-        reduced[partitions[state]] = tuple(partitions[v] if v >= 0 else v for v in row)
-    assert partitions[0] == 0
-    # Merge character classes that have identical behavior in every state.
-    columns, token_classes = {}, {}
-    for index, token in enumerate(alphabet):
-        column = tuple(row[index] for row in reduced)
-        token_classes[token] = columns.setdefault(column, len(columns))
-    matrix = [tuple(column[state] for column in columns) for state in range(len(reduced))]
-    def depth(state, visited=()):
-        assert state not in visited, 'Unexpected consuming cycle'
-        return max(1 + depth(v, visited + (state,)) if v >= 0 else int(v in (-2, -3))
-                   for v in set(matrix[state]))
-    maximum = depth(0)
-    assert maximum == 6
-    mapping = [token_classes[t] for t in tokens]
-    return dict(matrix=matrix, mapping=mapping, odd=[v & 1 for v in classes],
-                reachable_states=len(rows), original_states=79,
-                partitions=partitions, alphabet=alphabet, rows=rows, maximum_consumed=maximum)
+        matrix[partition[state]] = [partition[row[n]] if row[n] in rows else OUTCOMES[row[n]] for n in names]
+    columns, merged = {}, {}
+    for index, name in enumerate(names):
+        merged[name] = columns.setdefault(tuple(row[index] for row in matrix), len(columns))
+    compact = [[None] * len(columns) for _ in matrix]
+    for state, row in enumerate(matrix):
+        for index, name in enumerate(names):
+            compact[state][merged[name]] = row[index]
+    if partition['start'] != 0:
+        raise ValueError('The start state must be state 0')
+    return compact, merged
 
 
-def raw_result(data, model):
-    state = position = 0
-    while True:
-        byte = data[position] if position < len(data) else 0
-        target = model['matrix'][state][model['mapping'][byte]]
-        if target >= 0:
-            position += 1
-            state = target
-        elif target == -1:
-            return 0
-        elif target == -2:
-            return position + 2
-        elif target == -5:
-            return position + 1
-        else:
-            return -(position + (2 if target == -3 else 1))
-
-
-def helper_result(data, model):
-    if len(data) > 13:
-        for index in range(10, 0, -1):
-            if data[index] == 0xec:
-                extra = 0xa1 <= data[index + 1] <= 0xce and 0xe0 <= data[index + 2] <= 0xe4
-                return index + 2 + extra
-    result = raw_result(data, model)
-    if result >= 0:
-        return result
-    count = -result
-    previous = data[count - 1] if count - 1 < len(data) else 0
-    if 0xe0 <= previous <= 0xe4:
-        return count
-    if not 0xa1 <= previous <= 0xce:
-        return 0
-    following = data[count] if count < len(data) else 0
-    if not model['odd'][following]:
-        return count
-    return count + 1 if 0xe0 <= following <= 0xe4 else 0
-
-
-def emit(model):
+def emit(matrix, merged, table):
     rows, edges = [], []
-    for row in model['matrix']:
+    for row in matrix:
         default = Counter(row).most_common(1)[0][0]
         rows.append(len(edges))
-        edges.extend((default & 255, sum(value != default for value in row)))
-        for token, value in enumerate(row):
-            if value != default:
-                edges.extend((token, value & 255))
+        exceptions = [(c, t) for c, t in enumerate(row) if t != default]
+        edges += [default, len(exceptions)]
+        for pair in exceptions:
+            edges += pair
+    mapping = [merged[table[cp]] for cp in range(0xe00, 0xe5c)]
+    if max(len(matrix), len(merged)) >= 251 or len(edges) >= 65536:
+        raise ValueError('Machine exceeds the table encoding')
+
     def array(name, kind, values):
         lines = [f'static constexpr {kind} {name}[] = {{']
-        lines.extend('    ' + ','.join(str(v) for v in values[i:i+20]) + ',' for i in range(0, len(values), 20))
+        lines += ['    ' + ','.join(str(v) for v in values[i:i + 20]) + ',' for i in range(0, len(values), 20)]
         return '\n'.join(lines + ['};'])
-    # Outside Thai, runtime admits only space/ZWSP and the bounded end sentinel.
-    # Their token classes coincide here; no generic byte-text parser is exposed.
-    assert model['mapping'][0] == model['mapping'][32]
-    assert model['odd'][0] == model['odd'][32] == 1
-    mapping = model['mapping'][0xa0:0xfc]
-    odd = [sum(model['odd'][0xa0 + j * 8 + bit] << bit for bit in range(8)) for j in range(12)]
-    body = '// Generated by tools/unicode/thai_syllable_data.py.\n// Windows-derived compatibility data; generation-only DLL inspection.\n'
-    body += f'static constexpr u8 thai_syllable_other = {model["mapping"][0]};\n'
-    body += '\n'.join((array('thai_syllable_classes','u8',mapping),array('thai_syllable_odd','u8',odd),
-                      array('thai_syllable_rows','u16',rows),array('thai_syllable_edges','u8',edges))) + '\n'
-    return body, len(mapping) + len(odd) + len(rows)*2 + len(edges) + 1
+
+    text = ('// Generated by tools/unicode/thai_syllable_data.py; do not edit.\n'
+            '// First-party Thai syllable grammar authored in that generator; no input data.\n'
+            f'static constexpr u8 thai_syllable_other = {merged["other"]};\n')
+    text += '\n'.join((array('thai_syllable_classes', 'u8', mapping), array('thai_syllable_rows', 'u16', rows),
+                       array('thai_syllable_edges', 'u8', edges))) + '\n'
+    return text, dict(classes=mapping, rows=rows, edges=edges, other=merged['other'],
+                      payload_bytes=len(mapping) + 2 * len(rows) + len(edges) + 1)
+
+
+def run(tables, text):
+    """Mirror of native_thai_syllable_result over the emitted tables."""
+    state = position = 0
+    while True:
+        cp = ord(text[position]) if position < len(text) else 0
+        token = tables['classes'][cp - 0xe00] if 0xe00 <= cp < 0xe5c else tables['other']
+        row = tables['rows'][state]
+        target = tables['edges'][row]
+        for i in range(tables['edges'][row + 1]):
+            if tables['edges'][row + 2 + i * 2] == token:
+                target = tables['edges'][row + 3 + i * 2]
+                break
+        if target < 251:
+            state, position = target, position + 1
+        elif target == 255:
+            return 0
+        elif target in (251, 254):
+            return position + (2 if target == 254 else 1)
+        else:
+            return -(position + (2 if target == 253 else 1))
+
+
+def verify(rows, names, table, tables):
+    """Compare every reachable state and class of the tables with the grammar."""
+    def grammar(text):
+        state = 'start'
+        for position in range(len(text) + 1):
+            cp = ord(text[position]) if position < len(text) else 0
+            target = rows[state][table.get(cp, 'other')]
+            if target in rows:
+                state = target
+                continue
+            return {'fail': 0, 'closed': position + 1, 'closed+': position + 2,
+                    'open': -(position + 1), 'open+': -(position + 2)}[target]
+        raise AssertionError('unreachable')
+
+    representatives = {name: chr(next(cp for cp, n in sorted(table.items()) if n == name)) if name != 'other' else ' '
+                       for name in names}
+    witnesses, pending = {'start': ''}, ['start']
+    while pending:
+        state = pending.pop(0)
+        for name in names:
+            target = rows[state][name]
+            if target in rows and target not in witnesses:
+                witnesses[target] = witnesses[state] + representatives[name]
+                pending.append(target)
+    checked = 0
+    for state, prefix in witnesses.items():
+        for name in names:
+            for cp in [cp for cp, n in table.items() if n == name] if name != 'other' else [0x20, 0x41]:
+                sample = prefix + chr(cp)
+                if run(tables, sample) != grammar(sample):
+                    raise ValueError(f'Emitted tables differ from the grammar at state {state}')
+                checked += 1
+    for text, expected in EXAMPLES:
+        if grammar(text) != expected or run(tables, text) != expected:
+            raise ValueError(f'Example {text!r}: expected {expected}, got {grammar(text)}')
+    return checked
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output', required=True, type=Path)
-    parser.add_argument('--report', required=True, type=Path)
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--output', type=Path, default=OUTPUT)
     args = parser.parse_args()
-    model = machine()
-    body, size = emit(model)
-    args.output.write_text(body, encoding='utf-8')
-    report = dict(dll_sha256=DLL_SHA256, generator_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                  source_sha256=hashlib.sha256(args.output.read_bytes()).hexdigest(),
-                  original_states=model['original_states'], reachable_states=model['reachable_states'],
-                  states=len(model['matrix']), classes=len(model['matrix'][0]), payload_bytes=size,
-                  maximum_consumed=model['maximum_consumed'])
-    args.report.write_text(json.dumps(report, indent=2) + '\n')
-    print(json.dumps(report))
+    table = classes()
+    rows, names, depth = expand()
+    matrix, merged = minimize(rows, names)
+    text, tables = emit(matrix, merged, table)
+    checked = verify(rows, names, table, tables)
+    args.output.write_bytes(text.encode('utf-8'))
+    print(json.dumps(dict(grammar_states=len(rows), states=len(matrix), classes=len(set(merged.values())),
+                          longest_consumed=depth, payload_bytes=tables['payload_bytes'], verified_cases=checked,
+                          examples=len(EXAMPLES),
+                          generator_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                          output_sha256=hashlib.sha256(args.output.read_bytes()).hexdigest())))
 
 
 if __name__ == '__main__':

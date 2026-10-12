@@ -11,6 +11,10 @@ bool native_thai_corpus(DWriteTextSystem system) noexcept {
         utf8_literal("\u0e00"),utf8_literal("ไทย\u0e3bก\u0e7f"),utf8_literal("A\u0378B\U0003ffff"),
         utf8_literal("ເຝົ້າ ເຟົ້າ ເໜົ້າ"),utf8_literal("ໜົ້ ໝົ້ ໞົ້ ໟົ້"),utf8_literal("ໜຼ ໝຼ ໞຼ ໟຼ")};
     const u32 flags[]{0,text_style_bold,text_style_underline,text_style_monospace};const float widths[]{1000000,37};
+    // Samples 6 and 21-23 have Thai break opportunities that differ from
+    // DirectWrite's own dictionary and mark handling; thai_context_cases.inc
+    // asserts them. Their wrapped (narrow) layouts are not compared.
+    const auto own_breaks=[](u32 sample) noexcept {return sample==6||(sample>=21&&sample<=23);};
     auto native=system,reference=system;native.factory=nullptr;native.format=nullptr;reference.native_text=nullptr;
     for(u32 sample=0;sample<sizeof(samples)/sizeof(samples[0]);++sample)for(u32 partial=0;partial<((sample==2||sample==9||sample==17)?2u:1u);++partial)for(u32 mode=0;mode<2;++mode)for(u32 flag:flags)for(float width:widths){
         ++cases;native.independent_letters=reference.independent_letters=mode!=0;const auto text=samples[sample];const TextStyleSpan style{0,partial?static_cast<u32>(utf8_decode_one(text.data,text.bytes).width):text.bytes,flag};
@@ -18,10 +22,11 @@ bool native_thai_corpus(DWriteTextSystem system) noexcept {
         const auto wrapping=thai_shape_only?TextWrapping::no_wrap:TextWrapping::wrap;
         const auto expected=text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping);
         const auto actual=text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping);
-        if(!expected.ok()||!actual.ok()||!native_output.text.native_fonts()||!same(native_output,reference_output,true)){
+        const bool compared=thai_shape_only||width>=1000000||!own_breaks(sample);
+        if(!expected.ok()||!actual.ok()||!native_output.text.native_fonts()||(compared&&!same(native_output,reference_output,true))){
             for(u32 side=0;side<2;++side){const auto& o=side?reference_output.text:native_output.text;print(side?"reference glyphs=":"native glyphs=");for(u32 g=0;g<o.glyph_count;++g){number(o.glyphs[g].index);print(" ");}print("\n");}
             print("Thai/Lao sample/mode/flag/width/em/error=");number(sample);print("/");number(mode);print("/");number(flag);print("/");real(width);print("/");real(system.em_size);print("/");number(static_cast<u32>(actual.error));print("\n");return false;}
-        ++native_cases;if(!mode)CHECK(compare_hits(system,text,width,wrapping,styles,true));
+        ++native_cases;if(!mode&&compared)CHECK(compare_hits(system,text,width,wrapping,styles,true));
     }
     return true;
 }

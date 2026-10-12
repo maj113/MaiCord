@@ -17,16 +17,13 @@
 //   slower checks, left out of the suite's 20 s budget  --alphabetic-paragraph (2 s),
 //     --arabic-paragraph-profile, --arabic-editor-profile and --cjk-editor-paint-profile (1-2 s each,
 //     with --family "Segoe UI" 400)
-//   needs external input  --thai-selection-probe, --thai-lexical-probe, --thai-syllable-probe,
-//     --thai-forward-probe, --thai-break-probe, --thai-analysis-probe, --thai-shaped-break-probe
+//   needs external input  --thai-break-probe, --thai-analysis-probe, --thai-shaped-break-probe
 //     <text file>; --paragraph-expansion <font> <weight> (a font whose letters expand)
 //   debug toggles inside the registered corpora  MAICORD_HIT_AUDIT, MAICORD_HIT_DEBUG,
 //     MAICORD_HIT_OBSERVE, MAICORD_ELLIPSIS_CUT_AUDIT (extra logging) and MAICORD_CJK_SAMPLE,
 //     MAICORD_CJK_VARIANT, MAICORD_DEVANAGARI_SAMPLE (select one sample)
-#include "../src/text/thai_word_selection.hpp"
 #include "../src/text/thai_lexical.hpp"
 #include "../src/text/thai_syllable.hpp"
-#include "../src/text/thai_forward.hpp"
 #include "../src/ui/native_text_trim_plan.hpp"
 #include "../src/ui/native_text_span.hpp"
 #include "../src/ui/native_text_script.hpp"
@@ -901,7 +898,6 @@ bool paragraph_options() noexcept {
 #include "thai_cases.inc"
 #include "thai_wordbreak_probe.inc"
 #include "thai_context_cases.inc"
-#include "thai_selection_probe.inc"
 #include "script_storage_cases.inc"
 #include "font_range_replay_cases.inc"
 #include "long_text_cases.inc"
@@ -955,14 +951,6 @@ bool run() noexcept {
     if(!contexts_check[contexts_match]&&!p[contexts_match])return native_font_context_layouts();
     const wchar_t fresh_option[]=L"--fresh-engine";u32 fresh_match=0;while(fresh_option[fresh_match]&&p[fresh_match]==fresh_option[fresh_match])++fresh_match;
     if(!fresh_option[fresh_match]&&p[fresh_match]==' ')return native_fresh_engine_benchmark(p+fresh_match);
-    const wchar_t selection_option[]=L"--thai-selection-probe";u32 selection_match=0;while(selection_option[selection_match]&&p[selection_match]==selection_option[selection_match])++selection_match;
-    if(!selection_option[selection_match]&&p[selection_match]==' ')return native_thai_selection_probe(p+selection_match);
-    const wchar_t lexical_option[]=L"--thai-lexical-probe";u32 lexical_match=0;while(lexical_option[lexical_match]&&p[lexical_match]==lexical_option[lexical_match])++lexical_match;
-    if(!lexical_option[lexical_match]&&p[lexical_match]==' ')return native_thai_selection_probe(p+lexical_match,true);
-    const wchar_t syllable_option[]=L"--thai-syllable-probe";u32 syllable_match=0;while(syllable_option[syllable_match]&&p[syllable_match]==syllable_option[syllable_match])++syllable_match;
-    if(!syllable_option[syllable_match]&&p[syllable_match]==' ')return native_thai_selection_probe(p+syllable_match,false,true);
-    const wchar_t forward_option[]=L"--thai-forward-probe";u32 forward_match=0;while(forward_option[forward_match]&&p[forward_match]==forward_option[forward_match])++forward_match;
-    if(!forward_option[forward_match]&&p[forward_match]==' ')return native_thai_selection_probe(p+forward_match,false,false,true);
     const wchar_t storage_option[]=L"--script-storage-check";u32 storage_match=0;while(storage_option[storage_match]&&p[storage_match]==storage_option[storage_match])++storage_match;
     if(!storage_option[storage_match]&&!p[storage_match])return native_script_storage_cases();
     CHECK(text_system_initialize(&owner,L"Segoe UI",16,L"en-US").ok());

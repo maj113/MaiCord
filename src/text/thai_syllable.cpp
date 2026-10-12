@@ -1,17 +1,13 @@
 #include "thai_syllable.hpp"
 
 namespace maicord {namespace {
+// First-party grammar; see tools/unicode/thai_syllable_data.py.
 #include "generated/thai_syllable_data.inc"
 
 u32 syllable_scalar(ConstSlice<u32> text,u32 first,u32 offset) noexcept {
     return offset<text.count-first?text[first+offset]:0;
 }
-bool syllable_leading(u32 cp) noexcept {return cp-0xe40u<5;}
 bool syllable_consonant(u32 cp) noexcept {return cp-0xe01u<46;}
-bool syllable_odd(u32 cp) noexcept {
-    const u32 index=cp-0xe00u;
-    return index>=96||(thai_syllable_odd[index>>3]&(1u<<(index&7)))!=0;
-}
 }
 i32 native_thai_syllable_result(ConstSlice<u32> text,u32 first) noexcept {
     if(!text.data||first>=text.count)return 0;
@@ -29,20 +25,28 @@ i32 native_thai_syllable_result(ConstSlice<u32> text,u32 first) noexcept {
         return -static_cast<i32>(position+(target==253?2u:1u));
     }
 }
-bool native_thai_boundary_class(u32 scalar) noexcept {return syllable_odd(scalar);}
+// Dependent vowels, LAKKHANGYAO, tone marks and the other combining marks
+// attach to the preceding scalar; everything else can begin a cluster.
+bool native_thai_boundary_class(u32 scalar) noexcept {
+    return !(scalar-0xe30u<11||scalar==0xe45||scalar-0xe47u<8);
+}
 u32 native_thai_unknown_recovery(ConstSlice<u32> text,u32 first) noexcept {
     if(!text.data||first>=text.count)return 0;
-    if(text.count-first>13){
-        for(u32 i=10;i;--i)if(text[first+i]==0xe4c)
-            return i+2+(syllable_consonant(text[first+i+1])&&syllable_leading(text[first+i+2])?1u:0u);
-    }
+    const auto at=[&](u32 offset) noexcept {return syllable_scalar(text,first,offset);};
     const i32 raw=native_thai_syllable_result(text,first);
-    if(raw>=0)return static_cast<u32>(raw);
-    const u32 length=static_cast<u32>(-raw),previous=syllable_scalar(text,first,length-1);
-    if(syllable_leading(previous))return length;
-    if(!syllable_consonant(previous))return 0;
-    const u32 following=syllable_scalar(text,first,length);
-    if(!syllable_odd(following))return length;
-    return syllable_leading(following)?length+1:0;
+    if(!raw)return 0;
+    u32 length=static_cast<u32>(raw>0?raw:-raw)-1;
+    // After an open syllable a consonant is its final unless marks attach to
+    // the consonant, which then begins the next syllable.
+    if(raw<0&&syllable_consonant(at(length))&&native_thai_boundary_class(at(length+1)))++length;
+    // Marks attached to the last scalar, and a consonant silenced by
+    // THANTHAKHAT one or two scalars later (as in จันทร์), end the syllable.
+    // A run of stray marks stops at 31 scalars.
+    while(length<31&&!native_thai_boundary_class(at(length)))++length;
+    if(syllable_consonant(at(length))&&(at(length+1)==0xe4c||at(length+2)==0xe4c)){
+        length+=at(length+1)==0xe4c?2u:3u;
+        while(length<31&&!native_thai_boundary_class(at(length)))++length;
+    }
+    return length+1;
 }
 }
