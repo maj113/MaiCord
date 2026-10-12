@@ -13,8 +13,11 @@ struct Capture {
     RestRouteKey route;
     u64 id;
     u32 submissions, cancellations, target_bytes, body_bytes, reason_bytes, timeout_ms;
+    // Nonzero when the request asked for an extended response bank.
+    u32 response_capacity;
     u8 target[kRestClientMaximumTargetBytes], body[8192], reason[kRestAuditReasonMaximumEncodedBytes];
-    bool json, identity, copied;
+    // send_empty_audit_reason: an empty X-Audit-Log-Reason header.
+    bool json, identity, copied, empty_reason;
     RestClientSubmitError result;
 } capture;
 
@@ -27,8 +30,9 @@ bool same(const u8* data, u32 bytes, Utf8View expected) noexcept {
 }
 
 bool captured(RestMethod method, RestMajorParameter major, u64 major_key, GuildAdminOperation op,
-              Utf8View target, Utf8View body, Utf8View reason = {}) noexcept {
-    return capture.copied && capture.route.method == method && capture.route.major == major &&
+              Utf8View target, Utf8View body, Utf8View reason = {}, bool empty_header = false) noexcept {
+    return capture.copied && capture.empty_reason == empty_header && capture.route.method == method &&
+           capture.route.major == major &&
            capture.route.major_key == major_key &&
            capture.route.route_id == kGuildAdminRouteBase + static_cast<u64>(op) &&
            capture.timeout_ms == kRestClientDefaultTimeoutMs && capture.json == (body.bytes != 0) &&
@@ -68,18 +72,20 @@ void test_transport() noexcept {
     RestClient details{};
     MemberPatch timeout{};
     timeout.fields = member_patch_timeout;
-    timeout.communication_disabled_until = 1'700'000'000;
+    timeout.communication_disabled_until_ms = 1'700'000'000'042;
     auto request = guild_request(GuildAdminOperation::member_update, 20);
     request.member = &timeout;
     char reason[] = "spam & ads / repeat";
     request.reason = {reason, sizeof(reason) - 1};
-    check(account_guild_admin_submit(&details, &request, 101).ok() && capture.client == &details &&
-              capture.id == 101 &&
-              captured(RestMethod::patch, RestMajorParameter::guild, 10,
-                       GuildAdminOperation::member_update, utf8_literal("/api/v10/guilds/10/members/20"),
-                       utf8_literal(R"({"communication_disabled_until":"2023-11-14T22:13:20+00:00"})"),
-                       utf8_literal("spam%20%26%20ads%20%2F%20repeat")),
-          "guild admin account: timeout PATCH carries an ISO timestamp and a percent-encoded reason");
+    check(
+        account_guild_admin_submit(&details, &request, 101).ok() && capture.client == &details &&
+            capture.id == 101 &&
+            captured(RestMethod::patch, RestMajorParameter::guild, 10, GuildAdminOperation::member_update,
+                     utf8_literal("/api/v10/guilds/10/members/20"),
+                     utf8_literal(R"({"communication_disabled_until":"2023-11-14T22:13:20.042Z"})"),
+                     utf8_literal("spam%20%26%20ads%20%2F%20repeat")),
+        "guild admin account: timeout PATCH carries a toISOString timestamp with real milliseconds and the "
+        "encoded reason header");
     for (auto& byte : reason)
         byte = 'x';
     check(same(capture.reason, capture.reason_bytes, utf8_literal("spam%20%26%20ads%20%2F%20repeat")),
@@ -115,7 +121,70 @@ void test_transport() noexcept {
     check(account_guild_admin_submit(&details, &request, 102).ok() &&
               captured(RestMethod::delete_method, RestMajorParameter::guild, 10,
                        GuildAdminOperation::member_kick, utf8_literal("/api/v10/guilds/10/members/20"), {}),
-          "guild admin account: kick is a bodyless guild-major DELETE without a reason header");
+          "guild admin account: a kick with a null reason is a bodyless DELETE with no query and no header");
+    // An untouched reason box is "", which the official client still sends.
+    request.reason = utf8_literal("");
+    check(account_guild_admin_submit(&details, &request, 116).ok() &&
+              captured(RestMethod::delete_method, RestMajorParameter::guild, 10,
+                       GuildAdminOperation::member_kick, utf8_literal("/api/v10/guilds/10/members/20?reason="),
+                       {}),
+          "guild admin account: a kick with an empty reason sends ?reason= and no header");
+    request = guild_request(GuildAdminOperation::ban_add, 20);
+    request.delete_message_seconds = 3'600;
+    request.reason = utf8_literal("");
+    check(account_guild_admin_submit(&details, &request, 117).ok() &&
+              captured(RestMethod::put, RestMajorParameter::guild, 10, GuildAdminOperation::ban_add,
+                       utf8_literal("/api/v10/guilds/10/bans/20"), utf8_literal(R"({"delete_message_seconds":3600})"),
+                       {}, true),
+          "guild admin account: a ban with an empty reason sends an empty X-Audit-Log-Reason header");
+    MemberPatch quiet{};
+    quiet.fields = member_patch_timeout;
+    quiet.communication_disabled_until_ms = 1'700'000'060'000;
+    request = guild_request(GuildAdminOperation::member_update, 20);
+    request.member = &quiet;
+    request.reason = utf8_literal("");
+    const bool empty_timeout =
+        account_guild_admin_submit(&details, &request, 118).ok() &&
+        captured(RestMethod::patch, RestMajorParameter::guild, 10, GuildAdminOperation::member_update,
+                 utf8_literal("/api/v10/guilds/10/members/20"),
+                 utf8_literal(R"({"communication_disabled_until":"2023-11-14T22:14:20.000Z"})"), {}, true);
+    quiet.communication_disabled_until_ms = 0;
+    request.reason = {};
+    check(empty_timeout && account_guild_admin_submit(&details, &request, 119).ok() &&
+              captured(RestMethod::patch, RestMajorParameter::guild, 10, GuildAdminOperation::member_update,
+                       utf8_literal("/api/v10/guilds/10/members/20"),
+                       utf8_literal(R"({"communication_disabled_until":null})")),
+          "guild admin account: an empty timeout reason sends an empty header; removing it sends none");
+    request = guild_request(GuildAdminOperation::member_kick, 20);
+    request.reason = utf8_literal("spam & ads (again)!");
+    check(account_guild_admin_submit(&details, &request, 107).ok() &&
+              captured(RestMethod::delete_method, RestMajorParameter::guild, 10,
+                       GuildAdminOperation::member_kick,
+                       utf8_literal("/api/v10/guilds/10/members/20?reason=spam%20%26%20ads%20(again)!"),
+                       {}),
+          "guild admin account: a kick's reason travels as the encodeURIComponent query, never the header");
+    // The longest reason, every byte escaped, still fits the target bound.
+    static char worst[kGuildAdminReasonBytes];
+    for (u32 i = 0; i + 2 < kGuildAdminReasonBytes; i += 3) {
+        worst[i] = static_cast<char>(0xE6);
+        worst[i + 1] = static_cast<char>(0x97);
+        worst[i + 2] = static_cast<char>(0xA5);
+    }
+    request.reason = {worst, kGuildAdminReasonBytes - kGuildAdminReasonBytes % 3};
+    // "/api/v10/guilds/10/members/20?reason=" is 37 bytes.
+    const bool multibyte = account_guild_admin_submit(&details, &request, 108).ok() &&
+                           capture.target_bytes == 37 + 3 * request.reason.bytes && !capture.reason_bytes &&
+                           same(capture.target + capture.target_bytes - 9, 9, utf8_literal("%E6%97%A5"));
+    static char spaces[kGuildAdminReasonBytes];
+    for (auto& c : spaces)
+        c = ' ';
+    request.guild_id = request.target_id = ~0ull;
+    request.reason = {spaces, kGuildAdminReasonBytes};
+    check(multibyte && account_guild_admin_submit(&details, &request, 109).ok() &&
+              capture.target_bytes == 16 + 20 + 9 + 20 + 8 + kRestAuditReasonMaximumEncodedBytes &&
+              capture.target_bytes <= kGuildAdminMaximumTargetBytes && !capture.reason_bytes,
+          "guild admin account: a kick reason at the byte bound, fully escaped, fits the target with "
+          "20-digit IDs");
 
     request = guild_request(GuildAdminOperation::ban_add, 20);
     request.delete_message_seconds = 86'400;
@@ -125,6 +194,45 @@ void test_transport() noexcept {
                        utf8_literal("/api/v10/guilds/10/bans/20"), utf8_literal(R"({"delete_message_seconds":86400})"),
                        utf8_literal("raid")),
           "guild admin account: ban PUT sends the deletion window and reason");
+
+    request = guild_request(GuildAdminOperation::ban_list);
+    const GuildAdminPageQuery first{0, 0, 0, kGuildAdminPageMaximum, 0, false};
+    request.page = &first;
+    check(account_guild_admin_submit(&details, &request, 110).ok() &&
+              captured(RestMethod::get, RestMajorParameter::guild, 10, GuildAdminOperation::ban_list,
+                       utf8_literal("/api/v10/guilds/10/bans?limit=1000"), {}) &&
+              capture.response_capacity == kRestClientMaximumResponseBytes,
+          "guild admin account: the ban list is one GET of 1000 into an extended response bank");
+    const GuildAdminPageQuery next{0, 7'000, 0, kGuildAdminPageMaximum, 0, false};
+    request.page = &next;
+    check(account_guild_admin_submit(&details, &request, 111).ok() &&
+              captured(RestMethod::get, RestMajorParameter::guild, 10, GuildAdminOperation::ban_list,
+                       utf8_literal("/api/v10/guilds/10/bans?limit=1000&after=7000"), {}),
+          "guild admin account: only a continuing ban page carries after=");
+
+    // Unban and invite revoke: the official client never sends a reason.
+    request = guild_request(GuildAdminOperation::ban_remove, 20);
+    check(account_guild_admin_submit(&details, &request, 112).ok() &&
+              captured(RestMethod::delete_method, RestMajorParameter::guild, 10,
+                       GuildAdminOperation::ban_remove, utf8_literal("/api/v10/guilds/10/bans/20"), {}) &&
+              capture.response_capacity == 0,
+          "guild admin account: unban is a bodyless DELETE without a reason header");
+    GuildAdminRequest revoke{};
+    revoke.operation = GuildAdminOperation::invite_delete;
+    revoke.invite_code = utf8_literal("aB3-x");
+    check(account_guild_admin_submit(&details, &revoke, 113).ok() &&
+              captured(RestMethod::delete_method, RestMajorParameter::none, 0,
+                       GuildAdminOperation::invite_delete, utf8_literal("/api/v10/invites/aB3-x"), {}),
+          "guild admin account: invite revoke is a bodyless DELETE without a reason header");
+    const u32 unreasoned = capture.submissions;
+    request.reason = utf8_literal("lifted");
+    revoke.reason = utf8_literal("");
+    check(account_guild_admin_submit(&details, &request, 114).error ==
+                  RestClientSubmitError::invalid_input &&
+              account_guild_admin_submit(&details, &revoke, 115).error ==
+                  RestClientSubmitError::invalid_input &&
+              capture.submissions == unreasoned,
+          "guild admin account: a reason on unban or invite revoke never reaches the transport");
 
     request = guild_request(GuildAdminOperation::audit_log);
     const GuildAdminPageQuery page{900, 0, 7, 25, 22, true};
@@ -138,7 +246,11 @@ void test_transport() noexcept {
     request = guild_request(GuildAdminOperation::role_list);
     request.reason = utf8_literal("reads carry no reason");
     const u32 before = capture.submissions;
+    auto empty_read = guild_request(GuildAdminOperation::ban_list);
+    empty_read.reason = utf8_literal("");
     check(account_guild_admin_submit(&details, &request, 105).error == RestClientSubmitError::invalid_input &&
+              account_guild_admin_submit(&details, &empty_read, 105).error ==
+                  RestClientSubmitError::invalid_input &&
               account_guild_admin_submit(nullptr, &request, 105).error == RestClientSubmitError::invalid_input &&
               capture.submissions == before,
           "guild admin account: reasons on reads and absent owners never reach the transport");
@@ -211,7 +323,9 @@ void test_routes() noexcept {
     add(r, RestMethod::patch, utf8_literal("/api/v10/guilds/10"),
         utf8_literal(R"({"name":"Lab \"one\"","icon":null,"system_channel_id":null,"afk_timeout":900,"verification_level":2})"));
     r = guild_request(GuildAdminOperation::role_create);
-    add(r, RestMethod::post, utf8_literal("/api/v10/guilds/10/roles"), utf8_literal("{}"));
+    add(r, RestMethod::post, utf8_literal("/api/v10/guilds/10/roles"),
+        utf8_literal(R"({"name":"new role","color":0,"colors":{"primary_color":0,"secondary_color":null,)"
+                     R"("tertiary_color":null},"permissions":"0"})"));
     r = guild_request(GuildAdminOperation::role_update, 30);
     r.role = &role;
     add(r, RestMethod::patch, utf8_literal("/api/v10/guilds/10/roles/30"),
@@ -279,6 +393,19 @@ void test_routes() noexcept {
     r = guild_request(GuildAdminOperation::guild_leave);
     add(r, RestMethod::delete_method, utf8_literal("/api/v10/users/@me/guilds/10"),
         utf8_literal(R"({"lurking":false})"));
+    r = guild_request(GuildAdminOperation::member_kick, 20);
+    r.reason = utf8_literal("a!*'()~ b");
+    add(r, RestMethod::delete_method, utf8_literal("/api/v10/guilds/10/members/20?reason=a!*'()~%20b"), {});
+    RolePatch named{};
+    named.fields = role_patch_name | role_patch_color;
+    named.name = utf8_literal("Mods");
+    named.color = 0x3366FF;
+    r = guild_request(GuildAdminOperation::role_create);
+    r.role = &named;
+    add(r, RestMethod::post, utf8_literal("/api/v10/guilds/10/roles"),
+        utf8_literal(
+            R"({"name":"Mods","color":3368703,"colors":{"primary_color":3368703,"secondary_color":null,)"
+            R"("tertiary_color":null},"permissions":"0"})"));
 
     bool exact = true, short_buffers = true;
     for (u32 n = 0; n < count; ++n) {
@@ -299,7 +426,8 @@ void test_routes() noexcept {
         exact = exact && row_exact;
         short_buffers = bounded(row.request) && short_buffers;
     }
-    check(exact && count == 22, "guild admin protocol: every operation writes its exact method, path and body");
+    check(exact && count == 24,
+          "guild admin protocol: every operation writes its exact method, path and body");
     const auto leave = rows[21].request;
     check(guild_admin_route(leave).major == RestMajorParameter::guild && guild_admin_route(leave).major_key == 10 &&
               guild_admin_route(leave).route_id == kGuildAdminRouteBase + static_cast<u64>(GuildAdminOperation::guild_leave),
@@ -380,6 +508,12 @@ void test_routes() noexcept {
     bad = guild_request(GuildAdminOperation::ban_list);
     bad.page = &ban_filter;
     rejected = rejected && !guild_admin_request_valid(bad);
+    RolePatch hoisted{};
+    hoisted.fields = role_patch_name | role_patch_hoist;
+    hoisted.name = utf8_literal("Mods");
+    bad = guild_request(GuildAdminOperation::role_create);
+    bad.role = &hoisted;
+    rejected = rejected && !guild_admin_request_valid(bad);
     bad = guild_request(GuildAdminOperation::member_kick, 20);
     bad.reason = utf8_literal("line\nbreak");
     rejected = rejected && !guild_admin_request_valid(bad);
@@ -397,6 +531,25 @@ void test_reason_and_head() noexcept {
     const auto utf = rest_encode_audit_reason(utf8_literal("\xC3\xA9"), {encoded, sizeof(encoded)});
     check(utf.ok && same(encoded, utf.bytes, utf8_literal("%C3%A9")),
           "audit reason: UTF-8 sequences are escaped byte by byte");
+    // encodeURIComponent: letters, digits and -_.!~*'() stay; everything else escapes.
+    const auto marks = rest_encode_audit_reason(utf8_literal("a!*'()~ b"), {encoded, sizeof(encoded)});
+    const bool marks_ok = marks.ok && same(encoded, marks.bytes, utf8_literal("a!*'()~%20b")) &&
+                          rest_audit_reason_valid({encoded, marks.bytes});
+    const auto reserved =
+        rest_encode_audit_reason(utf8_literal(";,/?:@&=+$#\"<>[]^`{|}\\%"), {encoded, sizeof(encoded)});
+    const bool reserved_ok =
+        reserved.ok &&
+        same(encoded, reserved.bytes,
+             utf8_literal("%3B%2C%2F%3F%3A%40%26%3D%2B%24%23%22%3C%3E%5B%5D%5E%60%7B%7C%7D%5C%25"));
+    const auto cjk =
+        rest_encode_audit_reason(utf8_literal("\xE6\x97\xA5\xE6\x9C\xAC!"), {encoded, sizeof(encoded)});
+    const bool cjk_ok = cjk.ok && same(encoded, cjk.bytes, utf8_literal("%E6%97%A5%E6%9C%AC!"));
+    const auto emoji =
+        rest_encode_audit_reason(utf8_literal("(\xF0\x9F\x98\x80)"), {encoded, sizeof(encoded)});
+    check(marks_ok && reserved_ok && cjk_ok && emoji.ok &&
+              same(encoded, emoji.bytes, utf8_literal("(%F0%9F%98%80)")),
+          "audit reason: the encoding matches encodeURIComponent for marks, reserved bytes and 2-4 byte "
+          "UTF-8");
     char longest[kRestAuditReasonMaximumBytes + 1];
     for (auto& byte : longest)
         byte = '\x7E' - 1; // '}' needs escaping
@@ -427,6 +580,41 @@ void test_reason_and_head() noexcept {
     request.audit_reason = {reinterpret_cast<const u8*>("raw text"), 8};
     check(found && !write_rest_request_head(request, {head, sizeof(head)}).ok(),
           "request head: the encoded reason is emitted as one header line; raw values are refused");
+    const auto has = [&](RestRequestWriteResult result, const char* text) noexcept {
+        u32 bytes = 0;
+        while (text[bytes])
+            ++bytes;
+        for (u32 i = 0; result.ok() && i + bytes <= result.bytes; ++i)
+            if (bytes_equal(head + i, text, bytes))
+                return true;
+        return false;
+    };
+    // Bodyless requests: no Content-Type; POST and PUT declare a zero length
+    // as Chromium does, other methods carry no length.
+    request.audit_reason = {};
+    bool lengths = true;
+    const RestMethod methods[] = {RestMethod::post, RestMethod::put, RestMethod::delete_method,
+                                  RestMethod::get};
+    for (const auto method : methods) {
+        request.method = method;
+        const auto bodyless = write_rest_request_head(request, {head, sizeof(head)});
+        const bool zero = method == RestMethod::post || method == RestMethod::put;
+        lengths = lengths && bodyless.ok() && !has(bodyless, "Content-Type") &&
+                  has(bodyless, "\r\nContent-Length: 0\r\nConnection: ") == zero &&
+                  (zero || !has(bodyless, "Content-Length"));
+    }
+    check(lengths, "request head: bodyless POST/PUT send Content-Length: 0 and never a Content-Type");
+    // The official client's "" reason: the header with no value; never on GET.
+    request.method = RestMethod::put;
+    request.send_empty_audit_reason = true;
+    const auto empty_reason = write_rest_request_head(request, {head, sizeof(head)});
+    const bool empty_line = has(empty_reason, "\r\nX-Audit-Log-Reason: \r\n");
+    request.method = RestMethod::get;
+    const bool get_refused = !write_rest_request_head(request, {head, sizeof(head)}).ok();
+    request.send_empty_audit_reason = false;
+    const auto no_reason = write_rest_request_head(request, {head, sizeof(head)});
+    check(empty_line && get_refused && no_reason.ok() && !has(no_reason, "X-Audit-Log-Reason"),
+          "request head: an empty reason sends the header with no value; a null reason sends none");
 
     char stamp[32];
     const auto format = [&](u64 seconds, Utf8View expected) noexcept {
@@ -438,6 +626,96 @@ void test_reason_and_head() noexcept {
               format(4'107'542'399, utf8_literal("2100-02-28T23:59:59+00:00")) &&
               !guild_admin_format_timestamp(0, {stamp, 24}),
           "timestamps: civil dates across leap rules use an explicit UTC offset");
+    const auto iso = [&](u64 milliseconds, Utf8View expected) noexcept {
+        const u32 bytes = guild_admin_format_timestamp_ms(milliseconds, {stamp, sizeof(stamp)});
+        return bytes == 24 && utf8_equal({stamp, bytes}, expected);
+    };
+    check(iso(0, utf8_literal("1970-01-01T00:00:00.000Z")) &&
+              iso(951'782'400'000, utf8_literal("2000-02-29T00:00:00.000Z")) &&
+              iso(1'700'000'000'007, utf8_literal("2023-11-14T22:13:20.007Z")) &&
+              iso(4'107'542'399'999, utf8_literal("2100-02-28T23:59:59.999Z")) &&
+              iso(253'402'300'799'999, utf8_literal("9999-12-31T23:59:59.999Z")) &&
+              !guild_admin_format_timestamp_ms(253'402'300'800'000, {stamp, sizeof(stamp)}) &&
+              !guild_admin_format_timestamp_ms(0, {stamp, 23}),
+          "timestamps: the timeout form is toISOString's, .mmmZ with the real milliseconds");
+    MemberPatch late{};
+    late.fields = member_patch_timeout;
+    late.communication_disabled_until_ms = 253'402'300'800'000;
+    auto timeout = guild_request(GuildAdminOperation::member_update, 20);
+    timeout.member = &late;
+    const bool refused = !guild_admin_request_valid(timeout);
+    late.communication_disabled_until_ms = 0;
+    u8 body[128];
+    const auto cleared = guild_admin_write_body(timeout, {body, sizeof(body)});
+    check(refused && cleared.ok() &&
+              same(body, cleared.bytes, utf8_literal(R"({"communication_disabled_until":null})")),
+          "timestamps: a timeout past year 9999 is refused; zero ends the timeout with null");
+}
+
+// Role toggles PATCH the member's whole list; no per-role member route exists.
+void test_role_toggle() noexcept {
+    const u64 held[] = {31, 30, 33};
+    u64 roles[8];
+    const u32 added = guild_admin_member_roles_toggle({held, 3}, 32, true, {roles, 8});
+    const bool add_order =
+        added == 4 && roles[0] == 31 && roles[1] == 30 && roles[2] == 33 && roles[3] == 32;
+    const u32 again = guild_admin_member_roles_toggle({held, 3}, 30, true, {roles, 8});
+    const bool add_held = again == 3 && roles[0] == 31 && roles[1] == 30 && roles[2] == 33;
+    const u32 removed = guild_admin_member_roles_toggle({held, 3}, 30, false, {roles, 8});
+    const bool remove_order = removed == 2 && roles[0] == 31 && roles[1] == 33;
+    const bool remove_absent = guild_admin_member_roles_toggle({held, 3}, 99, false, {roles, 8}) == 3;
+    const bool empty = guild_admin_member_roles_toggle({}, 30, true, {roles, 8}) == 1 && roles[0] == 30 &&
+                       guild_admin_member_roles_toggle({held, 1}, 31, false, {roles, 8}) == 0;
+    const bool refused = guild_admin_member_roles_toggle({held, 3}, 0, true, {roles, 8}) == ~0u &&
+                         guild_admin_member_roles_toggle({held, 3}, 32, true, {roles, 3}) == ~0u &&
+                         guild_admin_member_roles_toggle({nullptr, 2}, 32, true, {roles, 8}) == ~0u;
+    check(add_order && add_held && remove_order && remove_absent && empty && refused,
+          "role toggle: current order kept, an added role appended once, a removed role filtered out");
+
+    RestClient details{};
+    MemberPatch patch{};
+    patch.fields = member_patch_roles;
+    patch.role_ids = {roles, guild_admin_member_roles_toggle({held, 3}, 32, true, {roles, 8})};
+    auto request = guild_request(GuildAdminOperation::member_update, 20);
+    request.member = &patch;
+    const bool add_sent =
+        account_guild_admin_submit(&details, &request, 120).ok() &&
+        captured(RestMethod::patch, RestMajorParameter::guild, 10, GuildAdminOperation::member_update,
+                 utf8_literal("/api/v10/guilds/10/members/20"),
+                 utf8_literal(R"({"roles":["31","30","33","32"]})"));
+    patch.role_ids = {roles, guild_admin_member_roles_toggle({held, 3}, 31, false, {roles, 8})};
+    const bool remove_sent =
+        account_guild_admin_submit(&details, &request, 121).ok() &&
+        captured(RestMethod::patch, RestMajorParameter::guild, 10, GuildAdminOperation::member_update,
+                 utf8_literal("/api/v10/guilds/10/members/20"), utf8_literal(R"({"roles":["30","33"]})"));
+    patch.role_ids = {};
+    const bool last_sent = account_guild_admin_submit(&details, &request, 122).ok() &&
+                           same(capture.body, capture.body_bytes, utf8_literal(R"({"roles":[]})"));
+    check(add_sent && remove_sent && last_sent,
+          "role toggle: adding or removing a role PATCHes /members/{u} with the full ordered list");
+
+    // No operation ever writes a /members/{u}/roles/{r} path.
+    bool per_role = false;
+    u8 target[kGuildAdminMaximumTargetBytes];
+    const u64 members[] = {0, 20};
+    for (u32 op = 0; op < static_cast<u32>(GuildAdminOperation::count); ++op) {
+        for (const u64 member : members) {
+            GuildAdminRequest probe{};
+            probe.operation = static_cast<GuildAdminOperation>(op);
+            probe.guild_id = 10;
+            probe.target_id = member;
+            probe.member = (probe.operation == GuildAdminOperation::member_update ||
+                            probe.operation == GuildAdminOperation::member_update_self)
+                               ? &patch
+                               : nullptr;
+            const auto written = guild_admin_write_target(probe, {target, sizeof(target)});
+            for (u32 i = 0; written.ok() && i + 9 <= written.bytes; ++i)
+                if (bytes_equal(target + i, "/members/", 9))
+                    for (u32 j = i + 9; j + 7 <= written.bytes; ++j)
+                        per_role = per_role || bytes_equal(target + j, "/roles/", 7);
+        }
+    }
+    check(!per_role, "role toggle: no operation produces the per-role member route");
 }
 
 void test_decoders() noexcept {
@@ -659,9 +937,9 @@ void test_abi() noexcept {
     check(loaded.ok(), "guild admin account: shipping DLL loads without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 122 && kAccountModuleApiVersion == 122 && kAccountModuleApiOrdinal == 122 &&
-              host.api.bytes == sizeof(AccountModuleApi) && offsetof(AccountModuleApi, guild_admin) == 640 &&
-              host.api.guild_admin &&
+    check(host.api.version == 123 && kAccountModuleApiVersion == 123 && kAccountModuleApiOrdinal == 123 &&
+              host.api.bytes == sizeof(AccountModuleApi) &&
+              offsetof(AccountModuleApi, guild_admin) == 640 && host.api.guild_admin &&
               host.api.guild_admin(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
           "guild admin account: appended entry rejects an absent owner without creating runtime");
     auto missing = host.api;
@@ -713,12 +991,14 @@ RestClientSubmitResult rest_client_submit(RestClient* client,
                                           const RestClientRequest& request) noexcept {
     auto& c = guild_admin_test::capture;
     ++c.submissions;
+    c.response_capacity = 0;
     c.client = client;
     c.route = request.route;
     c.id = request.request_id;
     c.timeout_ms = request.timeout_ms;
     c.json = request.json_body;
     c.identity = request.identity_response;
+    c.empty_reason = request.send_empty_audit_reason;
     c.copied = request.target.count <= sizeof(c.target) && request.body.count <= sizeof(c.body) &&
                request.audit_reason.count <= sizeof(c.reason);
     if (!c.copied)
@@ -738,6 +1018,17 @@ RestClientSubmitResult rest_client_submit_large(RestClient* client,
     return rest_client_submit(client, request);
 }
 
+// Ban list pages: a bodyless GET with an extended response bank.
+RestClientSubmitResult rest_client_submit_large_response(RestClient* client,
+                                                         const RestClientRequest& request,
+                                                         u32 response_capacity) noexcept {
+    if (request.route.method != RestMethod::get || request.body.count || request.json_body)
+        return {RestClientSubmitError::invalid_input};
+    const auto result = rest_client_submit(client, request);
+    guild_admin_test::capture.response_capacity = response_capacity;
+    return result;
+}
+
 bool rest_client_cancel(RestClient*, u64 request_id) noexcept {
     ++guild_admin_test::capture.cancellations;
     return request_id == 106;
@@ -750,6 +1041,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_account_guild_admin_entry() 
     test_transport();
     test_routes();
     test_reason_and_head();
+    test_role_toggle();
     test_decoders();
     test_abi();
     constexpr char pass[] = "PASS guild admin protocol and transport\n";

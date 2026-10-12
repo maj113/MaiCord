@@ -51,18 +51,23 @@ struct RestRequestHead {
     u64 content_length;
     RestMethod method;
     RestAuthorization authorization;
+    // False sends no Content-Type; a bodyless POST or PUT still carries
+    // Content-Length: 0, as Chromium sends it.
     bool json_body;
     bool close_connection;
     const RestUserRequestHeaders* user_headers;
     bool accept_gzip;
     // Already percent-encoded (rest_encode_audit_reason); empty omits
-    // the X-Audit-Log-Reason header.
+    // the X-Audit-Log-Reason header unless send_empty_audit_reason is set.
     ConstSlice<u8> audit_reason;
     // Must satisfy rest_extra_headers_valid; appended verbatim.
     ConstSlice<u8> extra_headers;
     // Non-empty with a body selects multipart/form-data with this boundary
     // instead of application/json (rest_multipart_boundary_valid).
     ConstSlice<u8> multipart_boundary;
+    // An empty reason still sends "X-Audit-Log-Reason: " with no value, as the
+    // official client does for "" (a null reason sends nothing). Never on GET.
+    bool send_empty_audit_reason = false;
 };
 
 // RFC 2046 boundary restricted to [A-Za-z0-9_-], 1..70 bytes.
@@ -91,9 +96,11 @@ struct RestAuditReasonResult {
     bool ok;
 };
 
-// Percent-encodes a UTF-8 reason (RFC 3986 unreserved bytes pass through).
-// Empty input yields zero bytes. Rejects invalid UTF-8, control characters
-// and reasons over the byte bound; output is untouched on failure.
+// Percent-encodes a UTF-8 reason exactly as encodeURIComponent does (letters,
+// digits and -_.!~*'() pass through), for the X-Audit-Log-Reason header or a
+// reason query parameter. Empty input yields zero bytes. Rejects invalid
+// UTF-8, control characters and reasons over the byte bound; output is
+// untouched on failure.
 RestAuditReasonResult rest_encode_audit_reason(Utf8View reason, Slice<u8> output) noexcept;
 // Accepts only output shaped like rest_encode_audit_reason's.
 bool rest_audit_reason_valid(ConstSlice<u8> encoded) noexcept;

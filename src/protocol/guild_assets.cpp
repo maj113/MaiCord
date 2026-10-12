@@ -236,7 +236,6 @@ void serialize(const GuildAssetRequest& r, GuildPreparedImage image, ConstSlice<
         s.number(r.mfa_level);
         s.literal("}");
         break;
-    case Op::guild_delete: s.literal("{}"); break;
     case Op::guild_create:
         s.literal("{\"name\":");
         s.json_string(r.name);
@@ -415,7 +414,8 @@ RestMethod guild_asset_method(GuildAssetOperation op) noexcept {
 
 bool guild_asset_has_body(GuildAssetOperation op) noexcept {
     const auto method = guild_asset_method(op);
-    return op != Op::image_probe && op < Op::count &&
+    // Deleting a server POSTs no body, as the official client does.
+    return op != Op::image_probe && op != Op::guild_delete && op < Op::count &&
            (method == RestMethod::patch || method == RestMethod::post);
 }
 

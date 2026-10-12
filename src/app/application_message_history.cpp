@@ -240,6 +240,26 @@ struct RestApplyTrace {
     }
 };
 
+// A response over the shared buffer (a large list such as a server's bans,
+// submitted with rest_client_submit_large_response) is taken into a bank of
+// its exact size that lives until the drain returns.
+struct LargeResponseBank {
+    u8* data = nullptr;
+    u32 bytes = 0;
+
+    bool allocate(u32 size) noexcept {
+        if (data || !size || size > kRestClientMaximumResponseBytes)
+            return false;
+        data = static_cast<u8*>(VirtualAlloc(nullptr, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        bytes = data ? size : 0;
+        return data != nullptr;
+    }
+    ~LargeResponseBank() noexcept {
+        if (data)
+            VirtualFree(data, 0, MEM_RELEASE);
+    }
+};
+
 struct MessageHistoryResponseErase {
     u8* data;
     u32 bytes;
@@ -886,14 +906,21 @@ static bool pump_message_history_main(bool admit) noexcept {
             g_app.message_history_request_owner == MessageHistoryRequestOwner::emoji_preferences;
         const bool favorites_buffer =
             emoji_buffer || g_app.message_history_request_owner == MessageHistoryRequestOwner::gif_favorites;
-        const Slice<u8> body_output = emoji_buffer       ? application_emoji_preferences_response_buffer()
-                                      : favorites_buffer ? application_gif_favorites_response_buffer()
-                                                         : Slice<u8>{g_app.account_ui->response_shape_scratch.response,
-                                                                     kAccountHistoryResponseBytes};
+        Slice<u8> body_output = emoji_buffer ? application_emoji_preferences_response_buffer()
+                                : favorites_buffer
+                                    ? application_gif_favorites_response_buffer()
+                                    : Slice<u8>{g_app.account_ui->response_shape_scratch.response,
+                                                kAccountHistoryResponseBytes};
         if (!body_output.data || !body_output.count)
             return false;
         RestClientResponse response{};
-        const RestClientTakeResult taken = host.api.rest_take(host.instance, &response, body_output);
+        RestClientTakeResult taken = host.api.rest_take(host.instance, &response, body_output);
+        // Declared before the erase guard so the bank is erased, then released.
+        LargeResponseBank large{};
+        if (taken.error == RestClientTakeError::output_too_small && large.allocate(taken.body_bytes)) {
+            body_output = {large.data, large.bytes};
+            taken = host.api.rest_take(host.instance, &response, body_output);
+        }
         if (taken.error == RestClientTakeError::empty) {
             if (g_app.message_history_request_owner != MessageHistoryRequestOwner::none)
                 return true;

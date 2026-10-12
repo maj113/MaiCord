@@ -892,18 +892,39 @@ bool application_user_actions_submit(u64 now) noexcept {
     }
     if (s.role_queued) {
         s.role_queued = false;
-        if (!role_editable(chat(), s.role_guild, s.role_id) || !api.profile_get)
+        // The official client PATCHes the member's whole role list: the current
+        // IDs in order, with the role appended or filtered out.
+        const auto* member =
+            guild_member_store_find(g_app.account_ui->guild_member_store, s.role_guild, s.role_user);
+        u64 roles[kGuildMemberRoleIdCapacity + 1];
+        const u32 count =
+            member && guild_member_store_role_ids_known(*member)
+                ? guild_admin_member_roles_toggle(guild_member_store_role_ids(*member), s.role_id,
+                                                  s.role_add, {roles, kGuildMemberRoleIdCapacity + 1})
+                : ~0u;
+        if (!role_editable(chat(), s.role_guild, s.role_id) || !api.guild_admin || count == ~0u) {
+            s.role_override_id = 0;
             return false;
-        char digits[20];
-        const u32 bytes = format_id(s.role_id, digits);
+        }
+        MemberPatch patch{};
+        patch.fields = member_patch_roles;
+        patch.role_ids = {roles, count};
+        GuildAdminRequest request{};
+        request.operation = GuildAdminOperation::member_update;
+        request.guild_id = s.role_guild;
+        request.target_id = s.role_user;
+        request.member = &patch;
         const u64 id = next_id();
-        const auto result = api.profile_get(g_app.account.instance, s.role_user, s.role_guild, id,
-                                            s.role_add ? 5 : 6, {digits, bytes});
+        const auto result = api.guild_admin(g_app.account.instance, &request, id);
         if (busy(result)) {
             s.role_queued = true;
             return false;
         }
-        return result.ok() && claim(id, Work::role, s.role_user);
+        if (!result.ok()) {
+            s.role_override_id = 0;
+            return false;
+        }
+        return claim(id, Work::role, s.role_user);
     }
     if (s.flags_queued) {
         s.flags_queued = false;

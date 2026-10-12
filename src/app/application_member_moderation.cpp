@@ -305,6 +305,8 @@ bool open_form() noexcept {
     request.progress = form_progress;
     request.closed = form_closed;
     request.danger = moderation.kind == Kind::timeout || moderation.kind == Kind::kick || moderation.kind == Kind::ban;
+    // Removing a timeout records no reason, so it asks for none.
+    request.confirmation_only = moderation.kind == Kind::end_timeout;
     if (application_text_form_open(request))
         return true;
     reset();
@@ -347,11 +349,16 @@ bool open_choices(Kind kind) noexcept {
     return refresh_popup_text();
 }
 
-GuildAdminRequest build_request(MemberPatch* patch, u64 now) noexcept {
+GuildAdminRequest build_request(MemberPatch* patch, u64 now_ms) noexcept {
     GuildAdminRequest request{};
     request.guild_id = moderation.guild_id;
     request.target_id = moderation.user_id;
-    request.reason = moderation.kind == Kind::nickname ? Utf8View{} : Utf8View{moderation.text, moderation.text_bytes};
+    // As the official dialogs send it: kick, ban and timeout always carry the
+    // reason box, empty when untouched ("" sends an empty header or
+    // "?reason="); nicknames and ending a timeout send none (null).
+    request.reason = moderation.kind == Kind::nickname || moderation.kind == Kind::end_timeout
+                         ? Utf8View{}
+                         : Utf8View{moderation.text, moderation.text_bytes};
     switch (moderation.kind) {
     case Kind::nickname:
         request.operation = moderation.self_nickname ? GuildAdminOperation::member_update_self
@@ -366,7 +373,9 @@ GuildAdminRequest build_request(MemberPatch* patch, u64 now) noexcept {
     case Kind::end_timeout:
         request.operation = GuildAdminOperation::member_update;
         patch->fields = member_patch_timeout;
-        patch->communication_disabled_until = moderation.kind == Kind::timeout ? now + moderation.choice : 0;
+        // Wall-clock milliseconds, as the official client's toISOString() carries.
+        patch->communication_disabled_until_ms =
+            moderation.kind == Kind::timeout ? now_ms + u64{moderation.choice} * 1000 : 0;
         request.member = patch;
         break;
     case Kind::kick:
@@ -470,7 +479,7 @@ bool application_member_moderation_submit(u64 request_id, u64 now_ms) noexcept {
         return false;
     }
     MemberPatch patch{};
-    const GuildAdminRequest request = build_request(&patch, now_seconds());
+    const GuildAdminRequest request = build_request(&patch, clock_unix_milliseconds());
     const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, request_id);
     if (submitted.error == RestClientSubmitError::busy) {
         moderation.retry_at = now_ms + 100;

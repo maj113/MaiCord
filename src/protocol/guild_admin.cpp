@@ -12,6 +12,10 @@ namespace {
 
 using Op = GuildAdminOperation;
 
+// 10000-01-01T00:00:00Z: timestamps stay four-digit years.
+constexpr u64 kTimestampLimitSeconds = 253'402'300'800ull;
+constexpr u64 kTimestampLimitMs = kTimestampLimitSeconds * 1000;
+
 bool view_valid(Utf8View text) noexcept {
     return byte_range_valid({reinterpret_cast<const u8*>(text.data), text.bytes});
 }
@@ -89,7 +93,8 @@ bool guild_patch_valid(const GuildSettingsPatch& patch) noexcept {
 
 bool role_patch_valid(const RolePatch& patch, bool create) noexcept {
     const u8 f = patch.fields;
-    return (create || f) && !(f & ~role_patch_all) &&
+    constexpr u8 create_fields = role_patch_name | role_patch_color | role_patch_permissions;
+    return (create || f) && !(f & ~(create ? create_fields : role_patch_all)) &&
            (!(f & role_patch_name) || text_valid(patch.name, 1, kGuildAdminNameCodepoints, true)) &&
            (!(f & role_patch_color) || patch.color <= 0xFFFFFFu) &&
            (!(f & role_patch_icon) || !patch.icon.bytes || data_uri_valid(patch.icon)) &&
@@ -124,7 +129,7 @@ bool member_patch_valid(const MemberPatch& patch, bool self) noexcept {
         }
     }
     // Year 9999 bound keeps the timestamp formatter fixed-width.
-    return !(f & member_patch_timeout) || patch.communication_disabled_until < 253'402'300'800ull;
+    return !(f & member_patch_timeout) || patch.communication_disabled_until_ms < kTimestampLimitMs;
 }
 
 bool overwrite_valid(const PermissionOverwriteWrite& overwrite) noexcept {
@@ -204,11 +209,17 @@ bool profile_patch_valid(const GuildProfilePatch& patch) noexcept {
            (!patch.banner.bytes || data_uri_valid(patch.banner));
 }
 
+// A null reason sends nothing; any other, even empty, is sent.
 bool reason_valid(const GuildAdminRequest& request) noexcept {
     if (!view_valid(request.reason))
         return false;
-    if (!request.reason.bytes)
+    if (!request.reason.data)
         return true;
+    // The official client lifts bans and revokes invites without a reason.
+    if (request.operation == Op::ban_remove || request.operation == Op::invite_delete)
+        return false;
+    if (!request.reason.bytes)
+        return guild_admin_method(request.operation) != RestMethod::get;
     u8 scratch[kRestAuditReasonMaximumEncodedBytes];
     const bool ok = guild_admin_method(request.operation) != RestMethod::get &&
                     rest_encode_audit_reason(request.reason, {scratch, sizeof(scratch)}).ok;
@@ -347,6 +358,29 @@ void write_role(Body& b, const RolePatch& p) noexcept {
     b.end_object();
 }
 
+// The official client's createRole body, every key in its order.
+void write_role_create(Body& b, const RolePatch* p) noexcept {
+    const u8 f = p ? p->fields : 0;
+    const u32 color = (f & role_patch_color) ? p->color : 0;
+    b.begin_object();
+    b.key("name");
+    b.string((f & role_patch_name) ? p->name : utf8_literal("new role"));
+    b.key("color");
+    b.number(color);
+    b.key("colors");
+    b.begin_object();
+    b.key("primary_color");
+    b.number(color);
+    b.key("secondary_color");
+    b.raw("null");
+    b.key("tertiary_color");
+    b.raw("null");
+    b.end_object();
+    b.key("permissions");
+    b.snowflake((f & role_patch_permissions) ? p->permissions : 0);
+    b.end_object();
+}
+
 void write_member(Body& b, const MemberPatch& p, bool self) noexcept {
     b.begin_object();
     if (p.fields & member_patch_nickname) {
@@ -372,9 +406,10 @@ void write_member(Body& b, const MemberPatch& p, bool self) noexcept {
     }
     if (p.fields & member_patch_timeout) {
         b.key("communication_disabled_until");
-        if (p.communication_disabled_until) {
+        if (p.communication_disabled_until_ms) {
             char stamp[32];
-            const u32 bytes = guild_admin_format_timestamp(p.communication_disabled_until, {stamp, sizeof(stamp)});
+            const u32 bytes =
+                guild_admin_format_timestamp_ms(p.communication_disabled_until_ms, {stamp, sizeof(stamp)});
             b.ok = b.ok && bytes;
             b.string({stamp, bytes});
         } else
@@ -504,10 +539,7 @@ void write_body(const GuildAdminRequest& r, Body& b) noexcept {
         write_guild(b, *r.guild);
         break;
     case Op::role_create:
-        if (r.role)
-            write_role(b, *r.role);
-        else
-            b.raw("{}");
+        write_role_create(b, r.role);
         break;
     case Op::role_update:
         write_role(b, *r.role);
@@ -1258,6 +1290,16 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
         case Op::invite_list_guild: text("/invites"); break;
         default: break;
         }
+        // The official client sends a kick's reason as a query parameter
+        // (encodeURIComponent), never as the audit header; an untouched
+        // reason box still sends "?reason=".
+        if (op == Op::member_kick && r.reason.data) {
+            text("?reason=");
+            const Slice<u8> room{target + w.used, kGuildAdminMaximumTargetBytes - w.used};
+            const auto encoded = ok ? rest_encode_audit_reason(r.reason, room) : RestAuditReasonResult{0, false};
+            ok = encoded.ok;
+            w.used += ok ? encoded.bytes : 0;
+        }
         if ((op == Op::ban_list || op == Op::audit_log)) {
             const GuildAdminPageQuery none{};
             const auto& page = r.page ? *r.page : none;
@@ -1306,6 +1348,10 @@ GuildAdminResult guild_admin_write_body(const GuildAdminRequest& r, Slice<u8> ou
     return {body.writer.used, 0, GuildAdminError::none};
 }
 
+bool guild_admin_reason_header(const GuildAdminRequest& r) noexcept {
+    return guild_admin_request_valid(r) && r.reason.data && r.operation != Op::member_kick;
+}
+
 u32 guild_admin_image_bytes(const GuildAdminRequest& r) noexcept {
     u32 bytes = 0;
     if (r.member && (r.member->fields & member_patch_avatar))
@@ -1318,17 +1364,16 @@ u32 guild_admin_image_bytes(const GuildAdminRequest& r) noexcept {
 GuildAdminResult guild_admin_write_reason(const GuildAdminRequest& r, Slice<u8> output) noexcept {
     if (!guild_admin_request_valid(r) || !byte_range_valid({output.data, output.count}))
         return {0, 0, GuildAdminError::input};
-    if (!r.reason.bytes)
+    if (!r.reason.bytes || r.operation == Op::member_kick)
         return {0, 0, GuildAdminError::none};
     const auto encoded = rest_encode_audit_reason(r.reason, output);
     return encoded.ok ? GuildAdminResult{encoded.bytes, 0, GuildAdminError::none}
                       : GuildAdminResult{encoded.bytes, 0, GuildAdminError::capacity};
 }
 
-u32 guild_admin_format_timestamp(u64 unix_seconds, Slice<char> output) noexcept {
-    constexpr u32 bytes = 25; // YYYY-MM-DDTHH:MM:SS+00:00
-    if (!output.data || output.count < bytes || unix_seconds >= 253'402'300'800ull)
-        return 0;
+namespace {
+// YYYY-MM-DDTHH:MM:SS into output[0..19); the caller checked the bounds.
+void write_civil_time(u64 unix_seconds, Slice<char> output) noexcept {
     const u64 days = unix_seconds / 86'400;
     const u32 seconds = static_cast<u32>(unix_seconds % 86'400);
     // Civil date from days since 1970-01-01 (proleptic Gregorian).
@@ -1357,10 +1402,56 @@ u32 guild_admin_format_timestamp(u64 unix_seconds, Slice<char> output) noexcept 
     two(14, seconds / 60 % 60);
     output[16] = ':';
     two(17, seconds % 60);
+}
+} // namespace
+
+u32 guild_admin_format_timestamp(u64 unix_seconds, Slice<char> output) noexcept {
+    constexpr u32 bytes = 25; // YYYY-MM-DDTHH:MM:SS+00:00
+    if (!output.data || output.count < bytes || unix_seconds >= kTimestampLimitSeconds)
+        return 0;
+    write_civil_time(unix_seconds, output);
     constexpr char zone[] = "+00:00";
     for (u32 i = 0; i < 6; ++i)
         output[19 + i] = zone[i];
     return bytes;
+}
+
+u32 guild_admin_format_timestamp_ms(u64 unix_milliseconds, Slice<char> output) noexcept {
+    constexpr u32 bytes = 24; // YYYY-MM-DDTHH:MM:SS.mmmZ
+    if (!output.data || output.count < bytes || unix_milliseconds >= kTimestampLimitMs)
+        return 0;
+    write_civil_time(unix_milliseconds / 1000, output);
+    const u32 millis = static_cast<u32>(unix_milliseconds % 1000);
+    output[19] = '.';
+    output[20] = static_cast<char>('0' + millis / 100);
+    output[21] = static_cast<char>('0' + millis / 10 % 10);
+    output[22] = static_cast<char>('0' + millis % 10);
+    output[23] = 'Z';
+    return bytes;
+}
+
+u32 guild_admin_member_roles_toggle(ConstSlice<u64> current, u64 role_id, bool add,
+                                    Slice<u64> output) noexcept {
+    if (!role_id || (!current.data && current.count) || (!output.data && output.count))
+        return ~0u;
+    u32 count = 0;
+    bool held = false;
+    for (u32 i = 0; i < current.count; ++i) {
+        if (current[i] == role_id) {
+            held = true;
+            if (!add)
+                continue;
+        }
+        if (count == output.count)
+            return ~0u;
+        output[count++] = current[i];
+    }
+    if (add && !held) {
+        if (count == output.count)
+            return ~0u;
+        output[count++] = role_id;
+    }
+    return count;
 }
 
 GuildAdminResult guild_admin_decode_settings(Utf8View body, Slice<u32> scratch,

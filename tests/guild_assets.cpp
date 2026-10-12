@@ -215,8 +215,8 @@ void test_protocol() noexcept {
     r = asset(GuildAssetOperation::guild_mfa);
     r.mfa_level = 1;
     add(r, {}, RestMethod::post, utf8_literal("/api/v10/guilds/10/mfa"), utf8_literal(R"({"level":1})"));
-    add(asset(GuildAssetOperation::guild_delete), {}, RestMethod::post, utf8_literal("/api/v10/guilds/10/delete"),
-        utf8_literal("{}"));
+    add(asset(GuildAssetOperation::guild_delete), {}, RestMethod::post,
+        utf8_literal("/api/v10/guilds/10/delete"), {});
     bool exact = true;
     for (u32 i = 0; i < count; ++i) {
         const auto& row = rows[i];
@@ -634,10 +634,31 @@ void test_account() noexcept {
                        utf8_literal(R"({"level":1})")),
           "account: the moderation 2FA level POSTs to /mfa");
     request = asset(GuildAssetOperation::guild_delete);
-    check(account_guild_assets_submit(&details, &request, 209).ok() &&
-              captured(RestMethod::post, GuildAssetOperation::guild_delete,
-                       utf8_literal("/api/v10/guilds/10/delete"), utf8_literal("{}")),
-          "account: deleting the server POSTs to /delete");
+    const bool deleted = account_guild_assets_submit(&details, &request, 209).ok() &&
+                         captured(RestMethod::post, GuildAssetOperation::guild_delete,
+                                  utf8_literal("/api/v10/guilds/10/delete"), {}) &&
+                         !capture.body_bytes && !capture.json && !capture.reason_bytes;
+    // The head the transport writes for it: a zero length and no Content-Type,
+    // as a fetch without a body sends.
+    RestRequestHead delete_head{};
+    delete_head.target = {capture.target, capture.target_bytes};
+    delete_head.method = capture.route.method;
+    delete_head.json_body = capture.json;
+    delete_head.content_length = capture.body_bytes;
+    u8 delete_wire[1024];
+    const auto head_written = write_rest_request_head(delete_head, {delete_wire, sizeof(delete_wire)});
+    const auto contains_text = [&](const char* text) noexcept {
+        u32 bytes = 0;
+        while (text[bytes])
+            ++bytes;
+        for (u32 i = 0; head_written.ok() && i + bytes <= head_written.bytes; ++i)
+            if (bytes_equal(delete_wire + i, text, bytes))
+                return true;
+        return false;
+    };
+    check(deleted && head_written.ok() && contains_text("POST /api/v10/guilds/10/delete HTTP/1.1\r\n") &&
+              contains_text("\r\nContent-Length: 0\r\n") && !contains_text("Content-Type"),
+          "account: deleting the server POSTs to /delete with a 0-byte body and no Content-Type");
     // Create a server: POST /guilds from the blank template, no guild major.
     request = {};
     request.operation = GuildAssetOperation::guild_create;

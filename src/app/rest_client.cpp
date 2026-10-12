@@ -77,6 +77,7 @@ struct RestClientCommand {
     u32 audit_reason_bytes;
     u32 extra_headers_bytes;
     u32 multipart_boundary_bytes;
+    bool send_empty_audit_reason;
 };
 
 struct RestLocalRates {
@@ -894,7 +895,8 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
                             !runtime->command.identity_response,
                             {runtime->audit_reason, runtime->command.audit_reason_bytes},
                             {runtime->extra_headers, runtime->command.extra_headers_bytes},
-                            {runtime->multipart_boundary, runtime->command.multipart_boundary_bytes}},
+                            {runtime->multipart_boundary, runtime->command.multipart_boundary_bytes},
+                            runtime->command.send_empty_audit_reason},
             Slice<u8>{runtime->request_head, runtime->request_head_capacity});
         if (!written.ok()) {
             SecureZeroMemory(runtime->request_head, runtime->request_head_capacity);
@@ -1622,9 +1624,8 @@ void rest_client_set_required_action(RestClient* client,
     }
 }
 
-static RestClientSubmitResult submit_request(RestClient* client,
-                                             const RestClientRequest& request,
-                                             u32 settings_response_capacity, bool large = false,
+static RestClientSubmitResult submit_request(RestClient* client, const RestClientRequest& request,
+                                             u32 extended_response_capacity, bool large = false,
                                              u8** owned_body = nullptr) noexcept {
     auto* runtime =
         client && client->runtime ? static_cast<RestClientRuntime*>(client->runtime) : nullptr;
@@ -1643,7 +1644,8 @@ static RestClientSubmitResult submit_request(RestClient* client,
         (!request.body.data && request.body.count != 0) ||
         (!request.json_body && request.body.count != 0) || request.timeout_ms > kMaximumRequestTimeoutMs ||
         !rest_audit_reason_valid(request.audit_reason) ||
-        (request.audit_reason.count && request.route.method == RestMethod::get) ||
+        ((request.audit_reason.count || request.send_empty_audit_reason) &&
+         request.route.method == RestMethod::get) ||
         !rest_extra_headers_valid(request.extra_headers) ||
         (!request.multipart_boundary.data && request.multipart_boundary.count) ||
         (request.multipart_boundary.count &&
@@ -1659,7 +1661,7 @@ static RestClientSubmitResult submit_request(RestClient* client,
     if (request.target.count > kRestClientMaximumTargetBytes) {
         return RestClientSubmitResult{RestClientSubmitError::target_capacity};
     }
-    const u32 body_limit = settings_response_capacity ? kRestUserSettingsMaximumBodyBytes
+    const u32 body_limit = extended_response_capacity ? kRestUserSettingsMaximumBodyBytes
                            : large                    ? kRestClientMaximumLargeRequestBodyBytes
                                                       : kRestClientMaximumRequestBodyBytes;
     if (request.body.count > body_limit) {
@@ -1670,13 +1672,15 @@ static RestClientSubmitResult submit_request(RestClient* client,
         trace_busy(client, runtime, request);
         return RestClientSubmitResult{RestClientSubmitError::busy};
     }
-    // Only an oversized body leaves the fixed arena; the response keeps the
-    // configured capacity and shares the bank after the upload is committed.
-    const bool extended = settings_response_capacity || request.body.count > kRestClientMaximumRequestBodyBytes;
+    // Only an oversized body or an extended response (settings, large lists)
+    // leaves the fixed arena; an oversized body's response keeps the configured
+    // capacity and shares the bank after the upload is committed.
+    const bool extended =
+        extended_response_capacity || request.body.count > kRestClientMaximumRequestBodyBytes;
     bool adopted_body = false;
     if (extended) {
-        const u32 response_capacity = settings_response_capacity ? settings_response_capacity
-                                                                 : runtime->response_capacity;
+        const u32 response_capacity =
+            extended_response_capacity ? extended_response_capacity : runtime->response_capacity;
         const u32 bank_bytes = maximum(request.body.count, response_capacity);
         adopted_body = owned_body && request.body.count >= response_capacity;
         auto* bank = adopted_body ? *owned_body : static_cast<u8*>(VirtualAlloc(nullptr, bank_bytes,
@@ -1714,6 +1718,7 @@ static RestClientSubmitResult submit_request(RestClient* client,
     runtime->command.json_body = request.json_body;
     runtime->command.identity_response = request.identity_response;
     runtime->command.audit_reason_bytes = request.audit_reason.count;
+    runtime->command.send_empty_audit_reason = request.send_empty_audit_reason;
     runtime->command.multipart_boundary_bytes = request.multipart_boundary.count;
     const bool armed = runtime->armed_request_id && runtime->armed_request_id == request.request_id;
     const u32 armed_bytes = armed ? runtime->armed_headers_bytes : 0;
@@ -1782,6 +1787,16 @@ RestClientSubmitResult rest_client_submit_large_owned(
     if (!body_owner || !*body_owner || *body_owner != request.body.data || !request.body.count)
         return {RestClientSubmitError::invalid_input};
     return submit_request(client, request, 0, true, body_owner);
+}
+
+RestClientSubmitResult rest_client_submit_large_response(RestClient* client,
+                                                         const RestClientRequest& request,
+                                                         u32 response_capacity) noexcept {
+    if (response_capacity < kRestClientMinimumResponseBytes ||
+        response_capacity > kRestClientMaximumResponseBytes || request.route.method != RestMethod::get ||
+        request.body.count || request.json_body)
+        return {RestClientSubmitError::invalid_input};
+    return submit_request(client, request, response_capacity);
 }
 
 RestClientSubmitResult rest_client_submit_user_settings(

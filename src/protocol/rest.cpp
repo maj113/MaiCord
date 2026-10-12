@@ -687,9 +687,11 @@ RestUserPropertiesResult write_rest_user_super_properties(
 }
 
 namespace {
+// The bytes encodeURIComponent leaves as they are.
 bool audit_unreserved(u8 value) noexcept {
-    return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') || (value >= '0' && value <= '9') ||
-           value == '-' || value == '.' || value == '_' || value == '~';
+    return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z') ||
+           (value >= '0' && value <= '9') || value == '-' || value == '_' || value == '.' || value == '!' ||
+           value == '~' || value == '*' || value == '\'' || value == '(' || value == ')';
 }
 bool audit_hex(u8 value) noexcept {
     return (value >= '0' && value <= '9') || (value >= 'A' && value <= 'F');
@@ -828,6 +830,7 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
         (!request.token.data && request.token.count != 0) ||
         (!request.json_body && request.content_length != 0) ||
         !rest_audit_reason_valid(request.audit_reason) ||
+        (request.send_empty_audit_reason && request.method == RestMethod::get) ||
         !rest_extra_headers_valid(request.extra_headers)) {
         return RestRequestWriteResult{0, RestRequestError::invalid_input};
     }
@@ -838,6 +841,11 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
         return RestRequestWriteResult{0, RestRequestError::invalid_token};
     }
 
+    // Chromium declares an empty POST or PUT body; other bodyless methods
+    // carry no length.
+    const bool empty_length =
+        !request.json_body && (request.method == RestMethod::post || request.method == RestMethod::put);
+    const bool audit_reason = request.audit_reason.count || request.send_empty_audit_reason;
     u32 required = 0;
     const char* const authorization = request.authorization == RestAuthorization::bearer
                                           ? "Authorization: Bearer "
@@ -865,10 +873,11 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
           (request.user_headers->timezone.bytes == 0 ||
            (add_size(&required, literal_bytes("X-Discord-Timezone: ")) &&
             add_size(&required, request.user_headers->timezone.bytes) && add_size(&required, 2))))) &&
-        (!request.audit_reason.count ||
+        (!audit_reason ||
          (add_size(&required, literal_bytes("X-Audit-Log-Reason: ")) &&
           add_size(&required, request.audit_reason.count) && add_size(&required, 2))) &&
         add_size(&required, request.extra_headers.count) &&
+        (!empty_length || add_size(&required, literal_bytes("Content-Length: 0\r\n"))) &&
         (!request.json_body ||
          ((multipart ? add_size(&required, literal_bytes("Content-Type: multipart/form-data; boundary=")) &&
                            add_size(&required, request.multipart_boundary.count) && add_size(&required, 2)
@@ -913,11 +922,12 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
                 &writer, ConstSlice<u8>{reinterpret_cast<const u8*>(request.user_headers->timezone.data),
                                         request.user_headers->timezone.bytes}) &&
             protocol_writer_append_literal(&writer, "\r\n"))))) &&
-        (!request.audit_reason.count ||
+        (!audit_reason ||
          (protocol_writer_append_literal(&writer, "X-Audit-Log-Reason: ") &&
           protocol_writer_append_bytes(&writer, request.audit_reason) &&
           protocol_writer_append_literal(&writer, "\r\n"))) &&
         (!request.extra_headers.count || protocol_writer_append_bytes(&writer, request.extra_headers)) &&
+        (!empty_length || protocol_writer_append_literal(&writer, "Content-Length: 0\r\n")) &&
         (!request.json_body ||
          ((multipart ? protocol_writer_append_literal(&writer, "Content-Type: multipart/form-data; boundary=") &&
                            protocol_writer_append_bytes(&writer, request.multipart_boundary) &&

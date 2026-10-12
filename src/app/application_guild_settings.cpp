@@ -54,7 +54,8 @@ constexpr u32 kControlCapacity = 2'400;
 constexpr u32 kRowCapacity = 2'000;
 constexpr u32 kBankBytes = 224 * 1024;
 constexpr u32 kBanCapacity = 1'000;
-constexpr u32 kBanPage = 200;
+// One GET /bans?limit=1000, the official client's batch; after= only continues.
+constexpr u32 kBanPage = kGuildAdminPageMaximum;
 constexpr u32 kScratchUnits = 48 * 1024;
 constexpr u32 kPopupCapacity = 512;
 constexpr u32 kSearchBytes = 400;
@@ -198,10 +199,8 @@ enum ExpressionAction : u32 {
 
 struct Request {
     Op op;
-    u64 target, after;
-    u16 reason_bytes;
+    u64 target;
     bool queued;
-    char reason[kGuildAdminReasonBytes];
 };
 
 struct Bank {
@@ -359,7 +358,6 @@ struct Settings {
         u32 position;
     } popup_rows[kPopupCapacity];
     u32 scratch[kScratchUnits];
-    GuildAdminBan ban_page[kBanPage];
     GuildAdminRoleCount role_counts[kGuildRoleMaximum];
     GuildBanRecord ban_records[kBanCapacity];
 };
@@ -1616,14 +1614,11 @@ void build_navigation() noexcept {
 
 // Requests ----------------------------------------------------------------
 
-void queue(Op op, u64 target = 0, Utf8View reason = {}) noexcept {
+void queue(Op op, u64 target = 0) noexcept {
     auto& r = owner->request;
-    SecureZeroMemory(r.reason, sizeof(r.reason));
     r = {};
     r.op = op;
     r.target = target;
-    r.reason_bytes = static_cast<u16>(minimum(reason.bytes, kGuildAdminReasonBytes));
-    copy_bytes(r.reason, reason.data, r.reason_bytes);
     r.queued = true;
     owner->retry_at = 0;
     owner->failed = false;
@@ -1776,7 +1771,7 @@ TextFormOwnerKey form_key(u64 kind, u64 item) noexcept {
 bool form_valid(TextFormOwnerKey key) noexcept {
     return owner && owner->scene.active && key.scope == owner->lifetime && scope_current();
 }
-bool form_save(TextFormOwnerKey key, Utf8View text) noexcept {
+bool form_save(TextFormOwnerKey key, Utf8View) noexcept {
     if (!form_valid(key) || busy())
         return false;
     application_text_form_close(false, false);
@@ -1786,10 +1781,10 @@ bool form_save(TextFormOwnerKey key, Utf8View text) noexcept {
             queue(Op::role_delete, key.item);
     } else if (key.collection == 2) {
         if (page_allowed(Page::bans))
-            queue(Op::ban_remove, key.item, text);
+            queue(Op::ban_remove, key.item);
     } else if (key.collection == 3) {
         if (page_allowed(Page::invites) && key.item < owner->invite_count)
-            queue(Op::invite_delete, key.item, text);
+            queue(Op::invite_delete, key.item);
     }
     repaint();
     return true;
@@ -1822,17 +1817,15 @@ void confirm_unban(u64 user) noexcept {
     Bank bank{title, sizeof(title), 0};
     bank.add(utf8_literal("Revoke ban for "));
     bank.add(ban->name_bytes ? Utf8View{ban->name, ban->name_bytes} : utf8_literal("this user"));
+    // A plain confirmation: the official client unbans without a reason.
     ApplicationTextFormRequest request{};
     request.title = bank.since(0);
     request.context = utf8_literal("They can join again with an invite.");
-    request.label = utf8_literal("Reason (optional)");
     request.accept = utf8_literal("Revoke ban");
     request.owner = form_key(2, user);
     request.valid = form_valid;
     request.save = form_save;
-    request.maximum_codepoints = kGuildAdminReasonBytes;
-    request.maximum_bytes = kGuildAdminReasonBytes;
-    request.single_line = true;
+    request.confirmation_only = true;
     application_text_form_open(request);
 }
 void confirm_revoke_invite(u32 index) noexcept {
@@ -1843,18 +1836,16 @@ void confirm_revoke_invite(u32 index) noexcept {
     bank.add(utf8_literal("Revoke invite "));
     bank.add({owner->invites[index].code, owner->invites[index].code_bytes});
     bank.add(utf8_literal("?"));
+    // A plain confirmation: the official client revokes without a reason.
     ApplicationTextFormRequest request{};
     request.title = bank.since(0);
     request.context = utf8_literal("The link stops working for everyone.");
-    request.label = utf8_literal("Reason (optional)");
     request.accept = utf8_literal("Revoke");
     request.danger = true;
     request.owner = form_key(3, index);
     request.valid = form_valid;
     request.save = form_save;
-    request.maximum_codepoints = kGuildAdminReasonBytes;
-    request.maximum_bytes = kGuildAdminReasonBytes;
-    request.single_line = true;
+    request.confirmation_only = true;
     application_text_form_open(request);
 }
 // Images and expressions ------------------------------------------------------
@@ -3462,7 +3453,6 @@ bool application_guild_settings_submit(u64 now) noexcept {
     auto& p = *owner;
     GuildAdminRequest request{};
     request.guild_id = p.guild_id;
-    request.reason = {p.request.reason, p.request.reason_bytes};
     GuildSettingsPatch guild_patch{};
     RolePatch role_patch{};
     GuildAdminPageQuery query{};
@@ -3470,7 +3460,6 @@ bool application_guild_settings_submit(u64 now) noexcept {
     GuildAssetRequest asset{};
     asset.guild_id = p.guild_id;
     asset.target_id = p.request.target;
-    asset.reason = request.reason;
     bool assets = true;
     const auto image = [](const Picked& picked) noexcept {
         return picked.set ? ConstSlice<u8>{picked.data, picked.bytes} : ConstSlice<u8>{};
@@ -3555,10 +3544,8 @@ bool application_guild_settings_submit(u64 now) noexcept {
         request.operation = GuildAdminOperation::role_member_counts;
         break;
     case Op::role_create:
+        // No patch: the official client's default "new role" body.
         request.operation = GuildAdminOperation::role_create;
-        role_patch.fields = role_patch_name;
-        role_patch.name = utf8_literal("new role");
-        request.role = &role_patch;
         break;
     case Op::role_update:
         request.operation = GuildAdminOperation::role_update;
@@ -3668,7 +3655,6 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
     auto& p = *owner;
     p.request_id = 0;
     const Op op = p.request.op;
-    SecureZeroMemory(p.request.reason, sizeof(p.request.reason));
     const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
                     response.status_code < 300;
     if (!p.scene.active || !scope_current())
@@ -3799,9 +3785,23 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         p.order_dirty = false;
         break;
     case Op::ban_list: {
-        const auto decoded = guild_admin_decode_bans(body, {p.scratch, kScratchUnits}, {p.ban_page, kBanPage});
-        if (!decoded.ok() ||
-            !guild_ban_store_append_page(&p.bans, p.guild_id, {p.ban_page, decoded.count}, decoded.count < kBanPage)) {
+        // A full page outgrows the shared scratch: its rows and structurals
+        // (at most one per body byte) live in a bank for this decode only.
+        const u32 units = body.bytes + 1;
+        const SIZE_T rows_bytes = SIZE_T{kBanPage} * sizeof(GuildAdminBan);
+        auto* bank = static_cast<u8*>(VirtualAlloc(nullptr, rows_bytes + SIZE_T{units} * sizeof(u32),
+                                                   MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        auto* rows = reinterpret_cast<GuildAdminBan*>(bank);
+        const auto decoded =
+            bank ? guild_admin_decode_bans(body, {reinterpret_cast<u32*>(bank + rows_bytes), units},
+                                           {rows, kBanPage})
+                 : GuildAdminResult{0, 0, GuildAdminError::capacity};
+        const bool stored =
+            decoded.ok() && guild_ban_store_append_page(&p.bans, p.guild_id, {rows, decoded.count},
+                                                        decoded.count < kBanPage);
+        if (bank)
+            VirtualFree(bank, 0, MEM_RELEASE);
+        if (!stored) {
             p.bans_failed = true;
             p.status = utf8_literal("The ban list couldn't be read.");
         } else if (!p.bans.complete && p.bans.count < kBanCapacity)

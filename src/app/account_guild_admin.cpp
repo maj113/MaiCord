@@ -5,6 +5,8 @@
 namespace maicord {
 static_assert(kGuildAdminMaximumTargetBytes <= kRestClientMaximumTargetBytes);
 namespace {
+// Ban list pages: up to kGuildAdminPageMaximum bans with full user objects.
+constexpr u32 kGuildAdminBanListResponseBytes = kRestClientMaximumResponseBytes;
 // Per-server avatar and banner uploads may need up to two minutes.
 constexpr u32 kLargeTimeoutMs = 120 * 1000;
 // Demand-backed body bank sized to the transport limit plus any image data
@@ -13,7 +15,7 @@ constexpr u32 kLargeTimeoutMs = 120 * 1000;
 __declspec(noinline) RestClientSubmitResult submit_with_body(RestClient* rest,
                                                              const GuildAdminRequest& request,
                                                              ConstSlice<u8> target,
-                                                             ConstSlice<u8> reason,
+                                                             ConstSlice<u8> reason, bool empty_reason,
                                                              u64 request_id) noexcept {
     const u32 images = guild_admin_image_bytes(request);
     if (images > kRestClientMaximumLargeRequestBodyBytes - kRestClientMaximumRequestBodyBytes)
@@ -24,14 +26,15 @@ __declspec(noinline) RestClientSubmitResult submit_with_body(RestClient* rest,
         return {RestClientSubmitError::memory};
     const auto written = guild_admin_write_body(request, {body, capacity});
     const bool large = written.ok() && written.bytes > kRestClientMaximumRequestBodyBytes;
-    const RestClientRequest submit{target,
-                                   {body, written.ok() ? written.bytes : 0},
-                                   guild_admin_route(request),
-                                   request_id,
-                                   large ? kLargeTimeoutMs : kRestClientDefaultTimeoutMs,
-                                   true,
-                                   false,
-                                   reason};
+    RestClientRequest submit{target,
+                             {body, written.ok() ? written.bytes : 0},
+                             guild_admin_route(request),
+                             request_id,
+                             large ? kLargeTimeoutMs : kRestClientDefaultTimeoutMs,
+                             true,
+                             false,
+                             reason};
+    submit.send_empty_audit_reason = empty_reason;
     const auto result = !written.ok() ? RestClientSubmitResult{RestClientSubmitError::body_capacity}
                         : large       ? rest_client_submit_large(rest, submit)
                                       : rest_client_submit(rest, submit);
@@ -53,18 +56,26 @@ RestClientSubmitResult account_guild_admin_submit(RestClient* rest, const GuildA
     const auto encoded = guild_admin_write_reason(*request, {reason, sizeof(reason)});
     if (!encoded.ok())
         return {RestClientSubmitError::invalid_input};
+    // The official client sends "" as an empty header and null as none.
+    const bool empty_reason = !encoded.bytes && guild_admin_reason_header(*request);
     RestClientSubmitResult result{};
+    RestClientRequest bodyless{{target, path.bytes},
+                               {},
+                               guild_admin_route(*request),
+                               request_id,
+                               kRestClientDefaultTimeoutMs,
+                               false,
+                               false,
+                               {reason, encoded.bytes}};
+    bodyless.send_empty_audit_reason = empty_reason;
     if (guild_admin_has_body(request->operation))
-        result = submit_with_body(rest, *request, {target, path.bytes}, {reason, encoded.bytes}, request_id);
+        result = submit_with_body(rest, *request, {target, path.bytes}, {reason, encoded.bytes},
+                                  empty_reason, request_id);
+    else if (request->operation == GuildAdminOperation::ban_list)
+        // One page of up to 1000 bans outgrows the ordinary response capacity.
+        result = rest_client_submit_large_response(rest, bodyless, kGuildAdminBanListResponseBytes);
     else
-        result = rest_client_submit(rest, {{target, path.bytes},
-                                           {},
-                                           guild_admin_route(*request),
-                                           request_id,
-                                           kRestClientDefaultTimeoutMs,
-                                           false,
-                                           false,
-                                           {reason, encoded.bytes}});
+        result = rest_client_submit(rest, bodyless);
     SecureZeroMemory(reason, encoded.bytes);
     return result;
 }

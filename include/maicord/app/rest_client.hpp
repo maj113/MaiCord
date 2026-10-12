@@ -15,7 +15,8 @@ using RestTraceFunction = void (*)(const char* record) noexcept;
 // workers have joined. Receives metadata only, never request bodies.
 void rest_client_set_trace(RestTraceFunction trace) noexcept;
 
-inline constexpr u32 kRestClientMaximumTargetBytes = 1344;
+// Room for a kick, whose audit reason travels percent-encoded in the query.
+inline constexpr u32 kRestClientMaximumTargetBytes = 128 + kRestAuditReasonMaximumEncodedBytes;
 inline constexpr u32 kRestClientMaximumRequestBodyBytes = 64 * 1024;
 // Opt-in ceiling for rest_client_submit_large (image data URIs and
 // multipart uploads). The bank exists only for that one transaction.
@@ -140,6 +141,9 @@ struct RestClientRequest {
     // Non-empty sends the body as multipart/form-data with this boundary
     // (rest_multipart_boundary_valid); copied at submit.
     ConstSlice<u8> multipart_boundary;
+    // With an empty audit_reason, still sends the header with no value (the
+    // official client's "" reason). Refused on GET like any reason.
+    bool send_empty_audit_reason = false;
 };
 
 // All pointed-to values must already reside in locked SecureBuffers. The
@@ -353,6 +357,13 @@ RestClientSubmitResult rest_client_submit_large(RestClient* client,
 // of the result. Existing queued/TLS/response lifetime rules remain unchanged.
 RestClientSubmitResult rest_client_submit_large_owned(
     RestClient* client, const RestClientRequest& request, u8** body_owner) noexcept;
+// A bodyless GET whose response may exceed the configured capacity (a large
+// list such as a server's bans): the response lands in a bank of
+// response_capacity bytes allocated for this transaction and released with
+// the response. Take it with output of at least the reported body size.
+RestClientSubmitResult rest_client_submit_large_response(RestClient* client,
+                                                         const RestClientRequest& request,
+                                                         u32 response_capacity) noexcept;
 // Normal-user settings-proto/2 GET/PATCH only, with the normalized route above
 // and no major parameter. A transaction-owned body bank is copied
 // synchronously and released after response consumption or joined shutdown.

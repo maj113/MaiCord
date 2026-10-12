@@ -20,7 +20,7 @@ enum class GuildAssetOperation : u8 {
     sticker_update, // PATCH  /guilds/{g}/stickers/{s}
     sticker_delete, // DELETE /guilds/{g}/stickers/{s}
     guild_mfa,      // POST   /guilds/{g}/mfa         {"level"}
-    guild_delete,   // POST   /guilds/{g}/delete      {}
+    guild_delete,   // POST   /guilds/{g}/delete      (no body)
     image_probe,    // local: prepares `image` for `profile`, no request
     // POST /guilds {"name","icon":data-uri|null,"channels":[],"system_channel_id":null,
     // "guild_template_code"}: a new server from the blank template. No

@@ -165,7 +165,7 @@ void maximum() noexcept {
     publish_request_error(&p.client, p.runtime, RestClientError::cancelled, 0);
 }
 void abi() noexcept {
-    static_assert(kAccountModuleApiVersion == 122 && kAccountModuleApiOrdinal == 122);
+    static_assert(kAccountModuleApiVersion == 123 && kAccountModuleApiOrdinal == 123);
     static_assert(sizeof(AccountModuleApi) == 1160 && sizeof(AccountHost) == 1408);
     static_assert(offsetof(AccountModuleApi, bulk_message_ack) == 624);
     static_assert(offsetof(AccountModuleApi, poll) == 632);

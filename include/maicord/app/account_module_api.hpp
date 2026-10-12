@@ -57,8 +57,10 @@ namespace maicord {
 // v121: decoders (message JSON and channel routing) live only in the
 // module; regional flags arrive as worker-compiled paint (frame kind 11).
 // v122: cdn_urls (CDN URL parsing and target writers) live only in the module.
-inline constexpr u32 kAccountModuleApiVersion = 122;
-inline constexpr u16 kAccountModuleApiOrdinal = 122;
+// v123: MemberPatch carries the timeout end in milliseconds; member roles change
+// through guild_admin member_update (profile_get operations 5 and 6 are gone).
+inline constexpr u32 kAccountModuleApiVersion = 123;
+inline constexpr u16 kAccountModuleApiOrdinal = 123;
 inline constexpr u32 kAccountHistoryResponseBytes = 256 * 1024;
 inline constexpr wchar_t kAccountModuleFileNameWide[] = L"MaiCordAccount.dll";
 

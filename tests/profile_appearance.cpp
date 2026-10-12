@@ -2,7 +2,6 @@
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/model/role_policy.hpp"
 #include "maicord/media/animation_timeline.hpp"
-#include "maicord/protocol/member_role.hpp"
 #include "maicord/ui/profile_appearance.hpp"
 #include "maicord/model/user_profile.hpp"
 #include "maicord/ui/profile_media.hpp"
@@ -109,18 +108,6 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
         }
         check(replay,
               "profile_effect_reopens_eight_times_after_final_frame_without_invalidating_pending_upload");
-        u8 target[160]{};
-        ProtocolWriter writer{{target, sizeof(target)}, 0};
-        check(member_role_target(&writer, 7, 42, utf8_literal("11")) &&
-                  utf8_equal({reinterpret_cast<const char*>(target), writer.used},
-                             utf8_literal("/api/v10/guilds/7/members/42/roles/11")),
-              "profile_role_request_exact_member_target");
-        writer.used = 0;
-        check(!member_role_target(&writer, 7, 42, utf8_literal("11/other")) && !writer.used &&
-                  !member_role_target(&writer, 7, 42, utf8_literal("18446744073709551616")) &&
-                  !writer.used && !member_role_target(&writer, 7, 42, utf8_literal("0")) &&
-                  !writer.used,
-              "profile_role_request_rejects_path_injection_zero_and_overflow");
         GuildRecord guilds[1]{};
         u16 order[1]{};
         RoleRecord roles[3]{};

@@ -13,15 +13,15 @@ enum class GuildAdminOperation : u8 {
     guild_fetch,         // GET    /guilds/{g}
     guild_update,        // PATCH  /guilds/{g}
     role_list,           // GET    /guilds/{g}/roles
-    role_create,         // POST   /guilds/{g}/roles
+    role_create,         // POST   /guilds/{g}/roles     {"name","color","colors","permissions"}
     role_update,         // PATCH  /guilds/{g}/roles/{r}
     role_delete,         // DELETE /guilds/{g}/roles/{r}
     role_reorder,        // PATCH  /guilds/{g}/roles
     role_member_counts,  // GET    /guilds/{g}/roles/member-counts
-    member_update,       // PATCH  /guilds/{g}/members/{u}
+    member_update,       // PATCH  /guilds/{g}/members/{u}  (roles: the full list)
     member_update_self,  // PATCH  /guilds/{g}/members/@me
-    member_kick,         // DELETE /guilds/{g}/members/{u}
-    ban_list,            // GET    /guilds/{g}/bans
+    member_kick,         // DELETE /guilds/{g}/members/{u}[?reason=]
+    ban_list,            // GET    /guilds/{g}/bans?limit=1000[&after=]
     ban_add,             // PUT    /guilds/{g}/bans/{u}
     ban_remove,          // DELETE /guilds/{g}/bans/{u}
     audit_log,           // GET    /guilds/{g}/audit-logs
@@ -41,7 +41,8 @@ enum class GuildAdminOperation : u8 {
 };
 
 inline constexpr u64 kGuildAdminRouteBase = 0x4741444D494E0000ull;
-inline constexpr u32 kGuildAdminMaximumTargetBytes = 192;
+// The longest path plus a kick reason at its encoded bound.
+inline constexpr u32 kGuildAdminMaximumTargetBytes = 128 + kRestAuditReasonMaximumEncodedBytes;
 inline constexpr u32 kGuildAdminNameCodepoints = 100;
 inline constexpr u32 kGuildAdminNameBytes = kGuildAdminNameCodepoints * 4;
 inline constexpr u32 kGuildAdminNicknameCodepoints = 32;
@@ -101,6 +102,9 @@ enum RolePatchField : u8 {
 };
 
 // Icon is a data URI and the emoji a short UTF-8 sequence; empty clears.
+// role_create takes only name, color and permissions (or no patch) and always
+// sends the official client's full body: unset fields default to "new role",
+// colour 0 and no permissions.
 struct RolePatch {
     Utf8View name;
     Utf8View icon;
@@ -126,13 +130,15 @@ enum MemberPatchField : u8 {
 
 // Empty nickname resets it (null for another member, "" for oneself, as the
 // official client sends). A zero timeout clears it; otherwise it is a Unix time in
-// seconds. A zero voice channel disconnects the member. The avatar is a
-// complete data URI; empty removes the per-server avatar (null).
+// milliseconds, sent as YYYY-MM-DDTHH:MM:SS.mmmZ. Roles replace the member's
+// whole list (guild_admin_member_roles_toggle). A zero voice channel
+// disconnects the member. The avatar is a complete data URI; empty removes
+// the per-server avatar (null).
 struct MemberPatch {
     Utf8View nickname;
     Utf8View avatar;
     ConstSlice<u64> role_ids;
-    u64 communication_disabled_until;
+    u64 communication_disabled_until_ms;
     u64 voice_channel_id;
     u8 fields;
     bool mute;
@@ -228,7 +234,10 @@ struct GuildAdminRequest {
     u64 channel_id;
     // Role, user or overwrite target depending on the operation.
     u64 target_id;
-    // Recorded in the audit log for mutations; empty sends no header.
+    // Recorded in the audit log for mutations: the X-Audit-Log-Reason header,
+    // or the reason query parameter for a kick. Like the official client's
+    // null versus "", a null view (no data) sends nothing, while any other
+    // view is sent even when empty (an empty header value, or "?reason=").
     Utf8View reason;
     Utf8View invite_code;
     const GuildSettingsPatch* guild;
@@ -270,12 +279,25 @@ RestRouteKey guild_admin_route(const GuildAdminRequest& request) noexcept;
 GuildAdminResult guild_admin_write_target(const GuildAdminRequest& request, Slice<u8> output) noexcept;
 // Zero bytes for bodyless operations. Partial output is cleared on failure.
 GuildAdminResult guild_admin_write_body(const GuildAdminRequest& request, Slice<u8> output) noexcept;
-// Percent-encoded audit reason for the request; zero bytes when none.
+// Percent-encoded X-Audit-Log-Reason value; zero bytes when none, when the
+// reason is empty, and for a kick, whose reason travels in the target.
 GuildAdminResult guild_admin_write_reason(const GuildAdminRequest& request, Slice<u8> output) noexcept;
+// Whether the request carries the X-Audit-Log-Reason header, possibly with an
+// empty value: a reason view with data on any operation but a kick.
+bool guild_admin_reason_header(const GuildAdminRequest& request) noexcept;
 // Bytes of the data URIs the body carries (member avatar, profile banner).
 u32 guild_admin_image_bytes(const GuildAdminRequest& request) noexcept;
-// ISO 8601 UTC with an explicit offset, as the member timeout field expects.
+// ISO 8601 UTC with an explicit offset (YYYY-MM-DDTHH:MM:SS+00:00).
 u32 guild_admin_format_timestamp(u64 unix_seconds, Slice<char> output) noexcept;
+// Date.prototype.toISOString's form, YYYY-MM-DDTHH:MM:SS.mmmZ (24 bytes), as
+// the member timeout field takes it. Zero for short output or years past 9999.
+u32 guild_admin_format_timestamp_ms(u64 unix_milliseconds, Slice<char> output) noexcept;
+// The member's role list after one role toggle, as the official client sends
+// it in the member PATCH: the current IDs in their current order, with an
+// added role appended unless already held, or a removed role filtered out.
+// Returns the count, or ~0u for a zero role, invalid views or short output.
+u32 guild_admin_member_roles_toggle(ConstSlice<u64> current, u64 role_id, bool add,
+                                    Slice<u64> output) noexcept;
 
 // Response models. Strings are owned, not NUL-terminated; zero lengths mean
 // absent or null. Decoders tolerate unknown fields and refuse duplicates of

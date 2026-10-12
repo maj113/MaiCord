@@ -138,7 +138,7 @@ void dormant_abi() noexcept {
     if (!host.module)
         return;
     const auto leave = action(PrivateChannelActionKind::leave);
-    check(host.api.version == 122 && host.api.bytes == 1160 && host.api.private_channel &&
+    check(host.api.version == 123 && host.api.bytes == 1160 && host.api.private_channel &&
               host.api.private_channel(nullptr, &leave, 1).error == RestClientSubmitError::invalid_input &&
               host.api.private_channel(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               !host.instance && !host.login_instance,

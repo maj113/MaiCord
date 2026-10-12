@@ -4,7 +4,6 @@
 #include "maicord/app/account_voice_message.hpp"
 #include "maicord/app/voice_log.hpp"
 #include "maicord/core/win32_process.hpp"
-#include "maicord/protocol/member_role.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/app/account_module_api.hpp"
 #include "maicord/app/account_relationships.hpp"
@@ -1137,18 +1136,6 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
             {0x50524546, 0, RestMethod::get, RestMajorParameter::none},
             request_id,
             false);
-    }
-    if (operation == 5 || operation == 6) {
-        u8 target[160];
-        ProtocolWriter writer{{target, sizeof(target)}, 0};
-        if (!member_role_target(&writer, guild, user, value))
-            return invalid;
-        const auto method = operation == 5 ? RestMethod::put : RestMethod::delete_method;
-        return rest_client_submit(rest, {target, writer.used},
-                                  {},
-                                  {0x524f4c45, guild, method, RestMajorParameter::guild},
-                                  request_id,
-                                  false);
     }
     if (operation) {
         if (operation > 3 || !utf8_validate(value).valid || value.bytes > (operation == 1 ? 1024u : 128u))
