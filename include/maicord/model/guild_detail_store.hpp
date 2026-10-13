@@ -24,7 +24,9 @@ enum GuildDetailField : u16 {
     // The complete features array; every name is carried.
     guild_detail_features = 1u << 10,
     guild_detail_member_count = 1u << 11,
-    guild_detail_all = (1u << 12) - 1,
+    // The invite splash hash.
+    guild_detail_splash = 1u << 12,
+    guild_detail_all = (1u << 13) - 1,
 };
 
 // Features Server Settings reads, decoded from the feature names. Names
@@ -67,6 +69,8 @@ bool guild_feature_name_next(ConstSlice<u8> names, u32* cursor, Utf8View* name) 
 
 inline constexpr u32 kGuildDetailDescriptionMaximumBytes = 1'200;
 inline constexpr u32 kGuildDetailVanityMaximumBytes = 64;
+// An image hash: 32 hex characters, "a_" first when animated.
+inline constexpr u32 kGuildDetailHashBytes = 34;
 
 struct GuildDetailRecord {
     u64 guild_id;
@@ -95,6 +99,8 @@ struct GuildDetailRecord {
     bool premium_progress_bar_enabled;
     // The names below are the server's complete list in its order.
     bool feature_names_kept;
+    u8 splash_bytes;
+    char splash[kGuildDetailHashBytes];
 };
 
 struct GuildDetailStore {
@@ -122,6 +128,8 @@ struct GuildDetailInput {
     u64 dm_spam_detected_at_ms;
     Utf8View description;
     Utf8View vanity_url_code;
+    // Empty for none.
+    Utf8View splash;
     ConstSlice<u8> feature_names;
     u32 system_channel_flags;
     u32 premium_subscription_count;
@@ -144,6 +152,9 @@ bool guild_detail_store_remove(GuildDetailStore* store, u64 guild_id) noexcept;
 const GuildDetailRecord* guild_detail_store_find(const GuildDetailStore& store, u64 guild_id) noexcept;
 Utf8View guild_detail_store_description(const GuildDetailStore& store, const GuildDetailRecord& record) noexcept;
 Utf8View guild_detail_store_vanity_url_code(const GuildDetailStore& store, const GuildDetailRecord& record) noexcept;
+inline Utf8View guild_detail_store_splash(const GuildDetailRecord& record) noexcept {
+    return {record.splash, record.splash_bytes};
+}
 // Empty unless feature_names_kept.
 ConstSlice<u8> guild_detail_store_feature_names(const GuildDetailStore& store, const GuildDetailRecord& record) noexcept;
 

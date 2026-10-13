@@ -100,8 +100,13 @@ void synchronize_loading_spinners(u64 now_ms) noexcept {
                      : nullptr;
     auto* card = d3d11_renderer_stream_card_visible(renderer) ? application_stream_card_spinner_scene() : nullptr;
     auto* guild = d3d11_renderer_guild_card_visible(renderer) ? application_guild_card_spinner_scene() : nullptr;
-    const bool visible =
-        g_app.renderer_ready && !renderer.live_resize && (pins || inbox || browser || call || card || guild);
+    // Settings pages' loading notices.
+    auto* settings = renderer_settings_page_visible(renderer) && renderer.settings_scene &&
+                             ui_settings_scene_spinner_visible(*renderer.settings_scene)
+                         ? const_cast<UiSettingsScene*>(renderer.settings_scene)
+                         : nullptr;
+    const bool visible = g_app.renderer_ready && !renderer.live_resize &&
+                         (pins || inbox || browser || call || card || guild || settings);
     ui_spinner_clock_tick(&g_loading_spinner, now_ms, visible, g_app.preferences.reduced_motion);
     // The phase is part of each panel's presentation stamp, so a new phase
     // repaints that panel without rebuilding its text or widgets.
@@ -117,6 +122,8 @@ void synchronize_loading_spinners(u64 now_ms) noexcept {
         card->spinner_phase = g_loading_spinner.phase;
     if (guild)
         guild->spinner_phase = g_loading_spinner.phase;
+    if (settings)
+        settings->spinner_phase = g_loading_spinner.phase;
 }
 
 void record_first_present() noexcept {

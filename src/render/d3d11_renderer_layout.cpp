@@ -920,7 +920,10 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                     continue;
                 const auto r = avatar.avatar;
                 const u32 before = renderer->media_quad_count;
-                if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, avatar.clip, true,
+                // Emoji and sticker previews keep their own shape.
+                const auto kind = avatar.media->key.kind;
+                const bool round = kind != MediaAssetKind::custom_emoji && kind != MediaAssetKind::sticker;
+                if (!queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom, avatar.clip, round,
                                       first))
                     return layout_step_failed(__LINE__);
                 reveal_media_underlay(*renderer, before, r, theme.avatar_placeholder);

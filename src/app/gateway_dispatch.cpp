@@ -1230,6 +1230,8 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
             interaction = GatewayClientDispatchKind::guild_soundboard_sounds_update;
         else if (json_string_equals_ascii(envelope.event_name, utf8_literal("SOUNDBOARD_SOUNDS")))
             interaction = GatewayClientDispatchKind::soundboard_sounds;
+        else if (json_string_equals_ascii(envelope.event_name, utf8_literal("GUILD_BULK_BAN_UPDATE")))
+            interaction = GatewayClientDispatchKind::guild_bulk_ban_update;
         if (interaction != GatewayClientDispatchKind::none) {
             if (envelope.data.kind == JsonValueKind::object &&
                 envelope.data.source.bytes <= content_scratch.count) {

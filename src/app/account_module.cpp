@@ -1,5 +1,6 @@
 #include "maicord/app/account_user_social.hpp"
 #include "maicord/app/account_guild_community.hpp"
+#include "maicord/app/account_guild_moderation.hpp"
 #include "maicord/app/account_soundboard.hpp"
 #include "maicord/app/account_voice_message.hpp"
 #include "maicord/app/voice_log.hpp"
@@ -1461,6 +1462,15 @@ RestClientSubmitResult WINAPI module_guild_admin(void* instance, const GuildAdmi
     return request ? account_guild_admin_submit(rest, request, request_id)
                    : account_guild_admin_cancel(rest, request_id);
 }
+RestClientSubmitResult WINAPI module_guild_moderation(void* instance, const GuildModerationRequest* request,
+                                                      u64 request_id) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    if (!runtime || !request_id || (request && !guild_moderation_request_valid(*request)))
+        return {RestClientSubmitError::invalid_input};
+    auto* rest = user_account_coordinator_rest(&runtime->coordinator, true);
+    return request ? account_guild_moderation_submit(rest, request, request_id)
+                   : account_guild_moderation_cancel(rest, request_id);
+}
 RestClientSubmitResult WINAPI module_guild_assets(void* instance, const GuildAssetRequest* request,
                                                   u64 request_id) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
@@ -2116,6 +2126,7 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
             maicord::write_sticker_cdn_target,
             maicord::cdn_host_name,
         },
+        maicord::module_guild_moderation,
     };
     return true;
 }

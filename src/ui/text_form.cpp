@@ -1,6 +1,7 @@
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/ui/text_form.hpp"
 #include "maicord/ui/foreground_color.hpp"
+#include "maicord/ui/icon.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/widget_scroll.hpp"
 #include "maicord/ui/widget_builder.hpp"
@@ -12,8 +13,22 @@ namespace {
 u32 index(TextFormElement element) noexcept {
     return static_cast<u32>(element);
 }
+constexpr u32 kChoiceFirst = static_cast<u32>(TextFormElement::choice_0);
+constexpr u32 kSelectFirst = static_cast<u32>(TextFormElement::select_0);
 Utf8View label(const TextFormContent& content, TextFormElement element) noexcept {
+    u32 at = 0;
+    if (text_form_choice_index(element, &at))
+        return at < content.choices.count ? content.choices[at] : Utf8View{};
+    if (text_form_select_index(element, &at))
+        return at < content.select_options.count ? content.select_options[at] : Utf8View{};
     switch (element) {
+    case TextFormElement::choices_label:
+        return content.choices_label;
+    case TextFormElement::select_label:
+        return content.select_label;
+    case TextFormElement::select:
+        return content.select_selected < content.select_options.count ? content.select_options[content.select_selected]
+                                                                      : Utf8View{};
     case TextFormElement::title:
         return content.title;
     case TextFormElement::context:
@@ -34,9 +49,51 @@ Utf8View label(const TextFormContent& content, TextFormElement element) noexcept
         return {};
     }
 }
+// A radio row: a choice or an open dropdown's option.
+bool radio(TextFormElement element) noexcept {
+    u32 at = 0;
+    return text_form_choice_index(element, &at) || text_form_select_index(element, &at);
+}
 bool control(TextFormElement element) noexcept {
     return element == TextFormElement::edit || element == TextFormElement::cancel ||
-           element == TextFormElement::accept || element == TextFormElement::option;
+           element == TextFormElement::accept || element == TextFormElement::option ||
+           element == TextFormElement::select || radio(element);
+}
+// Whether a form shows an element at all.
+bool present(const TextFormContent& content, TextFormElement element) noexcept {
+    u32 at = 0;
+    if (text_form_choice_index(element, &at))
+        return at < content.choices.count;
+    if (text_form_select_index(element, &at))
+        return content.select_expanded && at < content.select_options.count;
+    switch (element) {
+    case TextFormElement::label:
+        return !content.confirmation_only && content.label.bytes;
+    case TextFormElement::edit:
+        return !content.confirmation_only;
+    case TextFormElement::option:
+        return content.option.bytes != 0;
+    case TextFormElement::choices_label:
+        return content.choices.count && content.choices_label.bytes;
+    case TextFormElement::select_label:
+        return content.select_options.count && content.select_label.bytes;
+    case TextFormElement::select:
+        return content.select_options.count != 0;
+    default:
+        return true;
+    }
+}
+u32 present_mask(const TextFormContent& content) noexcept {
+    u32 mask = 0;
+    for (u32 i = 0; i < kTextFormElements; ++i)
+        if (present(content, static_cast<TextFormElement>(i)))
+            mask |= 1u << i;
+    return mask;
+}
+// The editor folds away while another choice than its own is chosen.
+bool editor_collapsed(const TextFormContent& content) noexcept {
+    return !content.confirmation_only && content.choice_editor != ~0u &&
+           content.choice_selected != content.choice_editor;
 }
 // The checkbox square and the gap before its label.
 constexpr float kOptionBox = 20.0f;
@@ -45,10 +102,12 @@ bool action(TextFormElement element) noexcept {
     return element == TextFormElement::cancel || element == TextFormElement::accept;
 }
 u32 text_style(TextFormElement element) noexcept {
-    // Modal heading, then a compact bold field label above the editor.
-    return element == TextFormElement::title   ? text_style_heading_2 | text_style_bold
-           : element == TextFormElement::label ? text_style_subtext | text_style_bold
-                                               : text_style_none;
+    // Modal heading, then compact bold field labels above the controls.
+    return element == TextFormElement::title ? text_style_heading_2 | text_style_bold
+           : element == TextFormElement::label || element == TextFormElement::choices_label ||
+                   element == TextFormElement::select_label
+               ? text_style_subtext | text_style_bold
+               : text_style_none;
 }
 bool measure_text(TextFormScene* scene, TextFormElement element, UiSize constraint,
                   UiTextMeasureValue* value) noexcept {
@@ -100,22 +159,27 @@ bool build(TextFormScene* scene) noexcept {
         element = ui_widget_invalid_handle();
     if (!ui_widget_manager_set_measure_callback(&scene->widgets, measure_label, scene))
         return false;
-    constexpr TextFormElement parents[] = {
-        TextFormElement::count,   TextFormElement::root,   TextFormElement::panel, TextFormElement::panel,
-        TextFormElement::panel,   TextFormElement::panel,  TextFormElement::panel, TextFormElement::panel,
-        TextFormElement::panel,   TextFormElement::actions, TextFormElement::actions};
-    constexpr Utf8View names[] = {utf8_literal("TextForm"), utf8_literal("Panel"),  utf8_literal("Title"),
-                                  utf8_literal("Context"),  utf8_literal("Label"),  utf8_literal("Edit"),
-                                  utf8_literal("Status"),   utf8_literal("Option"), utf8_literal("Actions"),
-                                  utf8_literal("Cancel"),   utf8_literal("Accept")};
-    static_assert(sizeof(parents) / sizeof(parents[0]) == kTextFormElements &&
-                  sizeof(names) / sizeof(names[0]) == kTextFormElements);
+    constexpr Utf8View names[] = {
+        utf8_literal("TextForm"), utf8_literal("Panel"),   utf8_literal("Title"),   utf8_literal("Context"),
+        utf8_literal("Choices"),  utf8_literal("Choice1"), utf8_literal("Choice2"), utf8_literal("Choice3"),
+        utf8_literal("Choice4"),  utf8_literal("Label"),   utf8_literal("Edit"),    utf8_literal("SelectLabel"),
+        utf8_literal("Select"),   utf8_literal("Option1"), utf8_literal("Option2"), utf8_literal("Option3"),
+        utf8_literal("Option4"),  utf8_literal("Option5"), utf8_literal("Option6"), utf8_literal("Option7"),
+        utf8_literal("Option8"),  utf8_literal("Status"),  utf8_literal("Option"),  utf8_literal("Actions"),
+        utf8_literal("Cancel"),   utf8_literal("Accept")};
+    static_assert(sizeof(names) / sizeof(names[0]) == kTextFormElements);
+    const auto parent_of = [](TextFormElement element) noexcept {
+        return element == TextFormElement::root    ? TextFormElement::count
+               : element == TextFormElement::panel ? TextFormElement::root
+               : element == TextFormElement::cancel || element == TextFormElement::accept
+                   ? TextFormElement::actions
+                   : TextFormElement::panel;
+    };
     UiWidgetBuilder widgets(scene->widgets);
+    scene->built = present_mask(scene->content);
     for (u32 i = 0; i < kTextFormElements; ++i) {
         const auto element = static_cast<TextFormElement>(i);
-        if ((scene->content.confirmation_only &&
-             (element == TextFormElement::label || element == TextFormElement::edit)) ||
-            (element == TextFormElement::option && !scene->content.option.bytes))
+        if (!(scene->built & (1u << i)))
             continue;
         UiLayoutStyle style = ui_layout_style();
         style.width = ui_layout_fill();
@@ -149,13 +213,20 @@ bool build(TextFormScene* scene) noexcept {
             const float padding = ui_theme_metrics(scene->theme_styles).form_field_padding;
             style.padding = {padding, maximum(0.f, padding - 2), padding, maximum(0.f, padding - 2)};
             style.flags |= ui_layout_node_clip_children;
-        } else if (element == TextFormElement::option) {
-            // A full-width checkbox row: the square, then the wrapped label.
+        } else if (element == TextFormElement::option || radio(element)) {
+            // A full-width checkbox or radio row: the marker, then the wrapped label.
             kind = UiWidgetKind::button;
             style.flags |= ui_layout_node_text_content;
             style.padding = {kOptionBox + kOptionGap, 0, 0, 0};
             style.minimum_size = {0, kOptionBox};
-            style.margin.top = 4;
+            style.margin.top = element == TextFormElement::option ? 4.f : 0.f;
+        } else if (element == TextFormElement::select) {
+            // A field showing the chosen option, a chevron at its end.
+            kind = UiWidgetKind::button;
+            style.flags |= ui_layout_node_text_content;
+            const float padding = ui_theme_metrics(scene->theme_styles).form_field_padding;
+            style.padding = {padding, maximum(0.f, padding - 2), padding + kOptionBox, maximum(0.f, padding - 2)};
+            style.minimum_size = {0, ui_theme_metrics(scene->theme_styles).control_height};
         } else {
             style.flags |= ui_layout_node_text_content | ui_layout_node_allow_zero_size;
             if (control(element)) {
@@ -167,9 +238,10 @@ bool build(TextFormScene* scene) noexcept {
         }
         if (control(element))
             flags = ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable;
-        const UiWidgetHandle parent = parents[i] == TextFormElement::count
+        const TextFormElement parent_element = parent_of(element);
+        const UiWidgetHandle parent = parent_element == TextFormElement::count
                                           ? ui_widget_invalid_handle()
-                                          : scene->elements[index(parents[i])];
+                                          : scene->elements[index(parent_element)];
         const UiWidgetResult added = widgets.widget(parent, {i + 1, names[i]}, kind, flags, style);
         if (!added.ok()) {
             return false;
@@ -216,6 +288,34 @@ const UiLayoutNode* text_form_node(const TextFormScene& scene, TextFormElement e
                : nullptr;
 }
 
+bool text_form_choice_index(TextFormElement element, u32* at) noexcept {
+    const u32 value = index(element);
+    if (value < kChoiceFirst || value >= kChoiceFirst + kTextFormChoices)
+        return false;
+    if (at)
+        *at = value - kChoiceFirst;
+    return true;
+}
+
+bool text_form_select_index(TextFormElement element, u32* at) noexcept {
+    const u32 value = index(element);
+    if (value < kSelectFirst || value >= kSelectFirst + kTextFormSelectOptions)
+        return false;
+    if (at)
+        *at = value - kSelectFirst;
+    return true;
+}
+
+UiRect text_form_choice_marker(const TextFormScene& scene, TextFormElement element) noexcept {
+    const auto* node = radio(element) && (scene.built & (1u << index(element))) ? text_form_node(scene, element)
+                                                                                 : nullptr;
+    if (!node)
+        return {};
+    const float line = minimum(ui_rect_height(node->rectangle), 20.0f);
+    const float top = node->rectangle.top + (line - kOptionBox) * .5f;
+    return {node->rectangle.left, top, node->rectangle.left + kOptionBox, top + kOptionBox};
+}
+
 UiRect text_form_option_box(const TextFormScene& scene) noexcept {
     const auto* node = scene.content.option.bytes ? text_form_node(scene, TextFormElement::option) : nullptr;
     if (!node)
@@ -250,8 +350,13 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
                       UiTextMeasureCache* measure) noexcept {
     if (!scene || !measure || !measure->backend || !ui_rect_valid(viewport) ||
         ui_rect_width(viewport) < 96 || ui_rect_height(viewport) < 64 || !content.title.bytes ||
-        (!content.confirmation_only && !content.label.bytes) || !content.cancel.bytes ||
-        !content.accept.bytes)
+        (!content.confirmation_only && !content.label.bytes && !content.choices.count) || !content.cancel.bytes ||
+        !content.accept.bytes || content.choices.count > kTextFormChoices ||
+        (!content.choices.data && content.choices.count) || content.select_options.count > kTextFormSelectOptions ||
+        (!content.select_options.data && content.select_options.count) ||
+        (content.choice_selected != ~0u && content.choice_selected >= content.choices.count) ||
+        (content.choice_editor != ~0u && content.choice_editor >= content.choices.count) ||
+        (content.select_options.count && content.select_selected >= content.select_options.count))
         return false;
     u64 signature = hash64_bytes(kHash64Seed, &viewport, sizeof(viewport));
     signature = hash64_mix(signature, scene->theme_geometry_revision);
@@ -259,6 +364,8 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
     signature = hash64_mix(signature, content.confirmation_only);
     signature = hash64_mix(signature, content.single_line);
     signature = hash64_mix(signature, content.option.bytes != 0);
+    signature = hash64_mix(signature, present_mask(content));
+    signature = hash64_mix(signature, editor_collapsed(content));
     for (u32 i = 0; i < kTextFormElements; ++i) {
         if (i == index(TextFormElement::edit) ||
             (content.confirmation_only && i == index(TextFormElement::label)))
@@ -305,16 +412,14 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
         content.can_cancel != scene->content.can_cancel || content.editable != scene->content.editable ||
         content.danger != scene->content.danger ||
         content.option_checked != scene->content.option_checked ||
+        content.choice_selected != scene->content.choice_selected ||
+        content.select_selected != scene->content.select_selected ||
+        content.select_expanded != scene->content.select_expanded ||
         content.caret_visible != scene->content.caret_visible ||
         content.focus_visible != scene->content.focus_visible;
     scene->content = content;
     scene->measure = measure;
-    const bool built_confirmation =
-        scene->widgets.count && !scene->elements[index(TextFormElement::edit)].generation;
-    const bool built_option = scene->elements[index(TextFormElement::option)].generation != 0;
-    if ((!scene->widgets.count || content.confirmation_only != built_confirmation ||
-         (content.option.bytes != 0) != built_option) &&
-        !build(scene)) {
+    if ((!scene->widgets.count || present_mask(content) != scene->built) && !build(scene)) {
         text_form_release(scene);
         return false;
     }
@@ -326,11 +431,12 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
         ui_widget_manager_resolve(&scene->widgets, scene->elements[index(TextFormElement::cancel)]);
     cancel->flags =
         content.can_cancel ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : ui_widget_none;
+    const bool collapsed = editor_collapsed(content);
     if (!content.confirmation_only) {
         auto* edit =
             ui_widget_manager_resolve(&scene->widgets, scene->elements[index(TextFormElement::edit)]);
-        edit->flags = content.editable ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
-                                       : ui_widget_none;
+        edit->flags = content.editable && !collapsed ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable
+                                                     : ui_widget_none;
     }
     scene->active = false;
     if (!was_active || signature != scene->layout_signature) {
@@ -340,12 +446,14 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
             auto* edit_layout = ui_layout_engine_resolve(
                 &scene->widgets.layout,
                 scene->widgets.storage[scene->elements[index(TextFormElement::edit)].slot].layout);
-            edit_layout->spec.style.padding = {
-                metrics.form_field_padding, maximum(0.f, metrics.form_field_padding - 2),
-                metrics.form_field_padding, maximum(0.f, metrics.form_field_padding - 2)};
+            edit_layout->spec.style.padding =
+                collapsed ? UiInsets{}
+                          : UiInsets{metrics.form_field_padding, maximum(0.f, metrics.form_field_padding - 2),
+                                     metrics.form_field_padding, maximum(0.f, metrics.form_field_padding - 2)};
             edit_layout->spec.style.height = ui_layout_fixed(
-                content.single_line ? maximum(metrics.control_height, metrics.form_single_height + 4)
-                                    : maximum(metrics.form_multiline_height, metrics.control_height));
+                collapsed             ? 0.f
+                : content.single_line ? maximum(metrics.control_height, metrics.form_single_height + 4)
+                                      : maximum(metrics.form_multiline_height, metrics.control_height));
         }
         auto* panel = ui_layout_engine_resolve(
             &scene->widgets.layout,
@@ -396,8 +504,10 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
     if (changed)
         ++scene->revision;
     if (!was_active || text_form_focused(*scene) == TextFormElement::count) {
-        if (!content.confirmation_only && content.editable)
+        if (!content.confirmation_only && content.editable && !collapsed)
             return text_form_focus(scene, TextFormElement::edit);
+        if (content.choices.count && content.editable)
+            return text_form_focus(scene, TextFormElement::choice_0);
         if (content.can_cancel)
             return text_form_focus(scene, TextFormElement::cancel);
         if (content.can_accept)
@@ -442,7 +552,8 @@ TextFormElement text_form_focused(const TextFormScene& scene) noexcept {
     return TextFormElement::count;
 }
 bool text_form_focus(TextFormScene* scene, TextFormElement element) noexcept {
-    if (!scene || !scene->active || !control(element) ||
+    if (!scene || !scene->active || !control(element) || !(scene->built & (1u << index(element))) ||
+        (element == TextFormElement::edit && editor_collapsed(scene->content)) ||
         (scene->content.confirmation_only && element == TextFormElement::edit) ||
         !ui_widget_manager_focus(&scene->widgets, scene->elements[index(element)]))
         return false;
@@ -496,11 +607,10 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
         paint_stream_record_content(paint, {&scene.widgets, scene.elements[index(TextFormElement::panel)]},
                                     panel->rectangle, UiLayoutContentKind::control,
                                     ui_layout_content_bounds_allow_overlap);
-    constexpr TextFormElement controls[] = {TextFormElement::edit, TextFormElement::option,
-                                            TextFormElement::cancel, TextFormElement::accept};
-    for (const auto element : controls) {
-        if ((scene.content.confirmation_only && element == TextFormElement::edit) ||
-            (element == TextFormElement::option && !scene.content.option.bytes))
+    for (u32 slot = 0; slot < kTextFormElements; ++slot) {
+        const auto element = static_cast<TextFormElement>(slot);
+        if (!control(element) || !(scene.built & (1u << slot)) ||
+            (element == TextFormElement::edit && editor_collapsed(scene.content)))
             continue;
         const auto* node = text_form_node(scene, element);
         if (!valid || !node) {
@@ -520,6 +630,36 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
                 paint, node->rectangle.left, node->rectangle.top, node->rectangle.right,
                 node->rectangle.bottom, theme.base_lowest, outlined ? theme.tokens.border.focus : theme.interactive,
                 metrics.compact_radius, outlined ? 2.0f : 1.0f);
+        } else if (radio(element)) {
+            // A radio circle with a dot when chosen.
+            u32 at = 0;
+            const bool choice = text_form_choice_index(element, &at);
+            if (!choice)
+                text_form_select_index(element, &at);
+            const bool chosen = choice ? scene.content.choice_selected == at : scene.content.select_selected == at;
+            const auto r = text_form_choice_marker(scene, element);
+            const float radius = ui_rect_width(r) * .5f;
+            valid = paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, theme.base_lowest,
+                                                     outlined ? theme.tokens.border.focus
+                                                     : chosen ? theme.tokens.emphasis.fill
+                                                              : theme.text_secondary,
+                                                     radius, outlined ? 2.0f : 1.5f);
+            if (valid && chosen) {
+                const float inset = ui_rect_width(r) * .28f;
+                valid = paint_stream_push_rounded(paint, r.left + inset, r.top + inset, r.right - inset,
+                                                  r.bottom - inset, theme.tokens.emphasis.fill, radius - inset);
+            }
+        } else if (element == TextFormElement::select) {
+            // A field like the editor, its chevron pointing at the open state.
+            const auto r = node->rectangle;
+            const float icon = kOptionBox * .8f, cy = (r.top + r.bottom) * .5f;
+            valid = paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, theme.base_lowest,
+                                                     outlined ? theme.tokens.border.focus : theme.interactive,
+                                                     metrics.compact_radius, outlined ? 2.0f : 1.0f) &&
+                    ui_icon_paint(paint, scene.content.select_expanded ? UiIcon::chevron_up : UiIcon::chevron_down,
+                                  {r.right - metrics.form_field_padding - icon, cy - icon * .5f,
+                                   r.right - metrics.form_field_padding, cy + icon * .5f},
+                                  theme.text_secondary);
         } else if (element == TextFormElement::option) {
             // The checkbox: an outlined square, filled with a check when set.
             const auto r = text_form_option_box(scene);
@@ -579,9 +719,7 @@ bool text_form_text_output(const TextFormScene& scene, const TextFormEditGeometr
         return true;
     for (u32 i = 0; i < kTextFormElements; ++i) {
         const auto element = static_cast<TextFormElement>(i);
-        if ((scene.content.confirmation_only &&
-             (element == TextFormElement::label || element == TextFormElement::edit)) ||
-            (element == TextFormElement::option && !scene.content.option.bytes))
+        if (!(scene.built & (1u << i)) || (element == TextFormElement::edit && editor_collapsed(scene.content)))
             continue;
         const auto text = label(scene.content, element);
         if (!text.bytes)
@@ -593,7 +731,10 @@ bool text_form_text_output(const TextFormScene& scene, const TextFormEditGeometr
         if (!ui_rect_has_area(clip))
             continue;
         const bool button = action(element);
-        Color color = element == TextFormElement::label ? theme.text_secondary : theme.text_primary;
+        Color color = element == TextFormElement::label || element == TextFormElement::choices_label ||
+                              element == TextFormElement::select_label
+                          ? theme.text_secondary
+                          : theme.text_primary;
         if (button) {
             Color fill = button_fill(scene, element, theme);
             fill.alpha = 1;

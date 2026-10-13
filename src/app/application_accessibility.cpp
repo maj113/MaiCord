@@ -783,6 +783,12 @@ void describe_settings(void*, const UiWidgetManager& manager, UiWidgetHandle han
             info->actions = ui_access_action_invoke;
             break;
         case UiSettingsControlKind::notice:
+            // A loading notice is announced as live status.
+            info->role = control->checked ? UiAccessRole::status : UiAccessRole::text;
+            if (control->checked)
+                info->state |= ui_access_live;
+            info->actions = ui_access_action_invoke;
+            break;
         default:
             info->role = UiAccessRole::text;
             info->actions = ui_access_action_invoke;

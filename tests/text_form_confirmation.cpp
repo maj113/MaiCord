@@ -23,7 +23,7 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
     content.status=utf8_literal("This action needs your confirmation.");content.cancel=utf8_literal("Cancel");content.accept=utf8_literal("Remove");
     content.can_accept=true;content.focus_visible=true;content.confirmation_only=true;
     const UiRect viewport{0,0,320,400};
-    check(text_form_update(&scene,content,viewport,&cache)&&scene.active&&scene.widgets.count==kTextFormElements-3&&!text_form_node(scene,TextFormElement::option)&&
+    check(text_form_update(&scene,content,viewport,&cache)&&scene.active&&scene.widgets.count==kTextFormElements-3-kTextFormChoiceElements&&!text_form_node(scene,TextFormElement::option)&&
         !text_form_node(scene,TextFormElement::edit)&&!text_form_node(scene,TextFormElement::label)&&
         text_form_focused(scene)==TextFormElement::cancel,"confirmation_has_no_edit_or_label_and_initial_cancel_focus");
     if(!scene.active){text_form_release(&scene);return;}
@@ -81,7 +81,7 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
     // The "Leaving Discord" option row: a checkbox square left of a wrapped
     // label, focusable before the buttons, and painted checked on demand.
     TextFormContent option=content;option.option=utf8_literal("Trust example.com links from now on");
-    check(text_form_update(&scene,option,viewport,&cache)&&scene.widgets.count==kTextFormElements-2&&
+    check(text_form_update(&scene,option,viewport,&cache)&&scene.widgets.count==kTextFormElements-2-kTextFormChoiceElements&&
         text_form_node(scene,TextFormElement::option)&&text_form_focused(scene)==TextFormElement::cancel,
         "confirmation_option_row_builds_and_keeps_cancel_focus");
     const auto* row=text_form_node(scene,TextFormElement::option);const UiRect box=text_form_option_box(scene);
@@ -108,7 +108,7 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
         paint_stream_release(&option_paint);}
     check(painted[1]==painted[0]+2,"confirmation_checked_option_adds_the_check_mark");
     check(text_form_update(&scene,content,viewport,&cache)&&!text_form_node(scene,TextFormElement::option)&&
-        scene.widgets.count==kTextFormElements-3,"confirmation_option_row_is_removed_with_its_label");
+        scene.widgets.count==kTextFormElements-3-kTextFormChoiceElements,"confirmation_option_row_is_removed_with_its_label");
     text_form_release(&scene);check(!scene.storage.arena.base&&!scene.active,"confirmation_release_frees_native_scene");
 }
 }

@@ -99,7 +99,7 @@ void project_audit(Bank& bank) noexcept {
     else if (p.failed && p.status.bytes)
         push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
     else if (!p.audit_complete && !p.audit_count)
-        push(notice({}, utf8_literal("Loading the audit log…")));
+        push(loading(utf8_literal("Loading the audit log…")));
     push(category(control_list_category, utf8_literal("Recent actions")));
     if (p.audit_complete && !p.audit_count)
         push(notice({}, utf8_literal("No matching actions.")));
@@ -150,9 +150,12 @@ void project_audit(Bank& bank) noexcept {
             p.avatar_media[row] = audit_avatar(entry.user_id);
         p.row_accent[i] = person_color(entry.user_id);
     }
-    if (p.audit_count && !p.audit_complete)
-        push({control_more, utf8_literal("Older actions"), {}, UiSettingsControlKind::action, !busy(), false, {}, 0,
-              utf8_literal("Load more"), nullptr});
+    // Older actions load when this row scrolls into view.
+    if (p.audit_count && !p.audit_complete) {
+        auto row = loading(utf8_literal("Loading older actions…"));
+        row.id = control_more;
+        push(row);
+    }
 }
 
 void reset_audit() noexcept {
@@ -196,17 +199,11 @@ void open_audit_menu(Menu menu, UiRect anchor) noexcept {
 }
 
 void activate(const SettingsLayerActivation& activation) noexcept {
-    auto& p = *owner;
     const u64 id = activation.value.target.control_id;
     if (id == control_filter_user)
         open_audit_menu(Menu::audit_user, activation.anchor);
     else if (id == control_filter_action)
         open_audit_menu(Menu::audit_action, activation.anchor);
-    else if (id == control_more && !busy()) {
-        p.audit_requested = true;
-        queue(Op::audit_page);
-        repaint();
-    }
 }
 
 void choose(Menu menu, u32 action) noexcept {
@@ -242,6 +239,21 @@ void notice_action() noexcept {
 }
 
 } // namespace
+
+bool audit_load_visible() noexcept {
+    auto& p = *owner;
+    if (p.page != Page::audit_log || !p.audit_count || p.audit_complete || busy() || !connected())
+        return false;
+    UiSettingsControlGeometry geometry{};
+    if (!ui_settings_scene_control_geometry(p.scene, {UiSettingsTargetKind::control, page_key(Page::audit_log),
+                                                      control_more},
+                                            &geometry) ||
+        !ui_rect_has_area(geometry.clip))
+        return false;
+    p.audit_requested = true;
+    queue(Op::audit_page);
+    return true;
+}
 
 const PageOps kAuditLogPage{nullptr, project_audit, activate,    choose,        nullptr, nullptr,
                             nullptr, nullptr,       ensure_data, notice_action, nullptr};

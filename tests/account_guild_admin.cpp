@@ -16,6 +16,8 @@ struct Capture {
     // Nonzero when the request asked for an extended response bank.
     u32 response_capacity;
     u8 target[kRestClientMaximumTargetBytes], body[8192], reason[kRestAuditReasonMaximumEncodedBytes];
+    u8 headers[512];
+    u32 header_bytes;
     // send_empty_audit_reason: an empty X-Audit-Log-Reason header.
     bool json, identity, copied, empty_reason;
     RestClientSubmitError result;
@@ -980,13 +982,94 @@ void test_cdn_urls(const AccountHost& host) noexcept {
     check(required, "cdn urls account: the host requires every CDN URL entry");
 }
 
+// Server Profile, Boost Perks and the custom invite link at the transport.
+void test_profile_and_boost() noexcept {
+    RestClient details{};
+    const GuildServerProfileTraitWrite traits[] = {
+        {utf8_literal("Chill"), utf8_literal("pepe"), 777, 1, true, true},
+        {{}, utf8_literal("fire"), 0, 2, false, false},
+    };
+    const u64 games[] = {555};
+    GuildServerProfileWrite profile{};
+    profile.fields = guild_profile_write_name | guild_profile_write_icon | guild_profile_write_visibility;
+    profile.name = utf8_literal("Guild");
+    profile.description = utf8_literal("About");
+    profile.icon = utf8_literal("0123456789abcdef0123456789abcdef");
+    profile.brand_color_primary = utf8_literal("#ff1c90");
+    profile.traits = {traits, 2};
+    profile.game_application_ids = {games, 1};
+    profile.visibility = 1;
+    GuildSettingsPatch patch{};
+    patch.fields = guild_settings_patch_profile;
+    patch.profile = &profile;
+    auto request = guild_request(GuildAdminOperation::profile_update);
+    request.guild = &patch;
+    capture.header_bytes = 0;
+    check(account_guild_admin_submit(&details, &request, 160).ok() &&
+              captured(RestMethod::patch, RestMajorParameter::guild, 10, GuildAdminOperation::profile_update,
+                       utf8_literal("/api/v10/guilds/10/profile"),
+                       utf8_literal(R"({"name":"Guild","description":"About","icon":"0123456789abcdef0123456789abcdef",)"
+                                    R"("visibility":1,"brand_color_primary":"#ff1c90","traits":[{"label":"Chill",)"
+                                    R"("position":1,"emoji_id":"777","emoji_name":"pepe","emoji_animated":true}],)"
+                                    R"("game_application_ids":["555"]})")) &&
+              !capture.header_bytes,
+          "guild admin account: the profile PATCH sends its fields in order with no MD5 header");
+    profile.icon = utf8_literal("https://cdn.example/icon.png");
+    check(!guild_admin_request_valid(request), "guild admin account: a profile icon is a hash or a data URI");
+    profile.icon = {};
+    patch.fields = guild_settings_patch_profile | guild_settings_patch_name;
+    check(!guild_admin_request_valid(request), "guild admin account: the profile travels alone");
+
+    request = guild_request(GuildAdminOperation::vanity_get);
+    check(account_guild_admin_submit(&details, &request, 161).ok() &&
+              captured(RestMethod::get, RestMajorParameter::guild, 10, GuildAdminOperation::vanity_get,
+                       utf8_literal("/api/v10/guilds/10/vanity-url"), {}),
+          "guild admin account: the custom invite link is read from /vanity-url");
+    GuildSettingsPatch vanity{};
+    vanity.fields = guild_settings_patch_vanity;
+    vanity.vanity_code = utf8_literal("cool-server");
+    request = guild_request(GuildAdminOperation::vanity_update);
+    request.guild = &vanity;
+    check(account_guild_admin_submit(&details, &request, 162).ok() &&
+              captured(RestMethod::patch, RestMajorParameter::guild, 10, GuildAdminOperation::vanity_update,
+                       utf8_literal("/api/v10/guilds/10/vanity-url"), utf8_literal(R"({"code":"cool-server"})")),
+          "guild admin account: the custom invite link PATCH sends only its code");
+    vanity.vanity_code = utf8_literal("this-code-is-much-too-long-for-it");
+    check(!guild_admin_request_valid(request), "guild admin account: codes stop at 25 characters");
+
+    // Boost Perks: a new banner's MD5 (of the original file, "abc") rides
+    // along; the unchanged splash resends its hash.
+    const u8 original[] = {'a', 'b', 'c'};
+    GuildSettingsPatch boost{};
+    boost.fields = guild_settings_patch_splash | guild_settings_patch_banner | guild_settings_patch_progress_bar;
+    boost.splash = utf8_literal("fedcba9876543210fedcba9876543210");
+    boost.banner = utf8_literal("data:image/png;base64,iVBORw0KGgo=");
+    boost.banner_original = {original, 3};
+    boost.premium_progress_bar_enabled = true;
+    request = guild_request(GuildAdminOperation::guild_update);
+    request.guild = &boost;
+    constexpr auto header = utf8_literal("X-Discord-Original-MD5: guild_banner=\"900150983cd24fb0d6963f7d28e17f72\"\r\n");
+    check(account_guild_admin_submit(&details, &request, 163).ok() &&
+              captured(RestMethod::patch, RestMajorParameter::guild, 10, GuildAdminOperation::guild_update,
+                       utf8_literal("/api/v10/guilds/10"),
+                       utf8_literal(R"({"splash":"fedcba9876543210fedcba9876543210",)"
+                                    R"("banner":"data:image/png;base64,iVBORw0KGgo=","premium_progress_bar_enabled":true})")) &&
+              same(capture.headers, capture.header_bytes, header),
+          "guild admin account: Boost Perks sends splash, banner and the bar with the new banner's MD5");
+    boost.banner = utf8_literal("0123456789abcdef0123456789abcdef");
+    check(!guild_admin_request_valid(request), "guild admin account: an original file needs a new image");
+    boost.banner_original = {};
+    check(account_guild_admin_submit(&details, &request, 164).ok() && !capture.header_bytes,
+          "guild admin account: without new images there is no MD5 header");
+}
+
 void test_abi() noexcept {
     AccountHost host{};
     const auto loaded = account_host_load(&host);
     check(loaded.ok(), "guild admin account: shipping DLL loads without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 124 && kAccountModuleApiVersion == 124 && kAccountModuleApiOrdinal == 124 &&
+    check(host.api.version == 125 && kAccountModuleApiVersion == 125 && kAccountModuleApiOrdinal == 125 &&
               host.api.bytes == sizeof(AccountModuleApi) &&
               offsetof(AccountModuleApi, guild_admin) == 640 && host.api.guild_admin &&
               host.api.guild_admin(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
@@ -994,6 +1077,12 @@ void test_abi() noexcept {
     auto missing = host.api;
     missing.guild_admin = nullptr;
     check(!account_host_api_valid(missing), "guild admin account: the host requires the guild admin entry");
+    check(host.api.bytes == 1168 && offsetof(AccountModuleApi, guild_moderation) == 1160 && host.api.guild_moderation &&
+              host.api.guild_moderation(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
+          "guild moderation account: the appended v125 entry rejects an absent owner without creating runtime");
+    missing = host.api;
+    missing.guild_moderation = nullptr;
+    check(!account_host_api_valid(missing), "guild moderation account: the host requires the guild moderation entry");
     GuildAssetRequest probe{};
     probe.operation = GuildAssetOperation::image_probe;
     probe.image = {reinterpret_cast<const u8*>("x"), 1};
@@ -1058,6 +1147,8 @@ RestClientSubmitResult rest_client_submit(RestClient* client,
     copy_bytes(c.target, request.target.data, request.target.count);
     copy_bytes(c.body, request.body.data, request.body.count);
     copy_bytes(c.reason, request.audit_reason.data, request.audit_reason.count);
+    c.header_bytes = request.extra_headers.count <= sizeof(c.headers) ? request.extra_headers.count : 0;
+    copy_bytes(c.headers, request.extra_headers.data, c.header_bytes);
     return {c.result};
 }
 
@@ -1092,6 +1183,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_account_guild_admin_entry() 
     test_reason_and_head();
     test_role_toggle();
     test_decoders();
+    test_profile_and_boost();
     test_abi();
     constexpr char pass[] = "PASS guild admin protocol and transport\n";
     constexpr char fail[] = "FAIL guild admin protocol and transport\n";

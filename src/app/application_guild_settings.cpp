@@ -14,6 +14,7 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/app/account_profile_edit.hpp"
 
 #include <Windows.h>
 
@@ -34,6 +35,8 @@ constexpr PageDefinition kPages[]{
      utf8_literal("Server Profile"), &kProfilePage},
     {Page::engagement, PageGroup::none, UiIcon::activity, guild_settings_engagement, utf8_literal("Engagement"),
      utf8_literal("Engagement"), &kEngagementPage},
+    {Page::boost_perks, PageGroup::none, UiIcon::boost, guild_settings_boost_perks, utf8_literal("Boost Perks"),
+     utf8_literal("Boost Perks"), &kBoostPage},
     {Page::emoji, PageGroup::expression, UiIcon::emoji, guild_settings_expressions, utf8_literal("Emoji"),
      utf8_literal("Emoji"), &kExpressionPage},
     {Page::stickers, PageGroup::expression, UiIcon::sticker, guild_settings_expressions, utf8_literal("Stickers"),
@@ -113,7 +116,8 @@ bool busy() noexcept {
 namespace {
 bool read_op(Op op) noexcept {
     return op == Op::role_counts || op == Op::ban_list || op == Op::invite_list || op == Op::audit_page ||
-           op == Op::sticker_list || op == Op::widget_get || op == Op::profile_get;
+           op == Op::sticker_list || op == Op::widget_get || op == Op::profile_get || op == Op::vanity_get ||
+           op == Op::members_search || op == Op::ban_search;
 }
 } // namespace
 bool mutation_pending() noexcept {
@@ -169,25 +173,44 @@ bool binding_ready(void* model, u64 identity) noexcept {
            settings_layer_editor(&owner->layer, nullptr, &focused, nullptr, nullptr) && focused == model;
 }
 } // namespace
+namespace {
+struct EditorStorage {
+    char* text;
+    u32 capacity, codepoints;
+    bool multiline;
+};
+EditorStorage editor_storage(Editor index) noexcept {
+    auto& p = *owner;
+    switch (index) {
+    case editor_name: return {p.name_text, kGuildAdminNameBytes, kGuildAdminNameCodepoints, false};
+    case editor_hex: return {p.hex_text, 16, 7, false};
+    case editor_description:
+        return {p.description_text, kGuildAdminProfileDescriptionBytes, kGuildAdminProfileDescriptionCodepoints, true};
+    case editor_vanity: return {p.vanity_text, kGuildAdminVanityCodeBytes, kGuildAdminVanityCodeCharacters, false};
+    default: return {p.search_text, kSearchBytes, 100, false};
+    }
+}
+} // namespace
 void set_editor(Editor index, Utf8View text) noexcept {
     application_composer_text_input_suspend();
     auto& model = owner->models[index];
-    char* storage = index == editor_name ? owner->name_text : index == editor_hex ? owner->hex_text : owner->search_text;
-    const u32 capacity = index == editor_name ? kGuildAdminNameBytes : index == editor_hex ? 16 : kSearchBytes;
-    const u32 bytes = minimum(text.bytes, capacity);
-    if (text.data != storage)
-        copy_bytes(storage, text.data, bytes);
+    const auto storage = editor_storage(index);
+    const u32 bytes = minimum(text.bytes, storage.capacity);
+    if (text.data != storage.text)
+        copy_bytes(storage.text, text.data, bytes);
     message_composer_refresh_borrowed(&model, bytes);
     message_composer_set_selection(&model, bytes, bytes);
-    const u32 limit = index == editor_name ? kGuildAdminNameCodepoints : index == editor_hex ? 7 : 100;
-    bounded_edit_bind(&owner->bindings[index], &model, limit, false, owner->lifetime, binding_ready, &model);
+    bounded_edit_bind(&owner->bindings[index], &model, storage.codepoints, storage.multiline, owner->lifetime,
+                      binding_ready, &model);
 }
 namespace {
 Editor editor_of(u64 control) noexcept {
-    return control == control_name ? editor_name
-           : control == control_hex ? editor_hex
-           : control == control_search ? editor_search
-                                       : editor_count;
+    return control == control_name          ? editor_name
+           : control == control_hex         ? editor_hex
+           : control == control_search      ? editor_search
+           : control == control_description ? editor_description
+           : control == control_vanity      ? editor_vanity
+                                            : editor_count;
 }
 } // namespace
 Utf8View editor_text(Editor index) noexcept {
@@ -214,6 +237,9 @@ UiSettingsControl category(u64 id, Utf8View label, Utf8View description) noexcep
 }
 UiSettingsControl notice(Utf8View label, Utf8View description, Utf8View action) noexcept {
     return {control_notice, label, description, UiSettingsControlKind::notice, true, false, {}, 0, action, nullptr};
+}
+UiSettingsControl loading(Utf8View description) noexcept {
+    return {control_notice, {}, description, UiSettingsControlKind::notice, true, true, {}, 0, {}, nullptr};
 }
 Utf8View channel_label(Bank& bank, u64 channel_id, Utf8View none) noexcept {
     const auto* channel = channel_id ? chat_state_store_find_channel(state(), channel_id) : nullptr;
@@ -379,6 +405,13 @@ bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
         rgba = guild_role_color_rgba(p.role_draft.color);
     else if (p.page == Page::roles && p.editing_role && id == control_color && choice <= kGuildRoleColorCount)
         rgba = guild_role_color_rgba(choice ? kGuildRoleColors[choice - 1] : 0);
+    else if (p.page == Page::profile && id == control_banner_colors && choice <= kGuildProfileBannerColorCount) {
+        // The first swatch stands for the icon's own colour.
+        u32 color = 0;
+        if (choice)
+            guild_role_color_parse(kGuildProfileBannerColors[choice - 1], &color);
+        rgba = guild_role_color_rgba(color);
+    }
     if (!rgba)
         return false;
     *theme = {};
@@ -615,7 +648,6 @@ bool form_save(TextFormOwnerKey key, Utf8View) noexcept {
 namespace {
 GuildImageProfile pick_profile(Pick pick) noexcept {
     switch (pick) {
-    case Pick::icon: return GuildImageProfile::icon;
     case Pick::banner: return GuildImageProfile::banner;
     case Pick::role_icon: return GuildImageProfile::role_icon;
     case Pick::emoji: return GuildImageProfile::emoji;
@@ -639,7 +671,8 @@ void start_pick(Pick pick) noexcept {
                                 utf8_literal("Choose a role icon"),
                                 utf8_literal("Choose an emoji image"),
                                 utf8_literal("Choose a sticker file"),
-                                utf8_literal("Choose a sound file")};
+                                utf8_literal("Choose a sound file"),
+                                utf8_literal("Choose an invite background")};
     p.pick = pick;
     p.pick_role = pick == Pick::role_icon ? p.editing_role : 0;
     p.picker_consumed = false;
@@ -711,17 +744,64 @@ bool probe_picked(GuildImageProfile profile, Picked* picked, Utf8View* error) no
                                                                                    : picked->info.error);
     return false;
 }
+// Server icon and invite background: the official chooser's checks (10 MB,
+// PNG, JPEG, WebP or GIF), probed by the account module's cropper.
+bool probe_profile_image(Picked* picked, ProfileImageInfo* info, Utf8View* error) noexcept {
+    ProfileImageRequest request{};
+    request.source = {picked->data, picked->bytes};
+    request.info = info;
+    *info = {};
+    if (picked->bytes > kProfileImageSourceMaximumBytes) {
+        *error = utf8_literal("Your files are too powerful. Max file size is 10.00 MB.");
+        return false;
+    }
+    if (g_app.account.api.profile_image && g_app.account.instance &&
+        g_app.account.api.profile_image(g_app.account.instance, &request) && info->error == ProfileImageError::none)
+        return true;
+    *error = info->error == ProfileImageError::format ? utf8_literal("Choose a PNG, JPEG, WebP or GIF image.")
+                                                      : utf8_literal("This image couldn't be read.");
+    return false;
+}
 void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filename) noexcept {
     auto& p = *owner;
     const auto profile = pick_profile(pick);
-    Picked* slot = pick == Pick::icon ? &p.icon
-                   : pick == Pick::banner ? &p.banner
+    Picked* slot = pick == Pick::icon       ? &p.icon
+                   : pick == Pick::banner   ? &p.banner
+                   : pick == Pick::splash   ? &p.splash
                    : pick == Pick::role_icon ? &p.role_icon
                                              : &p.upload;
     if (pick == Pick::role_icon && p.pick_role != p.editing_role)
         return;
     Picked picked{};
     Utf8View error{};
+    if (pick == Pick::icon || pick == Pick::splash) {
+        ProfileImageInfo info{};
+        if (!read_picked_file(path, &picked, &error) || !probe_profile_image(&picked, &info, &error)) {
+            release_picked(&picked);
+            show_failure(error);
+            return;
+        }
+        release_picked(slot);
+        *slot = picked;
+        slot->set = true;
+        if (pick == Pick::icon) {
+            p.icon_info = info;
+            release_uri(&p.icon_uri, &p.icon_uri_bytes);
+            p.profile_draft.icon = GuildProfileImageEdit::replace;
+        } else {
+            slot->info.source_kind = info.kind;
+            slot->info.width = info.width;
+            slot->info.height = info.height;
+            slot->info.kind = info.kind;
+            slot->info.bytes = slot->bytes;
+            release_uri(&p.splash_uri, &p.splash_uri_bytes);
+            p.boost_draft.splash = GuildProfileImageEdit::replace;
+        }
+        p.failed = false;
+        p.status = {};
+        repaint();
+        return;
+    }
     if (pick == Pick::sound) {
         // MP3/Ogg checked by the account module's demuxers (size, length).
         if (!read_picked_file(path, &picked, &error) ||
@@ -748,16 +828,25 @@ void accept_pick(Pick pick, ConstSlice<wchar_t> path, ConstSlice<wchar_t> filena
         show_failure(error);
         return;
     }
-    // An animated banner needs ANIMATED_BANNER or boost level 3.
-    if (pick == Pick::banner && picked.info.animated &&
-        !guild_animated_banner_available(premium_tier(), guild_features())) {
+    // A GIF banner needs ANIMATED_BANNER; the official chooser takes 10 MB.
+    if (pick == Pick::banner && picked.info.source_kind == GuildImageKind::gif &&
+        !(guild_features() & guild_feature_animated_banner)) {
         release_picked(&picked);
         show_failure(utf8_literal("Animated server banners need boost level 3."));
+        return;
+    }
+    if (pick == Pick::banner && picked.bytes > kProfileImageSourceMaximumBytes) {
+        release_picked(&picked);
+        show_failure(utf8_literal("Your files are too powerful. Max file size is 10.00 MB."));
         return;
     }
     release_picked(slot);
     *slot = picked;
     slot->set = true;
+    if (pick == Pick::banner) {
+        release_uri(&p.banner_uri, &p.banner_uri_bytes);
+        p.boost_draft.banner = GuildProfileImageEdit::replace;
+    }
     p.failed = false;
     p.status = {};
     if (pick == Pick::emoji || pick == Pick::sticker) {
@@ -821,22 +910,23 @@ void open_channel_menu(Menu menu, u32 types, u64 current, Utf8View none, Permiss
             static_cast<u16>(popup_item_enabled | (channel.id == current ? popup_item_checked : 0));
         p.menu_channel[count++] = channel.id;
     }
-    // Channel list order: by position, then ID.
+    // The invite picker lists text-like channels before voice; the others
+    // follow the channel list.
+    const auto order =
+        menu == Menu::widget_channel ? GuildChannelPickerOrder::invite : GuildChannelPickerOrder::channel_list;
     using Row = Settings::PopupRow;
     auto& rows = p.popup_rows;
-    for (u32 i = first; i < count; ++i) {
-        const auto* channel = chat_state_store_find_channel(s, p.menu_channel[i]);
-        rows[i - first] = {p.popup_items[i], p.menu_channel[i], channel ? channel->position : 0};
-    }
-    heap_sort(rows, count - first, [](const Row& a, const Row& b) noexcept {
-        return a.position < b.position || (a.position == b.position && a.id < b.id);
+    for (u32 i = first; i < count; ++i)
+        rows[i - first] = {p.popup_items[i], chat_state_store_find_channel(s, p.menu_channel[i])};
+    heap_sort(rows, count - first, [&s, order](const Row& a, const Row& b) noexcept {
+        return a.channel && b.channel && guild_settings_channel_before(s, order, *a.channel, *b.channel);
     });
     for (u32 i = first; i < count; ++i) {
         p.popup_items[i] = rows[i - first].item;
         p.popup_items[i].action = kMenuChoiceBase + i;
         p.popup_items[i].flags = static_cast<u16>((p.popup_items[i].flags & ~popup_item_separator_before) |
                                                   (i == first ? popup_item_separator_before : 0));
-        p.menu_channel[i] = rows[i - first].id;
+        p.menu_channel[i] = rows[i - first].channel ? rows[i - first].channel->id : 0;
     }
     p.menu = menu;
     settings_layer_open_choice(&p.layer, p.guild_id, {p.popup_items, count}, anchor, 280);
@@ -922,10 +1012,23 @@ bool edited(SettingsLayer*, u64 control) noexcept {
     auto& p = *owner;
     const Editor editor = editor_of(control);
     const auto text = editor_text(editor);
-    if (editor == editor_name) {
+    if (editor == editor_description && p.page == Page::profile) {
+        auto& d = p.profile_draft.profile;
+        d.description_bytes = static_cast<u16>(minimum(text.bytes, kGuildAdminProfileDescriptionBytes));
+        copy_bytes(d.description, text.data, d.description_bytes);
+    } else if (editor == editor_vanity && p.page == Page::boost_perks) {
+        // Spaces become dashes as the official field types them.
+        char code[kGuildAdminVanityCodeBytes];
+        const u32 bytes = guild_vanity_code_input(text, {code, sizeof(code)});
+        if (bytes != text.bytes || !bytes_equal(code, text.data, bytes))
+            set_editor(editor_vanity, {code, bytes});
+        p.vanity_error = false;
+    } else if (editor == editor_name) {
         if (p.page == Page::profile) {
-            p.profile_draft.name_bytes = static_cast<u16>(minimum(text.bytes, kGuildAdminNameBytes));
-            copy_bytes(p.profile_draft.name, text.data, p.profile_draft.name_bytes);
+            auto& d = p.profile_draft.profile;
+            d.name_bytes = static_cast<u16>(minimum(text.bytes, kGuildAdminNameBytes));
+            copy_bytes(d.name, text.data, d.name_bytes);
+            d.name_known = true;
         } else if (p.page == Page::roles && p.editing_role) {
             p.role_draft.name_bytes = static_cast<u16>(minimum(text.bytes, kGuildAdminNameBytes));
             copy_bytes(p.role_draft.name, text.data, p.role_draft.name_bytes);
@@ -948,7 +1051,7 @@ bool editor_hook(SettingsLayer*, u64 control, MessageComposer** model, BoundedEd
         return false;
     *model = &owner->models[editor];
     *binding = &owner->bindings[editor];
-    *multiline = false;
+    *multiline = editor == editor_description;
     return true;
 }
 void close_hook(SettingsLayer*) noexcept {
@@ -963,8 +1066,17 @@ bool editable_hook(SettingsLayer*) noexcept {
 void drop(SettingsLayer*, u64 dragged, u64 target, bool after) noexcept {
     roles_drop(dragged, target, after);
 }
-constexpr SettingsLayerHooks kHooks{editor_hook, edited, activate, choose, close_hook, repaint_hook, drop,
-                                    editable_hook};
+void context_hook(SettingsLayer*, const SettingsLayerActivation& activation) noexcept {
+    if (owner && editable() && ops().context)
+        ops().context(activation);
+}
+void editor_enter_hook(SettingsLayer*, u64 control) noexcept {
+    if (owner && editable() && control == control_search)
+        bans_editor_enter();
+}
+constexpr SettingsLayerHooks kHooks{editor_hook, edited,        activate,    choose,
+                                    close_hook,  repaint_hook,  drop,        editable_hook,
+                                    context_hook, editor_enter_hook};
 
 // Store reconciliation: rebaseline clean drafts, flag dirty ones.
 bool reconcile() noexcept {
@@ -999,7 +1111,11 @@ void select_page(Page page) noexcept {
     p.status = {};
     release_picked(&p.icon);
     release_picked(&p.banner);
+    release_picked(&p.splash);
     release_picked(&p.role_icon);
+    release_uri(&p.icon_uri, &p.icon_uri_bytes);
+    release_uri(&p.banner_uri, &p.banner_uri_bytes);
+    release_uri(&p.splash_uri, &p.splash_uri_bytes);
     set_editor(editor_search, {});
     if (ops().load)
         ops().load();
@@ -1071,6 +1187,9 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
         message_composer_initialize(&owner->models[editor_name], {owner->name_text, kGuildAdminNameBytes});
         message_composer_initialize(&owner->models[editor_hex], {owner->hex_text, 16});
         message_composer_initialize(&owner->models[editor_search], {owner->search_text, kSearchBytes});
+        message_composer_initialize(&owner->models[editor_description],
+                                    {owner->description_text, kGuildAdminProfileDescriptionBytes});
+        message_composer_initialize(&owner->models[editor_vanity], {owner->vanity_text, kGuildAdminVanityCodeBytes});
         guild_ban_store_bind(&owner->bans, {owner->ban_records, kBanCapacity});
     }
     auto& p = *owner;
@@ -1099,10 +1218,21 @@ bool application_guild_settings_open(u64 guild_id, u8 requested_page) noexcept {
     p.engagement_base = p.engagement_draft = {};
     p.engagement_conflict = p.engagement_echo = p.engagement_guild_sent = false;
     p.widget_requested = p.widget_loaded = p.widget_failed = p.profile_requested = false;
+    p.profile_loaded = false;
+    p.vanity_requested = p.vanity_loaded = p.vanity_failed = p.vanity_error = false;
+    p.vanity_base_bytes = 0;
+    p.vanity_uses = 0;
+    p.ban_search_count = p.ban_search_bytes = 0;
+    p.bulk_notice = {};
+    p.selected_count = 0;
     release_picked(&p.icon);
     release_picked(&p.banner);
+    release_picked(&p.splash);
     release_picked(&p.role_icon);
     release_picked(&p.upload);
+    release_uri(&p.icon_uri, &p.icon_uri_bytes);
+    release_uri(&p.banner_uri, &p.banner_uri_bytes);
+    release_uri(&p.splash_uri, &p.splash_uri_bytes);
     p.pick = Pick::none;
     p.sticker_count = 0;
     p.stickers_requested = p.stickers_loaded = false;
@@ -1176,11 +1306,17 @@ void application_guild_settings_close(bool restore_focus) noexcept {
         native_file_picker_cancel(&owner->picker);
         owner->pick = Pick::none;
     }
-    release_picked(&owner->icon);
-    release_picked(&owner->banner);
     release_picked(&owner->role_icon);
-    if (!owner->request_id)
+    // Images and data URIs of a save in flight stay until its reply.
+    if (!owner->request_id) {
+        release_picked(&owner->icon);
+        release_picked(&owner->banner);
+        release_picked(&owner->splash);
         release_picked(&owner->upload);
+        release_uri(&owner->icon_uri, &owner->icon_uri_bytes);
+        release_uri(&owner->banner_uri, &owner->banner_uri_bytes);
+        release_uri(&owner->splash_uri, &owner->splash_uri_bytes);
+    }
     next_form = 0;
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     owner->layer.entrance_started = 0;
@@ -1204,11 +1340,18 @@ void application_guild_settings_release() noexcept {
     // A null request cancels this DETAILS request; its receipt is still drained.
     if (owner->request_id && g_app.account.api.guild_admin && g_app.account.instance)
         g_app.account.api.guild_admin(g_app.account.instance, nullptr, owner->request_id);
+    members_release();
     if (owner->picker.runtime) {
         native_file_picker_cancel(&owner->picker);
         native_file_picker_release(&owner->picker, 5'000);
     }
     release_picked(&owner->upload);
+    release_picked(&owner->icon);
+    release_picked(&owner->banner);
+    release_picked(&owner->splash);
+    release_uri(&owner->icon_uri, &owner->icon_uri_bytes);
+    release_uri(&owner->banner_uri, &owner->banner_uri_bytes);
+    release_uri(&owner->splash_uri, &owner->splash_uri_bytes);
     ui_settings_scene_release(&owner->scene);
     for (auto& model : owner->models)
         message_composer_release(&model);
@@ -1278,6 +1421,9 @@ u64 application_guild_settings_next_wake() noexcept {
         return 0;
     if (creation.queued && !creation.request_id)
         return creation.retry_at ? creation.retry_at : 1;
+    if (owner && application_guild_settings_active() && owner->search_due_at &&
+        (!owner->request.queued || owner->search_due_at < owner->retry_at))
+        return owner->search_due_at;
     if (!owner || !owner->request.queued)
         return 0;
     return owner->retry_at ? owner->retry_at : 1;
@@ -1368,27 +1514,23 @@ bool application_guild_settings_submit(u64 now) noexcept {
     GuildAdminRequest request{};
     request.guild_id = p.guild_id;
     GuildSettingsPatch guild_patch{};
+    GuildServerProfileWrite profile_write{};
+    GuildServerProfileTraitWrite profile_traits[kGuildAdminProfileTraits];
     RolePatch role_patch{};
     GuildAdminPageQuery query{};
     GuildAdminPosition positions[kGuildRoleMaximum];
     GuildAssetRequest asset{};
     asset.guild_id = p.guild_id;
     asset.target_id = p.request.target;
+    GuildModerationRequest moderation{};
+    GuildMemberSearchQuery search_query{};
+    bool moderation_op = false;
     bool assets = true;
     const auto image = [](const Picked& picked) noexcept {
         return picked.set ? ConstSlice<u8>{picked.data, picked.bytes} : ConstSlice<u8>{};
     };
     bool valid = true;
     switch (p.request.op) {
-    case Op::icon:
-    case Op::banner: {
-        const auto& picked = p.request.op == Op::icon ? p.icon : p.banner;
-        asset.operation = p.request.op == Op::icon ? GuildAssetOperation::guild_icon : GuildAssetOperation::guild_banner;
-        asset.target_id = 0;
-        asset.image = image(picked);
-        valid = pending(picked);
-        break;
-    }
     case Op::role_icon:
         asset.operation = GuildAssetOperation::role_icon;
         asset.image = image(p.role_icon);
@@ -1440,7 +1582,14 @@ bool application_guild_settings_submit(u64 now) noexcept {
     }
     if (assets)
         valid = valid && g_app.account.api.guild_assets && guild_asset_request_valid(asset);
-    else switch (p.request.op) {
+    else if (p.request.op == Op::members_search) {
+        // Built from the current filters and page; an unchanged body is not sent.
+        moderation_op = true;
+        valid = g_app.account.api.guild_moderation && members_search_request(&moderation, &search_query);
+    } else if (p.request.op == Op::ban_search) {
+        moderation_op = true;
+        valid = g_app.account.api.guild_moderation && bans_search_request(&moderation);
+    } else switch (p.request.op) {
     case Op::widget_get:
         request.operation = GuildAdminOperation::widget_get;
         break;
@@ -1463,9 +1612,22 @@ bool application_guild_settings_submit(u64 now) noexcept {
         valid = guild_safety_patch(p.safety_base, p.safety_draft, &guild_patch);
         request.guild = &guild_patch;
         break;
-    case Op::server_name:
+    case Op::profile_update:
+        request.operation = GuildAdminOperation::profile_update;
+        valid = can_manage_guild() && profile_patch(&guild_patch, &profile_write, {profile_traits, 5});
+        request.guild = &guild_patch;
+        break;
+    case Op::vanity_get:
+        request.operation = GuildAdminOperation::vanity_get;
+        break;
+    case Op::vanity_update:
+        request.operation = GuildAdminOperation::vanity_update;
+        valid = boost_vanity_patch(&guild_patch);
+        request.guild = &guild_patch;
+        break;
+    case Op::boost_update:
         request.operation = GuildAdminOperation::guild_update;
-        valid = guild_server_profile_patch(p.profile_base, p.profile_draft, &guild_patch);
+        valid = can_manage_guild() && boost_guild_patch(&guild_patch);
         request.guild = &guild_patch;
         break;
     case Op::role_counts:
@@ -1533,14 +1695,20 @@ bool application_guild_settings_submit(u64 now) noexcept {
         p.request.queued = false;
         if (p.request.op == Op::role_reorder)
             p.order_dirty = false;
+        // An image that could not be prepared fails the save visibly.
+        if (p.request.op == Op::profile_update || p.request.op == Op::boost_update) {
+            p.failed = true;
+            p.status = utf8_literal("This image couldn't be prepared.");
+        }
         repaint();
         return false;
     }
     u64 id = ++g_app.account_ui->message_history_request_id;
     if (!id)
         id = ++g_app.account_ui->message_history_request_id;
-    const auto submitted = assets ? g_app.account.api.guild_assets(g_app.account.instance, &asset, id)
-                                  : g_app.account.api.guild_admin(g_app.account.instance, &request, id);
+    const auto submitted = assets          ? g_app.account.api.guild_assets(g_app.account.instance, &asset, id)
+                           : moderation_op ? g_app.account.api.guild_moderation(g_app.account.instance, &moderation, id)
+                                           : g_app.account.api.guild_admin(g_app.account.instance, &request, id);
     if (submitted.error == RestClientSubmitError::busy) {
         p.retry_at = deadline_after(now, 50);
         return false;
@@ -1551,11 +1719,17 @@ bool application_guild_settings_submit(u64 now) noexcept {
         p.status = utf8_literal("This change couldn't be sent.");
         if (p.request.op == Op::ban_list)
             p.bans_failed = true;
+        if (p.request.op == Op::members_search) {
+            guild_member_search_failed(&p.search);
+            p.search_retry = false;
+        }
         repaint();
         return false;
     }
     p.request.queued = false;
     p.request_id = id;
+    if (p.request.op == Op::members_search)
+        members_search_sent();
     g_app.details_request_owner = MessageHistoryRequestOwner::channel_overview;
     g_app.details_request_id = id;
     repaint();
@@ -1589,13 +1763,24 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
                     response.status_code < 300;
     if (!p.scene.active || !scope_current())
         return true;
+    if (op == Op::members_search) {
+        members_search_response(response, body, clock_monotonic_milliseconds());
+        repaint();
+        return true;
+    }
+    // A failed ban search leaves the local filter, as the official page does.
+    if (op == Op::ban_search) {
+        bans_search_loaded(ok, body);
+        repaint();
+        return true;
+    }
     if (!ok) {
         if (response.error == RestClientError::none && response.status_code == 429 && read_op(op)) {
             p.request.queued = true;
             p.retry_at = response.retry_at_ms ? response.retry_at_ms : deadline_after(clock_monotonic_milliseconds(), 2'000);
             return true;
         }
-        p.failed = op != Op::role_counts && op != Op::widget_get && op != Op::profile_get;
+        p.failed = op != Op::role_counts && op != Op::widget_get && op != Op::profile_get && op != Op::vanity_get;
         p.status = failure_text(response, body);
         if (op == Op::ban_list)
             p.bans_failed = true;
@@ -1605,7 +1790,11 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         if (op == Op::widget_get)
             engagement_widget_loaded(nullptr);
         if (op == Op::profile_get)
-            engagement_profile_loaded(nullptr);
+            server_profile_loaded(nullptr);
+        if (op == Op::vanity_get)
+            boost_vanity_loaded(nullptr);
+        if (op == Op::vanity_update || op == Op::boost_update)
+            boost_saved(op, false, body, clock_monotonic_milliseconds());
         if (op == Op::engagement_update || op == Op::widget_update) {
             // The widget PATCH still follows a failed guild PATCH.
             engagement_saved(op, false, clock_monotonic_milliseconds());
@@ -1632,12 +1821,20 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
             queue(next, next == Op::role_icon ? p.editing_role : 0);
     };
     switch (op) {
-    case Op::server_name:
-        p.profile_base = p.profile_draft;
-        p.profile_echo = true;
-        p.profile_echo_until = deadline_after(now, kEchoMs);
+    case Op::profile_update:
+        profile_saved(true, body);
+        break;
+    case Op::vanity_update:
+    case Op::boost_update:
+        boost_saved(op, true, body, now);
         continue_save();
         break;
+    case Op::vanity_get: {
+        GuildAdminVanity vanity{};
+        const bool decoded = guild_admin_decode_vanity(body, {p.scratch, kScratchUnits}, &vanity).ok();
+        boost_vanity_loaded(decoded ? &vanity : nullptr);
+        break;
+    }
     case Op::engagement_update:
     case Op::widget_update:
         engagement_saved(op, true, now);
@@ -1653,14 +1850,9 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
     case Op::profile_get: {
         GuildAdminProfile profile{};
         const bool decoded = guild_admin_decode_profile(body, {p.scratch, kScratchUnits}, &profile).ok();
-        engagement_profile_loaded(decoded ? &profile : nullptr);
+        server_profile_loaded(decoded ? &profile : nullptr);
         break;
     }
-    case Op::icon:
-    case Op::banner:
-        release_picked(op == Op::icon ? &p.icon : &p.banner);
-        continue_save();
-        break;
     case Op::role_icon:
         release_picked(&p.role_icon);
         break;
@@ -1762,6 +1954,11 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
     }
     case Op::ban_remove:
         guild_ban_store_apply_remove(&p.bans, p.guild_id, p.request.target);
+        for (u32 i = 0; i < p.ban_search_count; ++i)
+            if (p.ban_search[i].user.id == p.request.target) {
+                p.ban_search[i] = p.ban_search[--p.ban_search_count];
+                break;
+            }
         break;
     case Op::invite_list: {
         const auto decoded = guild_admin_decode_invites(body, {p.scratch, kScratchUnits}, {p.invites, kInviteCapacity});
@@ -1811,6 +2008,15 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
 void application_guild_settings_gateway(const GatewayClientEvent& event, Utf8View body) noexcept {
     if (!owner || event.kind != GatewayClientEventKind::dispatch)
         return;
+    if (event.dispatch_kind == GatewayClientDispatchKind::guild_bulk_ban_update) {
+        GuildBulkBanUpdate update{};
+        if (guild_bulk_ban_update_decode(body, {owner->scratch, kScratchUnits}, &update)) {
+            members_bulk_ban_update(update);
+            if (owner->scene.active)
+                repaint();
+        }
+        return;
+    }
     if (event.dispatch_kind == GatewayClientDispatchKind::guild_stickers_update) {
         // Refetch when the list is on screen; otherwise on the next visit.
         if (event.member_list.guild_id != owner->guild_id || !owner->scene.active)
@@ -1835,6 +2041,16 @@ void application_guild_settings_gateway(const GatewayClientEvent& event, Utf8Vie
         guild_ban_store_apply_remove(&owner->bans, guild, user);
 }
 
+void application_guild_settings_bulk_ban_failed(u64 guild_id) noexcept {
+    if (!owner || owner->guild_id != guild_id)
+        return;
+    owner->selected_count = 0;
+    owner->bulk_failed = true;
+    owner->bulk_notice = utf8_literal("Mass ban failed");
+    if (owner->scene.active)
+        repaint();
+}
+
 u64 application_guild_settings_caret_wake() noexcept {
     return application_guild_settings_active() ? settings_layer_next_wake(owner->layer) : 0;
 }
@@ -1854,6 +2070,9 @@ void application_guild_settings_tick(u64 now) noexcept {
             open_expression_form(kind, item);
     }
     if (application_guild_settings_active()) {
+        members_tick(now);
+        if (audit_load_visible())
+            repaint();
         settings_layer_tick(&owner->layer, now, g_app.preferences.reduced_motion);
         return;
     }

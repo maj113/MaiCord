@@ -1314,6 +1314,7 @@ bool guild_detail_store_apply_gateway_event(GuildDetailStore* store, const ChatS
     input.dm_spam_detected_at_ms = details.dm_spam_detected_at_ms;
     input.description = description;
     input.vanity_url_code = vanity;
+    input.splash = {details.splash, details.splash_bytes <= sizeof(details.splash) ? details.splash_bytes : u8{0}};
     input.feature_names = names;
     input.system_channel_flags = details.system_channel_flags;
     input.premium_subscription_count = details.premium_subscription_count;

@@ -7,8 +7,10 @@
 #include "application_text_form.hpp"
 #include "maicord/model/guild_ban_store.hpp"
 #include "maicord/model/guild_settings_model.hpp"
+#include "maicord/model/guild_member_search.hpp"
 #include "maicord/model/member_moderation.hpp"
 #include "maicord/platform/file_picker.hpp"
+#include "maicord/app/profile_image.hpp"
 #include "maicord/protocol/guild_assets.hpp"
 #include "application_soundboard.hpp"
 
@@ -21,6 +23,7 @@ enum class Page : u8 {
     none,
     profile,
     engagement,
+    boost_perks,
     emoji,
     stickers,
     soundboard,
@@ -58,11 +61,14 @@ constexpr u32 kFeatureNameBytes = 16 * 1024;
 constexpr u64 kDeleteServerAction = 0x44454C5345525645ull;
 constexpr u32 kMenuChoiceBase = 1'000;
 
-// Inline editors: server or role name, role colour hex and list search.
+// Inline editors: server or role name, role colour hex, list search, the
+// server description and the custom invite link.
 enum Editor : u32 {
     editor_name,
     editor_hex,
     editor_search,
+    editor_description,
+    editor_vanity,
     editor_count
 };
 // Control ids of the fixed rows; list rows start at kRowBase.
@@ -110,6 +116,25 @@ enum Control : u64 {
     control_widget_channel,
     control_widget_id,
     control_widget_json,
+    control_description,
+    control_private,
+    control_banner_colors,
+    control_progress_bar,
+    control_splash,
+    control_splash_remove,
+    control_vanity_category,
+    control_vanity,
+    control_vanity_remove,
+    control_filter_joined,
+    control_filter_created,
+    control_filter_method,
+    control_filter_roles,
+    control_filter_signals,
+    control_filter_sort,
+    control_page_size,
+    control_pages,
+    control_select_page,
+    control_bulk,
     // System message toggles: this base plus the suppress bit's index.
     control_message = 64,
     control_permission_category = 100,
@@ -117,7 +142,10 @@ enum Control : u64 {
 };
 enum class Op : u8 {
     none,
-    server_name,
+    profile_update,
+    boost_update,
+    vanity_get,
+    vanity_update,
     engagement_update,
     widget_get,
     widget_update,
@@ -142,6 +170,9 @@ enum class Op : u8 {
     sticker_create,
     sticker_update,
     sticker_delete,
+    members_search,
+    bulk_ban,
+    ban_search,
     safety_update,
     mfa,
     guild_delete,
@@ -155,6 +186,7 @@ enum class Pick : u8 {
     emoji,
     sticker,
     sound,
+    splash,
 };
 // Popup menus owned by this layer; actions are offset by kind.
 enum class Menu : u8 {
@@ -171,6 +203,13 @@ enum class Menu : u8 {
     emoji,
     sticker,
     sound,
+    role,
+    member_since,
+    joined_discord,
+    join_method,
+    member_roles,
+    signals,
+    sort,
 };
 enum ExpressionAction : u32 {
     expression_rename = 1,
@@ -264,17 +303,34 @@ struct Settings {
     UiSettingsFooter footer;
     MessageComposer models[editor_count];
     BoundedEdit bindings[editor_count];
-    char name_text[kGuildAdminNameBytes], hex_text[16], search_text[kSearchBytes];
+    char name_text[kGuildAdminNameBytes], hex_text[16], search_text[kSearchBytes],
+        description_text[kGuildAdminProfileDescriptionBytes], vanity_text[kGuildAdminVanityCodeBytes];
     u64 lifetime, guild_id, account_scope, profile_id, self_user_id;
     u16 guild_generation;
     GuildSettingsAccess access;
     Page page;
     u64 signature;
     UiWidgetManager* previous_focus;
-    // Server Profile.
+    // Server Profile: drafts over the last profile read. A replaced icon is
+    // cropped into its data URI when the save starts.
     GuildServerProfileDraft profile_base, profile_draft;
-    bool profile_conflict, profile_echo;
-    u64 profile_echo_until;
+    bool profile_loaded, profile_failed;
+    ProfileImageInfo icon_info;
+    u8* icon_uri;
+    u32 icon_uri_bytes;
+    // Boost Perks: the guild PATCH draft, the picked splash, the data URIs of
+    // new images (made when the save starts) and the custom invite link.
+    GuildBoostDraft boost_base, boost_draft;
+    bool boost_echo;
+    u64 boost_echo_until;
+    Picked splash;
+    u8 *banner_uri, *splash_uri;
+    u32 banner_uri_bytes, splash_uri_bytes;
+    char vanity_base[kGuildAdminVanityCodeBytes];
+    u8 vanity_base_bytes;
+    u32 vanity_uses;
+    u64 vanity_error_code;
+    bool vanity_requested, vanity_loaded, vanity_failed, vanity_error;
     // Engagement. The widget loads once per open; the guild PATCH of a save
     // is followed by the widget PATCH even when it failed.
     GuildEngagementDraft engagement_base, engagement_draft;
@@ -295,6 +351,34 @@ struct Settings {
     GuildRoleDraft role_base, role_draft;
     bool role_conflict, role_echo, role_missing, hex_invalid;
     u64 role_echo_until;
+    // Members: the chunked search (its bank is committed on the first visit),
+    // the filters, the debounced search text and the bulk-ban selection,
+    // which survives paging.
+    GuildMemberSearchStore search;
+    GuildSearchMember* search_bank;
+    u64 search_due_at;
+    bool search_dirty, search_retry;
+    // The planned request until it is sent, and the clock of the last sent.
+    GuildMemberSearchQuery search_pending;
+    u64 search_pending_hash, search_sent_now;
+    u32 search_pending_bytes;
+    u64 filter_roles[kGuildMemberSearchRoleMaximum];
+    u32 filter_role_count;
+    u64 filter_joined_after, filter_created_after;
+    u8 filter_joined, filter_created, filter_signals, filter_sort, filter_join_type;
+    bool filter_join_type_set;
+    char filter_invite[kGuildMemberSearchInviteCodeBytes];
+    u8 filter_invite_bytes;
+    char search_applied[kSearchBytes];
+    u32 search_applied_bytes;
+    u64 selected[kGuildBulkBanMaximumUsers];
+    u32 selected_count;
+    const GuildSearchMember* page_rows[100];
+    // The last bulk ban's outcome, shown above the list.
+    Utf8View bulk_notice;
+    bool bulk_failed;
+    u32 page_row_count;
+    Utf8View filter_choice[6][1], page_size_choices[4], page_buttons[2], bulk_buttons[2];
     // Members and bans.
     u64 row_ids[kRowCapacity];
     u32 row_count;
@@ -303,6 +387,11 @@ struct Settings {
     u64 menu_channel[kPopupCapacity];
     GuildBanStore bans;
     bool bans_requested, bans_failed;
+    // The last server-side ban search: its text and the bans it found.
+    GuildAdminBan ban_search[kGuildBanSearchLimit];
+    u32 ban_search_count;
+    char ban_search_text[kSearchBytes];
+    u32 ban_search_bytes;
     // Invites and audit log.
     GuildAdminInvite invites[kInviteCapacity];
     u32 invite_count;
@@ -358,7 +447,7 @@ struct Settings {
     PopupItem popup_items[kPopupCapacity];
     // Projection scratch: choice labels, member chips and popup sorting.
     Utf8View system_choice[1], afk_choice[1], widget_choice[1], color_names[kGuildRoleColorCount + 1];
-    u32 member_order[kRowCapacity];
+    u32 member_order[kGuildMemberSearchCapacity];
     // Packed RGBA for list-row accents, resolved through the palette source.
     u32 row_accent[kRowCapacity];
     u64 palette_revision;
@@ -366,8 +455,7 @@ struct Settings {
     u32 chip_colors[kRowCapacity][4];
     struct PopupRow {
         PopupItem item;
-        u64 id;
-        u32 position;
+        const ChannelRecord* channel;
     } popup_rows[kPopupCapacity];
     u8 feature_names[kFeatureNameBytes];
     u32 scratch[kScratchUnits];
@@ -400,6 +488,8 @@ struct PageOps {
     void (*notice)() noexcept;
     // Footer text when the draft cannot be saved; empty otherwise.
     Utf8View (*invalid)() noexcept;
+    // Right-click or the menu key on a control.
+    void (*context)(const SettingsLayerActivation&) noexcept;
 };
 
 enum class PageGroup : u8 {
@@ -418,8 +508,8 @@ struct PageDefinition {
     Utf8View title;
     const PageOps* ops;
 };
-extern const PageOps kProfilePage, kEngagementPage, kExpressionPage, kMembersPage, kRolesPage, kInvitesPage,
-    kSafetyPage, kAuditLogPage, kBansPage;
+extern const PageOps kProfilePage, kEngagementPage, kBoostPage, kExpressionPage, kMembersPage, kRolesPage,
+    kInvitesPage, kSafetyPage, kAuditLogPage, kBansPage;
 const PageDefinition& page_definition(Page page) noexcept;
 
 // Identity and transport.
@@ -456,6 +546,8 @@ u32 push(const UiSettingsControl& control, UiSettingsControlPresentation present
 void push_avatar(u32 index, u64 user_id) noexcept;
 UiSettingsControl category(u64 id, Utf8View label, Utf8View description = {}) noexcept;
 UiSettingsControl notice(Utf8View label, Utf8View description, Utf8View action = {}) noexcept;
+// A notice with the loading spinner.
+UiSettingsControl loading(Utf8View description) noexcept;
 Utf8View channel_label(Bank& bank, u64 channel_id, Utf8View none) noexcept;
 UiSettingsEditor& editor_view(Editor index, u64 control, Utf8View placeholder, bool enabled) noexcept;
 u32 person_color(u64 user_id) noexcept;
@@ -474,16 +566,44 @@ void open_channel_menu(Menu menu, u32 types, u64 current, Utf8View none, Permiss
 void roles_drop(u64 dragged, u64 target, bool after) noexcept;
 u32 resolve_order(const RoleRecord** output) noexcept;
 
-// Engagement: widget and profile reads (null when they failed), the save's
-// two PATCH bodies, and the outcome of each.
+// Engagement: the widget read (null when it failed), the save's two PATCH
+// bodies, and the outcome of each.
 void engagement_widget_loaded(const GuildAdminWidget* widget) noexcept;
-void engagement_profile_loaded(const GuildAdminProfile* profile) noexcept;
 bool engagement_guild_patch(GuildSettingsPatch* patch) noexcept;
 void engagement_widget_patch(GuildSettingsPatch* patch) noexcept;
 void engagement_saved(Op op, bool ok, u64 now) noexcept;
-// Server Profile and Engagement read the server profile on each visit when
-// it is missing or older than a minute.
+// The server profile, kept across openings: Server Profile and Engagement
+// read it on each visit when it is missing or older than a minute. Null
+// until read for this guild or after a failed read; `settled` is true once
+// a read finished either way.
+const GuildAdminProfile* server_profile(bool* settled = nullptr) noexcept;
 bool profile_fetch_due() noexcept;
+void server_profile_loaded(const GuildAdminProfile* profile) noexcept;
+// Server Profile: the save's body (cropping a new icon first) and its outcome.
+bool profile_patch(GuildSettingsPatch* patch, GuildServerProfileWrite* write,
+                   Slice<GuildServerProfileTraitWrite> traits) noexcept;
+void profile_saved(bool ok, Utf8View body) noexcept;
+// Boost Perks: the vanity read, the save's two requests and their outcomes.
+void boost_vanity_loaded(const GuildAdminVanity* vanity) noexcept;
+bool boost_vanity_patch(GuildSettingsPatch* patch) noexcept;
+bool boost_guild_patch(GuildSettingsPatch* patch) noexcept;
+void boost_saved(Op op, bool ok, Utf8View body, u64 now) noexcept;
+void release_uri(u8** uri, u32* bytes) noexcept;
+
+// Members: the search request of the current filters and page, its
+// outcome, the debounced text and the bulk ban update.
+bool members_search_request(GuildModerationRequest* request, GuildMemberSearchQuery* query) noexcept;
+void members_search_sent() noexcept;
+void members_search_response(const RestClientResponse& response, Utf8View body, u64 now) noexcept;
+void members_tick(u64 now) noexcept;
+void members_bulk_ban_update(const GuildBulkBanUpdate& update) noexcept;
+void members_release() noexcept;
+// Audit Log: queues older entries once their loading row is on screen.
+bool audit_load_visible() noexcept;
+// Bans: Enter in the search box, the ban search request and its reply.
+void bans_editor_enter() noexcept;
+bool bans_search_request(GuildModerationRequest* request) noexcept;
+void bans_search_loaded(bool ok, Utf8View body) noexcept;
 
 // Text forms.
 TextFormOwnerKey form_key(u64 kind, u64 item) noexcept;

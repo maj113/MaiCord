@@ -114,7 +114,7 @@ void transport() noexcept {
           "thread creation: published receipt remains available to normal drain");
 }
 void dormant_abi() noexcept {
-    static_assert(sizeof(AccountModuleApi) == 1160 && sizeof(AccountHost) == 1408);
+    static_assert(sizeof(AccountModuleApi) == 1168 && sizeof(AccountHost) == 1416);
     static_assert(offsetof(AccountModuleApi, thread_action) == 576);
     static_assert(offsetof(AccountModuleApi, thread_browser) == 584);
     static_assert(offsetof(AccountModuleApi, thread_creation) == 592);
@@ -124,7 +124,7 @@ void dormant_abi() noexcept {
         return;
     ThreadCreationRequest request{
         20, 10, 30, utf8_literal("Thread"), 1440, 11, ThreadCreationOperation::from_message, {}};
-    check(host.api.version == 124 && host.api.bytes == 1160 && host.api.thread_creation &&
+    check(host.api.version == 125 && host.api.bytes == 1168 && host.api.thread_creation &&
               host.api.thread_creation(nullptr, &request, 1).error ==
                   RestClientSubmitError::invalid_input &&
               host.api.thread_creation(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&

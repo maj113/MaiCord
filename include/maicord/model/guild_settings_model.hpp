@@ -10,8 +10,8 @@ namespace maicord {
 // Server Settings: what the current account may open and change in one
 // guild, plus the drafts and request bodies of its pages. Pure functions over
 // the state cache; the application layer owns transport and presentation.
-// Sections visible in the sidebar. Server Profile and Engagement show to
-// anyone who may open Server Settings; editing them needs Manage Server.
+// Sections visible in the sidebar. Server Profile, Engagement and Boost Perks
+// show to anyone who may open Server Settings; editing needs Manage Server.
 enum GuildSettingsSection : u32 {
     guild_settings_profile = 1u << 0,
     guild_settings_engagement = 1u << 1,
@@ -25,6 +25,8 @@ enum GuildSettingsSection : u32 {
     guild_settings_audit_log = 1u << 7,
     // Ban Members or View Audit Log; lifting a ban needs Ban Members.
     guild_settings_bans = 1u << 8,
+    // Shown like Server Profile; the custom invite link needs Administrator.
+    guild_settings_boost_perks = 1u << 9,
 };
 // Any of these opens Server Settings; Kick and Timeout Members alone do not.
 inline constexpr PermissionSet kGuildSettingsOpenPermissions =
@@ -84,20 +86,74 @@ bool guild_settings_role_move(const GuildSettingsAccess&, Slice<const RoleRecord
 u32 guild_settings_role_positions(ConstSlice<const RoleRecord*> order, u64 guild_id,
                                   Slice<GuildAdminPosition> output) noexcept;
 
-// Server Profile page draft.
-struct GuildServerProfileDraft {
-    u16 name_bytes;
-    char name[kGuildAdminNameBytes];
+// Server Profile page draft: the profile as GET /guilds/{g}/profile returned
+// it, with the page's edits applied in place. The icon keeps its stored hash
+// unless it is replaced (by the page's data URI) or removed.
+enum class GuildProfileImageEdit : u8 {
+    keep,
+    replace,
+    remove,
 };
-GuildServerProfileDraft guild_server_profile_from_state(const ChatStateStore&, u64 guild_id) noexcept;
+struct GuildServerProfileDraft {
+    GuildAdminProfile profile;
+    GuildProfileImageEdit icon;
+};
+// The Banner presets after "Server Icon Color": brand_color_primary values.
+inline constexpr u32 kGuildProfileBannerColorCount = 9;
+extern const Utf8View kGuildProfileBannerColors[kGuildProfileBannerColorCount];
+extern const Utf8View kGuildProfileBannerNames[kGuildProfileBannerColorCount];
+GuildServerProfileDraft guild_server_profile_draft(const GuildAdminProfile& profile) noexcept;
 bool guild_server_profile_equal(const GuildServerProfileDraft&, const GuildServerProfileDraft&) noexcept;
 // Server names are 2–100 characters without line breaks.
 bool guild_server_name_valid(Utf8View) noexcept;
-// The changed name as a patch borrowing draft text. False when nothing
-// changed or the name is invalid.
-bool guild_server_profile_patch(const GuildServerProfileDraft& baseline, const GuildServerProfileDraft& draft,
-                                GuildSettingsPatch* patch) noexcept;
+bool guild_server_description_valid(Utf8View) noexcept;
+// "Private Profile": on unless the visibility is public (with or without
+// recruitment). Turning it off restores the stored public kind.
+bool guild_server_profile_private(const GuildServerProfileDraft&) noexcept;
+void guild_server_profile_set_private(GuildServerProfileDraft*, const GuildAdminProfile& stored, bool on) noexcept;
+// The selected Banner swatch: 0 for the icon colour, 1 + preset index, or
+// ~0u for anything else (an uploaded banner or another colour).
+u32 guild_server_profile_banner_choice(const GuildServerProfileDraft&) noexcept;
+// Picks a swatch: the preset colour (none for 0) and no uploaded banner.
+void guild_server_profile_set_banner_choice(GuildServerProfileDraft*, u32 choice) noexcept;
+// The PATCH /guilds/{g}/profile body of a draft. `icon_uri` is the new icon
+// when it is replaced. Trait emoji resolve against the guild's custom emoji;
+// an unknown custom emoji is left out. `traits` receives the trait views the
+// write borrows, as do the draft's strings. False for an invalid draft.
+bool guild_server_profile_write(const GuildServerProfileDraft& draft, Utf8View icon_uri, const ChatStateStore& state,
+                                u64 guild_id, Slice<GuildServerProfileTraitWrite> traits,
+                                GuildServerProfileWrite* write) noexcept;
+
+// Boost Perks draft: the guild PATCH sends all three every time; unchanged
+// images resend their stored hash (empty for none).
+struct GuildBoostDraft {
+    GuildProfileImageEdit banner;
+    GuildProfileImageEdit splash;
+    bool progress_bar;
+};
+bool guild_boost_equal(const GuildBoostDraft&, const GuildBoostDraft&) noexcept;
+// banner_uri and splash_uri are the replaced images; the stored hashes come
+// from the guild record and its details. False when a replaced image has no
+// data URI.
+bool guild_boost_patch(const GuildBoostDraft& draft, Utf8View banner_hash, Utf8View splash_hash,
+                       Utf8View banner_uri, Utf8View splash_uri, GuildSettingsPatch* patch) noexcept;
+// Custom invite link input: spaces become dashes and the code stops at 25
+// UTF-16 units, as the official field does. Returns the bytes written.
+u32 guild_vanity_code_input(Utf8View typed, Slice<char> output) noexcept;
+// The message of a rejected vanity change (the error body's code).
+Utf8View guild_vanity_error_text(u64 code) noexcept;
 inline constexpr u32 kGuildAfkTimeouts[]{60, 300, 900, 1'800, 3'600};
+
+// Channel picker orders: the system message and inactive channel pickers
+// list channels as the channel list does (by category); the invite and
+// widget picker lists text-like channels, then voice and stage channels,
+// each by raw position. Equal keys fall back to ascending ID.
+enum class GuildChannelPickerOrder : u8 {
+    channel_list,
+    invite,
+};
+bool guild_settings_channel_before(const ChatStateStore&, GuildChannelPickerOrder, const ChannelRecord& a,
+                                   const ChannelRecord& b) noexcept;
 
 // system_channel_flags bits; each suppresses one kind of system message.
 enum GuildSystemChannelFlag : u32 {

@@ -114,7 +114,8 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         tests/member_list_sparse_model.cpp tests/member_viewport.cpp tests/member_paging_pump.cpp
         tests/thread_members.cpp tests/thread_storage.cpp tests/thread_archive.cpp
         tests/thread_member_viewport.cpp tests/thread_member_pump.cpp tests/thread_subscriptions.cpp
-        tests/role_lookup_performance.cpp tests/role_order.cpp tests/guild_role_replacement.cpp tests/permission_prefix.cpp
+        tests/role_lookup_performance.cpp tests/role_order.cpp tests/guild_role_replacement.cpp
+        tests/permission_prefix.cpp
         tests/guild_channel_validation.cpp tests/channel_name_preflight.cpp tests/read_state_model.cpp
         tests/read_state_wire.cpp tests/message_ack.cpp tests/read_ack_controller.cpp tests/bulk_message_ack.cpp
         tests/read_scope.cpp tests/bulk_read_ack_controller.cpp tests/read_state_pump.cpp
@@ -286,8 +287,8 @@ maicord_test(MaiCordNavigationGapsTests ENTRY maicord_navigation_gaps_entry
         maicord_message_runtime kernel32 user32 ole32
     TIMEOUT 10
     TEST maicord_navigation_gaps)
-# Server lifecycle, guild folders, channel reordering, drag state machines,
-# text in voice and the server menu policy.
+# Server lifecycle, guild folders, channel reordering, channel list order,
+# drag state machines, text in voice and the server menu policy.
 maicord_test(MaiCordNavigationWaveTests ENTRY maicord_navigation_wave_entry
     SOURCES tests/navigation_wave.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_ui
@@ -552,6 +553,13 @@ maicord_test(MaiCordGuildSettingsTests ENTRY maicord_guild_settings_entry
     LIBS maicord_core maicord_protocol maicord_model kernel32
     TIMEOUT 10
     TEST maicord_guild_settings)
+# Members search, bulk ban and ban search: exact bodies, targets, replies,
+# paging and the transport.
+maicord_test(MaiCordGuildModerationTests ENTRY maicord_guild_moderation_entry
+    SOURCES tests/guild_moderation.cpp src/app/account_guild_moderation.cpp
+    LIBS maicord_core maicord_platform maicord_protocol maicord_model kernel32
+    TIMEOUT 10
+    TEST maicord_guild_moderation)
 maicord_test(MaiCordGuildAdminAccountTests ENTRY maicord_account_guild_admin_entry
     SOURCES tests/account_guild_admin.cpp src/app/account_guild_admin.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_account_host kernel32

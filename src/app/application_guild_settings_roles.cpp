@@ -2,6 +2,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/model/permission_grid.hpp"
+#include "maicord/ui/clipboard.hpp"
 
 namespace maicord::app_detail::server_settings {
 namespace {
@@ -54,6 +55,10 @@ void project_role_list(Bank& bank) noexcept {
     push(category(control_list_category, bank.since(heading)));
     if (owner->status.bytes && owner->failed)
         push(notice({}, owner->status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+    else if (busy() && owner->request.op == Op::role_create)
+        push(loading(utf8_literal("Creating role…")));
+    else if (!owner->counts && busy() && owner->request.op == Op::role_counts)
+        push(loading(utf8_literal("Loading member counts…")));
     // Row ids follow the draft order so drops and activation map back to it.
     for (u32 i = 0; i < owner->order_count; ++i) {
         const auto* resolved = role(owner->order[i]);
@@ -204,19 +209,24 @@ void close_role() noexcept {
     owner->scene.content_offset = 0;
     repaint();
 }
-void confirm_delete_role() noexcept {
-    const auto* r = role(owner->editing_role);
+// The role list's menu: Copy Role ID (developer mode) and Delete Role.
+enum RoleAction : u32 {
+    role_action_copy_id = 1,
+    role_action_delete,
+};
+void confirm_delete_role(u64 role_id) noexcept {
+    const auto* r = role(role_id);
     if (!r || !guild_settings_role_deletable(owner->access, *r))
         return;
-    static char title[160];
-    Bank bank{title, sizeof(title), 0};
-    bank.add(utf8_literal("Delete "));
+    static char context[256];
+    Bank bank{context, sizeof(context), 0};
+    bank.add(utf8_literal("Are you sure you want to delete the "));
     bank.add(chat_state_store_role_name(state(), *r));
-    bank.add(utf8_literal("?"));
+    bank.add(utf8_literal(" role? This action cannot be undone."));
     ApplicationTextFormRequest request{};
-    request.title = bank.since(0);
-    request.context = utf8_literal("Members with this role lose it and its permissions. This can't be undone.");
-    request.accept = utf8_literal("Delete role");
+    request.title = utf8_literal("Delete Role");
+    request.context = bank.since(0);
+    request.accept = utf8_literal("Delete");
     request.owner = form_key(form_role_delete, r->id);
     request.valid = form_valid;
     request.save = form_save;
@@ -274,7 +284,7 @@ void activate(const SettingsLayerActivation& activation) noexcept {
         return;
     }
     if (id == control_delete)
-        confirm_delete_role();
+        confirm_delete_role(p.editing_role);
     else if (id == control_hoist)
         d.hoist = activation.value.checked;
     else if (id == control_mentionable)
@@ -421,7 +431,51 @@ void roles_drop(u64 dragged, u64 target, bool after) noexcept {
     repaint();
 }
 
-const PageOps kRolesPage{load,      project,   activate,    nullptr,       dirty,  can_save,
-                         next_save, reconcile, ensure_data, notice_action, invalid};
+namespace {
+void context(const SettingsLayerActivation& activation) noexcept {
+    auto& p = *owner;
+    const u64 id = activation.value.target.control_id;
+    if (p.editing_role || id < kRowBase || id >= kRowBase + p.order_count)
+        return;
+    const u64 role_id = p.order[id - kRowBase];
+    const auto* r = role(role_id);
+    if (!r)
+        return;
+    u32 count = 0;
+    const auto item = [&](Utf8View label, u32 action, bool danger) noexcept {
+        p.popup_items[count] = {};
+        p.popup_items[count].label = label;
+        p.popup_items[count].action = kMenuChoiceBase + action;
+        p.popup_items[count].flags = static_cast<u16>(popup_item_enabled | (danger ? popup_item_danger : 0) |
+                                                      (danger && count ? popup_item_separator_before : 0));
+        ++count;
+    };
+    if (g_app.preferences.developer_mode)
+        item(utf8_literal("Copy Role ID"), role_action_copy_id, false);
+    if (page_allowed(Page::roles) && guild_settings_role_deletable(p.access, *r))
+        item(utf8_literal("Delete Role"), role_action_delete, true);
+    if (!count)
+        return;
+    p.menu = Menu::role;
+    p.menu_item = role_id;
+    settings_layer_open_choice(&p.layer, role_id, {p.popup_items, count}, activation.anchor, 240);
+}
+
+void choose(Menu menu, u32 action) noexcept {
+    auto& p = *owner;
+    if (menu != Menu::role || action < kMenuChoiceBase)
+        return;
+    if (action - kMenuChoiceBase == role_action_copy_id) {
+        char digits[24];
+        Bank bank{digits, sizeof(digits), 0};
+        bank.number(p.menu_item);
+        clipboard_write_utf8(g_app.window, bank.since(0));
+    } else if (action - kMenuChoiceBase == role_action_delete && !busy())
+        confirm_delete_role(p.menu_item);
+}
+} // namespace
+
+const PageOps kRolesPage{load,      project,   activate,    choose,        dirty,  can_save,
+                         next_save, reconcile, ensure_data, notice_action, invalid, context};
 
 } // namespace maicord::app_detail::server_settings

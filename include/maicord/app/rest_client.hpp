@@ -357,8 +357,9 @@ RestClientSubmitResult rest_client_submit_large(RestClient* client,
 // of the result. Existing queued/TLS/response lifetime rules remain unchanged.
 RestClientSubmitResult rest_client_submit_large_owned(
     RestClient* client, const RestClientRequest& request, u8** body_owner) noexcept;
-// A bodyless GET whose response may exceed the configured capacity (a large
-// list such as a server's bans): the response lands in a bank of
+// A bodyless GET, or a POST with an ordinary JSON body (a members search),
+// whose response may exceed the configured capacity (a large list such as a
+// server's bans): the response lands in a bank of
 // response_capacity bytes allocated for this transaction and released with
 // the response. Take it with output of at least the reported body size.
 RestClientSubmitResult rest_client_submit_large_response(RestClient* client,

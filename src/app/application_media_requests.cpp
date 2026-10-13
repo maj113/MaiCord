@@ -417,6 +417,16 @@ bool ApplicationMediaPump::request_settings_avatars(u64 now_ms, u64 now_seconds,
         // The request validates the hash and skips a resident key. Server
         // identity rows share the rail's guild icon key and CDN asset.
         const Utf8View hash{avatar.media->hash, avatar.media->hash_bytes};
+        // Server Settings emoji and sticker previews, by their CDN identity.
+        if (avatar.media->key.kind == MediaAssetKind::custom_emoji ||
+            avatar.media->key.kind == MediaAssetKind::sticker) {
+            if (!request_visible_static_media(avatar.media->key, now_ms, now_seconds, uploads, repaint, &stop, false,
+                                              true))
+                return false;
+            if (stop)
+                return true;
+            continue;
+        }
         if (avatar.media->key.kind == MediaAssetKind::profile_image) {
             // Default avatars: the hash carries the CDN path, fetched by URL
             // under the profile card's key.

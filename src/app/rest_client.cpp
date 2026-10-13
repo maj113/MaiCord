@@ -1792,9 +1792,11 @@ RestClientSubmitResult rest_client_submit_large_owned(
 RestClientSubmitResult rest_client_submit_large_response(RestClient* client,
                                                          const RestClientRequest& request,
                                                          u32 response_capacity) noexcept {
+    const bool get = request.route.method == RestMethod::get && !request.body.count && !request.json_body;
+    const bool post = request.route.method == RestMethod::post && request.json_body &&
+                      request.body.count <= kRestClientMaximumRequestBodyBytes;
     if (response_capacity < kRestClientMinimumResponseBytes ||
-        response_capacity > kRestClientMaximumResponseBytes || request.route.method != RestMethod::get ||
-        request.body.count || request.json_body)
+        response_capacity > kRestClientMaximumResponseBytes || (!get && !post))
         return {RestClientSubmitError::invalid_input};
     return submit_request(client, request, response_capacity);
 }

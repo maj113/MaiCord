@@ -143,8 +143,7 @@ bool project(ApplicationTextForm* form) noexcept {
         secure_edit_utf16_selection(form->edit, &selection) != SecureEditResult::unchanged)
         return false;
     secure_text_store_composition(form->store, &form->composition);
-    return text_form_update(&form->scene,
-                            {request.title,
+    TextFormContent content{request.title,
                              request.context,
                              request.label,
                              form->status,
@@ -163,8 +162,16 @@ bool project(ApplicationTextForm* form) noexcept {
                              form->can_cancel,
                              request.danger,
                              {},
-                             false},
-                            application_viewport_dips(), form->measure);
+                             false};
+    content.choices_label = request.choices_label;
+    content.choices = {form->choices, request.choices.count};
+    content.choice_selected = form->choice_selected;
+    content.choice_editor = request.choice_editor;
+    content.select_label = request.select_label;
+    content.select_options = {form->options, request.select_options.count};
+    content.select_selected = form->select_selected;
+    content.select_expanded = form->select_expanded;
+    return text_form_update(&form->scene, content, application_viewport_dips(), form->measure);
 }
 bool refresh(ApplicationTextForm* form) noexcept {
     if (form->refreshing)
@@ -216,6 +223,7 @@ void changed(void* opaque) noexcept {
     if (form != g_app.text_form || form->refreshing || !form->editable)
         return;
     form->status = {};
+    form->typed = true;
     reset_caret(form);
     refresh(form);
 }
@@ -257,15 +265,48 @@ bool activate(ApplicationTextForm* form, TextFormElement element) noexcept {
         }
         return true;
     }
+    u32 at = 0;
+    if (text_form_choice_index(element, &at)) {
+        // A new choice starts the field over, empty and untyped.
+        if (form->editable && at < form->request.choices.count && at != form->choice_selected) {
+            form->choice_selected = at;
+            form->typed = false;
+            secure_edit_assign(&form->edit, {});
+            form->status = {};
+            refresh(form);
+            if (at == form->request.choice_editor)
+                focus_field(form, TextFormElement::edit);
+        }
+        return true;
+    }
+    if (element == TextFormElement::select) {
+        if (form->editable) {
+            form->select_expanded = !form->select_expanded;
+            refresh(form);
+        }
+        return true;
+    }
+    if (text_form_select_index(element, &at)) {
+        if (form->editable && at < form->request.select_options.count) {
+            form->select_selected = at;
+            form->select_expanded = false;
+            refresh(form);
+            focus_field(form, TextFormElement::select);
+        }
+        return true;
+    }
     if (element != TextFormElement::accept)
         return false;
     if (!form->can_accept)
         return true;
     const auto text = form->request.confirmation_only ? ConstSlice<u8>{} : secure_edit_view(form->edit);
+    const Utf8View typed{reinterpret_cast<const char*>(text.data), text.count};
     const bool saved =
-        form->request.save_option
-            ? form->request.save_option(form->request.owner, form->option_checked)
-            : form->request.save(form->request.owner, {reinterpret_cast<const char*>(text.data), text.count});
+        form->request.save_choices
+            ? form->request.save_choices(form->request.owner, typed, form->typed, form->choice_selected,
+                                         form->select_selected)
+        : form->request.save_option ? form->request.save_option(form->request.owner, form->option_checked)
+                                    : form->request.save(form->request.owner, typed);
     if (g_app.text_form != form)
         return true;
     if (saved) {
@@ -328,11 +369,19 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
     if ((forum && (!parent || !application_forum_post_current(request.forum_parent))) ||
         (parent && (!forum || !application_forum_post_current(request.forum_parent))))
         return false;
-    if (g_app.text_form || !request.valid || (!request.save && !request.save_option) ||
+    if (g_app.text_form || !request.valid || (!request.save && !request.save_option && !request.save_choices) ||
         !request.valid(request.owner) || !g_app.renderer_ready || !owner_context_valid(request))
         return false;
+    const bool choices = request.choices.count || request.select_options.count;
     if (request.maximum_bytes > kApplicationTextFormBytes ||
-        ((request.option.bytes || request.save_option) && !request.confirmation_only))
+        ((request.option.bytes || request.save_option) && !request.confirmation_only) ||
+        (choices && (request.confirmation_only || !request.save_choices)) || (request.save_choices && !choices) ||
+        request.choices.count > kTextFormChoices || request.select_options.count > kTextFormSelectOptions ||
+        (!request.choices.data && request.choices.count) ||
+        (!request.select_options.data && request.select_options.count) ||
+        (request.choice_selected != ~0u && request.choice_selected >= request.choices.count) ||
+        (request.choice_editor != ~0u && request.choice_editor >= request.choices.count) ||
+        (request.select_options.count && request.select_selected >= request.select_options.count))
         return false;
     const Utf8View labels[] = {request.title, request.context, request.label,
                                request.accept, request.cancel, request.option};
@@ -342,6 +391,18 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
             return false;
         label_bytes += label.bytes;
     }
+    const auto extra_label = [&](Utf8View label) noexcept {
+        const bool fits = utf8_validate(label).valid && label.bytes <= 2048 - label_bytes;
+        label_bytes += fits ? label.bytes : 0;
+        return fits;
+    };
+    bool extra = extra_label(request.choices_label) && extra_label(request.select_label);
+    for (u32 i = 0; extra && i < request.choices.count; ++i)
+        extra = extra_label(request.choices[i]);
+    for (u32 i = 0; extra && i < request.select_options.count; ++i)
+        extra = extra_label(request.select_options[i]);
+    if (!extra)
+        return false;
     if (request.login_owner && !renderer_prepare_login_form_text(&g_app.renderer)) {
         renderer_release_login_form_text(&g_app.renderer);
         return false;
@@ -375,11 +436,24 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
                           &form->request.accept, &form->request.cancel,  &form->request.option};
     static_assert(sizeof(copied) / sizeof(copied[0]) == sizeof(labels) / sizeof(labels[0]));
     u32 offset = 0;
-    for (u32 i = 0; i < sizeof(copied) / sizeof(copied[0]); ++i) {
-        copy_bytes(form->labels + offset, labels[i].data, labels[i].bytes);
-        *copied[i] = {form->labels + offset, labels[i].bytes};
-        offset += labels[i].bytes;
-    }
+    const auto copy_label = [&](Utf8View source) noexcept {
+        copy_bytes(form->labels + offset, source.data, source.bytes);
+        const Utf8View copy{form->labels + offset, source.bytes};
+        offset += source.bytes;
+        return copy;
+    };
+    for (u32 i = 0; i < sizeof(copied) / sizeof(copied[0]); ++i)
+        *copied[i] = copy_label(labels[i]);
+    form->request.choices_label = copy_label(request.choices_label);
+    form->request.select_label = copy_label(request.select_label);
+    for (u32 i = 0; i < request.choices.count; ++i)
+        form->choices[i] = copy_label(request.choices[i]);
+    for (u32 i = 0; i < request.select_options.count; ++i)
+        form->options[i] = copy_label(request.select_options[i]);
+    form->request.choices = {form->choices, request.choices.count};
+    form->request.select_options = {form->options, request.select_options.count};
+    form->choice_selected = request.choice_selected;
+    form->select_selected = request.select_selected;
     bool initialized = true;
     if (!request.confirmation_only) {
         initialized = secure_edit_initialize(
@@ -832,8 +906,11 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
         }
         SetFocus(g_app.window);
         const auto element = text_form_hit_test(form->scene, x, y);
+        u32 at = 0;
         if (element == TextFormElement::edit || element == TextFormElement::cancel ||
-            element == TextFormElement::accept || element == TextFormElement::option) {
+            element == TextFormElement::accept || element == TextFormElement::option ||
+            element == TextFormElement::select || text_form_choice_index(element, &at) ||
+            text_form_select_index(element, &at)) {
             if (!focus_field(form, element))
                 return true;
             const auto handle = form->scene.elements[static_cast<u32>(element)];
@@ -866,8 +943,10 @@ bool application_text_form_window_message(UINT message, WPARAM wparam, LPARAM lp
             pointer_position(form, x, y, true);
         // Footer buttons and the option row light up only under the pointer.
         const auto element = text_form_hit_test(form->scene, x, y);
+        u32 at = 0;
         const auto hovered = element == TextFormElement::cancel || element == TextFormElement::accept ||
-                                     element == TextFormElement::option
+                                     element == TextFormElement::option || element == TextFormElement::select ||
+                                     text_form_choice_index(element, &at) || text_form_select_index(element, &at)
                                  ? form->scene.elements[static_cast<u32>(element)]
                                  : ui_widget_invalid_handle();
         const auto previous = form->scene.widgets.hovered;

@@ -570,6 +570,8 @@ bool settings_layer_input(SettingsLayer* layer, UiInputKind kind, u32 key, bool 
             text_input_end_group(native_target);
         if (multiline && replace_selection(layer, utf8_literal("\n"), true))
             settings_layer_edit_changed(layer, true);
+        else if (!multiline && !repeated && layer->hooks->editor_enter)
+            layer->hooks->editor_enter(layer, ui_settings_scene_focused(*scene).control_id);
         return true;
     }
     if (control && key == 'A')
@@ -891,6 +893,24 @@ bool settings_layer_window_message(SettingsLayer* layer, UINT message, WPARAM wp
     }
     if (message == WM_DROPFILES) {
         DragFinish(reinterpret_cast<HDROP>(wparam));
+        return true;
+    }
+    // Pointer right-clicks anchor at the pointer; the menu key at the focused row.
+    const bool keyboard_menu = message == WM_CONTEXTMENU && lparam == -1;
+    if ((message == WM_RBUTTONUP || keyboard_menu) && layer->hooks->context && !layer->choice &&
+        !layer->dragging && GetCapture() != g_app.window) {
+        const float x = keyboard_menu ? 0 : client_dip_x(lparam), y = keyboard_menu ? 0 : client_dip_y(lparam);
+        const auto target = keyboard_menu ? scene->focus : ui_settings_scene_hit_test(*scene, x, y);
+        UiSettingsActivation activation{};
+        UiSettingsControlGeometry geometry{};
+        if (target.kind == UiSettingsTargetKind::control &&
+            ui_settings_scene_activation(*scene, target, false, &activation) &&
+            ui_settings_scene_control_geometry(*scene, target, &geometry)) {
+            if (!keyboard_menu)
+                settings_layer_focus(layer, target);
+            layer->hooks->context(layer, {activation, !keyboard_menu, false,
+                                          keyboard_menu ? geometry.field : UiRect{x, y, x + 1, y + 1}});
+        }
         return true;
     }
     return message == WM_CONTEXTMENU || message == WM_RBUTTONDOWN || message == WM_RBUTTONUP ||

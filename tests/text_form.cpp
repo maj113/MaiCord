@@ -289,5 +289,45 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
         text_form_close(&actions);
     }
     text_form_release(&actions);
+
+    // The ban dialog's shape: a radio group, an editor shown only under its
+    // last choice, and a dropdown that lists its options while open.
+    TextFormScene choices{};
+    const Utf8View reasons[] = {utf8_literal("Spam"), utf8_literal("Rules"), utf8_literal("Other")};
+    const Utf8View windows[] = {utf8_literal("None"), utf8_literal("Hour"), utf8_literal("Day")};
+    TextFormContent dialog{utf8_literal("Ban @someone?"), {}, {}, {}, utf8_literal("Cancel"), utf8_literal("Ban"),
+                           {}, 0, 0, true, false};
+    dialog.choices_label = utf8_literal("Reason for Ban");
+    dialog.choices = {reasons, 3};
+    dialog.choice_editor = 2;
+    dialog.select_label = utf8_literal("Delete Message History");
+    dialog.select_options = {windows, 3};
+    dialog.select_selected = 1;
+    const UiRect dialog_viewport{0, 0, 800, 700};
+    const bool opened = text_form_update(&choices, dialog, dialog_viewport, &cache);
+    const auto* collapsed = text_form_node(choices, TextFormElement::edit);
+    check(opened && text_form_focused(choices) == TextFormElement::choice_0 && collapsed &&
+              ui_rect_height(collapsed->rectangle) == 0 && !text_form_node(choices, TextFormElement::choice_3) &&
+              !text_form_node(choices, TextFormElement::select_0) && !text_form_node(choices, TextFormElement::label) &&
+              ui_rect_has_area(text_form_choice_marker(choices, TextFormElement::choice_2)) &&
+              !text_form_focus(&choices, TextFormElement::edit),
+          "text_form_choices_open_on_the_first_option_with_the_editor_folded");
+    dialog.choice_selected = 2;
+    dialog.select_expanded = true;
+    const bool chosen = text_form_update(&choices, dialog, dialog_viewport, &cache);
+    const auto* edit = text_form_node(choices, TextFormElement::edit);
+    const auto* select = text_form_node(choices, TextFormElement::select);
+    const auto* last = text_form_node(choices, TextFormElement::select_2);
+    u32 option = 0;
+    check(chosen && edit && ui_rect_height(edit->rectangle) > 0 && text_form_focus(&choices, TextFormElement::edit) &&
+              select && last && last->rectangle.top >= select->rectangle.bottom &&
+              !text_form_node(choices, TextFormElement::select_3) &&
+              text_form_select_index(TextFormElement::select_2, &option) && option == 2 &&
+              !text_form_choice_index(TextFormElement::select_0, &option) &&
+              ui_layout_engine_validate(choices.widgets.layout, {diagnostics, 32}).clean(),
+          "text_form_choices_unfold_the_editor_and_list_the_open_dropdown_beneath_it");
+    dialog.choice_selected = 5;
+    check(!text_form_update(&choices, dialog, dialog_viewport, &cache), "text_form_choices_refuse_a_missing_option");
+    text_form_release(&choices);
 }
 } // namespace maicord

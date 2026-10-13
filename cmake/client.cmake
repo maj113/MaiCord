@@ -19,7 +19,7 @@ set_target_properties(MaiCordAccount PROPERTIES
 # DLL ignores, and would cost the image a .rsrc section.
 target_link_options(MaiCordAccount PRIVATE
     /ENTRY:maicord_account_module_entry
-    /EXPORT:maicord_account_get_api,@124,NONAME
+    /EXPORT:maicord_account_get_api,@125,NONAME
     /SUBSYSTEM:WINDOWS,6.02
     /MANIFEST:NO)
 if(MAICORD_GENERATE_LINK_MAPS)
@@ -79,6 +79,7 @@ add_executable(MaiCord WIN32
     src/app/application_guild_settings_members.cpp src/app/application_guild_settings_roles.cpp
     src/app/application_guild_settings_invites.cpp src/app/application_guild_settings_safety.cpp
     src/app/application_guild_settings_audit_log.cpp src/app/application_guild_settings_bans.cpp
+    src/app/application_guild_settings_boost.cpp
     src/app/application_poll_create.cpp
     src/app/application_self_status.cpp src/app/application_browser_auth.cpp
     src/app/application_captcha_auth.cpp src/app/application_media_animation.cpp

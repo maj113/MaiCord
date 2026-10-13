@@ -1,8 +1,10 @@
 #include "maicord/model/channel_settings_model.hpp"
 #include "maicord/model/guild_ban_store.hpp"
 #include "maicord/model/guild_settings_model.hpp"
+#include "maicord/model/member_moderation.hpp"
 #include "maicord/model/permission_grid.hpp"
 #include "maicord/protocol/guild_assets.hpp"
+#include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 
@@ -20,10 +22,10 @@ constexpr u64 kRoleTop = 10, kRoleSelf = 11, kRoleMid = 12, kRoleLow = 13, kRole
 struct Model {
     ChatStateStore state;
     GuildRecord guilds[2];
-    ChannelRecord channels[4];
+    ChannelRecord channels[8];
     RoleRecord roles[16];
     PermissionOverwriteRecord overwrites[16];
-    u16 guild_order[2], channel_order[4];
+    u16 guild_order[2], channel_order[8];
     u8 names[4096];
 };
 Model model;
@@ -38,8 +40,8 @@ bool add_role(u64 id, PermissionSet permissions, u32 position, bool managed = fa
 bool build(u64 owner, PermissionSet self_permissions) noexcept {
     clear_bytes(&model, sizeof(model));
     auto& state = model.state;
-    if (!chat_state_store_initialize(&state, {model.guilds, 2}, {model.guild_order, 2}, {model.channels, 4},
-                                        {model.channel_order, 4}, {model.names, sizeof(model.names)}) ||
+    if (!chat_state_store_initialize(&state, {model.guilds, 2}, {model.guild_order, 2}, {model.channels, 8},
+                                        {model.channel_order, 8}, {model.names, sizeof(model.names)}) ||
         !chat_state_store_bind_permissions(&state, {model.roles, 16}, {model.overwrites, 16}))
         return false;
     state.self_user_id = kSelf;
@@ -63,7 +65,7 @@ bool build(u64 owner, PermissionSet self_permissions) noexcept {
 bool body_equals(const GuildAdminRequest& request, const char* expected) noexcept {
     if (!guild_admin_request_valid(request))
         return false;
-    u8 body[2048];
+    u8 body[4096];
     const auto written = guild_admin_write_body(request, {body, sizeof(body)});
     u32 length = 0;
     while (expected[length])
@@ -78,7 +80,7 @@ void test_access() noexcept {
           "access: a member without administrative permissions gets no Server Settings sections");
     check(build(kOwner, kPermissionManageRoles), "access: manage roles fixture");
     access = guild_settings_access(model.state, kGuild);
-    constexpr u32 always = guild_settings_profile | guild_settings_engagement;
+    constexpr u32 always = guild_settings_profile | guild_settings_engagement | guild_settings_boost_perks;
     check(access.sections == (always | guild_settings_roles | guild_settings_members) &&
               access.top_role_id == kRoleSelf && !guild_settings_can_manage_guild(access),
           "access: Manage Roles opens Roles and Members beside the read-only Profile and Engagement");
@@ -100,7 +102,7 @@ void test_access() noexcept {
           "access: Manage Expressions (bit 30) edits and deletes any expression");
     check(build(kSelf, 0), "access: owner fixture");
     access = guild_settings_access(model.state, kGuild);
-    check(access.owner && access.sections == 0x1ff && guild_settings_grantable(access) == kPermissionKnownMask &&
+    check(access.owner && access.sections == 0x3ff && guild_settings_grantable(access) == kPermissionKnownMask &&
               access.manage_expressions && guild_settings_can_delete(access) && guild_settings_can_set_mfa(access),
           "access: the owner sees every section, may grant every known permission, delete and set 2FA");
     check(build(kOwner, kPermissionManageRoles), "access: two-factor fixture");
@@ -118,13 +120,13 @@ void test_access() noexcept {
           "access: an owner without 2FA cannot delete a server that requires it");
     check(build(kOwner, kPermissionAdministrator), "access: administrator fixture");
     access = guild_settings_access(model.state, kGuild);
-    check(access.sections == 0x1ff && guild_settings_can_manage_guild(access) && !guild_settings_can_delete(access),
+    check(access.sections == 0x3ff && guild_settings_can_manage_guild(access) && !guild_settings_can_delete(access),
           "access: Administrator opens every section but not the owner actions");
 }
 
 // Guild-level permissions to the sections they open.
 void test_section_matrix() noexcept {
-    constexpr u32 p = guild_settings_profile | guild_settings_engagement;
+    constexpr u32 p = guild_settings_profile | guild_settings_engagement | guild_settings_boost_perks;
     const struct {
         PermissionSet permissions;
         u32 sections;
@@ -143,8 +145,8 @@ void test_section_matrix() noexcept {
         {kPermissionManageExpressions, p | guild_settings_expressions},
         {kPermissionManageWebhooks, p},
         {kPermissionViewGuildInsights, p},
-        {kPermissionAdministrator, 0x1ff},
-        {kPermissionAll, 0x1ff},
+        {kPermissionAdministrator, 0x3ff},
+        {kPermissionAll, 0x3ff},
     };
     u32 matched = 0;
     for (const auto& row : rows)
@@ -206,23 +208,184 @@ void test_reorder() noexcept {
           "reorder: the request body lists id and position pairs");
 }
 
-void test_drafts() noexcept {
-    check(build(kSelf, 0), "drafts: owner fixture");
-    auto base = guild_server_profile_from_state(model.state, kGuild);
-    auto draft = base;
+// The profile PATCH body of a draft, exactly.
+bool profile_body(const GuildServerProfileDraft& draft, Utf8View icon_uri, const char* expected) noexcept {
+    GuildServerProfileTraitWrite traits[kGuildAdminProfileTraits];
+    GuildServerProfileWrite write{};
+    if (!guild_server_profile_write(draft, icon_uri, model.state, kGuild, {traits, 5}, &write))
+        return false;
     GuildSettingsPatch patch{};
-    check(!guild_server_profile_patch(base, draft, &patch), "drafts: an unchanged server name has nothing to save");
-    copy_bytes(draft.name, "Renamed", 7);
-    draft.name_bytes = 7;
-    check(guild_server_profile_patch(base, draft, &patch) && patch.fields == guild_settings_patch_name,
-          "drafts: a changed server name is its only field");
+    patch.fields = guild_settings_patch_profile;
+    patch.profile = &write;
+    GuildAdminRequest request{};
+    request.operation = GuildAdminOperation::profile_update;
+    request.guild_id = kGuild;
+    request.guild = &patch;
+    return body_equals(request, expected);
+}
+
+void test_server_profile() noexcept {
+    check(build(kSelf, 0), "server profile: owner fixture");
+    // A GET /guilds/{g}/profile reply: unknown members ignored, a trait at
+    // position 7 dropped, the description key absent.
+    constexpr char body[] =
+        R"({"id":"100","name":"Guild","icon_hash":"0123456789abcdef0123456789abcdef","custom_banner_hash":null,)"
+        R"("brand_color_primary":"","visibility":3,"online_count":4,"member_count":9,"features":["DISCOVERABLE"],)"
+        R"("traits":[{"label":"Chill","position":1,"emoji_id":null,"emoji_name":"fire","emoji_animated":null},)"
+        R"({"label":"Gone","position":0,"emoji_id":"777","emoji_name":"pepe","emoji_animated":true},)"
+        R"({"label":"Late","position":7}],"game_application_ids":["555","556"],"tag":"ABCD"})";
+    u32 scratch[512];
+    GuildAdminProfile profile{};
+    check(guild_admin_decode_profile(utf8_literal(body), {scratch, 512}, &profile).ok() && profile.name_known &&
+              profile.icon_known && profile.icon_bytes == 32 && profile.custom_banner_known &&
+              !profile.custom_banner_bytes && !profile.brand_color_bytes && profile.visibility_known &&
+              profile.visibility == 3 && profile.discoverable && profile.game_count == 2 &&
+              profile.traits[1].label_bytes == 5 && profile.traits[0].emoji_id == 777 && !profile.traits[2].label_bytes &&
+              !profile.description_bytes,
+          "server profile: the read keeps the hashes, key presence, traits by position and games");
+    auto base = guild_server_profile_draft(profile), draft = base;
+    // Unchanged: all eight fields, the icon as its hash, the unknown custom
+    // emoji left out and the unicode one kept by name.
+    check(guild_server_profile_equal(base, draft) &&
+              profile_body(draft, {},
+                           R"({"name":"Guild","description":"","icon":"0123456789abcdef0123456789abcdef",)"
+                           R"("custom_banner":null,"visibility":3,"brand_color_primary":null,)"
+                           R"("traits":[{"label":"Gone","position":0},{"label":"Chill","position":1,)"
+                           R"("emoji_name":"fire"}],"game_application_ids":["555","556"]})"),
+          "server profile: an unchanged save resends the icon hash and every field in the official order");
+    draft.icon = GuildProfileImageEdit::replace;
+    check(!guild_server_profile_equal(base, draft) &&
+              profile_body(draft, utf8_literal("data:image/png;base64,iVBORw0KGgo="),
+                           R"({"name":"Guild","description":"","icon":"data:image/png;base64,iVBORw0KGgo=",)"
+                           R"("custom_banner":null,"visibility":3,"brand_color_primary":null,)"
+                           R"("traits":[{"label":"Gone","position":0},{"label":"Chill","position":1,)"
+                           R"("emoji_name":"fire"}],"game_application_ids":["555","556"]})") &&
+              !profile_body(draft, {}, ""),
+          "server profile: a new icon is its PNG data URI; without one the save is refused");
+    draft.icon = GuildProfileImageEdit::remove;
+    copy_bytes(draft.profile.description, "Hi\nthere", 8);
+    draft.profile.description_bytes = 8;
+    guild_server_profile_set_private(&draft, base.profile, true);
+    guild_server_profile_set_banner_choice(&draft, 6);
+    check(guild_server_profile_private(draft) && guild_server_profile_banner_choice(draft) == 6 &&
+              profile_body(draft, {},
+                           R"({"name":"Guild","description":"Hi\nthere","icon":null,"custom_banner":null,)"
+                           R"("visibility":2,"brand_color_primary":"#029FFC",)"
+                           R"("traits":[{"label":"Gone","position":0},{"label":"Chill","position":1,)"
+                           R"("emoji_name":"fire"}],"game_application_ids":["555","556"]})"),
+          "server profile: removal sends null, private sends RESTRICTED and a swatch its preset colour");
+    guild_server_profile_set_private(&draft, base.profile, false);
+    check(draft.profile.visibility == 3 && !guild_server_profile_private(draft),
+          "server profile: turning privacy off restores the stored public-with-recruitment kind");
+    draft = base;
+    draft.profile.name_bytes = 1;
+    check(!profile_body(draft, {}, ""), "server profile: one-character names are refused");
+    // A minimal reply: no description, icon, banner, visibility or traits keys.
+    GuildAdminProfile minimal{};
+    check(guild_admin_decode_profile(utf8_literal(R"({"id":"100","name":"Guild"})"), {scratch, 512}, &minimal).ok() &&
+              profile_body(guild_server_profile_draft(minimal), {},
+                           R"({"name":"Guild","description":"","brand_color_primary":null,"traits":[],)"
+                           R"("game_application_ids":[]})"),
+          "server profile: absent keys stay absent; description, colour, traits and games are always sent");
+    check(!guild_admin_decode_profile(utf8_literal(R"({"name":"a","name":"b"})"), {scratch, 512}, &minimal).ok(),
+          "server profile: duplicate keys are refused");
+}
+
+void test_boost_perks() noexcept {
+    const GuildBoostDraft base{GuildProfileImageEdit::keep, GuildProfileImageEdit::keep, false};
+    auto draft = base;
+    draft.progress_bar = true;
+    GuildSettingsPatch patch{};
     GuildAdminRequest request{};
     request.operation = GuildAdminOperation::guild_update;
     request.guild_id = kGuild;
     request.guild = &patch;
-    check(body_equals(request, R"({"name":"Renamed"})"), "drafts: the server name request body");
-    draft.name_bytes = 1;
-    check(!guild_server_profile_patch(base, draft, &patch), "drafts: one-character server names are refused");
+    constexpr auto banner = utf8_literal("a_00112233445566778899aabbccddeeff");
+    check(!guild_boost_equal(base, draft) && guild_boost_patch(draft, banner, {}, {}, {}, &patch) &&
+              body_equals(request, R"({"splash":null,"banner":"a_00112233445566778899aabbccddeeff",)"
+                                   R"("premium_progress_bar_enabled":true})"),
+          "boost perks: the PATCH sends splash, banner and the bar every time; unchanged images resend their hash");
+    draft.banner = GuildProfileImageEdit::remove;
+    draft.splash = GuildProfileImageEdit::replace;
+    check(!guild_boost_patch(draft, banner, {}, {}, {}, &patch) &&
+              guild_boost_patch(draft, banner, {}, {}, utf8_literal("data:image/jpeg;base64,/9j/4AAQ"), &patch) &&
+              body_equals(request, R"({"splash":"data:image/jpeg;base64,/9j/4AAQ","banner":null,)"
+                                   R"("premium_progress_bar_enabled":true})"),
+          "boost perks: a new splash is its data URI and a removed banner null");
+    char header[160];
+    const u32 header_bytes = guild_admin_write_md5_header(utf8_literal("0123456789abcdef0123456789abcdef"),
+                                                          utf8_literal("fedcba9876543210fedcba9876543210"),
+                                                          {reinterpret_cast<u8*>(header), sizeof(header)});
+    constexpr char expected[] = R"(guild_banner="0123456789abcdef0123456789abcdef", )"
+                                R"(guild_invite_splash="fedcba9876543210fedcba9876543210")";
+    check(header_bytes == sizeof(expected) - 1 && bytes_equal(header, expected, header_bytes) &&
+              guild_admin_write_md5_header({}, utf8_literal("FEDCBA9876543210FEDCBA9876543210"),
+                                           {reinterpret_cast<u8*>(header), sizeof(header)}) == 0,
+          "boost perks: the MD5 header sorts its keys and skips values that are not lowercase hex");
+    char code[128];
+    const u32 code_bytes = guild_vanity_code_input(utf8_literal("my cool server name is far too long"),
+                                                   {code, sizeof(code)});
+    check(code_bytes == 25 && bytes_equal(code, "my-cool-server-name-is-fa", 25),
+          "boost perks: the invite link field turns spaces into dashes and stops at 25 characters");
+    patch = {};
+    patch.fields = guild_settings_patch_vanity;
+    request.operation = GuildAdminOperation::vanity_update;
+    check(body_equals(request, R"({"code":""})"), "boost perks: removing the custom invite link sends an empty code");
+    patch.vanity_code = utf8_literal("cool-server");
+    check(body_equals(request, R"({"code":"cool-server"})") &&
+              guild_vanity_error_text(10'003).bytes && guild_vanity_error_text(50'020).bytes &&
+              !utf8_equal(guild_vanity_error_text(10'003), guild_vanity_error_text(50'020)),
+          "boost perks: the vanity PATCH body and its error wording");
+}
+
+// The settings channel pickers: system/inactive channels by the channel
+// list's category order, invite channels text-like first, then voice.
+void test_channel_pickers() noexcept {
+    check(build(kSelf, 0), "channel pickers: fixture");
+    auto& state = model.state;
+    constexpr u64 kVoice = 503, kLooseText = 504, kLooseVoice = 505;
+    check(chat_state_store_upsert_channel(&state, {kVoice, kGuild, kCategory, utf8_literal("talk"), 0, 0, 2}).ok() &&
+              chat_state_store_upsert_channel(&state, {kLooseText, kGuild, 0, utf8_literal("rules"), 5, 0, 0}).ok() &&
+              chat_state_store_upsert_channel(&state, {kLooseVoice, kGuild, 0, utf8_literal("lounge"), 2, 0, 2}).ok(),
+          "channel pickers: channels in and outside the category");
+    const u64 ids[] = {kChannel, kVoice, kLooseText, kLooseVoice};
+    const auto sorted = [&](GuildChannelPickerOrder order, const u64 (&expected)[4]) noexcept {
+        const ChannelRecord* channels[4];
+        for (u32 i = 0; i < 4; ++i)
+            channels[i] = chat_state_store_find_channel(state, ids[i]);
+        for (const auto* channel : channels)
+            if (!channel)
+                return false;
+        heap_sort(channels, 4u, [&](const ChannelRecord* a, const ChannelRecord* b) noexcept {
+            return guild_settings_channel_before(state, order, *a, *b);
+        });
+        for (u32 i = 0; i < 4; ++i)
+            if (channels[i]->id != expected[i])
+                return false;
+        return true;
+    };
+    check(sorted(GuildChannelPickerOrder::channel_list, {kLooseText, kLooseVoice, kChannel, kVoice}),
+          "channel pickers: system and inactive channels follow the channel list, uncategorized first and voice "
+          "after text in each group");
+    check(sorted(GuildChannelPickerOrder::invite, {kChannel, kLooseText, kVoice, kLooseVoice}),
+          "channel pickers: invite channels list text-like channels, then voice, each by raw position");
+}
+
+void test_ban_dialog() noexcept {
+    check(utf8_equal(moderation_ban_reason(~0u, false, {}), utf8_literal("")) &&
+              moderation_ban_reason(~0u, false, {}).data &&
+              utf8_equal(moderation_ban_reason(2, false, {}), utf8_literal("Breaking server rules")) &&
+              utf8_equal(moderation_ban_reason(3, false, {}), utf8_literal("other")) &&
+              utf8_equal(moderation_ban_reason(3, true, utf8_literal("raid")), utf8_literal("raid")) &&
+              moderation_ban_reason(3, true, {"", 0}).data && !moderation_ban_reason(3, true, {"", 0}).bytes &&
+              kModerationBanDeleteChoices[kModerationBanDeleteDefault] == 3'600,
+          "ban dialog: an untouched reason is an empty value, Other sends typed text or \"other\", and Previous "
+          "Hour is the default window");
+}
+
+void test_drafts() noexcept {
+    check(build(kSelf, 0), "drafts: owner fixture");
+    GuildAdminRequest request{};
     const auto* mid = chat_state_store_find_role(model.state, kGuild, kRoleMid);
     auto role_base = guild_role_draft_from(model.state, *mid), role_draft = role_base;
     u32 color = 0;
@@ -534,6 +697,10 @@ extern "C" __declspec(noreturn) void WINAPI maicord_guild_settings_entry() noexc
     test_hierarchy();
     test_reorder();
     test_drafts();
+    test_server_profile();
+    test_boost_perks();
+    test_ban_dialog();
+    test_channel_pickers();
     test_overrides();
     test_channel_and_bans();
     test_expressions_and_safety();

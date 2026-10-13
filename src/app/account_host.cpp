@@ -74,7 +74,7 @@ bool account_host_api_valid(const AccountModuleApi& api) noexcept {
            api.cdn_urls.write_media_proxy_target && api.cdn_urls.write_custom_emoji_cdn_target &&
            api.cdn_urls.cdn_guild_icon_variant && api.cdn_urls.write_guild_icon_cdn_target &&
            api.cdn_urls.write_user_avatar_cdn_target && api.cdn_urls.write_channel_icon_cdn_target &&
-           api.cdn_urls.write_sticker_cdn_target && api.cdn_urls.cdn_host_name;
+           api.cdn_urls.write_sticker_cdn_target && api.cdn_urls.cdn_host_name && api.guild_moderation;
 }
 
 AccountHostResult account_host_module_path(Slice<wchar_t> output) noexcept {

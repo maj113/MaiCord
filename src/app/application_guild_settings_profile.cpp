@@ -1,145 +1,165 @@
 #include "application_guild_settings_internal.hpp"
 #include "application_account_presentation.hpp"
 #include "application_settings.hpp"
+#include "maicord/app/account_profile_edit.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/time.hpp"
+
+#include <Windows.h>
 
 namespace maicord::app_detail::server_settings {
 namespace {
 
+// The profile is read again only when older than this.
+constexpr u64 kProfileFreshMs = 60'000;
+// Any editor size: the default crop is the centred square at zoom 1.
+constexpr float kCropEditorWidth = 432, kCropEditorHeight = 350;
+
+// Kept across openings, like the official client's profile store.
+struct ProfileCache {
+    u64 guild_id;
+    u64 fetched_at;
+    bool ok;
+    GuildAdminProfile profile;
+} cache;
+
 const GuildRecord* guild() noexcept {
     return chat_state_store_find_guild(state(), owner->guild_id);
 }
-bool has_banner() noexcept {
-    const auto* g = guild();
-    return g && g->banner_hash_bytes;
-}
-bool patch_pending() noexcept {
-    GuildSettingsPatch patch{};
-    return guild_server_profile_patch(owner->profile_base, owner->profile_draft, &patch);
+bool has_icon() noexcept {
+    const auto& d = owner->profile_draft;
+    return d.icon == GuildProfileImageEdit::replace ||
+           (d.icon == GuildProfileImageEdit::keep && d.profile.icon_bytes);
 }
 bool name_valid() noexcept {
-    return guild_server_name_valid({owner->profile_draft.name, owner->profile_draft.name_bytes});
+    const auto& p = owner->profile_draft.profile;
+    return !p.name_known || guild_server_name_valid({p.name, p.name_bytes});
+}
+bool read_pending() noexcept {
+    return busy() && owner->request.op == Op::profile_get;
 }
 
 void load() noexcept {
-    release_picked(&owner->icon);
-    release_picked(&owner->banner);
-    owner->profile_base = owner->profile_draft = guild_server_profile_from_state(state(), owner->guild_id);
-    owner->profile_conflict = owner->profile_echo = false;
-    set_editor(editor_name, {owner->profile_draft.name, owner->profile_draft.name_bytes});
+    auto& p = *owner;
+    release_picked(&p.icon);
+    release_uri(&p.icon_uri, &p.icon_uri_bytes);
+    const auto* profile = server_profile();
+    p.profile_loaded = profile != nullptr;
+    p.profile_base = p.profile_draft = profile ? guild_server_profile_draft(*profile) : GuildServerProfileDraft{};
+    const auto& d = p.profile_draft.profile;
+    set_editor(editor_name, {d.name, d.name_bytes});
+    set_editor(editor_description, {d.description, d.description_bytes});
 }
 
 void project(Bank& bank) noexcept {
     auto& p = *owner;
+    if (!p.profile_loaded) {
+        bool settled = false;
+        server_profile(&settled);
+        if (settled && !read_pending())
+            push(notice(utf8_literal("Something went wrong"), utf8_literal("We couldn't load the profile for this server."),
+                        utf8_literal("Retry")),
+                 {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
+        else
+            push(loading(utf8_literal("Loading the server profile…")));
+        return;
+    }
     const bool edit = editable() && can_manage_guild();
+    auto& d = p.profile_draft;
+    push({control_name, utf8_literal("Name"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
+          &editor_view(editor_name, control_name, utf8_literal("Name"), edit)});
+
+    push(category(control_banner_category, utf8_literal("Icon")));
     const auto* g = guild();
     const Utf8View guild_name = g ? bank.add(chat_state_store_guild_name(state(), *g)) : Utf8View{};
-    const bool has_icon = g && g->icon_hash_bytes;
-    const bool animated_icon = guild_animated_icon_available(premium_tier(), guild_features());
-    const u32 header_row = push(
-        {control_header, guild_name.bytes ? guild_name : utf8_literal("Server"),
-         picked_text(bank, p.icon,
-                     animated_icon ? utf8_literal("Server icon. PNG, GIF, JPEG or WebP; square images look best.")
-                                   : utf8_literal("Server icon. PNG, JPEG or WebP; square images look best.")),
-         UiSettingsControlKind::action, true, false, {}, 0, edit ? utf8_literal("Change icon") : Utf8View{}, nullptr},
-        {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
-    // The server's own icon covers the initials; a pending removal previews them.
-    if (header_row < kControlCapacity && !p.icon.clear)
+    const Utf8View icon_text =
+        d.icon == GuildProfileImageEdit::remove ? utf8_literal("Removed when you save.")
+        : d.icon == GuildProfileImageEdit::replace
+            ? [&]() noexcept {
+                  const u32 start = bank.mark();
+                  bank.add(utf8_literal("New: "));
+                  bank.number(p.icon_info.width);
+                  bank.add(utf8_literal("×"));
+                  bank.number(p.icon_info.height);
+                  bank.add(utf8_literal(". Save to apply."));
+                  return bank.since(start);
+              }()
+            : utf8_literal("We recommend an image of at least 512x512.");
+    const u32 header_row =
+        push({control_header, guild_name.bytes ? guild_name : utf8_literal("Server"), icon_text,
+              UiSettingsControlKind::action, true, false, {}, 0, edit ? utf8_literal("Change Server Icon") : Utf8View{},
+              nullptr},
+             {UiSettingsVariant::standard, ui_settings_presentation_avatar, kUiSettingsNoDefault});
+    // The stored icon until a save replaces or removes it.
+    if (header_row < kControlCapacity && d.icon == GuildProfileImageEdit::keep && d.profile.icon_bytes)
         p.avatar_media[header_row] = application_guild_icon_media(p.guild_id);
-    if (has_icon || pending(p.icon))
-        push({control_icon_remove, utf8_literal("Remove icon"), {}, UiSettingsControlKind::action,
-              edit && (p.icon.set || (has_icon && !p.icon.clear)), false, {}, 0,
-              p.icon.set && !has_icon ? utf8_literal("Discard") : utf8_literal("Remove"), nullptr},
+    if (has_icon())
+        push({control_icon_remove, utf8_literal("Remove Icon"), {}, UiSettingsControlKind::action, edit, false, {}, 0,
+              utf8_literal("Remove"), nullptr},
              {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
-    if (p.profile_conflict)
-        push(notice(utf8_literal("Changed elsewhere"),
-                    utf8_literal("Someone else updated these settings. Load the latest values or keep editing."),
-                    utf8_literal("Load latest")),
-             {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
-    push({control_name, utf8_literal("Server name"), {}, UiSettingsControlKind::edit, edit, false, {}, 0, {},
-          &editor_view(editor_name, control_name, utf8_literal("Server name"), edit)});
-    push(category(control_banner_category, utf8_literal("Banner")));
-    // BANNER or boost level 2; GIFs need ANIMATED_BANNER or level 3.
-    const auto* record = guild_details();
-    const bool tier_known = record && (record->known & guild_detail_premium_tier);
-    const bool banner = guild_banner_available(premium_tier(), guild_features());
-    const bool stored_banner = has_banner();
-    push({control_banner, utf8_literal("Server Banner Background"),
-          picked_text(bank, p.banner,
-                      !tier_known ? utf8_literal("Checking which uploads this server allows…")
-                      : banner ? utf8_literal("This image will display at the top of your channels list. The "
-                                              "recommended minimum size is 960x540 and recommended aspect ratio is 16:9.")
-                               : utf8_literal("Unlock with Boosting: server banners need boost level 2.")),
-          UiSettingsControlKind::action, edit && connected() && banner, false, {}, 0,
-          utf8_literal("Upload Background"), nullptr});
-    if (stored_banner || pending(p.banner))
-        push({control_banner_remove, utf8_literal("Remove banner"), {}, UiSettingsControlKind::action,
-              edit && (p.banner.set || (stored_banner && !p.banner.clear)), false, {}, 0,
-              p.banner.set && !stored_banner ? utf8_literal("Discard") : utf8_literal("Remove"), nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+
+    // "Server Icon Color" and the presets; an uploaded banner selects none.
+    auto& names = p.color_names;
+    names[0] = utf8_literal("Server Icon Color");
+    for (u32 i = 0; i < kGuildProfileBannerColorCount; ++i)
+        names[i + 1] = kGuildProfileBannerNames[i];
+    const u32 banner = guild_server_profile_banner_choice(d);
+    push({control_banner_colors, utf8_literal("Banner"), {}, UiSettingsControlKind::swatches, edit, false,
+          {names, kGuildProfileBannerColorCount + 1}, banner == ~0u ? kUiSettingsNoChoice : banner, {}, nullptr});
+
+    push({control_description, utf8_literal("Description"),
+          utf8_literal("How did your server get started? Why should people join?"), UiSettingsControlKind::multiline,
+          edit, false, {}, 0, {},
+          &editor_view(editor_description, control_description, utf8_literal("Tell the world a bit about this server."),
+                       edit)});
+
+    const bool discoverable = d.profile.discoverable;
+    push({control_private, utf8_literal("Private Profile"),
+          discoverable ? utf8_literal("Discoverable servers cannot have their content hidden. You can change this "
+                                      "setting in Access")
+                       : utf8_literal("When enabled, only server members can view profile content. Non-members won't "
+                                      "be able to see this content unless they have an invite."),
+          UiSettingsControlKind::toggle, edit && !discoverable, guild_server_profile_private(d), {}, 0, {}, nullptr});
 }
 
 void activate(const SettingsLayerActivation& activation) noexcept {
     auto& p = *owner;
-    if (!can_manage_guild())
+    if (!can_manage_guild() || !p.profile_loaded)
         return;
     const u64 id = activation.value.target.control_id;
+    auto& d = p.profile_draft;
     if (id == control_header) {
         if (activation.button || !activation.pointer)
             start_pick(Pick::icon);
-    } else if (id == control_banner)
-        start_pick(Pick::banner);
-    else if (id == control_icon_remove || id == control_banner_remove) {
-        auto& picked = id == control_icon_remove ? p.icon : p.banner;
-        const auto* g = guild();
-        const bool stored = id == control_icon_remove ? g && g->icon_hash_bytes : has_banner();
-        release_picked(&picked);
-        picked.clear = stored;
-        repaint();
+        return;
     }
+    if (id == control_icon_remove) {
+        release_picked(&p.icon);
+        release_uri(&p.icon_uri, &p.icon_uri_bytes);
+        d.icon = p.profile_base.profile.icon_bytes ? GuildProfileImageEdit::remove : GuildProfileImageEdit::keep;
+    } else if (id == control_private && !d.profile.discoverable) {
+        guild_server_profile_set_private(&d, p.profile_base.profile, activation.value.checked);
+        ui_settings_scene_animate_toggle(&p.scene, activation.value.target, activation.value.checked,
+                                         clock_monotonic_milliseconds());
+    } else if (id == control_banner_colors)
+        guild_server_profile_set_banner_choice(&d, activation.value.selected_choice);
+    else
+        return;
+    repaint();
 }
 
 bool dirty() noexcept {
-    return !guild_server_profile_equal(owner->profile_base, owner->profile_draft) || pending(owner->icon) ||
-           pending(owner->banner);
+    return owner->profile_loaded && !guild_server_profile_equal(owner->profile_base, owner->profile_draft);
 }
 
 bool can_save() noexcept {
-    return can_manage_guild() && !owner->profile_conflict && name_valid() &&
-           (patch_pending() || pending(owner->icon) || pending(owner->banner));
+    const auto& d = owner->profile_draft.profile;
+    return can_manage_guild() && dirty() && name_valid() &&
+           guild_server_description_valid({d.description, d.description_bytes});
 }
 
-// Text first, then the images.
 Op next_save() noexcept {
-    return patch_pending()          ? Op::server_name
-           : pending(owner->icon)   ? Op::icon
-           : pending(owner->banner) ? Op::banner
-                                    : Op::none;
-}
-
-bool reconcile(u64 now) noexcept {
-    auto& p = *owner;
-    const auto current = guild_server_profile_from_state(state(), p.guild_id);
-    if (p.profile_echo) {
-        if (guild_server_profile_equal(current, p.profile_base) || deadline_due(now, p.profile_echo_until))
-            p.profile_echo = false;
-        return false;
-    }
-    if (guild_server_profile_equal(current, p.profile_base) || mutation_pending())
-        return false;
-    if (dirty()) {
-        const bool changed = !p.profile_conflict;
-        p.profile_conflict = true;
-        return changed;
-    }
-    load();
-    return true;
-}
-
-void notice_action() noexcept {
-    if (owner->profile_conflict)
-        load();
+    return dirty() ? Op::profile_update : Op::none;
 }
 
 bool ensure_data() noexcept {
@@ -150,13 +170,114 @@ bool ensure_data() noexcept {
     return true;
 }
 
+void notice_action() noexcept {
+    if (owner->profile_loaded || read_pending())
+        return;
+    // Retry forces a read.
+    cache.fetched_at = 0;
+    owner->profile_requested = false;
+    if (!busy() && connected())
+        ensure_data();
+}
+
 Utf8View invalid() noexcept {
     return name_valid() ? Utf8View{} : utf8_literal("Server names need 2–100 characters.");
 }
 
+// The new icon's data URI, cropped as the official client's cropper does by
+// default: the centred square, a PNG for stills and a GIF for animated GIFs.
+bool prepare_icon() noexcept {
+    auto& p = *owner;
+    if (p.icon_uri)
+        return true;
+    if (!p.icon.data || !g_app.account.api.profile_image)
+        return false;
+    const auto state = image_crop_begin(ImageCropUse::avatar, p.icon_info.width, p.icon_info.height,
+                                        kCropEditorWidth, kCropEditorHeight);
+    const u32 capacity = account_profile_image_uri_capacity(p.icon_info);
+    auto* uri = static_cast<u8*>(VirtualAlloc(nullptr, capacity, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+    if (!uri)
+        return false;
+    ProfileImageRequest request{};
+    request.source = {p.icon.data, p.icon.bytes};
+    request.crop = image_crop_output(state);
+    ProfileImageInfo info{};
+    request.info = &info;
+    request.data_uri = {uri, capacity};
+    if (!g_app.account.api.profile_image(g_app.account.instance, &request) || !request.data_uri_bytes) {
+        VirtualFree(uri, 0, MEM_RELEASE);
+        return false;
+    }
+    p.icon_uri = uri;
+    p.icon_uri_bytes = request.data_uri_bytes;
+    return true;
+}
+
 } // namespace
 
-const PageOps kProfilePage{load,      project,   activate,    nullptr,       dirty,  can_save,
-                           next_save, reconcile, ensure_data, notice_action, invalid};
+const GuildAdminProfile* server_profile(bool* settled) noexcept {
+    const bool current = owner && cache.guild_id == owner->guild_id && cache.fetched_at;
+    if (settled)
+        *settled = current;
+    return current && cache.ok ? &cache.profile : nullptr;
+}
+
+bool profile_fetch_due() noexcept {
+    return !owner || cache.guild_id != owner->guild_id || !cache.fetched_at ||
+           deadline_due(clock_monotonic_milliseconds(), deadline_after(cache.fetched_at, kProfileFreshMs));
+}
+
+void server_profile_loaded(const GuildAdminProfile* profile) noexcept {
+    // A failed read keeps the last good profile of this guild.
+    const bool keep = !profile && cache.ok && cache.guild_id == owner->guild_id;
+    cache.guild_id = owner->guild_id;
+    cache.fetched_at = clock_monotonic_milliseconds();
+    if (profile) {
+        cache.profile = *profile;
+        cache.ok = true;
+    } else if (!keep)
+        cache.ok = false;
+    auto& p = *owner;
+    // A clean or unloaded page takes the new read.
+    if (p.page == Page::profile && (!p.profile_loaded || !dirty()))
+        load();
+}
+
+bool profile_patch(GuildSettingsPatch* patch, GuildServerProfileWrite* write,
+                   Slice<GuildServerProfileTraitWrite> traits) noexcept {
+    auto& p = *owner;
+    if (!p.profile_loaded || (p.profile_draft.icon == GuildProfileImageEdit::replace && !prepare_icon()))
+        return false;
+    if (!guild_server_profile_write(p.profile_draft, {reinterpret_cast<const char*>(p.icon_uri), p.icon_uri_bytes},
+                                    state(), p.guild_id, traits, write))
+        return false;
+    *patch = {};
+    patch->fields = guild_settings_patch_profile;
+    patch->profile = write;
+    return true;
+}
+
+void profile_saved(bool ok, Utf8View body) noexcept {
+    auto& p = *owner;
+    if (!ok)
+        return;
+    GuildAdminProfile saved{};
+    if (guild_admin_decode_profile(body, {p.scratch, kScratchUnits}, &saved).ok()) {
+        cache.guild_id = p.guild_id;
+        cache.fetched_at = clock_monotonic_milliseconds();
+        cache.profile = saved;
+        cache.ok = true;
+        load();
+        return;
+    }
+    // An unreadable reply still saved the draft.
+    release_picked(&p.icon);
+    release_uri(&p.icon_uri, &p.icon_uri_bytes);
+    p.profile_draft.icon = GuildProfileImageEdit::keep;
+    p.profile_base = p.profile_draft;
+}
+
+const PageOps kProfilePage{load,      project, activate,    nullptr,       dirty,  can_save,
+                           next_save, nullptr, ensure_data, notice_action, invalid};
 
 } // namespace maicord::app_detail::server_settings

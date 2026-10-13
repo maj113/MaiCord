@@ -849,6 +849,31 @@ void describe_text_form(void* context, const UiWidgetManager&, UiWidgetHandle ha
             info->state |= ui_access_checked;
         return;
     }
+    if (element(TextFormElement::select)) {
+        info->role = UiAccessRole::combo_box;
+        info->leaf = true;
+        info->name = pick(c.select_label, utf8_literal("Options"));
+        if (c.select_selected < c.select_options.count)
+            info->value = c.select_options[c.select_selected];
+        info->state |= c.select_expanded ? ui_access_expanded : ui_access_collapsed;
+        return;
+    }
+    for (u32 i = 0; i < kTextFormChoices + kTextFormSelectOptions; ++i) {
+        const bool choice = i < kTextFormChoices;
+        const auto e = static_cast<TextFormElement>(
+            choice ? static_cast<u32>(TextFormElement::choice_0) + i
+                   : static_cast<u32>(TextFormElement::select_0) + i - kTextFormChoices);
+        if (!element(e))
+            continue;
+        const u32 at = choice ? i : i - kTextFormChoices;
+        info->role = UiAccessRole::radio_button;
+        info->leaf = true;
+        info->name = choice ? (at < c.choices.count ? c.choices[at] : Utf8View{})
+                            : (at < c.select_options.count ? c.select_options[at] : Utf8View{});
+        if ((choice ? c.choice_selected : c.select_selected) == at)
+            info->state |= ui_access_checked;
+        return;
+    }
 }
 
 // Image viewer

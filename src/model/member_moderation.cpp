@@ -95,4 +95,18 @@ ModerationCapabilities moderation_capabilities(const ChatStateStore& state,
     return result;
 }
 
+const Utf8View kModerationBanReasons[kModerationBanReasonCount]{
+    utf8_literal("Suspicious or spam account"), utf8_literal("Compromised or hacked account"),
+    utf8_literal("Breaking server rules"), utf8_literal("Other")};
+const Utf8View kModerationBanDeleteLabels[sizeof(kModerationBanDeleteChoices) / sizeof(u32)]{
+    utf8_literal("Don't Delete Any"),  utf8_literal("Previous Hour"),   utf8_literal("Previous 6 Hours"),
+    utf8_literal("Previous 12 Hours"), utf8_literal("Previous 24 Hours"), utf8_literal("Previous 3 Days"),
+    utf8_literal("Previous 7 Days")};
+
+Utf8View moderation_ban_reason(u32 choice, bool typed, Utf8View text) noexcept {
+    if (choice == kModerationBanReasonOther)
+        return typed ? text : utf8_literal("other");
+    return choice < kModerationBanReasonCount ? kModerationBanReasons[choice] : Utf8View{"", 0};
+}
+
 } // namespace maicord

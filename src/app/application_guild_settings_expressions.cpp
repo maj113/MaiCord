@@ -62,9 +62,15 @@ void project_emoji(Bank& bank) noexcept {
         if (emoji->role_count)
             bank.add(utf8_literal(" · Limited to some roles"));
         const bool editable_row = p.access.manage_expressions && !managed;
-        push({kRowBase + row, name, bank.since(detail), UiSettingsControlKind::action, can && editable_row, false, {},
-              0, editable_row ? utf8_literal("Edit") : Utf8View{}, nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+        const u32 index =
+            push({kRowBase + row, name, bank.since(detail), UiSettingsControlKind::action, can && editable_row, false,
+                  {}, 0, editable_row ? utf8_literal("Edit") : Utf8View{}, nullptr},
+                 {UiSettingsVariant::standard,
+                  static_cast<u8>(ui_settings_presentation_compact | ui_settings_presentation_avatar),
+                  kUiSettingsNoDefault});
+        // The emoji image in place of the row's avatar.
+        if (index < kControlCapacity)
+            p.avatar_media[index].key = media_asset_custom_emoji(emoji->id, (emoji->flags & custom_emoji_animated) != 0);
     }
 }
 
@@ -86,7 +92,7 @@ void project_stickers(Bank& bank) noexcept {
     else if (p.failed && p.status.bytes)
         push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
     else if (!p.stickers_loaded)
-        push(notice({}, utf8_literal("Loading stickers…")));
+        push(loading(utf8_literal("Loading stickers…")));
     const u32 heading = bank.mark();
     bank.add(utf8_literal("Stickers — "));
     bank.number(p.sticker_count);
@@ -109,10 +115,17 @@ void project_stickers(Bank& bank) noexcept {
         }
         if (!sticker.available)
             bank.add(utf8_literal(" · Unavailable"));
-        push({kRowBase + i, bank.add({sticker.name, sticker.name_bytes}), bank.since(detail),
-              UiSettingsControlKind::action, can && p.access.manage_expressions, false, {}, 0,
-              p.access.manage_expressions ? utf8_literal("Edit") : Utf8View{}, nullptr},
-             {UiSettingsVariant::standard, ui_settings_presentation_compact, kUiSettingsNoDefault});
+        // Lottie stickers have no still preview.
+        const bool preview = sticker.format_type != 3;
+        const u32 index = push(
+            {kRowBase + i, bank.add({sticker.name, sticker.name_bytes}), bank.since(detail),
+             UiSettingsControlKind::action, can && p.access.manage_expressions, false, {}, 0,
+             p.access.manage_expressions ? utf8_literal("Edit") : Utf8View{}, nullptr},
+            {UiSettingsVariant::standard,
+             static_cast<u8>(ui_settings_presentation_compact | (preview ? ui_settings_presentation_avatar : 0)),
+             kUiSettingsNoDefault});
+        if (preview && index < kControlCapacity)
+            p.avatar_media[index].key = media_asset_sticker(sticker.id, sticker.format_type);
     }
     p.row_count = p.sticker_count;
 }
@@ -685,7 +698,26 @@ void notice_action() noexcept {
 
 } // namespace
 
+namespace {
+// Right-click opens the row's Edit menu.
+void context(const SettingsLayerActivation& activation) noexcept {
+    auto& p = *owner;
+    const u64 id = activation.value.target.control_id;
+    if ((p.page != Page::emoji && p.page != Page::stickers) || id < kRowBase || id >= kRowBase + p.row_count ||
+        busy() || !p.access.manage_expressions)
+        return;
+    const bool emoji_page = p.page == Page::emoji;
+    if (emoji_page) {
+        const auto* e = emoji(p.row_ids[id - kRowBase]);
+        if (!e || (e->flags & custom_emoji_managed))
+            return;
+    }
+    open_expression_menu(emoji_page ? Menu::emoji : Menu::sticker,
+                         emoji_page ? p.row_ids[id - kRowBase] : p.stickers[id - kRowBase].id, activation.anchor);
+}
+} // namespace
+
 const PageOps kExpressionPage{nullptr, project, activate,    choose,        nullptr, nullptr,
-                              nullptr, nullptr, ensure_data, notice_action, nullptr};
+                              nullptr, nullptr, ensure_data, notice_action, nullptr, context};
 
 } // namespace maicord::app_detail::server_settings

@@ -21,6 +21,7 @@ enum class UiSettingsControlKind : u8 {
     palette,
     radio,
     category,
+    // A notice row; `checked` marks it as loading (a spinner at its end).
     notice,
     // Joined option buttons at the row end; selected_choice is the pressed one.
     segments,
@@ -326,7 +327,11 @@ struct UiSettingsScene {
     // Drag feedback by control index + 1 (zero is none): the dragged row is
     // tinted and a line marks the drop edge.
     u16 drag_row{}, drop_row{};
+    // The shared loading spinner's phase (host frame clock; paint only).
+    u8 spinner_phase{};
 };
+// True while the page shows a loading notice, whose spinner needs the clock.
+bool ui_settings_scene_spinner_visible(const UiSettingsScene&) noexcept;
 
 // Lazy one-allocation retained scene. Only viewport rows and two spacers per
 // list are materialized; inactive scenes have no widget allocation. UI thread.

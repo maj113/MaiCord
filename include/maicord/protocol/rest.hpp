@@ -18,7 +18,8 @@ inline constexpr u32 kRestUserTimezoneMaximumBytes = 64;
 inline constexpr u32 kRestAuditReasonMaximumBytes = 512;
 inline constexpr u32 kRestAuditReasonMaximumEncodedBytes = kRestAuditReasonMaximumBytes * 3;
 // Preformatted "Name: value\r\n" lines for per-request headers: CAPTCHA
-// retries (X-Captcha-Key/-Rqtoken/-Session-Id) and X-Context-Properties.
+// retries (X-Captcha-Key/-Rqtoken/-Session-Id), X-Context-Properties and
+// X-Discord-Original-MD5.
 inline constexpr u32 kRestExtraHeadersMaximumBytes = 9 * 1024;
 
 enum class RestMethod : u8 {

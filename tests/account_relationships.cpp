@@ -216,10 +216,10 @@ void test_dormant_abi() noexcept {
     AccountHost host{};
     const auto loaded = account_host_load(&host);
     check(loaded.ok(),
-          "relationships: shipping account DLL loads at ABI/ordinal 124 without profile or credential");
+          "relationships: shipping account DLL loads at ABI/ordinal 125 without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 124 && kAccountModuleApiVersion == 124 && kAccountModuleApiOrdinal == 124 &&
+    check(host.api.version == 125 && kAccountModuleApiVersion == 125 && kAccountModuleApiOrdinal == 125 &&
               host.api.bytes == sizeof(AccountModuleApi) && host.api.relationships &&
               host.api.message_ack && host.api.login_submit_recovery && host.api.login_start_reset &&
               host.api.login_submit_reset && host.api.login_submit_phone_verify &&
@@ -232,7 +232,7 @@ void test_dormant_abi() noexcept {
               host.api.gif_favorites && host.api.channel_overview && host.api.guild_members_request &&
               host.api.pinned_messages && host.api.message_forward && host.api.download &&
               host.api.thread_action && host.api.thread_browser && host.api.thread_creation &&
-              host.api.forum_post && host.api.poll && sizeof(AccountModuleApi) == 1160 && sizeof(AccountHost) == 1408 &&
+              host.api.forum_post && host.api.poll && sizeof(AccountModuleApi) == 1168 && sizeof(AccountHost) == 1416 &&
               sizeof(AccountLoginStatus) == 136,
           "relationships: appended mandatory ABI entry preserves exact shipping interface layout");
     const AccountModuleApi complete = host.api;

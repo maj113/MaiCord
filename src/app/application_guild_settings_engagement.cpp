@@ -6,22 +6,12 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 
-// The server profile is read again only when older than this.
-constexpr u64 kProfileFreshMs = 60'000;
 constexpr u32 kTextChannels = 1u << 0;
 constexpr u32 kVoiceChannels = 1u << 2;
 // Text, voice, announcement, store, stage, directory, forum and media.
 constexpr u32 kInviteChannels = (1u << 0) | (1u << 2) | (1u << 5) | (1u << 6) | (1u << 13) | (1u << 14) |
                                 (1u << 15) | (1u << 16);
 constexpr u8 kVisibilityPublic = 1, kVisibilityPublicWithRecruitment = 3;
-
-// Kept across openings, like the profile itself.
-struct ProfileCache {
-    u64 guild_id;
-    u64 fetched_at;
-    u8 visibility;
-    bool known;
-} profile_cache;
 
 struct Message {
     u32 bit;
@@ -87,11 +77,6 @@ bool member_count(u32* count) noexcept {
 bool names_available() noexcept {
     const auto* record = guild_details();
     return record && record->feature_names_kept && (record->known & guild_detail_features);
-}
-
-bool profile_fresh(u64 now) noexcept {
-    return profile_cache.guild_id == owner->guild_id && profile_cache.fetched_at &&
-           !deadline_due(now, deadline_after(profile_cache.fetched_at, kProfileFreshMs));
 }
 
 GuildEngagementDraft stored() noexcept {
@@ -188,10 +173,13 @@ void project(Bank& bank) noexcept {
         push(notice(utf8_literal("Couldn't load the widget"), {}, utf8_literal("Try again")),
              {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
     else if (!p.widget_loaded)
-        push(notice({}, utf8_literal("Loading the widget…")));
-    const bool visibility_settled = profile_cache.guild_id == p.guild_id && profile_cache.fetched_at;
-    const bool visible = profile_cache.known && (profile_cache.visibility == kVisibilityPublic ||
-                                                 profile_cache.visibility == kVisibilityPublicWithRecruitment);
+        push(loading(utf8_literal("Loading the widget…")));
+    // A failed read settles too: the notice then assumes a private profile.
+    bool visibility_settled = false;
+    const auto* profile = server_profile(&visibility_settled);
+    const bool visible = profile && profile->visibility_known &&
+                         (profile->visibility == kVisibilityPublic ||
+                          profile->visibility == kVisibilityPublicWithRecruitment);
     if (p.widget_loaded && visibility_settled && !visible && !d.widget_enabled)
         push({control_widget_notice, {},
               utf8_literal("Turning on the widget makes your server profile visible to people outside the server. "
@@ -389,10 +377,6 @@ void notice_action() noexcept {
 
 } // namespace
 
-bool profile_fetch_due() noexcept {
-    return !profile_fresh(clock_monotonic_milliseconds());
-}
-
 void engagement_widget_loaded(const GuildAdminWidget* widget) noexcept {
     auto& p = *owner;
     p.widget_loaded = widget != nullptr;
@@ -403,12 +387,6 @@ void engagement_widget_loaded(const GuildAdminWidget* widget) noexcept {
     guild_engagement_set_widget(&p.engagement_base, widget->enabled, widget->channel_id);
     if (!draft_dirty)
         guild_engagement_set_widget(&p.engagement_draft, widget->enabled, widget->channel_id);
-}
-
-void engagement_profile_loaded(const GuildAdminProfile* profile) noexcept {
-    // A failed read also settles: the notice then assumes a private profile.
-    profile_cache = {owner->guild_id, clock_monotonic_milliseconds(), profile ? profile->visibility : u8{0},
-                     profile && profile->visibility_known};
 }
 
 bool engagement_guild_patch(GuildSettingsPatch* patch) noexcept {

@@ -12,9 +12,13 @@ u32 application_member_moderation_menu_items(u64 guild_id, u64 user_id, Slice<Po
 // Handles moderation popup actions; the caller has not dismissed the popup.
 bool application_member_moderation_activate(u32 action) noexcept;
 // Starts one moderation action outside the context menu (Server Settings).
-// action is a ModerationAction bit; timeouts and bans take their duration or
-// message deletion window from the matching kModeration*Choices table.
+// action is a ModerationAction bit; a timeout takes its duration from
+// kModerationTimeoutChoices. A ban opens the ban dialog, which picks its own
+// message deletion window.
 bool application_member_moderation_start(u64 guild_id, u64 user_id, u8 action, u32 choice) noexcept;
+// The ban dialog in bulk mode for selected members (Manage Server and Ban
+// Members); the outcome arrives as GUILD_BULK_BAN_UPDATE.
+bool application_member_moderation_bulk_ban(u64 guild_id, ConstSlice<u64> user_ids) noexcept;
 bool application_member_moderation_pending(u64 now_ms) noexcept;
 bool application_member_moderation_submit(u64 request_id, u64 now_ms) noexcept;
 bool application_member_moderation_response(const RestClientResponse&, Utf8View body) noexcept;

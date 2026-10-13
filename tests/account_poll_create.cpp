@@ -106,14 +106,14 @@ void transport() noexcept {
           "poll create: exact cancellation only");
 }
 void dormant_abi() noexcept {
-    static_assert(sizeof(AccountModuleApi) == 1160 && sizeof(AccountHost) == 1408);
+    static_assert(sizeof(AccountModuleApi) == 1168 && sizeof(AccountHost) == 1416);
     static_assert(offsetof(AccountModuleApi, poll_create) == 752);
     AccountHost host{};
     check(account_host_load(&host).ok(), "poll create: current ABI DLL loads without credentials");
     if (!host.module)
         return;
     const auto poll = lunch();
-    check(host.api.version == 124 && host.api.bytes == 1160 && host.api.poll_create &&
+    check(host.api.version == 125 && host.api.bytes == 1168 && host.api.poll_create &&
               host.api.poll_create(nullptr, 20, 77, &poll, 1).error == RestClientSubmitError::invalid_input &&
               host.api.poll_create(nullptr, 20, 77, nullptr, 1).error ==
                   RestClientSubmitError::invalid_input &&

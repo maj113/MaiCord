@@ -14,6 +14,7 @@ maicord_library(maicord_media_core
     src/media/animation_timeline.cpp src/media/encoded_cache.cpp src/media/presentation_policy.cpp
     src/media/regional_flag_svg.cpp src/ui/regional_flag.cpp
     LIBS maicord_core)
+
 # maiopus keeps MaiCord's existing target names until the extern/maiopus move.
 set(MAIOPUS_DECODER_TARGET maicord_opus_decoder)
 set(MAIOPUS_ENCODER_TARGET maicord_opus_encoder)
@@ -21,7 +22,6 @@ set(MAIOPUS_LINK_CONTRACT maicord_link_contract)
 set(MAIOPUS_LTCG ON)
 set(MAIOPUS_ARCH /arch:AVX)
 set(MAIOPUS_SSE4_1 ON)
-
 add_subdirectory(third_party/opus)
 
 maicord_library(maicord_media_codec
@@ -136,6 +136,8 @@ maicord_library(maicord_protocol
     # Icon hash check kept apart from cdn_url.cpp: the client keeps it (Gateway
     # user records) while it forwards every other CDN URL function to the module.
     src/protocol/cdn_icon_hash.cpp
+    # Members search, bulk ban and ban search bodies and replies.
+    src/protocol/guild_moderation.cpp
     LIBS maicord_core maicord_compression maicord_media_core)
 
 maicord_library(maicord_webauthn src/platform/webauthn.cpp LIBS maicord_core maicord_platform maicord_protocol)
@@ -198,6 +200,8 @@ maicord_library(maicord_app_core
     src/app/acceptance_record.cpp
     # Server details carried in guild create/update records.
     src/app/gateway_guild_details.cpp
+    # Members search, bulk ban and ban search on DETAILS.
+    src/app/account_guild_moderation.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_media_core
         maicord_voice_encoder)
 
@@ -393,6 +397,8 @@ maicord_library(maicord_model
     src/model/notification_sound_admission.cpp src/model/notification_retention.cpp
     src/model/permission_grid.cpp src/model/guild_settings_model.cpp src/model/channel_settings_model.cpp
     src/model/guild_detail_store.cpp
+    # The Members page's chunked search and local paging.
+    src/model/guild_member_search.cpp
     LIBS maicord_core maicord_edit_history maicord_protocol)
 
 maicord_library(maicord_message_runtime

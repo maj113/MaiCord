@@ -28,6 +28,11 @@ struct ApplicationTextForm {
     bool can_cancel = true;
     bool dismissible = true;
     bool option_checked;
+    // The radio group, the dropdown and whether text was typed since the
+    // last choice; their labels live in `labels`.
+    u32 choice_selected, select_selected;
+    bool select_expanded, typed;
+    Utf8View choices[kTextFormChoices], options[kTextFormSelectOptions];
     u64 progress_revision;
     Utf8View progress_accept;
     Utf8View status;

@@ -55,6 +55,92 @@ bool data_uri_valid(Utf8View uri) noexcept {
     return comma;
 }
 
+// A stored image hash: 32 lowercase hex characters, "a_" first when animated.
+bool image_hash_valid(Utf8View hash) noexcept {
+    if (!view_valid(hash) || (hash.bytes != 32 && hash.bytes != 34))
+        return false;
+    u32 at = 0;
+    if (hash.bytes == 34) {
+        if (hash.data[0] != 'a' || hash.data[1] != '_')
+            return false;
+        at = 2;
+    }
+    for (; at < hash.bytes; ++at) {
+        const char c = hash.data[at];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+            return false;
+    }
+    return true;
+}
+
+// An image field: empty (null), a data URI or the stored hash.
+bool image_value_valid(Utf8View value) noexcept {
+    return view_valid(value) && (!value.bytes || data_uri_valid(value) || image_hash_valid(value));
+}
+
+// UTF-16 code units, as a text input's maxLength counts them.
+u32 utf16_units(Utf8View text) noexcept {
+    u32 units = 0;
+    for (u32 i = 0; i < text.bytes; ++i) {
+        const u8 byte = static_cast<u8>(text.data[i]);
+        if ((byte & 0xC0) != 0x80)
+            units += byte >= 0xF0 ? 2 : 1;
+    }
+    return units;
+}
+
+bool vanity_code_valid(Utf8View code) noexcept {
+    return view_valid(code) && (!code.bytes || text_valid(code, 1, kGuildAdminVanityCodeCharacters, true)) &&
+           utf16_units(code) <= kGuildAdminVanityCodeCharacters;
+}
+
+// "#RRGGBB", either case.
+bool brand_color_valid(Utf8View color) noexcept {
+    if (!view_valid(color) || !color.bytes)
+        return view_valid(color);
+    if (color.bytes != 7 || color.data[0] != '#')
+        return false;
+    for (u32 i = 1; i < 7; ++i) {
+        const char c = color.data[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+            return false;
+    }
+    return true;
+}
+
+bool profile_write_valid(const GuildServerProfileWrite& p) noexcept {
+    const u8 f = p.fields;
+    if ((f & ~guild_profile_write_all) || !view_valid(p.name) || !view_valid(p.description) ||
+        (!p.traits.data && p.traits.count) || p.traits.count > kGuildAdminProfileTraits ||
+        (!p.game_application_ids.data && p.game_application_ids.count) ||
+        p.game_application_ids.count > kGuildAdminProfileGames)
+        return false;
+    if ((f & guild_profile_write_name) ? !text_valid(p.name, 2, kGuildAdminNameCodepoints, true) : p.name.bytes != 0)
+        return false;
+    if (p.description.bytes && !text_valid(p.description, 1, kGuildAdminProfileDescriptionCodepoints, false))
+        return false;
+    if (((f & guild_profile_write_icon) ? !image_value_valid(p.icon) : p.icon.bytes != 0) ||
+        ((f & guild_profile_write_custom_banner) ? !image_value_valid(p.custom_banner) : p.custom_banner.bytes != 0) ||
+        !brand_color_valid(p.brand_color_primary) ||
+        ((f & guild_profile_write_visibility) ? p.visibility > 3 : p.visibility != 0))
+        return false;
+    for (u32 i = 0; i < p.traits.count; ++i) {
+        const auto& t = p.traits[i];
+        if (t.position >= kGuildAdminProfileTraits || !view_valid(t.label) || !view_valid(t.emoji_name) ||
+            (t.label.bytes && !text_valid(t.label, 1, kGuildAdminProfileTraitCodepoints, true)) ||
+            t.emoji_name.bytes > kGuildAdminProfileEmojiNameBytes ||
+            (t.emoji_name.bytes && !text_valid(t.emoji_name, 1, kGuildAdminProfileEmojiNameBytes, true)))
+            return false;
+        for (u32 j = 0; j < i; ++j)
+            if (p.traits[j].position == t.position)
+                return false;
+    }
+    for (u32 i = 0; i < p.game_application_ids.count; ++i)
+        if (!p.game_application_ids[i])
+            return false;
+    return true;
+}
+
 bool invite_code_valid(Utf8View code) noexcept {
     if (!view_valid(code) || !code.bytes || code.bytes > kGuildAdminInviteCodeBytes)
         return false;
@@ -94,12 +180,22 @@ bool feature_names_valid(ConstSlice<u8> names, u16 count) noexcept {
 
 bool guild_patch_valid(const GuildSettingsPatch& patch) noexcept {
     const u16 f = patch.fields;
-    return f && !(f & ~guild_settings_patch_all) &&
-           (!(f & guild_settings_patch_widget) || f == guild_settings_patch_widget) &&
+    constexpr u16 alone = guild_settings_patch_widget | guild_settings_patch_profile | guild_settings_patch_vanity;
+    // An original file accompanies only a new image (a data URI).
+    const auto original_valid = [&](ConstSlice<u8> original, u16 field, Utf8View value) noexcept {
+        return original.data ? original.count && (f & field) && data_uri_valid(value) : !original.count;
+    };
+    return f && (!(f & alone) || !(f & (f - 1))) &&
+           ((f & guild_settings_patch_profile) ? patch.profile && profile_write_valid(*patch.profile)
+                                               : !patch.profile) &&
+           ((f & guild_settings_patch_vanity) ? vanity_code_valid(patch.vanity_code) : !patch.vanity_code.bytes) &&
+           original_valid(patch.banner_original, guild_settings_patch_banner, patch.banner) &&
+           original_valid(patch.splash_original, guild_settings_patch_splash, patch.splash) &&
            (!(f & guild_settings_patch_features) || feature_names_valid(patch.feature_names, patch.feature_count)) &&
            (!(f & guild_settings_patch_name) || text_valid(patch.name, 2, kGuildAdminNameCodepoints, true)) &&
-           (!(f & guild_settings_patch_icon) || !patch.icon.bytes || data_uri_valid(patch.icon)) &&
-           (!(f & guild_settings_patch_banner) || !patch.banner.bytes || data_uri_valid(patch.banner)) &&
+           (!(f & guild_settings_patch_icon) || image_value_valid(patch.icon)) &&
+           (!(f & guild_settings_patch_banner) || image_value_valid(patch.banner)) &&
+           (!(f & guild_settings_patch_splash) || image_value_valid(patch.splash)) &&
            (!(f & guild_settings_patch_afk_timeout) ||
             patch.afk_timeout_seconds == 60 || patch.afk_timeout_seconds == 300 ||
             patch.afk_timeout_seconds == 900 || patch.afk_timeout_seconds == 1800 ||
@@ -313,6 +409,10 @@ void write_guild(Body& b, const GuildSettingsPatch& p) noexcept {
         b.key("icon");
         b.nullable_string(p.icon);
     }
+    if (p.fields & guild_settings_patch_splash) {
+        b.key("splash");
+        b.nullable_string(p.splash);
+    }
     if (p.fields & guild_settings_patch_banner) {
         b.key("banner");
         b.nullable_string(p.banner);
@@ -357,6 +457,73 @@ void write_guild(Body& b, const GuildSettingsPatch& p) noexcept {
         b.key("system_channel_flags");
         b.number(p.system_channel_flags);
     }
+    if (p.fields & guild_settings_patch_progress_bar) {
+        b.key("premium_progress_bar_enabled");
+        b.boolean(p.premium_progress_bar_enabled);
+    }
+    b.end_object();
+}
+
+void write_server_profile(Body& b, const GuildServerProfileWrite& p) noexcept {
+    b.begin_object();
+    if (p.fields & guild_profile_write_name) {
+        b.key("name");
+        b.string(p.name);
+    }
+    b.key("description");
+    b.string(p.description);
+    if (p.fields & guild_profile_write_icon) {
+        b.key("icon");
+        b.nullable_string(p.icon);
+    }
+    if (p.fields & guild_profile_write_custom_banner) {
+        b.key("custom_banner");
+        b.nullable_string(p.custom_banner);
+    }
+    if (p.fields & guild_profile_write_visibility) {
+        b.key("visibility");
+        b.number(p.visibility);
+    }
+    b.key("brand_color_primary");
+    b.nullable_string(p.brand_color_primary);
+    b.key("traits");
+    b.byte('[');
+    bool first = true;
+    for (u32 i = 0; i < p.traits.count; ++i) {
+        const auto& t = p.traits[i];
+        if (!t.label.bytes)
+            continue;
+        if (!first)
+            b.byte(',');
+        first = false;
+        b.begin_object();
+        b.key("label");
+        b.string(t.label);
+        b.key("position");
+        b.number(t.position);
+        if (t.emoji_id) {
+            b.key("emoji_id");
+            b.snowflake(t.emoji_id);
+        }
+        if (t.emoji_name.bytes) {
+            b.key("emoji_name");
+            b.string(t.emoji_name);
+        }
+        if (t.emoji_animated_set) {
+            b.key("emoji_animated");
+            b.boolean(t.emoji_animated);
+        }
+        b.end_object();
+    }
+    b.byte(']');
+    b.key("game_application_ids");
+    b.byte('[');
+    for (u32 i = 0; i < p.game_application_ids.count; ++i) {
+        if (i)
+            b.byte(',');
+        b.snowflake(p.game_application_ids[i]);
+    }
+    b.byte(']');
     b.end_object();
 }
 
@@ -572,6 +739,15 @@ void write_body(const GuildAdminRequest& r, Body& b) noexcept {
     switch (r.operation) {
     case Op::guild_update:
         write_guild(b, *r.guild);
+        break;
+    case Op::profile_update:
+        write_server_profile(b, *r.guild->profile);
+        break;
+    case Op::vanity_update:
+        b.begin_object();
+        b.key("code");
+        b.string(r.guild->vanity_code);
+        b.end_object();
         break;
     case Op::widget_update:
         b.begin_object();
@@ -823,24 +999,152 @@ bool visit_widget(void* opaque, JsonString name, JsonValue value) noexcept {
 }
 
 struct ProfileParse {
-    GuildAdminProfile value;
+    const JsonIndexedDocument* document;
+    GuildAdminProfile* value;
     Fields fields;
     GuildAdminError error;
 };
-constexpr const char* kProfileFields[] = {"visibility"};
+constexpr const char* kProfileFields[] = {"visibility",    "name",   "description",          "icon_hash",
+                                          "custom_banner_hash", "brand_color_primary", "traits",
+                                          "game_application_ids", "features"};
+
+struct TraitParse {
+    GuildAdminProfileTrait trait;
+    u32 position;
+    Fields fields;
+    GuildAdminError error;
+};
+constexpr const char* kTraitFields[] = {"label", "position", "emoji_id", "emoji_name", "emoji_animated"};
+
+bool visit_trait(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& p = *static_cast<TraitParse*>(opaque);
+    auto& t = p.trait;
+    const u32 field = p.fields.find(name);
+    if (field == ~0u)
+        return false;
+    const bool null = value.kind == JsonValueKind::null_value;
+    bool valid = true;
+    switch (field) {
+    case 0: valid = decode_text(value, t.label, kGuildAdminProfileTraitBytes, &t.label_bytes, true); break;
+    case 1: valid = decode_u32(value, &p.position); break;
+    case 2: valid = nullable_snowflake(value, &t.emoji_id); break;
+    case 3: valid = decode_text(value, t.emoji_name, kGuildAdminProfileEmojiNameBytes, &t.emoji_name_bytes, true); break;
+    case 4:
+        t.emoji_animated_known = !null;
+        valid = null || json_value_to_bool(value, &t.emoji_animated);
+        break;
+    default: break;
+    }
+    return valid || fail(&p.error);
+}
+
+// Traits outside positions 0-4 are dropped, as the official client reads them.
+bool visit_trait_item(void* opaque, u32, JsonValue value) noexcept {
+    auto& p = *static_cast<ProfileParse*>(opaque);
+    if (value.kind != JsonValueKind::object)
+        return fail(&p.error);
+    TraitParse trait{};
+    trait.position = ~0u;
+    trait.fields = {kTraitFields, 5, 0, &trait.error};
+    if (!json_visit_indexed_object(*p.document, value, kDepth, visit_trait, &trait).ok())
+        return fail(&p.error, trait.error == GuildAdminError::none ? GuildAdminError::json : trait.error);
+    if (trait.position < kGuildAdminProfileTraits)
+        p.value->traits[trait.position] = trait.trait;
+    return true;
+}
+
+bool visit_game_item(void* opaque, u32, JsonValue value) noexcept {
+    auto& p = *static_cast<ProfileParse*>(opaque);
+    auto& v = *p.value;
+    if (v.game_count >= kGuildAdminProfileGames)
+        return fail(&p.error, GuildAdminError::capacity);
+    u64 id = 0;
+    if (!json_value_to_snowflake(value, &id) || !id)
+        return fail(&p.error);
+    v.game_application_ids[v.game_count++] = id;
+    return true;
+}
+
+bool visit_feature_item(void* opaque, u32, JsonValue value) noexcept {
+    auto& p = *static_cast<ProfileParse*>(opaque);
+    JsonString name{};
+    if (json_value_as_string(value, &name) && json_string_equals_ascii(name, utf8_literal("DISCOVERABLE")))
+        p.value->discoverable = true;
+    return true;
+}
 
 // An unknown or null visibility leaves it unknown.
 bool visit_profile(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<ProfileParse*>(opaque);
+    auto& v = *p.value;
     const u32 field = p.fields.find(name);
     if (field == ~0u)
         return false;
+    const bool null = value.kind == JsonValueKind::null_value;
     u32 number = 0;
-    if (field == 0 && value.kind != JsonValueKind::null_value && decode_u32(value, &number, 255)) {
-        p.value.visibility = static_cast<u8>(number);
-        p.value.visibility_known = true;
+    u16 bytes = 0;
+    bool valid = true;
+    switch (field) {
+    case 0:
+        if (!null && decode_u32(value, &number, 255)) {
+            v.visibility = static_cast<u8>(number);
+            v.visibility_known = true;
+        }
+        break;
+    case 1:
+        valid = decode_text(value, v.name, kGuildAdminNameBytes, &v.name_bytes, true);
+        v.name_known = !null;
+        break;
+    case 2: valid = decode_text(value, v.description, kGuildAdminProfileDescriptionBytes, &v.description_bytes, true); break;
+    case 3:
+        valid = decode_text(value, v.icon, kGuildAdminHashBytes, &bytes, true);
+        v.icon_bytes = static_cast<u8>(bytes);
+        v.icon_known = true;
+        break;
+    case 4:
+        valid = decode_text(value, v.custom_banner, kGuildAdminHashBytes, &bytes, true);
+        v.custom_banner_bytes = static_cast<u8>(bytes);
+        v.custom_banner_known = true;
+        break;
+    case 5:
+        valid = decode_text(value, v.brand_color, kGuildAdminBrandColorBytes, &bytes, true);
+        v.brand_color_bytes = static_cast<u8>(bytes);
+        break;
+    case 6:
+        valid = null || (value.kind == JsonValueKind::array &&
+                         json_visit_indexed_array(*p.document, value, kDepth, visit_trait_item, &p).ok());
+        break;
+    case 7:
+        valid = null || (value.kind == JsonValueKind::array &&
+                         json_visit_indexed_array(*p.document, value, kDepth, visit_game_item, &p).ok());
+        break;
+    case 8:
+        valid = null || (value.kind == JsonValueKind::array &&
+                         json_visit_indexed_array(*p.document, value, kDepth, visit_feature_item, &p).ok());
+        break;
+    default: break;
     }
-    return true;
+    return valid || fail(&p.error);
+}
+
+struct VanityParse {
+    GuildAdminVanity value;
+    Fields fields;
+    GuildAdminError error;
+};
+constexpr const char* kVanityFields[] = {"code", "uses"};
+
+bool visit_vanity(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& p = *static_cast<VanityParse*>(opaque);
+    const u32 field = p.fields.find(name);
+    if (field == ~0u)
+        return false;
+    bool valid = true;
+    if (field == 0)
+        valid = decode_text(value, p.value.code, kGuildAdminVanityCodeBytes, &p.value.code_bytes, true);
+    else if (field == 1)
+        valid = value.kind == JsonValueKind::null_value || decode_u32(value, &p.value.uses);
+    return valid || fail(&p.error);
 }
 
 // Roles -------------------------------------------------------------------
@@ -1174,6 +1478,8 @@ RestMethod guild_admin_method(GuildAdminOperation op) noexcept {
     case Op::channel_update:
     case Op::channel_reorder:
     case Op::widget_update:
+    case Op::profile_update:
+    case Op::vanity_update:
         return RestMethod::patch;
     case Op::role_create:
     case Op::channel_create:
@@ -1225,10 +1531,21 @@ bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
     const bool positions = op == Op::role_reorder || op == Op::channel_reorder;
     if (positions ? !positions_valid(r.positions, op == Op::channel_reorder) : r.positions.count != 0)
         return false;
-    const bool guild_patch = op == Op::guild_update || op == Op::widget_update;
-    if (guild_patch != (r.guild != nullptr) || (r.guild && !guild_patch_valid(*r.guild)) ||
-        (r.guild && (op == Op::widget_update) != (r.guild->fields == guild_settings_patch_widget)))
+    const bool guild_patch =
+        op == Op::guild_update || op == Op::widget_update || op == Op::profile_update || op == Op::vanity_update;
+    if (guild_patch != (r.guild != nullptr) || (r.guild && !guild_patch_valid(*r.guild)))
         return false;
+    if (r.guild) {
+        const u16 f = r.guild->fields;
+        const u16 own = op == Op::widget_update    ? guild_settings_patch_widget
+                        : op == Op::profile_update ? guild_settings_patch_profile
+                        : op == Op::vanity_update  ? guild_settings_patch_vanity
+                                                   : 0;
+        constexpr u16 alone =
+            guild_settings_patch_widget | guild_settings_patch_profile | guild_settings_patch_vanity;
+        if (own ? f != own : (f & alone) != 0)
+            return false;
+    }
     if (r.role && op != Op::role_create && op != Op::role_update)
         return false;
     if ((op == Op::role_update && !r.role) || (r.role && !role_patch_valid(*r.role, op == Op::role_create)))
@@ -1307,7 +1624,10 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
         case Op::invite_list_guild: text("/invites"); break;
         case Op::widget_get:
         case Op::widget_update: text("/widget"); break;
-        case Op::profile_get: text("/profile"); break;
+        case Op::profile_get:
+        case Op::profile_update: text("/profile"); break;
+        case Op::vanity_get:
+        case Op::vanity_update: text("/vanity-url"); break;
         default: break;
         }
         // A kick's reason is a query parameter (encodeURIComponent), never
@@ -1377,7 +1697,62 @@ u32 guild_admin_image_bytes(const GuildAdminRequest& r) noexcept {
         bytes += r.member->avatar.bytes;
     if (r.profile && (r.profile->fields & guild_profile_patch_banner))
         bytes += r.profile->banner.bytes;
+    if (r.guild) {
+        const auto& g = *r.guild;
+        if (g.fields & guild_settings_patch_icon)
+            bytes += g.icon.bytes;
+        if (g.fields & guild_settings_patch_banner)
+            bytes += g.banner.bytes;
+        if (g.fields & guild_settings_patch_splash)
+            bytes += g.splash.bytes;
+        if (g.profile)
+            bytes += g.profile->icon.bytes + g.profile->custom_banner.bytes;
+    }
     return bytes;
+}
+
+namespace {
+bool md5_valid(Utf8View md5) noexcept {
+    if (md5.bytes != 32 || !md5.data)
+        return false;
+    for (u32 i = 0; i < 32; ++i) {
+        const char c = md5.data[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')))
+            return false;
+    }
+    return true;
+}
+} // namespace
+
+u32 guild_admin_write_md5_header(Utf8View banner_md5, Utf8View splash_md5, Slice<u8> output) noexcept {
+    // Sorted by key: GUILD_BANNER before GUILD_INVITE_SPLASH.
+    const struct {
+        const char* key;
+        Utf8View md5;
+    } entries[]{{"guild_banner", banner_md5}, {"guild_invite_splash", splash_md5}};
+    if (!output.data && output.count)
+        return 0;
+    ProtocolWriter w{output, 0};
+    bool ok = true, any = false;
+    for (const auto& entry : entries) {
+        if (!md5_valid(entry.md5))
+            continue;
+        if (any)
+            ok = ok && protocol_writer_append_literal(&w, ", ");
+        any = true;
+        ok = ok && protocol_writer_append_c_string(&w, entry.key) && protocol_writer_append_literal(&w, "=\"") &&
+             protocol_writer_append_bytes(&w, reinterpret_cast<const u8*>(entry.md5.data), 32) &&
+             protocol_writer_append_byte(&w, '"');
+    }
+    return ok && any ? w.used : 0;
+}
+
+void guild_admin_md5_hex(const u8 (&digest)[16], char (&output)[32]) noexcept {
+    constexpr char digits[] = "0123456789abcdef";
+    for (u32 i = 0; i < 16; ++i) {
+        output[i * 2] = digits[digest[i] >> 4];
+        output[i * 2 + 1] = digits[digest[i] & 15];
+    }
 }
 
 GuildAdminResult guild_admin_write_reason(const GuildAdminRequest& r, Slice<u8> output) noexcept {
@@ -1496,9 +1871,25 @@ GuildAdminResult guild_admin_decode_profile(Utf8View body, Slice<u32> scratch, G
     const Scan s = scan(body, scratch);
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
-    ProfileParse p{};
-    p.fields = {kProfileFields, 1, 0, &p.error};
+    GuildAdminProfile value{};
+    ProfileParse p{&s.document, &value, {}, GuildAdminError::none};
+    p.fields = {kProfileFields, 9, 0, &p.error};
     const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_profile, &p);
+    if (!read.ok())
+        return {0, 0, p.error == GuildAdminError::none ? GuildAdminError::json : p.error};
+    *output = value;
+    return {body.bytes, 1, GuildAdminError::none};
+}
+
+GuildAdminResult guild_admin_decode_vanity(Utf8View body, Slice<u32> scratch, GuildAdminVanity* output) noexcept {
+    if (!output)
+        return {0, 0, GuildAdminError::input};
+    const Scan s = scan(body, scratch);
+    if (s.error != GuildAdminError::none)
+        return {0, 0, s.error};
+    VanityParse p{};
+    p.fields = {kVanityFields, 2, 0, &p.error};
+    const auto read = json_visit_root_object(s.document.input, s.document.structurals, kDepth, visit_vanity, &p);
     if (!read.ok())
         return {0, 0, p.error == GuildAdminError::none ? GuildAdminError::json : p.error};
     *output = p.value;

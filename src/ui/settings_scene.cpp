@@ -7,6 +7,7 @@
 #include "maicord/ui/background_presentation.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/transition.hpp"
+#include "maicord/ui/spinner.hpp"
 
 namespace maicord {
 namespace {
@@ -119,6 +120,9 @@ bool avatar_backed(const UiSettingsPageContent& content, u32 index) noexcept {
         content.controls[index].kind != UiSettingsControlKind::action)
         return false;
     const auto& media = content.avatar_media[index];
+    // Emoji and sticker previews are named by their ID alone.
+    if (media.key.kind == MediaAssetKind::custom_emoji || media.key.kind == MediaAssetKind::sticker)
+        return media.key.id != 0;
     return (media.key.kind == MediaAssetKind::user_avatar || media.key.kind == MediaAssetKind::guild_icon ||
             media.key.kind == MediaAssetKind::profile_image) &&
            media.key.id && media.hash_bytes && media.hash_bytes <= kUiSettingsAvatarHashBytes;
@@ -2113,6 +2117,17 @@ bool ui_settings_scene_page_owner(const UiSettingsScene& scene, UiWidgetReferenc
     return entry.role == EntryRole::row || entry.role == EntryRole::footer_status ||
            entry.target.kind == UiSettingsTargetKind::save || entry.target.kind == UiSettingsTargetKind::reset;
 }
+bool ui_settings_scene_spinner_visible(const UiSettingsScene& scene) noexcept {
+    if (!scene.active)
+        return false;
+    for (u32 i = 0; i < scene.content.controls.count; ++i) {
+        const auto& c = scene.content.controls[i];
+        if (c.kind == UiSettingsControlKind::notice && c.checked)
+            return true;
+    }
+    return false;
+}
+
 bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
                                    UiSettingsAvatarGeometry* output) noexcept {
     if (!cursor || !output || !current(scene) || !scene.content.avatar_media)
@@ -2158,9 +2173,11 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     const auto& tc = t.color;
     auto state = widget_state(scene, handle, entry.target, c.enabled);
     bool ok = true;
+    // The flash covers the same box as the selection fill.
     if (scene.flash_control == c.id && scene.flash > 0)
-        ok = paint_stream_push_rounded(paint, r.row.left - 12, r.row.top + 2, r.row.right + 12, r.row.bottom - 2,
-                                       ui_settings_color_alpha(tc.brand, .16f * scene.flash), theme.scale.radius_md);
+        ok = paint_stream_push_rounded(paint, r.row.left, r.row.top + theme.scale.space_1, r.row.right,
+                                       r.row.bottom - theme.scale.space_1,
+                                       ui_settings_color_alpha(tc.brand, .16f * scene.flash), t.metric.control_radius);
     const u32 index = entry.source_index;
     const bool dragged = scene.drag_row == index + 1;
     if (ok && (has_flag(scene.content, index, ui_settings_presentation_selected) || dragged))
@@ -2388,6 +2405,13 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             ok = paint_stream_push_rounded(paint, box.left, box.top, box.left + 3, box.bottom, tc.critical_text, 1.5f);
         if (ok && c.action_label.bytes)
             ok = ui_settings_button_paint(paint, t, r.control, UiSettingsButtonVariant::secondary, state);
+        if (ok && c.checked) {
+            const float size = ui_rect_height(box) - theme.scale.space_4 * 2;
+            const float side = minimum(size, 20.f), cy = (box.top + box.bottom) * .5f;
+            const float right = box.right - theme.scale.space_4;
+            ok = ui_spinner_paint(paint, {right - side, cy - side * .5f, right, cy + side * .5f}, tc.text_subtle,
+                                  scene.spinner_phase);
+        }
         return ok;
     }
     case UiSettingsControlKind::category:
@@ -2396,9 +2420,11 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             ok = ui_icon_paint(paint, UiIcon::chevron_right,
                                {r.row.right - icon, cy - icon * .5f, r.row.right, cy + icon * .5f},
                                state.hovered ? tc.text_strong : tc.text_subtle);
+            const float ring = theme.scale.space_2;
             if (ok && state.focused)
-                ok = paint_stream_push_rounded_border(paint, r.row.left - 6, r.label.top - 4, r.row.right + 6,
-                                                      r.label.bottom + 4, {}, tc.focus_ring, 6, 2);
+                ok = paint_stream_push_rounded_border(paint, r.row.left - ring, r.label.top - ring, r.row.right + ring,
+                                                      r.label.bottom + ring, {}, tc.focus_ring, theme.scale.radius_sm,
+                                                      2);
         }
         return ok;
     }

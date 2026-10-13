@@ -745,6 +745,7 @@ constexpr Utf8View kExtraHeaderNames[] = {
     utf8_literal("X-Captcha-Rqtoken"),
     utf8_literal("X-Captcha-Session-Id"),
     utf8_literal("X-Context-Properties"),
+    utf8_literal("X-Discord-Original-MD5"),
 };
 bool extra_header_name(const u8* data, u32 bytes) noexcept {
     for (const auto name : kExtraHeaderNames)

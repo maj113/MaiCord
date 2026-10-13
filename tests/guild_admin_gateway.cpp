@@ -1,6 +1,7 @@
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat_state.hpp"
+#include "maicord/protocol/guild_moderation.hpp"
 #include "test_output.hpp"
 
 namespace maicord {
@@ -88,6 +89,19 @@ bool member_record(GatewayClientMemberListMutation* mutation) noexcept {
     return gateway_client_event_member_list_record(event, payload, &cursor, &index, mutation, &roles, &nickname,
                                                    &display, &avatar, &username, &user_extra, &member_extra) &&
            cursor == payload.count;
+}
+
+// A bulk ban's outcome reaches the client verbatim and decodes to counts.
+void test_bulk_ban_update() noexcept {
+    constexpr auto body =
+        utf8_literal(R"({"guild_id":"100","bulk_ban":{"banned_users":["20","22"],"failed_users":["21"]}})");
+    const auto routed = route(utf8_literal("GUILD_BULK_BAN_UPDATE"), body);
+    const Utf8View copied{reinterpret_cast<const char*>(payload.data), payload.count};
+    GuildBulkBanUpdate update{};
+    check(routed.ok() && event.dispatch_kind == GatewayClientDispatchKind::guild_bulk_ban_update &&
+              utf8_equal(copied, body) && guild_bulk_ban_update_decode(copied, {scratch, 8192}, &update) &&
+              update.guild_id == 100 && update.banned_count == 2 && update.failed_count == 1,
+          "bulk ban update: GUILD_BULK_BAN_UPDATE arrives verbatim with its banned and failed users");
 }
 
 void test_member_timeout() noexcept {
@@ -286,6 +300,7 @@ void test_guild_details() noexcept {
                         R"("system_channel_flags":2176,"rules_channel_id":"501","public_updates_channel_id":null,)"
                         R"("safety_alerts_channel_id":"502","premium_progress_bar_enabled":true,)"
                         R"("description":"A lab é","vanity_url_code":"lab","member_count":42,)"
+                        R"("splash":"0123456789abcdef0123456789abcdef",)"
                         R"("incidents_data":{"invites_disabled_until":"2026-10-07T00:00:00.000000+00:00",)"
                         R"("dms_disabled_until":null,"raid_detected_at":null,"lockdown_duration_hours":2},)"
                         R"("features":["NEWS","ACTIVITY_FEED_DISABLED_BY_USER","FUTURE_THING","COMMUNITY"],)"));
@@ -304,6 +319,7 @@ void test_guild_details() noexcept {
               d.invites_disabled_until_ms == 1'791'331'200'000ull && !d.dms_disabled_until_ms &&
               d.lockdown_duration_hours == 2 && utf8_equal(description, utf8_literal("A lab \xC3\xA9")) &&
               utf8_equal(vanity, utf8_literal("lab")) && d.feature_count == 4 &&
+              utf8_equal({d.splash, d.splash_bytes}, utf8_literal("0123456789abcdef0123456789abcdef")) &&
               names_equal(names, kRun, sizeof(kRun) - 1),
           "guild details: GUILD_UPDATE carries tier, boosts, flags, community channels, text, incidents and every "
           "feature name in server order");
@@ -321,7 +337,8 @@ void test_guild_details() noexcept {
               record->features == (guild_feature_activity_feed_disabled | guild_feature_community) &&
               record->feature_names_kept && record->feature_count == 4 &&
               names_equal(guild_detail_store_feature_names(s.details, *record), kRun, sizeof(kRun) - 1) &&
-              utf8_equal(guild_detail_store_vanity_url_code(s.details, *record), utf8_literal("lab")),
+              utf8_equal(guild_detail_store_vanity_url_code(s.details, *record), utf8_literal("lab")) &&
+              utf8_equal(guild_detail_store_splash(*record), utf8_literal("0123456789abcdef0123456789abcdef")),
           "guild details: unresolved permissions keep the raw names; known names become feature bits");
     const u64 self_roles[] = {31};
     check(chat_state_store_set_self_roles(&s.store, 100, 1, kSelf, {self_roles, 1}), "guild details: member roles");
@@ -453,6 +470,7 @@ void test_user_mfa() noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_guild_admin_gateway_entry() noexcept {
     using namespace maicord::guild_admin_gateway_test;
     test_membership();
+    test_bulk_ban_update();
     test_member_timeout();
     test_guild_settings();
     test_guild_details();

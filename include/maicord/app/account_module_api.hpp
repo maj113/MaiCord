@@ -46,6 +46,7 @@
 #include "maicord/protocol/message_interaction.hpp"
 #include "maicord/protocol/user_social.hpp"
 #include "maicord/protocol/guild_community.hpp"
+#include "maicord/protocol/guild_moderation.hpp"
 #include "maicord/protocol/user_guild_settings.hpp"
 #include "maicord/core/win32_types.hpp"
 
@@ -62,8 +63,13 @@ namespace maicord {
 // v124: guild create/update records carry a details record after the banner;
 // guild_admin drops guild_fetch, adds widget_get, widget_update and profile_get,
 // and GuildSettingsPatch appends system_channel_flags, features and the widget.
-inline constexpr u32 kAccountModuleApiVersion = 124;
-inline constexpr u16 kAccountModuleApiOrdinal = 124;
+// v125: guild_admin adds profile_update, vanity_get and vanity_update;
+// GuildSettingsPatch appends the splash, progress bar, MD5 sources, server
+// profile and vanity code; guild details carry the splash hash (header 120
+// bytes); guild_moderation (members search, bulk ban, ban search) is
+// appended; GUILD_BULK_BAN_UPDATE arrives as guild_bulk_ban_update.
+inline constexpr u32 kAccountModuleApiVersion = 125;
+inline constexpr u16 kAccountModuleApiOrdinal = 125;
 inline constexpr u32 kAccountHistoryResponseBytes = 256 * 1024;
 inline constexpr wchar_t kAccountModuleFileNameWide[] = L"MaiCordAccount.dll";
 
@@ -646,6 +652,10 @@ struct AccountModuleApi {
     AccountModuleDecoders decoders;
     // v122: stateless CDN URL functions (no instance; see AccountModuleCdnUrls).
     AccountModuleCdnUrls cdn_urls;
+    // v125: members search, bulk ban and ban search on DETAILS. A null
+    // request cancels only this ID (a superseded search).
+    RestClientSubmitResult(WINAPI* guild_moderation)(void*, const GuildModerationRequest*,
+                                                     u64 request_id) noexcept;
 };
 
 // This is the only executable/DLL boundary. The module loads the DPAPI profile
@@ -659,7 +669,8 @@ struct AccountModuleApi {
 static_assert(sizeof(AccountModuleStatus) == 72);
 static_assert(sizeof(AccountModuleStartResult) == 88);
 static_assert(sizeof(AccountLoginStatus) == 136);
-static_assert(sizeof(AccountModuleApi) == 1160);
+static_assert(sizeof(AccountModuleApi) == 1168);
+static_assert(offsetof(AccountModuleApi, guild_moderation) == 1160);
 static_assert(offsetof(AccountModuleApi, decoders) == 960);
 static_assert(offsetof(AccountModuleApi, cdn_urls) == 1032);
 static_assert(offsetof(AccountModuleApi, poll) == 632);

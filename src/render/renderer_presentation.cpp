@@ -428,7 +428,8 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (!presentation_stamp_push(&stamp, renderer.reduced_motion) ||
         !presentation_stamp_pointer(&stamp, renderer.settings_scene) ||
         (renderer.settings_scene && (!presentation_stamp_push(&stamp, renderer.settings_scene->revision) ||
-                                     !presentation_stamp_push(&stamp, renderer.settings_scene->active))))
+                                     !presentation_stamp_push(&stamp, renderer.settings_scene->active) ||
+                                     !presentation_stamp_push(&stamp, renderer.settings_scene->spinner_phase))))
         return stamp;
     // Name effects are shader-time driven and repaint through bounded damage
     // (renderer_note_text_effect_damage). Profile effect layers select media

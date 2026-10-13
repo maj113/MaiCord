@@ -12,6 +12,7 @@ struct GatewayGuildDetailValues {
     JsonValue description;
     JsonValue vanity_url_code;
     JsonValue incidents_data;
+    JsonValue splash;
     u64 rules_channel_id;
     u64 public_updates_channel_id;
     u64 safety_alerts_channel_id;

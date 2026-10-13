@@ -11,6 +11,10 @@ using TextFormOwnerValid = bool (*)(TextFormOwnerKey key) noexcept;
 using TextFormSave = bool (*)(TextFormOwnerKey key, Utf8View text) noexcept;
 // Confirmations with an option row receive its state instead of text.
 using TextFormSaveOption = bool (*)(TextFormOwnerKey key, bool option_checked) noexcept;
+// Forms with a radio group or dropdown: the text, whether it was typed since
+// the last choice, the chosen option (~0u for none) and the dropdown's.
+using TextFormSaveChoices = bool (*)(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice,
+                                     u32 select) noexcept;
 struct ApplicationTextFormProgress {
     Utf8View status, accept;
     u64 revision;
@@ -49,6 +53,17 @@ struct ApplicationTextFormRequest {
     Utf8View option{};
     bool option_checked = false;
     TextFormSaveOption save_option = nullptr;
+    // Editors only: a radio group above the field and a dropdown below it;
+    // save_choices replaces `save`. Choosing an option clears the text, and
+    // the field shows only while choice_editor (when set) is chosen.
+    Utf8View choices_label{};
+    ConstSlice<Utf8View> choices{};
+    u32 choice_selected = ~0u;
+    u32 choice_editor = ~0u;
+    Utf8View select_label{};
+    ConstSlice<Utf8View> select_options{};
+    u32 select_selected = 0;
+    TextFormSaveChoices save_choices = nullptr;
 };
 bool application_text_form_forum_child(const ApplicationForumPostTicket&) noexcept;
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept;

@@ -42,5 +42,17 @@ ModerationCapabilities moderation_capabilities(const ChatStateStore& state,
 
 inline constexpr u32 kModerationTimeoutChoices[] = {60, 300, 600, 3'600, 86'400, 604'800};
 inline constexpr u32 kModerationBanDeleteChoices[] = {0, 3'600, 21'600, 43'200, 86'400, 259'200, 604'800};
+// The ban dialog: its "Reason for Ban" options (the last is "Other"), its
+// "Delete Message History" labels for kModerationBanDeleteChoices and the
+// default, Previous Hour.
+inline constexpr u32 kModerationBanReasonCount = 4;
+inline constexpr u32 kModerationBanReasonOther = 3;
+inline constexpr u32 kModerationBanDeleteDefault = 1;
+extern const Utf8View kModerationBanReasons[kModerationBanReasonCount];
+extern const Utf8View kModerationBanDeleteLabels[sizeof(kModerationBanDeleteChoices) / sizeof(u32)];
+// The reason a ban sends: the typed text under Other once something was
+// typed, "other" under Other otherwise, an option's own text, and "" with
+// nothing chosen (~0u).
+Utf8View moderation_ban_reason(u32 choice, bool typed, Utf8View text) noexcept;
 
 } // namespace maicord

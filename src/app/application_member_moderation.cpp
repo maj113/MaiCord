@@ -1,12 +1,15 @@
 #include "application_member_moderation.hpp"
 #include "application_account_presentation.hpp"
 #include "application_composer.hpp"
+#include "application_guild_settings.hpp"
 #include "application_message_interaction.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/guild_settings_model.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/guild_admin.hpp"
+#include "maicord/protocol/guild_moderation.hpp"
 #include "maicord/ui/member_context_policy.hpp"
 
 #include <Windows.h>
@@ -14,7 +17,7 @@
 namespace maicord::app_detail {
 namespace {
 
-enum class Kind : u8 { none, nickname, timeout, end_timeout, kick, ban };
+enum class Kind : u8 { none, nickname, timeout, end_timeout, kick, ban, bulk_ban };
 enum class Step : u8 { idle, choosing, editing, queued, sending, failed, done };
 
 constexpr MemberModerationMenuActions kActions{
@@ -22,6 +25,7 @@ constexpr MemberModerationMenuActions kActions{
     kMemberModerationActionBase + 4, kMemberModerationActionBase + 5, kMemberModerationActionBase + 0x100};
 constexpr u32 kChoiceCount = sizeof(kModerationBanDeleteChoices) / sizeof(u32);
 constexpr u32 kNicknameCodepoints = kGuildAdminNicknameCodepoints;
+
 
 struct Actor {
     u64 scope, profile, self;
@@ -40,6 +44,9 @@ struct Moderation {
     bool self_nickname;
     Utf8View status;
     char text[kGuildAdminReasonBytes];
+    // Bulk ban: the selected members.
+    u64 users[kGuildBulkBanMaximumUsers];
+    u32 user_count;
 };
 
 Moderation moderation{};
@@ -84,13 +91,24 @@ u8 kind_bit(Kind kind) noexcept {
     }
 }
 
+// Bulk bans need Manage Server and Ban Members in the guild.
+bool bulk_allowed(u64 guild_id) noexcept {
+    if (!g_app.account_ui)
+        return false;
+    const auto access = guild_settings_access(g_app.account_ui->chat_state, guild_id);
+    return guild_settings_can_manage_guild(access) && permission_has(access.permissions, kPermissionBanMembers);
+}
+
 bool still_allowed() noexcept {
+    if (moderation.kind == Kind::bulk_ban)
+        return actor_current(moderation.actor) && bulk_allowed(moderation.guild_id);
     return actor_current(moderation.actor) &&
            (capabilities(moderation.guild_id, moderation.user_id).allowed & kind_bit(moderation.kind)) != 0;
 }
 
 void reset() noexcept {
     SecureZeroMemory(moderation.text, sizeof(moderation.text));
+    moderation.user_count = 0;
     const u64 menu_guild = moderation.menu_guild_id, menu_user = moderation.menu_user_id;
     moderation = {};
     moderation.menu_guild_id = menu_guild;
@@ -142,18 +160,6 @@ Utf8View duration_text(u32 seconds) noexcept {
     }
 }
 
-Utf8View ban_window_text(u32 seconds) noexcept {
-    switch (seconds) {
-    case 0: return utf8_literal("Their messages stay.");
-    case 3'600: return utf8_literal("Messages from the last hour will be deleted.");
-    case 21'600: return utf8_literal("Messages from the last 6 hours will be deleted.");
-    case 43'200: return utf8_literal("Messages from the last 12 hours will be deleted.");
-    case 86'400: return utf8_literal("Messages from the last day will be deleted.");
-    case 259'200: return utf8_literal("Messages from the last 3 days will be deleted.");
-    default: return utf8_literal("Messages from the last week will be deleted.");
-    }
-}
-
 Utf8View failure_text(const RestClientResponse& response) noexcept {
     if (response.error != RestClientError::none)
         return utf8_literal("Couldn't reach the server. Try again.");
@@ -169,6 +175,11 @@ Utf8View failure_text(const RestClientResponse& response) noexcept {
 TextFormOwnerKey form_owner() noexcept {
     return {moderation.serial, moderation.guild_id, moderation.user_id};
 }
+
+// The ban dialog's Ban: reason is the typed text when "Other" was typed in,
+// else the chosen option's ("other" for Other, "" for none). Single bans
+// send whatever was chosen; bulk bans need an option.
+bool ban_save(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice, u32 select) noexcept;
 
 bool owner_current(TextFormOwnerKey key) noexcept {
     return moderation.serial && key.scope == moderation.serial && key.collection == moderation.guild_id &&
@@ -230,8 +241,85 @@ ApplicationTextFormProgress form_progress(TextFormOwnerKey key) noexcept {
 }
 
 void form_closed(TextFormOwnerKey key) noexcept {
-    if (key.scope == moderation.serial && moderation.step != Step::sending)
+    // The ban dialog closes as it sends, like the official one.
+    if (key.scope == moderation.serial && moderation.step != Step::sending && moderation.step != Step::queued)
         reset();
+}
+
+bool ban_save(TextFormOwnerKey key, Utf8View text, bool typed, u32 choice, u32 select) noexcept {
+    const bool bulk = moderation.kind == Kind::bulk_ban;
+    if (!owner_current(key) || (moderation.kind != Kind::ban && !bulk) ||
+        (moderation.step != Step::editing && moderation.step != Step::failed) || select >= kChoiceCount)
+        return false;
+    if (bulk && choice >= kModerationBanReasonCount) {
+        moderation.status = utf8_literal("Ban reason must be provided");
+        moderation.step = Step::failed;
+        changed();
+        return false;
+    }
+    const Utf8View reason = moderation_ban_reason(choice, typed, text);
+    if (!utf8_validate(reason).valid || reason.bytes > kGuildAdminReasonBytes) {
+        moderation.status = utf8_literal("This text is too long.");
+        moderation.step = Step::failed;
+        changed();
+        return false;
+    }
+    if (!still_allowed()) {
+        moderation.status = bulk ? utf8_literal("You can't ban these members anymore.")
+                                 : utf8_literal("You can't do this to this member anymore.");
+        moderation.step = Step::failed;
+        changed();
+        return false;
+    }
+    SecureZeroMemory(moderation.text, sizeof(moderation.text));
+    copy_bytes(moderation.text, reason.data, reason.bytes);
+    moderation.text_bytes = reason.bytes;
+    moderation.choice = kModerationBanDeleteChoices[select];
+    moderation.step = Step::queued;
+    moderation.retry_at = 0;
+    moderation.status = {};
+    changed();
+    return true;
+}
+
+bool open_ban_form() noexcept {
+    Text title{};
+    if (moderation.kind == Kind::bulk_ban) {
+        title.add(utf8_literal("Ban "));
+        char digits[12];
+        u32 count = 0;
+        for (u32 n = moderation.user_count; n || !count; n /= 10)
+            digits[count++] = static_cast<char>('0' + n % 10);
+        while (count)
+            title.add({&digits[--count], 1});
+        title.add(moderation.user_count == 1 ? utf8_literal(" member?") : utf8_literal(" members?"));
+    } else {
+        title.add(utf8_literal("Ban @"));
+        title.add(target_name(moderation.guild_id, moderation.user_id));
+        title.add(utf8_literal("?"));
+    }
+    moderation.step = Step::editing;
+    ApplicationTextFormRequest request{};
+    request.title = title.view();
+    request.accept = utf8_literal("Ban");
+    request.owner = form_owner();
+    request.valid = owner_current;
+    request.maximum_codepoints = kGuildAdminReasonBytes;
+    request.maximum_bytes = kGuildAdminReasonBytes;
+    request.progress = form_progress;
+    request.closed = form_closed;
+    request.danger = true;
+    request.choices_label = utf8_literal("Reason for Ban");
+    request.choices = {kModerationBanReasons, kModerationBanReasonCount};
+    request.choice_editor = kModerationBanReasonOther;
+    request.select_label = utf8_literal("Delete Message History");
+    request.select_options = {kModerationBanDeleteLabels, kChoiceCount};
+    request.select_selected = kModerationBanDeleteDefault;
+    request.save_choices = ban_save;
+    if (application_text_form_open(request))
+        return true;
+    reset();
+    return false;
 }
 
 bool open_form() noexcept {
@@ -280,12 +368,8 @@ bool open_form() noexcept {
         accept = utf8_literal("Remove");
         break;
     case Kind::ban:
-        title.add(utf8_literal("Ban "));
-        title.add(name);
-        context.add(utf8_literal("They can't rejoin unless the ban is lifted. "));
-        context.add(ban_window_text(moderation.choice));
-        accept = utf8_literal("Ban");
-        break;
+    case Kind::bulk_ban:
+        return open_ban_form();
     default:
         return false;
     }
@@ -438,7 +522,7 @@ bool application_member_moderation_activate(u32 action) noexcept {
                                                        : Kind::none;
     if (kind == Kind::none || !begin(kind, guild, user))
         return dismiss_popup();
-    if (kind == Kind::timeout || kind == Kind::ban)
+    if (kind == Kind::timeout)
         return open_choices(kind);
     if (!dismiss_popup())
         return false;
@@ -453,14 +537,28 @@ bool application_member_moderation_start(u64 guild_id, u64 user_id, u8 action, u
                       : action == moderation_action_kick        ? Kind::kick
                       : action == moderation_action_ban         ? Kind::ban
                                                                 : Kind::none;
-    bool listed = kind != Kind::timeout && kind != Kind::ban;
+    bool listed = kind != Kind::timeout;
     for (const u32 value : kModerationTimeoutChoices)
-        listed = listed || (kind == Kind::timeout && value == choice);
-    for (const u32 value : kModerationBanDeleteChoices)
-        listed = listed || (kind == Kind::ban && value == choice);
+        listed = listed || value == choice;
     if (kind == Kind::none || !listed || !begin(kind, guild_id, user_id))
         return false;
-    moderation.choice = choice;
+    moderation.choice = kind == Kind::timeout ? choice : 0;
+    return open_form();
+}
+
+bool application_member_moderation_bulk_ban(u64 guild_id, ConstSlice<u64> user_ids) noexcept {
+    if (moderation.step == Step::queued || moderation.step == Step::sending || g_app.text_form || !guild_id ||
+        !user_ids.data || !user_ids.count || user_ids.count > kGuildBulkBanMaximumUsers || !bulk_allowed(guild_id))
+        return false;
+    reset();
+    moderation.actor = current_actor();
+    moderation.guild_id = guild_id;
+    moderation.kind = Kind::bulk_ban;
+    copy_bytes(moderation.users, user_ids.data, user_ids.count * sizeof(u64));
+    moderation.user_count = user_ids.count;
+    if (++moderation_serial == 0)
+        ++moderation_serial;
+    moderation.serial = moderation_serial;
     return open_form();
 }
 
@@ -480,12 +578,29 @@ bool application_member_moderation_submit(u64 request_id, u64 now_ms) noexcept {
     }
     MemberPatch patch{};
     const GuildAdminRequest request = build_request(&patch, clock_unix_milliseconds());
-    const auto submitted = g_app.account.api.guild_admin(g_app.account.instance, &request, request_id);
+    GuildModerationRequest bulk{};
+    bulk.operation = GuildModerationOperation::bulk_ban;
+    bulk.guild_id = moderation.guild_id;
+    bulk.user_ids = {moderation.users, moderation.user_count};
+    bulk.delete_message_seconds = moderation.choice;
+    bulk.reason = {moderation.text, moderation.text_bytes};
+    const auto submitted = moderation.kind == Kind::bulk_ban
+                               ? (g_app.account.api.guild_moderation
+                                      ? g_app.account.api.guild_moderation(g_app.account.instance, &bulk, request_id)
+                                      : RestClientSubmitResult{RestClientSubmitError::invalid_input})
+                               : g_app.account.api.guild_admin(g_app.account.instance, &request, request_id);
     if (submitted.error == RestClientSubmitError::busy) {
         moderation.retry_at = now_ms + 100;
         return false;
     }
     if (!submitted.ok()) {
+        // The ban dialog has closed; a bulk ban reports its failure.
+        if (moderation.kind == Kind::bulk_ban)
+            application_guild_settings_bulk_ban_failed(moderation.guild_id);
+        if (moderation.kind == Kind::ban || moderation.kind == Kind::bulk_ban) {
+            reset();
+            return false;
+        }
         moderation.step = Step::failed;
         moderation.status = utf8_literal("This change couldn't be sent.");
         changed();
@@ -502,6 +617,16 @@ bool application_member_moderation_response(const RestClientResponse& response, 
         return true;
     moderation.request_id = 0;
     moderation.http_status = response.status_code;
+    // A ban's dialog closed as it sent; only a failed bulk ban is reported.
+    if (moderation.kind == Kind::ban || moderation.kind == Kind::bulk_ban) {
+        const bool ok = response.error == RestClientError::none && response.status_code >= 200 &&
+                        response.status_code < 300;
+        if (!ok && moderation.kind == Kind::bulk_ban)
+            application_guild_settings_bulk_ban_failed(moderation.guild_id);
+        reset();
+        changed();
+        return true;
+    }
     if (response.error == RestClientError::none && response.status_code >= 200 &&
         response.status_code < 300) {
         moderation.step = Step::done;

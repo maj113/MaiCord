@@ -228,6 +228,8 @@ enum class GatewayClientDispatchKind : u8 {
     guild_soundboard_sound_delete,
     guild_soundboard_sounds_update,
     soundboard_sounds,
+    // GUILD_BULK_BAN_UPDATE, verbatim JSON (guild_moderation.hpp decodes it).
+    guild_bulk_ban_update,
 };
 
 enum class GatewayClientDispatchRouteError : u8 {
@@ -1388,8 +1390,11 @@ struct GatewayGuildDetails {
     // incidents_data lockdown_duration_hours, saturated to 255.
     u8 lockdown_duration_hours;
     bool premium_progress_bar_enabled;
+    // The invite splash hash; empty for none.
+    u8 splash_bytes;
+    char splash[34];
 };
-static_assert(sizeof(GatewayGuildDetails) == 80);
+static_assert(sizeof(GatewayGuildDetails) == 120);
 // False when the event carries no details record or it is malformed.
 bool gateway_client_event_guild_details(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                         GatewayGuildDetails* details, Utf8View* description,

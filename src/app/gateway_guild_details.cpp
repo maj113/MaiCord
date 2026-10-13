@@ -23,6 +23,7 @@ constexpr Key kKeys[] = {
     {utf8_literal("vanity_url_code"), guild_detail_vanity},
     {utf8_literal("incidents_data"), guild_detail_incidents},
     {utf8_literal("member_count"), guild_detail_member_count},
+    {utf8_literal("splash"), guild_detail_splash},
 };
 
 bool is_null(JsonValue value) noexcept {
@@ -168,6 +169,10 @@ bool gateway_guild_detail_visit(GatewayGuildDetailValues* d, JsonString name, Js
             valid = is_null(value) || value.kind == JsonValueKind::object;
             d->incidents_data = value;
             break;
+        case guild_detail_splash:
+            valid = is_null(value) || value.kind == JsonValueKind::string;
+            d->splash = value;
+            break;
         default: break;
         }
         if (valid)
@@ -201,6 +206,8 @@ void gateway_guild_detail_merge(GatewayGuildDetailValues* to, const GatewayGuild
         to->vanity_url_code = from.vanity_url_code;
     if (take & guild_detail_incidents)
         to->incidents_data = from.incidents_data;
+    if (take & guild_detail_splash)
+        to->splash = from.splash;
     to->seen = static_cast<u16>(to->seen | take);
 }
 
@@ -228,6 +235,19 @@ bool gateway_guild_details_append(const GatewayGuildDetailValues& v, JsonValue f
     header.member_count = v.member_count;
     header.premium_tier = v.premium_tier;
     header.premium_progress_bar_enabled = v.premium_progress_bar_enabled;
+    // A splash value that is not a short hash reads as unknown.
+    if (v.seen & guild_detail_splash) {
+        JsonString text{};
+        const auto decoded = json_value_as_string(v.splash, &text)
+                                 ? json_string_decode_utf8(text, {header.splash, sizeof(header.splash)})
+                                 : JsonStringDecodeResult{};
+        if (v.splash.kind != JsonValueKind::null_value) {
+            if (decoded.ok())
+                header.splash_bytes = static_cast<u8>(decoded.bytes);
+            else
+                header.known = static_cast<u16>(header.known & ~guild_detail_splash);
+        }
+    }
     if (!gateway_payload_append(writer, &header, sizeof(header)))
         return rollback(false);
 

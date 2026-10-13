@@ -38,6 +38,10 @@ struct SettingsLayerHooks {
     void (*drop)(SettingsLayer*, u64 dragged, u64 target, bool after) noexcept;
     // Whether editors accept input right now.
     bool (*editable)(SettingsLayer*) noexcept;
+    // Right-click or the menu key on a control; null leaves both ignored.
+    void (*context)(SettingsLayer*, const SettingsLayerActivation&) noexcept;
+    // Enter in a single-line editor; null ignores it.
+    void (*editor_enter)(SettingsLayer*, u64 control_id) noexcept;
 };
 struct SettingsLayer {
     UiSettingsScene* scene;

@@ -16,7 +16,7 @@ bool application_guild_settings_available(u64 guild_id) noexcept;
 bool application_guild_settings_open(u64 guild_id, u8 page = 0) noexcept;
 // The server menu's Server Settings submenu, in sidebar order: each permitted
 // page as a row with action = action_base + its page value.
-inline constexpr u32 kGuildSettingsPageCount = 11;
+inline constexpr u32 kGuildSettingsPageCount = 12;
 u32 application_guild_settings_page_items(u64 guild_id, u32 action_base, Slice<PopupItem> output) noexcept;
 bool application_guild_settings_active() noexcept;
 void application_guild_settings_close(bool restore_focus = true) noexcept;
@@ -43,6 +43,8 @@ void application_guild_settings_edit_cancel_native_group(TextInputTarget) noexce
 UiRect application_guild_settings_edit_bounds() noexcept;
 bool application_guild_settings_edit_changed(bool content) noexcept;
 u32 application_guild_settings_owner_bytes() noexcept;
+// A bulk ban whose request failed: the Members page clears its selection.
+void application_guild_settings_bulk_ban_failed(u64 guild_id) noexcept;
 // Opens the name form for a new channel from the server or category menu.
 bool application_guild_settings_create_channel(u64 guild_id, u64 category_id, u8 type) noexcept;
 } // namespace maicord::app_detail

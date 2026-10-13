@@ -124,7 +124,9 @@ void guild_detail_store_clear(GuildDetailStore* store) noexcept {
 bool guild_detail_store_apply(GuildDetailStore* store, const GuildDetailInput& input) noexcept {
     if (!store || !store->records || !input.guild_id || (input.known & ~guild_detail_all) ||
         input.description.bytes > kGuildDetailDescriptionMaximumBytes ||
-        input.vanity_url_code.bytes > kGuildDetailVanityMaximumBytes || input.feature_names.count > 0xFFFF ||
+        input.vanity_url_code.bytes > kGuildDetailVanityMaximumBytes ||
+        input.splash.bytes > kGuildDetailHashBytes || (input.splash.bytes && !input.splash.data) ||
+        input.feature_names.count > 0xFFFF ||
         (input.feature_names.count && !input.feature_names.data))
         return false;
     u64 features = 0;
@@ -164,6 +166,10 @@ bool guild_detail_store_apply(GuildDetailStore* store, const GuildDetailInput& i
         record->safety_alerts_channel_id = input.safety_alerts_channel_id;
     if (k & guild_detail_progress_bar)
         record->premium_progress_bar_enabled = input.premium_progress_bar_enabled;
+    if (k & guild_detail_splash) {
+        copy_bytes(record->splash, input.splash.data, input.splash.bytes);
+        record->splash_bytes = static_cast<u8>(input.splash.bytes);
+    }
     if (k & guild_detail_incidents) {
         record->invites_disabled_until_ms = input.invites_disabled_until_ms;
         record->dms_disabled_until_ms = input.dms_disabled_until_ms;

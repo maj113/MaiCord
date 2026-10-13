@@ -12,7 +12,7 @@ void project_invites(Bank& bank) noexcept {
     else if (p.failed && p.status.bytes)
         push(notice({}, p.status), {UiSettingsVariant::critical, 0, kUiSettingsNoDefault});
     else if (!p.invites_loaded)
-        push(notice({}, utf8_literal("Loading invites…")));
+        push(loading(utf8_literal("Loading invites…")));
     const u32 heading = bank.mark();
     bank.add(utf8_literal("Active invites — "));
     bank.number(p.invite_count);

@@ -39,6 +39,9 @@ enum class GuildAdminOperation : u8 {
     widget_get,          // GET    /guilds/{g}/widget
     widget_update,       // PATCH  /guilds/{g}/widget           {"enabled","channel_id"}
     profile_get,         // GET    /guilds/{g}/profile
+    profile_update,      // PATCH  /guilds/{g}/profile          (GuildServerProfileWrite)
+    vanity_get,          // GET    /guilds/{g}/vanity-url
+    vanity_update,       // PATCH  /guilds/{g}/vanity-url       {"code"}
     count,
 };
 
@@ -78,13 +81,67 @@ enum GuildSettingsPatchField : u16 {
     guild_settings_patch_features = 1u << 10,
     // widget_update only, and alone: enabled and channel_id.
     guild_settings_patch_widget = 1u << 11,
-    guild_settings_patch_all = (1u << 12) - 1,
+    guild_settings_patch_splash = 1u << 12,
+    guild_settings_patch_progress_bar = 1u << 13,
+    // profile_update only, and alone: the server profile.
+    guild_settings_patch_profile = 1u << 14,
+    // vanity_update only, and alone: the code.
+    guild_settings_patch_vanity = 1u << 15,
+    guild_settings_patch_all = 0xFFFF,
 };
 
-// Image fields carry a complete data URI; an empty view with the field set
-// clears the image. Channel IDs of zero serialize as null. The guild PATCH
-// writes keys in one fixed order whatever the set fields. Features are the
-// complete list, each name one length byte and its bytes, in the order sent.
+inline constexpr u32 kGuildAdminProfileDescriptionCodepoints = 300;
+inline constexpr u32 kGuildAdminProfileDescriptionBytes = kGuildAdminProfileDescriptionCodepoints * 4;
+inline constexpr u32 kGuildAdminProfileTraits = 5;
+inline constexpr u32 kGuildAdminProfileTraitCodepoints = 24;
+inline constexpr u32 kGuildAdminProfileTraitBytes = kGuildAdminProfileTraitCodepoints * 4;
+inline constexpr u32 kGuildAdminProfileEmojiNameBytes = 64;
+inline constexpr u32 kGuildAdminProfileGames = 32;
+inline constexpr u32 kGuildAdminBrandColorBytes = 16;
+inline constexpr u32 kGuildAdminVanityCodeCharacters = 25;
+inline constexpr u32 kGuildAdminVanityCodeBytes = kGuildAdminVanityCodeCharacters * 4;
+
+// One trait of the server profile. An empty label drops the trait; emoji
+// keys are sent only when set (a zero id or an empty name leaves it out).
+struct GuildServerProfileTraitWrite {
+    Utf8View label;
+    Utf8View emoji_name;
+    u64 emoji_id;
+    u8 position;
+    bool emoji_animated;
+    bool emoji_animated_set;
+};
+
+enum GuildServerProfileWriteField : u8 {
+    guild_profile_write_name = 1u << 0,
+    guild_profile_write_icon = 1u << 1,
+    guild_profile_write_custom_banner = 1u << 2,
+    guild_profile_write_visibility = 1u << 3,
+    guild_profile_write_all = (1u << 4) - 1,
+};
+
+// PATCH /guilds/{g}/profile: name, description, icon, custom_banner,
+// visibility, brand_color_primary, traits, game_application_ids, in that
+// order. The description, brand colour, traits and games are always sent;
+// the others only with their field bit. The icon and custom banner are a
+// hash, a data URI or empty for null; an empty brand colour sends null.
+struct GuildServerProfileWrite {
+    Utf8View name;
+    Utf8View description;
+    Utf8View icon;
+    Utf8View custom_banner;
+    Utf8View brand_color_primary;
+    ConstSlice<GuildServerProfileTraitWrite> traits;
+    ConstSlice<u64> game_application_ids;
+    u8 visibility;
+    u8 fields;
+};
+
+// Image fields carry a data URI or the stored image hash; an empty view with
+// the field set clears the image. Channel IDs of zero serialize as null. The
+// guild PATCH writes keys in one fixed order whatever the set fields.
+// Features are the complete list, each name one length byte and its bytes,
+// in the order sent.
 struct GuildSettingsPatch {
     Utf8View name;
     Utf8View icon;
@@ -101,6 +158,15 @@ struct GuildSettingsPatch {
     u16 feature_count;
     bool widget_enabled;
     u64 widget_channel_id;
+    Utf8View splash;
+    bool premium_progress_bar_enabled;
+    // The original files of a new banner and splash: the account layer sends
+    // their MD5s as X-Discord-Original-MD5. Empty sends no entry.
+    ConstSlice<u8> banner_original;
+    ConstSlice<u8> splash_original;
+    const GuildServerProfileWrite* profile;
+    // vanity_update: the code; empty clears it ("").
+    Utf8View vanity_code;
 };
 
 enum RolePatchField : u8 {
@@ -298,8 +364,16 @@ GuildAdminResult guild_admin_write_reason(const GuildAdminRequest& request, Slic
 // Whether the request carries the X-Audit-Log-Reason header, possibly with an
 // empty value: a reason view with data on any operation but a kick.
 bool guild_admin_reason_header(const GuildAdminRequest& request) noexcept;
-// Bytes of the data URIs the body carries (member avatar, profile banner).
+// Bytes of the data URIs the body carries (member avatar, profile banner,
+// server images).
 u32 guild_admin_image_bytes(const GuildAdminRequest& request) noexcept;
+// X-Discord-Original-MD5 for guild images: `key="md5"` entries sorted by key
+// (guild_banner, then guild_invite_splash) and joined by ", ". Values that
+// are not 32 lowercase hex characters are skipped; zero bytes when none is
+// left or the output is short.
+u32 guild_admin_write_md5_header(Utf8View banner_md5, Utf8View splash_md5, Slice<u8> output) noexcept;
+// Lowercase hex of a 16-byte digest into output[0..32).
+void guild_admin_md5_hex(const u8 (&digest)[16], char (&output)[32]) noexcept;
 // ISO 8601 UTC with an explicit offset (YYYY-MM-DDTHH:MM:SS+00:00).
 u32 guild_admin_format_timestamp(u64 unix_seconds, Slice<char> output) noexcept;
 // Date.prototype.toISOString's form, YYYY-MM-DDTHH:MM:SS.mmmZ (24 bytes), as
@@ -392,13 +466,50 @@ struct GuildAdminWidget {
     bool enabled;
 };
 GuildAdminResult guild_admin_decode_widget(Utf8View body, Slice<u32> scratch, GuildAdminWidget* output) noexcept;
-// GET /guilds/{g}/profile, the fields Server Settings reads. Visibility:
-// 0 not specified, 1 public, 2 restricted, 3 public with recruitment.
+// GET /guilds/{g}/profile (and the PATCH reply), as the profile save resends
+// it. Visibility: 0 not specified, 1 public, 2 restricted, 3 public with
+// recruitment. Traits are indexed by position; unused slots have no label.
+// A missing description reads as empty and an empty brand colour as none.
+struct GuildAdminProfileTrait {
+    u64 emoji_id;
+    u8 label_bytes;
+    u8 emoji_name_bytes;
+    bool emoji_animated;
+    bool emoji_animated_known;
+    char label[kGuildAdminProfileTraitBytes];
+    char emoji_name[kGuildAdminProfileEmojiNameBytes];
+};
 struct GuildAdminProfile {
+    u64 game_application_ids[kGuildAdminProfileGames];
+    GuildAdminProfileTrait traits[kGuildAdminProfileTraits];
+    u16 name_bytes;
+    u16 description_bytes;
+    u8 icon_bytes;
+    u8 custom_banner_bytes;
+    u8 brand_color_bytes;
+    u8 game_count;
     u8 visibility;
     bool visibility_known;
+    bool name_known;
+    // The key was present (a null value included).
+    bool icon_known;
+    bool custom_banner_known;
+    // DISCOVERABLE is among the profile's features.
+    bool discoverable;
+    char name[kGuildAdminNameBytes];
+    char description[kGuildAdminProfileDescriptionBytes];
+    char icon[kGuildAdminHashBytes];
+    char custom_banner[kGuildAdminHashBytes];
+    char brand_color[kGuildAdminBrandColorBytes];
 };
 GuildAdminResult guild_admin_decode_profile(Utf8View body, Slice<u32> scratch, GuildAdminProfile* output) noexcept;
+// GET or PATCH /guilds/{g}/vanity-url: the code (null as empty) and uses.
+struct GuildAdminVanity {
+    u32 uses;
+    u8 code_bytes;
+    char code[kGuildAdminVanityCodeBytes];
+};
+GuildAdminResult guild_admin_decode_vanity(Utf8View body, Slice<u32> scratch, GuildAdminVanity* output) noexcept;
 GuildAdminResult guild_admin_decode_role(Utf8View body, Slice<u32> scratch, GuildAdminRole* output) noexcept;
 GuildAdminResult guild_admin_decode_roles(Utf8View body, Slice<u32> scratch, Slice<GuildAdminRole> output) noexcept;
 GuildAdminResult guild_admin_decode_role_counts(Utf8View body, Slice<u32> scratch,

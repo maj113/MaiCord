@@ -1,4 +1,5 @@
 #include "maicord/model/guild_settings_model.hpp"
+#include "maicord/model/channel_reorder.hpp"
 #include "maicord/protocol/guild_assets.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
@@ -77,7 +78,7 @@ GuildSettingsAccess guild_settings_access(const ChatStateStore& store, u64 guild
 u32 guild_settings_sections(PermissionSet p) noexcept {
     if (!(p & kGuildSettingsOpenPermissions))
         return 0;
-    u32 sections = guild_settings_profile | guild_settings_engagement;
+    u32 sections = guild_settings_profile | guild_settings_engagement | guild_settings_boost_perks;
     if (permission_has(p, kPermissionManageGuild))
         sections |= guild_settings_invites | guild_settings_safety;
     if (permission_has(p, kPermissionManageExpressions) || permission_has(p, kPermissionCreateExpressions))
@@ -311,31 +312,225 @@ u32 guild_settings_role_positions(ConstSlice<const RoleRecord*> order, u64 guild
     return used;
 }
 
-GuildServerProfileDraft guild_server_profile_from_state(const ChatStateStore& store, u64 guild_id) noexcept {
+const Utf8View kGuildProfileBannerColors[kGuildProfileBannerColorCount]{
+    utf8_literal("#ff1c90"), utf8_literal("#e81d1e"), utf8_literal("#e86e1d"),
+    utf8_literal("#e8c02f"), utf8_literal("#71368a"), utf8_literal("#029FFC"),
+    utf8_literal("#4fe2ca"), utf8_literal("#406601"), utf8_literal("#272727")};
+const Utf8View kGuildProfileBannerNames[kGuildProfileBannerColorCount]{
+    utf8_literal("Soul"),    utf8_literal("Volcano"), utf8_literal("Marsh"),
+    utf8_literal("Thunder"), utf8_literal("Rising"),  utf8_literal("Zephyr"),
+    utf8_literal("Cascade"), utf8_literal("Earth"),   utf8_literal("Boulder")};
+
+namespace {
+constexpr u8 kVisibilityPublic = 1, kVisibilityRestricted = 2, kVisibilityPublicWithRecruitment = 3;
+bool same_bytes(const char* a, u32 a_bytes, const char* b, u32 b_bytes) noexcept {
+    return a_bytes == b_bytes && bytes_equal(a, b, a_bytes);
+}
+bool fold_equal(Utf8View a, Utf8View b) noexcept {
+    if (a.bytes != b.bytes)
+        return false;
+    const auto fold = [](char c) noexcept { return c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c; };
+    for (u32 i = 0; i < a.bytes; ++i)
+        if (fold(a.data[i]) != fold(b.data[i]))
+            return false;
+    return true;
+}
+} // namespace
+
+GuildServerProfileDraft guild_server_profile_draft(const GuildAdminProfile& profile) noexcept {
     GuildServerProfileDraft draft{};
-    if (const auto* guild = chat_state_store_find_guild(store, guild_id))
-        copy_name(chat_state_store_guild_name(store, *guild), draft.name, &draft.name_bytes);
+    draft.profile = profile;
+    draft.icon = GuildProfileImageEdit::keep;
     return draft;
 }
 
 bool guild_server_profile_equal(const GuildServerProfileDraft& a, const GuildServerProfileDraft& b) noexcept {
-    return same_text(a.name, a.name_bytes, b.name, b.name_bytes);
+    const auto& x = a.profile;
+    const auto& y = b.profile;
+    return a.icon == b.icon && x.name_known == y.name_known && same_bytes(x.name, x.name_bytes, y.name, y.name_bytes) &&
+           same_bytes(x.description, x.description_bytes, y.description, y.description_bytes) &&
+           x.visibility_known == y.visibility_known && x.visibility == y.visibility &&
+           same_bytes(x.brand_color, x.brand_color_bytes, y.brand_color, y.brand_color_bytes) &&
+           x.custom_banner_known == y.custom_banner_known &&
+           same_bytes(x.custom_banner, x.custom_banner_bytes, y.custom_banner, y.custom_banner_bytes);
 }
 
 bool guild_server_name_valid(Utf8View text) noexcept {
     return name_valid(text, 2);
 }
 
-bool guild_server_profile_patch(const GuildServerProfileDraft& baseline, const GuildServerProfileDraft& draft,
-                                GuildSettingsPatch* patch) noexcept {
-    if (!patch || same_text(baseline.name, baseline.name_bytes, draft.name, draft.name_bytes) ||
-        !guild_server_name_valid({draft.name, draft.name_bytes}))
+bool guild_server_description_valid(Utf8View text) noexcept {
+    const auto validation = utf8_validate(text);
+    return validation.valid && validation.codepoints <= kGuildAdminProfileDescriptionCodepoints &&
+           text.bytes <= kGuildAdminProfileDescriptionBytes;
+}
+
+bool guild_server_profile_private(const GuildServerProfileDraft& draft) noexcept {
+    const auto& p = draft.profile;
+    return !p.visibility_known || (p.visibility != kVisibilityPublic && p.visibility != kVisibilityPublicWithRecruitment);
+}
+
+void guild_server_profile_set_private(GuildServerProfileDraft* draft, const GuildAdminProfile& stored, bool on) noexcept {
+    if (!draft)
+        return;
+    draft->profile.visibility_known = true;
+    draft->profile.visibility =
+        on ? kVisibilityRestricted
+           : (stored.visibility_known && stored.visibility == kVisibilityPublicWithRecruitment
+                  ? kVisibilityPublicWithRecruitment
+                  : kVisibilityPublic);
+}
+
+u32 guild_server_profile_banner_choice(const GuildServerProfileDraft& draft) noexcept {
+    const auto& p = draft.profile;
+    if (p.custom_banner_bytes)
+        return ~0u;
+    if (!p.brand_color_bytes)
+        return 0;
+    for (u32 i = 0; i < kGuildProfileBannerColorCount; ++i)
+        if (fold_equal({p.brand_color, p.brand_color_bytes}, kGuildProfileBannerColors[i]))
+            return i + 1;
+    return ~0u;
+}
+
+void guild_server_profile_set_banner_choice(GuildServerProfileDraft* draft, u32 choice) noexcept {
+    if (!draft || choice > kGuildProfileBannerColorCount)
+        return;
+    auto& p = draft->profile;
+    const Utf8View color = choice ? kGuildProfileBannerColors[choice - 1] : Utf8View{};
+    copy_bytes(p.brand_color, color.data, color.bytes);
+    p.brand_color_bytes = static_cast<u8>(color.bytes);
+    p.custom_banner_bytes = 0;
+    p.custom_banner_known = true;
+}
+
+bool guild_server_profile_write(const GuildServerProfileDraft& draft, Utf8View icon_uri, const ChatStateStore& state,
+                                u64 guild_id, Slice<GuildServerProfileTraitWrite> traits,
+                                GuildServerProfileWrite* write) noexcept {
+    const auto& p = draft.profile;
+    if (!write || !traits.data || traits.count < kGuildAdminProfileTraits ||
+        (draft.icon == GuildProfileImageEdit::replace && !icon_uri.bytes) ||
+        (p.name_known && !guild_server_name_valid({p.name, p.name_bytes})) ||
+        !guild_server_description_valid({p.description, p.description_bytes}))
         return false;
+    GuildServerProfileWrite value{};
+    if (p.name_known) {
+        value.fields |= guild_profile_write_name;
+        value.name = {p.name, p.name_bytes};
+    }
+    value.description = {p.description, p.description_bytes};
+    if (draft.icon != GuildProfileImageEdit::keep || p.icon_known) {
+        value.fields |= guild_profile_write_icon;
+        value.icon = draft.icon == GuildProfileImageEdit::replace  ? icon_uri
+                     : draft.icon == GuildProfileImageEdit::remove ? Utf8View{}
+                                                                   : Utf8View{p.icon, p.icon_bytes};
+    }
+    if (p.custom_banner_known) {
+        value.fields |= guild_profile_write_custom_banner;
+        value.custom_banner = {p.custom_banner, p.custom_banner_bytes};
+    }
+    if (p.visibility_known) {
+        value.fields |= guild_profile_write_visibility;
+        value.visibility = p.visibility;
+    }
+    value.brand_color_primary = {p.brand_color, p.brand_color_bytes};
+    u32 count = 0;
+    for (u32 i = 0; i < kGuildAdminProfileTraits; ++i) {
+        const auto& t = p.traits[i];
+        if (!t.label_bytes)
+            continue;
+        GuildServerProfileTraitWrite trait{};
+        trait.label = {t.label, t.label_bytes};
+        trait.position = static_cast<u8>(i);
+        // A custom emoji is looked up among the guild's emoji and written from
+        // that record; one that is gone is left out.
+        if (t.emoji_id) {
+            for (u32 e = 0; e < state.emoji_count; ++e) {
+                const auto& emoji = state.emojis[e];
+                if (emoji.id != t.emoji_id || emoji.guild_id != guild_id)
+                    continue;
+                trait.emoji_id = emoji.id;
+                trait.emoji_name = {emoji.name, emoji.name_bytes};
+                trait.emoji_animated = (emoji.flags & custom_emoji_animated) != 0;
+                trait.emoji_animated_set = true;
+                break;
+            }
+        } else if (t.emoji_name_bytes)
+            trait.emoji_name = {t.emoji_name, t.emoji_name_bytes};
+        traits[count++] = trait;
+    }
+    value.traits = {traits.data, count};
+    value.game_application_ids = {p.game_application_ids, p.game_count};
+    *write = value;
+    return true;
+}
+
+bool guild_boost_equal(const GuildBoostDraft& a, const GuildBoostDraft& b) noexcept {
+    return a.banner == b.banner && a.splash == b.splash && a.progress_bar == b.progress_bar;
+}
+
+bool guild_boost_patch(const GuildBoostDraft& draft, Utf8View banner_hash, Utf8View splash_hash, Utf8View banner_uri,
+                       Utf8View splash_uri, GuildSettingsPatch* patch) noexcept {
+    if (!patch || (draft.banner == GuildProfileImageEdit::replace && !banner_uri.bytes) ||
+        (draft.splash == GuildProfileImageEdit::replace && !splash_uri.bytes))
+        return false;
+    const auto image = [](GuildProfileImageEdit edit, Utf8View hash, Utf8View uri) noexcept {
+        return edit == GuildProfileImageEdit::replace ? uri : edit == GuildProfileImageEdit::remove ? Utf8View{} : hash;
+    };
     GuildSettingsPatch value{};
-    value.fields = guild_settings_patch_name;
-    value.name = {draft.name, draft.name_bytes};
+    value.fields = guild_settings_patch_splash | guild_settings_patch_banner | guild_settings_patch_progress_bar;
+    value.splash = image(draft.splash, splash_hash, splash_uri);
+    value.banner = image(draft.banner, banner_hash, banner_uri);
+    value.premium_progress_bar_enabled = draft.progress_bar;
     *patch = value;
     return true;
+}
+
+u32 guild_vanity_code_input(Utf8View typed, Slice<char> output) noexcept {
+    if (!output.data)
+        return 0;
+    u32 bytes = 0, units = 0;
+    for (u32 i = 0; i < typed.bytes;) {
+        const u8 lead = static_cast<u8>(typed.data[i]);
+        const u32 length = lead < 0x80 ? 1 : lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : 2;
+        const u32 width = length == 4 ? 2 : 1;
+        if (i + length > typed.bytes || units + width > kGuildAdminVanityCodeCharacters ||
+            bytes + length > output.count)
+            break;
+        for (u32 j = 0; j < length; ++j)
+            output[bytes + j] = typed.data[i + j] == ' ' ? '-' : typed.data[i + j];
+        bytes += length;
+        units += width;
+        i += length;
+    }
+    return bytes;
+}
+
+Utf8View guild_vanity_error_text(u64 code) noexcept {
+    switch (code) {
+    case 10'003:
+        return utf8_literal("You need to set a text channel that is accessible to all members before setting a "
+                            "Custom Invite Link.");
+    case 50'013: return utf8_literal("You do not have access to this feature.");
+    case 50'001: return utf8_literal("Your server does not have access to this feature.");
+    case 20'040: return utf8_literal("You cannot clear your custom invite URL while your server web page is published.");
+    case 20'044: return utf8_literal("Can't set vanity url for an internal employee only server");
+    case 20'045:
+        return utf8_literal("Custom Invite Link requires Server Boosting Level 3, or being a partnered, verified, "
+                            "HypeSquad event server");
+    default:
+        return utf8_literal("Custom Invite Link could not be changed because it contains invalid characters, was too "
+                            "short, or is already taken.\nCustom Invite Links can only contain letters, numbers, or "
+                            "dashes.");
+    }
+}
+
+bool guild_settings_channel_before(const ChatStateStore& state, GuildChannelPickerOrder order, const ChannelRecord& a,
+                                   const ChannelRecord& b) noexcept {
+    if (order == GuildChannelPickerOrder::channel_list)
+        return channel_list_before(state, a, b);
+    const u32 x = channel_list_position(a.type, a.position), y = channel_list_position(b.type, b.position);
+    return x != y ? x < y : a.id < b.id;
 }
 
 // Engagement ----------------------------------------------------------------
