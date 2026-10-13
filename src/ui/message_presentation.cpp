@@ -426,6 +426,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                               obscure)) {
                 return false;
             }
+            media->storage[media->count - 1].gif =
+                format == MediaAttachmentFormat::gif && obscure == MessageMediaObscure::none;
         } else {
             const UiRect card{left, top, minimum(item_layout->rectangle.right, left + 420.0f), top + 36.0f};
             const UiRect icon{left + 8.0f, top + 8.0f, left + 28.0f, top + 28.0f};
@@ -570,6 +572,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                               row.forwarded_snapshot, obscure)) {
                 return false;
             }
+            media->storage[media->count - 1].gif =
+                (embed.type == GatewayMessageEmbedType::gifv || selected.format == MediaAttachmentFormat::gif) &&
+                obscure == MessageMediaObscure::none;
         }
     }
 

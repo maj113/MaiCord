@@ -430,6 +430,9 @@ struct D3D11Renderer {
     UiEditGeometry media_picker_edit_geometry;
     u32 interaction_text_media_picker_revision;
     MediaAssetKey image_viewer_key, image_viewer_fallback;
+    // The hovered chat GIF's media widget and its favourite state.
+    UiWidgetHandle gif_favorite_owner;
+    bool gif_favorite, gif_favorite_pending;
     u32 interaction_text_profile_revision;
     u32 interaction_text_image_viewer_revision;
     u64 interaction_text_video_revision;

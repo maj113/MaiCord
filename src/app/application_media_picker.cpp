@@ -93,26 +93,6 @@ bool favorite_contains(Utf8View text, Utf8View query) noexcept {
     }
     return false;
 }
-// FavoriteGIF.format as the official client stores it: VIDEO for an MP4/WebM
-// source (its picker plays a <video>), IMAGE for everything else.
-GifFavoriteFormat favorite_format(Utf8View src) noexcept {
-    u32 end = 0;
-    while (end < src.bytes && src.data[end] != '?' && src.data[end] != '#')
-        ++end;
-    const auto ends = [&](const char* suffix, u32 bytes) noexcept {
-        if (end < bytes)
-            return false;
-        for (u32 i = 0; i < bytes; ++i) {
-            char c = src.data[end - bytes + i];
-            if (c >= 'A' && c <= 'Z')
-                c = static_cast<char>(c + ('a' - 'A'));
-            if (c != suffix[i])
-                return false;
-        }
-        return true;
-    };
-    return ends(".mp4", 4) || ends(".webm", 5) ? GifFavoriteFormat::video : GifFavoriteFormat::image;
-}
 MediaAttachmentFormat format(const MediaCatalogItem& item) noexcept {
     // A synced Klipy favourite stores the official picker's gif_src (.gif); a
     // VIDEO favourite's MP4 plays as a muted looping tile.
@@ -799,7 +779,7 @@ bool activate(ApplicationMediaPicker& p, UiMediaPickerTarget target) noexcept {
         if (!saved.available || saved.pending)
             return true;
         const auto src = item->gif_url.bytes ? item->gif_url : item->preview_url;
-        application_gif_favorites_toggle(item->send_url, src, item->width, item->height, favorite_format(src));
+        application_gif_favorites_toggle(item->send_url, src, item->width, item->height, application_gif_favorites_format(src));
         return repaint();
     }
     if (target.action == UiMediaPickerAction::category) {

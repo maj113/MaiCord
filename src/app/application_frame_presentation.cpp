@@ -17,6 +17,7 @@
 #include "application_user_settings.hpp"
 #include "application_unread_banner.hpp"
 #include "application_downloads.hpp"
+#include "application_gif_favorite_star.hpp"
 #include "application_load_trace.hpp"
 #include "application_perf_mark.hpp"
 #include "application_frame_presentation.hpp"
@@ -209,6 +210,7 @@ bool application_present_frame() noexcept {
         return present_rejected("panels");
     if (!application_image_viewer_synchronize())
         return present_rejected("image_viewer");
+    application_gif_favorite_star_synchronize();
     // After search, pins and the thread browser published: they close the call view.
     if (!application_call_synchronize())
         return present_rejected("call");

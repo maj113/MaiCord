@@ -73,6 +73,7 @@ add_executable(MaiCord WIN32
     src/app/application_downloads.cpp src/app/application_shortcuts.cpp
     src/app/application_keybinds_settings.cpp src/app/application_pinned_messages.cpp
     src/app/application_media_picker.cpp src/app/application_gif_favorites.cpp
+    src/app/application_gif_favorite_star.cpp
     src/app/application_emoji_preferences.cpp src/app/application_action_captcha.cpp
     src/app/application_channel_overview.cpp src/app/application_settings_layer.cpp
     src/app/application_guild_settings.cpp src/app/application_guild_settings_profile.cpp

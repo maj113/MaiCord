@@ -157,6 +157,20 @@ void test_download_scene(void (*check)(bool,const char*) noexcept) noexcept {
         ui_attachment_save_paint(&paint,attachment_owner,narrow_action,s.viewport,kDefaultTheme,false,true) &&
         !paint.count && !paint.batch_count && !paint.rejected && paint.clip_depth == 1 && paint.clip_count == 1,
         "attachment Save: too-narrow media yields an empty successful no-op without rejecting the frame");
+    const UiRect gif{100,100,400,300};
+    const UiRect gif_save = ui_attachment_save_rectangle(gif,false);
+    const UiRect gif_attachment_star = ui_gif_favorite_rectangle(gif,true);
+    const UiRect gif_embed_star = ui_gif_favorite_rectangle(gif,false);
+    paint_stream_reset(&paint,s.viewport.right,s.viewport.bottom);
+    check(ui_rect_has_area(gif_attachment_star) && gif_attachment_star.right + 4 == gif_save.left &&
+        gif_attachment_star.top == gif_save.top && ui_rect_width(gif_attachment_star) == ui_rect_width(gif_save) &&
+        gif_embed_star.left == gif_save.left && gif_embed_star.top == gif_save.top &&
+        !ui_rect_has_area(ui_gif_favorite_rectangle({100,100,170,300},true)) &&
+        ui_gif_favorite_paint(&paint,attachment_owner,gif_embed_star,s.viewport,kDefaultTheme,true,false) &&
+        !paint.rejected && paint.clip_depth == 1 &&
+        !ui_gif_favorite_paint(&paint,attachment_owner,{10,10,5,20},s.viewport,kDefaultTheme,false,false),
+        "favourite star: sits left of an attachment's Save or in its place on an embed, needs room, and "
+        "rejects reversed geometry");
     const UiRect file_action = ui_attachment_save_rectangle(
         {attachment.left - 2,attachment.top - 2,attachment.right + 2,attachment.bottom + 2},true);
     check(ui_rect_has_area(file_action) &&

@@ -58,4 +58,48 @@ inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner
         UiLayoutContentKind::icon,ui_layout_content_bounds_allow_overlap);
     return paint_stream_pop_clip(paint) && ok;
 }
+// A GIF preview's favourite star, top right: left of the Save action on an
+// attachment, in its place on an embed. Shared by paint and input.
+inline UiRect ui_gif_favorite_rectangle(UiRect media, bool beside_save) noexcept {
+    const UiRect save = ui_attachment_save_rectangle(media, false);
+    if (!ui_rect_has_area(save) || !beside_save)
+        return save;
+    const float shift = ui_rect_width(save) + 4.f;
+    if (save.left - shift < media.left + 8.f)
+        return {};
+    return {save.left - shift, save.top, save.right - shift, save.bottom};
+}
+// Shown while the media widget is hovered or focused. A saved GIF draws a
+// filled star; a change in flight dims it.
+inline bool ui_gif_favorite_paint(PaintStream* paint, UiWidgetReference owner, UiRect rectangle, UiRect clip,
+                                  const Theme& theme, bool favorite, bool pending) noexcept {
+    if (!paint || !ui_rect_valid_or_empty(rectangle) || !ui_rect_valid_or_empty(clip)) return false;
+    if (!ui_rect_has_area(rectangle) || !ui_rect_has_area(clip)) return true;
+    if (!owner.manager || !ui_widget_manager_input_enabled(*owner.manager, owner.handle)) return true;
+    const auto same = [](UiWidgetHandle a, UiWidgetHandle b) noexcept {
+        return a.generation && a.slot == b.slot && a.generation == b.generation;
+    };
+    const auto& manager = *owner.manager;
+    if (!same(manager.hovered, owner.handle) && !same(manager.focused, owner.handle)) return true;
+    const auto* node = ui_widget_manager_layout_node(manager, owner.handle);
+    if (!node) return true;
+    clip = ui_rect_intersection(clip, node->clip_rectangle);
+    const auto visible = ui_rect_intersection(rectangle, clip);
+    if (!ui_rect_has_area(visible)) return true;
+    if (!paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom)) return false;
+    const float size = minimum(20.f, minimum(ui_rect_width(rectangle), ui_rect_height(rectangle)) - 8.f);
+    const float x = (rectangle.left + rectangle.right - size) * .5f;
+    const float y = (rectangle.top + rectangle.bottom - size) * .5f;
+    auto color = favorite ? theme.tokens.emphasis.outline : ui_foreground_color(theme, theme.text_primary);
+    if (pending)
+        color.alpha *= .5f;
+    bool ok = ui_background_paint_surface(paint, rectangle, theme, theme.surface_high, theme.interactive,
+                                          theme.scale.radius_sm, 1, 1, UiBackgroundSurfaceMode::gradient,
+                                          UiBackgroundTier::highest) &&
+              paint_stream_record_content(paint, owner, visible, UiLayoutContentKind::control,
+                                          ui_layout_content_bounds_allow_overlap) &&
+              ui_icon_paint_styled(paint, UiIcon::favorite, {x, y, x + size, y + size},
+                                   {color, favorite ? color : Color{}, 0});
+    return paint_stream_pop_clip(paint) && ok;
+}
 } // namespace maicord

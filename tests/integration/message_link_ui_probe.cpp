@@ -953,6 +953,9 @@ bool application_video_cursor(UiPoint, UiCursor*) noexcept {
 bool application_poll_cursor(UiPoint, UiCursor*) noexcept {
     return false;
 }
+bool application_gif_favorite_star_target(float, float) noexcept {
+    return false;
+}
 bool application_image_viewer_open_at(float, float, bool) noexcept {
     return false;
 }

@@ -1794,6 +1794,16 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                     d3d11_renderer_video_scene_visible(*renderer) &&
                         ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle)))
                 return layout_step_failed(__LINE__);
+            const auto star_owner = renderer->gif_favorite_owner;
+            if (command.gif && !d3d11_renderer_message_modal_active(*renderer) && star_owner.generation &&
+                command.owner.handle.slot == star_owner.slot &&
+                command.owner.handle.generation == star_owner.generation &&
+                !ui_gif_favorite_paint(
+                    &renderer->paint_stream, command.owner,
+                    ui_gif_favorite_rectangle(command.rectangle,
+                                              command.kind == MessageMediaCommandKind::attachment),
+                    command.clip, theme, renderer->gif_favorite, renderer->gif_favorite_pending))
+                return layout_step_failed(__LINE__);
             if (!command.ordinary_video ||
                 (d3d11_renderer_video_scene_visible(*renderer) &&
                  ui_video_scene_covers_preview(*renderer->video_scene, command.rectangle)))

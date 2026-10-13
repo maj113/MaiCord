@@ -273,15 +273,19 @@ UiWidgetReference poster_metadata(void (*check)(bool, const char*) noexcept) noe
     ready = ready && paint_stream_initialize(&paint) && paint_stream_reset(&paint, 740, 1800) &&
             message_media_command_stream_initialize(&media, {commands, 8}) &&
             message_presentation_build(f.scene, kDefaultTheme, &paint, &media, &result);
-    u32 ordinary = 0, excluded = 0;
+    u32 ordinary = 0, excluded = 0, gifs = 0, misflagged = 0;
     for (u32 i = 0; ready && i < media.count; ++i) {
         ordinary += commands[i].ordinary_video;
-        excluded += commands[i].kind == MessageMediaCommandKind::embed && commands[i].embed_index > 0 &&
-                    !commands[i].ordinary_video;
+        const bool gifv = commands[i].kind == MessageMediaCommandKind::embed && commands[i].embed_index > 0;
+        excluded += gifv && !commands[i].ordinary_video;
+        gifs += gifv && commands[i].gif;
+        misflagged += !gifv && commands[i].gif;
     }
     check(ready && ordinary == 2 && excluded == 2,
           "video posters: actual message producer flags MP4 attachment/primary embed and excludes GIFV "
           "video and fallback image");
+    check(ready && gifs == 2 && !misflagged,
+          "favourite star: the message producer marks GIFV embeds as GIFs and leaves MP4 videos unmarked");
     paint_stream_release(&paint);
     return ready ? UiWidgetReference{&f.scene.widgets, f.scene.root} : UiWidgetReference{};
 }

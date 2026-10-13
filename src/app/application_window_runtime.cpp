@@ -9,6 +9,7 @@
 #include "application_taskbar_attention.hpp"
 #include "application_unread_banner.hpp"
 #include "application_downloads.hpp"
+#include "application_gif_favorite_star.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/ui/message_action_bar.hpp"
@@ -560,6 +561,9 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
             SetFocus(window);
             return 0;
         }
+        if (g_app.renderer_ready &&
+            application_gif_favorite_star_press(client_dip_x(lparam), client_dip_y(lparam)))
+            return 0;
         if (g_app.renderer_ready &&
             application_message_media_reveal_at(client_dip_x(lparam), client_dip_y(lparam)))
             return 0;

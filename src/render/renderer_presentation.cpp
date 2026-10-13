@@ -451,6 +451,11 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (!presentation_stamp_pointer(&stamp, renderer.image_viewer) ||
         (renderer.image_viewer && !presentation_stamp_push(&stamp, renderer.image_viewer->revision)))
         return stamp;
+    if (!presentation_stamp_push(&stamp, renderer.gif_favorite_owner.slot) ||
+        !presentation_stamp_push(&stamp, renderer.gif_favorite_owner.generation) ||
+        !presentation_stamp_push(&stamp, renderer.gif_favorite) ||
+        !presentation_stamp_push(&stamp, renderer.gif_favorite_pending))
+        return stamp;
     const auto* video = d3d11_renderer_video_scene_visible(renderer) || d3d11_renderer_viewer_video_visible(renderer)
                             ? renderer.video_scene
                             : nullptr;

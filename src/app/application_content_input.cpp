@@ -7,6 +7,7 @@
 #include "application_video.hpp"
 #include "application_poll.hpp"
 #include "application_image_viewer.hpp"
+#include "application_gif_favorite_star.hpp"
 #include "application_profile.hpp"
 #include "application_content_input.hpp"
 #include "application_guild_card.hpp"
@@ -884,7 +885,8 @@ bool application_message_content_cursor(float x, float y, UiCursor* cursor) noex
                                         *renderer.user_store, renderer.message_measure_cache,
                                         application_theme(), x, y)
              .action_id) ||
-        application_downloads_save_target(x, y) || application_image_viewer_open_at(x, y, true) ||
+        application_downloads_save_target(x, y) || application_gif_favorite_star_target(x, y) ||
+        application_image_viewer_open_at(x, y, true) ||
         message_scene_reply_hit_test(scene, x, y).message_id) {
         *cursor = UiCursor::hand;
         return true;

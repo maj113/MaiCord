@@ -36,6 +36,8 @@ struct MessageMediaCommand {
     // Non-zero: the media covers the rectangle (an embed gallery tile), cropped
     // to it, instead of being stretched to it.
     u8 cover;
+    // Non-zero: a GIF (a .gif or a looping GIFV) that offers a favourite star.
+    u8 gif;
 };
 static_assert(sizeof(MessageMediaCommand) == 72, "Poster metadata reuses command padding.");
 
