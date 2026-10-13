@@ -29,7 +29,7 @@ endif()
 set(CMAKE_BUILD_TYPE Release CACHE STRING "Build configuration" FORCE)
 set(CMAKE_CONFIGURATION_TYPES Release CACHE STRING "Build configurations" FORCE)
 
-project(MaiCord VERSION 0.2.0 LANGUAGES C CXX RC ASM_MASM)
+project(MaiCord VERSION 0.3.0 LANGUAGES C CXX RC ASM_MASM)
 
 # Shipping build: MaiCord.exe and MaiCordAccount.dll. Targets defined up to
 # cmake/tests.cmake are production targets (tools/maintain_build_outputs.ps1
