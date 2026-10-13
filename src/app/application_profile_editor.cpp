@@ -509,7 +509,10 @@ Utf8View preview_heading(Bank& bank) noexcept {
         bank.add(chat_state_store_guild_name(state(), *guild));
     return bank.since(start);
 }
-bool layout_preview(UiRect anchor) noexcept {
+// Lays the card out at anchor. visible is the page area it may draw in (the
+// aside's clip), so a scrolled card is cut at the scroller's edges; empty
+// while the aside is out of view.
+bool layout_preview(UiRect anchor, UiRect visible) noexcept {
     auto& p = *owner;
     if (!p.loaded)
         return false;
@@ -529,7 +532,7 @@ bool layout_preview(UiRect anchor) noexcept {
     s.reduced_motion = !animations || g_app.preferences.reduced_motion;
     s.phase = ProfilePhase::ready;
     s.presence = UiPresence::online;
-    const auto viewport = application_viewport_dips();
+    const auto viewport = ui_rect_has_area(visible) ? visible : application_viewport_dips();
     if (!p.preview_open) {
         if (!profile_scene_open(&s, &p.preview_profile, &state(), &g_app.account_ui->user_store, p.self_user_id,
                                 anchor, viewport))
@@ -880,14 +883,15 @@ bool project() noexcept {
     UiRect heading{}, card{}, clip{};
     const bool had_aside = ui_settings_scene_aside(p.scene, &heading, &card, &clip);
     const UiRect anchor = had_aside ? card : UiRect{0, 0, kPreviewWidth, 400};
-    const bool preview = layout_preview(anchor);
+    const bool preview = layout_preview(anchor, had_aside ? clip : UiRect{});
     p.content.aside_height = preview ? maximum(1.f, p.preview.preview_height) : 0;
     ++p.content.revision;
     ui_settings_scene_set_focus_visible(&p.scene, g_app.keyboard_focus_visible);
     if (!ui_settings_scene_update(&p.scene, &p.registry, application_viewport_dips()))
         return false;
-    if (preview && ui_settings_scene_aside(p.scene, &heading, &card, &clip) && !ui_rect_equal(card, anchor))
-        layout_preview(card);
+    if (preview && ui_settings_scene_aside(p.scene, &heading, &card, &clip) &&
+        (!ui_rect_equal(card, anchor) || !ui_rect_equal(clip, p.preview.viewport)))
+        layout_preview(card, clip);
     g_app.renderer.settings_profile_preview =
         preview && ui_settings_scene_aside(p.scene, nullptr, nullptr, nullptr) ? &p.preview : nullptr;
     g_app.renderer.settings_profile_dialog = p.dialog.active ? &p.dialog : nullptr;

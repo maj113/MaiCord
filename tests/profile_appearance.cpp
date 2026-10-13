@@ -1057,6 +1057,41 @@ void test_profile_theme_preview(Check check) noexcept {
               profile_scene_paint(s, kDefaultTheme, &paint) && profile_scene_foreground(s, kDefaultTheme, &paint, nullptr) &&
               paint.rejected == 0,
           "profile preview: paints and draws its foreground without an edit geometry");
+    // Scrolled partly above its page: the editor lays the card out in the
+    // page's visible area, so it keeps its anchor and every part is cut there.
+    const UiRect page{40, 100, 700, 600};
+    ProfileEffect effect{};
+    check(profile_effect_decode(
+              utf8_literal(R"({"sku_id":"9","items":[{"type":1,"reducedMotionSrc":"https://cdn.discordapp.com/s.png",)"
+                           R"("effects":[{"src":"https://cdn.discordapp.com/e.png",)"
+                           R"("start":0,"duration":1000,"loop":true,"zIndex":0}]}]})"),
+              {scratch, 2048}, 9, &effect),
+          "profile preview: a one-layer effect decodes");
+    s.effect = &effect;
+    s.effect_started_ms = 1000;
+    s.anchor = {50, 20, 350, 420};
+    bool inside = profile_scene_layout(&s, page, true) && s.rectangle.top == 20 && s.rectangle.left == 50 &&
+                  ui_rect_equal(s.viewport, page);
+    u32 media_count = 0;
+    for (u32 i = 0; inside && i < s.part_count; ++i) {
+        ProfileMedia media{};
+        if (profile_media_resolve(s, i, &media)) {
+            ++media_count;
+            inside = media.clip.top >= page.top && media.clip.bottom <= page.bottom;
+        }
+    }
+    ProfileMedia layer{};
+    inside = inside && profile_effect_media_resolve(s, 0, 1100, &layer) && layer.clip.top == page.top &&
+             layer.clip.bottom == s.effect_area.bottom;
+    UiTextCommand scrolled[128]{};
+    UiTextCommandStream scrolled_text{};
+    inside = inside && ui_text_command_stream_initialize(&scrolled_text, {scrolled, 128}) &&
+             profile_scene_text(s, kDefaultTheme, &scrolled_text, nullptr);
+    for (u32 i = 0; inside && i < scrolled_text.count; ++i)
+        inside = !ui_rect_has_area(scrolled[i].clip) || scrolled[i].clip.top >= page.top;
+    check(inside && media_count >= 2,
+          "profile preview: a card scrolled above its page keeps its anchor; media, effect and text clip to the page");
+    s.effect = nullptr;
     paint_stream_release(&paint);
     profile_scene_release(&s);
 }

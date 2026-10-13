@@ -443,7 +443,8 @@ bool profile_effect_media_resolve(const ProfileScene& s, u32 index, u64 now, Pro
     const UiRect area = ui_rect_has_area(s.effect_area) ? s.effect_area : s.rectangle;
     const float width = ui_rect_width(area), scale = width / 420.f;
     result.rectangle = area;
-    result.clip = area;
+    // An editor preview scrolled partly out of its page is cut at the page's edge.
+    result.clip = ui_rect_intersection(area, s.viewport);
     result.opacity = profile_scene_effect_opacity(s, now);
     if (s.reduced_motion) {
         if (index || !s.effect->reduced_source.bytes)

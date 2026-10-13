@@ -502,7 +502,9 @@ bool queue_settings_profile_overlays(D3D11Renderer* renderer, const Theme& theme
     const auto* scene = renderer->settings_profile_dialog;
     if (dialog ? !(scene && scene->active) : !(preview && preview->active))
         return true;
-    const auto viewport = renderer->settings_scene->viewport;
+    // The preview card is laid out in the page's visible area, so it scrolls
+    // under the page's edges instead of over them.
+    const auto viewport = dialog ? renderer->settings_scene->viewport : preview->viewport;
     const auto section = [&](auto&& emit) noexcept {
         return paint_stream_push_clip(&paint, viewport.left, viewport.top, viewport.right, viewport.bottom) && emit() &&
                paint_stream_pop_clip(&paint);
