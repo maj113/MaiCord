@@ -140,6 +140,12 @@ SettingBinding binding_of(const UiSettingsSchemaNode& node) noexcept {
 bool theme_panel(UiPageKey page) noexcept {
     return page.owner_id == kNativeSettingsOwner && page.page_id == static_cast<u64>(SettingsPanel::appearance) + 1;
 }
+// Rows of side-by-side options that a click picks directly.
+bool option_row(UiSettingsControlKind kind) noexcept {
+    return kind == UiSettingsControlKind::segments || kind == UiSettingsControlKind::swatches ||
+           kind == UiSettingsControlKind::tabs || kind == UiSettingsControlKind::buttons ||
+           kind == UiSettingsControlKind::colors;
+}
 bool theme_binding(SettingBinding binding) noexcept {
     return binding == SettingBinding::theme_base || binding == SettingBinding::theme_color ||
            binding == SettingBinding::background_effect || binding == SettingBinding::gradient_direction ||
@@ -1066,13 +1072,18 @@ bool activate(UiSettingsTarget target, bool reverse, const NativePluginUiToken* 
     if (!ui_settings_scene_activation(settings->scene, target, reverse, &request))
         return false;
     const bool choice_kind = request.kind == UiSettingsControlKind::choice || request.kind == UiSettingsControlKind::slider ||
-                             request.kind == UiSettingsControlKind::palette || request.kind == UiSettingsControlKind::radio;
+                             request.kind == UiSettingsControlKind::palette || request.kind == UiSettingsControlKind::radio ||
+                             option_row(request.kind);
     if (choice_kind && target.kind == UiSettingsTargetKind::control) {
         if (picker && request.kind == UiSettingsControlKind::choice)
             return open_choice(target, expected);
         if (selected != ~0u) {
             const auto* control = ui_settings_scene_control(settings->scene, target);
-            if (!control || selected >= control->choices.count)
+            // A colours row reports its trailing button as choices.count.
+            const u32 limit = !control ? 0
+                              : control->choices.count + (control->kind == UiSettingsControlKind::colors &&
+                                                                  control->action_label.bytes ? 1u : 0u);
+            if (selected >= limit)
                 return false;
             request.selected_choice = selected;
         }
@@ -2406,6 +2417,11 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                         activate(hit, false, plugin ? &token : nullptr, false, value.selected_choice);
                 } else if (control && control->kind == UiSettingsControlKind::radio) {
                     if (ui_settings_scene_radio_pointer(settings->scene, hit, x, y, &value))
+                        activate(hit, false, plugin ? &token : nullptr, false, value.selected_choice);
+                } else if (control && option_row(control->kind)) {
+                    // Tabs, segments, swatches and button groups take the
+                    // option under the pointer; a click between them does nothing.
+                    if (ui_settings_scene_option_pointer(settings->scene, hit, x, y, &value))
                         activate(hit, false, plugin ? &token : nullptr, false, value.selected_choice);
                 } else if (plugin && control && control->kind == UiSettingsControlKind::slider) {
                     // Plugin sliders take the clicked step; dragging stays native-only.

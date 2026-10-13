@@ -242,6 +242,22 @@ void test_application_plugin_catalog_runtime(void (*check)(bool, const char*) no
         !application_plugins_catalog_page(true, revision), "catalog UI: page window is eight and stale page revision is rejected");
     check(activate(kApplicationPluginPreviousAction, VK_RETURN) && g_app.plugins->catalog_first == 0,
         "catalog UI: Enter Previous restores first window through shared semantic dispatcher");
+    // A click picks the tab under the pointer; stepping to the next tab would
+    // land on Updates and then Browse.
+    const UiSettingsTarget tabs{UiSettingsTargetKind::control, {1, 4}, scene()->content.controls[0].id};
+    const auto selected_tab = [&tabs]() noexcept {
+        const auto* control = scene() ? ui_settings_scene_control(*scene(), tabs) : nullptr;
+        return control ? control->selected_choice : ~0u;
+    };
+    const auto click_tab = [&tabs](u32 choice) noexcept {
+        UiRect tab{};
+        if (!scene() || !ui_settings_scene_choice_rectangle(*scene(), tabs, choice, &tab)) return false;
+        const LPARAM at = MAKELPARAM(static_cast<u16>((tab.left + tab.right) * .5f), static_cast<u16>((tab.top + tab.bottom) * .5f));
+        return application_settings_window_message(WM_LBUTTONDOWN, MK_LBUTTON, at) &&
+            application_settings_window_message(WM_LBUTTONUP, 0, at);
+    };
+    check(selected_tab() == 1 && click_tab(3) && selected_tab() == 3 && click_tab(1) && selected_tab() == 1,
+        "catalog UI: clicking a tab selects that tab, not the next one");
     // Press an existing Enable row, change the same manifest, then release. The
     // row ID/name/count are unchanged, so only content/catalog admission rejects it.
     const UiSettingsTarget enable{UiSettingsTargetKind::control, {1, 4}, kApplicationPluginCatalogActionFirst};
