@@ -409,8 +409,14 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     }
 
     if (channels && channel_header && channel_navigation && channel_footer) {
-        if (!ui_background_paint_canvas(stream, channels->rectangle, theme, theme.base_lower,
-                                        UiBackgroundTier::high) ||
+        // The channel column ends with its list; the account panel floats over
+        // the app frame below both columns, whose rail part the rail canvas paints.
+        UiRect sidebar = channels->rectangle;
+        sidebar.bottom = maximum(sidebar.top, minimum(sidebar.bottom, channel_navigation->rectangle.bottom));
+        const UiRect frame{sidebar.left, sidebar.bottom, sidebar.right, channels->rectangle.bottom};
+        if (!ui_background_paint_canvas(stream, sidebar, theme, theme.base_lower, UiBackgroundTier::high) ||
+            (ui_rect_has_area(frame) &&
+             !ui_background_paint_canvas(stream, frame, theme, theme.base_lowest, UiBackgroundTier::app_frame)) ||
             !ui_background_paint_canvas(stream, channel_header->rectangle, theme, theme.base_low,
                                         UiBackgroundTier::app_frame) ||
             !ui_background_paint_surface(stream, channel_footer->rectangle, theme, theme.surface_high,

@@ -84,7 +84,8 @@ struct UiShellLayoutMetrics {
     UiInsets composer_margin;
     UiInsets navigation_header_padding;
     UiInsets title_bar_padding;
-    // Space kept free above the account panel (voice connection card).
+    // Space kept free above the account panel (voice connection card). The
+    // panel spans the server rail and the channel list, which both end above it.
     float navigation_footer_reserve;
 };
 

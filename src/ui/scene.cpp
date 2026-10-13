@@ -294,6 +294,11 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
         return false;
     }
     const UiWidgetHandle root = scene->semantics[static_cast<u32>(UiSemantic::root)];
+    // The account panel, and the voice card reserved above it, spans the server
+    // rail and the channel list; both lists end above that band.
+    const bool navigation = (variant & 1u) != 0;
+    const float account_band = metrics.navigation_footer_height + 2 * kUiFloatingSurfaceInset +
+                               metrics.navigation_footer_reserve;
     UiLayoutStyle rail_style = fixed_width(metrics.guild_rail_width);
     rail_style.flow = UiLayoutFlow::vertical;
     if (!add_node(scene, UiSemantic::guild_rail, root, rail_style)) {
@@ -308,12 +313,14 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
     guild_navigation_style.width = ui_layout_fill();
     guild_navigation_style.height = ui_layout_fill();
     guild_navigation_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
+    if (navigation && metrics.navigation_footer_height > 0)
+        guild_navigation_style.margin.bottom = account_band;
     if (!add_node(scene, UiSemantic::home_button, rail, home_style) ||
         !add_node(scene, UiSemantic::guild_navigation, rail, guild_navigation_style))
         return false;
 
     UiWidgetHandle channels = ui_widget_invalid_handle();
-    if ((variant & 1u) != 0) {
+    if (navigation) {
         UiLayoutStyle channels_style = fixed_width(metrics.navigation_width);
         channels_style.flow = UiLayoutFlow::vertical;
         channels_style.margin.left = metrics.guild_rail_width + metrics.navigation_gutter_before;
@@ -391,13 +398,18 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
         navigation_style.vertical_alignment = UiLayoutAlignment::stretch;
         navigation_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
                                                   ui_layout_node_scroll_vertical);
-        UiLayoutStyle footer_style = fixed_height(metrics.navigation_footer_height);
-        footer_style.flow = UiLayoutFlow::overlay;
-        footer_style.margin = {kUiFloatingSurfaceInset, kUiFloatingSurfaceInset + metrics.navigation_footer_reserve,
-                               kUiFloatingSurfaceInset,
-                               kUiFloatingSurfaceInset};
+        navigation_style.margin.bottom = account_band;
+        // Floats over the bottom of both columns, from the rail's left edge to
+        // the channel list's right edge.
+        UiLayoutStyle footer_style = ui_layout_style();
+        const float footer_width = metrics.guild_rail_width + metrics.navigation_gutter_before +
+                                   metrics.navigation_width - 2 * kUiFloatingSurfaceInset;
+        footer_style.width = ui_layout_fixed(maximum(0.f, footer_width));
+        footer_style.height = ui_layout_fixed(metrics.navigation_footer_height);
+        footer_style.vertical_alignment = UiLayoutAlignment::end;
+        footer_style.margin = {kUiFloatingSurfaceInset, 0, 0, kUiFloatingSurfaceInset};
         if (!add_node(scene, UiSemantic::channel_navigation, channels, navigation_style) ||
-            !add_node(scene, UiSemantic::channel_footer, channels, footer_style)) {
+            !add_node(scene, UiSemantic::channel_footer, root, footer_style)) {
             return false;
         }
         UiLayoutStyle settings_style = fixed_width(32.f);

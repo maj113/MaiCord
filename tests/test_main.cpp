@@ -1919,12 +1919,48 @@ void test_ui_scene() noexcept {
                messages->rectangle.top == 48.0f && messages->rectangle.bottom == 726.0f,
            "ui_scene_nested_margin_fill");
     const auto* footer = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::channel_footer));
-    expect(footer && channels && composer &&
-               footer->rectangle.left - channels->rectangle.left == kUiFloatingSurfaceInset &&
+    const auto* guild_list = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::guild_navigation));
+    const auto* channel_list = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::channel_navigation));
+    expect(footer && guild && channels && composer && guild_list && channel_list &&
+               footer->rectangle.left - guild->rectangle.left == kUiFloatingSurfaceInset &&
                channels->rectangle.right - footer->rectangle.right == kUiFloatingSurfaceInset &&
                footer->rectangle.bottom == composer->rectangle.bottom &&
-               ui_rect_height(footer->rectangle) == ui_rect_height(composer->rectangle),
-           "ui_scene_account_surface_floats_and_aligns_with_composer");
+               ui_rect_height(footer->rectangle) == ui_rect_height(composer->rectangle) &&
+               guild_list->rectangle.bottom == footer->rectangle.top - kUiFloatingSurfaceInset &&
+               channel_list->rectangle.bottom == guild_list->rectangle.bottom,
+           "ui_scene_account_surface_spans_both_columns_and_aligns_with_composer");
+    // In a call the voice card above the account panel spans it too, and both
+    // lists end above the card.
+    UiScene call_scene{};
+    UiShellLayoutMetrics call_metrics = kGuildChannelShellLayoutMetrics;
+    call_metrics.navigation_footer_reserve = kUiVoicePanelHeight + kUiVoicePanelGap;
+    bool call_layout = ui_scene_initialize_bootstrap(&call_scene) &&
+                       ui_scene_layout_with_metrics(&call_scene, UiShellView::guild_channel, call_metrics, 1280.0f,
+                                                    800.0f);
+    if (call_layout) {
+        const auto* call_footer = ui_scene_resolve(call_scene, ui_scene_find(call_scene, UiSemantic::channel_footer));
+        const auto* call_guilds = ui_scene_resolve(call_scene, ui_scene_find(call_scene, UiSemantic::guild_navigation));
+        const auto* call_channels =
+            ui_scene_resolve(call_scene, ui_scene_find(call_scene, UiSemantic::channel_navigation));
+        const UiRect card = call_footer ? ui_voice_panel_rectangle(call_footer->rectangle) : UiRect{};
+        call_layout = call_footer && call_guilds && call_channels && footer &&
+                      call_footer->rectangle.left == footer->rectangle.left &&
+                      call_footer->rectangle.right == footer->rectangle.right &&
+                      call_footer->rectangle.top == footer->rectangle.top && card.left == footer->rectangle.left &&
+                      card.right == footer->rectangle.right &&
+                      call_guilds->rectangle.bottom == card.top - kUiFloatingSurfaceInset &&
+                      call_channels->rectangle.bottom == call_guilds->rectangle.bottom;
+    }
+    UiShellLayoutMetrics bare_metrics = kGuildChannelShellLayoutMetrics;
+    bare_metrics.flags = 0;
+    const bool bare_layout =
+        call_layout && ui_scene_layout_with_metrics(&call_scene, UiShellView::guild_channel, bare_metrics, 1280.0f,
+                                                    800.0f);
+    const auto* bare_guilds = ui_scene_resolve(call_scene, ui_scene_find(call_scene, UiSemantic::guild_navigation));
+    expect(bare_layout && bare_guilds && bare_guilds->rectangle.bottom == 800.0f &&
+               !ui_scene_resolve(call_scene, ui_scene_find(call_scene, UiSemantic::channel_footer)),
+           "ui_scene_voice_card_spans_both_columns_and_lists_end_above_it");
+    ui_scene_release(&call_scene);
     UiLayoutDiagnostic scene_diagnostics[32]{};
     const u32 scene_rebuilds = scene.layout_rebuilds;
     const u32 scene_layout_passes = scene.layout_passes;
