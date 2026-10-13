@@ -324,9 +324,12 @@ bool ApplicationMediaPump::media_key_is_current(MediaAssetKey key) noexcept {
                 return true;
         }
     }
+    // Settings rows: avatars and icons, and Server Settings' emoji and
+    // sticker previews.
     if (!application.login.visible &&
         (key.kind == MediaAssetKind::user_avatar || key.kind == MediaAssetKind::guild_icon ||
-         key.kind == MediaAssetKind::profile_image) &&
+         key.kind == MediaAssetKind::profile_image || key.kind == MediaAssetKind::custom_emoji ||
+         key.kind == MediaAssetKind::sticker) &&
         settings_avatar_is_current(key))
         return true;
     if (!application.login.visible && key.kind == MediaAssetKind::embed &&

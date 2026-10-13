@@ -999,6 +999,26 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
               pump.request_settings_avatars(1000, 1100, &uploads, &repaint) &&
               attachment_requests == before_default + 1 && media_asset_key_equal(last_attachment_key, default_key),
           "settings avatar: a listed user without an avatar hash requests the default avatar by path");
+    // Server Settings > Emoji and Stickers: the previews stay current under
+    // opaque Settings, or their decoded frames are dropped and rows stay grey.
+    const auto emoji_key = media_asset_custom_emoji(993, false);
+    const auto sticker_key = media_asset_sticker(994, 1);
+    avatars[0] = {};
+    avatars[0].key = emoji_key;
+    avatars[1] = {};
+    avatars[1].key = sticker_key;
+    presentation[1].flags = ui_settings_presentation_avatar;
+    ++content.revision;
+    valid = ui_settings_scene_update(&scene, &registry, {0, 0, 1280, 800});
+    observe_picker_requests = true;
+    picker_emoji_requests = 0;
+    check(valid && pump.media_key_is_current(emoji_key) && pump.media_key_is_current(sticker_key) &&
+              !pump.media_key_is_current(media_asset_custom_emoji(995, false)) &&
+              pump.request_settings_avatars(1000, 1100, &uploads, &repaint) && picker_emoji_requests == 2 &&
+              media_asset_key_equal(picker_requested_keys[0], emoji_key) &&
+              media_asset_key_equal(picker_requested_keys[1], sticker_key),
+          "settings avatar: Server Settings emoji and sticker previews stay current and request their images");
+    observe_picker_requests = false;
     g_app.renderer.settings_scene = previous;
     check(!pump.media_key_is_current(key), "settings avatar: closed Settings no longer admits its avatar");
     ui_settings_scene_release(&scene);
