@@ -58,6 +58,9 @@ void test_composer_source_spans(void (*check)(bool, const char*) noexcept) noexc
         {12, 1, code | text_style_syntax_operator}, {13, 1, code | text_style_syntax_number}, {14, 2, code}};
     check(exact(utf8_literal("```cpp\nint x=1;\n```"), {highlighted, 5}),
         "composer source spans stream code lexer tokens and plain gaps exactly");
+    const TextStyleSpan bare_fence[]{{5, 5, code}};
+    check(exact(utf8_literal("```\n\nbody\n```"), {bare_fence, 1}),
+        "composer source spans style a fence opened on its own line from its first code line");
 
     char siblings[257 * 3]{};
     for (u32 i = 0; i < 257; ++i) { siblings[3 * i] = '*'; siblings[3 * i + 1] = 'x'; siblings[3 * i + 2] = '_'; }
@@ -81,7 +84,8 @@ void test_composer_source_spans(void (*check)(bool, const char*) noexcept) noexc
         utf8_literal("**<@42> <@&99> <#7> <:party:111> <t:123:R>**"),
         utf8_literal("**before** <@0>"), utf8_literal("**before** <@18446744073709551616>"),
         utf8_literal("```unknown\r\n<@42> **literal**\n```"), utf8_literal("```\nbody\n```"),
-        utf8_literal("```invalid tag\nbody\n```"), utf8_literal("```cpp\nunfinished"),
+        utf8_literal("```\n\nbody\n```"), utf8_literal("```invalid tag\nbody\n```"),
+        utf8_literal("```cpp\nunfinished"),
         utf8_literal("**a** [unmatched *closed_"), utf8_literal("*cross_ **literal _ marker**"),
         utf8_literal("||**visible**|| \\*literal*"), utf8_literal("[x](http://a) **tail**"),
         utf8_literal("**Καλημέρα 世界 🇹🇯**")};

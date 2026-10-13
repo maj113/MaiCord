@@ -612,6 +612,12 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
                 parser->output_bytes -= newline + 1 - closure.content_begin;
                 closure.content_begin = newline + 1;
             }
+            u32 code = closure.content_begin;
+            while (code < parser->input_offset && parser->input.data[code] == '\n') ++code;
+            if (code < parser->input_offset) {
+                parser->output_bytes -= code - closure.content_begin;
+                closure.content_begin = code;
+            }
         }
         if (parser->output_bytes > delimiter.output_offset + delimiter.marker_bytes) {
             parser->output_bytes -= delimiter.marker_bytes;
@@ -635,6 +641,14 @@ void close_delimiter(Parser* parser, const Delimiter& delimiter) noexcept {
             language = code_language_from_tag(
                 Utf8View{parser->output.data + content_begin, newline - content_begin});
             remove_output(parser, content_begin, newline - content_begin + 1);
+            ++parser->transformations;
+        }
+        // Blank lines after the fence go when code follows them.
+        u32 lead = 0;
+        while (content_begin + lead < parser->output_bytes && parser->output[content_begin + lead] == '\n')
+            ++lead;
+        if (lead != 0 && content_begin + lead < parser->output_bytes) {
+            remove_output(parser, content_begin, lead);
             ++parser->transformations;
         }
     }
@@ -1621,9 +1635,12 @@ u8 emphasis_marker(const Parser& parser, u32* style, DelimiterKind* kind) noexce
     return 0;
 }
 
-bool marker_can_open(const Parser& parser, u8 bytes) noexcept {
+// A fence may open before a space or newline ("```\ncode\n```"); other
+// markers need text right after them.
+bool marker_can_open(const Parser& parser, u8 bytes, DelimiterKind kind) noexcept {
     const u32 after = parser.input_offset + bytes;
-    return after < parser.input.bytes && !ascii_space(parser.input.data[after]);
+    return after < parser.input.bytes &&
+           ((kind == DelimiterKind::code && bytes == 3) || !ascii_space(parser.input.data[after]));
 }
 
 bool marker_can_close(const Parser& parser, const Delimiter& delimiter) noexcept {
@@ -1908,7 +1925,7 @@ MessageMarkdownError walk(Parser* state, u32 stop_depth) noexcept {
                     continue;
                 }
             }
-            if (marker_can_open(parser, marker) && marker_occurs_later(parser, marker)) {
+            if (marker_can_open(parser, marker, kind) && marker_occurs_later(parser, marker)) {
                 if (!push_delimiter(&parser, style, marker, kind)) {
                     return MessageMarkdownError::delimiter_capacity;
                 }

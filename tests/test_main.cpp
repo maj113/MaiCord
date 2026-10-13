@@ -518,6 +518,12 @@ void test_message_markdown() noexcept {
                styles[24] == (text_style_monospace | text_style_code_block | text_style_syntax_number),
            "message_markdown_code_suppresses_inner_and_hides_language");
 
+    result = parse(utf8_literal("```\n\n1. step\n```"));
+    expect(markdown_text_equal(result, utf8_literal("1. step\n")) && result.code_blocks == 1 &&
+               result.span_count == 1 && spans[0].byte_offset == 0 && spans[0].byte_count == 8 &&
+               spans[0].flags == (text_style_monospace | text_style_code_block),
+           "message_markdown_fence_opens_on_its_own_line");
+
     result = parse(utf8_literal("- first\n  * nested\n1. ordered"));
     expect(markdown_text_equal(result, utf8_literal("  first\n    nested\n1. ordered")) &&
                result.list_items == 3 &&
