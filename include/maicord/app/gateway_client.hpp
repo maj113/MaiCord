@@ -313,7 +313,9 @@ struct GatewayClientMessageMutation {
     u16 type; // occupies two bytes of alignment padding
     u32 transient_bytes;
     u16 mention_user_count;
-    u16 author_name_bytes;
+    u8 author_name_bytes;
+    // The author's server nickname, after the avatar hash in the payload text.
+    u8 member_nick_bytes;
     u32 rich_payload_bytes;
     u32 author_public_flags; // occupies four bytes of nonce alignment padding
     u64 nonce;
@@ -1466,6 +1468,9 @@ bool gateway_client_event_message_author_name(const GatewayClientEvent& event, C
 bool gateway_client_event_message_author_avatar_hash(const GatewayClientEvent& event,
                                                      ConstSlice<u8> payload,
                                                      Utf8View* avatar_hash) noexcept;
+// The author's server nickname; empty when the member has none.
+bool gateway_client_event_message_member_nick(const GatewayClientEvent& event, ConstSlice<u8> payload,
+                                              Utf8View* nick) noexcept;
 bool gateway_client_event_message_mention_user_at(const GatewayClientEvent& event, ConstSlice<u8> payload,
                                                   u32 index, u64* user_id, Utf8View* name) noexcept;
 // Validate the complete snapshot user list before the first synchronous call.

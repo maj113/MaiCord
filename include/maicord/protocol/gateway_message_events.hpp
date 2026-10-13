@@ -425,6 +425,9 @@ struct GatewayMessageEvent {
     bool mentions_current_user;
     Utf8View author_name;
     Utf8View author_avatar_hash;
+    // The author's server nickname from member.nick; empty when the member
+    // has none or the event carries no member.
+    Utf8View member_nick;
     ConstSlice<GatewayMessageNamedUser> mention_users;
     GatewayMessageReference reference;
     GatewayMessageInteraction interaction;

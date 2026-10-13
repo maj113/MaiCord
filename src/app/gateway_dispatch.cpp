@@ -154,7 +154,8 @@ void copy_message(const GatewayMessageEvent& source, GatewayClientMessageMutatio
     destination->mention_role_count = static_cast<u16>(source.mention_roles.count);
     destination->member_role_count = static_cast<u16>(source.member_roles.count);
     destination->mention_user_count = static_cast<u16>(source.mention_users.count);
-    destination->author_name_bytes = static_cast<u16>(source.author_name.bytes);
+    destination->author_name_bytes = static_cast<u8>(source.author_name.bytes);
+    destination->member_nick_bytes = static_cast<u8>(source.member_nick.bytes);
     destination->author_avatar_hash_bytes = static_cast<u8>(source.author_avatar_hash.bytes);
     destination->mention_flags = static_cast<u8>(
         (source.mention_everyone ? gateway_client_message_mention_everyone : 0) |

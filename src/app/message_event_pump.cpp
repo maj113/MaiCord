@@ -520,8 +520,12 @@ bool observe_message_member(MessageEventPump* pump, const GatewayClientEvent& ev
             return false;
         }
     }
+    // The member object is authoritative: an empty nickname means none.
+    Utf8View nick{};
+    if (!gateway_client_event_message_member_nick(event, payload, &nick))
+        return false;
     return guild_member_store_upsert(pump->members, *pump->state, channel->guild_id,
-                                             event.message.author_id, Utf8View{},
+                                             event.message.author_id, nick,
                                              ConstSlice<u64>{roles, event.message.member_role_count}, true,
                                              GuildMemberStatus::unknown)
         .ok();

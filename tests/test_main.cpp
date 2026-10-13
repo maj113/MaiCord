@@ -20445,7 +20445,7 @@ void test_gateway_message_events() noexcept {
         Slice<GatewayMessageComponent>{rich_components, kGatewayMessageComponentMaximum},
     };
     const Utf8View rich_payload = utf8_literal(
-        R"({"op":0,"d":{"id":"900","channel_id":"7","author":{"id":"11","username":"Writer"},"member":{"roles":["99","100"]},"content":"rich","timestamp":"2024-08-30T12:34:56Z","message_reference":{"type":0,"message_id":"800","channel_id":"7","guild_id":"5"},"referenced_message":{"id":"800","channel_id":"7","author":{"id":"12","username":"Source","global_name":"Source Display","avatar":"fedcba9876543210fedcba9876543210"},"content":"the referenced text"},"reactions":[{"count":4,"count_details":{"normal":3,"burst":1},"me":true,"me_burst":false,"emoji":{"id":"44","name":"party","animated":true}},{"count":1,"me":false,"emoji":{"id":null,"name":"🔥"}}],"attachments":[{"id":"70","filename":"clip.mp4","title":"Clip","description":"alt text","content_type":"video/mp4","size":12345,"url":"https://cdn.discordapp.com/attachments/7/70/clip.mp4","width":1280,"height":720,"flags":1,"ephemeral":false}],"embeds":[{"title":"Build","type":"rich","description":"green","url":"https://example.com/build","color":65280,"author":{"name":"CI"},"footer":{"text":"done"},"image":{"url":"https://example.com/original.png","proxy_url":"https://media.discordapp.net/external/fixture/image.png","content_type":"image/png","description":"preview alt","width":640,"height":360,"flags":32},"fields":[{"name":"Target","value":"Release","inline":true}]}],"sticker_items":[{"id":"88","name":"Wave","format_type":2}],"components":[{"type":17,"id":1,"components":[{"type":10,"id":2,"content":"Component markdown"},{"type":1,"id":3,"components":[{"type":2,"id":4,"style":5,"label":"Open","url":"https://example.com"}]}]}]},"s":90,"t":"MESSAGE_CREATE"})");
+        R"({"op":0,"d":{"id":"900","channel_id":"7","author":{"id":"11","username":"Writer"},"member":{"nick":"Ink","roles":["99","100"]},"mentions":[{"id":"13","username":"Pal"}],"content":"rich","timestamp":"2024-08-30T12:34:56Z","message_reference":{"type":0,"message_id":"800","channel_id":"7","guild_id":"5"},"referenced_message":{"id":"800","channel_id":"7","author":{"id":"12","username":"Source","global_name":"Source Display","avatar":"fedcba9876543210fedcba9876543210"},"content":"the referenced text"},"reactions":[{"count":4,"count_details":{"normal":3,"burst":1},"me":true,"me_burst":false,"emoji":{"id":"44","name":"party","animated":true}},{"count":1,"me":false,"emoji":{"id":null,"name":"🔥"}}],"attachments":[{"id":"70","filename":"clip.mp4","title":"Clip","description":"alt text","content_type":"video/mp4","size":12345,"url":"https://cdn.discordapp.com/attachments/7/70/clip.mp4","width":1280,"height":720,"flags":1,"ephemeral":false}],"embeds":[{"title":"Build","type":"rich","description":"green","url":"https://example.com/build","color":65280,"author":{"name":"CI"},"footer":{"text":"done"},"image":{"url":"https://example.com/original.png","proxy_url":"https://media.discordapp.net/external/fixture/image.png","content_type":"image/png","description":"preview alt","width":640,"height":360,"flags":32},"fields":[{"name":"Target","value":"Release","inline":true}]}],"sticker_items":[{"id":"88","name":"Wave","format_type":2}],"components":[{"type":17,"id":1,"components":[{"type":10,"id":2,"content":"Component markdown"},{"type":1,"id":3,"components":[{"type":2,"id":4,"style":5,"label":"Open","url":"https://example.com"}]}]}]},"s":90,"t":"MESSAGE_CREATE"})");
     const bool rich_envelope_decoded =
         gateway_decode_envelope(rich_payload, Slice<u32>{rich_structurals, 2'048}, 32, &envelope).ok();
     const GatewayEventDecodeResult rich_decoded =
@@ -20487,6 +20487,11 @@ void test_gateway_message_events() noexcept {
                message.member_roles[0] == 99 && message.member_roles[1] == 100 &&
                (message.fields & gateway_message_field_member) != 0,
            "gateway_message_rich_resource_fields");
+    expect(rich_decoded.ok() && utf8_view_equal(message.member_nick, utf8_literal("Ink")) &&
+               message.member_nick.data == message.author_name.data + message.author_name.bytes &&
+               message.mention_users.count == 1 &&
+               utf8_view_equal(message.mention_users[0].name, utf8_literal("Pal")),
+           "gateway_message_member_nick_follows_the_author_name");
 
     char rich_owned_payload[32 * 1024]{};
     ConstSlice<u8> packed_rich_payload{};
@@ -20539,6 +20544,17 @@ void test_gateway_message_events() noexcept {
             routed_message.stickers.count == 1 && routed_message.components.count == 4 &&
             routed_message.components[3].parent == 2,
         "gateway_client_route_rich_pointer_free_payload");
+    Utf8View routed_nick{};
+    u64 routed_mention_id = 0;
+    Utf8View routed_mention_name{};
+    expect(rich_unpacked && routed_event.message.member_nick_bytes == 3 &&
+               gateway_client_event_message_member_nick(routed_event, owned_rich_payload, &routed_nick) &&
+               utf8_view_equal(routed_nick, utf8_literal("Ink")) &&
+               utf8_view_equal(routed_message.member_nick, utf8_literal("Ink")) &&
+               gateway_client_event_message_mention_user_at(routed_event, owned_rich_payload, 0,
+                                                            &routed_mention_id, &routed_mention_name) &&
+               routed_mention_id == 13 && utf8_view_equal(routed_mention_name, utf8_literal("Pal")),
+           "gateway_client_route_carries_the_member_nick");
     const auto scratch_poisoned = [](const void* pointer, u32 bytes) noexcept {
         const auto* data = static_cast<const u8*>(pointer);
         for (u32 index = 0; index < bytes; ++index) {

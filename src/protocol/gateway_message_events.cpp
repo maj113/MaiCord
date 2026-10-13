@@ -152,8 +152,10 @@ struct MentionRoleContext {
 
 struct MemberContext {
     JsonValue roles;
+    JsonString nick;
     GatewayEventDecodeError error;
     bool roles_seen;
+    bool nick_seen;
 };
 
 GatewayEventDecodeResult message_failure(GatewayEventDecodeError error, u32 offset = 0,
@@ -576,6 +578,18 @@ bool visit_mention_role(void* opaque, u32 index, JsonValue value) noexcept {
 
 bool visit_member_field(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<MemberContext*>(opaque);
+    if (json_string_equals_ascii(name, utf8_literal("nick"))) {
+        if (context->nick_seen) {
+            context->error = GatewayEventDecodeError::duplicate_field;
+            return false;
+        }
+        context->nick_seen = true;
+        if (value.kind != JsonValueKind::null_value && !json_value_as_string(value, &context->nick)) {
+            context->error = GatewayEventDecodeError::invalid_user_name;
+            return false;
+        }
+        return true;
+    }
     if (!json_string_equals_ascii(name, utf8_literal("roles"))) {
         return true;
     }
@@ -589,8 +603,11 @@ bool visit_member_field(void* opaque, JsonString name, JsonValue value) noexcept
     return true;
 }
 
-GatewayEventDecodeResult decode_member_roles(MessageContext* context, Slice<u32> structural_scratch,
-                                             u32 maximum_depth, Slice<u64> member_role_scratch) noexcept {
+// Decodes member.roles, and member.nick into name_output right after the
+// author's name and avatar hash.
+GatewayEventDecodeResult decode_member(MessageContext* context, Slice<u32> structural_scratch,
+                                       u32 maximum_depth, Slice<u64> member_role_scratch,
+                                       Slice<char> name_output, u32* used) noexcept {
     if ((context->event.fields & gateway_message_field_member) == 0) {
         return message_failure(GatewayEventDecodeError::none);
     }
@@ -613,6 +630,26 @@ GatewayEventDecodeResult decode_member_roles(MessageContext* context, Slice<u32>
     if (!member.roles_seen) {
         return message_failure(GatewayEventDecodeError::missing_required_field,
                                context->member.source_offset);
+    }
+    if (member.nick.encoded.data) {
+        const JsonStringDecodeResult size = json_string_decode_utf8(member.nick, Slice<char>{nullptr, 0});
+        const bool capacity_error = !used || *used > name_output.count ||
+                                    size.bytes > name_output.count - minimum(*used, name_output.count);
+        if ((size.error != JsonStringDecodeError::output_too_small && !(size.ok() && size.bytes == 0)) ||
+            size.bytes > kGatewayMessageUserNameMaximumBytes || capacity_error) {
+            return message_failure(capacity_error ? GatewayEventDecodeError::message_content_capacity
+                                                  : GatewayEventDecodeError::invalid_user_name,
+                                   context->member.source_offset);
+        }
+        if (size.bytes != 0) {
+            const JsonStringDecodeResult decoded = json_string_decode_utf8(
+                member.nick, Slice<char>{name_output.data + *used, name_output.count - *used});
+            if (!decoded.ok() || decoded.bytes != size.bytes)
+                return message_failure(GatewayEventDecodeError::invalid_user_name,
+                                       context->member.source_offset);
+            context->event.member_nick = Utf8View{name_output.data + *used, decoded.bytes};
+            *used += decoded.bytes;
+        }
     }
     const JsonScanResult role_scan = json_scan_structurals_avx1(member.roles.source, structural_scratch);
     if (!role_scan.ok()) {
@@ -775,16 +812,17 @@ GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_sc
     }
     if (create)
         context.event.fields |= gateway_message_field_interaction_metadata;
+    // The nickname follows the author's name and avatar hash in the transient text.
+    const GatewayEventDecodeResult member = decode_member(
+        &context, structural_scratch, maximum_depth, member_role_scratch, content_scratch, &transient_used);
+    if (!member.ok()) {
+        return member;
+    }
     const GatewayEventDecodeResult mentions = decode_mentions(
         &context, structural_scratch, maximum_depth, mention_role_scratch, mention_user_scratch,
         content_scratch, &transient_used, current_user_id, capture_names);
     if (!mentions.ok()) {
         return mentions;
-    }
-    const GatewayEventDecodeResult member_roles =
-        decode_member_roles(&context, structural_scratch, maximum_depth, member_role_scratch);
-    if (!member_roles.ok()) {
-        return member_roles;
     }
     if (context.call.source.data) {
         const GatewayEventDecodeResult call =

@@ -187,7 +187,7 @@ bool observe_history_members(GuildMemberStore* members, ChatStateStore* state,
         const ChannelRecord* channel = chat_state_store_find_channel(*state, message.channel_id);
         if (!channel || channel->guild_id == 0 || message.author_id == 0 ||
             !guild_member_store_upsert(members, *state, channel->guild_id, message.author_id,
-                                               Utf8View{}, message.member_roles, true,
+                                               message.member_nick, message.member_roles, true,
                                                GuildMemberStatus::unknown)
                  .ok()) {
             return false;

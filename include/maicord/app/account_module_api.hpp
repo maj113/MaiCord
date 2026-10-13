@@ -68,8 +68,10 @@ namespace maicord {
 // profile and vanity code; guild details carry the splash hash (header 120
 // bytes); guild_moderation (members search, bulk ban, ban search) is
 // appended; GUILD_BULK_BAN_UPDATE arrives as guild_bulk_ban_update.
-inline constexpr u32 kAccountModuleApiVersion = 125;
-inline constexpr u16 kAccountModuleApiOrdinal = 125;
+// v126: message events carry the author's member.nick (member_nick_bytes,
+// split from author_name_bytes) after the avatar hash in the payload text.
+inline constexpr u32 kAccountModuleApiVersion = 126;
+inline constexpr u16 kAccountModuleApiOrdinal = 126;
 inline constexpr u32 kAccountHistoryResponseBytes = 256 * 1024;
 inline constexpr wchar_t kAccountModuleFileNameWide[] = L"MaiCordAccount.dll";
 

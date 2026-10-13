@@ -508,8 +508,8 @@ bool bank_accept(void* opaque, u32 index, const MessageSearchMessage& item) noex
                    : 0);
     if (guild && (m.fields & gateway_message_field_member)) {
         const auto member = guild_member_store_upsert(&b.members, g_app.account_ui->chat_state,
-                                                              guild, m.author_id, {}, m.member_roles, true,
-                                                              GuildMemberStatus::unknown);
+                                                              guild, m.author_id, m.member_nick, m.member_roles,
+                                                              true, GuildMemberStatus::unknown);
         if (!member.ok() || member.evicted)
             return false;
     }

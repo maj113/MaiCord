@@ -71,6 +71,7 @@ bool message_payload_offsets(const GatewayClientEvent& event, ConstSlice<u8> pay
     const u32 transient_bytes = event.message.transient_bytes == 0 && event.message.content_bytes != 0 &&
                                         event.message.author_name_bytes == 0 &&
                                         event.message.author_avatar_hash_bytes == 0 &&
+                                        event.message.member_nick_bytes == 0 &&
                                         event.message.mention_user_count == 0
                                     ? event.message.content_bytes
                                     : event.message.transient_bytes;
@@ -78,7 +79,10 @@ bool message_payload_offsets(const GatewayClientEvent& event, ConstSlice<u8> pay
         transient_bytes > payload.count ||
         event.message.author_name_bytes > transient_bytes - event.message.content_bytes ||
         event.message.author_avatar_hash_bytes >
-            transient_bytes - event.message.content_bytes - event.message.author_name_bytes) {
+            transient_bytes - event.message.content_bytes - event.message.author_name_bytes ||
+        event.message.member_nick_bytes > transient_bytes - event.message.content_bytes -
+                                              event.message.author_name_bytes -
+                                              event.message.author_avatar_hash_bytes) {
         return false;
     }
     const u64 roles_end = static_cast<u64>(transient_bytes) +
@@ -245,6 +249,7 @@ bool gateway_client_event_as_message(const GatewayClientEvent& event, ConstSlice
         event.message.member_role_count > kGatewayMessageMemberRoleMaximumIds ||
         event.message.mention_user_count > kGatewayMessageMentionUserMaximum ||
         event.message.author_name_bytes > kGatewayMessageUserNameMaximumBytes ||
+        event.message.member_nick_bytes > kGatewayMessageUserNameMaximumBytes ||
         event.message.author_avatar_hash_bytes > kGatewayMessageAvatarHashMaximumBytes) {
         return false;
     }
@@ -256,7 +261,7 @@ bool gateway_client_event_as_message(const GatewayClientEvent& event, ConstSlice
     u32 rich_offset = 0;
     if ((!has_content && event.message.content_bytes != 0) ||
         (!has_roles && event.message.mention_role_count != 0) ||
-        (!has_member && event.message.member_role_count != 0) ||
+        (!has_member && (event.message.member_role_count != 0 || event.message.member_nick_bytes != 0)) ||
         !message_payload_offsets(event, payload, &role_offset, &user_offset, &rich_offset)) {
         return false;
     }
@@ -275,6 +280,10 @@ bool gateway_client_event_as_message(const GatewayClientEvent& event, ConstSlice
         Utf8View{reinterpret_cast<const char*>(payload.data) + event.message.content_bytes +
                      event.message.author_name_bytes,
                  event.message.author_avatar_hash_bytes};
+    message->member_nick =
+        Utf8View{reinterpret_cast<const char*>(payload.data) + event.message.content_bytes +
+                     event.message.author_name_bytes + event.message.author_avatar_hash_bytes,
+                 event.message.member_nick_bytes};
     message->transient_bytes = role_offset;
     message->flags = event.message.flags;
     message->type = event.message.type;
@@ -857,6 +866,26 @@ bool gateway_client_event_message_author_avatar_hash(const GatewayClientEvent& e
                                 event.message.author_name_bytes,
                             event.message.author_avatar_hash_bytes};
     return utf8_validate(*avatar_hash).valid;
+}
+
+bool gateway_client_event_message_member_nick(const GatewayClientEvent& event, ConstSlice<u8> payload,
+                                              Utf8View* nick) noexcept {
+    if (!nick || event.kind != GatewayClientEventKind::dispatch ||
+        (event.dispatch_kind != GatewayClientDispatchKind::message_create &&
+         event.dispatch_kind != GatewayClientDispatchKind::message_update) ||
+        event.dispatch_payload_bytes != payload.count || (!payload.data && payload.count != 0)) {
+        return false;
+    }
+    u32 role_offset = 0;
+    u32 user_offset = 0;
+    u32 rich_offset = 0;
+    if (!message_payload_offsets(event, payload, &role_offset, &user_offset, &rich_offset)) {
+        return false;
+    }
+    *nick = Utf8View{reinterpret_cast<const char*>(payload.data) + event.message.content_bytes +
+                         event.message.author_name_bytes + event.message.author_avatar_hash_bytes,
+                     event.message.member_nick_bytes};
+    return utf8_validate(*nick).valid;
 }
 
 bool gateway_client_event_message_mention_user_at(const GatewayClientEvent& event, ConstSlice<u8> payload,

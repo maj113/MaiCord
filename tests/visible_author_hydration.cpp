@@ -250,6 +250,14 @@ void test_visible_author_hydration(void (*check)(bool, const char*) noexcept) no
     check(sparse_applied && author && author->roles_known && author->role_color == 0x9922CC &&
               utf8_equal(guild_member_store_nickname(*author), utf8_literal("Original nickname")),
           "author hydration: actual non-self sparse update preserves omitted role and nickname authority");
+    const auto live = utf8_literal(
+        R"({"op":0,"s":2,"t":"MESSAGE_CREATE","d":{"id":"990","channel_id":"80","author":{"id":"20","username":"Original author"},"member":{"nick":"Live nickname","roles":["17"]},"content":"hi","timestamp":"2024-08-30T12:34:56Z"}})");
+    const bool live_applied =
+        route(live, &event, &payload) && message_event_pump_consume(&f.pump, event, payload).ok();
+    author = guild_member_store_find(f.members, 7, 20);
+    check(live_applied && author && author->roles_known && author->role_color == 0x9922CC &&
+              utf8_equal(guild_member_store_nickname(*author), utf8_literal("Live nickname")),
+          "author hydration: a live message's member object carries the author's server nickname");
     const auto update = utf8_literal(
         R"({"op":0,"s":3,"t":"GUILD_MEMBER_UPDATE","d":{"guild_id":"7","user":{"id":"20","username":"Original renamed author"},"roles":[]}})");
     const bool updated =
