@@ -3733,7 +3733,8 @@ void test_message_text_presentation() noexcept {
                                 command.owner.handle.slot == row->author.slot && command.styles.count;
             const bool measured = kind != MessageTextMeasurementKind::none && command.measurement_kind == kind;
             if ((author || measured) &&
-                command.text.bytes >= 8 && bytes_equal(command.text.data, "Mod Nick", 8))
+                command.text.bytes >= 8 &&
+                utf8_view_equal(Utf8View{command.text.data, 8}, utf8_literal("Mod Nick")))
                 found = true;
         }
         reply_member_records[0].user_id = 8;
