@@ -435,8 +435,16 @@ UiVideoSceneResult ui_video_scene_pointer(UiVideoScene* scene, UiVideoPointerEve
     const auto hit = ui_video_scene_hit(*scene, point);
     scene->hover = hit;
     if (event == UiVideoPointerEvent::down) {
-        if (scene->capture != UiVideoControl::none || hit == UiVideoControl::none)
+        if (scene->capture != UiVideoControl::none)
             return result;
+        if (hit == UiVideoControl::none) {
+            // The shown bar's inert parts (a disabled speaker on a silent
+            // video, the gaps between controls) are not the picture: a press
+            // there must not fall through and toggle playback.
+            result.handled =
+                controls_requested(*scene) && contains(intersect(scene->projection.bounds, scene->clip), point);
+            return result;
+        }
         scene->capture = hit;
         ui_video_scene_focus(scene, hit, false);
         result.handled = result.request_capture = true;

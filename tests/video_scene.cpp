@@ -448,6 +448,16 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(project(bounds) && s.projection.volume_expanded && project(bounds) &&
               s.hover == UiVideoControl::mute,
           "video scene: speaker hover keeps expanded volume stable across playback reprojections");
+    // A silent video disables the speaker; a press on it stays on the bar
+    // instead of reaching the picture, whose click toggles playback.
+    state.has_audio = false;
+    project(bounds);
+    ui_video_scene_pointer(&s, UiVideoPointerEvent::move, speaker);
+    r = ui_video_scene_pointer(&s, UiVideoPointerEvent::down, speaker);
+    check(!s.projection.controls[3].enabled && r.handled && !r.request_capture && !r.action_requested &&
+              s.capture == UiVideoControl::none,
+          "video scene: a press on the disabled speaker is consumed by the control bar");
+    state.has_audio = true;
     ui_video_scene_blur(&s);
     project(bounds);
     seek = s.projection.controls[1].bounds;
