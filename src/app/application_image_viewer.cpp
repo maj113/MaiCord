@@ -40,7 +40,8 @@ MediaAssetKey attachment_key(const ApplicationImageViewer& viewer, u64 id, Media
                                 : media_asset_attachment(id, format, tier);
 }
 // Every previewable item of one message, in the official client's order: attachments,
-// then embed media. Audio, unknown files and looping GIFV embeds are skipped.
+// then embed media. Audio and unknown files are skipped; a looping GIFV embed is
+// shown as the animation it plays inline, not as a video.
 u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, bool embed_snapshot,
                   ApplicationMediaViewerItem* items) noexcept {
     const auto& viewer = g_app.image_viewer;
@@ -88,16 +89,15 @@ u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, 
         if ((host != i && !member) ||
             !(member ? message_rich_embed_gallery_select(store, rich.embeds[i], &selected)
                      : message_rich_embed_media_select(store, rich.embeds[i], &selected)) ||
-            selected.format == MediaAttachmentFormat::unknown ||
-            (selected.format == MediaAttachmentFormat::mp4 &&
-             rich.embeds[i].type == GatewayMessageEmbedType::gifv))
+            selected.format == MediaAttachmentFormat::unknown)
             continue;
         auto& item = items[count++];
         item = {};
         item.kind = MessageSceneRichItemKind::embed;
         item.index = static_cast<u8>(i);
         item.resource = selected.resource;
-        item.video = selected.format == MediaAttachmentFormat::mp4;
+        item.video = selected.format == MediaAttachmentFormat::mp4 &&
+                     rich.embeds[i].type != GatewayMessageEmbedType::gifv;
         const u32 source_width = selected.media->width, source_height = selected.media->height;
         item.pixels = source_width && source_height
                           ? UiSize{static_cast<float>(source_width), static_cast<float>(source_height)}
@@ -550,7 +550,8 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
             if (!node || (!tile && message_rich_embed_merge_host(store, *rich, member) != member) ||
                 !(tile ? message_rich_embed_gallery_select(store, rich->embeds[member], &selected)
                        : message_rich_embed_media_select(store, embed, &selected)) ||
-                selected.format == MediaAttachmentFormat::mp4)
+                (selected.format == MediaAttachmentFormat::mp4 &&
+                 rich->embeds[member].type != GatewayMessageEmbedType::gifv))
                 continue;
             UiRect preview = message_rich_embed_media_rect(row.rich_item_layout, index, node->content_rectangle,
                                                            message_rich_embed_media_only(embed));
@@ -615,7 +616,9 @@ bool application_image_viewer_open_search(const ApplicationSearchSourceTicket& t
         const bool selected_ok = resource == MediaEmbedResource::none
             ? message_rich_embed_media_select(store, rich.embeds[index], &selected)
             : message_rich_embed_resource_select(store, rich.embeds[index], resource, &selected);
-        if (!selected_ok || selected.format == MediaAttachmentFormat::unknown || selected.format == MediaAttachmentFormat::mp4) return false;
+        if (!selected_ok || selected.format == MediaAttachmentFormat::unknown ||
+            (selected.format == MediaAttachmentFormat::mp4 && rich.embeds[index].type != GatewayMessageEmbedType::gifv))
+            return false;
         format = selected.format;
         pixels = selected.media->width && selected.media->height
             ? UiSize{static_cast<float>(selected.media->width), static_cast<float>(selected.media->height)} : UiSize{width, height};

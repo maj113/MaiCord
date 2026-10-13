@@ -59,6 +59,29 @@ bool seed() noexcept {
     event.snapshot.attachments = {&child, 1}; event.snapshot.embeds = {&embed, 1};
     return message_rich_store_apply(&rich, 800, publication, event).ok();
 }
+// The same source message as a Tenor-style GIFV link: a looping MP4 shown as an image.
+bool seed_gifv() noexcept {
+    if (!message_store_initialize(&bank, {records, 4}, {order, 4}, {text, sizeof(text)}) ||
+        !message_rich_store_initialize(&rich, {rich_records, 8}, {rich_order, 4}, {rich_text, sizeof(rich_text)}))
+        return false;
+    auto inserted = message_store_upsert(&bank, {800, 101, 4, 1000, 0, utf8_literal("https://tenor.com/view/wave")});
+    if (!inserted.ok()) return false;
+    records[inserted.handle.slot].revision = publication;
+    GatewayMessageEmbed gif{};
+    gif.type = GatewayMessageEmbedType::gifv;
+    gif.url = utf8_literal("https://tenor.com/view/wave");
+    gif.thumbnail.url = utf8_literal("https://media.tenor.com/wave.png");
+    gif.thumbnail.content_type = utf8_literal("image/png");
+    gif.video.url = utf8_literal("https://media.tenor.com/wave.mp4");
+    gif.video.proxy_url = utf8_literal("https://images-ext-1.discordapp.net/external/wave.mp4");
+    gif.video.content_type = utf8_literal("video/mp4");
+    gif.thumbnail.width = gif.video.width = 498;
+    gif.thumbnail.height = gif.video.height = 280;
+    gif.thumbnail.has_width = gif.thumbnail.has_height = gif.video.has_width = gif.video.has_height = true;
+    GatewayMessageEvent event{}; event.id = 800;
+    event.fields = gateway_message_field_embeds; event.embeds = {&gif, 1};
+    return message_rich_store_apply(&rich, 800, publication, event).ok();
+}
 bool seed_authority() noexcept {
     auto& state = g_app.account_ui->chat_state;
     constexpr u64 rights = kPermissionViewChannel | (1ull << 16);
@@ -224,6 +247,15 @@ void run() noexcept {
             chat_state_store_recompute_guild_permissions(&g_app.account_ui->chat_state,7);
         }
     }
+    application_image_viewer_close();
+    panel = allowed = true;
+    ++publication; ticket.publication_revision = publication;
+    check(seed_gifv() && application_image_viewer_open_search(ticket, MessageSceneRichItemKind::embed, 0, false, preview) &&
+        g_app.image_viewer.item_count == 1 && !g_app.image_viewer.items[0].video &&
+        media_asset_embed_resource(g_app.image_viewer.key) == MediaEmbedResource::video &&
+        media_asset_embed_format(g_app.image_viewer.key) == MediaAttachmentFormat::mp4 &&
+        (g_app.image_viewer.key.flags & media_asset_flag_animated) && !g_app.image_viewer.scene.can_save,
+        "Search viewer opens a GIFV embed full screen as the looping animation it plays inline");
     application_image_viewer_close(); DestroyWindow(g_app.window); g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE); g_app.account_ui = nullptr; g_app.account.instance = nullptr;
 }
