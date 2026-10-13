@@ -3,24 +3,38 @@
 #include "maicord/ui/background_color_math.hpp"
 
 namespace maicord {
-// Choose an authored palette color for a filled control. A light theme can
-// still need a light label on its accent, and custom accents can need a dark
-// label. Preserve an authored candidate meeting normal-text contrast; otherwise
-// select an opaque endpoint. The bounded sRGB math adds no theme state or CRT.
-inline Color ui_surface_foreground(const Theme& theme, Color fill) noexcept {
-    const Color candidates[]{theme.text_primary, theme.text_secondary, theme.base_lowest, theme.surface};
-    const double background = background_color_luminance(fill);
-    Color selected = candidates[0];
+namespace foreground_color_detail {
+// The candidate with the most contrast on a fill of this luminance, when it
+// keeps normal-text 4.5:1.
+template <u32 Count>
+inline bool readable(const Color (&candidates)[Count], double background, Color* output) noexcept {
     double best = 0;
     for (const auto color : candidates) {
         const double value = background_color_luminance(color);
         const double contrast = (maximum(value, background) + .05) / (minimum(value, background) + .05);
         if (contrast > best) {
-            selected = color;
+            *output = color;
             best = contrast;
         }
     }
-    if (best >= 4.5)
+    return best >= 4.5;
+}
+} // namespace foreground_color_detail
+// Choose an authored palette color for a filled control, in order: the
+// theme's text colors, its on-accent text (white on the stock accents), then
+// a background color for fills that need a dark label (bright custom
+// accents), each only when it keeps normal-text contrast; otherwise an opaque
+// endpoint. Text wins over backgrounds, so AMOLED's pure black base never
+// labels its blue accent. The bounded sRGB math adds no theme state or CRT.
+inline Color ui_surface_foreground(const Theme& theme, Color fill) noexcept {
+    const double background = background_color_luminance(fill);
+    const Color text[]{theme.text_primary, theme.text_secondary};
+    const Color accent[]{theme.tokens.emphasis.text};
+    const Color backgrounds[]{theme.base_lowest, theme.surface};
+    Color selected{};
+    if (foreground_color_detail::readable(text, background, &selected) ||
+        foreground_color_detail::readable(accent, background, &selected) ||
+        foreground_color_detail::readable(backgrounds, background, &selected))
         return selected;
     const double white = 1.05 / (background + .05), black = (background + .05) / .05;
     return white >= black ? Color{1, 1, 1, 1} : Color{0, 0, 0, 1};
