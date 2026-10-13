@@ -2,6 +2,7 @@
 #include "maicord/app/local_preview_thumbnail.hpp"
 #include "maicord/app/local_video_poster.hpp"
 #include "maicord/media/png_stream.hpp"
+#include "maicord/media/presentation_policy.hpp"
 #include "maicord/media/webp_thumbnail.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/deadline.hpp"
@@ -1683,11 +1684,14 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
     const MediaAttachmentFormat key_format = catalog_key      ? media_asset_catalog_format(request.key)
                                              : attachment_key ? media_asset_attachment_format(request.key)
                                                               : media_asset_embed_format(request.key);
-    if ((attachment_key && key_format != expected_format &&
+    // Large JPEG renditions are asked of the media proxy as PNG.
+    const bool proxy_png = !catalog_key && request.image_type == CdnImageType::png &&
+                           media_preview_proxy_png(key_format, request.proxy_width, request.proxy_height);
+    if ((attachment_key && key_format != expected_format && !proxy_png &&
          !(request.image_type == CdnImageType::jpeg &&
            key_format == MediaAttachmentFormat::unknown)) ||
         (!attachment_key &&
-         (key_format != expected_format || (request.key.kind == MediaAssetKind::embed &&
+         ((key_format != expected_format && !proxy_png) || (request.key.kind == MediaAssetKind::embed &&
                                             (request.key.id != request.source_message_id ||
                                              request.key.variant != request.source_message_revision))))) {
         return result(AccountMediaRequestState::invalid, AccountMediaError::invalid_input);

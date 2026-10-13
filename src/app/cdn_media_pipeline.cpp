@@ -63,14 +63,19 @@ bool static_image_key_valid(MediaAssetKey key, MediaAttachmentFormat format) noe
         break;
     case MediaAssetKind::attachment: {
         const MediaAttachmentFormat stored = media_asset_attachment_format(key);
+        // Large JPEG renditions arrive as PNG from the media proxy.
         matches = stored == format ||
-                  (format == MediaAttachmentFormat::jpeg && stored == MediaAttachmentFormat::unknown);
+                  (format == MediaAttachmentFormat::jpeg && stored == MediaAttachmentFormat::unknown) ||
+                  (format == MediaAttachmentFormat::png && stored == MediaAttachmentFormat::jpeg);
         break;
     }
     case MediaAssetKind::profile_image:
-    case MediaAssetKind::embed:
-        matches = media_asset_embed_format(key) == format;
+    case MediaAssetKind::embed: {
+        const MediaAttachmentFormat stored = media_asset_embed_format(key);
+        matches = stored == format ||
+                  (format == MediaAttachmentFormat::png && stored == MediaAttachmentFormat::jpeg);
         break;
+    }
     default:
         break;
     }

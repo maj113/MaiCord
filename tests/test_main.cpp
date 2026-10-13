@@ -13032,6 +13032,36 @@ void test_account_media_cached_frame() noexcept {
                png_attachment_frame.source_message_revision == 10 && !media.client_started,
            "account_media_png_attachment_cache_hit_preserves_owner");
 
+    const MediaAssetKey large_jpeg_key =
+        media_asset_attachment(8'010, MediaAttachmentFormat::jpeg, MediaResolutionTier::px1024);
+    const EncodedMediaCacheStoreResult large_jpeg_stored = encoded_media_cache_store(
+        &media.cache, large_jpeg_key, ConstSlice<u8>{g_png_encoded, fixture.encoded_bytes},
+        EncodedMediaCachePolicy{byte_literal("\"account-attachment-large-jpeg\""), 2'000, true, false});
+    AccountMediaAttachmentRequest large_jpeg{
+        utf8_literal("https://cdn.discordapp.com/attachments/99/8010/a.jpg"
+                     "?ex=1000&is=900&hm="
+                     "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"),
+        large_jpeg_key,
+        7'007,
+        14,
+        1'024,
+        576,
+        CdnImageType::png,
+        {0, 0, 0}};
+    const AccountMediaRequestResult large_jpeg_requested =
+        account_media_request_attachment(&media, large_jpeg, 1'004, 1'104);
+    AccountMediaFrame large_jpeg_frame{};
+    const bool large_jpeg_taken = account_media_take_frame(&media, &large_jpeg_frame);
+    large_jpeg.proxy_width = 512;
+    large_jpeg.proxy_height = 288;
+    const AccountMediaRequestResult small_jpeg_as_png =
+        account_media_request_attachment(&media, large_jpeg, 1'004, 1'104);
+    expect(large_jpeg_stored.stored() && large_jpeg_requested.state == AccountMediaRequestState::ready &&
+               large_jpeg_taken && large_jpeg_frame.kind == AccountMediaFrameKind::png_scanlines &&
+               media_asset_key_equal(large_jpeg_frame.key, large_jpeg_key) &&
+               small_jpeg_as_png.state == AccountMediaRequestState::invalid,
+           "account_media_large_jpeg_rendition_decodes_as_proxy_png");
+
     const MediaAssetKey png_embed_key =
         media_asset_embed(7'005, 12, 0, MediaEmbedResource::thumbnail, MediaAttachmentFormat::png, false,
                           MediaResolutionTier::px512);
@@ -16696,6 +16726,18 @@ void test_media_presentation_policy() noexcept {
                capped.height == 128 && no_upscale.resolution == MediaResolutionTier::px512 &&
                no_upscale.width == 40 && no_upscale.height == 20,
            "media_presentation_policy_aspect_scale_and_caps");
+    // A 1920x1080 JPEG screenshot in a 550 DIP wide preview.
+    const MediaPresentationRequest screenshot = media_presentation_request(
+        1'920, 1'080, 550.0f, 309.375f, 96, media_preview_extent_cap(MediaAttachmentFormat::jpeg));
+    expect(media_preview_extent_cap(MediaAttachmentFormat::jpeg) == 2048 &&
+               media_preview_extent_cap(MediaAttachmentFormat::webp) == 512 &&
+               screenshot.resolution == MediaResolutionTier::px1024 && screenshot.width == 1024 &&
+               screenshot.height == 576 &&
+               media_preview_proxy_png(MediaAttachmentFormat::jpeg, screenshot.width, screenshot.height) &&
+               !media_preview_proxy_png(MediaAttachmentFormat::jpeg, 512, 288) &&
+               !media_preview_proxy_png(MediaAttachmentFormat::webp, 1'024, 576) &&
+               !media_preview_proxy_png(MediaAttachmentFormat::png, 1'024, 576),
+           "media_presentation_large_jpeg_previews_come_as_png");
 
     const MediaAssetKey attachment =
         media_asset_attachment(70, MediaAttachmentFormat::png, compact.resolution);

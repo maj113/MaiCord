@@ -755,7 +755,9 @@ bool ApplicationMediaPump::request_forum_thumbnails(u64 now_ms, u64 now_seconds,
             continue;
         const AccountMediaAttachmentRequest request{resolved, media.key, media.message_id, 1,
                                                     media.proxy.width, media.proxy.height,
-                                                    cdn_image_type(media.format), {0, 0, 0},
+                                                    cdn_image_type(media.format, media.proxy.width,
+                                                                   media.proxy.height),
+                                                    {0, 0, 0},
                                                     application.renderer.graphics.device};
         const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
             application.account.instance, &request, now_ms, now_seconds);
@@ -1276,7 +1278,10 @@ __declspec(noinline) void ApplicationMediaPump::flush_media_success_diagnostics(
 }
 
 __declspec(noinline) CdnImageType
-ApplicationMediaPump::cdn_image_type(MediaAttachmentFormat format) noexcept {
+ApplicationMediaPump::cdn_image_type(MediaAttachmentFormat format, u16 proxy_width,
+                                     u16 proxy_height) noexcept {
+    if (media_preview_proxy_png(format, proxy_width, proxy_height))
+        return CdnImageType::png;
     return format == MediaAttachmentFormat::webp   ? CdnImageType::webp
            : format == MediaAttachmentFormat::jpeg ? CdnImageType::jpeg
            : format == MediaAttachmentFormat::mp4  ? CdnImageType::mp4
@@ -1503,7 +1508,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
                                                 message.revision,
                                                 proxy.width,
                                                 proxy.height,
-                                                cdn_image_type(format),
+                                                cdn_image_type(format, proxy.width, proxy.height),
                                                 {0, 0, 0},
                                                 application.renderer.graphics.device};
     const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
@@ -1672,7 +1677,7 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
                                                 message.revision,
                                                 proxy.width,
                                                 proxy.height,
-                                                cdn_image_type(selected.format),
+                                                cdn_image_type(selected.format, proxy.width, proxy.height),
                                                 {0, 0, 0},
                                                 application.renderer.graphics.device};
     const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
