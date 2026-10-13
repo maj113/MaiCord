@@ -297,7 +297,9 @@ PluginManagerResult settle_commit(const PluginManagerPaths& paths, const PluginJ
         next.installed_code = journal.to_code;
         copy_bytes(next.installed_sha256, journal.to_sha256, 32);
         if (old) {
-            next.flags = old->flags & ~(kPluginStateReviewPending | kPluginStateIncompatibleHost);
+            // Another build: its revocation status comes from the next check.
+            next.flags = old->flags & ~(kPluginStateReviewPending | kPluginStateIncompatibleHost | kPluginStateRevokedMalicious |
+                kPluginStateRevokedBroken | kPluginStateWithdrawn);
             next.held_code = old->held_code;
             next.max_host_abi = old->max_host_abi;
             next.admitted_sequence = old->admitted_sequence;

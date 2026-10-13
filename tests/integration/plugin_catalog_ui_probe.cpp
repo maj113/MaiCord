@@ -1,5 +1,6 @@
 #include "probe_present.hpp"
 #include "../../src/app/application_plugin_settings_projection.hpp"
+#include "../../src/app/application_plugin_browser_projection.hpp"
 #include "maicord/core/log.hpp"
 
 namespace maicord {
@@ -90,6 +91,143 @@ bool geometry(CatalogFixture& f, UiRect viewport, u32 target) noexcept {
     }
     return (readable && f.scene.content_offset > 0 && f.scene.content.controls.count == 21) || failed(__LINE__);
 }
+// The catalog tabs over a small synthetic snapshot: an official and an
+// unofficial provider, one installed plugin with an update, one whose update
+// needs review, and a key change.
+struct BrowserFixture {
+    PluginCatalogSnapshot snapshot;
+    PluginCatalogEntryView entries[12];
+    PluginCatalogVersionView versions[12];
+    char documents[8192];
+    PluginBrowserBank bank;
+};
+BrowserFixture browser{};
+UiTextCommand browser_commands[1024];
+PluginIndexText browser_text(u32 provider, const char* value) noexcept {
+    auto& p = browser.snapshot.providers[provider];
+    u32 n = 0;
+    while (value[n]) { browser.documents[p.document_offset + p.document_bytes + n] = value[n]; ++n; }
+    const PluginIndexText text{p.document_bytes, n};
+    p.document_bytes += n;
+    return text;
+}
+void browser_name(char* out, u32* bytes, const char* value) noexcept {
+    u32 n = 0;
+    while (value[n]) { out[n] = value[n]; ++n; }
+    *bytes = n;
+}
+void build_browser() noexcept {
+    auto& s = browser.snapshot;
+    s.entries = browser.entries; s.versions = browser.versions; s.documents = browser.documents;
+    s.configured = true; s.provider_count = 2;
+    auto& official = s.providers[0];
+    official.id = kPluginProviderOfficial; official.kind = PluginProviderKind::official;
+    official.status = PluginCatalogStatus::ok; official.installable = official.enabled = official.check_daily = true;
+    browser_name(official.host, &official.host_bytes, "maj113.github.io");
+    browser_name(official.name, &official.name_bytes, "MaiCord plugins");
+    auto& custom = s.providers[1];
+    custom.id = 0x77; custom.kind = PluginProviderKind::custom_signed; custom.status = PluginCatalogStatus::key_changed;
+    custom.installable = custom.enabled = custom.check_daily = true; custom.document_offset = 4096;
+    browser_name(custom.host, &custom.host_bytes, "plugins.example.com");
+    browser_name(custom.path, &custom.path_bytes, "/catalog/");
+    browser_name(custom.name, &custom.name_bytes, "Example plugins");
+    custom.fingerprint[0] = 0xAB; custom.fingerprint[1] = 0x12;
+    const char* names[12]{"Showcase", "Message log", "Quick reply", "Gradient background", "Username suffixes", "Read aloud",
+        "Compact mode", "Timestamps", "Pinned notes", "Night shift", "Mention alerts", "Emoji tools"};
+    for (u32 i = 0; i < 12; ++i) {
+        const u32 provider = i < 9 ? 0 : 1;
+        auto& e = browser.entries[i];
+        e.owner = 500 + i; e.provider = provider; e.installed_index = ~0u;
+        e.name = browser_text(provider, names[i]);
+        e.summary = browser_text(provider, "SDK sample with a longer summary that wraps inside the row without covering the View button.");
+        e.author = browser_text(provider, "maj113"); e.author_count = 1;
+        e.license = browser_text(provider, "MPL-2.0");
+        e.homepage = browser_text(provider, "https://github.com/maj113/MaiCord-plugins");
+        e.categories = 1u << (i % 10); e.first_version = i; e.version_count = 1;
+        auto& v = browser.versions[i];
+        v.code = 1000000999; v.released = 1760200000; v.bytes = 48640; v.permissions = 0b1011;
+        v.compatibility = PluginCompatibility::compatible;
+        v.changelog = browser_text(provider, "First catalog release.");
+        v.sha256[0] = 0x4d; v.sha256[1] = 0x43;
+    }
+    browser.entries[0].disclosures = 0b1;
+    browser.versions[5].compatibility = PluginCompatibility::needs_newer_host;
+    browser.entries[5].newest = kPluginIndexNoVersion;
+    s.entry_count = s.version_count = 12;
+    s.installed_count = 2;
+    auto& a = s.installed[0];
+    a.owner = 501; a.provider = kPluginProviderOfficial; a.has_state = a.trusted = true; a.installed_code = 1000000999; a.entry = 1;
+    browser_name(a.version, &a.version_bytes, "1.0.0");
+    browser.versions[1].code = 1001000999;
+    browser.entries[1].installed_index = 0; browser.entries[1].bound = true;
+    browser.entries[1].update.outcome = PluginUpdateOutcome::available;
+    auto& b = s.installed[1];
+    b.owner = 509; b.provider = 0x77; b.has_state = b.trusted = true; b.installed_code = 1000000999; b.entry = 9;
+    browser_name(b.version, &b.version_bytes, "0.9.0");
+    browser.entries[9].installed_index = 1; browser.entries[9].bound = true;
+    browser.entries[9].update.outcome = PluginUpdateOutcome::review;
+    browser.entries[9].update.permissions = {0b100, 0, 0b1};
+}
+// Projects one tab into the bank and checks a label is drawn unclipped.
+bool browser_frame(CatalogFixture& f, D3D11Renderer& renderer, const PluginBrowserUiState& ui, Utf8View readable, u64 focus,
+    bool (*capture)(const wchar_t*) noexcept, const wchar_t* name) noexcept {
+    renderer_bind_settings_scene(&renderer, nullptr); ui_settings_scene_close(&f.scene);
+    PluginBrowserFacts facts{};
+    facts.snapshot = &browser.snapshot; facts.configured = true;
+    facts.now_unix = 1760400000; facts.checked_unix = 1760400000 - 7200;
+    const auto failed = [](u32 step) noexcept {
+        log_u64(LogLevel::error, "probe", "plugin_browser_frame_step", step);
+        return false;
+    };
+    const u32 count = plugin_browser_project(ui, facts, &browser.bank);
+    for (u32 i = 0; i < count; ++i) {
+        const auto& c = browser.bank.controls[i];
+        if (!utf8_validate(c.label).valid || !utf8_validate(c.description).valid) return failed(1);
+    }
+    f.content.controls = {browser.bank.controls, count}; f.content.presentation = browser.bank.presentation; ++f.content.revision;
+    const float pixels = static_cast<float>(renderer.dpi) / 96.f;
+    const UiRect viewport{0, 0, renderer.width / pixels, renderer.height / pixels};
+    if (!count || !ui_settings_scene_update(&f.scene, &f.registry, viewport)) return failed(2);
+    if (focus) {
+        const UiSettingsTarget target{UiSettingsTargetKind::control, {1, 4}, focus};
+        ui_settings_scene_reveal(&f.scene, target);
+        if (!ui_settings_scene_update(&f.scene, &f.registry, viewport)) return failed(3);
+    }
+    UiTextCommandStream stream{};
+    if (!ui_text_command_stream_initialize(&stream, {browser_commands, 1024}) ||
+        !ui_settings_scene_text(f.scene, kDefaultTheme, &stream)) return failed(4);
+    bool drawn = false;
+    for (u32 i = 0; i < stream.count; ++i)
+        if (utf8_equal(browser_commands[i].text, readable))
+            drawn = drawn || ui_rect_has_area(ui_rect_intersection(browser_commands[i].rectangle, browser_commands[i].clip));
+    if (!drawn) return failed(5);
+    renderer_bind_settings_scene(&renderer, &f.scene);
+    if (!renderer_rebuild_content_text(&renderer, kDefaultTheme)) return failed(6);
+    if (!probe_present(&renderer, kDefaultTheme)) return failed(7);
+    return capture(name) || failed(8);
+}
+bool browser_frames(CatalogFixture& f, D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept) noexcept {
+    build_browser();
+    // Official plugins come first: page one shows them, Community the rest.
+    PluginBrowserUiState ui{};
+    bool valid = browser_frame(f, renderer, ui, utf8_literal("Needs a newer MaiCord"), kPluginBrowserRowFirst + 5, capture,
+        L"plugin-browser-list.bmp");
+    ui.source = PluginBrowserSource::community;
+    valid = valid && browser_frame(f, renderer, ui, utf8_literal("Unofficial \xC2\xB7 plugins.example.com"), 0, capture,
+        L"plugin-browser-community.bmp");
+    ui = {};
+    ui.detail = true; ui.detail_provider = 0x77; ui.detail_owner = 509;
+    valid = valid && browser_frame(f, renderer, ui, utf8_literal("Review update"), 0, capture, L"plugin-browser-detail-unofficial.bmp");
+    ui.detail_provider = kPluginProviderOfficial; ui.detail_owner = 501;
+    valid = valid && browser_frame(f, renderer, ui, utf8_literal("Homepage"), kPluginBrowserHomepageId, capture,
+        L"plugin-browser-detail-official.bmp");
+    ui = {}; ui.tab = PluginBrowserTab::updates;
+    valid = valid && browser_frame(f, renderer, ui, utf8_literal("New permissions"), 0, capture, L"plugin-browser-updates.bmp");
+    ui.tab = PluginBrowserTab::providers;
+    valid = valid && browser_frame(f, renderer, ui, utf8_literal("Trust new key"), 0, capture, L"plugin-browser-providers.bmp");
+    if (!valid) log_write(LogLevel::error, "probe", "plugin_browser_frames_failed");
+    return valid;
+}
 } // namespace
 
 bool plugin_catalog_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept) noexcept {
@@ -169,6 +307,10 @@ bool plugin_catalog_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wcha
         valid = valid && readable;
         renderer_bind_settings_scene(&renderer, &f.scene);
         valid = valid && renderer_rebuild_content_text(&renderer, kDefaultTheme) && probe_present(&renderer, kDefaultTheme) && capture(install_names[i]);
+    }
+    if (valid) {
+        stage = __LINE__;
+        valid = renderer_resize(&renderer, width, height) && browser_frames(f, renderer, capture);
     }
     renderer_bind_settings_scene(&renderer, previous);
     valid = renderer_resize(&renderer, width, height) && renderer_rebuild_content_text(&renderer, kDefaultTheme) &&

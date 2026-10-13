@@ -23,6 +23,7 @@
 #include "application_guild_settings.hpp"
 #include "application_update_startup.hpp"
 #include "application_updates.hpp"
+#include "application_plugin_browser.hpp"
 #include "application_friends.hpp"
 #include "application_text_form.hpp"
 #include "application_forum_form.hpp"
@@ -290,6 +291,7 @@ int application_run() noexcept {
 #if !defined(MAICORD_ISOLATED_MAIN)
     application_updates_confirm_startup();
     application_updates_initialize(application_update_build_config());
+    application_plugin_browser_initialize();
 #endif
 
 #if !defined(MAICORD_ISOLATED_MAIN)
@@ -316,7 +318,7 @@ int application_run() noexcept {
         application_downloads_pump();
         application_account_logout_pump();
         application_account_switch_pump();
-        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 12]{};
+        HANDLE wait_handles[kAccountHostNotificationHandleCapacity + 13]{};
         const u32 account_handle_count =
             application_account_logout_blocked()
                 ? 0
@@ -345,6 +347,8 @@ int application_run() noexcept {
             wait_handles[wait_handle_count++] = switching;
         if (HANDLE updates = application_updates_notification())
             wait_handles[wait_handle_count++] = updates;
+        if (HANDLE catalog = application_plugin_browser_notification())
+            wait_handles[wait_handle_count++] = catalog;
         u32 frame_handle_index = 0xFFFFFFFFu;
         const u64 wait_now_ms = clock_monotonic_milliseconds();
         const u64 wait_now_us = clock_microseconds(g_app.clock, g_app.process_start, clock_now());
@@ -448,6 +452,7 @@ int application_run() noexcept {
         application_preferences_poll();
         application_custom_theme_poll();
         application_plugins_poll();
+        application_plugin_browser_poll();
         application_downloads_pump();
         if (application_updates_poll() && g_app.window) {
             // An update restart closes for real, never to the tray.
@@ -744,6 +749,7 @@ int application_run() noexcept {
     drain_deferred_text_services();
     application_preferences_shutdown();
     application_updates_release();
+    application_plugin_browser_release();
     application_notifications_prepare_shutdown(&g_app);
     application_tooltip_release();
     application_unread_banner_release();

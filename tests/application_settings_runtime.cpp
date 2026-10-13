@@ -255,11 +255,12 @@ void test_native_projection_bank() noexcept {
     const auto before_catalog = appearance->revision;
     const auto widget_generation = current->widgets.generation;
     check(ui_page_registry_select(pages, kPluginsPage).ok() && application_settings_synchronize() &&
-              plugins->controls.data == shared && plugins->controls.count && !appearance->controls.data &&
+              plugins->controls.data && plugins->controls.data != shared && plugins->controls.count &&
+              !appearance->controls.data &&
               !appearance->controls.count && appearance->revision > before_catalog &&
               current->widgets.generation != widget_generation &&
               !ui_settings_scene_control(*current, {UiSettingsTargetKind::control, kAppearancePage, cid("appearance.gradient_intensity")}),
-          "settings shared bank: catalog entry reuses selected bank and retires Appearance borrow and "
+          "settings shared bank: the catalog page borrows its own bank and retires Appearance borrow and "
           "input generation");
     const UiSettingsTarget retired_catalog{
         UiSettingsTargetKind::control, kPluginsPage, plugins->controls.count ? plugins->controls[0].id : 1};

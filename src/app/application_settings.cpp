@@ -18,6 +18,8 @@
 #include "application_attachments.hpp"
 #include "application_plugins.hpp"
 #include "application_plugin_settings_projection.hpp"
+#include "application_plugin_browser.hpp"
+#include "application_plugin_browser_projection.hpp"
 #include "application_friends.hpp"
 #include "application_notifications.hpp"
 #include "application_theme_editor.hpp"
@@ -469,6 +471,7 @@ void project(ApplicationSettings& settings) noexcept {
         settings.native_page = native;
         application_voice_settings_visible(native == static_cast<u32>(SettingsPanel::voice) + 1);
         application_keybinds_settings_visible(native == static_cast<u32>(SettingsPanel::keybinds) + 1);
+        application_plugin_browser_page_visible(native == kPluginsPage);
         application_account_settings_visible(native >= 1 && native <= kSettingsPanelCount
                                                  ? static_cast<SettingsPanel>(native - 1)
                                                  : SettingsPanel::count);
@@ -479,7 +482,26 @@ void project(ApplicationSettings& settings) noexcept {
         appearance.description = status;
         changed[static_cast<u32>(SettingsPanel::appearance)] = true;
     }
-    if (native == kPluginsPage) {
+    UiSettingsControl* browser_controls = nullptr;
+    UiSettingsControlPresentation* browser_presentation = nullptr;
+    bool browser_changed = false;
+    const u32 browser_count = native == kPluginsPage
+                                  ? application_plugin_browser_project(&browser_controls, &browser_presentation,
+                                                                       settings.plugin_error, &browser_changed)
+                                  : 0;
+    if (browser_count) {
+        // The catalog tabs borrow their own bank, like Keybinds.
+        auto& page = changed[kPluginsPage - 1];
+        auto& content = settings.content[kPluginsPage - 1];
+        const u64 catalog_revision = application_plugins_catalog_revision();
+        page = page || browser_changed || settings.catalog_revision != catalog_revision ||
+               content.controls.count != browser_count || content.controls.data != browser_controls;
+        settings.catalog_revision = catalog_revision;
+        content.controls = {browser_controls, browser_count};
+        content.presentation = browser_presentation;
+        content.avatar_media = nullptr;
+        content.meters = nullptr;
+    } else if (native == kPluginsPage) {
         UiSettingsControl plugin_controls[kApplicationPluginSettingsMaximumControls]{};
         const u32 plugin_count = application_plugins_settings_controls(
             {plugin_controls, kApplicationPluginSettingsMaximumControls},
@@ -996,8 +1018,17 @@ bool activate_plugin(ApplicationSettings& settings, UiSettingsTarget target, con
         ui_settings_scene_animate_toggle(&settings.scene, target, request.checked, clock_monotonic_milliseconds());
     return result.ok() && (!result.changed || refresh());
 }
-bool activate_plugin_catalog(ApplicationSettings& settings, UiSettingsTarget target) noexcept {
+bool activate_plugin_catalog(ApplicationSettings& settings, UiSettingsTarget target, const UiSettingsActivation& request) noexcept {
     settings.plugin_error = NativePluginError::none;
+    if (plugin_browser_control(target.control_id)) {
+        const bool result = application_plugin_browser_activate(target.control_id, request);
+        if (result && request.kind == UiSettingsControlKind::toggle && g_app.window && g_app.settings == &settings)
+            ui_settings_scene_animate_toggle(&settings.scene, target, request.checked, clock_monotonic_milliseconds());
+        if (g_app.settings != &settings)
+            return result;
+        project(settings);
+        return refresh() && result;
+    }
     if (target.control_id == 1) {
         if (application_plugins_save_pending())
             application_plugins_retry_save();
@@ -1079,7 +1110,7 @@ bool activate(UiSettingsTarget target, bool reverse, const NativePluginUiToken* 
     if (target.page.owner_id != kNativeSettingsOwner)
         return activate_plugin(*settings, target, request, expected);
     if (target.page.page_id == kPluginsPage)
-        return activate_plugin_catalog(*settings, target);
+        return activate_plugin_catalog(*settings, target, request);
     if (request.kind == UiSettingsControlKind::category)
         return navigate_link(*settings, target.control_id);
     if (application_keybinds_settings_row(target.control_id)) {
@@ -1862,6 +1893,7 @@ void application_settings_release() noexcept {
     }
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     ui_settings_scene_release(&settings->scene);
+    application_plugin_browser_settings_released();
     if (!release_plugin_page(*settings)) {
         log_write(LogLevel::error, "plugins", "settings_projection_release_pending");
         return;

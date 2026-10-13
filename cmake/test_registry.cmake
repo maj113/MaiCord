@@ -235,6 +235,28 @@ maicord_test(MaiCordPluginManagerTests ENTRY maicord_plugin_manager_tests_entry
     DEPENDS MaiCordPluginFixture
     TIMEOUT 10
     TEST maicord_plugin_manager)
+# Plugin catalog at runtime: startup recovery, the roll-forward of a staged
+# automatic update and the startup gate; applying indexes to installed plugins
+# (adoption, revocation, the blocklist, pruning, offers); the browser
+# snapshot; and the catalog worker driven through a fake server.
+maicord_test(MaiCordPluginRuntimeTests ENTRY maicord_plugin_runtime_tests_entry
+    SOURCES tests/plugin_manager_runtime.cpp src/app/application_plugin_browser_worker.cpp
+    LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_manager maicord_plugin_modules kernel32 bcrypt
+        ws2_32 secur32 crypt32
+    INCLUDES src/app
+    DEFINES "MAICORD_PLUGIN_INDEX_FIXTURES=L\"${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/plugin_index\""
+    DEPENDS MaiCordPluginFixture
+    TIMEOUT 10
+    TEST maicord_plugin_runtime)
+# Settings > Plugins with the catalog: tab and filter control counts, chips,
+# paging, the detail view and the dialog texts (pure projections).
+maicord_test(MaiCordPluginBrowserTests ENTRY maicord_plugin_browser_tests_entry
+    SOURCES tests/application_plugin_browser_projection.cpp src/app/application_plugin_browser_projection.cpp
+    LIBS maicord_core maicord_platform maicord_app_core maicord_ui maicord_plugin_manager maicord_plugin_modules kernel32
+        user32 bcrypt
+    INCLUDES src/app
+    TIMEOUT 10
+    TEST maicord_plugin_browser)
 maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
     SOURCES tests/application_settings_runtime.cpp tests/application_custom_theme.cpp
         tests/application_plugin_catalog_runtime.cpp tests/application_plugin_navigation_runtime.cpp
@@ -250,9 +272,11 @@ maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
         src/render/content_text_retention.cpp src/core/log.cpp src/app/application_updates.cpp
         src/app/application_voice_settings.cpp src/app/voice_settings_binding.cpp
         src/app/application_keybinds_settings.cpp src/app/application_activity.cpp src/app/game_detection.cpp
+        src/app/application_plugin_browser.cpp src/app/application_plugin_browser_worker.cpp
+        src/app/application_plugin_browser_entry.cpp src/app/application_plugin_browser_projection.cpp
     LIBS bcrypt ws2_32 secur32 maicord_compile_contract maicord_core maicord_platform maicord_app_core
-        maicord_ui maicord_client_preferences maicord_plugin_host maicord_plugin_modules maicord_message_media
-        maicord_ui_input kernel32 user32 shell32 ole32
+        maicord_ui maicord_client_preferences maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
+        maicord_message_media maicord_ui_input kernel32 user32 shell32 ole32
     INCLUDES src/app
     DEPENDS MaiCordPluginFixture
     TEST maicord_settings_runtime)
@@ -1941,7 +1965,8 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/inline_flags_probe.cpp tests/integration/guild_rail_icon_probe.cpp
         tests/integration/background_theme_probe.cpp
         tests/integration/plugin_ui_probe.cpp tests/integration/plugin_navigation_ui_probe.cpp
-        tests/integration/plugin_catalog_ui_probe.cpp tests/integration/settings_choice_ui_probe.cpp
+        tests/integration/plugin_catalog_ui_probe.cpp src/app/application_plugin_browser_projection.cpp
+        tests/integration/settings_choice_ui_probe.cpp
         tests/integration/notification_settings_ui_probe.cpp tests/integration/shortcuts_ui_probe.cpp
         tests/integration/call_scene_ui_probe.cpp tests/integration/inbox_ui_probe.cpp
         tests/integration/login_recovery_ui_probe.cpp tests/login_reset_ui_probe.cpp
@@ -1968,7 +1993,8 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         "${MAICORD_GENERATED_DIRECTORY}/video_frame_reference.hpp" tests/integration/webp_scroll_probe.cpp
         tests/media_fixture.cpp src/core/log.cpp
     LIBS maicord_core maicord_text maicord_ui maicord_ui_input maicord_model maicord_plugin_host
-        maicord_plugin_modules maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu
+        maicord_plugin_modules maicord_plugin_manager maicord_message_runtime maicord_render_core maicord_media_codec
+        maicord_atlas_gpu
         maicord_renderer maicord_platform maicord_protocol maicord_app_core maicord_message_media
         maicord_account_media kernel32 user32 ws2_32 secur32 bcrypt crypt32 d3d11 dxgi dcomp dwrite dwmapi
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}" src/app

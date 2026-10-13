@@ -350,11 +350,12 @@ maicord_library(maicord_plugin_modules
     LIBS maicord_core maicord_plugin_host kernel32 bcrypt)
 # Plugin catalog: the signed index verifier, its pure policy, the provider,
 # floor, state and journal records of the plugin manager, the check service
-# and the journaled install orchestration.
+# the journaled install orchestration, startup gating, applying indexes to
+# installed plugins and the browser snapshot.
 maicord_library(maicord_plugin_manager
     src/app/plugin_index.cpp src/app/plugin_index_policy.cpp src/app/plugin_index_acceptance.cpp
     src/app/plugin_providers.cpp src/app/plugin_manager_state.cpp src/app/plugin_index_service.cpp
-    src/app/plugin_manager_install.cpp
+    src/app/plugin_manager_install.cpp src/app/plugin_manager_runtime.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_modules kernel32 bcrypt)
 
 maicord_library(maicord_edit_history src/model/edit_history.cpp LIBS maicord_core maicord_platform)

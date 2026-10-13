@@ -97,6 +97,8 @@ add_executable(MaiCord WIN32
     src/app/application_scrolling.cpp src/app/application_scroll_host.cpp src/app/application_shell_input.cpp
     src/app/application_pane_resize.cpp src/app/main.cpp src/core/log.cpp $<TARGET_OBJECTS:maicord_runtime>
     src/app/application_accessibility.cpp src/app/application_updates.cpp src/app/application_update_entry.cpp
+    src/app/application_plugin_browser.cpp src/app/application_plugin_browser_worker.cpp
+    src/app/application_plugin_browser_entry.cpp src/app/application_plugin_browser_projection.cpp
     # Voice calls: soundboard, voice messages, preferences, voice card, mute/deafen,
     # the voice user menu, the call view, stage channels and Go Live.
     src/app/application_soundboard.cpp src/app/application_voice_message.cpp src/app/application_voice.cpp
@@ -105,7 +107,7 @@ add_executable(MaiCord WIN32
     src/app/application_invite_cards.cpp src/app/application_stream.cpp)
 target_link_libraries(MaiCord PRIVATE maicord_compile_contract
     maicord_core maicord_text maicord_ui maicord_model maicord_client_preferences
-    maicord_notification_sound_assets maicord_plugin_host maicord_plugin_modules maicord_ui_input
+    maicord_notification_sound_assets maicord_plugin_host maicord_plugin_modules maicord_plugin_manager maicord_ui_input
     maicord_message_runtime maicord_message_media maicord_account_paths maicord_account_host
     maicord_render_core maicord_atlas_gpu maicord_renderer maicord_media_core maicord_webauthn
     kernel32 user32 shell32 d3d11 dxgi dcomp maicord_uia maicord_app_core ws2_32 secur32 bcrypt)
@@ -171,6 +173,45 @@ if(MAICORD_UPDATE_REPOSITORY OR MAICORD_UPDATE_PUBLIC_KEY)
 endif()
 set_source_files_properties(src/app/application_update_entry.cpp PROPERTIES COMPILE_DEFINITIONS
     "MAICORD_UPDATE_REPOSITORY=\"${MAICORD_UPDATE_REPOSITORY}\";MAICORD_UPDATE_PUBLIC_KEY=\"${MAICORD_UPDATE_PUBLIC_KEY}\";MAICORD_UPDATE_PREVIEW=${maicord_update_preview};MAICORD_VERSION_MAJOR=${PROJECT_VERSION_MAJOR};MAICORD_VERSION_MINOR=${PROJECT_VERSION_MINOR};MAICORD_VERSION_PATCH=${PROJECT_VERSION_PATCH}")
+
+# Official plugin catalog (maj113/MaiCord-plugins on GitHub Pages): the current
+# and the next (offline) P-256 key. No key compiles the official catalog as
+# "not configured"; custom providers still work. Environment variables
+# override the defaults, as for the updater.
+set(maicord_default_plugin_catalog_repository "maj113/MaiCord-plugins")
+set(maicord_default_plugin_catalog_public_key "")
+set(maicord_default_plugin_catalog_next_public_key "")
+foreach(name REPOSITORY PUBLIC_KEY NEXT_PUBLIC_KEY)
+    string(TOLOWER "${name}" lower)
+    if(DEFINED ENV{MAICORD_PLUGIN_CATALOG_${name}})
+        set(maicord_default_plugin_catalog_${lower} "$ENV{MAICORD_PLUGIN_CATALOG_${name}}")
+    endif()
+endforeach()
+set(MAICORD_PLUGIN_CATALOG_REPOSITORY "${maicord_default_plugin_catalog_repository}" CACHE STRING
+    "GitHub owner/repo whose Pages site publishes the signed official plugin catalog")
+set(MAICORD_PLUGIN_CATALOG_PUBLIC_KEY "${maicord_default_plugin_catalog_public_key}" CACHE STRING
+    "Plugin catalog ECDSA P-256 public key (130 hex digits); empty: the official catalog is not configured")
+set(MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY "${maicord_default_plugin_catalog_next_public_key}" CACHE STRING
+    "The next plugin catalog key, accepted alongside the current one for rotation (130 hex digits or empty)")
+if(MAICORD_PLUGIN_CATALOG_PUBLIC_KEY OR MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY)
+    if(NOT MAICORD_PLUGIN_CATALOG_REPOSITORY MATCHES "^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9_.-]+$")
+        message(FATAL_ERROR "MAICORD_PLUGIN_CATALOG_REPOSITORY must be owner/repo.")
+    endif()
+    if(NOT MAICORD_PLUGIN_CATALOG_PUBLIC_KEY)
+        message(FATAL_ERROR "MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY needs MAICORD_PLUGIN_CATALOG_PUBLIC_KEY.")
+    endif()
+    foreach(key MAICORD_PLUGIN_CATALOG_PUBLIC_KEY MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY)
+        if(${key} AND NOT ${key} MATCHES "^04[0-9A-Fa-f]+$")
+            message(FATAL_ERROR "${key} must be a 130-digit uncompressed point (04...).")
+        endif()
+        string(LENGTH "${${key}}" maicord_plugin_catalog_key_length)
+        if(${key} AND NOT maicord_plugin_catalog_key_length EQUAL 130)
+            message(FATAL_ERROR "${key} must be 130 hex digits.")
+        endif()
+    endforeach()
+endif()
+set_source_files_properties(src/app/application_plugin_browser_entry.cpp PROPERTIES COMPILE_DEFINITIONS
+    "MAICORD_PLUGIN_CATALOG_REPOSITORY=\"${MAICORD_PLUGIN_CATALOG_REPOSITORY}\";MAICORD_PLUGIN_CATALOG_PUBLIC_KEY=\"${MAICORD_PLUGIN_CATALOG_PUBLIC_KEY}\";MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY=\"${MAICORD_PLUGIN_CATALOG_NEXT_PUBLIC_KEY}\"")
 
 # Runtime assets next to the executable: licenses and the bundled fonts.
 add_custom_command(TARGET MaiCord POST_BUILD
@@ -241,7 +282,7 @@ maicord_compact_sources(
         src/platform/staged_file.cpp src/platform/browser_sign_in_launcher.cpp
         src/platform/network_file.cpp src/platform/file_picker.cpp src/platform/clipboard_attachment.cpp
         src/platform/file_identity.cpp src/platform/timezone.cpp src/platform/secure_buffer.cpp
-    TARGETS maicord_protocol maicord_model maicord_plugin_host maicord_plugin_modules
+    TARGETS maicord_protocol maicord_model maicord_plugin_host maicord_plugin_modules maicord_plugin_manager
         maicord_account_host maicord_client_preferences maicord_account_paths maicord_webauthn
     EXCLUDE
         "/application_(frame_presentation|scrolling|scroll_host|surface_motion|ui_runtime|input_routing|scheduler|media_animation|account_pump|window_runtime|composer_input|composer_text_input|content_input|shell_input|keyboard_focus|video|image_viewer|tooltip|pane_resize)\\.cpp$"

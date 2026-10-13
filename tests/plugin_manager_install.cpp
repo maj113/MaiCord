@@ -267,10 +267,17 @@ void test_lifecycle() noexcept {
     check(installed.committed && r.ok() && g.settled.action == Action::finish && g.settled.trusted && state_count() == 1 && state_is(0, ~u32{0}) &&
         trust_is(0, kSettings) && plugins_are(1, 1) && manifest_is(0) && settled_clean() && snapshot_is(~u32{0}),
         "plugin install: state 1, trust 1, files 2 (manifest and DLL), journal clear and staging empty");
+    // A build flagged by an earlier check: the next build starts unflagged.
+    PluginManagerState flagged{};
+    bool marked = plugin_manager_state_load({g.paths.state, g.paths.state_count}, &flagged).ok() && flagged.count == 1;
+    if (marked) flagged.entries[0].flags |= kPluginStateRevokedBroken | kPluginStateWithdrawn;
+    marked = marked && plugin_manager_state_save({g.paths.state, g.paths.state_count}, flagged).ok();
     // Same permissions: the trust follows the new digest; the previous version is retained.
     check(run(Op::update, 1, kSettings) && state_is(1, 0) && trust_is(1, kSettings) && plugins_are(1, 2) && dll_present(0) && dll_present(1) &&
         manifest_is(1) && snapshot_is(0) && settled_clean(),
         "plugin update: same permissions keep 2 DLLs, the trust SHA follows 1.1.0 and the snapshot names 1.0.0");
+    check(marked && entry() && !(entry()->flags & (kPluginStateRevokedBroken | kPluginStateWithdrawn)),
+        "plugin update: revocation flags of the replaced build do not carry over");
     // More permissions: review, nothing written.
     r = prepare(Op::update, 2, kSettings);
     check(r.error == ME::review && r.permissions.added == g.permissions_menus && r.permissions.kept == kSettings && plugins_are(1, 2) &&

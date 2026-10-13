@@ -237,7 +237,8 @@ void test_application_plugin_catalog_runtime(void (*check)(bool, const char*) no
         "catalog UI: Enter Refresh reuses lazy owner and executes no DLL entry/query/start");
     const auto revision = application_plugins_catalog_revision();
     check(activate(kApplicationPluginNextAction, VK_SPACE) && g_app.plugins->catalog_first == 8 &&
-        application_plugins_catalog_revision() > revision && scene()->content.controls.count == 6 &&
+        application_plugins_catalog_revision() > revision && scene()->content.controls.count == 7 &&
+        scene()->content.controls[0].kind == UiSettingsControlKind::tabs &&
         !application_plugins_catalog_page(true, revision), "catalog UI: page window is eight and stale page revision is rejected");
     check(activate(kApplicationPluginPreviousAction, VK_RETURN) && g_app.plugins->catalog_first == 0,
         "catalog UI: Enter Previous restores first window through shared semantic dispatcher");
