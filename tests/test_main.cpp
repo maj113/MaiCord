@@ -3717,6 +3717,34 @@ void test_message_text_presentation() noexcept {
     expect(compact_reply_emoji_found && compact_reply_measures, "message_text_emoji_reply_measures_with_native_backend");
     text_system_release(&reply_text_system);
 
+    // Server nicknames name message authors and reply authors.
+    const auto nickname_leads = [&](u64 user_id, MessageTextMeasurementKind kind) noexcept {
+        reply_member_records[0].user_id = user_id;
+        copy_bytes(reply_member_records[0].nickname, "Mod Nick", 8);
+        reply_member_records[0].nickname_bytes = 8;
+        ++reply_members.revision;
+        bool found = false;
+        const bool rebuilt = message_text_presentation_build(&presentation, scene, state, &users,
+                                                             navigation, kDefaultTheme, 1'700'000'100ull)
+                                 .ok();
+        for (u32 index = 0; rebuilt && row && index < presentation.command_count; ++index) {
+            const MessageTextCommand& command = presentation.commands[index];
+            const bool author = kind == MessageTextMeasurementKind::none &&
+                                command.owner.handle.slot == row->author.slot && command.styles.count;
+            const bool measured = kind != MessageTextMeasurementKind::none && command.measurement_kind == kind;
+            if ((author || measured) &&
+                command.text.bytes >= 8 && bytes_equal(command.text.data, "Mod Nick", 8))
+                found = true;
+        }
+        reply_member_records[0].user_id = 8;
+        reply_member_records[0].nickname_bytes = 0;
+        ++reply_members.revision;
+        return found;
+    };
+    expect(nickname_leads(9, MessageTextMeasurementKind::none) &&
+               nickname_leads(8, MessageTextMeasurementKind::reply),
+           "message_text_author_and_reply_headers_use_server_nicknames");
+
     u32 embed_command_index = ~0u;
     u32 sticker_caption_index = ~0u;
     for (u32 index = 0; index < presentation.command_count; ++index) {

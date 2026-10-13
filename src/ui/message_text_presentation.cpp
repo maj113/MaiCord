@@ -257,6 +257,17 @@ void note_emission(MarkdownParseTrace* trace, u32 bytes) noexcept {
     trace->largest_emission = maximum(trace->largest_emission, bytes);
 }
 
+// The user's server nickname in the channel's guild, or empty.
+Utf8View member_nickname(const MessageTextPresentation& presentation, const ChatStateStore& state,
+                         u64 channel_id, u64 user_id) noexcept {
+    const ChannelRecord* channel = chat_state_store_find_channel(state, channel_id);
+    const GuildMemberRecord* member =
+        presentation.guild_members && channel && channel->guild_id != 0 && user_id != 0
+            ? guild_member_store_find(*presentation.guild_members, channel->guild_id, user_id)
+            : nullptr;
+    return member ? guild_member_store_nickname(*member) : Utf8View{};
+}
+
 Utf8View resolve_entity_name(const BuildContext* context, MessageMarkdownEntityKind kind, u64 id) noexcept {
     if (!context || !context->state || !context->navigation || id == 0) {
         return Utf8View{};
@@ -264,6 +275,12 @@ Utf8View resolve_entity_name(const BuildContext* context, MessageMarkdownEntityK
     if (kind == MessageMarkdownEntityKind::user) {
         if (!context->users) {
             return Utf8View{};
+        }
+        if (context->presentation && context->message) {
+            const Utf8View nickname =
+                member_nickname(*context->presentation, *context->state, context->message->channel_id, id);
+            if (nickname.bytes)
+                return nickname;
         }
         const UserRecord* user = user_store_find(*context->users, id);
         return user ? user_store_name(*context->users, *user) : Utf8View{};
@@ -364,12 +381,14 @@ u64 markdown_cache_key(Utf8View source, const MessageMarkdownOptions& options, M
     return key ? key : 1u;
 }
 
-// Names the resolver can return: users, channels and the selected guild's roles.
+// Names the resolver can return: users (by server nickname), channels and the
+// selected guild's roles.
 u64 markdown_entity_epoch(const ChatStateStore& state, const UserStore* users,
-                          const NavigationView& navigation) noexcept {
+                          const GuildMemberStore* members, const NavigationView& navigation) noexcept {
     const ChannelRecord* selected = chat_state_store_find_channel(state, navigation.selected_channel_id);
     u64 epoch = hash64_mix(kHash64Seed, reinterpret_cast<usize>(users));
     epoch = hash64_mix(epoch, users ? users->revision : 0u);
+    epoch = hash64_mix(epoch, members ? members->revision : 0u);
     epoch = hash64_mix(epoch, reinterpret_cast<usize>(&state));
     epoch = hash64_mix(epoch, state.guild_mutations);
     epoch = hash64_mix(epoch, state.channel_mutations);
@@ -1697,7 +1716,9 @@ bool retain_system_text(MessageTextPresentation* presentation, const ChatStateSt
     input.timestamp_ms = record.timestamp_ms;
     input.content = content;
     const UserRecord* author = users && record.author_id ? user_store_find(*users, record.author_id) : nullptr;
-    input.author = author ? user_store_name(*users, *author) : Utf8View{};
+    input.author = member_nickname(*presentation, state, record.channel_id, record.author_id);
+    if (!input.author.bytes)
+        input.author = author ? user_store_name(*users, *author) : Utf8View{};
     const ChannelRecord* channel = chat_state_store_find_channel(state, record.channel_id);
     if (channel && channel->guild_id) {
         if (const GuildRecord* guild = chat_state_store_find_guild(state, channel->guild_id))
@@ -1711,7 +1732,11 @@ bool retain_system_text(MessageTextPresentation* presentation, const ChatStateSt
     if (rich && rich_store) {
         target_id = rich->system.target_user_id;
         input.target = message_rich_store_string(*rich_store, rich->system.target_name);
-        if (target_id && users) {
+        const Utf8View target_nickname =
+            member_nickname(*presentation, state, record.channel_id, target_id);
+        if (target_nickname.bytes) {
+            input.target = target_nickname;
+        } else if (target_id && users) {
             if (const UserRecord* target = user_store_find(*users, target_id)) {
                 const Utf8View name = user_store_name(*users, *target);
                 if (name.bytes)
@@ -2379,7 +2404,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             if (label.bytes == 0)
                 label = utf8_literal("Unknown user");
         } else if (rich->reference.state == GatewayMessageReferenceState::available) {
-            label = message_rich_store_string(*rich_store, rich->reference.author_name);
+            label = member_nickname(*presentation, state, record->channel_id, rich->reference.author_id);
+            if (label.bytes == 0)
+                label = message_rich_store_string(*rich_store, rich->reference.author_name);
             if (label.bytes == 0 && users) {
                 const auto* user = user_store_find(*users, rich->reference.author_id);
                 if (user)
@@ -2454,7 +2481,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
         set_failure_context(presentation, MessageTextPresentationStage::author,
                             MessageTextPresentationOperation::append_command);
         const UserRecord* user = user_store_find(*users, record->author_id);
-        Utf8View name = user ? user_store_name(*users, *user) : Utf8View{};
+        Utf8View name = member_nickname(*presentation, state, record->channel_id, record->author_id);
+        if (name.bytes == 0 && user)
+            name = user_store_name(*users, *user);
         if (name.bytes == 0 && record->delivery != MessageDeliveryState::authoritative) {
             name = utf8_literal("You");
         }
@@ -3515,7 +3544,8 @@ MessageTextPresentationResult message_text_presentation_build(
     presentation->style_count = 0;
     presentation->semantic_count = 0;
     presentation->measurement_count = 0;
-    presentation->markdown_entity_epoch = markdown_entity_epoch(state, users, navigation);
+    presentation->markdown_entity_epoch =
+        markdown_entity_epoch(state, users, presentation->guild_members, navigation);
     presentation->rich = MessageTextRichMetrics{};
     presentation->next_timestamp_update_unix_seconds = 0;
     presentation->projection_signature = 0;
