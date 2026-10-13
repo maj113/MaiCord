@@ -29,6 +29,7 @@
 #include "application_message_delete.hpp"
 #include "application_message_edit.hpp"
 #include "application_message_reaction.hpp"
+#include "application_reaction_tooltip.hpp"
 #include "application_message_send.hpp"
 #include "application_message_forward.hpp"
 #include "application_private_conversation.hpp"
@@ -140,6 +141,7 @@ static void trace_rest_scheduler() noexcept {
              (reactions.phase == ReactionViewerRequestPhase::required ||
               (reactions.phase == ReactionViewerRequestPhase::retry_wait && reactions.retry_at_ms &&
                reactions.retry_at_ms <= now_ms)));
+    mark(MessageHistoryRequestOwner::reaction_tooltip, application_reaction_tooltip_pending());
     const auto* profile = g_app.profile;
     mark(MessageHistoryRequestOwner::user_profile, profile && profile->scene.active &&
                                                        (profile->pending || profile->effect_pending) &&
@@ -1124,6 +1126,8 @@ static bool pump_message_history_main(bool admit) noexcept {
                     log_u64(LogLevel::warning, "reaction_viewer", "response_take_error",
                             static_cast<u64>(failed.error));
                     refresh_account_text(true);
+                } else if (owner == MessageHistoryRequestOwner::reaction_tooltip) {
+                    application_reaction_tooltip_failed();
                 } else if (owner == MessageHistoryRequestOwner::message_jump) {
                     response.error = RestClientError::response;
                     MessageHistoryRestResult failed{};
@@ -1378,6 +1382,15 @@ static bool pump_message_history_main(bool admit) noexcept {
                 if (!refresh_account_text(true) || (g_app.window && !application_request_frame())) {
                     return false;
                 }
+            } else if (owner == MessageHistoryRequestOwner::reaction_tooltip) {
+                // The tooltip shows the names at its next synchronize.
+                application_reaction_tooltip_response(
+                    response, ConstSlice<u8>{body_output.data, response.body_bytes},
+                    Slice<u32>{g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
+                    Slice<u32>{g_app.account_ui->message_history_object_structurals,
+                               kMessageHistoryObjectStructuralCount});
+                if (g_app.window && !application_request_frame())
+                    return false;
             } else {
                 const u64 history_channel =
                     owner == MessageHistoryRequestOwner::catchup ? catchup.channel_id
@@ -1731,6 +1744,24 @@ static bool pump_message_history_main(bool admit) noexcept {
             return false;
         }
         g_app.message_history_request_owner = MessageHistoryRequestOwner::reaction_users;
+        return true;
+    }
+    // The first reactors of a hovered reaction pill.
+    ReactionTooltipQuery reactors{};
+    if (application_reaction_tooltip_query(&reactors)) {
+        const u64 request_id = next_message_history_request_id();
+        const RestClientSubmitResult submitted =
+            host.api.reaction_users(host.instance, reactors.channel_id, reactors.message_id, reactors.emoji_id,
+                                    reactors.emoji_name, reactors.type, 0, kReactionTooltipNames, request_id);
+        if (submitted.error == RestClientSubmitError::busy)
+            return true;
+        if (!submitted.ok()) {
+            application_reaction_tooltip_failed();
+            log_u64(LogLevel::warning, "reaction_tooltip", "submit_error", static_cast<u64>(submitted.error));
+            return true;
+        }
+        application_reaction_tooltip_submitted(reactors.epoch);
+        g_app.message_history_request_owner = MessageHistoryRequestOwner::reaction_tooltip;
         return true;
     }
 

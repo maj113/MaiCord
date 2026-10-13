@@ -4,10 +4,13 @@
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/surface_geometry.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 
 inline constexpr u32 kUiTooltipMaximumTextBytes = 192;
+inline constexpr u32 kUiTooltipMaximumBold = 3;
+inline constexpr u32 kUiTooltipMaximumEmojiBytes = 48;
 inline constexpr u64 kUiTooltipPointerDelayMs = 500;
 inline constexpr u64 kUiTooltipKeyboardDelayMs = 350;
 
@@ -28,6 +31,8 @@ struct UiTooltipStyle {
     float margin = kUiFloatingSurfaceInset, gap = kUiFloatingSurfaceInset;
     float maximum_width = 320, maximum_height = 80;
     float radius = kUiControlCornerRadius, arrow_size = kUiControlCornerRadius;
+    // A leading emoji's square and the space between it and the label.
+    float emoji_size = 48, emoji_gap = 12;
 };
 
 struct UiTooltipKey {
@@ -37,6 +42,13 @@ struct UiTooltipKey {
 };
 bool ui_tooltip_key_equal(const UiTooltipKey&, const UiTooltipKey&) noexcept;
 
+// A leading emoji (reaction tooltips): a custom emoji or flag image the host
+// draws from its media atlas when the key is valid, else a Unicode glyph
+// drawn as jumbo text.
+struct UiTooltipEmoji {
+    MediaAssetKey media;
+    Utf8View glyph;
+};
 // Descriptor labels are copied during offer. The source manager must remain
 // alive until the host clears or replaces the offer. Hosts resolve current
 // typed sources before offering; semantic/capability checks belong to them.
@@ -45,6 +57,10 @@ struct UiTooltipTarget {
     UiRect anchor;
     Utf8View label;
     UiTooltipPlacement placement = UiTooltipPlacement::above;
+    // Bold label ranges (offset and count; flags are ignored), ascending and
+    // disjoint. With an emoji the label starts beside it instead of centred.
+    ConstSlice<TextStyleSpan> bold{};
+    UiTooltipEmoji emoji{};
 };
 struct UiTooltipScene {
     UiTooltipKey key;
@@ -53,17 +69,24 @@ struct UiTooltipScene {
     UiRect anchor, viewport, rectangle;
     UiSize text_size;
     char text[kUiTooltipMaximumTextBytes];
+    // The label's style runs: plain and bold, covering every byte.
+    TextStyleSpan styles[kUiTooltipMaximumBold * 2 + 1];
+    MediaAssetKey emoji_media;
+    char emoji_glyph[kUiTooltipMaximumEmojiBytes];
     u64 show_at_ms;
     u32 revision;
     u16 text_bytes;
+    u8 style_count, emoji_glyph_bytes;
     UiTooltipPlacement placement, preferred;
     UiTooltipTrigger trigger;
     bool pending, visible;
 };
-static_assert(sizeof(UiTooltipScene) <= 512);
+static_assert(sizeof(UiTooltipScene) <= 576);
 
 // Offers never capture input or allocate. Repeated identical offers retain
-// their deadline; changing source, label or modality requires a fresh delay.
+// their deadline; changing source or modality requires a fresh delay. New
+// content for the visible source (a label that finished loading) replaces it
+// in place at the next tick.
 bool ui_tooltip_offer(UiTooltipScene*, const UiTooltipTarget&, UiRect viewport, UiTooltipTrigger,
                       u64 now_ms, const UiTooltipStyle& = UiTooltipStyle{}) noexcept;
 // Text emits against a host-owned viewport root, independent from the source
@@ -75,5 +98,7 @@ u64 ui_tooltip_next_wake(const UiTooltipScene&) noexcept;
 bool ui_tooltip_visible(const UiTooltipScene&) noexcept;
 bool ui_tooltip_paint(const UiTooltipScene&, const Theme&, PaintStream*) noexcept;
 bool ui_tooltip_text_output(const UiTooltipScene&, const Theme&, UiTextOutput*) noexcept;
+// The leading emoji's square while visible; false without one.
+bool ui_tooltip_emoji(const UiTooltipScene&, UiRect* square) noexcept;
 
 } // namespace maicord

@@ -159,6 +159,7 @@ enum class MessageHistoryRequestOwner : u8 {
     invite_cards,
     activity_sharing,
     soundboard,
+    reaction_tooltip,
     count,
 };
 

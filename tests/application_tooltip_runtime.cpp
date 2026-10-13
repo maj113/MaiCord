@@ -486,6 +486,11 @@ bool application_plugins_surface_hit(float, float, ApplicationPluginSurfaceHit*)
 Utf8View application_plugins_hover_label(u32) noexcept {
     return {};
 }
+bool application_reaction_tooltip_target(UiPoint, u64, UiTooltipTarget*) noexcept {
+    return false;
+}
+void application_reaction_tooltip_leave() noexcept {}
+void application_reaction_tooltip_pump() noexcept {}
 } // namespace app_detail
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_tooltip_runtime_entry() noexcept {

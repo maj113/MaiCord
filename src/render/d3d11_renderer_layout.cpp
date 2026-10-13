@@ -661,6 +661,27 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
                 return false;
             first = false;
         }
+        // A reaction tooltip's custom emoji or flag: over its surface, under
+        // its text, fitted to its square.
+        UiRect square{};
+        if (layer == static_cast<u32>(RendererInlineMediaLayer::form) && d3d11_renderer_tooltip_visible(*renderer) &&
+            media_asset_key_valid(renderer->tooltip_scene->emoji_media) &&
+            ui_tooltip_emoji(*renderer->tooltip_scene, &square) && renderer->media_atlas &&
+            renderer->media_gpu.texture_view && renderer->media_quad_count < kRendererMediaQuadCapacity &&
+            renderer->media_batch_count < kRendererMediaBatchCapacity) {
+            const auto allocation = media_atlas_peek(renderer->media_atlas, renderer->tooltip_scene->emoji_media);
+            if (allocation.ok() && allocation.width && allocation.height) {
+                const float scale = minimum(ui_rect_width(square) / allocation.width,
+                                            ui_rect_height(square) / allocation.height);
+                const float width = allocation.width * scale, height = allocation.height * scale;
+                const float left = (square.left + square.right - width) * .5f,
+                            top = (square.top + square.bottom - height) * .5f;
+                if (!queue_media_quad(renderer, allocation, left, top, left + width, top + height,
+                                      renderer->tooltip_scene->viewport, false, first))
+                    return false;
+                first = false;
+            }
+        }
         if (layer == static_cast<u32>(RendererInlineMediaLayer::forum)) {
             renderer->forum_media_first_batch = renderer->media_batch_count;
             if (renderer->forum_form && renderer->forum_form->scene &&

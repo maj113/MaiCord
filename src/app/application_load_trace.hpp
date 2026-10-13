@@ -33,6 +33,8 @@ inline const char* rest_owner_name(MessageHistoryRequestOwner owner) noexcept {
         return "message_reaction";
     case MessageHistoryRequestOwner::reaction_users:
         return "reaction_users";
+    case MessageHistoryRequestOwner::reaction_tooltip:
+        return "reaction_tooltip";
     case MessageHistoryRequestOwner::user_profile:
         return "profile";
     case MessageHistoryRequestOwner::commands:

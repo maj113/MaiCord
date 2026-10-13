@@ -8,6 +8,7 @@
 #include "application_guild_folders.hpp"
 #include "application_voice.hpp"
 #include "application_plugins.hpp"
+#include "application_reaction_tooltip.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/tooltip.hpp"
@@ -557,7 +558,8 @@ bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target) noexc
         return pinned_target(point, false, scope, target);
     if (!application_thread_browser_read_blocked() &&
         (application_video_tooltip_target(point, false, scope, target) ||
-         message_target(point, scope, target)))
+         message_target(point, scope, target) ||
+         (!application_friends_active() && application_reaction_tooltip_target(point, scope, target))))
         return true;
     return plugin_surface_target(point, scope, target) || composer_target(point, false, scope, target) ||
            guild_target(point, false, scope, target) || shell_target(point, false, scope, target);
@@ -618,17 +620,26 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
         owner.viewport_failed = false;
     }
     UiTooltipTarget target{};
-    if (owner.pressed || (!owner.keyboard && !owner.pointer_valid) ||
-        !resolve_target(owner.point, owner.keyboard, &target) ||
-        ui_tooltip_key_equal(owner.dismissed, target.key) ||
+    const bool resolved = !owner.pressed && (owner.keyboard || owner.pointer_valid) &&
+                          resolve_target(owner.point, owner.keyboard, &target);
+    // Reaction pills lead with their emoji; their names wrap beside it.
+    const bool reaction = resolved && (media_asset_key_valid(target.emoji.media) || target.emoji.glyph.bytes);
+    if (!reaction)
+        application_reaction_tooltip_leave();
+    if (!resolved || ui_tooltip_key_equal(owner.dismissed, target.key) ||
         (ui_tooltip_key_equal(owner.failed, target.key) &&
          ui_rect_equal(owner.failed_anchor, target.anchor))) {
         ui_tooltip_clear(&owner.scene);
     } else {
         owner.dismissed = {};
         owner.failed = {};
+        UiTooltipStyle style{};
+        if (reaction) {
+            style.maximum_width = 260;
+            style.maximum_height = 120;
+        }
         ui_tooltip_offer(&owner.scene, target, viewport,
-                         owner.keyboard ? UiTooltipTrigger::keyboard : UiTooltipTrigger::pointer, now_ms);
+                         owner.keyboard ? UiTooltipTrigger::keyboard : UiTooltipTrigger::pointer, now_ms, style);
         const bool due = owner.scene.pending && now_ms >= owner.scene.show_at_ms;
         ui_tooltip_tick(&owner.scene, now_ms,
                         g_app.account_ui ? &g_app.account_ui->text_measure_cache : nullptr);
@@ -653,6 +664,7 @@ bool refresh(ApplicationTooltip& owner, u64 now_ms) noexcept {
     }
     owner.published_visible = owner.scene.visible;
     owner.published_revision = owner.scene.revision;
+    application_reaction_tooltip_pump();
     return true;
 }
 } // namespace

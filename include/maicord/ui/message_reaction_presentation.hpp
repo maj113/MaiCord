@@ -47,6 +47,20 @@ bool message_reaction_presentation_resolve(const MessageScene& scene, const Mess
                                            const MessageRichRecord& rich, u32 index,
                                            MessageReactionVisualItem* item) noexcept;
 
+// A reaction tooltip's label as Discord words it: the emoji's name (":name:"
+// for custom emoji and Unicode emoji with a shortcode, else the emoji itself),
+// then, with reactors, " reacted by A, B, and C" or "A, B, C, and N others"
+// where count is the pill's count. Each name's range goes to bold. When the
+// names do not fit, the label is the emoji's name alone.
+struct MessageReactionTooltipLabel {
+    u32 bytes;
+    u32 bold_count;
+};
+MessageReactionTooltipLabel message_reaction_tooltip_label(u64 emoji_id, Utf8View emoji,
+                                                           ConstSlice<Utf8View> names, u32 count,
+                                                           Slice<char> output,
+                                                           Slice<TextStyleSpan> bold) noexcept;
+
 static_assert(sizeof(MessageReactionTextItem) == 40);
 static_assert(sizeof(MessageReactionVisualItem) == 72);
 
