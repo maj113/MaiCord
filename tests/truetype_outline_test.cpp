@@ -1,6 +1,7 @@
 #include "maicord/text/truetype_outline.hpp"
 #include "maicord/text/font_geometry.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 
 namespace maicord {
 namespace {

@@ -1,5 +1,5 @@
 #include "maicord/text/gsub_execute.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 #include "gsub_validated.hpp"
 #include "lookup_selection.hpp"
 #include "context_lookups.hpp"

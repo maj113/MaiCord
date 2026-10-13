@@ -1,6 +1,6 @@
 #include "maicord/text/font_candidates.hpp"
 #include "maicord/text/font_names.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {namespace {
 constexpr u32 default_named=0xffffffffu;
 i32 coordinate(const FontAxes& axes,u32 instance,u32 index,const FontAxis& axis) noexcept {

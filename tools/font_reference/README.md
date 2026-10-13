@@ -42,7 +42,7 @@ the native test targets link first-party libraries and `kernel32` only.
 `main.cpp`, `program_oracle.cpp`, `dwrite_text_system.cpp` and the paint adapter
 `tools/colr_reference/dwrite_paint_builder.cpp`. Compares MaiCord's SFNT, outline,
 metric and COLR readers with DirectWrite in a separate process (isolated
-factory). Native counterpart: `MaiCordFontTests`.
+factory). Native counterparts: `MaiCordFontTests` and `MaiCordColrProgramTests`.
 
 ```powershell
 MaiCordFontReference.exe 'C:/Windows/Fonts/seguiemj.ttf'

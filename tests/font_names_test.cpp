@@ -1,6 +1,7 @@
 #include "maicord/text/font_names.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "font_names_reference.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 u32 checks=0;bool print_ok=true;char print_buffer[65536];u32 output_count=0;u16 decoded[32768];
 void flush() noexcept {DWORD written=0;if(output_count&&(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),print_buffer,output_count,&written,nullptr)||written!=output_count))print_ok=false;output_count=0;}

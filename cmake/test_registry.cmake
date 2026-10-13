@@ -1887,10 +1887,13 @@ maicord_add_tests(MaiCordGlyphBufferTests TEST maicord_native_glyph_buffer)
 maicord_test(MaiCordFontTests ENTRY maicord_font_tests_entry
     SOURCES tests/sfnt_test.cpp tests/font_simulation_test.cpp tests/tt_bold_points_test.cpp
         tests/truetype_outline_test.cpp tests/cff_outline_test.cpp tests/color_font_test.cpp
-        tests/variation_store_test.cpp tests/font_axes_test.cpp tests/colr_program_test.cpp
-        tests/colr_source_test.cpp
-    LIBS maicord_core maicord_font maicord_paint_program kernel32
+        tests/variation_store_test.cpp tests/font_axes_test.cpp
+    LIBS maicord_core maicord_font kernel32
     TEST maicord_native_font)
+maicord_test(MaiCordColrProgramTests ENTRY maicord_colr_program_tests_entry
+    SOURCES tests/colr_program_test.cpp tests/colr_source_test.cpp
+    LIBS maicord_core maicord_font maicord_paint_program kernel32
+    TEST maicord_colr_program)
 maicord_test(MaiCordYuvTests ENTRY maicord_yuv_tests_entry
     SOURCES tests/yuv_convert_test.cpp
     LIBS maicord_core maicord_media_codec kernel32

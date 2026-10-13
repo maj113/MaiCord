@@ -20,7 +20,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/model/guild_settings_model.hpp"
 #include "maicord/render/layer_presentation.hpp"
-#include "maicord/text/bounded_edit.hpp"
+#include "maicord/model/bounded_edit.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/timestamp_format.hpp"

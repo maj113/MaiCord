@@ -1,6 +1,7 @@
 #include "maicord/text/run_plan.hpp"
 #include "maicord/text/font_prepare.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 u64 checks=0,glyphs=0,base_bytes=0,bold_bytes=0;u32 faces=0;
 void print(const char* s) noexcept{u32 n=0;while(s[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&written,nullptr);}

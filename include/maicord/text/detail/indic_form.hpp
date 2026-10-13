@@ -1,4 +1,5 @@
 #pragma once
+// Engine-internal interface shared with adapters and tests; not a stable API.
 #include "maicord/text/indic_run_plan.hpp"
 #include "maicord/text/latin_paragraph.hpp"
 namespace maicord {

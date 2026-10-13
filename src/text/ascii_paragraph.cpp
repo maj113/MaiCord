@@ -1,5 +1,5 @@
 #include "maicord/text/ascii_paragraph.hpp"
-#include "paragraph_layout.hpp"
+#include "maicord/text/detail/paragraph_layout.hpp"
 #include "maicord/text/unicode.hpp"
 #include <emmintrin.h>
 namespace maicord {namespace {

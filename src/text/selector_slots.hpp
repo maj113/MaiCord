@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/core/base.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 // Original-order selector slots can survive beyond the current cluster's
 // overwritten prefix. All 256 selectors plus zero fit in nine bits per slot.

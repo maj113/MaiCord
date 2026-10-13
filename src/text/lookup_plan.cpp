@@ -3,7 +3,7 @@
 #include "maicord/text/khmer_plan.hpp"
 #include "layout_language.hpp"
 #include "lookup_plan_finish.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 #include <intrin.h>
 namespace maicord {namespace {
 bool spend(u64* work,u64 amount=1) noexcept {if(amount>*work)return false;*work-=amount;return true;}

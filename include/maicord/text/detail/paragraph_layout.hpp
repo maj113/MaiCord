@@ -1,4 +1,5 @@
 #pragma once
+// Engine-internal interface shared with adapters and tests; not a stable API.
 #include "maicord/text/ascii_paragraph.hpp"
 namespace maicord {
 // Optional transient plan for a retained paragraph. Source/glyph ownership stays

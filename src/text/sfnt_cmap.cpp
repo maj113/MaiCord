@@ -1,5 +1,5 @@
 #include "maicord/text/sfnt.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 
 namespace maicord {
 namespace {

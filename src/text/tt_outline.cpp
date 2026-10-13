@@ -1,6 +1,6 @@
 #include "maicord/text/tt_outline.hpp"
 #include "maicord/text/font_geometry.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {namespace {
 bool charge(u32* work,u64 cost) noexcept {if(cost>*work)return false;*work-=static_cast<u32>(cost);return true;}
 template<class T> bool room(Slice<T> array,u32 count) noexcept {return array.count>=count && (!count || array.data);}

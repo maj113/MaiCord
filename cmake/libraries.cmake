@@ -207,7 +207,7 @@ target_include_directories(maicord_account_media PRIVATE "${MAICORD_GENERATED_DI
 
 maicord_library(maicord_unicode
     src/text/arabic_joining.cpp src/text/word.cpp src/text/line_break.cpp src/text/line_break_windows.cpp
-    src/text/thai_word_break.cpp src/text/thai_lexical.cpp src/text/thai_syllable.cpp src/text/thai_forward.cpp
+    src/text/thai_word_break.cpp src/text/thai_lexical.cpp src/text/thai_syllable.cpp
     src/text/bidi_windows_brackets.cpp src/text/unicode.cpp src/text/grapheme.cpp src/text/bidi.cpp
     LIBS maicord_core)
 
@@ -350,7 +350,7 @@ maicord_library(maicord_plugin_manager
     src/app/plugin_manager_install.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_modules kernel32 bcrypt)
 
-maicord_library(maicord_edit_history src/text/edit_history.cpp LIBS maicord_core maicord_platform)
+maicord_library(maicord_edit_history src/model/edit_history.cpp LIBS maicord_core maicord_platform)
 
 maicord_library(maicord_ui_input
     src/ui/clipboard.cpp src/ui/secure_edit.cpp src/ui/secure_edit_target.cpp src/ui/secure_edit_history.cpp
@@ -358,7 +358,7 @@ maicord_library(maicord_ui_input
     LIBS maicord_core maicord_platform maicord_edit_history user32)
 
 maicord_library(maicord_model
-    src/model/message_poll_store.cpp src/text/bounded_edit.cpp src/model/channel_permissions.cpp
+    src/model/message_poll_store.cpp src/model/bounded_edit.cpp src/model/channel_permissions.cpp
     src/model/permission_compute.cpp src/model/guild_ban_store.cpp src/model/member_moderation.cpp
     src/model/guild_member_store.cpp src/model/member_list.cpp src/model/thread_member_store.cpp
     src/model/thread_member_list.cpp src/model/chat_state.cpp src/model/read_state.cpp

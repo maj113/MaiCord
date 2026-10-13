@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/text/indic_run_plan.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 #include "maicord/text/ascii_run.hpp"
 namespace maicord {
 // Roots/metrics/cmap borrow the retained parent plan. Only roots and the

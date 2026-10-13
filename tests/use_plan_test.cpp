@@ -1,5 +1,6 @@
 #include "maicord/text/use_plan.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 #include "generated/devanagari_plan_fixture.inc"
 #ifdef MAICORD_MYANMAR_PLAN_QA

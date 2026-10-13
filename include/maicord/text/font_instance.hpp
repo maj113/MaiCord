@@ -1,7 +1,7 @@
 #pragma once
 #include "maicord/text/font_store.hpp"
 #include "maicord/text/tt_outline.hpp"
-#include "maicord/core/arena.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 struct NativeFontInstanceHandle {u32 slot,generation;};
 struct NativeFontInstance {

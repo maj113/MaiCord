@@ -1,4 +1,4 @@
-#include "maicord/text/bounded_edit.hpp"
+#include "maicord/model/bounded_edit.hpp"
 
 namespace maicord {
 namespace {

@@ -1,5 +1,6 @@
-#include "../src/text/line_break_windows.hpp"
+#include "maicord/text/detail/line_break_windows.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 u32 cases=0,checks=0;
 void print(Utf8View text) noexcept {DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text.data,text.bytes,&done,nullptr);}

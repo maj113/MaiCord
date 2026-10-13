@@ -1,5 +1,5 @@
 #include "maicord/text/clusters.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 #include <intrin.h>
 
 namespace maicord {namespace {

@@ -1,5 +1,6 @@
 #include "maicord/text/tt_interpreter.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 #include "generated/tt_interpreter_fixture.inc"
 void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}

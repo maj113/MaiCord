@@ -1,6 +1,6 @@
 #include "unicode_line_geometry.hpp"
 #include "maicord/text/unicode.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 #include <emmintrin.h>
 namespace maicord {namespace {
 float add(float a,float b) noexcept {return _mm_cvtss_f32(_mm_add_ss(_mm_set_ss(a),_mm_set_ss(b)));}

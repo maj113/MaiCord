@@ -2,9 +2,9 @@
 #include "maicord/text/latin_line.hpp"
 #include "maicord/text/unicode.hpp"
 #include "maicord/text/visibility.hpp"
-#include "maicord/core/utf.hpp"
-#include "line_break_windows.hpp"
-#include "thai_word_break.hpp"
+#include "maicord/text/base.hpp"
+#include "maicord/text/detail/line_break_windows.hpp"
+#include "maicord/text/detail/thai_word_break.hpp"
 #include "script_paragraph.hpp"
 namespace maicord {namespace {
 bool control(u32 cp) noexcept {return cp==9||cp==10||cp==13||cp==0x85||cp==0x2028||cp==0x2029;}

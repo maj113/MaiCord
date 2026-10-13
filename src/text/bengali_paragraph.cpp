@@ -1,5 +1,5 @@
 #include "script_paragraph.hpp"
-#include "indic_form.hpp"
+#include "maicord/text/detail/indic_form.hpp"
 #include "unicode_line_geometry.hpp"
 namespace maicord {
 SfntStatus indic_form_paragraph(SfntIndicProfile profile,const NativeRunPlanStore& store,const NativeIndicFormPlan& plan,

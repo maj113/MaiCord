@@ -1,5 +1,5 @@
 #include "position_anchor.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord::position_detail {namespace {
 bool finite(double value) noexcept {u64 bits=0;copy_bytes(&bits,&value,8);return (bits&0x7ff0000000000000ull)!=0x7ff0000000000000ull;}
 bool spend(u64* operations,u64* work,u64 amount=1) noexcept {if(amount>*work)return false;*work-=amount;*operations+=amount;return true;}

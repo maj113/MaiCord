@@ -1,5 +1,5 @@
 #include "maicord/text/gpos_execute.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 SfntStatus sfnt_position_flags_from_clusters(const SfntClusterMap& clusters,SfntGlyphView glyphs,Slice<u8> output,ConstSlice<u8> zero,u64 work) noexcept {
     if(!sfnt_glyph_view_valid(glyphs) || glyphs.record_size<sizeof(SfntClusterGlyph) || (output.count && !output.data) || (zero.count && !zero.data))return SfntStatus::invalid_input;

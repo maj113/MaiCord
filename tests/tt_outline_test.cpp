@@ -1,6 +1,7 @@
 #include "maicord/text/tt_outline.hpp"
 #include "maicord/text/font_geometry.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 #if defined(MAICORD_TT_BOLD_OBLIQUE_TESTS)
 #include "generated/tt_bold_oblique_fixture.inc"

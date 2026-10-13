@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/text/layout_directory.hpp"
-#include "maicord/core/arena.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 bool alphabetic_substitution_feature(u32 tag) noexcept;
 bool arabic_substitution_feature(u32 tag) noexcept;

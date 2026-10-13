@@ -10,7 +10,7 @@
 #include "application_settings_layer.hpp"
 #include "application_state.hpp"
 #include "maicord/render/layer_presentation.hpp"
-#include "maicord/text/bounded_edit.hpp"
+#include "maicord/model/bounded_edit.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"

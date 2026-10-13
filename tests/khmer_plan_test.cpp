@@ -1,5 +1,6 @@
 #include "maicord/text/khmer_plan.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 #include "generated/khmer_plan_fixture.inc"
 u32 checks=0;

@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/text/color_font.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 
 namespace maicord::color_detail {
 inline bool range(ConstSlice<u8> bytes,u32 at,u32 size) noexcept {

@@ -1,5 +1,6 @@
 #include "maicord/text/color_font.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 
 namespace maicord {
 namespace {

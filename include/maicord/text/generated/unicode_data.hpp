@@ -1,7 +1,7 @@
 // Generated from Unicode 17.0.0; do not edit. Unicode License v3.
 // Copyright (c) 1991-2025 Unicode, Inc. See assets/licenses/Unicode-3.0.txt.
 #pragma once
-#include "maicord/core/slice.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 inline constexpr u32 unicode_data_version = 0x00110000;
 enum class UnicodeBidiClass : u8 {

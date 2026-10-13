@@ -1,5 +1,5 @@
 #include "maicord/text/gpos.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
 struct WorkReport {u32 initial;const u32& remaining;u32* used;~WorkReport() noexcept {if(used)*used=initial-remaining;}};

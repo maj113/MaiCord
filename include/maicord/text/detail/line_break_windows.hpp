@@ -1,4 +1,5 @@
 #pragma once
+// Engine-internal interface shared with adapters and tests; not a stable API.
 #include "maicord/text/line_break.hpp"
 namespace maicord {
 // Experimental en-US Windows-compatible policy, meant for resolved Latin

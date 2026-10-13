@@ -1,6 +1,5 @@
 #pragma once
-#include "maicord/core/base.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 // Windows-compatible non-visual item classification. This is
 // distinct from Default_Ignorable, glyph coverage, script resolution and bidi.

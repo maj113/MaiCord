@@ -6,7 +6,7 @@
 #include "maicord/text/hebrew_shape_run.hpp"
 #include "maicord/text/nominal_sources.hpp"
 #include "maicord/text/grapheme.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 #include <emmintrin.h>
 namespace maicord {namespace {
 #include "generated/alphabetic_composition_data.inc"

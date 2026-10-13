@@ -2,7 +2,7 @@
 #include "maicord/text/tt_orientation.hpp"
 #include "maicord/text/tt_bold_points.hpp"
 #include "maicord/text/tt_outline.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 
 namespace maicord {
 namespace {

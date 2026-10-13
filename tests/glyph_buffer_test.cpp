@@ -1,4 +1,5 @@
 #include "maicord/text/glyph_buffer.hpp"
+#include <Windows.h>
 
 namespace maicord {namespace {
 struct Record {SfntGsubGlyph glyph;u32 source,color,flags;u64 provenance;};

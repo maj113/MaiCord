@@ -1,7 +1,8 @@
 #include "maicord/text/emoji_paragraph.hpp"
 #include "maicord/text/visibility.hpp"
-#include "../src/text/paragraph_layout.hpp"
+#include "maicord/text/detail/paragraph_layout.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 #include "emoji_test_support.inc"
 #include "generated/emoji_paragraph_fixture.inc"

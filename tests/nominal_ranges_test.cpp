@@ -1,5 +1,6 @@
 #include "maicord/text/nominal_ranges.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 #include "generated/nominal_range_fixture.inc"
 u64 prefixes=0,ranges=0,budgets=0;

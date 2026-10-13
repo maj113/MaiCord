@@ -1,4 +1,5 @@
 #pragma once
+// Engine-internal interface shared with adapters and tests; not a stable API.
 #include "maicord/text/bidi.hpp"
 
 namespace maicord {

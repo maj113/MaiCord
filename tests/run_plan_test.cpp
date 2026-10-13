@@ -13,10 +13,11 @@
 #include "maicord/text/latin_paragraph.hpp"
 #include "maicord/text/alphabetic_run.hpp"
 #include "maicord/text/emoji_run.hpp"
-#include "../src/text/paragraph_layout.hpp"
+#include "maicord/text/detail/paragraph_layout.hpp"
 #include "../src/text/script_paragraph.hpp"
 #include "../src/text/unicode_line_geometry.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 #include "generated/lookup_plan_fixture.inc"
 #include "generated/font_metrics_fixture.inc"

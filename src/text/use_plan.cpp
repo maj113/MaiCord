@@ -1,7 +1,7 @@
 #include "substitution_selection.hpp"
 #include "maicord/text/use_plan.hpp"
 #include "maicord/text/khmer_plan.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 #include "layout_language.hpp"
 namespace maicord {namespace {
 struct Feature {u32 tag;u8 stage;};

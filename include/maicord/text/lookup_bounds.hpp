@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/text/context.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 // Conservative union of first-input coverage, stored in existing lookup tail
 // padding. ready certifies immutable program facts: 0 for hand-assembled

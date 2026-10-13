@@ -1,7 +1,7 @@
 #include "substitution_selection.hpp"
 #include "maicord/text/indic_plan.hpp"
 #include "layout_language.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {namespace {
 constexpr u16 unmasked=256;
 constexpr u8 required_stage=255;

@@ -1,4 +1,5 @@
 #include "maicord/text/script.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* text) noexcept {u32 count=0;while(text[count])++count;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,count,&done,nullptr);}

@@ -1,7 +1,7 @@
 #include "maicord/text/devanagari_run.hpp"
 #include "maicord/text/devanagari_clusters.hpp"
 #include "maicord/text/devanagari_shape_cluster.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 #include "maicord/text/unicode.hpp"
 
 namespace maicord {

@@ -1,5 +1,6 @@
 #include "maicord/text/word.hpp"
 #include "maicord/core/utf.hpp"
+#include <Windows.h>
 
 namespace maicord {namespace {
 #include "generated/word_break_test.inc"

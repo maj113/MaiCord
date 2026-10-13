@@ -1,5 +1,5 @@
 #include "maicord/text/font_instance.hpp"
-#include "maicord/core/win32_process.hpp"
+#include "maicord/text/base.hpp"
 
 #include <Windows.h>
 namespace maicord {namespace {

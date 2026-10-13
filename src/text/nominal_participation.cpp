@@ -1,7 +1,7 @@
 #include "maicord/text/nominal_participation.hpp"
 #include "maicord/text/nominal_sources.hpp"
 #include "maicord/text/layout_tables.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {namespace {
 u16 r16(const u8* b,u32 at) noexcept {return byte_load_be16(b+at);}
 u16 r16(ConstSlice<u8> b,u32 at) noexcept {return byte_load_be16(b.data+at);}

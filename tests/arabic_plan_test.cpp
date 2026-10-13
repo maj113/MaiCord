@@ -6,6 +6,7 @@
 #include "maicord/text/arabic_joining.hpp"
 #include "maicord/text/grapheme.hpp"
 #include "maicord/text/unicode.hpp"
+#include <Windows.h>
 #if defined(MAICORD_ARABIC_OWNED)
 #include "maicord/text/arabic_run_plan.hpp"
 #if defined(MAICORD_ARABIC_RUN)

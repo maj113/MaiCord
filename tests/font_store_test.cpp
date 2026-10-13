@@ -1,4 +1,5 @@
 #include "maicord/text/font_store.hpp"
+#include <Windows.h>
 #if defined(MAICORD_FONT_INSTANCE_TESTS)
 #include "maicord/text/font_instance.hpp"
 #endif

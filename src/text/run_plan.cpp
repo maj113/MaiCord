@@ -2,7 +2,7 @@
 #include "run_profile.hpp"
 #include "maicord/text/metric_variations.hpp"
 #include "maicord/text/nominal_participation.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 
 #include <Windows.h>
 

@@ -1,7 +1,7 @@
 #pragma once
 #include "maicord/text/font_catalog.hpp"
 
-#include "maicord/core/win32_types.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord::font_path_stat {
 struct Stat {
     i64 file_id,creation,read,write,change,allocation,bytes;

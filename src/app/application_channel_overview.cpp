@@ -23,7 +23,7 @@
 #include "maicord/model/channel_settings_model.hpp"
 #include "maicord/model/guild_settings_model.hpp"
 #include "maicord/model/permission_grid.hpp"
-#include "maicord/text/bounded_edit.hpp"
+#include "maicord/model/bounded_edit.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/time.hpp"

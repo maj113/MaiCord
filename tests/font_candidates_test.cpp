@@ -1,5 +1,6 @@
 #include "maicord/text/font_candidates.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 #if defined(MAICORD_FONT_FAMILY)
 #include "maicord/text/font_family.hpp"
 #endif

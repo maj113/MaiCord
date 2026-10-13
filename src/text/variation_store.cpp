@@ -1,6 +1,6 @@
 #include "maicord/text/variation_store.hpp"
 #include "variation_delta.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 #include <emmintrin.h>
 
 namespace maicord {

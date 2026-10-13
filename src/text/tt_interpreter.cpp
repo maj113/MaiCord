@@ -1,5 +1,5 @@
 #include "maicord/text/tt_interpreter.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 #include "tt_math.hpp"
 namespace maicord {namespace {
 bool valid(ConstSlice<u8> b) noexcept {return !b.count || b.data;}

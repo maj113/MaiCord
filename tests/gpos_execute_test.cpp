@@ -1,5 +1,6 @@
 #include "maicord/text/gpos_execute.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 #ifdef MAICORD_MARK_POSITION_TESTS
 #include "maicord/text/gpos_mark_execute.hpp"
 #endif

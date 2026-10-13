@@ -1,6 +1,7 @@
 #include "maicord/text/latin_run.hpp"
 #include "maicord/text/alphabetic_run.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 char output[65536];u32 used=0;bool print_ok=true;u32 checks=0,cases=0,differences=0;
 void flush() noexcept {DWORD written=0;if(used&&(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),output,used,&written,nullptr)||written!=used))print_ok=false;used=0;}

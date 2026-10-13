@@ -3,7 +3,7 @@
 #include "maicord/text/khmer_shape_run.hpp"
 #include "maicord/text/khmer_plan.hpp"
 #include "maicord/text/latin_run.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 #include "compact_run.hpp"
 #include "lookup_plan_finish.hpp"
 namespace maicord {namespace {

@@ -1,5 +1,6 @@
 #include "maicord/text/emoji_run.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 #include "generated/emoji_run_fixture.inc"
 #include "emoji_test_support.inc"

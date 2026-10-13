@@ -1,5 +1,5 @@
 #pragma once
-#include "maicord/core/base.hpp"
+#include "maicord/text/base.hpp"
 #include <emmintrin.h>
 namespace maicord::tt_math {
 #pragma float_control(precise,on,push)

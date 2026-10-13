@@ -1,5 +1,6 @@
 #include "maicord/text/layout_tables.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 
 namespace maicord {namespace {
 u32 expected[65536];u8 seen[65536];

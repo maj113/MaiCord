@@ -1,6 +1,7 @@
 #include "maicord/text/arabic_joining.hpp"
 #include "maicord/text/gsub_execute.hpp"
 #include "maicord/core/utf.hpp"
+#include <Windows.h>
 
 namespace maicord {namespace {
 struct ArabicMaskCase {ConstSlice<u8> gsub,gdef;ConstSlice<u32> scalars;ConstSlice<u16> expected;u8 mask;};

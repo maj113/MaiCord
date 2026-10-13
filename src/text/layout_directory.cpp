@@ -1,6 +1,6 @@
 #include "maicord/text/layout_directory.hpp"
 #include "layout_language.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
 u16 r16(ConstSlice<u8> b,u32 at) noexcept {return byte_load_be16(b.data+at);}

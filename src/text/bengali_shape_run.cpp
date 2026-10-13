@@ -16,7 +16,7 @@
 #include "shape_position.hpp"
 #include "indic_cluster.hpp"
 #include "maicord/text/bengali_run.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {namespace {
 template<class T> Slice<T> tail(Slice<T> value,u32 start) noexcept {
     return start<=value.count?Slice<T>{value.data?value.data+start:nullptr,value.count-start}:Slice<T>{};

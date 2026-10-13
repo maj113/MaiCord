@@ -22,13 +22,13 @@
 //   debug toggles inside the registered corpora  MAICORD_HIT_AUDIT, MAICORD_HIT_DEBUG,
 //     MAICORD_HIT_OBSERVE, MAICORD_ELLIPSIS_CUT_AUDIT (extra logging) and MAICORD_CJK_SAMPLE,
 //     MAICORD_CJK_VARIANT, MAICORD_DEVANAGARI_SAMPLE (select one sample)
-#include "../src/text/thai_lexical.hpp"
-#include "../src/text/thai_syllable.hpp"
+#include "maicord/text/detail/thai_lexical.hpp"
+#include "maicord/text/detail/thai_syllable.hpp"
 #include "../src/ui/native_text_trim_plan.hpp"
 #include "../src/ui/native_text_span.hpp"
 #include "../src/ui/native_text_script.hpp"
-#include "../src/text/thai_word_break.hpp"
-#include "../src/text/line_break_windows.hpp"
+#include "maicord/text/detail/thai_word_break.hpp"
+#include "maicord/text/detail/line_break_windows.hpp"
 #include "maicord/text/grapheme.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
 #include "maicord/ui/emoji_presentation.hpp"
@@ -39,7 +39,7 @@
 #include "../tools/font_reference/native_run_reference.hpp"
 #include "../tools/font_reference/ascii_break_reference.hpp"
 #include "maicord/text/ascii_paragraph.hpp"
-#include "../src/text/paragraph_layout.hpp"
+#include "maicord/text/detail/paragraph_layout.hpp"
 #include "maicord/text/latin_paragraph.hpp"
 #include "maicord/core/utf.hpp"
 #include <dwrite_3.h>

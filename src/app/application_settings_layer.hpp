@@ -3,7 +3,7 @@
 #include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "maicord/model/message_composer.hpp"
-#include "maicord/text/bounded_edit.hpp"
+#include "maicord/model/bounded_edit.hpp"
 #include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {

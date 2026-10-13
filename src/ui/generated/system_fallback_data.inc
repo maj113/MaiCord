@@ -1,6 +1,6 @@
-// First-party observed en-US app policy. Experimental until full app,
-// font-availability and refresh validation is complete.
-// Source model SHA256: 746e410e22f71ba6d68b961dd5165e60341cd519d8e8dfbed24851417ce59e17
+// en-US system fallback policy observed through the public DirectWrite
+// fallback API; method in tools/font_reference/system_fallback_data.py.
+// Solver input model SHA-256: 746e410e22f71ba6d68b961dd5165e60341cd519d8e8dfbed24851417ce59e17
 constexpr NativeFallbackRange system_fallback_ranges[]{
     {0x0,0,5},
     {0x530,5,2},

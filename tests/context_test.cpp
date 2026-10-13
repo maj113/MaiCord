@@ -2,6 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 
 #include "glyph_view_check.hpp"
+#include <Windows.h>
 
 namespace maicord {namespace {
 #include "generated/context_fixture.inc"

@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/text/font_catalog.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 #include <Windows.h>
 
 namespace maicord::font_metadata {

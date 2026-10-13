@@ -1,5 +1,5 @@
 #include "cff_internal.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 #include <emmintrin.h>
 
 namespace maicord {

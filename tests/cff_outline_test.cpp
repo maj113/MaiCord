@@ -2,6 +2,7 @@
 #include "maicord/text/font_geometry.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "../src/text/cff_internal.hpp"
+#include <Windows.h>
 
 namespace maicord {
 namespace {

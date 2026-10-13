@@ -45,6 +45,12 @@ reconstruction is verified at every code point. Tables are static and allocate
 nothing. Enum values and layout are tied to the pinned data version; ISO 15924
 script tags are not OpenType script tags.
 
+`python -I tools/unicode/tibetan_categories.py --ucd <UCD.zip>` derives the
+Tibetan cluster categories (`src/text/generated/tibetan_categories.inc`) from
+the same pinned archive: Indic syllabic and positional categories, General
+Category, canonical combining classes and decompositions, by the rules in the
+script.
+
 ### Independent verification
 
 ```powershell
@@ -239,8 +245,10 @@ QA caps: 256 scalars per case and 32 MiB per `MCLBPRB1` or `MCWINLB1` file.
 ## Thai word breaking data
 
 Thai has no spaces between words, so `native_thai_word_breaks` finds break
-opportunities with a word list and, for text the list lacks, a syllable
-grammar. Both tables are generated from open or first-party inputs only:
+opportunities by maximal matching: each Thai run is divided into listed words
+and, where no word fits, syllables of an authored grammar, choosing the
+division with the fewest unknown syllables, then the fewest segments. Both
+tables are generated from open or first-party inputs only:
 
 ```powershell
 python -I tools/unicode/thai_break_data.py --icu <thaidict.txt> --pythainlp <words_th.txt> [--report <generation.json>]
@@ -258,5 +266,5 @@ decodes again and compares with the word list. `thai_syllable_data.py` holds an
 authored grammar of Thai vowel spellings and writes the minimized machine to
 `src/text/generated/thai_syllable_data.inc`; it reads no input. Both take
 `--output` to write elsewhere. Neither table is derived from a platform text
-service, and the breaks differ from DirectWrite's where the dictionaries do (see
-`tests/thai_context_cases.inc`).
+service, and the breaks differ from DirectWrite's where the dictionaries or the
+searches do (see `tests/thai_context_cases.inc`).

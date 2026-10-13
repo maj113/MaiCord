@@ -1,4 +1,4 @@
-#include "maicord/text/edit_history.hpp"
+#include "maicord/model/edit_history.hpp"
 #include "maicord/platform/secure_buffer.hpp"
 #include "maicord/core/memory.hpp"
 

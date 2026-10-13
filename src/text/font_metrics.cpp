@@ -1,5 +1,5 @@
 #include "maicord/text/font_metrics.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 #include <emmintrin.h>
 namespace maicord {namespace {
 u16 word(ConstSlice<u8> bytes,u32 offset) noexcept {return byte_load_be16(bytes.data+offset);}

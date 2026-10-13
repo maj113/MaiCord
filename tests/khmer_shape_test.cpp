@@ -7,6 +7,7 @@
 #include "maicord/text/khmer_plan.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 u32 checks=0;
 #include "generated/khmer_shape_fixture.inc"

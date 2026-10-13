@@ -6,7 +6,7 @@
 #include "maicord/text/kannada_run.hpp"
 #include "maicord/text/malayalam_run.hpp"
 #include "indic_cluster.hpp"
-#include "indic_form.hpp"
+#include "maicord/text/detail/indic_form.hpp"
 #include "compact_run.hpp"
 namespace maicord {
 SfntStatus native_bengali_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,Arena* state,Arena* scratch,

@@ -2,8 +2,8 @@
 
 #include "maicord/core/utf.hpp"
 #include "maicord/platform/secure_buffer.hpp"
-#include "maicord/text/edit_history.hpp"
-#include "maicord/text/input_target.hpp"
+#include "maicord/model/edit_history.hpp"
+#include "maicord/model/input_target.hpp"
 
 namespace maicord {
 

@@ -1,4 +1,4 @@
-#include "line_break_windows.hpp"
+#include "maicord/text/detail/line_break_windows.hpp"
 // Windows-compatible en-US line-break policy; the default Unicode implementation
 // is separate.
 namespace maicord {namespace {

@@ -2,7 +2,7 @@
 #include "maicord/text/sinhala_run.hpp"
 #include "maicord/text/sinhala_shape_run.hpp"
 #include "maicord/text/use_plan.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 #include "maicord/text/grapheme.hpp"
 #include "compact_run.hpp"
 #include "use_shape_internal.hpp"

@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/text/font_catalog.hpp"
-#include "maicord/core/arena.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 struct NativeFontCatalogBuilder {
     Arena files,faces,candidates,settings,strings;

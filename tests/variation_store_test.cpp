@@ -1,6 +1,7 @@
 #include "maicord/text/colr_variations.hpp"
 #include "../src/text/variation_delta.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 
 namespace maicord {
 namespace {

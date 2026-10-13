@@ -13,7 +13,7 @@
 #include "application_thread_actions.hpp"
 #include "maicord/app/poll_draft.hpp"
 #include "maicord/model/permission_bits.hpp"
-#include "maicord/text/bounded_edit.hpp"
+#include "maicord/model/bounded_edit.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"

@@ -1,5 +1,6 @@
 #include "maicord/text/arabic_marks.hpp"
 #include "maicord/core/utf.hpp"
+#include <Windows.h>
 
 namespace maicord {namespace {
 #include "generated/arabic_marks_fixture.inc"

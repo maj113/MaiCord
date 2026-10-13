@@ -1,7 +1,8 @@
 #include "maicord/text/bidi.hpp"
-#include "../src/text/bidi_internal.hpp"
-#include "../src/ui/native_text_ltr.hpp"
+#include "maicord/text/detail/bidi_internal.hpp"
+#include "maicord/text/bidi_ltr.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 
 namespace maicord {
 namespace {

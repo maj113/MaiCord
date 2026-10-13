@@ -1,6 +1,6 @@
 #include "substitution_selection.hpp"
 #include "maicord/text/lookup_selection.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {namespace {
 bool spend(u32& work,u32 count=1) noexcept {if(count>work)return false;work-=count;return true;}
 bool has(ConstSlice<u64> bits,u32 index) noexcept {return (bits[index/64]&(1ull<<(index%64)))!=0;}

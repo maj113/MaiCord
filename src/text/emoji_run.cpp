@@ -1,7 +1,7 @@
 #include "maicord/text/emoji_run.hpp"
 #include "run_profile.hpp"
 #include "maicord/text/unicode.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 #include <emmintrin.h>
 namespace maicord {namespace {
 template<class T> bool valid(Slice<T> s) noexcept {return !s.count||s.data;}

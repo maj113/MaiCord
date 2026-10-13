@@ -2,7 +2,7 @@
 #include "maicord/text/tibetan_run.hpp"
 #include "maicord/text/tibetan_shape_run.hpp"
 #include "maicord/text/use_plan.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 #include "compact_run.hpp"
 #include "use_shape_internal.hpp"
 namespace maicord {namespace {

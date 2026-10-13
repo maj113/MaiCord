@@ -1,5 +1,5 @@
 namespace {
-#include "../text/generated/system_fallback_data.inc"
+#include "generated/system_fallback_data.inc"
 constexpr u32 fallback_candidate_mask=0x1fffffu;
 struct BaseCoverage {const NativeFontFace* font;u32 candidate;};
 struct RoutingTargets {const FamilyOrder* values[system_fallback_max_families];};

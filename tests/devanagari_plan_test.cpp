@@ -28,7 +28,7 @@
 #include "maicord/text/odia_run.hpp"
 #include "maicord/text/gurmukhi_shape_run.hpp"
 #include "maicord/text/gurmukhi_run.hpp"
-#include "../src/text/indic_form.hpp"
+#include "maicord/text/detail/indic_form.hpp"
 #include "maicord/text/gujarati_run.hpp"
 #include "maicord/text/gujarati_shape_run.hpp"
 #include "maicord/text/bengali_shape_run.hpp"
@@ -45,6 +45,7 @@
 #include "maicord/text/shape_run.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 #include "generated/devanagari_plan_fixture.inc"
 #include "generated/devanagari_cluster_fixture.inc"

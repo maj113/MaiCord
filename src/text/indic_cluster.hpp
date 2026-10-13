@@ -2,7 +2,7 @@
 #include "maicord/text/indic_plan.hpp"
 #include "maicord/text/devanagari_order.hpp"
 #include "maicord/text/shape_run.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 // Bengali expansion needs 32 slots. Odia/Telugu/Kannada preparation is limited to
 // 31, including any added circle and dependent-vowel pieces.

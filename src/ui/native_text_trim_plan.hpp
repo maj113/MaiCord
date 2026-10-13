@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/ui/native_text_candidate.hpp"
-#include "../text/paragraph_layout.hpp"
+#include "maicord/text/detail/paragraph_layout.hpp"
 namespace maicord {
 // Prepares or reuses the complete native shape and fits every logical line into the
 // caller-owned, transient plan (no font handles or glyph arrays are copied). Widths

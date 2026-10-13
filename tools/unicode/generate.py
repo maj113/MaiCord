@@ -249,7 +249,7 @@ def main():
             graphemes.extend([len(case),*case]);grapheme_count += 1
     mirrors.sort(); brackets.sort()
     notice = '// Generated from Unicode 17.0.0; do not edit. Unicode License v3.\n// Copyright (c) 1991-2025 Unicode, Inc. See assets/licenses/Unicode-3.0.txt.\n'
-    header = notice + '#pragma once\n#include "maicord/core/slice.hpp"\nnamespace maicord {\n'
+    header = notice + '#pragma once\n#include "maicord/text/base.hpp"\nnamespace maicord {\n'
     header += 'inline constexpr u32 unicode_data_version = 0x00110000;\n'
     for key, enum, *_ in FIELDS:
         if enum:

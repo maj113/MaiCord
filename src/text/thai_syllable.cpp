@@ -1,4 +1,4 @@
-#include "thai_syllable.hpp"
+#include "maicord/text/detail/thai_syllable.hpp"
 
 namespace maicord {namespace {
 // Authored grammar with no input data; see tools/unicode/thai_syllable_data.py.
@@ -30,10 +30,10 @@ i32 native_thai_syllable_result(ConstSlice<u32> text,u32 first) noexcept {
 bool native_thai_boundary_class(u32 scalar) noexcept {
     return !(scalar-0xe30u<11||scalar==0xe45||scalar-0xe47u<8);
 }
-u32 native_thai_unknown_recovery(ConstSlice<u32> text,u32 first) noexcept {
+u32 native_thai_unknown_recovery(ConstSlice<u32> text,u32 first,i32 syllable) noexcept {
     if(!text.data||first>=text.count)return 0;
     const auto at=[&](u32 offset) noexcept {return syllable_scalar(text,first,offset);};
-    const i32 raw=native_thai_syllable_result(text,first);
+    const i32 raw=syllable;
     if(!raw)return 0;
     u32 length=static_cast<u32>(raw>0?raw:-raw)-1;
     // After an open syllable a consonant is its final unless marks attach to

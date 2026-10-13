@@ -1,5 +1,6 @@
 #include "maicord/text/layout_directory.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 
 namespace maicord {namespace {
 #include "generated/layout_directory_fixture.inc"

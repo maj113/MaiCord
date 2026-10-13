@@ -1,5 +1,5 @@
-#include "thai_lexical.hpp"
-#include "thai_syllable.hpp"
+#include "maicord/text/detail/thai_lexical.hpp"
+#include "maicord/text/detail/thai_syllable.hpp"
 
 namespace maicord {namespace {
 // Word graph generated from ICU and PyThaiNLP word lists; see the file header

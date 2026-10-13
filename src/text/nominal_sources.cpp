@@ -1,5 +1,5 @@
 #include "maicord/text/nominal_sources.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 #include <intrin.h>
 namespace maicord {namespace {
 #include "generated/nominal_scalar_data.inc"

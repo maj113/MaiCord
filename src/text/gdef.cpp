@@ -1,6 +1,6 @@
 #include "maicord/text/gdef.hpp"
 #include "coverage_index.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 
 namespace maicord {namespace {
 u16 read(ConstSlice<u8> bytes,u32 at) noexcept {return byte_load_be16(bytes.data+at);}

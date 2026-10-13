@@ -28,7 +28,7 @@
 #include "maicord/protocol/guild_folders.hpp"
 #include "maicord/protocol/guild_invite.hpp"
 #include "maicord/render/layer_presentation.hpp"
-#include "maicord/text/bounded_edit.hpp"
+#include "maicord/model/bounded_edit.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/ui/message_markdown.hpp"

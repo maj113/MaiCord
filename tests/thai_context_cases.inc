@@ -1,17 +1,19 @@
-// Thai break opportunities from the native word breaker: the open ICU and
-// PyThaiNLP lexicon (tools/unicode/thai_break_data.py) and the first-party
-// syllable grammar for unknown text (tools/unicode/thai_syllable_data.py).
-// '|' marks each expected opportunity after cluster projection. The cases
-// cover contextual lookahead, rejected two-word guesses, silent letters,
-// attached marks and the wrapped corpus samples whose breaks differ.
+// Thai break opportunities from the native word breaker: maximal matching
+// over the open ICU and PyThaiNLP lexicon (tools/unicode/thai_break_data.py)
+// and the first-party syllable grammar for unknown text
+// (tools/unicode/thai_syllable_data.py). '|' marks each expected opportunity
+// after cluster projection. The cases cover ambiguous word sequences, unknown
+// syllables and finals, silent letters, attached and orphan marks, MAIYAMOK
+// and the wrapped corpus samples whose breaks differ.
 //
-// DirectWrite segments with its own dictionary, so its cluster metrics are an
-// oracle only for the cases marked true. The others differ where the lexicons
-// do, and stay covered by the expectations here:
-// - ICU/PyThaiNLP list a word DirectWrite splits: ธรรมดา, วิญญัติ, ขรุขระ,
-//   กรุบกริบ, ถ้อยคำ, ไม่มี, ขยับเขยื้อน, เซปักตระกร้อ, วิลาวัณย์;
-// - DirectWrite knows a word they lack, or the lookahead then settles
-//   differently: เกเส, หางกระหมวด, เดียน, โการ (after which โมโห splits);
+// DirectWrite segments with its own dictionary and search, so its cluster
+// metrics are an oracle only for the cases marked true. The others differ:
+// - the lexicon has a word DirectWrite splits: ธรรมดา, วิญญัติ, ขรุขระ,
+//   กรุบกริบ, ถ้อยคำ, ไม่มี, ขยับเขยื้อน, เซปักตระกร้อ, วิลาวัณย์, อายุขัย,
+//   อุทุมพร, and งาน before บริหาร, which DirectWrite breaks inside;
+// - it lists a compound's parts but not the compound, so they may break:
+//   กรมกรอม, มายาคติ, จีนกลาง, หางกระหมวด;
+// - DirectWrite knows a word it lacks: เกเส, เดียน, โการ;
 // - malformed mark sequences (corpus 21-23): marks stay with their base and
 //   the grammar, not DirectWrite's, resynchronizes after them.
 // Primitive contracts of the word breaker. Candidate lengths are the lexicon
@@ -57,6 +59,11 @@ bool native_thai_primitive_cases() noexcept {
     const u32 begins[]{0,0x20,0xe01,0xe2e,0xe2f,0xe3b,0xe3f,0xe40,0xe44,0xe46,0xe4f,0xe5b,0xe80};
     for(u32 cp:attached)CHECK(!native_thai_boundary_class(cp));
     for(u32 cp:begins)CHECK(native_thai_boundary_class(cp));
+    // A run longer than one search window divides as its repeated sentence does.
+    const u32 sentence=decode("ภาษาไทยไม่มีช่องว่าง");CHECK(sentence==20);
+    u32 run[400]{};u8 run_breaks[401]{};for(u32 i=0;i<400;++i)run[i]=scalars[i%sentence];
+    CHECK(native_thai_word_breaks({run,400},{run_breaks,401}));
+    for(u32 i=1;i<400;++i){const u32 at=i%sentence;CHECK((run_breaks[i]!=0)==(at==0||at==4||at==7||at==12||at==16));}
     native_cases+=sizeof(lexical)/sizeof(lexical[0])+sizeof(syllables)/sizeof(syllables[0]);
     return true;
 }
@@ -64,25 +71,25 @@ bool native_thai_context_cases() noexcept {
     if(!native_thai_primitive_cases())return false;
     struct ThaiBreakCase {const char* segmented;bool directwrite;};
     const ThaiBreakCase samples[]{
-        {"กรมกรอม|แล้วอยาก|อึ๊บ",false},
+        {"กรม|กรอม|แล้ว|อยาก|อึ๊บ",false},
         {"กรุบกริบ|ยิม",false},
         {"กะระตะ|อะเกต",false},
         {"กุล|ทู|สก|ฝรั่น|ของ|ระบาด|ปังตอ",false},
-        {"งา|นบ|ริ|หาร|เหี่ย",true},
+        {"งาน|บริหาร|เหี่ย",false},
         {"ดอก|ผล|ธรรมดา|แอ๊คชั่น|อากัป|กริยา|ปะ|ติ|ยาน",false},
         {"ตยาค|ดอก|ผล|ธรรมดา|แบ็กอัป",false},
         {"ตะบอย|ทะท่าว|วิลาวัณย์|มัชชาร์",false},
-        {"ท้อแท้|เก|เส|หางกระ|หมวด|ขรุขระ|ส้นตีน|ส้น|มือ",false},
+        {"ท้อแท้|เก|เส|หาง|กระ|หมวด|ขรุขระ|ส้นตีน|ส้น|มือ",false},
         {"นิเวศวิทยา|ขวักไขว่|ถ้อยคำ|ทุพพลภาพ",false},
         {"มนุ|พลี|รังสิมา|เร็กคอร์ด",false},
-        {"มายาคติ|อะลุ่มอล่วย",false},
+        {"มายา|คติ|อะลุ่มอล่วย",false},
         {"ระ|บา|นี้|เฟอร์เบอไรต์",false},
         {"ลำโพง|ปืน|ต่อสู้|อากาศยาน|เฮิรต์|โกรญจ",true},
-        {"วิทยา|คม|เดีย|น",false},
+        {"วิทยาคม|เดียน",false},
         {"สิโรดม|ควิโต|พ่อตา|ขยับเขยื้อน|เปล",false},
-        {"อัมพุทกรร|ทบ|เวสปอยต์",false},
-        {"อา|ยุ|ขัย|วเอดจ์",true},
-        {"อุ|ทุม|พร|คนี",true},
+        {"อัมพุท|กรร|ทบ|เวสปอยต์",false},
+        {"อายุขัย|ว|เอดจ์",false},
+        {"อุทุมพร|คนี",false},
         {"เพสลาด|ไบรท์|ไม่มี",false},
         {"เส็ก|อมาวาสี|สุจริต|ใจ|มูก|หลวง|เปอร์โตริโก",false},
         {"เอกมัย|แนวที่ห้า|อาตมภาพ|เรียลลิสต์|สมใจ",false},
@@ -93,8 +100,8 @@ bool native_thai_context_cases() noexcept {
         {"บูรณะ|สัตวาร|หลับใน|วิญญัติ",false},
         {"ยะหิทา|กล่อง|เพลง|กะโบม|ทรงมัณฑ์",false},
         {"การ์ฟิลด์|ดำแดง",true},
-        {"ยาจนก|เทพบริษัท|โม|โห|โการต|รวจ|จับ",false},
-        {"สยามินทร์|ลำเอียก|จีนกลาง|ลุก|เป็น|ไฟ|การ|ติด|โรค",true},
+        {"ยาจนก|เทพ|บริษัท|โมโห|โการ|ตรวจ|จับ",false},
+        {"สยามินทร์|ลำเอียก|จีน|กลาง|ลุก|เป็น|ไฟ|การ|ติด|โรค",false},
         {"หรบๆ|ัภาษา",true},
         {"หรบๆ|ำภาษา",true},
         {"หรบๆ|ฺภาษา",true},
@@ -102,7 +109,7 @@ bool native_thai_context_cases() noexcept {
         // Wrapped corpus samples 6, 21, 22 and 23 (thai_cases.inc).
         {"ภาษา|ไทย|ไม่มี|ช่อง|ว่าง",false},
         {"ลัก|ขณะฺ|ภาษา |กฅ|ฆะฺ|ภาษา |กกะฺ |กกะฺ์ |กกะฺก์",false},
-        {"ฟำ๎|ฬม๊ฒิผ",false},
+        {"ฟำ๎|ฬ|ม๊|ฒิผ",false},
         {"กำั |กำิ |กำี |กำึ |กำื |กำุ |กำู |กำฺ |กำ็ |กำ่ |กำ้ |กำ๊ |กำ๋ |กำ์ |กำํ |กำ๎ |กำำ |ะฺ |ำฺ |าฺ |เฺ",false},
     };
     u32 failures=0,agreeing=0;
@@ -137,5 +144,5 @@ bool native_thai_context_cases() noexcept {
         ++agreeing;++native_cases;
     }
     print("thai_break_cases=");number(sizeof(samples)/sizeof(samples[0]));print(" directwrite_agreeing=");number(agreeing);print("\n");
-    return failures==0&&agreeing==12;
+    return failures==0&&agreeing==8;
 }

@@ -1,5 +1,5 @@
 #include "maicord/text/gpos_execute.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 #include <emmintrin.h>
 namespace maicord {namespace {
 bool finite(double x) noexcept {u64 bits=0;copy_bytes(&bits,&x,8);return (bits&0x7ff0000000000000ull)!=0x7ff0000000000000ull;}

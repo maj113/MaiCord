@@ -1,5 +1,6 @@
 // Manual: --benchmark times the deferred cursive attachment; the registered run is the check.
 #include "maicord/text/gpos_program.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
 void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}

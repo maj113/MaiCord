@@ -1,5 +1,6 @@
 #include "maicord/text/font_match.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 namespace maicord {namespace {
 #include "generated/font_matching_fixture.inc"
 u32 checks=0,cases=0,groups=0;

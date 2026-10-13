@@ -2,7 +2,7 @@
 // official vector. Interior scalar boundaries are compared; raw UTF-16 before/
 // after conditions and endpoints are retained without inventing neutral policy.
 #include "maicord/text/line_break.hpp"
-#include "../../src/text/line_break_windows.hpp"
+#include "maicord/text/detail/line_break_windows.hpp"
 #include "maicord/core/byte_order.hpp"
 #include <dwrite.h>
 namespace maicord {namespace {

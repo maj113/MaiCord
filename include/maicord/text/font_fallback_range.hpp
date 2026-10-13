@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/text/font_fallback.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 enum NativeFallbackClass:u8 {
     native_fallback_extending=1,native_fallback_joining=2,

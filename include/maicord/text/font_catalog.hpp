@@ -1,7 +1,7 @@
 #pragma once
 #include "maicord/text/font_family.hpp"
 #include "maicord/text/font_store.hpp"
-#include "maicord/core/win32_records.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {
 // Read-locked identity, byte size, write time and metadata change time.
 struct NativeFontFileStamp {Win32FileIdInfo identity;u64 bytes;Win32FileTime write,change;};

@@ -1,8 +1,9 @@
 #pragma once
-#include "maicord/core/utf.hpp"
-#include "thai_word_selection.hpp"
+// Engine-internal interface shared with adapters and tests; not a stable API.
+#include "maicord/text/base.hpp"
 
 namespace maicord {
+struct NativeThaiWordCandidates { i32 lengths[8]{}; };
 // A bounded Thai/space scalar span, already selected by the caller's script
 // policy. Returns the lengths of up to eight dictionary words starting at
 // first, longest first; candidates, not complete word-break decisions.

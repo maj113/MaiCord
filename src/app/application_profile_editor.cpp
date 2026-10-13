@@ -24,7 +24,7 @@
 #include "maicord/platform/file_picker.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/render/layer_presentation.hpp"
-#include "maicord/text/bounded_edit.hpp"
+#include "maicord/model/bounded_edit.hpp"
 #include "maicord/ui/profile_dialog_scene.hpp"
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/ui/profile_scene.hpp"

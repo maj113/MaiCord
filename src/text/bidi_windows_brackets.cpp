@@ -1,4 +1,4 @@
-#include "bidi_internal.hpp"
+#include "maicord/text/detail/bidi_internal.hpp"
 
 namespace maicord {
 namespace {

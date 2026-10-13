@@ -1,5 +1,5 @@
 #include "maicord/text/font_names.hpp"
-#include "maicord/core/byte_order.hpp"
+#include "maicord/text/base.hpp"
 namespace maicord {namespace {
 u16 word(ConstSlice<u8> bytes,u32 at) noexcept {return byte_load_be16(bytes.data+at);}
 bool unicode(u16 platform,u16 encoding) noexcept {return (platform==0&&encoding<=6)||(platform==3&&(encoding==0||encoding==1||encoding==10));}

@@ -2,7 +2,7 @@
 #include "maicord/text/myanmar_run.hpp"
 #include "maicord/text/myanmar_shape_run.hpp"
 #include "maicord/text/use_plan.hpp"
-#include "maicord/core/utf.hpp"
+#include "maicord/text/base.hpp"
 #include "compact_run.hpp"
 namespace maicord {namespace {
 struct ArenaScope {Arena* arena;ArenaMark mark;bool keep=false;~ArenaScope() noexcept {if(!keep)arena_rewind(arena,mark);}};
