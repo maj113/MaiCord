@@ -1199,6 +1199,10 @@ struct GatewayClientVoiceSnapshot {
     constexpr bool operator==(const GatewayClientVoiceSnapshot&) const noexcept = default;
 };
 static_assert(sizeof(GatewayClientVoiceSnapshot) == 184); // Crosses the account module ABI.
+// The channel of the live call, guild or DM (guild 0), or 0 when there is none.
+constexpr u64 gateway_voice_call_channel(const GatewayClientVoiceSnapshot& voice) noexcept {
+    return voice.phase != VoiceSetupPhase::idle && voice.error == GatewayVoiceError::none ? voice.channel_id : 0;
+}
 inline constexpr u32 kGatewayVoiceVideoUsers = 16;
 // A remote participant announcing an active camera or screen stream (op 12):
 // the UI's "video available" flag. frames stays zero until media arrives.

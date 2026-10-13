@@ -11,6 +11,18 @@ void test_gateway_voice_control(void (*check)(bool, const char*) noexcept) noexc
               !gateway_client_request_voice_state(nullptr, {}) &&
               !gateway_client_voice_snapshot(&empty_client, &snapshot) && snapshot.user_id == 99,
           "worker voice API rejects an absent account without changing observer output");
+    GatewayClientVoiceSnapshot call{};
+    call.channel_id = 40;
+    call.phase = VoiceSetupPhase::awaiting_events;
+    const bool private_call = gateway_voice_call_channel(call) == 40;
+    call.guild_id = 10;
+    const bool guild_call = gateway_voice_call_channel(call) == 40;
+    call.error = GatewayVoiceError::state_timeout;
+    const bool failed = gateway_voice_call_channel(call) == 0;
+    call.error = GatewayVoiceError::none;
+    call.phase = VoiceSetupPhase::idle;
+    check(private_call && guild_call && failed && gateway_voice_call_channel(call) == 0,
+          "voice call channel covers DM and guild calls, but not idle or failed ones");
     GatewayVoiceControl voice{};
     const auto session = utf8_literal("test-session");
     const GatewayVoiceStateUpdate join{10, 20, false, false, false};

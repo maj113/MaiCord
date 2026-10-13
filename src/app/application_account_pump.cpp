@@ -613,19 +613,17 @@ bool drain_account_events() noexcept {
         auto& ui = *g_app.account_ui;
         if (host.api.voice_snapshot(host.instance, &voice) && !(voice == ui.voice_session)) {
             ui.voice_session = voice;
-            const bool joined = voice.channel_id && voice.guild_id && voice.phase != VoiceSetupPhase::idle &&
-                                voice.error == GatewayVoiceError::none;
-            const u64 channel = joined ? voice.channel_id : 0;
+            const u64 call = gateway_voice_call_channel(voice);
+            // The account panel shows guild voice channels only.
+            const u64 channel = voice.guild_id ? call : 0;
             // Call video decodes on the renderer's device; give it once per
             // module instance when a call (guild or DM) starts.
             static void* video_device_instance = nullptr;
-            const bool call = voice.channel_id && voice.phase != VoiceSetupPhase::idle &&
-                              voice.error == GatewayVoiceError::none;
             if (call && video_device_instance != host.instance && host.api.voice_video_device &&
                 g_app.renderer.graphics.device &&
                 host.api.voice_video_device(host.instance, g_app.renderer.graphics.device))
                 video_device_instance = host.instance;
-            repaint = voice_state_store_set_speaking(&ui.voice_states, channel,
+            repaint = voice_state_store_set_speaking(&ui.voice_states, call,
                                                              {voice.speaking_users, voice.speaking_count}) ||
                       repaint;
             if (ui.navigation_view.connected_voice_channel_id != channel) {

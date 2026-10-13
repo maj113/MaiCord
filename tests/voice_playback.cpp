@@ -238,9 +238,9 @@ void test_playback(Check check) noexcept {
           "Voice playback: released playback refuses packets");
 }
 void test_speaking_marks(Check check) noexcept {
-    static VoiceState records[4];
+    static VoiceState records[5];
     VoiceStateStore store{};
-    voice_state_store_initialize(&store, {records, 4});
+    voice_state_store_initialize(&store, {records, 5});
     voice_state_store_apply(&store, 1, 7, 11, voice_self_mute);
     voice_state_store_apply(&store, 1, 7, 22, 0);
     voice_state_store_apply(&store, 1, 8, 33, 0);
@@ -255,7 +255,13 @@ void test_speaking_marks(Check check) noexcept {
     check(marked && kept && kept->flags == voice_speaking && other && !other->flags &&
               !(voice_state_store_find(store, 1, 22)->flags & voice_speaking),
           "Voice speaking marks: only the connected channel's speakers are marked and survive Gateway updates");
-    check(voice_state_store_set_speaking(&store, 0, {}) && !kept->flags,
+    // DM calls keep their states under guild zero.
+    voice_state_store_apply(&store, 0, 9, 44, 0);
+    const u64 private_speaker[]{44};
+    check(voice_state_store_set_speaking(&store, 9, {private_speaker, 1}) &&
+              voice_state_store_find(store, 0, 44)->flags == voice_speaking && !kept->flags,
+          "Voice speaking marks: a DM call's speakers are marked like a guild channel's");
+    check(voice_state_store_set_speaking(&store, 0, {}) && !voice_state_store_find(store, 0, 44)->flags,
           "Voice speaking marks: leaving clears every mark");
 }
 // Soundboard effects ride the call mix after the voices, scaled by the output
