@@ -26,17 +26,6 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifdef HAVE_CONFIG_H
-# include "config.h"
-#endif
-
-#ifndef OPUS_BUILD
-# error "OPUS_BUILD _MUST_ be defined to build Opus. This probably means you need other defines as well, as in a config.h. See the included build files for details."
-#endif
-
-#if defined(__GNUC__) && (__GNUC__ >= 2) && !defined(__OPTIMIZE__) && !defined(OPUS_WILL_BE_SLOW)
-# pragma message "You appear to be compiling without optimization, if so opus will be very slow."
-#endif
 
 #include <stdarg.h>
 #include "celt.h"
@@ -53,14 +42,6 @@
 #include "mathops.h"
 #include "cpu_support.h"
 
-#ifdef ENABLE_DEEP_PLC
-#include "dred_rdovae_dec_data.h"
-#include "dred_rdovae_dec.h"
-#endif
-
-#ifdef ENABLE_OSCE
-#include "osce.h"
-#endif
 
 struct OpusDecoder {
    int          celt_dec_offset;
@@ -69,12 +50,7 @@ struct OpusDecoder {
    opus_int32   Fs;          /** Sampling rate (at the API level) */
    silk_DecControlStruct DecControl;
    int          decode_gain;
-   int          complexity;
-   int          ignore_extensions;
    int          arch;
-#ifdef ENABLE_DEEP_PLC
-    LPCNetPLCState lpcnet;
-#endif
 
    /* Everything beyond this point gets cleared on a reset */
 #define OPUS_DECODER_RESET_START stream_channels
@@ -85,23 +61,14 @@ struct OpusDecoder {
    int          prev_mode;
    int          frame_size;
    int          prev_redundancy;
-   int          last_packet_duration;
-#ifndef FIXED_POINT
-   opus_val16   softclip_mem[2];
-#endif
 
    opus_uint32  rangeFinal;
 };
 
-#if defined(ENABLE_HARDENING) || defined(ENABLE_ASSERTIONS)
 static void validate_opus_decoder(OpusDecoder *st)
 {
    celt_assert(st->channels == 1 || st->channels == 2);
-#ifdef ENABLE_QEXT
-   celt_assert(st->Fs == 96000 || st->Fs == 48000 || st->Fs == 24000 || st->Fs == 16000 || st->Fs == 12000 || st->Fs == 8000);
-#else
    celt_assert(st->Fs == 48000 || st->Fs == 24000 || st->Fs == 16000 || st->Fs == 12000 || st->Fs == 8000);
-#endif
    celt_assert(st->DecControl.API_sampleRate == st->Fs);
    celt_assert(st->DecControl.internalSampleRate == 0 || st->DecControl.internalSampleRate == 16000 || st->DecControl.internalSampleRate == 12000 || st->DecControl.internalSampleRate == 8000);
    celt_assert(st->DecControl.nChannelsAPI == st->channels);
@@ -114,9 +81,6 @@ static void validate_opus_decoder(OpusDecoder *st)
    celt_assert(st->stream_channels == 1 || st->stream_channels == 2);
 }
 #define VALIDATE_OPUS_DECODER(st) validate_opus_decoder(st)
-#else
-#define VALIDATE_OPUS_DECODER(st)
-#endif
 
 int opus_decoder_get_size(int channels)
 {
@@ -139,9 +103,6 @@ int opus_decoder_init(OpusDecoder *st, opus_int32 Fs, int channels)
    int ret, silkDecSizeBytes;
 
    if ((Fs!=48000&&Fs!=24000&&Fs!=16000&&Fs!=12000&&Fs!=8000
-#ifdef ENABLE_QEXT
-         &&Fs!=96000
-#endif
          )
     || (channels!=1&&channels!=2))
       return OPUS_BAD_ARG;
@@ -158,7 +119,6 @@ int opus_decoder_init(OpusDecoder *st, opus_int32 Fs, int channels)
    silk_dec = (char*)st+st->silk_dec_offset;
    celt_dec = (CELTDecoder*)((char*)st+st->celt_dec_offset);
    st->stream_channels = st->channels = channels;
-   st->complexity = 0;
 
    st->Fs = Fs;
    st->DecControl.API_sampleRate = st->Fs;
@@ -172,68 +132,12 @@ int opus_decoder_init(OpusDecoder *st, opus_int32 Fs, int channels)
    ret = celt_decoder_init(celt_dec, Fs, channels);
    if(ret!=OPUS_OK)return OPUS_INTERNAL_ERROR;
 
-   celt_decoder_ctl(celt_dec, CELT_SET_SIGNALLING(0));
-
    st->prev_mode = 0;
    st->frame_size = Fs/400;
-#ifdef ENABLE_DEEP_PLC
-    lpcnet_plc_init( &st->lpcnet);
-#endif
    st->arch = opus_select_arch();
    return OPUS_OK;
 }
 
-OpusDecoder *opus_decoder_create(opus_int32 Fs, int channels, int *error)
-{
-   int ret;
-   OpusDecoder *st;
-   if ((Fs!=48000&&Fs!=24000&&Fs!=16000&&Fs!=12000&&Fs!=8000
-#ifdef ENABLE_QEXT
-         &&Fs!=96000
-#endif
-         )
-    || (channels!=1&&channels!=2))
-   {
-      if (error)
-         *error = OPUS_BAD_ARG;
-      return NULL;
-   }
-   st = (OpusDecoder *)opus_alloc(opus_decoder_get_size(channels));
-   if (st == NULL)
-   {
-      if (error)
-         *error = OPUS_ALLOC_FAIL;
-      return NULL;
-   }
-   ret = opus_decoder_init(st, Fs, channels);
-   if (error)
-      *error = ret;
-   if (ret != OPUS_OK)
-   {
-      opus_free(st);
-      st = NULL;
-   }
-   return st;
-}
-
-#ifdef ENABLE_RES24
-static void smooth_fade(const opus_res *in1, const opus_res *in2,
-      opus_res *out, int overlap, int channels,
-      const celt_coef *window, opus_int32 Fs)
-{
-   int i, c;
-   int inc = 48000/Fs;
-   for (c=0;c<channels;c++)
-   {
-      for (i=0;i<overlap;i++)
-      {
-         celt_coef w = MULT_COEF(window[i*inc], window[i*inc]);
-         out[i*channels+c] = ADD32(MULT_COEF_32(w,in2[i*channels+c]),
-                                   MULT_COEF_32(COEF_ONE-w, in1[i*channels+c]));
-      }
-   }
-}
-#else
 static void smooth_fade(const opus_res *in1, const opus_res *in2,
       opus_res *out, int overlap, int channels,
       const celt_coef *window, opus_int32 Fs)
@@ -251,7 +155,6 @@ static void smooth_fade(const opus_res *in1, const opus_res *in2,
       }
    }
 }
-#endif
 
 static int opus_packet_get_mode(const unsigned char *data)
 {
@@ -269,7 +172,7 @@ static int opus_packet_get_mode(const unsigned char *data)
 }
 
 static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
-      opus_int32 len, opus_res *pcm, int frame_size, int decode_fec ARG_QEXT(opus_extension_data *ext))
+      opus_int32 len, opus_res *pcm, int frame_size, int decode_fec)
 {
    void *silk_dec;
    CELTDecoder *celt_dec;
@@ -345,7 +248,7 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
       if (audiosize > F20)
       {
          do {
-            int ret = opus_decode_frame(st, NULL, 0, pcm, IMIN(audiosize, F20), 0 ARG_QEXT(NULL));
+            int ret = opus_decode_frame(st, NULL, 0, pcm, IMIN(audiosize, F20), 0);
             if (ret<0)
             {
                RESTORE_STACK;
@@ -387,7 +290,7 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
    if (transition && mode == MODE_CELT_ONLY)
    {
       pcm_transition = pcm_transition_celt;
-      opus_decode_frame(st, NULL, 0, pcm_transition, IMIN(F5, audiosize), 0 ARG_QEXT(NULL));
+      opus_decode_frame(st, NULL, 0, pcm_transition, IMIN(F5, audiosize), 0);
    }
    if (audiosize > frame_size)
    {
@@ -440,31 +343,6 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
            st->DecControl.internalSampleRate = 16000;
         }
      }
-     st->DecControl.enable_deep_plc = st->complexity >= 5;
-#ifdef ENABLE_OSCE
-     st->DecControl.osce_method = OSCE_METHOD_NONE;
-#ifndef DISABLE_LACE
-     if (st->complexity >= 6) {st->DecControl.osce_method = OSCE_METHOD_LACE;}
-#endif
-#ifndef DISABLE_NOLACE
-     if (st->complexity >= 7) {st->DecControl.osce_method = OSCE_METHOD_NOLACE;}
-#endif
-#ifdef ENABLE_OSCE_BWE
-     if (st->complexity >= 4 && st->DecControl.enable_osce_bwe &&
-         st->Fs == 48000 && st->DecControl.internalSampleRate == 16000 &&
-         ((mode == MODE_SILK_ONLY) || (data == NULL))) {
-         /* request WB -> FB signal extension */
-         st->DecControl.osce_extended_mode = OSCE_MODE_SILK_BBWE;
-     } else {
-         /* at this point, mode can only be MODE_SILK_ONLY or MODE_HYBRID */
-         st->DecControl.osce_extended_mode = mode == MODE_SILK_ONLY ? OSCE_MODE_SILK_ONLY : OSCE_MODE_HYBRID;
-     }
-     if (st->prev_mode == MODE_CELT_ONLY) {
-         /* Update extended mode for CELT->SILK transition */
-         st->DecControl.prev_osce_extended_mode = OSCE_MODE_CELT_ONLY;
-     }
-#endif
-#endif
 
      lost_flag = data == NULL ? 1 : 2 * !!decode_fec;
      decoded_samples = 0;
@@ -473,9 +351,6 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
         int first_frame = decoded_samples == 0;
         silk_ret = silk_Decode( silk_dec, &st->DecControl,
                                 lost_flag, first_frame, &dec, pcm_ptr, &silk_frame_size,
-#ifdef ENABLE_DEEP_PLC
-                                &st->lpcnet,
-#endif
                                 st->arch );
         if( silk_ret ) {
            if (lost_flag) {
@@ -540,7 +415,7 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
    if (transition && mode != MODE_CELT_ONLY)
    {
       pcm_transition = pcm_transition_silk;
-      opus_decode_frame(st, NULL, 0, pcm_transition, IMIN(F5, audiosize), 0 ARG_QEXT(NULL));
+      opus_decode_frame(st, NULL, 0, pcm_transition, IMIN(F5, audiosize), 0);
    }
 
 
@@ -592,23 +467,15 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
    /* MUST be after PLC */
    MUST_SUCCEED(celt_decoder_ctl(celt_dec, CELT_SET_START_BAND(start_band)));
 
-#ifdef ENABLE_OSCE_BWE
-   if (mode != MODE_SILK_ONLY && st->DecControl.osce_extended_mode != OSCE_MODE_SILK_BBWE)
-#else
    if (mode != MODE_SILK_ONLY)
-#endif
    {
       int celt_frame_size = IMIN(F20, frame_size);
       /* Make sure to discard any previous CELT state */
       if (mode != st->prev_mode && st->prev_mode > 0 && !st->prev_redundancy)
          MUST_SUCCEED(celt_decoder_ctl(celt_dec, OPUS_RESET_STATE));
       /* Decode CELT */
-      celt_ret = celt_decode_with_ec_dred(celt_dec, decode_fec ? NULL : data,
-                                     len, pcm, celt_frame_size, &dec, celt_accum
-#ifdef ENABLE_DEEP_PLC
-                                     , &st->lpcnet
-#endif
-                                     ARG_QEXT(ext ? ext->data : NULL) ARG_QEXT(ext ? ext->len : 0));
+      celt_ret = celt_decode_with_ec(celt_dec, decode_fec ? NULL : data,
+                                     len, pcm, celt_frame_size, &dec, celt_accum);
       celt_decoder_ctl(celt_dec, OPUS_GET_FINAL_RANGE(&st->rangeFinal));
    } else {
       unsigned char silence[2] = {0xFF, 0xFF};
@@ -685,11 +552,7 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
       for (i=0;i<frame_size*st->channels;i++)
       {
          opus_val32 x;
-#ifdef ENABLE_RES24
-         x = MULT32_32_Q16(pcm[i],gain);
-#else
          x = MULT16_32_P16(pcm[i],gain);
-#endif
          pcm[i] = SATURATE(x, 32767);
       }
    }
@@ -713,9 +576,8 @@ static int opus_decode_frame(OpusDecoder *st, const unsigned char *data,
 
 }
 
-int opus_decode_native(OpusDecoder *st, const unsigned char *data,
-      opus_int32 len, opus_res *pcm, int frame_size, int decode_fec,
-      int self_delimited, opus_int32 *packet_offset, int soft_clip, const OpusDRED *dred, opus_int32 dred_offset)
+static int opus_decode_native(OpusDecoder *st, const unsigned char *data,
+      opus_int32 len, opus_res *pcm, int frame_size, int decode_fec)
 {
    int i, nb_samples;
    int count, offset;
@@ -723,49 +585,18 @@ int opus_decode_native(OpusDecoder *st, const unsigned char *data,
    int packet_frame_size, packet_bandwidth, packet_mode, packet_stream_channels;
    /* 48 x 2.5 ms = 120 ms */
    opus_int16 size[48];
-   const unsigned char *padding;
-   opus_int32 padding_len;
-   OpusExtensionIterator iter;
    VALIDATE_OPUS_DECODER(st);
    if (decode_fec<0 || decode_fec>1)
       return OPUS_BAD_ARG;
    /* For FEC/PLC, frame_size has to be to have a multiple of 2.5 ms */
    if ((decode_fec || len==0 || data==NULL) && frame_size%(st->Fs/400)!=0)
       return OPUS_BAD_ARG;
-#ifdef ENABLE_DRED
-   if (dred != NULL && dred->process_stage == 2) {
-      int F10;
-      int features_per_frame;
-      int needed_feature_frames;
-      int init_frames;
-      lpcnet_plc_fec_clear(&st->lpcnet);
-      F10 = st->Fs/100;
-      /* if blend==0, the last PLC call was "update" and we need to feed two extra 10-ms frames. */
-      init_frames = (st->lpcnet.blend == 0) ? 2 : 0;
-      features_per_frame = IMAX(1, frame_size/F10);
-      needed_feature_frames = init_frames + features_per_frame;
-      for (i=0;i<needed_feature_frames;i++) {
-         int feature_offset;
-         /* We floor instead of rounding because 5-ms overlap compensates for the missing 0.5 rounding offset. */
-         feature_offset = init_frames - i - 2 + (int)floor(((float)dred_offset + dred->dred_offset*F10/4)/F10);
-         if (feature_offset <= 4*dred->nb_latents-1 && feature_offset >= 0) {
-           lpcnet_plc_fec_add(&st->lpcnet, dred->fec_features+feature_offset*DRED_NUM_FEATURES);
-         } else {
-           if (feature_offset >= 0) lpcnet_plc_fec_add(&st->lpcnet, NULL);
-         }
-
-      }
-   }
-#else
-   (void)dred;
-   (void)dred_offset;
-#endif
    if (len==0 || data==NULL)
    {
       int pcm_count=0;
       do {
          int ret;
-         ret = opus_decode_frame(st, NULL, 0, pcm+pcm_count*st->channels, frame_size-pcm_count, 0 ARG_QEXT(NULL));
+         ret = opus_decode_frame(st, NULL, 0, pcm+pcm_count*st->channels, frame_size-pcm_count, 0);
          if (ret<0)
             return ret;
          pcm_count += ret;
@@ -773,7 +604,6 @@ int opus_decode_native(OpusDecoder *st, const unsigned char *data,
       celt_assert(pcm_count == frame_size);
       if (OPUS_CHECK_ARRAY(pcm, pcm_count*st->channels))
          OPUS_PRINT_INT(pcm_count);
-      st->last_packet_duration = pcm_count;
       return pcm_count;
    } else if (len<0)
       return OPUS_BAD_ARG;
@@ -783,35 +613,24 @@ int opus_decode_native(OpusDecoder *st, const unsigned char *data,
    packet_frame_size = opus_packet_get_samples_per_frame(data, st->Fs);
    packet_stream_channels = opus_packet_get_nb_channels(data);
 
-   count = opus_packet_parse_impl(data, len, self_delimited, &toc, NULL,
-                                  size, &offset, packet_offset, &padding, &padding_len);
-   if (st->ignore_extensions) {
-      padding = NULL;
-      padding_len = 0;
-   }
+   count = opus_packet_parse(data, len, &toc, NULL, size, &offset);
    if (count<0)
       return count;
-   opus_extension_iterator_init(&iter, padding, padding_len, count);
 
    data += offset;
 
    if (decode_fec)
    {
-      int duration_copy;
       int ret;
       /* If no FEC can be present, run the PLC (recursive call) */
       if (frame_size < packet_frame_size || packet_mode == MODE_CELT_ONLY || st->mode == MODE_CELT_ONLY)
-         return opus_decode_native(st, NULL, 0, pcm, frame_size, 0, 0, NULL, soft_clip, NULL, 0);
+         return opus_decode_native(st, NULL, 0, pcm, frame_size, 0);
       /* Otherwise, run the PLC on everything except the size for which we might have FEC */
-      duration_copy = st->last_packet_duration;
       if (frame_size-packet_frame_size!=0)
       {
-         ret = opus_decode_native(st, NULL, 0, pcm, frame_size-packet_frame_size, 0, 0, NULL, soft_clip, NULL, 0);
+         ret = opus_decode_native(st, NULL, 0, pcm, frame_size-packet_frame_size, 0);
          if (ret<0)
-         {
-            st->last_packet_duration = duration_copy;
             return ret;
-         }
          celt_assert(ret==frame_size-packet_frame_size);
       }
       /* Complete with FEC */
@@ -820,13 +639,12 @@ int opus_decode_native(OpusDecoder *st, const unsigned char *data,
       st->frame_size = packet_frame_size;
       st->stream_channels = packet_stream_channels;
       ret = opus_decode_frame(st, data, size[0], pcm+st->channels*(frame_size-packet_frame_size),
-            packet_frame_size, 1 ARG_QEXT(NULL));
+            packet_frame_size, 1);
       if (ret<0)
          return ret;
       else {
          if (OPUS_CHECK_ARRAY(pcm, frame_size*st->channels))
             OPUS_PRINT_INT(frame_size);
-         st->last_packet_duration = frame_size;
          return frame_size;
       }
    }
@@ -844,189 +662,25 @@ int opus_decode_native(OpusDecoder *st, const unsigned char *data,
    for (i=0;i<count;i++)
    {
       int ret;
-#ifdef ENABLE_QEXT
-      opus_extension_data ext;
-      ext.frame = -1;
-      ext.data = NULL;
-      ext.len = 0;
-      ext.id = -1;
-      while (ext.frame < i) {
-         OpusExtensionIterator iter_copy;
-         iter_copy = iter;
-         ret = opus_extension_iterator_find(&iter, &ext, QEXT_EXTENSION_ID);
-         if (ret <= 0) break;
-         if (ext.frame > i) iter = iter_copy;
-      }
-      if (ext.frame != i) ext.data = NULL;
-#endif
-      ret = opus_decode_frame(st, data, size[i], pcm+nb_samples*st->channels, frame_size-nb_samples, 0 ARG_QEXT(&ext));
+      ret = opus_decode_frame(st, data, size[i], pcm+nb_samples*st->channels, frame_size-nb_samples, 0);
       if (ret<0)
          return ret;
       celt_assert(ret==packet_frame_size);
       data += size[i];
       nb_samples += ret;
    }
-   st->last_packet_duration = nb_samples;
    if (OPUS_CHECK_ARRAY(pcm, nb_samples*st->channels))
       OPUS_PRINT_INT(nb_samples);
-#ifndef FIXED_POINT
-   if (soft_clip)
-      opus_pcm_soft_clip_impl(pcm, nb_samples, st->channels, st->softclip_mem, st->arch);
-   else
-      st->softclip_mem[0]=st->softclip_mem[1]=0;
-#endif
    return nb_samples;
 }
 
-#ifdef FIXED_POINT
-#define OPTIONAL_CLIP 0
-#else
-#define OPTIONAL_CLIP 1
-#endif
-
-#if defined(FIXED_POINT) && !defined(ENABLE_RES24)
 int opus_decode(OpusDecoder *st, const unsigned char *data,
       opus_int32 len, opus_int16 *pcm, int frame_size, int decode_fec)
 {
    if(frame_size<=0)
       return OPUS_BAD_ARG;
-   return opus_decode_native(st, data, len, pcm, frame_size, decode_fec, 0, NULL, 0, NULL, 0);
+   return opus_decode_native(st, data, len, pcm, frame_size, decode_fec);
 }
-#else
-int opus_decode(OpusDecoder *st, const unsigned char *data,
-      opus_int32 len, opus_int16 *pcm, int frame_size, int decode_fec)
-{
-       VARDECL(opus_res, out);
-       int ret;
-       int nb_samples;
-       ALLOC_STACK;
-
-       if(frame_size<=0)
-       {
-          RESTORE_STACK;
-          return OPUS_BAD_ARG;
-       }
-       if (data != NULL && len > 0 && !decode_fec)
-       {
-          nb_samples = opus_decoder_get_nb_samples(st, data, len);
-          if (nb_samples>0)
-             frame_size = IMIN(frame_size, nb_samples);
-          else
-             return OPUS_INVALID_PACKET;
-       }
-       celt_assert(st->channels == 1 || st->channels == 2);
-       ALLOC(out, frame_size*st->channels, opus_res);
-
-       ret = opus_decode_native(st, data, len, out, frame_size, decode_fec, 0, NULL, OPTIONAL_CLIP, NULL, 0);
-       if (ret > 0)
-       {
-# if defined(FIXED_POINT)
-          int i;
-          for (i=0;i<ret*st->channels;i++)
-             pcm[i] = RES2INT16(out[i]);
-# else
-          celt_float2int16(out, pcm, ret*st->channels, st->arch);
-# endif
-       }
-       RESTORE_STACK;
-       return ret;
-}
-#endif
-
-#if defined(FIXED_POINT) && defined(ENABLE_RES24)
-int opus_decode24(OpusDecoder *st, const unsigned char *data,
-      opus_int32 len, opus_int32 *pcm, int frame_size, int decode_fec)
-{
-   if(frame_size<=0)
-      return OPUS_BAD_ARG;
-   return opus_decode_native(st, data, len, pcm, frame_size, decode_fec, 0, NULL, 0, NULL, 0);
-}
-#else
-int opus_decode24(OpusDecoder *st, const unsigned char *data,
-      opus_int32 len, opus_int32 *pcm, int frame_size, int decode_fec)
-{
-       VARDECL(opus_res, out);
-       int ret, i;
-       int nb_samples;
-       ALLOC_STACK;
-
-       if(frame_size<=0)
-       {
-          RESTORE_STACK;
-          return OPUS_BAD_ARG;
-       }
-       if (data != NULL && len > 0 && !decode_fec)
-       {
-          nb_samples = opus_decoder_get_nb_samples(st, data, len);
-          if (nb_samples>0)
-             frame_size = IMIN(frame_size, nb_samples);
-          else
-             return OPUS_INVALID_PACKET;
-       }
-       celt_assert(st->channels == 1 || st->channels == 2);
-       ALLOC(out, frame_size*st->channels, opus_res);
-
-       ret = opus_decode_native(st, data, len, out, frame_size, decode_fec, 0, NULL, 0, NULL, 0);
-       if (ret > 0)
-       {
-          nb_samples = ret*st->channels;
-          for (i=0;i<nb_samples;i++)
-             pcm[i] = RES2INT24(out[i]);
-       }
-       RESTORE_STACK;
-       return ret;
-}
-#endif
-
-
-#ifndef DISABLE_FLOAT_API
-
-# if !defined(FIXED_POINT)
-int opus_decode_float(OpusDecoder *st, const unsigned char *data,
-      opus_int32 len, opus_val16 *pcm, int frame_size, int decode_fec)
-{
-   if(frame_size<=0)
-      return OPUS_BAD_ARG;
-   return opus_decode_native(st, data, len, pcm, frame_size, decode_fec, 0, NULL, 0, NULL, 0);
-}
-# else
-int opus_decode_float(OpusDecoder *st, const unsigned char *data,
-      opus_int32 len, float *pcm, int frame_size, int decode_fec)
-{
-   VARDECL(opus_res, out);
-   int ret, i;
-   int nb_samples;
-   ALLOC_STACK;
-
-   if(frame_size<=0)
-   {
-      RESTORE_STACK;
-      return OPUS_BAD_ARG;
-   }
-   if (data != NULL && len > 0 && !decode_fec)
-   {
-      nb_samples = opus_decoder_get_nb_samples(st, data, len);
-      if (nb_samples>0)
-         frame_size = IMIN(frame_size, nb_samples);
-      else
-         return OPUS_INVALID_PACKET;
-   }
-   celt_assert(st->channels == 1 || st->channels == 2);
-   ALLOC(out, frame_size*st->channels, opus_res);
-
-   ret = opus_decode_native(st, data, len, out, frame_size, decode_fec, 0, NULL, 0, NULL, 0);
-   if (ret > 0)
-   {
-      for (i=0;i<ret*st->channels;i++)
-         pcm[i] = RES2FLOAT(out[i]);
-   }
-   RESTORE_STACK;
-   return ret;
-}
-# endif
-
-#endif
-
 
 int opus_decoder_ctl(OpusDecoder *st, int request, ...)
 {
@@ -1043,59 +697,6 @@ int opus_decoder_ctl(OpusDecoder *st, int request, ...)
 
    switch (request)
    {
-   case OPUS_GET_BANDWIDTH_REQUEST:
-   {
-      opus_int32 *value = va_arg(ap, opus_int32*);
-      if (!value)
-      {
-         goto bad_arg;
-      }
-      *value = st->bandwidth;
-   }
-   break;
-   case OPUS_SET_COMPLEXITY_REQUEST:
-   {
-       opus_int32 value = va_arg(ap, opus_int32);
-       if(value<0 || value>10)
-       {
-          goto bad_arg;
-       }
-       st->complexity = value;
-       celt_decoder_ctl(celt_dec, OPUS_SET_COMPLEXITY(value));
-   }
-   break;
-   case OPUS_GET_COMPLEXITY_REQUEST:
-   {
-       opus_int32 *value = va_arg(ap, opus_int32*);
-       if (!value)
-       {
-          goto bad_arg;
-       }
-       *value = st->complexity;
-   }
-   break;
-#ifdef ENABLE_OSCE_BWE
-   case OPUS_SET_OSCE_BWE_REQUEST:
-   {
-       opus_int32 value = va_arg(ap, opus_int32);
-       if(value<0 || value>1)
-       {          goto bad_arg;
-       }
-       st->DecControl.enable_osce_bwe = value;
-
-      }
-   break;
-   case OPUS_GET_OSCE_BWE_REQUEST:
-   {
-       opus_int32 *value = va_arg(ap, opus_int32*);
-       if (!value)
-       {
-          goto bad_arg;
-       }
-       *value = st->DecControl.enable_osce_bwe;
-   }
-   break;
-#endif
    case OPUS_GET_FINAL_RANGE_REQUEST:
    {
       opus_uint32 *value = va_arg(ap, opus_uint32*);
@@ -1116,32 +717,6 @@ int opus_decoder_ctl(OpusDecoder *st, int request, ...)
       silk_ResetDecoder( silk_dec );
       st->stream_channels = st->channels;
       st->frame_size = st->Fs/400;
-#ifdef ENABLE_DEEP_PLC
-      lpcnet_plc_reset( &st->lpcnet );
-#endif
-   }
-   break;
-   case OPUS_GET_SAMPLE_RATE_REQUEST:
-   {
-      opus_int32 *value = va_arg(ap, opus_int32*);
-      if (!value)
-      {
-         goto bad_arg;
-      }
-      *value = st->Fs;
-   }
-   break;
-   case OPUS_GET_PITCH_REQUEST:
-   {
-      opus_int32 *value = va_arg(ap, opus_int32*);
-      if (!value)
-      {
-         goto bad_arg;
-      }
-      if (st->prev_mode == MODE_CELT_ONLY)
-         ret = celt_decoder_ctl(celt_dec, OPUS_GET_PITCH(value));
-      else
-         *value = st->DecControl.prevPitchLag;
    }
    break;
    case OPUS_GET_GAIN_REQUEST:
@@ -1164,72 +739,7 @@ int opus_decoder_ctl(OpusDecoder *st, int request, ...)
        st->decode_gain = value;
    }
    break;
-   case OPUS_GET_LAST_PACKET_DURATION_REQUEST:
-   {
-      opus_int32 *value = va_arg(ap, opus_int32*);
-      if (!value)
-      {
-         goto bad_arg;
-      }
-      *value = st->last_packet_duration;
-   }
-   break;
-   case OPUS_SET_PHASE_INVERSION_DISABLED_REQUEST:
-   {
-       opus_int32 value = va_arg(ap, opus_int32);
-       if(value<0 || value>1)
-       {
-          goto bad_arg;
-       }
-       ret = celt_decoder_ctl(celt_dec, OPUS_SET_PHASE_INVERSION_DISABLED(value));
-   }
-   break;
-   case OPUS_GET_PHASE_INVERSION_DISABLED_REQUEST:
-   {
-       opus_int32 *value = va_arg(ap, opus_int32*);
-       if (!value)
-       {
-          goto bad_arg;
-       }
-       ret = celt_decoder_ctl(celt_dec, OPUS_GET_PHASE_INVERSION_DISABLED(value));
-   }
-   break;
-   case OPUS_SET_IGNORE_EXTENSIONS_REQUEST:
-   {
-       opus_int32 value = va_arg(ap, opus_int32);
-       if(value<0 || value>1)
-       {
-          goto bad_arg;
-       }
-       st->ignore_extensions = value;
-   }
-   break;
-   case OPUS_GET_IGNORE_EXTENSIONS_REQUEST:
-   {
-       opus_int32 *value = va_arg(ap, opus_int32*);
-       if (!value)
-       {
-          goto bad_arg;
-       }
-       *value = st->ignore_extensions;
-   }
-   break;
-#ifdef USE_WEIGHTS_FILE
-   case OPUS_SET_DNN_BLOB_REQUEST:
-   {
-       const unsigned char *data = va_arg(ap, const unsigned char *);
-       opus_int32 len = va_arg(ap, opus_int32);
-       if(len<0 || data == NULL)
-       {
-          goto bad_arg;
-       }
-       ret = lpcnet_plc_load_model(&st->lpcnet, data, len);
-       ret = silk_LoadOSCEModels(silk_dec, data, len) || ret;
-   }
-   break;
-#endif
    default:
-      /*fprintf(stderr, "unknown opus_decoder_ctl() request: %d", request);*/
       ret = OPUS_UNIMPLEMENTED;
       break;
    }
@@ -1239,11 +749,6 @@ int opus_decoder_ctl(OpusDecoder *st, int request, ...)
 bad_arg:
    va_end(ap);
    return OPUS_BAD_ARG;
-}
-
-void opus_decoder_destroy(OpusDecoder *st)
-{
-   opus_free(st);
 }
 
 
@@ -1328,364 +833,4 @@ int opus_packet_has_lbrr(const unsigned char packet[], opus_int32 len)
    if (packet_stream_channels == 2)
       lbrr = lbrr || ((frames[0][0] >> (6-2*nb_frames)) & 0x1);
    return lbrr;
-}
-
-int opus_decoder_get_nb_samples(const OpusDecoder *dec,
-      const unsigned char packet[], opus_int32 len)
-{
-   return opus_packet_get_nb_samples(packet, len, dec->Fs);
-}
-
-struct OpusDREDDecoder {
-#ifdef ENABLE_DRED
-   RDOVAEDec model;
-#endif
-   int loaded;
-   int arch;
-   opus_uint32 magic;
-};
-
-#if defined(ENABLE_DRED) && (defined(ENABLE_HARDENING) || defined(ENABLE_ASSERTIONS))
-static void validate_dred_decoder(OpusDREDDecoder *st)
-{
-   celt_assert(st->magic == 0xD8EDDEC0);
-#ifdef OPUS_ARCHMASK
-   celt_assert(st->arch >= 0);
-   celt_assert(st->arch <= OPUS_ARCHMASK);
-#endif
-}
-#define VALIDATE_DRED_DECODER(st) validate_dred_decoder(st)
-#else
-#define VALIDATE_DRED_DECODER(st)
-#endif
-
-
-int opus_dred_decoder_get_size(void)
-{
-  return sizeof(OpusDREDDecoder);
-}
-
-#ifdef ENABLE_DRED
-int dred_decoder_load_model(OpusDREDDecoder *dec, const unsigned char *data, int len)
-{
-    WeightArray *list;
-    int ret;
-    parse_weights(&list, data, len);
-    ret = init_rdovaedec(&dec->model, list);
-    opus_free(list);
-    if (ret == 0) dec->loaded = 1;
-    return (ret == 0) ? OPUS_OK : OPUS_BAD_ARG;
-}
-#endif
-
-int opus_dred_decoder_init(OpusDREDDecoder *dec)
-{
-   int ret = 0;
-   dec->loaded = 0;
-#if defined(ENABLE_DRED) && !defined(USE_WEIGHTS_FILE)
-   ret = init_rdovaedec(&dec->model, rdovaedec_arrays);
-   if (ret == 0) dec->loaded = 1;
-#endif
-   dec->arch = opus_select_arch();
-   /* To make sure nobody forgets to init, use a magic number. */
-   dec->magic = 0xD8EDDEC0;
-   return (ret == 0) ? OPUS_OK : OPUS_UNIMPLEMENTED;
-}
-
-OpusDREDDecoder *opus_dred_decoder_create(int *error)
-{
-   int ret;
-   OpusDREDDecoder *dec;
-   dec = (OpusDREDDecoder *)opus_alloc(opus_dred_decoder_get_size());
-   if (dec == NULL)
-   {
-      if (error)
-         *error = OPUS_ALLOC_FAIL;
-      return NULL;
-   }
-   ret = opus_dred_decoder_init(dec);
-   if (error)
-      *error = ret;
-   if (ret != OPUS_OK)
-   {
-      opus_free(dec);
-      dec = NULL;
-   }
-   return dec;
-}
-
-void opus_dred_decoder_destroy(OpusDREDDecoder *dec)
-{
-   if (dec) dec->magic = 0xDE57801D;
-   opus_free(dec);
-}
-
-int opus_dred_decoder_ctl(OpusDREDDecoder *dred_dec, int request, ...)
-{
-#ifdef ENABLE_DRED
-   int ret = OPUS_OK;
-   va_list ap;
-
-   va_start(ap, request);
-   (void)dred_dec;
-   switch (request)
-   {
-# ifdef USE_WEIGHTS_FILE
-   case OPUS_SET_DNN_BLOB_REQUEST:
-   {
-      const unsigned char *data = va_arg(ap, const unsigned char *);
-      opus_int32 len = va_arg(ap, opus_int32);
-      if(len<0 || data == NULL)
-      {
-         goto bad_arg;
-      }
-      return dred_decoder_load_model(dred_dec, data, len);
-   }
-   break;
-# endif
-   default:
-     /*fprintf(stderr, "unknown opus_decoder_ctl() request: %d", request);*/
-     ret = OPUS_UNIMPLEMENTED;
-     break;
-  }
-  va_end(ap);
-  return ret;
-# ifdef USE_WEIGHTS_FILE
-bad_arg:
-  va_end(ap);
-  return OPUS_BAD_ARG;
-# endif
-#else
-  (void)dred_dec;
-  (void)request;
-  return OPUS_UNIMPLEMENTED;
-#endif
-}
-
-#ifdef ENABLE_DRED
-static int dred_find_payload(const unsigned char *data, opus_int32 len, const unsigned char **payload, int *dred_frame_offset)
-{
-   OpusExtensionIterator iter;
-   opus_extension_data ext;
-   const unsigned char *padding;
-   opus_int32 padding_len;
-   int nb_frames;
-   const unsigned char *frames[48];
-   opus_int16 size[48];
-   int frame_size;
-   int ret;
-
-   *payload = NULL;
-   /* Get the padding section of the packet. */
-   ret = opus_packet_parse_impl(data, len, 0, NULL, frames, size, NULL, NULL,
-    &padding, &padding_len);
-   if (ret < 0)
-      return ret;
-   nb_frames = ret;
-   frame_size = opus_packet_get_samples_per_frame(data, 48000);
-   opus_extension_iterator_init(&iter, padding, padding_len, nb_frames);
-   for (;;) {
-      ret = opus_extension_iterator_find(&iter, &ext, DRED_EXTENSION_ID);
-      if (ret <= 0)
-         return ret;
-      /* DRED position in the packet, in units of 2.5 ms like for the signaled DRED offset. */
-      *dred_frame_offset = ext.frame*frame_size/120;
-#ifdef DRED_EXPERIMENTAL_VERSION
-      /* Check that temporary extension type and version match.
-         This check will be removed once extension is finalized. */
-      if (ext.len > DRED_EXPERIMENTAL_BYTES && ext.data[0] == 'D'
-       && ext.data[1] == DRED_EXPERIMENTAL_VERSION) {
-         *payload = ext.data+2;
-         return ext.len-2;
-      }
-#else
-      if (ext.len > 0) {
-         *payload = ext.data;
-         return ext.len;
-      }
-#endif
-   }
-}
-#endif
-
-int opus_dred_get_size(void)
-{
-#ifdef ENABLE_DRED
-  return sizeof(OpusDRED);
-#else
-  return 0;
-#endif
-}
-
-OpusDRED *opus_dred_alloc(int *error)
-{
-#ifdef ENABLE_DRED
-  OpusDRED *dec;
-  dec = (OpusDRED *)opus_alloc(opus_dred_get_size());
-  if (dec == NULL)
-  {
-    if (error)
-      *error = OPUS_ALLOC_FAIL;
-    return NULL;
-  }
-  return dec;
-#else
-  if (error)
-    *error = OPUS_UNIMPLEMENTED;
-  return NULL;
-#endif
-}
-
-void opus_dred_free(OpusDRED *dec)
-{
-#ifdef ENABLE_DRED
-  opus_free(dec);
-#else
-  (void)dec;
-#endif
-}
-
-int opus_dred_parse(OpusDREDDecoder *dred_dec, OpusDRED *dred, const unsigned char *data, opus_int32 len, opus_int32 max_dred_samples, opus_int32 sampling_rate, int *dred_end, int defer_processing)
-{
-#ifdef ENABLE_DRED
-   const unsigned char *payload;
-   opus_int32 payload_len;
-   int dred_frame_offset=0;
-   VALIDATE_DRED_DECODER(dred_dec);
-   if (!dred_dec->loaded) return OPUS_UNIMPLEMENTED;
-   dred->process_stage = -1;
-   payload_len = dred_find_payload(data, len, &payload, &dred_frame_offset);
-   if (payload_len < 0)
-      return payload_len;
-   if (payload != NULL)
-   {
-      int offset;
-      int min_feature_frames;
-      offset = 100*max_dred_samples/sampling_rate;
-      min_feature_frames = IMIN(2 + offset, 2*DRED_NUM_REDUNDANCY_FRAMES);
-      dred_ec_decode(dred, payload, payload_len, min_feature_frames, dred_frame_offset);
-      if (!defer_processing)
-         opus_dred_process(dred_dec, dred, dred);
-      if (dred_end) *dred_end = IMAX(0, -dred->dred_offset*sampling_rate/400);
-      return IMAX(0, dred->nb_latents*sampling_rate/25 - dred->dred_offset* sampling_rate/400);
-   }
-   if (dred_end) *dred_end = 0;
-   return 0;
-#else
-   (void)dred_dec;
-   (void)dred;
-   (void)data;
-   (void)len;
-   (void)max_dred_samples;
-   (void)sampling_rate;
-   (void)defer_processing;
-   (void)dred_end;
-   return OPUS_UNIMPLEMENTED;
-#endif
-}
-
-int opus_dred_process(OpusDREDDecoder *dred_dec, const OpusDRED *src, OpusDRED *dst)
-{
-#ifdef ENABLE_DRED
-   if (dred_dec == NULL || src == NULL || dst == NULL || (src->process_stage != 1 && src->process_stage != 2))
-      return OPUS_BAD_ARG;
-   VALIDATE_DRED_DECODER(dred_dec);
-   if (!dred_dec->loaded) return OPUS_UNIMPLEMENTED;
-   if (src != dst)
-      OPUS_COPY(dst, src, 1);
-   if (dst->process_stage == 2)
-      return OPUS_OK;
-   DRED_rdovae_decode_all(&dred_dec->model, dst->fec_features, dst->state, dst->latents, dst->nb_latents, dred_dec->arch);
-   dst->process_stage = 2;
-   return OPUS_OK;
-#else
-   (void)dred_dec;
-   (void)src;
-   (void)dst;
-   return OPUS_UNIMPLEMENTED;
-#endif
-}
-
-int opus_decoder_dred_decode(OpusDecoder *st, const OpusDRED *dred, opus_int32 dred_offset, opus_int16 *pcm, opus_int32 frame_size)
-{
-#ifdef ENABLE_DRED
-   VARDECL(float, out);
-   int ret, i;
-   ALLOC_STACK;
-
-   if(frame_size<=0)
-   {
-      RESTORE_STACK;
-      return OPUS_BAD_ARG;
-   }
-
-   celt_assert(st->channels == 1 || st->channels == 2);
-   ALLOC(out, frame_size*st->channels, float);
-
-   ret = opus_decode_native(st, NULL, 0, out, frame_size, 0, 0, NULL, 1, dred, dred_offset);
-   if (ret > 0)
-   {
-      for (i=0;i<ret*st->channels;i++)
-         pcm[i] = RES2INT16(out[i]);
-   }
-   RESTORE_STACK;
-   return ret;
-#else
-   (void)st;
-   (void)dred;
-   (void)dred_offset;
-   (void)pcm;
-   (void)frame_size;
-   return OPUS_UNIMPLEMENTED;
-#endif
-}
-
-int opus_decoder_dred_decode24(OpusDecoder *st, const OpusDRED *dred, opus_int32 dred_offset, opus_int32 *pcm, opus_int32 frame_size)
-{
-#ifdef ENABLE_DRED
-   VARDECL(float, out);
-   int ret, i;
-   ALLOC_STACK;
-
-   if(frame_size<=0)
-   {
-      RESTORE_STACK;
-      return OPUS_BAD_ARG;
-   }
-
-   celt_assert(st->channels == 1 || st->channels == 2);
-   ALLOC(out, frame_size*st->channels, float);
-
-   ret = opus_decode_native(st, NULL, 0, out, frame_size, 0, 0, NULL, 1, dred, dred_offset);
-   if (ret > 0)
-   {
-      for (i=0;i<ret*st->channels;i++)
-         pcm[i] = RES2INT24(out[i]);
-   }
-   RESTORE_STACK;
-   return ret;
-#else
-   (void)st;
-   (void)dred;
-   (void)dred_offset;
-   (void)pcm;
-   (void)frame_size;
-   return OPUS_UNIMPLEMENTED;
-#endif
-}
-
-int opus_decoder_dred_decode_float(OpusDecoder *st, const OpusDRED *dred, opus_int32 dred_offset, float *pcm, opus_int32 frame_size)
-{
-#ifdef ENABLE_DRED
-   if(frame_size<=0)
-      return OPUS_BAD_ARG;
-   return opus_decode_native(st, NULL, 0, pcm, frame_size, 0, 0, NULL, 0, dred, dred_offset);
-#else
-   (void)st;
-   (void)dred;
-   (void)dred_offset;
-   (void)pcm;
-   (void)frame_size;
-   return OPUS_UNIMPLEMENTED;
-#endif
 }

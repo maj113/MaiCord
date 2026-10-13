@@ -42,13 +42,6 @@
 #include "x86/pitch_sse.h"
 #endif
 
-#if defined(FIXED_POINT) && defined(__mips)
-#include "mips/pitch_mipsr1.h"
-#endif
-
-#if (defined(OPUS_ARM_ASM) || defined(OPUS_ARM_MAY_HAVE_NEON_INTR))
-# include "arm/pitch_arm.h"
-#endif
 
 void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x_lp,
       int len, int C, int factor, int arch);
@@ -177,11 +170,7 @@ void comb_filter_const_c(opus_val32 *y, opus_val32 *x, int T, int N,
 #endif
 
 
-#ifdef FIXED_POINT
 opus_val32
-#else
-void
-#endif
 celt_pitch_xcorr_c(const opus_val16 *_x, const opus_val16 *_y,
       opus_val32 *xcorr, int len, int max_pitch, int arch);
 

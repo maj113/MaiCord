@@ -42,9 +42,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "x86/main_sse.h"
 #endif
 
-#if (defined(OPUS_ARM_ASM) || defined(OPUS_ARM_MAY_HAVE_NEON_INTR))
-#include "arm/NSQ_del_dec_arm.h"
-#endif
 
 /* Convert Left/Right stereo signal to adaptive Mid/Side representation */
 void silk_stereo_LR_to_MS(
@@ -414,12 +411,6 @@ opus_int silk_decode_frame(
     opus_int32                  *pN,                            /* O    Pointer to size of output frame             */
     opus_int                    lostFlag,                       /* I    0: no loss, 1 loss, 2 decode fec            */
     opus_int                    condCoding,                     /* I    The type of conditional coding to use       */
-#ifdef ENABLE_DEEP_PLC
-    LPCNetPLCState              *lpcnet,
-#endif
-#ifdef ENABLE_OSCE
-    OSCEModel                   *osce_model,
-#endif
     int                         arch                            /* I    Run-time architecture                       */
 );
 

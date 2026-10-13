@@ -34,9 +34,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "entenc.h"
 #include "entdec.h"
 
-#ifdef ENABLE_DEEP_PLC
-#include "lpcnet_private.h"
-#endif
 
 #define SILK_MAX_FRAMES_PER_PACKET  3
 
@@ -128,23 +125,8 @@ opus_int silk_Decode(                                   /* O    Returns error co
     ec_dec                          *psRangeDec,        /* I/O  Compressor data structure                       */
     opus_res                        *samplesOut,        /* O    Decoded output speech vector                    */
     opus_int32                      *nSamplesOut,       /* O    Number of samples decoded                       */
-#ifdef ENABLE_DEEP_PLC
-    LPCNetPLCState                  *lpcnet,
-#endif
     int                             arch                /* I    Run-time architecture                           */
 );
-
-#if 0
-/**************************************/
-/* Get table of contents for a packet */
-/**************************************/
-opus_int silk_get_TOC(
-    const opus_uint8                *payload,           /* I    Payload data                                */
-    const opus_int                  nBytesIn,           /* I    Number of input bytes                       */
-    const opus_int                  nFramesPerPayload,  /* I    Number of SILK frames per payload           */
-    silk_TOC_struct                 *Silk_TOC           /* O    Type of content                             */
-);
-#endif
 
 
 #endif

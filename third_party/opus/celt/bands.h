@@ -74,9 +74,6 @@ int spreading_decision(const CELTMode *m, const celt_norm *X, int *average,
       int last_decision, int *hf_average, int *tapset_decision, int update_hf,
       int end, int C, int M, const int *spread_weight);
 
-#ifdef MEASURE_NORM_MSE
-void measure_norm_mse(const CELTMode *m, float *X, float *X0, float *bandE, float *bandE0, int M, int N, int C);
-#endif
 
 void haar1(celt_norm *X, int N0, int stride);
 
@@ -108,9 +105,7 @@ void quant_all_bands(int encode, const CELTMode *m, int start, int end,
       const celt_ener *bandE, int *pulses, int shortBlocks, int spread,
       int dual_stereo, int intensity, int *tf_res, opus_int32 total_bits,
       opus_int32 balance, ec_ctx *ec, int M, int codedBands, opus_uint32 *seed,
-      int complexity, int arch, int disable_inv
-      ARG_QEXT(ec_ctx *ext_ec) ARG_QEXT(int *extra_pulses)
-      ARG_QEXT(opus_int32 total_ext_bits) ARG_QEXT(const int *cap));
+      int complexity, int arch, int disable_inv);
 
 void anti_collapse(const CELTMode *m, celt_norm *X_,
       unsigned char *collapse_masks, int LM, int C, int size, int start,

@@ -25,9 +25,6 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ***********************************************************************/
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 
 /*
  * Matrix of resampling methods used:
@@ -91,9 +88,6 @@ opus_int silk_resampler_init(
     /* Input checking */
     if( forEnc ) {
         if( ( Fs_Hz_in  != 8000 && Fs_Hz_in  != 12000 && Fs_Hz_in  != 16000 && Fs_Hz_in  != 24000 && Fs_Hz_in  != 48000
-#ifdef ENABLE_QEXT
-                  && Fs_Hz_in != 96000
-#endif
               ) ||
             ( Fs_Hz_out != 8000 && Fs_Hz_out != 12000 && Fs_Hz_out != 16000 ) ) {
             celt_assert( 0 );
@@ -103,9 +97,6 @@ opus_int silk_resampler_init(
     } else {
         if( ( Fs_Hz_in  != 8000 && Fs_Hz_in  != 12000 && Fs_Hz_in  != 16000 ) ||
             ( Fs_Hz_out != 8000 && Fs_Hz_out != 12000 && Fs_Hz_out != 16000 && Fs_Hz_out != 24000 && Fs_Hz_out != 48000
-#ifdef ENABLE_QEXT
-                  && Fs_Hz_out != 96000
-#endif
                   ) ) {
             celt_assert( 0 );
             return -1;

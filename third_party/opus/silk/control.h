@@ -94,9 +94,6 @@ typedef struct {
     /* I:   Opus encoder is allowing us to switch bandwidth                                 */
     opus_int opusCanSwitch;
 
-    /* I: Make frames as independent as possible (but still use LPC)                        */
-    opus_int reducedDependency;
-
     /* O:   Internal sampling rate used, in Hertz; 8000/12000/16000                         */
     opus_int32 internalSampleRate;
 
@@ -138,27 +135,6 @@ typedef struct {
     /* I:   Number of samples per packet in milliseconds; 10/20/40/60                       */
     opus_int payloadSize_ms;
 
-    /* O:   Pitch lag of previous frame (0 if unvoiced), measured in samples at 48 kHz      */
-    opus_int prevPitchLag;
-
-    /* I:   Enable Deep PLC                                                                 */
-    opus_int enable_deep_plc;
-
-#ifdef ENABLE_OSCE
-    /* I: OSCE method */
-    opus_int osce_method;
-
-#ifdef ENABLE_OSCE_BWE
-    /* I: OSCE bandwidth extension method */
-    opus_int enable_osce_bwe;
-
-    /* I: extended mode */
-    opus_int osce_extended_mode;
-
-    /* O: previous extended mode */
-    opus_int prev_osce_extended_mode;
-#endif
-#endif
 } silk_DecControlStruct;
 
 #endif

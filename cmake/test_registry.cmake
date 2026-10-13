@@ -2208,6 +2208,14 @@ maicord_test(MaiCordOpusEncoderTests ENTRY maicord_opus_encoder_tests_entry
     INCLUDES tests third_party/opus/include
     TIMEOUT 10
     TEST maicord_opus_encoder)
+# Decoder coverage streams (tests/fixtures/opus_decoder_vectors.inc), range- and
+# bit-exact; the official test vectors run opt-in (tools/opus_conformance.ps1).
+maicord_test(MaiCordOpusDecoderVectorTests ENTRY maicord_opus_decoder_vector_tests_entry
+    SOURCES tests/opus_decoder_vectors.cpp
+    LIBS maicord_opus_decoder maicord_core kernel32
+    INCLUDES tests third_party/opus/include
+    TIMEOUT 10
+    TEST maicord_opus_decoder_vectors)
 # Voice messages: the Ogg Opus writer, recorder, waveform, upload/message
 # bodies, gating, the composer flow and the module with a synthetic microphone.
 maicord_test(MaiCordVoiceMessageTests ENTRY maicord_voice_message_tests_entry

@@ -44,7 +44,6 @@
    C_SUBFROM( res , a)  : res -= a
    C_ADDTO( res , a)    : res += a
  * */
-#ifdef FIXED_POINT
 #include "arch.h"
 
 
@@ -54,13 +53,8 @@
 
 #define SAMP_MIN -SAMP_MAX
 
-#ifdef ENABLE_QEXT
-#   define S_MUL(a,b) MULT32_32_P31_ovflw(b, a)
-#   define S_MUL2(a,b) MULT32_32_P31_ovflw(b, a)
-#else
 #   define S_MUL(a,b) MULT16_32_Q15(b, a)
 #   define S_MUL2(a,b) MULT16_32_Q16(b, a)
-#endif
 
 #   define C_MUL(m,a,b) \
       do{ (m).r = SUB32_ovflw(S_MUL((a).r,(b).r) , S_MUL((a).i,(b).i)); \
@@ -95,35 +89,6 @@
     do {(res).r = ADD32_ovflw((res).r,(a).r);  (res).i = SUB32_ovflw((res).i,(a).i); \
     }while(0)
 
-#if defined(OPUS_ARM_INLINE_ASM)
-#include "arm/kiss_fft_armv4.h"
-#endif
-
-#if defined(OPUS_ARM_INLINE_EDSP)
-#include "arm/kiss_fft_armv5e.h"
-#endif
-#if defined(__mips)
-#include "mips/kiss_fft_mipsr1.h"
-#endif
-
-#else  /* not FIXED_POINT*/
-
-#   define S_MUL(a,b) ( (a)*(b) )
-#   define S_MUL2(a,b) ( (a)*(b) )
-#define C_MUL(m,a,b) \
-    do{ (m).r = (a).r*(b).r - (a).i*(b).i;\
-        (m).i = (a).r*(b).i + (a).i*(b).r; }while(0)
-#define C_MULC(m,a,b) \
-    do{ (m).r = (a).r*(b).r + (a).i*(b).i;\
-        (m).i = (a).i*(b).r - (a).r*(b).i; }while(0)
-
-#define C_MUL4(m,a,b) C_MUL(m,a,b)
-
-#   define C_FIXDIV(c,div) /* NOOP */
-#   define C_MULBYSCALAR( c, s ) \
-    do{ (c).r *= (s);\
-        (c).i *= (s); }while(0)
-#endif
 
 #ifndef CHECK_OVERFLOW_OP
 #  define CHECK_OVERFLOW_OP(a,op,b) /* noop */
@@ -157,21 +122,11 @@
     }while(0)
 #endif /* C_ADD defined */
 
-#ifdef FIXED_POINT
 /*#  define KISS_FFT_COS(phase)  TRIG_UPSCALE*floor(MIN(32767,MAX(-32767,.5+32768 * cos (phase))))
 #  define KISS_FFT_SIN(phase)  TRIG_UPSCALE*floor(MIN(32767,MAX(-32767,.5+32768 * sin (phase))))*/
 #  define KISS_FFT_COS(phase)  floor(.5+TWID_MAX*cos (phase))
 #  define KISS_FFT_SIN(phase)  floor(.5+TWID_MAX*sin (phase))
 #  define HALF_OF(x) ((x)>>1)
-#elif defined(USE_SIMD)
-#  define KISS_FFT_COS(phase) _mm_set1_ps( cos(phase) )
-#  define KISS_FFT_SIN(phase) _mm_set1_ps( sin(phase) )
-#  define HALF_OF(x) ((x)*_mm_set1_ps(.5f))
-#else
-#  define KISS_FFT_COS(phase) (kiss_fft_scalar) cos(phase)
-#  define KISS_FFT_SIN(phase) (kiss_fft_scalar) sin(phase)
-#  define HALF_OF(x) ((x)*.5f)
-#endif
 
 #define  kf_cexp(x,phase) \
         do{ \

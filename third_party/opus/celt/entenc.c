@@ -25,9 +25,6 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#if defined(HAVE_CONFIG_H)
-# include "config.h"
-#endif
 #include "os_support.h"
 #include "arch.h"
 #include "entenc.h"

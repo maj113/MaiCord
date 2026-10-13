@@ -36,9 +36,6 @@
 
 extern const opus_uint32 SMALL_DIV_TABLE[129];
 
-#ifdef OPUS_ARM_ASM
-#define USE_SMALL_DIV_TABLE
-#endif
 
 /*OPT: ec_window must be at least 32 bits, but if you have fast arithmetic on a
    larger type, you can speed up the decoder by using it here.*/

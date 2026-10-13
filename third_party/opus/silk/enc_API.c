@@ -25,9 +25,6 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ***********************************************************************/
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 #include "define.h"
 #include "API.h"
 #include "control.h"
@@ -35,15 +32,8 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "stack_alloc.h"
 #include "structs.h"
 #include "tuning_parameters.h"
-#ifdef FIXED_POINT
 #include "main_FIX.h"
-#else
-#include "main_FLP.h"
-#endif
 
-#ifdef ENABLE_DRED
-#include "dred_encoder.h"
-#endif
 
 /***************************************/
 /* Read control structure from encoder */
@@ -165,16 +155,10 @@ opus_int silk_Encode(                                   /* O    Returns error co
     opus_int32 TargetRate_bps, MStargetRates_bps[ 2 ], channelRate_bps, LBRR_symbol, sum;
     silk_encoder *psEnc = ( silk_encoder * )encState;
     VARDECL( opus_int16, buf );
-    opus_int transition, curr_block, tot_blocks;
+    opus_int transition;
     SAVE_STACK;
 
     celt_assert( encControl->nChannelsAPI >= encControl->nChannelsInternal && encControl->nChannelsAPI >= psEnc->nChannelsInternal );
-    if (encControl->reducedDependency)
-    {
-       for( n = 0; n < encControl->nChannelsAPI; n++ ) {
-           psEnc->state_Fxx[ n ].sCmn.first_frame_after_reset = 1;
-       }
-    }
     for( n = 0; n < encControl->nChannelsAPI; n++ ) {
         psEnc->state_Fxx[ n ].sCmn.nFramesEncoded = 0;
     }
@@ -210,8 +194,6 @@ opus_int silk_Encode(                                   /* O    Returns error co
     psEnc->nChannelsInternal = encControl->nChannelsInternal;
 
     nBlocksOf10ms = silk_DIV32( 100 * nSamplesIn, encControl->API_sampleRate );
-    tot_blocks = ( nBlocksOf10ms > 1 ) ? nBlocksOf10ms >> 1 : 1;
-    curr_block = 0;
     if( prefillFlag ) {
         silk_LP_state save_LP;
         /* Only accept input length of 10 ms */
@@ -368,9 +350,6 @@ opus_int silk_Encode(                                   /* O    Returns error co
                         LBRR_symbol |= silk_LSHIFT( psEnc->state_Fxx[ n ].sCmn.LBRR_flags[ i ], i );
                     }
                     psEnc->state_Fxx[ n ].sCmn.LBRR_flag = LBRR_symbol > 0 ? 1 : 0;
-                    if( LBRR_symbol && psEnc->state_Fxx[ n ].sCmn.nFramesPerPacket > 1 ) {
-                        ec_enc_icdf( psRangeEnc, LBRR_symbol - 1, silk_LBRR_flags_iCDF_ptr[ psEnc->state_Fxx[ n ].sCmn.nFramesPerPacket - 2 ], 8 );
-                    }
                 }
 
                 /* Code LBRR indices and excitation signals */
@@ -434,11 +413,6 @@ opus_int silk_Encode(                                   /* O    Returns error co
             }
             /* Subtract fraction of bits in excess of target in previous frames and packets */
             TargetRate_bps -= silk_DIV32_16( silk_MUL( psEnc->nBitsExceeded, 1000 ), BITRESERVOIR_DECAY_TIME_MS );
-            if( !prefillFlag && psEnc->state_Fxx[ 0 ].sCmn.nFramesEncoded > 0 ) {
-                /* Compare actual vs target bits so far in this packet */
-                opus_int32 bitsBalance = ec_tell( psRangeEnc ) - psEnc->nBitsUsedLBRR - nBits * psEnc->state_Fxx[ 0 ].sCmn.nFramesEncoded;
-                TargetRate_bps -= silk_DIV32_16( silk_MUL( bitsBalance, 1000 ), BITRESERVOIR_DECAY_TIME_MS );
-            }
             /* Never exceed input bitrate */
             TargetRate_bps = silk_LIMIT( TargetRate_bps, encControl->bitRate, 5000 );
 
@@ -485,16 +459,7 @@ opus_int silk_Encode(                                   /* O    Returns error co
 
                 /* Handling rate constraints */
                 maxBits = encControl->maxBits;
-                if( tot_blocks == 2 && curr_block == 0 ) {
-                    maxBits = maxBits * 3 / 5;
-                } else if( tot_blocks == 3 ) {
-                    if( curr_block == 0 ) {
-                        maxBits = maxBits * 2 / 5;
-                    } else if( curr_block == 1 ) {
-                        maxBits = maxBits * 3 / 4;
-                    }
-                }
-                useCBR = encControl->useCBR && curr_block == tot_blocks - 1;
+                useCBR = encControl->useCBR;
 
                 if( encControl->nChannelsInternal == 1 ) {
                     channelRate_bps = TargetRate_bps;
@@ -503,7 +468,7 @@ opus_int silk_Encode(                                   /* O    Returns error co
                     if( n == 0 && MStargetRates_bps[ 1 ] > 0 ) {
                         useCBR = 0;
                         /* Give mid up to 1/2 of the max bits for that frame */
-                        maxBits -= encControl->maxBits / ( tot_blocks * 2 );
+                        maxBits -= encControl->maxBits / 2;
                     }
                 }
 
@@ -574,7 +539,6 @@ opus_int silk_Encode(                                   /* O    Returns error co
         } else {
             break;
         }
-        curr_block++;
     }
 
     psEnc->nPrevChannelsInternal = encControl->nChannelsInternal;

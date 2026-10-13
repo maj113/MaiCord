@@ -1,44 +1,64 @@
-# Opus decoder and voice encoder subsets
+# maiopus
 
-Official libopus 1.6.1 (2026-01-14), verified against https://opus-codec.org/downloads/.
-Archive: https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz
-SHA-256: `6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1`.
+A minimal, freestanding fork of libopus 1.6.1 (BSD-3-Clause, see `COPYING`;
+the changes and added files use the same terms):
 
-Upstream files are unchanged. `upstream-manifest.json` records each retained file's
-size and SHA-256; `COPYING` and the source notices keep the BSD terms and patent
-links. Only the decoder and fixed-point voice encoder dependency closures are
-present. Neural models (DNN/LPCNet/OSCE/DRED), tonality analysis, custom-mode
-generation, multistream/projection, the repacketizer, architecture backends, build
-generators, downloads, tools and tests are absent.
+- **Decoder: complete.** Every mode (SILK, hybrid, CELT), bandwidth, frame size
+  (2.5 to 120 ms per packet), stereo/mono coding, in-band FEC, DTX and packet
+  loss concealment, with 8, 12, 16, 24 or 48 kHz output.
+- **Encoder: one voice profile.** 48 kHz mono or stereo PCM16, VOIP tuning, one
+  20 ms VBR frame per packet. Bitrate, complexity, in-band FEC, packet loss, DTX
+  and the VBR constraint are adjustable. For these settings the packets are
+  bit-identical to upstream libopus.
+- **Fixed point, no heap, no C runtime.** States live in caller memory
+  (`opus_*_get_size()`/`opus_*_init()`); scratch uses per-call `alloca`;
+  invariant failures call `celt_fatal()` (`freestanding_support.c`).
+- **x86 SIMD by compile-time selection** (`MAIOPUS_SSE4_1`, `MAIOPUS_ARCH`), no
+  runtime CPU dispatch. The fixed-point SSE4.1 kernels are bit-exact with the C
+  code; the AVX2 kernel needs an AVX2 baseline and is not included.
 
-## Build configuration
+Upstream: <https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz>,
+SHA-256 `6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1`.
 
-MaiCord's CMake targets use scalar fixed point, PCM16 and hardened state
-invariants. These integration hooks do not modify upstream files.
+## Provenance
 
-- Float APIs, neural features, custom modes and 96 kHz extensions are not enabled.
-- Caller-owned mono/stereo state is initialized with the size/init API; the
-  heap-based create/reallocate convenience paths return no storage.
-- Scratch uses MSVC's per-call `_alloca` intrinsic, with no global pseudo-stack or
-  worker.
-- Memory operations use the freestanding runtime. Invariant failure calls
-  `__fastfail`, without CRT diagnostics.
+`upstream-manifest.json` lists every upstream file kept, with its upstream
+SHA-256 and a status:
 
-`maicord_opus_encoder` serves the account DLL's voice sender: 48 kHz VOIP, one 20 ms
-VBR frame per packet. `maicord_encoder_profile.c` compiles upstream
-`src/opus_encoder.c` with the multi-frame repacketizing and CBR padding call sites,
-which that profile cannot reach, bound to the invariant failure. Encoder-only units
-build at `/O1` except `celt_encoder.c`; shared CELT/SILK units come from the decoder
-target. Packets are bit-identical to an unmodified upstream build with the same
-feature set (fixed point, float API off), and the encoder tests pin those packet
-digests.
+- `unchanged`: byte-identical to the release;
+- `derived`: the output of `tools/derive.py` on the upstream file. It resolves
+  preprocessor conditionals on configuration macros (fixed point, float API off,
+  no custom modes, QEXT, DRED, deep PLC, OSCE or RTCD) and
+  inlines the `ARG_QEXT`, `ARG_FIXED` and `QEXT_SCALE` argument macros.
+  Conditions on compiler, platform or SIMD macros are kept;
+- `modified`: derived, then edited by hand; `changes` lists each divergence.
+
+`python tools/check_upstream.py opus-1.6.1.tar.gz` verifies all of it against
+the official tarball and fails on unlisted sources. Every upstream notice is
+kept. Not included from the release: the repacketizer, packet extensions,
+multistream and projection, tonality analysis, DNN/LPCNet/DRED/OSCE, custom
+modes, the float build, other architectures, build systems, tools and tests.
+
+## Build
+
+`CMakeLists.txt` defines a decoder library and a voice encoder library that
+links it. A parent project can set `MAIOPUS_DECODER_TARGET`,
+`MAIOPUS_ENCODER_TARGET`, `MAIOPUS_LINK_CONTRACT` (an INTERFACE target for link
+options), `MAIOPUS_LTCG`, `MAIOPUS_SSE4_1` and `MAIOPUS_ARCH`. Encoder-only
+units build at `/O1` except the CELT encoder.
+
+## Verification
+
+- Decoder: the official RFC 6716/8251 test vectors decode range-exact (final
+  range coder state equal to the encoder's for every packet), pass
+  `opus_compare`, and must reproduce pinned PCM hashes of the unmodified
+  fixed-point build, mono and stereo.
+- Encoder: packet digests across bitrates, complexities, FEC, DTX, the VBR
+  constraint and setting changes must equal unmodified upstream.
 
 ## Updating
 
-1. Verify the official archive hash.
-2. Re-evaluate both dependency closures.
-3. Replace the unchanged upstream files and refresh `upstream-manifest.json`.
-4. Regenerate the encoder reference digests from an unmodified upstream build.
-5. Run the real PCM decoder/encoder tests and the shipping PE/import checks.
-
-Do not copy the upstream build systems or model assets into this directory.
+1. Verify the new release's SHA-256.
+2. Copy the kept files, run `tools/derive.py` on them, re-apply the
+   `modified` changes, then `tools/check_upstream.py --write`.
+3. Re-pin the decoder PCM hashes and encoder digests from an unmodified build.

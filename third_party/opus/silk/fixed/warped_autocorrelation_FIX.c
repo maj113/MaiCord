@@ -25,15 +25,8 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ***********************************************************************/
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 
 #include "main_FIX.h"
-
-#if defined(__mips)
-#include "mips/warped_autocorrelation_FIX_mipsr1.h"
-#endif
 
 
 /* Autocorrelations for a warped frequency axis */

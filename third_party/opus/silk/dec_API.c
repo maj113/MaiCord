@@ -25,21 +25,11 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ***********************************************************************/
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 #include "API.h"
 #include "main.h"
 #include "stack_alloc.h"
 #include "os_support.h"
 
-#ifdef ENABLE_OSCE
-#include "osce.h"
-#include "osce_structs.h"
-#ifdef ENABLE_OSCE_BWE
-#include "osce_features.h"
-#endif
-#endif
 
 /************************/
 /* Decoder Super Struct */
@@ -50,9 +40,6 @@ typedef struct {
     opus_int                         nChannelsAPI;
     opus_int                         nChannelsInternal;
     opus_int                         prev_decode_only_middle;
-#ifdef ENABLE_OSCE
-    OSCEModel                        osce_model;
-#endif
 } silk_decoder;
 
 /*********************/
@@ -60,21 +47,12 @@ typedef struct {
 /*********************/
 
 
-
 opus_int silk_LoadOSCEModels(void *decState, const unsigned char *data, int len)
 {
-#ifdef ENABLE_OSCE
-    opus_int ret = SILK_NO_ERROR;
-
-    ret = osce_load_models(&((silk_decoder *)decState)->osce_model, data, len);
-    ((silk_decoder *)decState)->osce_model.loaded = (ret == 0);
-    return ret;
-#else
     (void) decState;
     (void) data;
     (void) len;
     return SILK_NO_ERROR;
-#endif
 }
 
 opus_int silk_Get_Decoder_Size(                         /* O    Returns error code                              */
@@ -113,13 +91,8 @@ opus_int silk_InitDecoder(                              /* O    Returns error co
 {
     opus_int n, ret = SILK_NO_ERROR;
     silk_decoder_state *channel_state = ((silk_decoder *)decState)->channel_state;
-#ifdef ENABLE_OSCE
-    ((silk_decoder *)decState)->osce_model.loaded = 0;
-#endif
-#ifndef USE_WEIGHTS_FILE
     /* load osce models */
     silk_LoadOSCEModels(decState, NULL, 0);
-#endif
 
     for( n = 0; n < DECODER_NUM_CHANNELS; n++ ) {
         ret  = silk_init_decoder( &channel_state[ n ] );
@@ -140,9 +113,6 @@ opus_int silk_Decode(                                   /* O    Returns error co
     ec_dec                          *psRangeDec,        /* I/O  Compressor data structure                       */
     opus_res                        *samplesOut,        /* O    Decoded output speech vector                    */
     opus_int32                      *nSamplesOut,       /* O    Number of samples decoded                       */
-#ifdef ENABLE_DEEP_PLC
-    LPCNetPLCState                  *lpcnet,
-#endif
     int                             arch                /* I    Run-time architecture                           */
 )
 {
@@ -157,9 +127,6 @@ opus_int silk_Decode(                                   /* O    Returns error co
     silk_decoder_state *channel_state = psDec->channel_state;
     opus_int has_side;
     opus_int stereo_to_mono;
-#ifdef ENABLE_OSCE_BWE
-    VARDECL( opus_int16, resamp_buffer );
-#endif
     SAVE_STACK;
 
     celt_assert( decControl->nChannelsInternal == 1 || decControl->nChannelsInternal == 2 );
@@ -327,7 +294,6 @@ opus_int silk_Decode(                                   /* O    Returns error co
         has_side = !psDec->prev_decode_only_middle
               || (decControl->nChannelsInternal == 2 && lostFlag == FLAG_DECODE_LBRR && channel_state[1].LBRR_flags[ channel_state[1].nFramesDecoded ] == 1 );
     }
-    channel_state[ 0 ].sPLC.enable_deep_plc = decControl->enable_deep_plc;
     /* Call decoder for one frame */
     for( n = 0; n < decControl->nChannelsInternal; n++ ) {
         if( n == 0 || has_side ) {
@@ -347,18 +313,7 @@ opus_int silk_Decode(                                   /* O    Returns error co
             } else {
                 condCoding = CODE_CONDITIONALLY;
             }
-#ifdef ENABLE_OSCE
-            if ( channel_state[n].osce.method != decControl->osce_method ) {
-                osce_reset( &channel_state[n].osce, decControl->osce_method );
-            }
-#endif
             ret += silk_decode_frame( &channel_state[ n ], psRangeDec, &samplesOut1_tmp[ n ][ 2 ], &nSamplesOutDec, lostFlag, condCoding,
-#ifdef ENABLE_DEEP_PLC
-                n == 0 ? lpcnet : NULL,
-#endif
-#ifdef ENABLE_OSCE
-                &psDec->osce_model,
-#endif
                 arch);
         } else {
             silk_memset( &samplesOut1_tmp[ n ][ 2 ], 0, nSamplesOutDec * sizeof( opus_int16 ) );
@@ -382,45 +337,11 @@ opus_int silk_Decode(                                   /* O    Returns error co
     ALLOC( samplesOut2_tmp, *nSamplesOut, opus_int16 );
     resample_out_ptr = samplesOut2_tmp;
 
-#ifdef ENABLE_OSCE_BWE
-    ALLOC(resamp_buffer, 3 * MAX_FRAME_LENGTH, opus_int16);
-#endif
 
     for( n = 0; n < silk_min( decControl->nChannelsAPI, decControl->nChannelsInternal ); n++ ) {
 
-#ifdef ENABLE_OSCE_BWE
-        /* Resample or extend decoded signal to API_sampleRate */
-        if (decControl->osce_extended_mode == OSCE_MODE_SILK_BBWE) {
-            silk_assert(decControl->API_sampleRate == 48000);
-
-            if (decControl->prev_osce_extended_mode != OSCE_MODE_SILK_BBWE) {
-                /* Reset the BWE state */
-                osce_bwe_reset( &channel_state[ n ].osce_bwe );
-            }
-
-            osce_bwe(&psDec->osce_model, &channel_state[ n ].osce_bwe,
-                resample_out_ptr, &samplesOut1_tmp[ n ][ 1 ], nSamplesOutDec, arch);
-
-            if (decControl->prev_osce_extended_mode == OSCE_MODE_SILK_ONLY ||
-                decControl->prev_osce_extended_mode == OSCE_MODE_HYBRID) {
-                    /* cross-fade with upsampled signal */
-                    silk_resampler( &channel_state[ n ].resampler_state, resamp_buffer, &samplesOut1_tmp[ n ][ 1 ], nSamplesOutDec );
-                    osce_bwe_cross_fade_10ms(resample_out_ptr, resamp_buffer, 480);
-            }
-        } else {
-            ret += silk_resampler( &channel_state[ n ].resampler_state, resample_out_ptr, &samplesOut1_tmp[ n ][ 1 ], nSamplesOutDec );
-            if (decControl->prev_osce_extended_mode == OSCE_MODE_SILK_BBWE && decControl->internalSampleRate == 16000) {
-                /* fade out if internal sample rate did not change */
-                osce_bwe(&psDec->osce_model, &channel_state[ n ].osce_bwe,
-                    resamp_buffer, &samplesOut1_tmp[ n ][ 1 ], nSamplesOutDec, arch);
-                /* cross-fade with upsampled signal */
-                osce_bwe_cross_fade_10ms(resample_out_ptr, resamp_buffer, 480);
-            }
-        }
-#else
         /* Resample decoded signal to API_sampleRate */
         ret += silk_resampler( &channel_state[ n ].resampler_state, resample_out_ptr, &samplesOut1_tmp[ n ][ 1 ], nSamplesOutDec );
-#endif
         /* Interleave if stereo output and stereo stream */
         if( decControl->nChannelsAPI == 2 ) {
             for( i = 0; i < *nSamplesOut; i++ ) {
@@ -433,9 +354,6 @@ opus_int silk_Decode(                                   /* O    Returns error co
         }
     }
 
-#ifdef ENABLE_OSCE_BWE
-    decControl->prev_osce_extended_mode = decControl->osce_extended_mode;
-#endif
 
     /* Create two channel output from mono stream */
     if( decControl->nChannelsAPI == 2 && decControl->nChannelsInternal == 1 ) {
@@ -454,14 +372,6 @@ opus_int silk_Decode(                                   /* O    Returns error co
         }
     }
 
-    /* Export pitch lag, measured at 48 kHz sampling rate */
-    if( channel_state[ 0 ].prevSignalType == TYPE_VOICED ) {
-        int mult_tab[ 3 ] = { 6, 4, 3 };
-        decControl->prevPitchLag = channel_state[ 0 ].lagPrev * mult_tab[ ( channel_state[ 0 ].fs_kHz - 8 ) >> 2 ];
-    } else {
-        decControl->prevPitchLag = 0;
-    }
-
     if( lostFlag == FLAG_PACKET_LOST ) {
        /* On packet loss, remove the gain clamping to prevent having the energy "bounce back"
           if we lose packets when the energy is going down */
@@ -474,36 +384,3 @@ opus_int silk_Decode(                                   /* O    Returns error co
     return ret;
 }
 
-#if 0
-/* Getting table of contents for a packet */
-opus_int silk_get_TOC(
-    const opus_uint8                *payload,           /* I    Payload data                                */
-    const opus_int                  nBytesIn,           /* I    Number of input bytes                       */
-    const opus_int                  nFramesPerPayload,  /* I    Number of SILK frames per payload           */
-    silk_TOC_struct                 *Silk_TOC           /* O    Type of content                             */
-)
-{
-    opus_int i, flags, ret = SILK_NO_ERROR;
-
-    if( nBytesIn < 1 ) {
-        return -1;
-    }
-    if( nFramesPerPayload < 0 || nFramesPerPayload > 3 ) {
-        return -1;
-    }
-
-    silk_memset( Silk_TOC, 0, sizeof( *Silk_TOC ) );
-
-    /* For stereo, extract the flags for the mid channel */
-    flags = silk_RSHIFT( payload[ 0 ], 7 - nFramesPerPayload ) & ( silk_LSHIFT( 1, nFramesPerPayload + 1 ) - 1 );
-
-    Silk_TOC->inbandFECFlag = flags & 1;
-    for( i = nFramesPerPayload - 1; i >= 0 ; i-- ) {
-        flags = silk_RSHIFT( flags, 1 );
-        Silk_TOC->VADFlags[ i ] = flags & 1;
-        Silk_TOC->VADFlag |= flags & 1;
-    }
-
-    return ret;
-}
-#endif

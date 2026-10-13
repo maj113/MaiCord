@@ -39,11 +39,6 @@
    and scaling in many places.
 */
 
-#ifndef SKIP_CONFIG_H
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-#endif
 
 #include "mdct.h"
 #include "kiss_fft.h"
@@ -53,69 +48,11 @@
 #include "mathops.h"
 #include "stack_alloc.h"
 
-#if defined(FIXED_POINT) && defined(__mips) && __mips == 32
-#include "mips/mdct_mipsr1.h"
-#endif
 
 #ifndef M_PI
 #define M_PI 3.141592653
 #endif
 
-#ifdef CUSTOM_MODES
-
-int clt_mdct_init(mdct_lookup *l,int N, int maxshift, int arch)
-{
-   int i;
-   kiss_twiddle_scalar *trig;
-   int shift;
-   int N2=N>>1;
-   l->n = N;
-   l->maxshift = maxshift;
-   for (i=0;i<=maxshift;i++)
-   {
-      if (i==0)
-         l->kfft[i] = opus_fft_alloc(N>>2>>i, 0, 0, arch);
-      else
-         l->kfft[i] = opus_fft_alloc_twiddles(N>>2>>i, 0, 0, l->kfft[0], arch);
-#ifndef ENABLE_TI_DSPLIB55
-      if (l->kfft[i]==NULL)
-         return 0;
-#endif
-   }
-   l->trig = trig = (kiss_twiddle_scalar*)opus_alloc((N-(N2>>maxshift))*sizeof(kiss_twiddle_scalar));
-   if (l->trig==NULL)
-     return 0;
-   for (shift=0;shift<=maxshift;shift++)
-   {
-      /* We have enough points that sine isn't necessary */
-#if defined(FIXED_POINT)
-#ifndef ENABLE_QEXT
-      for (i=0;i<N2;i++)
-         trig[i] = TRIG_UPSCALE*celt_cos_norm(DIV32(ADD32(SHL32(EXTEND32(i),17),N2+16384),N));
-#else
-      for (i=0;i<N2;i++)
-         trig[i] = (kiss_twiddle_scalar)MAX32(-2147483647,MIN32(2147483647,floor(.5+2147483648*cos(2*M_PI*(i+.125)/N))));
-#endif
-#else
-      for (i=0;i<N2;i++)
-         trig[i] = (kiss_twiddle_scalar)cos(2*PI*(i+.125)/N);
-#endif
-      trig += N2;
-      N2 >>= 1;
-      N >>= 1;
-   }
-   return 1;
-}
-
-void clt_mdct_clear(mdct_lookup *l, int arch)
-{
-   int i;
-   for (i=0;i<=l->maxshift;i++)
-      opus_fft_free(l->kfft[i], arch);
-   opus_free((kiss_twiddle_scalar*)l->trig);
-}
-
-#endif /* CUSTOM_MODES */
 
 /* Forward MDCT trashes the input array */
 #ifndef OVERRIDE_clt_mdct_forward
@@ -129,12 +66,10 @@ void clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scal
    const kiss_fft_state *st = l->kfft[shift];
    const kiss_twiddle_scalar *trig;
    celt_coef scale;
-#ifdef FIXED_POINT
    /* Allows us to scale with MULT16_32_Q16(), which is faster than
       MULT16_32_Q15() on ARM. */
    int scale_shift = st->scale_shift-1;
    int headroom;
-#endif
    SAVE_STACK;
    (void)arch;
    scale = st->scale;
@@ -196,9 +131,7 @@ void clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scal
    {
       kiss_fft_scalar * OPUS_RESTRICT yp = f;
       const kiss_twiddle_scalar *t = &trig[0];
-#ifdef FIXED_POINT
       opus_val32 maxval=1;
-#endif
       for(i=0;i<N4;i++)
       {
          kiss_fft_cpx yc;
@@ -212,25 +145,16 @@ void clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scal
          yi = S_MUL(im,t0)  +  S_MUL(re,t1);
          /* For QEXT, it's best to scale before the FFT, but otherwise it's best to scale after.
             For floating-point it doesn't matter. */
-#ifdef ENABLE_QEXT
-         yc.r = yr;
-         yc.i = yi;
-#else
          yc.r = S_MUL2(yr, scale);
          yc.i = S_MUL2(yi, scale);
-#endif
-#ifdef FIXED_POINT
          maxval = MAX32(maxval, MAX32(ABS32(yc.r), ABS32(yc.i)));
-#endif
          f2[st->bitrev[i]] = yc;
       }
-#ifdef FIXED_POINT
       headroom = IMAX(0, IMIN(scale_shift, 28-celt_ilog2(maxval)));
-#endif
    }
 
    /* N/4 complex FFT, does not downscale anymore */
-   opus_fft_impl(st, f2 ARG_FIXED(scale_shift-headroom));
+   opus_fft_impl(st, f2, scale_shift-headroom);
 
    /* Post-rotate */
    {
@@ -244,13 +168,8 @@ void clt_mdct_forward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_scal
       {
          kiss_fft_scalar yr, yi;
          kiss_fft_scalar t0, t1;
-#ifdef ENABLE_QEXT
-         t0 = S_MUL2(t[i], scale);
-         t1 = S_MUL2(t[N4+i], scale);
-#else
          t0 = t[i];
          t1 = t[N4+i];
-#endif
          yr = PSHR32(S_MUL(fp->i,t1) - S_MUL(fp->r,t0), headroom);
          yi = PSHR32(S_MUL(fp->r,t1) + S_MUL(fp->i,t0), headroom);
          *yp1 = yr;
@@ -271,9 +190,7 @@ void clt_mdct_backward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_sca
    int i;
    int N, N2, N4;
    const kiss_twiddle_scalar *trig;
-#ifdef FIXED_POINT
    int pre_shift, post_shift, fft_shift;
-#endif
    (void) arch;
 
    N = l->n;
@@ -286,7 +203,6 @@ void clt_mdct_backward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_sca
    N2 = N>>1;
    N4 = N>>2;
 
-#ifdef FIXED_POINT
    {
       opus_val32 sumval=N2;
       opus_val32 maxval=0;
@@ -300,7 +216,6 @@ void clt_mdct_backward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_sca
       post_shift = IMIN(post_shift, pre_shift);
       fft_shift = pre_shift - post_shift;
    }
-#endif
    /* Pre-rotate */
    {
       /* Temp pointers to make it really clear to the compiler what we're doing */
@@ -328,7 +243,7 @@ void clt_mdct_backward_c(const mdct_lookup *l, kiss_fft_scalar *in, kiss_fft_sca
       }
    }
 
-   opus_fft_impl(l->kfft[shift], (kiss_fft_cpx*)(out+(overlap>>1)) ARG_FIXED(fft_shift));
+   opus_fft_impl(l->kfft[shift], (kiss_fft_cpx*)(out+(overlap>>1)), fft_shift);
 
    /* Post-rotate and de-shuffle from both ends of the buffer at once to make
       it in-place. */

@@ -202,9 +202,6 @@
 /** Divide a 32-bit value by a 32-bit value. Result fits in 32 bits */
 #define DIV32(a,b) (((opus_val32)(a))/((opus_val32)(b)))
 
-#if defined(__mips)
-#include "mips/fixed_generic_mipsr1.h"
-#endif
 
 static OPUS_INLINE opus_val16 SIG2WORD16_generic(celt_sig x)
 {

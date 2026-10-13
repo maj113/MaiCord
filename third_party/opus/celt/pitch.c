@@ -31,9 +31,6 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 
 #include "pitch.h"
 #include "os_support.h"
@@ -44,20 +41,16 @@
 
 static void find_best_pitch(opus_val32 *xcorr, opus_val16 *y, int len,
                             int max_pitch, int *best_pitch
-#ifdef FIXED_POINT
                             , int yshift, opus_val32 maxcorr
-#endif
                             )
 {
    int i, j;
    opus_val32 Syy=1;
    opus_val16 best_num[2];
    opus_val32 best_den[2];
-#ifdef FIXED_POINT
    int xshift;
 
    xshift = celt_ilog2(maxcorr)-14;
-#endif
 
    best_num[0] = -1;
    best_num[1] = -1;
@@ -74,11 +67,6 @@ static void find_best_pitch(opus_val32 *xcorr, opus_val16 *y, int len,
          opus_val16 num;
          opus_val32 xcorr16;
          xcorr16 = EXTRACT16(VSHR32(xcorr[i], xshift));
-#ifndef FIXED_POINT
-         /* Considering the range of xcorr16, this should avoid both underflows
-            and overflows (inf) when squaring xcorr16 */
-         xcorr16 *= 1e-12f;
-#endif
          num = MULT16_16_Q15(xcorr16,xcorr16);
          if (MULT16_32_Q15(num,best_den[1]) > MULT16_32_Q15(best_num[1],Syy))
          {
@@ -147,12 +135,9 @@ void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x
    opus_val16 lpc2[5];
    opus_val16 c1 = QCONST16(.8f,15);
    int offset;
-#ifdef FIXED_POINT
    int shift;
    opus_val32 maxabs;
-#endif
    offset = factor/2;
-#ifdef FIXED_POINT
    maxabs = celt_maxabs32(x[0], len*factor);
    if (C==2)
    {
@@ -175,35 +160,16 @@ void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x
          x_lp[i] += SHR32(x[1][(factor*i-offset)], shift+2) + SHR32(x[1][(factor*i+offset)], shift+2) + SHR32(x[1][factor*i], shift+1);
       x_lp[0] += SHR32(x[1][offset], shift+2) + SHR32(x[1][0], shift+1);
    }
-#else
-   for (i=1;i<len;i++)
-      x_lp[i] = .25f*x[0][(factor*i-offset)] + .25f*x[0][(factor*i+offset)] + .5f*x[0][factor*i];
-   x_lp[0] = .25f*x[0][offset] + .5f*x[0][0];
-   if (C==2)
-   {
-      for (i=1;i<len;i++)
-         x_lp[i] += .25f*x[1][(factor*i-offset)] + .25f*x[1][(factor*i+offset)] + .5f*x[1][factor*i];
-      x_lp[0] += .25f*x[1][offset] + .5f*x[1][0];
-   }
-#endif
    _celt_autocorr(x_lp, ac, NULL, 0,
                   4, len, arch);
 
    /* Noise floor -40 dB */
-#ifdef FIXED_POINT
    ac[0] += SHR32(ac[0],13);
-#else
-   ac[0] *= 1.0001f;
-#endif
    /* Lag windowing */
    for (i=1;i<=4;i++)
    {
       /*ac[i] *= exp(-.5*(2*M_PI*.002*i)*(2*M_PI*.002*i));*/
-#ifdef FIXED_POINT
       ac[i] -= MULT16_32_Q15(2*i*i, ac[i]);
-#else
-      ac[i] -= ac[i]*(.008f*i)*(.008f*i);
-#endif
    }
 
    _celt_lpc(lpc, ac, 4);
@@ -222,71 +188,30 @@ void pitch_downsample(celt_sig * OPUS_RESTRICT x[], opus_val16 * OPUS_RESTRICT x
 }
 
 /* Pure C implementation. */
-#ifdef FIXED_POINT
 opus_val32
-#else
-void
-#endif
 celt_pitch_xcorr_c(const opus_val16 *_x, const opus_val16 *_y,
       opus_val32 *xcorr, int len, int max_pitch, int arch)
 {
 
-#if 0 /* This is a simple version of the pitch correlation that should work
-         well on DSPs like Blackfin and TI C5x/C6x */
-   int i, j;
-#ifdef FIXED_POINT
-   opus_val32 maxcorr=1;
-#endif
-#if !defined(OVERRIDE_PITCH_XCORR)
-   (void)arch;
-#endif
-   for (i=0;i<max_pitch;i++)
-   {
-      opus_val32 sum = 0;
-      for (j=0;j<len;j++)
-         sum = MAC16_16(sum, _x[j], _y[i+j]);
-      xcorr[i] = sum;
-#ifdef FIXED_POINT
-      maxcorr = MAX32(maxcorr, sum);
-#endif
-   }
-#ifdef FIXED_POINT
-   return maxcorr;
-#endif
-
-#else /* Unrolled version of the pitch correlation -- runs faster on x86 and ARM */
    int i;
    /*The EDSP version requires that max_pitch is at least 1, and that _x is
       32-bit aligned.
      Since it's hard to put asserts in assembly, put them here.*/
-#ifdef FIXED_POINT
    opus_val32 maxcorr=1;
-#endif
    celt_assert(max_pitch>0);
    celt_sig_assert(((size_t)_x&3)==0);
    for (i=0;i<max_pitch-3;i+=4)
    {
       opus_val32 sum[4]={0,0,0,0};
-#if defined(OPUS_CHECK_ASM) && defined(FIXED_POINT)
-      {
-         opus_val32 sum_c[4]={0,0,0,0};
-         xcorr_kernel_c(_x, _y+i, sum_c, len);
-#endif
          xcorr_kernel(_x, _y+i, sum, len, arch);
-#if defined(OPUS_CHECK_ASM) && defined(FIXED_POINT)
-         celt_assert(memcmp(sum, sum_c, sizeof(sum)) == 0);
-      }
-#endif
       xcorr[i]=sum[0];
       xcorr[i+1]=sum[1];
       xcorr[i+2]=sum[2];
       xcorr[i+3]=sum[3];
-#ifdef FIXED_POINT
       sum[0] = MAX32(sum[0], sum[1]);
       sum[2] = MAX32(sum[2], sum[3]);
       sum[0] = MAX32(sum[0], sum[2]);
       maxcorr = MAX32(maxcorr, sum[0]);
-#endif
    }
    /* In case max_pitch isn't a multiple of 4, do non-unrolled version. */
    for (;i<max_pitch;i++)
@@ -294,14 +219,9 @@ celt_pitch_xcorr_c(const opus_val16 *_x, const opus_val16 *_y,
       opus_val32 sum;
       sum = celt_inner_prod(_x, _y+i, len, arch);
       xcorr[i] = sum;
-#ifdef FIXED_POINT
       maxcorr = MAX32(maxcorr, sum);
-#endif
    }
-#ifdef FIXED_POINT
    return maxcorr;
-#endif
-#endif
 }
 
 void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTRICT y,
@@ -313,11 +233,9 @@ void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTR
    VARDECL(opus_val16, x_lp4);
    VARDECL(opus_val16, y_lp4);
    VARDECL(opus_val32, xcorr);
-#ifdef FIXED_POINT
    opus_val32 maxcorr;
    opus_val32 xmax, ymax;
    int shift=0;
-#endif
    int offset;
 
    SAVE_STACK;
@@ -336,7 +254,6 @@ void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTR
    for (j=0;j<lag>>2;j++)
       y_lp4[j] = y[2*j];
 
-#ifdef FIXED_POINT
    xmax = celt_maxabs16(x_lp4, len>>2);
    ymax = celt_maxabs16(y_lp4, lag>>2);
    shift = celt_ilog2(MAX32(1, MAX32(xmax, ymax))) - 14 + celt_ilog2(len)/2;
@@ -351,47 +268,32 @@ void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTR
    } else {
       shift = 0;
    }
-#endif
 
    /* Coarse search with 4x decimation */
 
-#ifdef FIXED_POINT
    maxcorr =
-#endif
    celt_pitch_xcorr(x_lp4, y_lp4, xcorr, len>>2, max_pitch>>2, arch);
 
    find_best_pitch(xcorr, y_lp4, len>>2, max_pitch>>2, best_pitch
-#ifdef FIXED_POINT
                    , 0, maxcorr
-#endif
                    );
 
    /* Finer search with 2x decimation */
-#ifdef FIXED_POINT
    maxcorr=1;
-#endif
    for (i=0;i<max_pitch>>1;i++)
    {
       opus_val32 sum;
       xcorr[i] = 0;
       if (abs(i-2*best_pitch[0])>2 && abs(i-2*best_pitch[1])>2)
          continue;
-#ifdef FIXED_POINT
       sum = 0;
       for (j=0;j<len>>1;j++)
          sum += SHR32(MULT16_16(x_lp[j],y[i+j]), shift);
-#else
-      sum = celt_inner_prod(x_lp, y+i, len>>1, arch);
-#endif
       xcorr[i] = MAX32(-1, sum);
-#ifdef FIXED_POINT
       maxcorr = MAX32(maxcorr, sum);
-#endif
    }
    find_best_pitch(xcorr, y, len>>1, max_pitch>>1, best_pitch
-#ifdef FIXED_POINT
                    , shift+1, maxcorr
-#endif
                    );
 
    /* Refine by pseudo-interpolation */
@@ -415,7 +317,6 @@ void pitch_search(const opus_val16 * OPUS_RESTRICT x_lp, opus_val16 * OPUS_RESTR
    RESTORE_STACK;
 }
 
-#ifdef FIXED_POINT
 static opus_val16 compute_pitch_gain(opus_val32 xy, opus_val32 xx, opus_val32 yy)
 {
    opus_val32 x2y2;
@@ -443,12 +344,6 @@ static opus_val16 compute_pitch_gain(opus_val32 xy, opus_val32 xx, opus_val32 yy
    g = VSHR32(g, (shift>>1)-1);
    return EXTRACT16(MAX32(-Q15ONE, MIN32(g, Q15ONE)));
 }
-#else
-static opus_val16 compute_pitch_gain(opus_val32 xy, opus_val32 xx, opus_val32 yy)
-{
-   return xy/celt_sqrt(1+xx*yy);
-}
-#endif
 
 static const int second_check[16] = {0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2, 3, 2};
 opus_val16 remove_doubling(opus_val16 *x, int maxperiod, int minperiod,

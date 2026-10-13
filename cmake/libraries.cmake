@@ -14,6 +14,13 @@ maicord_library(maicord_media_core
     src/media/animation_timeline.cpp src/media/encoded_cache.cpp src/media/presentation_policy.cpp
     src/media/regional_flag_svg.cpp src/ui/regional_flag.cpp
     LIBS maicord_core)
+# maiopus keeps MaiCord's existing target names until the extern/maiopus move.
+set(MAIOPUS_DECODER_TARGET maicord_opus_decoder)
+set(MAIOPUS_ENCODER_TARGET maicord_opus_encoder)
+set(MAIOPUS_LINK_CONTRACT maicord_link_contract)
+set(MAIOPUS_LTCG ON)
+set(MAIOPUS_ARCH /arch:AVX)
+set(MAIOPUS_SSE4_1 ON)
 
 add_subdirectory(third_party/opus)
 

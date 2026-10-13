@@ -32,9 +32,6 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 
 #include "float_cast.h"
 #include "mathops.h"
@@ -67,7 +64,6 @@ unsigned isqrt32(opus_uint32 _val){
   return g;
 }
 
-#ifdef FIXED_POINT
 
 opus_val32 frac_div32_q29(opus_val32 a, opus_val32 b)
 {
@@ -220,25 +216,6 @@ opus_val16 celt_cos_norm(opus_val32 x)
 
 /* Calculates the cosine of (PI*0.5*x) where the input x ranges from -1 to 1 and
  * is in Q30 format. The output will also be in Q31 format. */
-opus_val32 celt_cos_norm32(opus_val32 x)
-{
-   static const opus_val32 COS_NORM_COEFF_A0 = 134217720;   /* Q27 */
-   static const opus_val32 COS_NORM_COEFF_A1 = -662336704;  /* Q29 */
-   static const opus_val32 COS_NORM_COEFF_A2 = 544710848;   /* Q31 */
-   static const opus_val32 COS_NORM_COEFF_A3 = -178761936;  /* Q33 */
-   static const opus_val32 COS_NORM_COEFF_A4 = 29487206;    /* Q35 */
-   opus_int32 x_sq_q29, tmp;
-   /* The expected x is in the range of [-1.0f, 1.0f] */
-   celt_sig_assert((x >= -1073741824) && (x <= 1073741824));
-   /* Make cos(+/- pi/2) exactly zero. */
-   if (ABS32(x) == 1<<30) return 0;
-   x_sq_q29 = MULT32_32_Q31(x, x);
-   /* Split evaluation in steps to avoid exploding macro expansion. */
-   tmp = ADD32(COS_NORM_COEFF_A3, MULT32_32_Q31(x_sq_q29, COS_NORM_COEFF_A4));
-   tmp = ADD32(COS_NORM_COEFF_A2, MULT32_32_Q31(x_sq_q29, tmp));
-   tmp = ADD32(COS_NORM_COEFF_A1, MULT32_32_Q31(x_sq_q29, tmp));
-   return SHL32(ADD32(COS_NORM_COEFF_A0, MULT32_32_Q31(x_sq_q29, tmp)), 4);
-}
 
 /* Computes a 16 bit approximate reciprocal (1/x) for a normalized Q15 input,
  * resulting in a Q15 output. */
@@ -300,37 +277,4 @@ opus_val32 celt_rcp(opus_val32 x)
    return VSHR32(EXTEND32(r),i-16);
 }
 
-#endif
 
-#ifndef DISABLE_FLOAT_API
-
-void celt_float2int16_c(const float * OPUS_RESTRICT in, short * OPUS_RESTRICT out, int cnt)
-{
-   int i;
-   for (i = 0; i < cnt; i++)
-   {
-      out[i] = FLOAT2INT16(in[i]);
-   }
-}
-
-int opus_limit2_checkwithin1_c(float * samples, int cnt)
-{
-   int i;
-   if (cnt <= 0)
-   {
-      return 1;
-   }
-
-   for (i = 0; i < cnt; i++)
-   {
-      float clippedVal = samples[i];
-      clippedVal = FMAX(-2.0f, clippedVal);
-      clippedVal = FMIN(2.0f, clippedVal);
-      samples[i] = clippedVal;
-   }
-
-   /* C implementation can't provide quick hint. Assume it might exceed -1/+1. */
-   return 0;
-}
-
-#endif /* DISABLE_FLOAT_API */

@@ -25,9 +25,6 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ***********************************************************************/
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 
 #include "main_FIX.h"
 #include "tuning_parameters.h"
@@ -76,21 +73,12 @@ void silk_find_LTP_FIX(
         temp = silk_SMLAWB( 1, nrg, SILK_FIX_CONST( LTP_CORR_INV_MAX, 16 ) );
         temp = silk_max( temp, xx );
 TIC(div)
-#if 0
-        for( i = 0; i < LTP_ORDER * LTP_ORDER; i++ ) {
-            XXLTP_Q17_ptr[ i ] = silk_DIV32_varQ( XXLTP_Q17_ptr[ i ], temp, 17 );
-        }
-        for( i = 0; i < LTP_ORDER; i++ ) {
-            xXLTP_Q17_ptr[ i ] = silk_DIV32_varQ( xXLTP_Q17_ptr[ i ], temp, 17 );
-        }
-#else
         for( i = 0; i < LTP_ORDER * LTP_ORDER; i++ ) {
             XXLTP_Q17_ptr[ i ] = (opus_int32)( silk_LSHIFT64( (opus_int64)XXLTP_Q17_ptr[ i ], 17 ) / temp );
         }
         for( i = 0; i < LTP_ORDER; i++ ) {
             xXLTP_Q17_ptr[ i ] = (opus_int32)( silk_LSHIFT64( (opus_int64)xXLTP_Q17_ptr[ i ], 17 ) / temp );
         }
-#endif
 TOC(div)
         r_ptr         += subfr_length;
         XXLTP_Q17_ptr += LTP_ORDER * LTP_ORDER;

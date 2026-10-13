@@ -35,9 +35,6 @@
 #include "entenc.h"
 #include "entdec.h"
 
-#ifdef CUSTOM_MODES
-int log2_frac(opus_uint32 val, int frac);
-#endif
 
 void get_required_bits(opus_int16 *bits, int N, int K, int frac);
 

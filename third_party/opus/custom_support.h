@@ -1,10 +1,8 @@
-#ifndef MAICORD_OPUS_CUSTOM_SUPPORT_H
-#define MAICORD_OPUS_CUSTOM_SUPPORT_H
-/* MaiCord integration: all decoder state is provided by the caller.
- * Opus's allocation-based convenience APIs cannot acquire storage here.
- * memcpy/memmove/memset resolve to MaiCord's freestanding runtime.
- * USE_ALLOCA selects per-call MSVC intrinsic stack scratch, never global state.
- */
+#ifndef MAIOPUS_CUSTOM_SUPPORT_H
+#define MAIOPUS_CUSTOM_SUPPORT_H
+/* Included by os_support.h when CUSTOM_SUPPORT is defined. Codec states live in
+ * caller memory, so the allocation hooks never return storage; scratch uses
+ * per-call alloca (USE_ALLOCA), never global state. */
 #define OVERRIDE_OPUS_ALLOC
 #define OVERRIDE_OPUS_REALLOC
 #define OVERRIDE_OPUS_FREE

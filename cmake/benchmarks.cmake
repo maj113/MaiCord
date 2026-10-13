@@ -119,6 +119,16 @@ maicord_program(MaiCordMediaBenchmark ENTRY maicord_media_benchmark_entry
     SOURCES benchmarks/media_benchmark.cpp tests/media_fixture.cpp
     LIBS maicord_core maicord_protocol maicord_render_core maicord_media_core maicord_media_codec
         maicord_cdn_media maicord_atlas_gpu kernel32 d3d11)
+# tools/benchmark_opus.ps1: Opus encode/decode CPU per frame and bit-exactness digests.
+maicord_program(MaiCordOpusBenchmark ENTRY maicord_opus_benchmark_entry
+    SOURCES benchmarks/opus_benchmark.cpp
+    LIBS maicord_core maicord_media_codec maicord_voice_encoder kernel32
+    INCLUDES tests)
+# tools/opus_conformance.ps1: the official Opus test vectors through the shipping decoder.
+maicord_program(MaiCordOpusConformance ENTRY maicord_opus_conformance_entry
+    SOURCES benchmarks/opus_conformance.cpp
+    LIBS maicord_core maicord_media_codec maicord_opus_decoder kernel32 bcrypt
+    INCLUDES tests third_party/opus/include)
 # tools/benchmark_media_decode.ps1: CPU image/audio decode over a generated corpus.
 maicord_program(MaiCordMediaDecodeBenchmark ENTRY maicord_media_decode_benchmark_entry
     SOURCES benchmarks/media_decode_benchmark.cpp

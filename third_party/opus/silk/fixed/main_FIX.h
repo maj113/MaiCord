@@ -36,11 +36,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "debug.h"
 #include "entenc.h"
 
-#if ((defined(OPUS_ARM_ASM) && defined(FIXED_POINT)) \
-   || defined(OPUS_ARM_MAY_HAVE_NEON_INTR))
-#include "fixed/arm/warped_autocorrelation_FIX_arm.h"
-#endif
-
 
 #define silk_encoder_state_Fxx      silk_encoder_state_FIX
 #define silk_encode_do_VAD_Fxx      silk_encode_do_VAD_FIX

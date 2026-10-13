@@ -25,9 +25,6 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ***********************************************************************/
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 
 #include "main.h"
 #include "stack_alloc.h"
@@ -60,11 +57,7 @@ void silk_decode_core(
     ALLOC( res_Q14, psDec->subfr_length, opus_int32 );
     /* Work around a clang bug (verified with clang 6.0 through clang 20.1.0) that causes the last
        memset to be flagged as an invalid read by valgrind (not caught by asan). */
-#if defined(__clang__) && defined(VAR_ARRAYS)
-    ALLOC( sLPC_Q14, MAX_SUB_FRAME_LENGTH + MAX_LPC_ORDER, opus_int32 );
-#else
     ALLOC( sLPC_Q14, psDec->subfr_length + MAX_LPC_ORDER, opus_int32 );
-#endif
 
     offset_Q10 = silk_Quantization_Offsets_Q10[ psDec->indices.signalType >> 1 ][ psDec->indices.quantOffsetType ];
 

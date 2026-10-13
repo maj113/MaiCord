@@ -25,9 +25,6 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ***********************************************************************/
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 
 #include "SigProc_FIX.h"
 #include "pitch.h"
@@ -50,18 +47,6 @@ void silk_scale_copy_vector16(
 }
 
 /* Multiply a vector by a constant */
-void silk_scale_vector32_Q26_lshift_18(
-    opus_int32                  *data1,             /* I/O  Q0/Q18                                                      */
-    opus_int32                  gain_Q26,           /* I    Q26                                                         */
-    opus_int                    dataSize            /* I    length                                                      */
-)
-{
-    opus_int  i;
-
-    for( i = 0; i < dataSize; i++ ) {
-        data1[ i ] = (opus_int32)silk_CHECK_FIT32( silk_RSHIFT64( silk_SMULL( data1[ i ], gain_Q26 ), 8 ) );    /* OUTPUT: Q18 */
-    }
-}
 
 /* sum = for(i=0;i<len;i++)inVec1[i]*inVec2[i];      ---        inner product   */
 /* Note for ARM asm:                                                            */
@@ -75,16 +60,7 @@ opus_int32 silk_inner_prod_aligned(
     int                         arch                /*    I Run-time architecture                                       */
 )
 {
-#ifdef FIXED_POINT
    return celt_inner_prod(inVec1, inVec2, len, arch);
-#else
-    opus_int   i;
-    opus_int32 sum = 0;
-    for( i = 0; i < len; i++ ) {
-        sum = silk_SMLABB( sum, inVec1[ i ], inVec2[ i ] );
-    }
-    return sum;
-#endif
 }
 
 opus_int64 silk_inner_prod16_c(

@@ -1,5 +1,43 @@
-# Opus 1.6.1 decoder and voice encoder subsets; upstream bytes bound by upstream-manifest.json.
-add_library(maicord_opus_decoder STATIC
+# maiopus: fixed-point libopus 1.6.1 fork; provenance in upstream-manifest.json.
+# A complete decoder plus a 48 kHz, 20 ms VBR voice encoder, freestanding
+# (no CRT, no heap). The parent project may set:
+#   MAIOPUS_DECODER_TARGET / MAIOPUS_ENCODER_TARGET  target names
+#   MAIOPUS_LINK_CONTRACT  an INTERFACE target linked privately (link options)
+#   MAIOPUS_LTCG           compile with /GL for whole-program optimization
+#   MAIOPUS_SSE4_1         use the x86 SSE4.1 kernels (compile-time selection,
+#                          no runtime CPU dispatch)
+#   MAIOPUS_ARCH           extra code generation option, e.g. /arch:AVX
+if(NOT DEFINED MAIOPUS_DECODER_TARGET)
+    set(MAIOPUS_DECODER_TARGET maiopus_decoder)
+endif()
+if(NOT DEFINED MAIOPUS_ENCODER_TARGET)
+    set(MAIOPUS_ENCODER_TARGET maiopus_encoder)
+endif()
+
+set(maiopus_definitions
+    OPUS_BUILD FIXED_POINT DISABLE_FLOAT_API USE_ALLOCA CUSTOM_SUPPORT
+    ENABLE_HARDENING OVERRIDE_celt_fatal "PACKAGE_VERSION=\"1.6.1\"")
+# Upstream C keeps its own warning level. No CRT libraries, security cookie,
+# heap or float math path.
+set(maiopus_options /W3 /Zl /GS- /Gy /Gw /GF /Oi /utf-8 /Brepro)
+if(MAIOPUS_LTCG)
+    # A literal option: test builds strip /GL with list(REMOVE_ITEM).
+    list(APPEND maiopus_options /GL)
+endif()
+if(MAIOPUS_ARCH)
+    list(APPEND maiopus_options ${MAIOPUS_ARCH})
+endif()
+set(maiopus_decoder_simd)
+set(maiopus_encoder_simd)
+if(MAIOPUS_SSE4_1)
+    list(APPEND maiopus_definitions
+        OPUS_X86_MAY_HAVE_SSE2 OPUS_X86_PRESUME_SSE2 OPUS_X86_MAY_HAVE_SSE4_1 OPUS_X86_PRESUME_SSE4_1)
+    set(maiopus_decoder_simd celt/x86/celt_lpc_sse4_1.c celt/x86/pitch_sse4_1.c)
+    set(maiopus_encoder_simd silk/x86/NSQ_sse4_1.c silk/x86/NSQ_del_dec_sse4_1.c silk/x86/VAD_sse4_1.c
+        silk/x86/VQ_WMat_EC_sse4_1.c silk/fixed/x86/burg_modified_FIX_sse4_1.c silk/fixed/x86/vector_ops_FIX_sse4_1.c)
+endif()
+
+add_library(${MAIOPUS_DECODER_TARGET} STATIC
     celt/bands.c
     celt/celt.c
     celt/celt_decoder.c
@@ -64,27 +102,19 @@ add_library(maicord_opus_decoder STATIC
     silk/tables_other.c
     silk/tables_pitch_lag.c
     silk/tables_pulses_per_block.c
-    src/extensions.c
     src/opus.c
     src/opus_decoder.c
-    maicord_support.c)
-target_include_directories(maicord_opus_decoder PUBLIC include PRIVATE . celt silk src)
-target_compile_features(maicord_opus_decoder PRIVATE c_std_17)
-target_compile_definitions(maicord_opus_decoder PRIVATE
-    OPUS_BUILD FIXED_POINT DISABLE_FLOAT_API USE_ALLOCA CUSTOM_SUPPORT
-    ENABLE_HARDENING OVERRIDE_celt_fatal "PACKAGE_VERSION=\"1.6.1\"")
-# Upstream C is isolated from the application's stricter C++ warnings policy.
-# No compiler-inserted CRT libraries, security cookie, heap, or float math path.
-target_compile_options(maicord_opus_decoder PRIVATE
-    /W3 /Zl /GS- /Gy /Gw /GF /Oi /utf-8 /O2 /Ob1 /GL /Brepro)
-target_link_libraries(maicord_opus_decoder PRIVATE maicord_link_contract)
-set_target_properties(maicord_opus_decoder PROPERTIES
+    freestanding_support.c
+    ${maiopus_decoder_simd})
+target_include_directories(${MAIOPUS_DECODER_TARGET} PUBLIC include PRIVATE . celt silk src)
+target_compile_features(${MAIOPUS_DECODER_TARGET} PRIVATE c_std_17)
+target_compile_definitions(${MAIOPUS_DECODER_TARGET} PRIVATE ${maiopus_definitions})
+target_compile_options(${MAIOPUS_DECODER_TARGET} PRIVATE ${maiopus_options} /O2 /Ob1)
+set_target_properties(${MAIOPUS_DECODER_TARGET} PROPERTIES
     C_EXTENSIONS OFF MSVC_RUNTIME_LIBRARY "MultiThreaded")
 
-# Encoder-only units for the account DLL's voice sender. Shared CELT/SILK
-# objects come from the decoder subset; src/opus_encoder.c is compiled through
-# maicord_encoder_profile.c (single 20 ms VBR frames, no repacketizer).
-add_library(maicord_opus_encoder STATIC
+# Encoder-only units. Shared CELT/SILK objects come from the decoder library.
+add_library(${MAIOPUS_ENCODER_TARGET} STATIC
     celt/celt_encoder.c
     silk/A2NLSF.c
     silk/HP_variable_cutoff.c
@@ -136,17 +166,20 @@ add_library(maicord_opus_encoder STATIC
     silk/fixed/schur_FIX.c
     silk/fixed/vector_ops_FIX.c
     silk/fixed/warped_autocorrelation_FIX.c
-    maicord_encoder_profile.c)
-target_include_directories(maicord_opus_encoder PUBLIC include PRIVATE . celt silk silk/fixed src)
-target_compile_features(maicord_opus_encoder PRIVATE c_std_17)
-target_compile_definitions(maicord_opus_encoder PRIVATE
-    OPUS_BUILD FIXED_POINT DISABLE_FLOAT_API USE_ALLOCA CUSTOM_SUPPORT
-    ENABLE_HARDENING OVERRIDE_celt_fatal "PACKAGE_VERSION=\"1.6.1\"")
+    src/opus_encoder.c
+    ${maiopus_encoder_simd})
+target_include_directories(${MAIOPUS_ENCODER_TARGET} PUBLIC include PRIVATE . celt silk silk/fixed src)
+target_compile_features(${MAIOPUS_ENCODER_TARGET} PRIVATE c_std_17)
+target_compile_definitions(${MAIOPUS_ENCODER_TARGET} PRIVATE ${maiopus_definitions})
 # Measured: /O1 removes about a fifth of the encoder code for under 1% SILK
 # encode time; the CELT analysis unit stays /O2, where /O1 cost about 6%.
-target_compile_options(maicord_opus_encoder PRIVATE
-    /W3 /Zl /GS- /Gy /Gw /GF /Oi /utf-8 /O1 /GL /Brepro)
+target_compile_options(${MAIOPUS_ENCODER_TARGET} PRIVATE ${maiopus_options} /O1)
 set_source_files_properties(celt/celt_encoder.c PROPERTIES COMPILE_OPTIONS "/O2;/Ob1")
-target_link_libraries(maicord_opus_encoder PUBLIC maicord_opus_decoder PRIVATE maicord_link_contract)
-set_target_properties(maicord_opus_encoder PROPERTIES
+target_link_libraries(${MAIOPUS_ENCODER_TARGET} PUBLIC ${MAIOPUS_DECODER_TARGET})
+set_target_properties(${MAIOPUS_ENCODER_TARGET} PROPERTIES
     C_EXTENSIONS OFF MSVC_RUNTIME_LIBRARY "MultiThreaded")
+
+if(MAIOPUS_LINK_CONTRACT)
+    target_link_libraries(${MAIOPUS_DECODER_TARGET} PRIVATE ${MAIOPUS_LINK_CONTRACT})
+    target_link_libraries(${MAIOPUS_ENCODER_TARGET} PRIVATE ${MAIOPUS_LINK_CONTRACT})
+endif()

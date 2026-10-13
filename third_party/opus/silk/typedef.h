@@ -31,11 +31,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "opus_types.h"
 #include "opus_defines.h"
 
-#ifndef FIXED_POINT
-# include <float.h>
-# define silk_float      float
-# define silk_float_MAX  FLT_MAX
-#endif
 
 #define silk_int64_MAX   ((opus_int64)0x7FFFFFFFFFFFFFFFLL)   /*  2^63 - 1 */
 #define silk_int64_MIN   ((opus_int64)0x8000000000000000LL)   /* -2^63 */
@@ -57,25 +52,7 @@ POSSIBILITY OF SUCH DAMAGE.
 #  define silk_assert(COND)   _ASSERTE(COND)
 # endif
 #else
-# ifdef ENABLE_ASSERTIONS
-#  include <stdio.h>
-#  include <stdlib.h>
-#define silk_fatal(str) _silk_fatal(str, __FILE__, __LINE__);
-#ifdef __GNUC__
-__attribute__((noreturn))
-#endif
-static OPUS_INLINE void _silk_fatal(const char *str, const char *file, int line)
-{
-   fprintf (stderr, "Fatal (internal) error in %s, line %d: %s\n", file, line, str);
-#if defined(_MSC_VER)
-   _set_abort_behavior( 0, _WRITE_ABORT_MSG);
-#endif
-   abort();
-}
-#  define silk_assert(COND) {if (!(COND)) {silk_fatal("assertion failed: " #COND);}}
-# else
 #  define silk_assert(COND) ((void)(COND))
-# endif
 #endif
 
 #endif /* SILK_TYPEDEF_H */

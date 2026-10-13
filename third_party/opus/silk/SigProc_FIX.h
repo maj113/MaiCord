@@ -43,10 +43,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #include "x86/SigProc_FIX_sse.h"
 #endif
 
-#if (defined(OPUS_ARM_ASM) || defined(OPUS_ARM_MAY_HAVE_NEON_INTR))
-#include "arm/biquad_alt_arm.h"
-#include "arm/LPC_inv_pred_gain_arm.h"
-#endif
 
 /********************************************************************/
 /*                    SIGNAL PROCESSING FUNCTIONS                   */
@@ -349,13 +345,6 @@ void silk_scale_copy_vector16(
     const opus_int              dataSize            /* I    Length                                                      */
 );
 
-/* Some for the LTP related function requires Q26 to work.*/
-void silk_scale_vector32_Q26_lshift_18(
-    opus_int32                  *data1,             /* I/O  Q0/Q18                                                      */
-    opus_int32                  gain_Q26,           /* I    Q26                                                         */
-    opus_int                    dataSize            /* I    length                                                      */
-);
-
 /********************************************************************/
 /*                        INLINE ARM MATH                           */
 /********************************************************************/
@@ -406,11 +395,7 @@ static OPUS_INLINE opus_int32 silk_ROR32( opus_int32 a32, opus_int rot )
 }
 
 /* Allocate opus_int16 aligned to 4-byte memory address */
-#if EMBEDDED_ARM
-#define silk_DWORD_ALIGN __attribute__((aligned(4)))
-#else
 #define silk_DWORD_ALIGN
-#endif
 
 /* Useful Macros that can be adjusted to other platforms */
 #define silk_memcpy(dest, src, size)        memcpy((dest), (src), (size))
@@ -620,22 +605,6 @@ static OPUS_INLINE opus_int64 silk_max_64(opus_int64 a, opus_int64 b)
 #include "Inlines.h"
 #include "MacroCount.h"
 #include "MacroDebug.h"
-
-#ifdef OPUS_ARM_INLINE_ASM
-#include "arm/SigProc_FIX_armv4.h"
-#endif
-
-#ifdef OPUS_ARM_INLINE_EDSP
-#include "arm/SigProc_FIX_armv5e.h"
-#endif
-
-#if defined(FIXED_POINT) && defined(__mips_dsp) && __mips == 32
-#include "mips/sigproc_fix_mipsr1.h"
-#endif
-
-#ifdef OPUS_XTENSA_LX7
-#include "xtensa/SigProc_FIX_lx7.h"
-#endif
 
 
 #endif /* SILK_SIGPROC_FIX_H */

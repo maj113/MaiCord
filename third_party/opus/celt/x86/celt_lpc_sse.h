@@ -1,5 +1,6 @@
-/* Copyright (c) 2017 Jean-Marc Valin */
-/*
+/* Copyright (c) 2014, Cisco Systems, INC
+   Written by XiangMingZhu WeiZhou MinPeng YanWang
+
    Redistribution and use in source and binary forms, with or without
    modification, are permitted provided that the following conditions
    are met:
@@ -14,8 +15,8 @@
    THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
    ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
    LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-   A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION OR
-   CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+   A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+   OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
    EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
    PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
    PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
@@ -24,37 +25,26 @@
    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-#ifndef MLP_H_
-#define MLP_H_
+#ifndef CELT_LPC_SSE_H
+#define CELT_LPC_SSE_H
 
-#include "opus_types.h"
 
-#define WEIGHTS_SCALE (1.f/128)
+#if defined(OPUS_X86_MAY_HAVE_SSE4_1) && defined(FIXED_POINT)
 
-#define MAX_NEURONS 32
+void celt_fir_sse4_1(
+         const opus_val16 *x,
+         const opus_val16 *num,
+         opus_val16 *y,
+         int N,
+         int ord,
+         int arch);
 
-typedef struct {
-  const opus_int8 *bias;
-  const opus_int8 *input_weights;
-  int nb_inputs;
-  int nb_neurons;
-  int sigmoid;
-} AnalysisDenseLayer;
+#if defined(OPUS_X86_PRESUME_SSE4_1)
+#define OVERRIDE_CELT_FIR
+#define celt_fir(x, num, y, N, ord, arch) \
+    ((void)arch, celt_fir_sse4_1(x, num, y, N, ord, arch))
 
-typedef struct {
-  const opus_int8 *bias;
-  const opus_int8 *input_weights;
-  const opus_int8 *recurrent_weights;
-  int nb_inputs;
-  int nb_neurons;
-} AnalysisGRULayer;
+#endif
+#endif
 
-extern const AnalysisDenseLayer layer0;
-extern const AnalysisGRULayer layer1;
-extern const AnalysisDenseLayer layer2;
-
-void analysis_compute_dense(const AnalysisDenseLayer *layer, float *output, const float *input);
-
-void analysis_compute_gru(const AnalysisGRULayer *gru, float *state, const float *input);
-
-#endif /* MLP_H_ */
+#endif

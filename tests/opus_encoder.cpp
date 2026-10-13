@@ -23,6 +23,7 @@ alignas(16) u8 encoder_storage[32768], decoder_storage[32768], saved[32768];
 i16 input[2 * kFrame * kMaximumFrames], output[2 * kFrame * kMaximumFrames + 2];
 u8 packets[kMaximumFrames][kOpusEncoderMaximumPacketBytes + 1];
 u32 sizes[kMaximumFrames];
+opus_uint32 ranges[kMaximumFrames]; // Encoder final range per packet.
 
 void fill(const Scenario& s) noexcept {
     OpusVoiceSignal signal;
@@ -58,6 +59,7 @@ bool encode_all(OpusEncoder* encoder, const Scenario& s, u64* digest) noexcept {
                                                  {packets[f], kOpusEncoderMaximumPacketBytes});
         if (!encoded.ok()) return false;
         sizes[f] = encoded.bytes;
+        ::opus_encoder_ctl(reinterpret_cast<::OpusEncoder*>(encoder->state), OPUS_GET_FINAL_RANGE(&ranges[f]));
         const u8 length[2]{static_cast<u8>(encoded.bytes), static_cast<u8>(encoded.bytes >> 8)};
         for (u8 byte : length) hash = (hash ^ byte) * 0x100000001b3ull;
         for (u32 i = 0; i < encoded.bytes; ++i) hash = (hash ^ packets[f][i]) * 0x100000001b3ull;
@@ -70,12 +72,16 @@ bool decoder_open(OpusDecoder* decoder, u32 channels) noexcept {
     const u32 bytes = opus_decoder_storage_bytes(channels);
     return bytes <= sizeof(decoder_storage) && opus_decoder_initialize(decoder, {decoder_storage, bytes}, channels).ok();
 }
+// Every packet decodes 20 ms and leaves the decoder's range coder state equal
+// to the encoder's (the RFC 6716 conformance check on the bitstream).
 bool decode_all(u32 channels, u32 frames) noexcept {
     OpusDecoder decoder;
     if (!decoder_open(&decoder, channels)) return false;
     for (u32 f = 0; f < frames; ++f) {
         const auto decoded = opus_decoder_decode(&decoder, {packets[f], sizes[f]}, {output + f * kFrame * channels, kFrame * channels});
-        if (!decoded.ok() || decoded.frames != kFrame) return false;
+        opus_uint32 range = 0;
+        ::opus_decoder_ctl(reinterpret_cast<::OpusDecoder*>(decoder_storage), OPUS_GET_FINAL_RANGE(&range));
+        if (!decoded.ok() || decoded.frames != kFrame || range != ranges[f]) return false;
     }
     opus_decoder_release(&decoder);
     return true;
@@ -148,14 +154,22 @@ void test_opus_encoder(Check check) noexcept {
           "Opus encoder lifecycle: caller storage binds once at 48 kHz VOIP");
     auto* native = reinterpret_cast<::OpusEncoder*>(encoder_storage);
     opus_int32 bitrate = 0, complexity = 0, fec = 0, loss = 0, dtx = 1, vbr = 0, application = 0;
+    opus_uint32 range = 1;
     check(::opus_encoder_ctl(native, OPUS_GET_BITRATE(&bitrate)) == OPUS_OK && bitrate == static_cast<opus_int32>(kOpusEncoderDefaultBitrate) &&
               ::opus_encoder_ctl(native, OPUS_GET_COMPLEXITY(&complexity)) == OPUS_OK && complexity == static_cast<opus_int32>(kOpusEncoderDefaultComplexity) &&
               ::opus_encoder_ctl(native, OPUS_GET_INBAND_FEC(&fec)) == OPUS_OK && fec == 1 &&
               ::opus_encoder_ctl(native, OPUS_GET_PACKET_LOSS_PERC(&loss)) == OPUS_OK && loss == static_cast<opus_int32>(kOpusEncoderDefaultPacketLossPercent) &&
               ::opus_encoder_ctl(native, OPUS_GET_DTX(&dtx)) == OPUS_OK && dtx == 0 &&
-              ::opus_encoder_ctl(native, OPUS_GET_VBR(&vbr)) == OPUS_OK && vbr == 1 &&
-              ::opus_encoder_ctl(native, OPUS_GET_APPLICATION(&application)) == OPUS_OK && application == OPUS_APPLICATION_VOIP,
-          "Opus encoder defaults: 64 kbit/s, measured complexity, FEC with a loss hint, DTX off, VBR VOIP");
+              ::opus_encoder_ctl(native, OPUS_GET_FINAL_RANGE(&range)) == OPUS_OK && range == 0,
+          "Opus encoder defaults: 64 kbit/s, measured complexity, FEC with a loss hint, DTX off");
+    check(::opus_encoder_ctl(native, OPUS_GET_VBR(&vbr)) == OPUS_UNIMPLEMENTED &&
+              ::opus_encoder_ctl(native, OPUS_GET_APPLICATION(&application)) == OPUS_UNIMPLEMENTED &&
+              ::opus_encoder_ctl(native, OPUS_SET_VBR(0)) == OPUS_UNIMPLEMENTED &&
+              ::opus_encoder_ctl(native, OPUS_SET_INBAND_FEC(2)) == OPUS_BAD_ARG &&
+              ::opus_encode(native, input, static_cast<int>(kFrame / 2), packets[0], kOpusEncoderMaximumPacketBytes) == OPUS_BAD_ARG &&
+              ::opus_encoder_init(reinterpret_cast<::OpusEncoder*>(saved), 24000, 1, OPUS_APPLICATION_VOIP) == OPUS_BAD_ARG &&
+              ::opus_encoder_init(reinterpret_cast<::OpusEncoder*>(saved), 48000, 1, OPUS_APPLICATION_AUDIO) == OPUS_BAD_ARG,
+          "Opus encoder profile: 48 kHz VOIP, VBR and 20 ms frames are fixed; other settings are refused");
     copy_bytes(saved, encoder_storage, mono);
     check(opus_encoder_bitrate(&encoder, kOpusEncoderMinimumBitrate - 1).error == OpusEncodeError::invalid_input &&
               opus_encoder_bitrate(&encoder, kOpusEncoderMaximumBitrate + 1).error == OpusEncodeError::invalid_input &&

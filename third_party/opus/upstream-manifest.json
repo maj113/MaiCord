@@ -1,888 +1,1184 @@
 {
-  "upstream_version": "1.6.1",
-  "upstream_url": "https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz",
-  "upstream_sha256": "6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1",
+  "name": "maiopus",
+  "upstream": {
+    "name": "libopus",
+    "version": "1.6.1",
+    "url": "https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz",
+    "sha256": "6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1"
+  },
   "license": "BSD-3-Clause",
-  "upstream_files": [
+  "files": [
     {
       "path": "COPYING",
-      "bytes": 1945,
-      "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551"
+      "status": "unchanged",
+      "upstream_sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551"
     },
     {
       "path": "celt/_kiss_fft_guts.h",
-      "bytes": 6212,
-      "sha256": "c61749211e75ab6088ea19cf05e777645b8762ac8917b7ec92dc24f630b0c392"
+      "status": "derived",
+      "upstream_sha256": "c61749211e75ab6088ea19cf05e777645b8762ac8917b7ec92dc24f630b0c392",
+      "sha256": "6b64cab5e1bf8d4fdf97f52dab250375942b0ff599981df7ebbae44d48057158"
     },
     {
       "path": "celt/arch.h",
-      "bytes": 12547,
-      "sha256": "6cd5b41be6d13e9300bb5eae18bf1ab739882f4db31e3a3a3d54c415c5b9c797"
+      "status": "derived",
+      "upstream_sha256": "6cd5b41be6d13e9300bb5eae18bf1ab739882f4db31e3a3a3d54c415c5b9c797",
+      "sha256": "6499bfa9a0023769907b200fdd947ca5862bec8102d5f64082007dc71d0fc483"
     },
     {
       "path": "celt/bands.c",
-      "bytes": 61074,
-      "sha256": "fc7ddcc7a46135c2cd89016025e4b96d30e9b514565610115467405d78d63ec6"
+      "status": "derived",
+      "upstream_sha256": "fc7ddcc7a46135c2cd89016025e4b96d30e9b514565610115467405d78d63ec6",
+      "sha256": "f8ad73f0c5f57a4591fb3ac891573f1005c777f632de2b18bab874c06bdced7a"
     },
     {
       "path": "celt/bands.h",
-      "bytes": 5577,
-      "sha256": "2167a3fcca0789942d46cdc2f870d77d66d09ec1840ee1db8a508ae16126fad8"
+      "status": "derived",
+      "upstream_sha256": "2167a3fcca0789942d46cdc2f870d77d66d09ec1840ee1db8a508ae16126fad8",
+      "sha256": "89320b87d694a556f9e098dc28b241640cbf7cfe2bf0629c8f95464d2899dc87"
     },
     {
       "path": "celt/celt.c",
-      "bytes": 11029,
-      "sha256": "d3c1b484c4d895bceda7c543534fc607bf4c6e2b1ca4b080dee8a5b8433a95d9"
+      "status": "derived",
+      "upstream_sha256": "d3c1b484c4d895bceda7c543534fc607bf4c6e2b1ca4b080dee8a5b8433a95d9",
+      "sha256": "713f5dc815702071aeaf036267ccb1d1cfb4f6a3735d077b454f24fd8379e30f"
     },
     {
       "path": "celt/celt.h",
-      "bytes": 8878,
-      "sha256": "1c2b136abe5af480d3a579742ebf099ea345622645c1852c151ca2817c92eb53"
+      "status": "modified",
+      "upstream_sha256": "1c2b136abe5af480d3a579742ebf099ea345622645c1852c151ca2817c92eb53",
+      "changes": [
+        "Removed the analysis (AnalysisInfo), LFE, energy mask, signalling, tonality, input clipping and error query requests and the DRED decode entry point.",
+        "celt_encoder_init() takes no sampling rate (48 kHz only); celt_preemphasis() is private to the encoder."
+      ],
+      "sha256": "1c25b356cddd4ded969e970d494261f4b60d70e80e07837b2c6a54562b412168"
     },
     {
       "path": "celt/celt_decoder.c",
-      "bytes": 61451,
-      "sha256": "a53393c70ae917d39229f34bce2c16ada535807e095cad00a4580aee48c9bfdb"
+      "status": "modified",
+      "upstream_sha256": "a53393c70ae917d39229f34bce2c16ada535807e095cad00a4580aee48c9bfdb",
+      "changes": [
+        "No custom signalling, decoder complexity (deep PLC only) or error flag; the ctl keeps start/end band, channels, mode, final range and reset.",
+        "celt_decode_with_ec_dred() is celt_decode_with_ec(); the QEXT payload remnant and the neural PLC frame types are removed."
+      ],
+      "sha256": "600526e6b70a43bf11aee53c2659c7fa0edc5742845fb0af48a1a5314012a49a"
     },
     {
       "path": "celt/celt_encoder.c",
-      "bytes": 107002,
-      "sha256": "5fa1a138c061cb4939141ff6704c33229e07168de72d9dcf071f17277829ced7"
+      "status": "modified",
+      "upstream_sha256": "5fa1a138c061cb4939141ff6704c33229e07168de72d9dcf071f17277829ced7",
+      "changes": [
+        "Fixed to 48 kHz input (no upsampling) without custom signalling, LFE, surround energy mask or tonality analysis input; 16-bit input depth and enabled phase inversion are constants.",
+        "Pre-emphasis keeps only the fixed-point path; dynalloc, trim, VBR and prefilter analysis lose their analysis and surround arguments; the unused pitch change estimate is removed.",
+        "The ctl drops the LSB depth, phase inversion, signalling, analysis, LFE and energy mask requests; coarse energy quantization is called without the LFE flag."
+      ],
+      "sha256": "dccda9226cd6ed90029e22db924f6d51787b09259215c15575fdcadc8d5c5a30"
     },
     {
       "path": "celt/celt_lpc.c",
-      "bytes": 10753,
-      "sha256": "8c6eb20b52aa9d52a83453fd3e33372f2faf1791ea6cfcd8d9d294b005cd0801"
+      "status": "derived",
+      "upstream_sha256": "8c6eb20b52aa9d52a83453fd3e33372f2faf1791ea6cfcd8d9d294b005cd0801",
+      "sha256": "b2435b2a044b1585b576eb4deeacd22a5601c6ad961e190a36e06ac2f53ac0d0"
     },
     {
       "path": "celt/celt_lpc.h",
-      "bytes": 2240,
-      "sha256": "e10b2e2e610b16a2003d00599467dfed45d300726eb28d0934857ebe2dc822cf"
+      "status": "unchanged",
+      "upstream_sha256": "e10b2e2e610b16a2003d00599467dfed45d300726eb28d0934857ebe2dc822cf"
     },
     {
       "path": "celt/cpu_support.h",
-      "bytes": 2434,
-      "sha256": "02bf67720c974a87fa96aad556c4847acc3370ecd16a95170193724197bc9c0e"
+      "status": "derived",
+      "upstream_sha256": "02bf67720c974a87fa96aad556c4847acc3370ecd16a95170193724197bc9c0e",
+      "sha256": "3a33414a75a3fee2019d54befeeee4cd48147bbbd23ff7193e11d451ff1cfdac"
     },
     {
       "path": "celt/cwrs.c",
-      "bytes": 28394,
-      "sha256": "6579428627c7cbdc5de0e977bd81559f1e75cc7dd620bcb29ef7b4770ae13e44"
+      "status": "derived",
+      "upstream_sha256": "6579428627c7cbdc5de0e977bd81559f1e75cc7dd620bcb29ef7b4770ae13e44",
+      "sha256": "7ec10f1a570e0b3cbc0172bb3bba4ad61753f25d149b8b4b3034f78ef95e7062"
     },
     {
       "path": "celt/cwrs.h",
-      "bytes": 1885,
-      "sha256": "7705be67d58e7fbdea384dde5f3c404ef814fbb8ecbfca61f731d11e8201bdc7"
+      "status": "derived",
+      "upstream_sha256": "7705be67d58e7fbdea384dde5f3c404ef814fbb8ecbfca61f731d11e8201bdc7",
+      "sha256": "ec976761b72dab1f6a6ee6ea61bcde11ba16271a4ba58a39681bead9b918efbc"
     },
     {
       "path": "celt/ecintrin.h",
-      "bytes": 3679,
-      "sha256": "c1100f45bdf70d2243740a7891a5def54cf483b51d024a35ac915b630639b556"
+      "status": "derived",
+      "upstream_sha256": "c1100f45bdf70d2243740a7891a5def54cf483b51d024a35ac915b630639b556",
+      "sha256": "380883abfde4192d65effaca95f0be9452b7f0d28723569fe92eb618679510f1"
     },
     {
       "path": "celt/entcode.c",
-      "bytes": 5700,
-      "sha256": "fb52778fb752126b6da6366d29d532ee98d66eb366a28e913562eb9520ba9208"
+      "status": "derived",
+      "upstream_sha256": "fb52778fb752126b6da6366d29d532ee98d66eb366a28e913562eb9520ba9208",
+      "sha256": "f98311b7b19f47a78fb15d8d83aeca327464787aab8b079c69a14d857c0d42cc"
     },
     {
       "path": "celt/entcode.h",
-      "bytes": 5423,
-      "sha256": "97e7742ae4251b545326aadcc898635e90f22d5dc18fa63471c118b8bd79d1e8"
+      "status": "derived",
+      "upstream_sha256": "97e7742ae4251b545326aadcc898635e90f22d5dc18fa63471c118b8bd79d1e8",
+      "sha256": "214ebdbc9f2bf3952b59161bf39056cf6d7f373892c1c60b9883e9275c22f387"
     },
     {
       "path": "celt/entdec.c",
-      "bytes": 8374,
-      "sha256": "f2d74695ceeb927210dcf76d653241ebdfd465a1c23128604640d218cdd93c38"
+      "status": "derived",
+      "upstream_sha256": "f2d74695ceeb927210dcf76d653241ebdfd465a1c23128604640d218cdd93c38",
+      "sha256": "7333f707ffe8c418888533fa03f91216e14ba9baa02e279812ab00eabbb8fe0b"
     },
     {
       "path": "celt/entdec.h",
-      "bytes": 5348,
-      "sha256": "31485453c516ad9be38a03b50a3c450fd5a9b7c7fad2d9e6c05357fd07efe0a9"
+      "status": "unchanged",
+      "upstream_sha256": "31485453c516ad9be38a03b50a3c450fd5a9b7c7fad2d9e6c05357fd07efe0a9"
     },
     {
       "path": "celt/entenc.c",
-      "bytes": 9881,
-      "sha256": "56e0843479ae5db15696125ba6ac3d0a0c26fa8b677d4d6bd457686865408572"
+      "status": "derived",
+      "upstream_sha256": "56e0843479ae5db15696125ba6ac3d0a0c26fa8b677d4d6bd457686865408572",
+      "sha256": "a57a859acb6b44160eb231426514deb4daa81ba2d00f09182ffa497787630e9a"
     },
     {
       "path": "celt/entenc.h",
-      "bytes": 5905,
-      "sha256": "b54d50fa515e4cf2f4b5a5a7a99269b85e24aefb533dd55d407660d1105b5a01"
+      "status": "unchanged",
+      "upstream_sha256": "b54d50fa515e4cf2f4b5a5a7a99269b85e24aefb533dd55d407660d1105b5a01"
     },
     {
       "path": "celt/fixed_generic.h",
-      "bytes": 10413,
-      "sha256": "d102d53bb299308b832590760913a95dcd4bef9684d6e92134852e932587995f"
+      "status": "derived",
+      "upstream_sha256": "d102d53bb299308b832590760913a95dcd4bef9684d6e92134852e932587995f",
+      "sha256": "34f044eba75c3bb563db45b0fa48d8beaaa46625f72cfd70bbcfe733d9beb597"
     },
     {
       "path": "celt/float_cast.h",
-      "bytes": 5955,
-      "sha256": "043f39a90f0dc86092dfa7a76916cb123d06084b16e984b7a2f6375dea42fbfc"
+      "status": "derived",
+      "upstream_sha256": "043f39a90f0dc86092dfa7a76916cb123d06084b16e984b7a2f6375dea42fbfc",
+      "sha256": "05d02fb1394d517d3d953a1a12e0996151cd4964147fba4ce95e645742a915a7"
     },
     {
       "path": "celt/kiss_fft.c",
-      "bytes": 18531,
-      "sha256": "0ff3c57ce9dededbf9925338808223ee8e164b5847f2b320da49b11bac4024d0"
+      "status": "modified",
+      "upstream_sha256": "0ff3c57ce9dededbf9925338808223ee8e164b5847f2b320da49b11bac4024d0",
+      "changes": [
+        "opus_fft_c() and opus_ifft_c() (tonality analysis only) removed; the MDCT calls opus_fft_impl()."
+      ],
+      "sha256": "fd6d822ae939534bc122cddfa5fe18206092e23027348ba8b11e38a61e9a0671"
     },
     {
       "path": "celt/kiss_fft.h",
-      "bytes": 6754,
-      "sha256": "1f293823406831f90dea83170c9d8ca0161254ab2f5f932b4110e8c8e96927b7"
+      "status": "modified",
+      "upstream_sha256": "1f293823406831f90dea83170c9d8ca0161254ab2f5f932b4110e8c8e96927b7",
+      "changes": [
+        "Declarations of the removed FFT entry points and of the custom-mode FFT allocator removed."
+      ],
+      "sha256": "8c161d15a8bf377b2467cf203ac0a64dc96497b3c00d57ea2ea034c9ac4c85ae"
     },
     {
       "path": "celt/laplace.c",
-      "bytes": 6257,
-      "sha256": "6a33bdc5bf3a3350f51f92aafa281e4163fdffc88c9e7b0718f6eb770dc595e7"
+      "status": "modified",
+      "upstream_sha256": "6a33bdc5bf3a3350f51f92aafa281e4163fdffc88c9e7b0718f6eb770dc595e7",
+      "changes": [
+        "ec_laplace_encode_p0() and ec_laplace_decode_p0() (DRED only) removed."
+      ],
+      "sha256": "9c4a641e75d8c7e94b69b22f9bd359c3228a924c16078e7c47b83e55f0a426a4"
     },
     {
       "path": "celt/laplace.h",
-      "bytes": 2349,
-      "sha256": "27102a1e7f24879c6871df971b7215b119d574bc25a3af9740c343d3b285ae82"
+      "status": "modified",
+      "upstream_sha256": "27102a1e7f24879c6871df971b7215b119d574bc25a3af9740c343d3b285ae82",
+      "changes": [
+        "ec_laplace_encode_p0() and ec_laplace_decode_p0() (DRED only) removed."
+      ],
+      "sha256": "77dfaf5c6db202765a61ac2dec72f34dc64d2dcfafe6f5e5ffae58409ec1e513"
     },
     {
       "path": "celt/mathops.c",
-      "bytes": 11265,
-      "sha256": "25199450cc613fc9784add776204dc81d12478fde0d00c746fb1ac62ba85c10e"
+      "status": "modified",
+      "upstream_sha256": "25199450cc613fc9784add776204dc81d12478fde0d00c746fb1ac62ba85c10e",
+      "changes": [
+        "celt_cos_norm32() (unused) removed."
+      ],
+      "sha256": "8bf8f7855993417411184c3b0b3d37715c747362250cf4eea7dc0abf6d132695"
     },
     {
       "path": "celt/mathops.h",
-      "bytes": 22889,
-      "sha256": "79bf06946bf6ab97e6eb933193bcc654d0a7503132044c22714d7cdcc22ba22f"
+      "status": "modified",
+      "upstream_sha256": "79bf06946bf6ab97e6eb933193bcc654d0a7503132044c22714d7cdcc22ba22f",
+      "changes": [
+        "celt_cos_norm32() (unused) removed."
+      ],
+      "sha256": "391ac1ad0d30c693c760d2007b8f79c18b0dabf7ddee96567cd22f02cd4f3d30"
     },
     {
       "path": "celt/mdct.c",
-      "bytes": 12338,
-      "sha256": "8a21116be9b1332926586f8f44af0e1afd9bb7e8a65614683f972654a0668dcb"
+      "status": "derived",
+      "upstream_sha256": "8a21116be9b1332926586f8f44af0e1afd9bb7e8a65614683f972654a0668dcb",
+      "sha256": "1bc7baab6a79b9897aa5848335e2a81106e0f45881e6acc4f43272f88c4be548"
     },
     {
       "path": "celt/mdct.h",
-      "bytes": 4771,
-      "sha256": "fe4d55da1aa03159403379a1cf9d6373da7b27ed0f1de63f8f726e9d9cffd41a"
+      "status": "derived",
+      "upstream_sha256": "fe4d55da1aa03159403379a1cf9d6373da7b27ed0f1de63f8f726e9d9cffd41a",
+      "sha256": "775ae2041ae0bd181a15fa6faa2e2c12f4dda3da955df04af1dd2b6447810d12"
     },
     {
       "path": "celt/mfrngcod.h",
-      "bytes": 2232,
-      "sha256": "5974c2341889a1c2e9775c2a21b3a55d4cbc1ebef90fe4412789aca4f4a19504"
+      "status": "unchanged",
+      "upstream_sha256": "5974c2341889a1c2e9775c2a21b3a55d4cbc1ebef90fe4412789aca4f4a19504"
     },
     {
       "path": "celt/modes.c",
-      "bytes": 16674,
-      "sha256": "03e61ddf326812e4d0d7c00067319af74e1cc5653e2c9551e5a322cad1f73480"
+      "status": "derived",
+      "upstream_sha256": "03e61ddf326812e4d0d7c00067319af74e1cc5653e2c9551e5a322cad1f73480",
+      "sha256": "bae7ffaf07a07589c9ed960b8c1da9dff2c289cb2b5618ce7c5674f07ffa9540"
     },
     {
       "path": "celt/modes.h",
-      "bytes": 2665,
-      "sha256": "f1e503db4939cefaaaf9b5c744023223de0acdb51d2e33238e60bb0495e81c3f"
+      "status": "derived",
+      "upstream_sha256": "f1e503db4939cefaaaf9b5c744023223de0acdb51d2e33238e60bb0495e81c3f",
+      "sha256": "f8ba2afb3d450b096b20ca325c686c8c63fe4b179de61399f05a350a1198ff58"
     },
     {
       "path": "celt/os_support.h",
-      "bytes": 3291,
-      "sha256": "9e0b4572b0c5f366fd6f954d8f70d598d5f2b9d6cd7d123fc0f57cfff54abfd6"
+      "status": "derived",
+      "upstream_sha256": "9e0b4572b0c5f366fd6f954d8f70d598d5f2b9d6cd7d123fc0f57cfff54abfd6",
+      "sha256": "c74d39891ba7cb7e1de086f41e3d16ceb3c97bc1630c1ca2f4e2ba8f3ae14f04"
     },
     {
       "path": "celt/pitch.c",
-      "bytes": 15133,
-      "sha256": "ad93368ae01b6fcadd28905e6ed5a55ad165ae5031654540af77d1ffe55acfd5"
+      "status": "derived",
+      "upstream_sha256": "ad93368ae01b6fcadd28905e6ed5a55ad165ae5031654540af77d1ffe55acfd5",
+      "sha256": "ea746cdb46e580e5605596e8fd44eac8474acdd1aae36b91a680dcc74401efbc"
     },
     {
       "path": "celt/pitch.h",
-      "bytes": 6284,
-      "sha256": "546220cfc7b32796a1f18b37ce75864e94b0016ea8a5eaace1f06c70aa8e20e2"
+      "status": "derived",
+      "upstream_sha256": "546220cfc7b32796a1f18b37ce75864e94b0016ea8a5eaace1f06c70aa8e20e2",
+      "sha256": "777dcba6f2a733503954fb2a3a28596705ffc7009f99541c2aecaf1df819bbb4"
     },
     {
       "path": "celt/quant_bands.c",
-      "bytes": 18965,
-      "sha256": "bec6e7ac19ff02b83480c6ca6a01c084566781856a1e3442b7468bf25a4b937b"
+      "status": "modified",
+      "upstream_sha256": "bec6e7ac19ff02b83480c6ca6a01c084566781856a1e3442b7468bf25a4b937b",
+      "sha256": "90fcd14b1defc5c3e7a0ba859a674d5ca0308012449012bfbd43bc4fe10553a7",
+      "changes": [
+        "quant_coarse_energy() loses the LFE argument (LFE coding is not supported)."
+      ]
     },
     {
       "path": "celt/quant_bands.h",
-      "bytes": 2998,
-      "sha256": "ea86cddfd98268902f37662cbe67d168fb8c1d5d23ad6e6a82b8f6f511048874"
+      "status": "modified",
+      "upstream_sha256": "ea86cddfd98268902f37662cbe67d168fb8c1d5d23ad6e6a82b8f6f511048874",
+      "sha256": "3d2ddfa30c2d0b9ae1327b574a8c34d8575f1f574450f1d67d7dbf672b0ec32c",
+      "changes": [
+        "quant_coarse_energy() loses the LFE argument (LFE coding is not supported)."
+      ]
     },
     {
       "path": "celt/rate.c",
-      "bytes": 29415,
-      "sha256": "f288c8b88882e6500ee5fbb9036eef1ee572e0301d28cd686061c815747a7b9e"
+      "status": "derived",
+      "upstream_sha256": "f288c8b88882e6500ee5fbb9036eef1ee572e0301d28cd686061c815747a7b9e",
+      "sha256": "f7c8ed68ea2c3c3ed285584e7ac36024034d173acaacaf6eb8498efadece91bd"
     },
     {
       "path": "celt/rate.h",
-      "bytes": 3606,
-      "sha256": "7bc335949f2e6e7d4e28c23681c4fc6f3c99733848deb7d1a24e908431f0d8a6"
+      "status": "unchanged",
+      "upstream_sha256": "7bc335949f2e6e7d4e28c23681c4fc6f3c99733848deb7d1a24e908431f0d8a6"
     },
     {
       "path": "celt/stack_alloc.h",
-      "bytes": 6798,
-      "sha256": "791a3ed2f579d0031213dd2e59446b2160f887c2df158f00b254bb08e66a739f"
+      "status": "derived",
+      "upstream_sha256": "791a3ed2f579d0031213dd2e59446b2160f887c2df158f00b254bb08e66a739f",
+      "sha256": "f81cb78d9532e7b08ef27b30efde55b266939afd7875259967f68ff1a7c35ac3"
     },
     {
       "path": "celt/static_modes_fixed.h",
-      "bytes": 203202,
-      "sha256": "75a8932d1c3681fae719b58c4495914e4cdb2826efdf5809d73f64c4e05d4387"
+      "status": "derived",
+      "upstream_sha256": "75a8932d1c3681fae719b58c4495914e4cdb2826efdf5809d73f64c4e05d4387",
+      "sha256": "14e9db6c151c742ad0ea79af41573e22dda877919887ecdf6418e6d98afb0f52"
     },
     {
       "path": "celt/vq.c",
-      "bytes": 25048,
-      "sha256": "7f488e7ced4080d267e4ff44cb512861a47a49d45891277f4e898fe680dad0e5"
+      "status": "derived",
+      "upstream_sha256": "7f488e7ced4080d267e4ff44cb512861a47a49d45891277f4e898fe680dad0e5",
+      "sha256": "2bb478a7ceb56af73b54b269372172c0cfccb0a9aff9e58c930820958b251112"
     },
     {
       "path": "celt/vq.h",
-      "bytes": 3921,
-      "sha256": "b6c4c1ff9eb7aeb71cef86fe18d33446c9b9a71b4e82f002840d7f13028195f5"
+      "status": "derived",
+      "upstream_sha256": "b6c4c1ff9eb7aeb71cef86fe18d33446c9b9a71b4e82f002840d7f13028195f5",
+      "sha256": "2b93856d4615523e76b5c70f4d788cf279552cbd442bd7fc97552686f0eae584"
+    },
+    {
+      "path": "celt/x86/celt_lpc_sse.h",
+      "status": "derived",
+      "upstream_sha256": "ed9c69b4f64a234a15374a8a7c0bed584c316b2f9ddc583f06efc129ecc37e9c",
+      "sha256": "26b9cddc00d75b08ec4f885d4c7695cdbf6e11944c691e86bf8e01a39cfe7613"
+    },
+    {
+      "path": "celt/x86/celt_lpc_sse4_1.c",
+      "status": "derived",
+      "upstream_sha256": "14029aa815d785b457ae277cc986d310635263c7950ab2fdeca8931170d208a9",
+      "sha256": "9afe3d3bdda82421f52d5c89b7adba78a522a0dd7091086aa3842932d5f0786e"
+    },
+    {
+      "path": "celt/x86/pitch_sse.h",
+      "status": "derived",
+      "upstream_sha256": "610c078ff00a4c841def50cac60092d72adcc6fc88c735f14c87b7ed4df83de2",
+      "sha256": "4cb5bed5139224d5203ba7b0415c2499f99ebc0e0efde9ff17f4be95d93c421f"
+    },
+    {
+      "path": "celt/x86/pitch_sse4_1.c",
+      "status": "derived",
+      "upstream_sha256": "18b391a66b6d11ae55d92588f87cc9fcf7a19d6188568c107351583c91c9f89c",
+      "sha256": "cbc84e18ee89d0e218ad0eb2db4d11b020aaeb8ea4dcfc597c2ce42d66c803f4"
+    },
+    {
+      "path": "celt/x86/x86cpu.h",
+      "status": "derived",
+      "upstream_sha256": "82297f62289e349b30f6d0d01e07a3dce2b162d1b8c2754c5751bcc459134f52",
+      "sha256": "3cab8d8b7d68b84c63a53a254c04558499be5fb14033e3b4a54e0912b6bac2d3"
     },
     {
       "path": "include/opus.h",
-      "bytes": 59505,
-      "sha256": "036f6a6e83a20e943505743e113e90d6278cbe8240f7d5bb90b3f86261e783e3"
+      "status": "modified",
+      "upstream_sha256": "036f6a6e83a20e943505743e113e90d6278cbe8240f7d5bb90b3f86261e783e3",
+      "changes": [
+        "Declares only the implemented API: no create/destroy (no heap), float or 24-bit entry points, DRED, soft clipping, repacketizer, packet padding or opus_decoder_get_nb_samples().",
+        "The encoder documentation describes the voice profile."
+      ],
+      "sha256": "3fb71264e1e556b5c08c197d1ee15ebc5964b47c0a2786c7aee72fa590ece9e3"
     },
     {
       "path": "include/opus_custom.h",
-      "bytes": 16965,
-      "sha256": "3b67a36b36eac7d712f712a4e57d602a7ff9df753d184b0743bbca8628ccff4b"
+      "status": "unchanged",
+      "upstream_sha256": "3b67a36b36eac7d712f712a4e57d602a7ff9df753d184b0743bbca8628ccff4b"
     },
     {
       "path": "include/opus_defines.h",
-      "bytes": 38558,
-      "sha256": "bbd4d4e3ba99f6982b1c8d8f5541814ad77d8e8babf3cc788cf23d517b2ca9d6"
+      "status": "unchanged",
+      "upstream_sha256": "bbd4d4e3ba99f6982b1c8d8f5541814ad77d8e8babf3cc788cf23d517b2ca9d6"
     },
     {
       "path": "include/opus_types.h",
-      "bytes": 5157,
-      "sha256": "19cb301ea1eedbcbdbb5049363de061893bf11c20e505a657b69ce6ffa5b11fa"
+      "status": "unchanged",
+      "upstream_sha256": "19cb301ea1eedbcbdbb5049363de061893bf11c20e505a657b69ce6ffa5b11fa"
     },
     {
       "path": "silk/A2NLSF.c",
-      "bytes": 10759,
-      "sha256": "8552687904b2db168cf9787aa2700369ae9bc76ee0f36dd77fe9b1bf32cce465"
+      "status": "derived",
+      "upstream_sha256": "8552687904b2db168cf9787aa2700369ae9bc76ee0f36dd77fe9b1bf32cce465",
+      "sha256": "fd412e2b910b3a3dc9e3b967032aef25675001212a85cffab20deaa5f46b23f1"
     },
     {
       "path": "silk/API.h",
-      "bytes": 8353,
-      "sha256": "00d2a2ff0d5228b2eeac4e1645531185537a07982cad2d2231cce287b8171acf"
+      "status": "derived",
+      "upstream_sha256": "00d2a2ff0d5228b2eeac4e1645531185537a07982cad2d2231cce287b8171acf",
+      "sha256": "3293ddd1d124457b18e7d238ca3a050d9aa431df930bb2d29b16a5825c6c5ef7"
     },
     {
       "path": "silk/CNG.c",
-      "bytes": 9920,
-      "sha256": "e3741a6e4f23f941c1dc4589a7254d5d21f12ae01002376ec36270992daa8b52"
+      "status": "derived",
+      "upstream_sha256": "e3741a6e4f23f941c1dc4589a7254d5d21f12ae01002376ec36270992daa8b52",
+      "sha256": "d19d3952f14f89ad162d63c2b8867bc253d7c7ddd2ae6f93bde63f9db3770dcb"
     },
     {
       "path": "silk/HP_variable_cutoff.c",
-      "bytes": 3989,
-      "sha256": "e528fcf0eebc186dcb31e751e27892ea144c94af1f4fe5749890e7297f986184"
+      "status": "derived",
+      "upstream_sha256": "e528fcf0eebc186dcb31e751e27892ea144c94af1f4fe5749890e7297f986184",
+      "sha256": "9bfa89e446527ac009c6370beda0883552dbfbcda7935f4d0012d9a5e8a02186"
     },
     {
       "path": "silk/Inlines.h",
-      "bytes": 7244,
-      "sha256": "295558194c3b1778d5ced3b409ffcc011f0e5df3e25e2bcb8be28ef649ae9881"
+      "status": "unchanged",
+      "upstream_sha256": "295558194c3b1778d5ced3b409ffcc011f0e5df3e25e2bcb8be28ef649ae9881"
     },
     {
       "path": "silk/LPC_analysis_filter.c",
-      "bytes": 5015,
-      "sha256": "5cd8edb8558515d477f7c65c4f597d15c68d65b6d90cc303965d317666821c23"
+      "status": "derived",
+      "upstream_sha256": "5cd8edb8558515d477f7c65c4f597d15c68d65b6d90cc303965d317666821c23",
+      "sha256": "8f48c94925daa27d2f9f0350f6f93bab08410a323f5bb1040c12774b466b3285"
     },
     {
       "path": "silk/LPC_fit.c",
-      "bytes": 4042,
-      "sha256": "27e0d8a40024c0d6532705792c7278a3ca280e408da71993efeb485fd8f03ea6"
+      "status": "derived",
+      "upstream_sha256": "27e0d8a40024c0d6532705792c7278a3ca280e408da71993efeb485fd8f03ea6",
+      "sha256": "3ae874b4e500b20c6a74bc654e4b233dcd37b3b1ecce4001f25b552031966fbe"
     },
     {
       "path": "silk/LPC_inv_pred_gain.c",
-      "bytes": 6161,
-      "sha256": "c2cc22922cd31554eaa8920ac31238a901139b9cb7964621f6f5f49bedd2b720"
+      "status": "derived",
+      "upstream_sha256": "c2cc22922cd31554eaa8920ac31238a901139b9cb7964621f6f5f49bedd2b720",
+      "sha256": "c1d52c6e0f7910500ed757836fe07d838e3638b3e0c503989a1968876fb04d90"
     },
     {
       "path": "silk/LP_variable_cutoff.c",
-      "bytes": 6552,
-      "sha256": "e17cec3098ec1df1529cef41dbd9a83ec7d54477fea7b593b3331171927af481"
+      "status": "derived",
+      "upstream_sha256": "e17cec3098ec1df1529cef41dbd9a83ec7d54477fea7b593b3331171927af481",
+      "sha256": "fe2a5577f60ed5fc3317812746eaaf351ac2c97d36fb37e11f476cf0accc9dc9"
     },
     {
       "path": "silk/MacroCount.h",
-      "bytes": 20763,
-      "sha256": "8d822f074a31b6edf49c1a9b45f6cab36d5193393aef94b73c6ff3c4d64ac4fc"
+      "status": "derived",
+      "upstream_sha256": "8d822f074a31b6edf49c1a9b45f6cab36d5193393aef94b73c6ff3c4d64ac4fc",
+      "sha256": "14d5f58e9abe1fb15dd8cf3fb11144d0f00e0094c1cbe05112a65f8f937987bf"
     },
     {
       "path": "silk/MacroDebug.h",
-      "bytes": 33581,
-      "sha256": "aefab84ea6848a81b1c48bbcf60935f70751ded68853d5c7d0ebb1249bd75773"
+      "status": "derived",
+      "upstream_sha256": "aefab84ea6848a81b1c48bbcf60935f70751ded68853d5c7d0ebb1249bd75773",
+      "sha256": "7f6bf8a5b0b8ef33e15ff3419ad0998e9656c5b294f1a6bbe5657d0360b00d87"
     },
     {
       "path": "silk/NLSF2A.c",
-      "bytes": 6361,
-      "sha256": "ce17793880db88d7247596f30415f86ceda690e2ea289a6eff27f2665bc8633c"
+      "status": "derived",
+      "upstream_sha256": "ce17793880db88d7247596f30415f86ceda690e2ea289a6eff27f2665bc8633c",
+      "sha256": "abea4c616ed72b23d17b62fd0687b23dea18628a20c2d35dfeaf2b9fc307c865"
     },
     {
       "path": "silk/NLSF_VQ.c",
-      "bytes": 3975,
-      "sha256": "a918199e31254c639ee9f18ce24c4676c7bc9cc3a58fb1296cc416b8ee123e10"
+      "status": "derived",
+      "upstream_sha256": "a918199e31254c639ee9f18ce24c4676c7bc9cc3a58fb1296cc416b8ee123e10",
+      "sha256": "8cde1cd59c6d647dd188cdba759c0a095b36e2d34b975043b1e1bacd975bccf4"
     },
     {
       "path": "silk/NLSF_VQ_weights_laroia.c",
-      "bytes": 3937,
-      "sha256": "5b44c124016b70dd95b94dd66bdf70d4ce6db0fc5dd52420466720c1fcce8cec"
+      "status": "derived",
+      "upstream_sha256": "5b44c124016b70dd95b94dd66bdf70d4ce6db0fc5dd52420466720c1fcce8cec",
+      "sha256": "131c2a449b32e2c2578a3d3070833eeb74f834551fafa557f8f08ef9bdace818"
     },
     {
       "path": "silk/NLSF_decode.c",
-      "bytes": 4766,
-      "sha256": "3d723c92896df39bf399e7758b119d641261048f5e199935e61cab287cf8b8e1"
+      "status": "derived",
+      "upstream_sha256": "3d723c92896df39bf399e7758b119d641261048f5e199935e61cab287cf8b8e1",
+      "sha256": "827b42186e3811b6054e044ef35e5d996f688d3462c79f5d67f3f9dc4c3539e6"
     },
     {
       "path": "silk/NLSF_del_dec_quant.c",
-      "bytes": 11896,
-      "sha256": "3d045d2d59317aa7bd7ea277936ddf34770588931065ac34f3400c14234a5509"
+      "status": "derived",
+      "upstream_sha256": "3d045d2d59317aa7bd7ea277936ddf34770588931065ac34f3400c14234a5509",
+      "sha256": "8a104bef7d82b6b82a01ec7ef75e18952711e4a33a0896c9eaa9792743b84788"
     },
     {
       "path": "silk/NLSF_encode.c",
-      "bytes": 6129,
-      "sha256": "e0bb31a1fe04f30fa2f10a06ee31179293198702b2ddf9bb3bdbde449e119121"
+      "status": "derived",
+      "upstream_sha256": "e0bb31a1fe04f30fa2f10a06ee31179293198702b2ddf9bb3bdbde449e119121",
+      "sha256": "e95ed70d8f81d189f215baa4141c650e4ea553121001f5a695e06d006ec1f289"
     },
     {
       "path": "silk/NLSF_stabilize.c",
-      "bytes": 6347,
-      "sha256": "14c69720cd90614d8fdf1a0bb05a051598b00783370633323bafec8ff310e2ac"
+      "status": "derived",
+      "upstream_sha256": "14c69720cd90614d8fdf1a0bb05a051598b00783370633323bafec8ff310e2ac",
+      "sha256": "321c449858f5f1386715e198ce1ded082b31629e5764295e9cc86f576784f9f2"
     },
     {
       "path": "silk/NLSF_unpack.c",
-      "bytes": 2948,
-      "sha256": "049555e005febe8cedd19e72886f108835e4883e69013bf95050984de070faac"
+      "status": "derived",
+      "upstream_sha256": "049555e005febe8cedd19e72886f108835e4883e69013bf95050984de070faac",
+      "sha256": "95f7c7b8f13fa17d4f6f1aba8c8c5fcc2c7e2c7844985f82c2890e5598daa009"
     },
     {
       "path": "silk/NSQ.c",
-      "bytes": 22868,
-      "sha256": "bce8cb89be691137a0ca9d92e4d5998aad67fb77f6eebbedf67246e8fd12cf8a"
+      "status": "derived",
+      "upstream_sha256": "bce8cb89be691137a0ca9d92e4d5998aad67fb77f6eebbedf67246e8fd12cf8a",
+      "sha256": "9bc23a8438d6a18354964243de68d330f9db3b19c785e4c8b571cf0468f348de"
     },
     {
       "path": "silk/NSQ.h",
-      "bytes": 4343,
-      "sha256": "db57d49d839862a0da83585b75e7a436fc80e1e2b25e82aeb66a8afd9ccaf951"
+      "status": "derived",
+      "upstream_sha256": "db57d49d839862a0da83585b75e7a436fc80e1e2b25e82aeb66a8afd9ccaf951",
+      "sha256": "26b08dc4d5c66e333f2c0deff4ba1fd25f03fde6b64acc36a5e64bda1a96edd2"
     },
     {
       "path": "silk/NSQ_del_dec.c",
-      "bytes": 39492,
-      "sha256": "5b7cc8f24a00f5d7094f8c632b517d034f39628147918c4f89c72327bc773b63"
+      "status": "derived",
+      "upstream_sha256": "5b7cc8f24a00f5d7094f8c632b517d034f39628147918c4f89c72327bc773b63",
+      "sha256": "7ae5a12183d21f5930bb0817b422780a6f8ede69f765728a46fe05a2446b3f7d"
     },
     {
       "path": "silk/PLC.c",
-      "bytes": 21986,
-      "sha256": "914eb9ce1f7bd3cf68cbe5f8e91f5411c872006a99a6665409e66f307af01427"
+      "status": "derived",
+      "upstream_sha256": "914eb9ce1f7bd3cf68cbe5f8e91f5411c872006a99a6665409e66f307af01427",
+      "sha256": "10ecc5534b11b8446d7792d0284070970b607aa42d5f2aed07e34977d90b254e"
     },
     {
       "path": "silk/PLC.h",
-      "bytes": 3339,
-      "sha256": "013f9159a95bf705df435a11cbe0b1ec39d207db8bac9a7180585657f130db32"
+      "status": "derived",
+      "upstream_sha256": "013f9159a95bf705df435a11cbe0b1ec39d207db8bac9a7180585657f130db32",
+      "sha256": "0bfa1866118319aad51c1043d0c183c52abd54c0b833bacf575653b15c382a23"
     },
     {
       "path": "silk/SigProc_FIX.h",
-      "bytes": 39392,
-      "sha256": "37942e211d5ba6443a8da5841f374023f5bba4899d25134fe2dca62c4cac5cf9"
+      "status": "modified",
+      "upstream_sha256": "37942e211d5ba6443a8da5841f374023f5bba4899d25134fe2dca62c4cac5cf9",
+      "changes": [
+        "silk_scale_vector32_Q26_lshift_18() (unused) removed."
+      ],
+      "sha256": "fa1a5e6f601ac08cf8cabdce40dde23a6722f7808946a151f384a18a2f695150"
     },
     {
       "path": "silk/VAD.c",
-      "bytes": 15007,
-      "sha256": "710ca80daa272b7a3d2965caf335ab165bb1cc7c8260ef89d79ccf386c587ff4"
+      "status": "derived",
+      "upstream_sha256": "710ca80daa272b7a3d2965caf335ab165bb1cc7c8260ef89d79ccf386c587ff4",
+      "sha256": "636f915c11041ad8a08c6d9ab0b97c3754ef6d8abbef2224d6526b38e9c9822f"
     },
     {
       "path": "silk/VQ_WMat_EC.c",
-      "bytes": 7139,
-      "sha256": "0cf17b00ece99000bc536ddb479a619362194b228e2563223b211453359412b4"
+      "status": "derived",
+      "upstream_sha256": "0cf17b00ece99000bc536ddb479a619362194b228e2563223b211453359412b4",
+      "sha256": "33092bd1c2c12ee621201fffbe2eb9734e595dc313d130e38385ef30a9c2aac3"
     },
     {
       "path": "silk/ana_filt_bank_1.c",
-      "bytes": 3782,
-      "sha256": "23ab2f6ef89e6106f8a8a417f07055b091f7b25c5693f7f2007d5e82edb4f849"
+      "status": "derived",
+      "upstream_sha256": "23ab2f6ef89e6106f8a8a417f07055b091f7b25c5693f7f2007d5e82edb4f849",
+      "sha256": "ad40c0c2ad019b7da103d160d54acdabed0e93984268775517ffed74db6d8c3b"
     },
     {
       "path": "silk/biquad_alt.c",
-      "bytes": 6886,
-      "sha256": "cab5911f028eb96570859f2608bec00bdef8bc2ba338019b414abf583b12fdf3"
+      "status": "derived",
+      "upstream_sha256": "cab5911f028eb96570859f2608bec00bdef8bc2ba338019b414abf583b12fdf3",
+      "sha256": "f34c20bb61ca35f1c0ed274c0d4412a7a3a0ca76ee458f46312ae8eb892dd9c3"
     },
     {
       "path": "silk/bwexpander.c",
-      "bytes": 2760,
-      "sha256": "f01c2e6752d806974054c5b0ac5b9fbe1fef88b59873dcaae87974521f2d0256"
+      "status": "derived",
+      "upstream_sha256": "f01c2e6752d806974054c5b0ac5b9fbe1fef88b59873dcaae87974521f2d0256",
+      "sha256": "7c72cd486122882250c42a43e00b84c3cdc1b985f2c91c84de77bf140d873a95"
     },
     {
       "path": "silk/bwexpander_32.c",
-      "bytes": 2574,
-      "sha256": "695726d8e425b68ecd9e2af47fef31246066c01303f6d37dffba709462584474"
+      "status": "derived",
+      "upstream_sha256": "695726d8e425b68ecd9e2af47fef31246066c01303f6d37dffba709462584474",
+      "sha256": "e1a71eec9cea4bbf230ff7cd5ab1b3da2e9b31b38ae73ca95c632be8de8f6f90"
     },
     {
       "path": "silk/check_control_input.c",
-      "bytes": 5029,
-      "sha256": "739c90c5e6e5bad607d720dc34f39a4f36147fc63d42bc399cc0a1d739cf18f6"
+      "status": "derived",
+      "upstream_sha256": "739c90c5e6e5bad607d720dc34f39a4f36147fc63d42bc399cc0a1d739cf18f6",
+      "sha256": "e97da544657bb6a346f6e143b978048f989fd365ec348683fd4232886fa72798"
     },
     {
       "path": "silk/code_signs.c",
-      "bytes": 5554,
-      "sha256": "becd3134a77e972d70e2845cf10ac4a597233040c37d58338ffe9085859660a2"
+      "status": "derived",
+      "upstream_sha256": "becd3134a77e972d70e2845cf10ac4a597233040c37d58338ffe9085859660a2",
+      "sha256": "f97f4792a91c2f9e2951fc7a064f3086559c572b58b88e293d2d8ce29ce35aa3"
     },
     {
       "path": "silk/control.h",
-      "bytes": 6661,
-      "sha256": "a9fc44c0719b6c3506695b2667d53f0093877fabb251bfac57edd2fb5e08a784"
+      "status": "modified",
+      "upstream_sha256": "a9fc44c0719b6c3506695b2667d53f0093877fabb251bfac57edd2fb5e08a784",
+      "changes": [
+        "silk_DecControlStruct loses prevPitchLag and enable_deep_plc; silk_EncControlStruct loses reducedDependency."
+      ],
+      "sha256": "aa6ca1504d6589d58372db4623754055659f8f2135376e812718f1fa77fea21e"
     },
     {
       "path": "silk/control_SNR.c",
-      "bytes": 5447,
-      "sha256": "4b6b102ebc8acdc0bd44c5beab07032b15b69b20631e933def5a3781f7a63808"
+      "status": "derived",
+      "upstream_sha256": "4b6b102ebc8acdc0bd44c5beab07032b15b69b20631e933def5a3781f7a63808",
+      "sha256": "e68010769807d08a5cba48d3be160193a9785f3151d0e1999ce96ba05fb0d4b0"
     },
     {
       "path": "silk/control_audio_bandwidth.c",
-      "bytes": 5919,
-      "sha256": "3282b7f2833226e70c1291e4a92f3a63d724da60323c263dab822df6740223e5"
+      "status": "derived",
+      "upstream_sha256": "3282b7f2833226e70c1291e4a92f3a63d724da60323c263dab822df6740223e5",
+      "sha256": "a0dea52deb31539d233200296332c28c67e75919951905928de96ec4d8076bb4"
     },
     {
       "path": "silk/control_codec.c",
-      "bytes": 20591,
-      "sha256": "9c84153924c2033d1c539b97d1bb358d6c63a451883971745c6c9a550de2053b"
+      "status": "derived",
+      "upstream_sha256": "9c84153924c2033d1c539b97d1bb358d6c63a451883971745c6c9a550de2053b",
+      "sha256": "289d4e552ba203d5841755e2331eec4b2b867e0960e14b44c0b43586629de581"
     },
     {
       "path": "silk/debug.h",
-      "bytes": 12924,
-      "sha256": "6f02588379145c4ddcbd01dfaf8bb55d06b1f477120d7eb24e389ec57004388d"
+      "status": "unchanged",
+      "upstream_sha256": "6f02588379145c4ddcbd01dfaf8bb55d06b1f477120d7eb24e389ec57004388d"
     },
     {
       "path": "silk/dec_API.c",
-      "bytes": 22827,
-      "sha256": "0f94c4c985851051d3cdf40a2ebf9b96c616ee1f49b8a2ad4477a6880ff01d1b"
+      "status": "modified",
+      "upstream_sha256": "0f94c4c985851051d3cdf40a2ebf9b96c616ee1f49b8a2ad4477a6880ff01d1b",
+      "changes": [
+        "No deep PLC flag and no previous pitch lag export."
+      ],
+      "sha256": "eec1718c13414bf5979d1ed48ccf29e637b0935663998b283b317465714c76e6"
     },
     {
       "path": "silk/decode_core.c",
-      "bytes": 12216,
-      "sha256": "9bec65a48d32f0b4843eaaa02cd6b49b0e853186f47695ce3f3c178d4bd3452f"
+      "status": "derived",
+      "upstream_sha256": "9bec65a48d32f0b4843eaaa02cd6b49b0e853186f47695ce3f3c178d4bd3452f",
+      "sha256": "e95618d58b580999c73f7c95ba570aa3b30b5b0a66e71be64976d0fbcb8b7ded"
     },
     {
       "path": "silk/decode_frame.c",
-      "bytes": 7388,
-      "sha256": "d76755eb49d7e2ee5106945948c4613d6fbaceeec90d41f5ddc51956e185716d"
+      "status": "derived",
+      "upstream_sha256": "d76755eb49d7e2ee5106945948c4613d6fbaceeec90d41f5ddc51956e185716d",
+      "sha256": "a16d24e82bc986a36e662275e08a23800908a79b25e3f7da9c08495f446f2785"
     },
     {
       "path": "silk/decode_indices.c",
-      "bytes": 7245,
-      "sha256": "4d872038c93a2e16c266b1d29f400ffa8f5a4ccf57e50cbdc4cc5fa17623f5f5"
+      "status": "derived",
+      "upstream_sha256": "4d872038c93a2e16c266b1d29f400ffa8f5a4ccf57e50cbdc4cc5fa17623f5f5",
+      "sha256": "b24747c087c66c606653dcb00e6c1a9ee47ef60fb80b254e0825a13038036b94"
     },
     {
       "path": "silk/decode_parameters.c",
-      "bytes": 5527,
-      "sha256": "d86e43fd07b72472baa5036bacb277600312afc0153d243324b89d8699c8df1b"
+      "status": "derived",
+      "upstream_sha256": "d86e43fd07b72472baa5036bacb277600312afc0153d243324b89d8699c8df1b",
+      "sha256": "0d42264fe76c17af730882814b4c666ce2fde28fb1d5b00083898c279cd0fd72"
     },
     {
       "path": "silk/decode_pitch.c",
-      "bytes": 3717,
-      "sha256": "b74b8c46973519c2a1ee535ce2f64ac89a93a3c4c0ec2de997d56cc5ca9262fa"
+      "status": "derived",
+      "upstream_sha256": "b74b8c46973519c2a1ee535ce2f64ac89a93a3c4c0ec2de997d56cc5ca9262fa",
+      "sha256": "8d54629cc7b8a821cadb2ee582eaa8f25d6c51483dcfe3593a658bede8617362"
     },
     {
       "path": "silk/decode_pulses.c",
-      "bytes": 5598,
-      "sha256": "58560300a5a4ae0ee2291349a8667cce5ebb9054c4e5056aeed76e0fe2792f10"
+      "status": "derived",
+      "upstream_sha256": "58560300a5a4ae0ee2291349a8667cce5ebb9054c4e5056aeed76e0fe2792f10",
+      "sha256": "58dbe39c6b5c5fc6421be6f758355d42f259442ae2af8b43c1c05643ee2d7f15"
     },
     {
       "path": "silk/decoder_set_fs.c",
-      "bytes": 4967,
-      "sha256": "8cdd79180cf730d77c6e063b625b960c6199e9f75c98101ae5cd16be4dc1e008"
+      "status": "derived",
+      "upstream_sha256": "8cdd79180cf730d77c6e063b625b960c6199e9f75c98101ae5cd16be4dc1e008",
+      "sha256": "d2cadd57b96a9cc7e16b1c1920ebee82689a43210541ffe4b1b5a35ac486b92f"
     },
     {
       "path": "silk/define.h",
-      "bytes": 9941,
-      "sha256": "4c580873f3eaa1f9ecebeb2cf890e3bc6d24937673a0fd3e5da8eb1ea46843b1"
+      "status": "derived",
+      "upstream_sha256": "4c580873f3eaa1f9ecebeb2cf890e3bc6d24937673a0fd3e5da8eb1ea46843b1",
+      "sha256": "1703a1647be8c13828b6a6f584c8af262ec29f8773577cb07589bdf24c0b491f"
     },
     {
       "path": "silk/enc_API.c",
-      "bytes": 32873,
-      "sha256": "3eb171190e2ad0488ef77d00eb7b20eaa1ebc3a2afde7274f8a4f7681e9f261d"
+      "status": "modified",
+      "upstream_sha256": "3eb171190e2ad0488ef77d00eb7b20eaa1ebc3a2afde7274f8a4f7681e9f261d",
+      "changes": [
+        "One frame per call (20 ms, or 10 ms for the prefill): multi-frame LBRR flags, per-block bit shaping and the in-packet bit balance are removed.",
+        "No reduced-dependency mode."
+      ],
+      "sha256": "26d6b56752d7136398394ff3d72df1c93553a3d9d8ea54d032e834d0f7c89211"
     },
     {
       "path": "silk/encode_indices.c",
-      "bytes": 9359,
-      "sha256": "585e886a5e552b7645e20a9bc4139369f96aef254c01d4cbf89b757f6542e594"
+      "status": "derived",
+      "upstream_sha256": "585e886a5e552b7645e20a9bc4139369f96aef254c01d4cbf89b757f6542e594",
+      "sha256": "f845416b98dc25a90a13af46a77a3ea8ec78cdbfbd7088e70f1adaae5bc203da"
     },
     {
       "path": "silk/encode_pulses.c",
-      "bytes": 8839,
-      "sha256": "892ebd497ff473050344fbe5c9e03e3395fd6cbe07f33ee2770887ddd1b3f06f"
+      "status": "derived",
+      "upstream_sha256": "892ebd497ff473050344fbe5c9e03e3395fd6cbe07f33ee2770887ddd1b3f06f",
+      "sha256": "f99edab15bcb3fdbbb5fa675a4fee80c816506c6135f269e65ec263540457f5f"
     },
     {
       "path": "silk/errors.h",
-      "bytes": 3572,
-      "sha256": "899a34237a1f21867731382a94cca0c341dd9dad1bf964e74acb3f7bfb542271"
+      "status": "unchanged",
+      "upstream_sha256": "899a34237a1f21867731382a94cca0c341dd9dad1bf964e74acb3f7bfb542271"
     },
     {
       "path": "silk/fixed/LTP_analysis_filter_FIX.c",
-      "bytes": 4729,
-      "sha256": "1ad8d9bb824efc851ff7b9988241bd69c96a7396d92409ad43693b9f38d0690e"
+      "status": "derived",
+      "upstream_sha256": "1ad8d9bb824efc851ff7b9988241bd69c96a7396d92409ad43693b9f38d0690e",
+      "sha256": "82a8fd407aa3334f0a1d6a18aa6f12b58e909198d9901dc9b3262988f8456624"
     },
     {
       "path": "silk/fixed/LTP_scale_ctrl_FIX.c",
-      "bytes": 3328,
-      "sha256": "84b9867a55eccbea6964f55e32d1c8f063f822e798cf03e8a62adcd5e16bcdc8"
+      "status": "derived",
+      "upstream_sha256": "84b9867a55eccbea6964f55e32d1c8f063f822e798cf03e8a62adcd5e16bcdc8",
+      "sha256": "5247f59df93f4de84bd3e01c4f42f5945269c2cfc9492397b77e6a2aeed89c6e"
     },
     {
       "path": "silk/fixed/apply_sine_window_FIX.c",
-      "bytes": 4921,
-      "sha256": "d43acd197f1d9293724f4cfd12cf29f2949548e1dd4ef01e53d280b41fe32e8b"
+      "status": "derived",
+      "upstream_sha256": "d43acd197f1d9293724f4cfd12cf29f2949548e1dd4ef01e53d280b41fe32e8b",
+      "sha256": "d58fe7c1b09a599bc2aa9ca2ad585cdef79fe503773713a8465f65341f7113d7"
     },
     {
       "path": "silk/fixed/autocorr_FIX.c",
-      "bytes": 2725,
-      "sha256": "16aceb2d3d8a896a350e43ebd142cfcc1b4413212c637634b9611998c15dc271"
+      "status": "derived",
+      "upstream_sha256": "16aceb2d3d8a896a350e43ebd142cfcc1b4413212c637634b9611998c15dc271",
+      "sha256": "ed6329552743f140f9397e880254e504bdd014adbd41367be8a35ca0e93a1526"
     },
     {
       "path": "silk/fixed/burg_modified_FIX.c",
-      "bytes": 16754,
-      "sha256": "9d4fdc704d9f7f12e985ed74f804f94ddf4d206b1d4c69710e013711d4da8b34"
+      "status": "derived",
+      "upstream_sha256": "9d4fdc704d9f7f12e985ed74f804f94ddf4d206b1d4c69710e013711d4da8b34",
+      "sha256": "3fccef7c8230bdabfeb59b863de91f1c8cbf936ceedaaf9244f566bc92639540"
     },
     {
       "path": "silk/fixed/corrMatrix_FIX.c",
-      "bytes": 8334,
-      "sha256": "8cef6848e3336542c9b358781c02570a3624c35a73fb61631008c195f8c7e3d1"
+      "status": "derived",
+      "upstream_sha256": "8cef6848e3336542c9b358781c02570a3624c35a73fb61631008c195f8c7e3d1",
+      "sha256": "3c79459eea8d6b98c1dabaa087f1bacb7fddb1db6c805422ddcb9562139322f3"
     },
     {
       "path": "silk/fixed/encode_frame_FIX.c",
-      "bytes": 24314,
-      "sha256": "4f2b91ba2cf8f000108028e796d1eb02d4aaee075865bb99317f4e73ba64daed"
+      "status": "derived",
+      "upstream_sha256": "4f2b91ba2cf8f000108028e796d1eb02d4aaee075865bb99317f4e73ba64daed",
+      "sha256": "6ad3932a355eec255f0e0ea564ba3a12ff995f7c6ac9f20e5a2da9d1e3e29140"
     },
     {
       "path": "silk/fixed/find_LPC_FIX.c",
-      "bytes": 7361,
-      "sha256": "9a805cb8cce47685da520f1237f8dc6f7040431e38a5c556c53306ac8bfb7a8e"
+      "status": "derived",
+      "upstream_sha256": "9a805cb8cce47685da520f1237f8dc6f7040431e38a5c556c53306ac8bfb7a8e",
+      "sha256": "027e15f982b7be5f3370585514750e440d624d0b7810e9b452b48b93c555c536"
     },
     {
       "path": "silk/fixed/find_LTP_FIX.c",
-      "bytes": 5422,
-      "sha256": "3d3e6eb738707e0522caff41e866f3fbbd0f9827841ace1a20c4e7733e655c1c"
+      "status": "derived",
+      "upstream_sha256": "3d3e6eb738707e0522caff41e866f3fbbd0f9827841ace1a20c4e7733e655c1c",
+      "sha256": "81e01c2071693566003cc304bc614a269eb77ec1954f4327b305426560a79d3c"
     },
     {
       "path": "silk/fixed/find_pitch_lags_FIX.c",
-      "bytes": 7330,
-      "sha256": "72089cf92638ffc1371bf7631dc36d974f14258cb0ae1f21ac8c7ab9e6975bd2"
+      "status": "derived",
+      "upstream_sha256": "72089cf92638ffc1371bf7631dc36d974f14258cb0ae1f21ac8c7ab9e6975bd2",
+      "sha256": "c14fe5fd7cde426d034139d938c6189cec454b9bdcf515b383464d722a629630"
     },
     {
       "path": "silk/fixed/find_pred_coefs_FIX.c",
-      "bytes": 7655,
-      "sha256": "7bd3ecb58c545780c26d841e084d284a8a5b0174e32b637322b5900b852775eb"
+      "status": "derived",
+      "upstream_sha256": "7bd3ecb58c545780c26d841e084d284a8a5b0174e32b637322b5900b852775eb",
+      "sha256": "0917faa947f81e88b356004f958cabacd6af49f0e559fee07fa2567310f456d2"
     },
     {
       "path": "silk/fixed/k2a_FIX.c",
-      "bytes": 2675,
-      "sha256": "0dbe9b0849bef47e8f97daf0984482526538569e25d1e4d9edc51da37962578e"
+      "status": "derived",
+      "upstream_sha256": "0dbe9b0849bef47e8f97daf0984482526538569e25d1e4d9edc51da37962578e",
+      "sha256": "bde696aa0184fdf788210717f0302a414e4ee390bf1bbcd3c64a8acaa4d28217"
     },
     {
       "path": "silk/fixed/k2a_Q16_FIX.c",
-      "bytes": 2622,
-      "sha256": "22f0dcde79d700f4acee6f44eb8f5b6ab6fe7f519240411b6486dc97e8e17b4d"
+      "status": "derived",
+      "upstream_sha256": "22f0dcde79d700f4acee6f44eb8f5b6ab6fe7f519240411b6486dc97e8e17b4d",
+      "sha256": "19750c0e443019b1384b3c52666beda8ad1527d0b6cc135f43ac6c56d314da23"
     },
     {
       "path": "silk/fixed/main_FIX.h",
-      "bytes": 19046,
-      "sha256": "eccf1f7527162d410df79c7d42e6c2d8e62b67959ae533ac053eadf8da443f88"
+      "status": "derived",
+      "upstream_sha256": "eccf1f7527162d410df79c7d42e6c2d8e62b67959ae533ac053eadf8da443f88",
+      "sha256": "440b5600e0c66e45019ddda2d54394c7bd00e609ce268d6db590ec8b88b067af"
     },
     {
       "path": "silk/fixed/noise_shape_analysis_FIX.c",
-      "bytes": 20438,
-      "sha256": "a3ba363cd3d3c1225cedf433b7d304540aea6acb8eda758aaed1acbdc7cd23fb"
+      "status": "derived",
+      "upstream_sha256": "a3ba363cd3d3c1225cedf433b7d304540aea6acb8eda758aaed1acbdc7cd23fb",
+      "sha256": "1875ecdccaa42bda70c9636bc5d546812fe3e00df95b6d92f42cda39f4ccded3"
     },
     {
       "path": "silk/fixed/pitch_analysis_core_FIX.c",
-      "bytes": 34345,
-      "sha256": "709cfe2b80127d7544e174631df8f7d975af26598d9a64aa65fea3bc3d570c2f"
+      "status": "derived",
+      "upstream_sha256": "709cfe2b80127d7544e174631df8f7d975af26598d9a64aa65fea3bc3d570c2f",
+      "sha256": "2295d8433242eb3a6837ce40b6fac0abe4d4cffcf8f781da11e4d39fc8312340"
     },
     {
       "path": "silk/fixed/process_gains_FIX.c",
-      "bytes": 6595,
-      "sha256": "92a25af5a23536cac6ec4216711ae82a680be46d5b0c3b0515a2a2fec9e6d495"
+      "status": "derived",
+      "upstream_sha256": "92a25af5a23536cac6ec4216711ae82a680be46d5b0c3b0515a2a2fec9e6d495",
+      "sha256": "1e45da709f8b42ae5d7de36ee7818ebb5370cfcfc1b114c9bf3611e895f32332"
     },
     {
       "path": "silk/fixed/residual_energy_FIX.c",
-      "bytes": 5389,
-      "sha256": "637a8f4489ff09808ec1b614fe0748719a4220f63b42f001e853449107e113f2"
+      "status": "derived",
+      "upstream_sha256": "637a8f4489ff09808ec1b614fe0748719a4220f63b42f001e853449107e113f2",
+      "sha256": "36c3853f469bc8662feb10a68e23d822c997db16687659d14b0c67aae2cd9a0a"
     },
     {
       "path": "silk/fixed/schur64_FIX.c",
-      "bytes": 3994,
-      "sha256": "b342eabcf7b5e821141bb9f85b22465a14ed8abde415f3178ce9f00dbbf40d84"
+      "status": "derived",
+      "upstream_sha256": "b342eabcf7b5e821141bb9f85b22465a14ed8abde415f3178ce9f00dbbf40d84",
+      "sha256": "73940a2877e47ca09a643b8bfc193a800ef735e874066125113e1f64c3002fb6"
     },
     {
       "path": "silk/fixed/schur_FIX.c",
-      "bytes": 4447,
-      "sha256": "adcaae65d547ddd52c7ccddcd82a13dcd25d2903520a8ca684f43c2f2a9d7892"
+      "status": "derived",
+      "upstream_sha256": "adcaae65d547ddd52c7ccddcd82a13dcd25d2903520a8ca684f43c2f2a9d7892",
+      "sha256": "2e51ba4142654f8f6592662283875b0a32763db493e7c44b210cb9d61476024c"
     },
     {
       "path": "silk/fixed/structs_FIX.h",
-      "bytes": 5158,
-      "sha256": "08c48813c69bf53e433a2081beec8a475a3261a396b96693f60093fcf43a5226"
+      "status": "unchanged",
+      "upstream_sha256": "08c48813c69bf53e433a2081beec8a475a3261a396b96693f60093fcf43a5226"
     },
     {
       "path": "silk/fixed/vector_ops_FIX.c",
-      "bytes": 4767,
-      "sha256": "db8173d0b313bd066bbbec9ad807f521a874140c69dc883c522d4de3f23e8cdc"
+      "status": "modified",
+      "upstream_sha256": "db8173d0b313bd066bbbec9ad807f521a874140c69dc883c522d4de3f23e8cdc",
+      "changes": [
+        "silk_scale_vector32_Q26_lshift_18() (unused) removed."
+      ],
+      "sha256": "8474568f4bc3344bade635aec033b55dfe7d6a4263ed36e0b9d87c1968a5aed6"
     },
     {
       "path": "silk/fixed/warped_autocorrelation_FIX.c",
-      "bytes": 4759,
-      "sha256": "fdccb382d43d0cabce0fadfaf76bfbf6cab73b1137fd87282c642a7950f5d671"
+      "status": "derived",
+      "upstream_sha256": "fdccb382d43d0cabce0fadfaf76bfbf6cab73b1137fd87282c642a7950f5d671",
+      "sha256": "7e8eff3ec9e8f1e6f43d745f510ea5ab5332b17a4230e146c3df9b97a5be7ffc"
+    },
+    {
+      "path": "silk/fixed/x86/burg_modified_FIX_sse4_1.c",
+      "status": "derived",
+      "upstream_sha256": "195fa6898178f79b232a980840101a943a89e9a921c6ea951b09e4b78f7add80",
+      "sha256": "8db8e3f83cfe200f8c0ec9583da03f745fe5c5680888df4fc3d5d47634dce7e1"
+    },
+    {
+      "path": "silk/fixed/x86/vector_ops_FIX_sse4_1.c",
+      "status": "derived",
+      "upstream_sha256": "4331ecf29e02932477e4b380246d2821ad410774ed38089132e53e3e46b6d4a9",
+      "sha256": "5233af9662b2e328da9837e079b8891d6653a4cedb5012f4392fcb264be72d64"
     },
     {
       "path": "silk/gain_quant.c",
-      "bytes": 6928,
-      "sha256": "070223b7a20976d91c8f557c5552537db2c452e459483d886f78daf71c5d17b7"
+      "status": "derived",
+      "upstream_sha256": "070223b7a20976d91c8f557c5552537db2c452e459483d886f78daf71c5d17b7",
+      "sha256": "25741d3091c983db6b184f96bd026d9b53d626c706b6853eea9209479bcaac18"
     },
     {
       "path": "silk/init_decoder.c",
-      "bytes": 3057,
-      "sha256": "67d4da1fa2a546432ba3ce7f815cab5f759c24daff9c11746217e1aca4b0feb0"
+      "status": "derived",
+      "upstream_sha256": "67d4da1fa2a546432ba3ce7f815cab5f759c24daff9c11746217e1aca4b0feb0",
+      "sha256": "d80d9f909b4910ca362a3393623aa78f1062e2c40fd0326b95030971c565aad8"
     },
     {
       "path": "silk/init_encoder.c",
-      "bytes": 2930,
-      "sha256": "0c06e1afc8aea2828426b599578f9708b0ea00c6ba3d76d5c2e0d4117e21ddf6"
+      "status": "derived",
+      "upstream_sha256": "0c06e1afc8aea2828426b599578f9708b0ea00c6ba3d76d5c2e0d4117e21ddf6",
+      "sha256": "72ccf4b27de768aeb51ec4d2fedad1f21e33ed8d9df325c43a2233d8bd5a3a14"
     },
     {
       "path": "silk/inner_prod_aligned.c",
-      "bytes": 2451,
-      "sha256": "11356406441d6257ce6941e408937eaeb22135849e38b551ea78d7bd624130d3"
+      "status": "derived",
+      "upstream_sha256": "11356406441d6257ce6941e408937eaeb22135849e38b551ea78d7bd624130d3",
+      "sha256": "c2cf09de069f5d4237f9cab3acc632eca9badaae4cf02611c3f7b55741f8a68b"
     },
     {
       "path": "silk/interpolate.c",
-      "bytes": 2601,
-      "sha256": "99eb0e43ca938348d5762b3d9c6f0f002933683363ab0e86bfcdcfccdeb93a86"
+      "status": "derived",
+      "upstream_sha256": "99eb0e43ca938348d5762b3d9c6f0f002933683363ab0e86bfcdcfccdeb93a86",
+      "sha256": "5f26d4ca99b20603b64dfcd78a769b3451b1cb2cc6cb2401d10dd61988327f0b"
     },
     {
       "path": "silk/lin2log.c",
-      "bytes": 2219,
-      "sha256": "75a642c6d99bfe79e2ddc924e9b96bdf3e0ef7359cfa2e28df4606ad4f86750f"
+      "status": "derived",
+      "upstream_sha256": "75a642c6d99bfe79e2ddc924e9b96bdf3e0ef7359cfa2e28df4606ad4f86750f",
+      "sha256": "466304978c598b67dc615b5b3899aded104168482f6c1820ed8f420594764d0f"
     },
     {
       "path": "silk/log2lin.c",
-      "bytes": 2636,
-      "sha256": "4ce500b6b3ae8f96a6cce5b93391e85459ec88e640cd8430a32ce7337fed8923"
+      "status": "derived",
+      "upstream_sha256": "4ce500b6b3ae8f96a6cce5b93391e85459ec88e640cd8430a32ce7337fed8923",
+      "sha256": "1d93fba57c1eb8522484723b481823e7caa9b3db57431f5300f387af688396e9"
     },
     {
       "path": "silk/macros.h",
-      "bytes": 6501,
-      "sha256": "7fb2ce02a79df147f9220a4fbc1effe531305881092f4b7d003057666223ebfd"
+      "status": "derived",
+      "upstream_sha256": "7fb2ce02a79df147f9220a4fbc1effe531305881092f4b7d003057666223ebfd",
+      "sha256": "dfa18f29feb62197e4bc38b6875aadf907f2e5932770e5100da9c85c18e33999"
     },
     {
       "path": "silk/main.h",
-      "bytes": 33034,
-      "sha256": "5ea6800f56e83fc6f15f7b7c8b189c4686a1f81b1cc75e18f580e305d5f455f2"
+      "status": "derived",
+      "upstream_sha256": "5ea6800f56e83fc6f15f7b7c8b189c4686a1f81b1cc75e18f580e305d5f455f2",
+      "sha256": "aaeefc32fc19d606889482e98deda0a7635f725c0d0edfa3a715932f1714ee19"
     },
     {
       "path": "silk/pitch_est_defines.h",
-      "bytes": 4060,
-      "sha256": "a51197e9131a105cb12547ac520320a5ad9633c9a89dd74848999ca748f18af4"
+      "status": "unchanged",
+      "upstream_sha256": "a51197e9131a105cb12547ac520320a5ad9633c9a89dd74848999ca748f18af4"
     },
     {
       "path": "silk/pitch_est_tables.c",
-      "bytes": 3589,
-      "sha256": "c0cf34e7d5ced41d7117c345edddc4ecefaf80ef2a55950a3a95582da7e3e334"
+      "status": "derived",
+      "upstream_sha256": "c0cf34e7d5ced41d7117c345edddc4ecefaf80ef2a55950a3a95582da7e3e334",
+      "sha256": "f064b6ca54166e749cacb2c9727495a9862fb4c4bafb7c352f7647463be4afcc"
     },
     {
       "path": "silk/process_NLSFs.c",
-      "bytes": 5447,
-      "sha256": "dfd4b5527fd6ff43d6eec50dacfd51a5819fe5ebca2a6797d25548d61c5dfb19"
+      "status": "derived",
+      "upstream_sha256": "dfd4b5527fd6ff43d6eec50dacfd51a5819fe5ebca2a6797d25548d61c5dfb19",
+      "sha256": "99e9d8bdffbd0b6884fec489ad62741f82a0f1034c7e3aedbbf3c5a3c4fbe056"
     },
     {
       "path": "silk/quant_LTP_gains.c",
-      "bytes": 7346,
-      "sha256": "81b85acad8242d5e423377999300c15ab4ec789c52615fa3ff7ac59aa1d0c7fd"
+      "status": "derived",
+      "upstream_sha256": "81b85acad8242d5e423377999300c15ab4ec789c52615fa3ff7ac59aa1d0c7fd",
+      "sha256": "bffbb9e50d0e3207381476d618e1b298daaa1a991fc3ddbaf9e2e72f94d974fd"
     },
     {
       "path": "silk/resampler.c",
-      "bytes": 10146,
-      "sha256": "b75329b716a429b50e937bf7975aedd200543d8a7e4e1c77a4572b2975740ba3"
+      "status": "derived",
+      "upstream_sha256": "b75329b716a429b50e937bf7975aedd200543d8a7e4e1c77a4572b2975740ba3",
+      "sha256": "9dfe0f2beeff5266cc5dbdc3826b813967efd4135f9ab2126e16ef1a9b5c655d"
     },
     {
       "path": "silk/resampler_down2.c",
-      "bytes": 3474,
-      "sha256": "0f988cdc80644b0dc0c25b84765bd0f11a2851b1913204db47eb064af6dd4cf1"
+      "status": "derived",
+      "upstream_sha256": "0f988cdc80644b0dc0c25b84765bd0f11a2851b1913204db47eb064af6dd4cf1",
+      "sha256": "22b628e99a4aea984400b354fe45885c61197948796cf94928a63697217d60ab"
     },
     {
       "path": "silk/resampler_down2_3.c",
-      "bytes": 4765,
-      "sha256": "2ab8318bf4bc64de8491ac0272cdf19c79bf036725b17f21fc870e280b1ebc72"
+      "status": "derived",
+      "upstream_sha256": "2ab8318bf4bc64de8491ac0272cdf19c79bf036725b17f21fc870e280b1ebc72",
+      "sha256": "695a424f7348d17fba63c806d806f78c7f8a3006b7c1dd09c630e0cdd19f843f"
     },
     {
       "path": "silk/resampler_private.h",
-      "bytes": 4485,
-      "sha256": "b8985c3e4b2d1a7db5ef0585d57bbe5106804d5c04648ab7a400c2d89f589e67"
+      "status": "unchanged",
+      "upstream_sha256": "b8985c3e4b2d1a7db5ef0585d57bbe5106804d5c04648ab7a400c2d89f589e67"
     },
     {
       "path": "silk/resampler_private_AR2.c",
-      "bytes": 2664,
-      "sha256": "ae6142c28e724374e0a0f8e988e27ead22c6d52fb4e0ede4467cac3d500b2f2c"
+      "status": "derived",
+      "upstream_sha256": "ae6142c28e724374e0a0f8e988e27ead22c6d52fb4e0ede4467cac3d500b2f2c",
+      "sha256": "3531f5f3767b9ca6824bbd3df773c88a8f444cce414ff9db23abc9947c9977bb"
     },
     {
       "path": "silk/resampler_private_IIR_FIR.c",
-      "bytes": 5231,
-      "sha256": "584c7b2afbcb56ba03016401408d8eecb1393640eee947d0bae78fc141f425be"
+      "status": "derived",
+      "upstream_sha256": "584c7b2afbcb56ba03016401408d8eecb1393640eee947d0bae78fc141f425be",
+      "sha256": "3920fe3f0ec31aba11d0a9a4e8be2d1b1ee6087e50d54562d604021fd11f048b"
     },
     {
       "path": "silk/resampler_private_down_FIR.c",
-      "bytes": 10897,
-      "sha256": "175b7b6863fecff32d9e36e497bbc666e7083ceb35dcca7d40502de58eb4fabd"
+      "status": "derived",
+      "upstream_sha256": "175b7b6863fecff32d9e36e497bbc666e7083ceb35dcca7d40502de58eb4fabd",
+      "sha256": "c902f6df68d3f5b26757c7f4a3972ab204d269d592fb52fc48afddd7312894c1"
     },
     {
       "path": "silk/resampler_private_up2_HQ.c",
-      "bytes": 5367,
-      "sha256": "f06a982b8856e1575371d147ddb9a03033f0569e8d7f969536133e606ef32a36"
+      "status": "derived",
+      "upstream_sha256": "f06a982b8856e1575371d147ddb9a03033f0569e8d7f969536133e606ef32a36",
+      "sha256": "e19b7f360cb331d57ad317eb0d7b66c17b404c9d96fb144a9262a5c361dedeab"
     },
     {
       "path": "silk/resampler_rom.c",
-      "bytes": 4747,
-      "sha256": "ec3ba5c620ee504d0a902290ae54bc8b434754e57e294a501a82757b9c9d6ddd"
+      "status": "derived",
+      "upstream_sha256": "ec3ba5c620ee504d0a902290ae54bc8b434754e57e294a501a82757b9c9d6ddd",
+      "sha256": "1e29a9ffb02112cb6ab41215ff7a5fb18ac17037c91e252cf7018f077e21387b"
     },
     {
       "path": "silk/resampler_rom.h",
-      "bytes": 3224,
-      "sha256": "68bfa7fc24650e0af574ee853764e40849952eb58e84e26739d0ac2cedf49942"
+      "status": "unchanged",
+      "upstream_sha256": "68bfa7fc24650e0af574ee853764e40849952eb58e84e26739d0ac2cedf49942"
     },
     {
       "path": "silk/resampler_structs.h",
-      "bytes": 2546,
-      "sha256": "0f82b16200ce0d9afdb81c670b44d7435dc79efa8e2a37e7b529efd565f2b84d"
+      "status": "unchanged",
+      "upstream_sha256": "0f82b16200ce0d9afdb81c670b44d7435dc79efa8e2a37e7b529efd565f2b84d"
     },
     {
       "path": "silk/shell_coder.c",
-      "bytes": 7718,
-      "sha256": "60b5a2786238f669eb48dc9a81c072707a11691be3a73029ceb643a6dee5d7dd"
+      "status": "derived",
+      "upstream_sha256": "60b5a2786238f669eb48dc9a81c072707a11691be3a73029ceb643a6dee5d7dd",
+      "sha256": "5ddd981582eba8716cb66fb6e8d2e9eb309db35e50ef721f2c36b40767864bbf"
     },
     {
       "path": "silk/sigm_Q15.c",
-      "bytes": 3163,
-      "sha256": "bfa177d2ab282ce9b36f46e72603784c0ada059ef43d87d13293b34d205d366f"
+      "status": "derived",
+      "upstream_sha256": "bfa177d2ab282ce9b36f46e72603784c0ada059ef43d87d13293b34d205d366f",
+      "sha256": "616176a9ddc278791ffc768e7a92feb27f42292938cf80677ebe24351f545989"
     },
     {
       "path": "silk/sort.c",
-      "bytes": 6265,
-      "sha256": "adf6ce2c63bd04e092e43bece82fb52cd6dc281d2b6bbfdd24f95fd54c27fef1"
+      "status": "derived",
+      "upstream_sha256": "adf6ce2c63bd04e092e43bece82fb52cd6dc281d2b6bbfdd24f95fd54c27fef1",
+      "sha256": "d045b36164f451610b2022fe2949afba633b5c3f493e3aea4bfb84380dd3350e"
     },
     {
       "path": "silk/stereo_LR_to_MS.c",
-      "bytes": 12481,
-      "sha256": "36f67d3eff5c77522733bbc9d2c19c2ae3ae96e5b6ee4b4da84734edafe305e9"
+      "status": "derived",
+      "upstream_sha256": "36f67d3eff5c77522733bbc9d2c19c2ae3ae96e5b6ee4b4da84734edafe305e9",
+      "sha256": "c2591dd4332838c6062922f8a08ebf305c5a2f0d7da14a95a3ce3a9654bcc2a0"
     },
     {
       "path": "silk/stereo_MS_to_LR.c",
-      "bytes": 4899,
-      "sha256": "55298e28fe9248ac067273533140ae73220b4f220222974b1e79accedea9a61a"
+      "status": "derived",
+      "upstream_sha256": "55298e28fe9248ac067273533140ae73220b4f220222974b1e79accedea9a61a",
+      "sha256": "5082a405efb5fbbd59eefa763726de5fd60c0865851ce7de7ede7b14084a9b75"
     },
     {
       "path": "silk/stereo_decode_pred.c",
-      "bytes": 3417,
-      "sha256": "b852fbd96ea37d0387b523e5aec0526e0afe5d64457c5da44e6d6903cca27e8b"
+      "status": "derived",
+      "upstream_sha256": "b852fbd96ea37d0387b523e5aec0526e0afe5d64457c5da44e6d6903cca27e8b",
+      "sha256": "1181d939f3faac3db187cf1599b908292cfd7c15a344d0ce9fc8a31d01c74c8f"
     },
     {
       "path": "silk/stereo_encode_pred.c",
-      "bytes": 2885,
-      "sha256": "405b710c9b7cebcbe49262ee865a75f63fd6375fba565b30c8aee488d09b6e22"
+      "status": "derived",
+      "upstream_sha256": "405b710c9b7cebcbe49262ee865a75f63fd6375fba565b30c8aee488d09b6e22",
+      "sha256": "c824bd8b1eb4ebac46edb59be32147f1c4c2f4ba3bb5b29508d0b685031e02eb"
     },
     {
       "path": "silk/stereo_find_predictor.c",
-      "bytes": 4374,
-      "sha256": "b77b33b43ab9f72947d6b853a282b639a633345b30e71e1817f122d487941fa1"
+      "status": "derived",
+      "upstream_sha256": "b77b33b43ab9f72947d6b853a282b639a633345b30e71e1817f122d487941fa1",
+      "sha256": "ee51ab57344b48d4aca1b2faa23e27be2374857d2f87908d3a232ffbed06fabc"
     },
     {
       "path": "silk/stereo_quant_pred.c",
-      "bytes": 3404,
-      "sha256": "8d1895de054a67a8501af9bf977d20be91f3a9efc50d67bd683dd0a09da69732"
+      "status": "derived",
+      "upstream_sha256": "8d1895de054a67a8501af9bf977d20be91f3a9efc50d67bd683dd0a09da69732",
+      "sha256": "b169aa3ba6cbb2f8858fe289d40a85cf880426b027a77c16611d4eaa22c8e8d9"
     },
     {
       "path": "silk/structs.h",
-      "bytes": 21801,
-      "sha256": "255e5bfce33917a4c5e379a5371f939e7d34b1eb131a398c65a38a438c3ad2d8"
+      "status": "modified",
+      "upstream_sha256": "255e5bfce33917a4c5e379a5371f939e7d34b1eb131a398c65a38a438c3ad2d8",
+      "changes": [
+        "silk_PLC_struct loses enable_deep_plc."
+      ],
+      "sha256": "9be4b28a0b9240d504108efe0f5b61ce8cd517ba4bd0ca86f600c966d7854161"
     },
     {
       "path": "silk/sum_sqr_shift.c",
-      "bytes": 3789,
-      "sha256": "0a9db7e0b0b5f577ffdc277a03a043dbeac3d3dc9d05abcbc798169c3abfc44f"
+      "status": "derived",
+      "upstream_sha256": "0a9db7e0b0b5f577ffdc277a03a043dbeac3d3dc9d05abcbc798169c3abfc44f",
+      "sha256": "cda8a84c3fd683fb6af93d49303bd40d4d1693e3e57dba26cc922ce3ebfd24aa"
     },
     {
       "path": "silk/table_LSF_cos.c",
-      "bytes": 4191,
-      "sha256": "9cae32dfdc4ab45e5f288a4fd74cf8bb5dace19c651ec54b6c064024434d52c2"
+      "status": "derived",
+      "upstream_sha256": "9cae32dfdc4ab45e5f288a4fd74cf8bb5dace19c651ec54b6c064024434d52c2",
+      "sha256": "449c9bc561dd2fc4b3167ba9dea1b7b71b76219a3c2b5d92c401191d4aa9b796"
     },
     {
       "path": "silk/tables.h",
-      "bytes": 7110,
-      "sha256": "2155bc78731ed37a76106d1f48d5c1125bd9cf579e9da9edb73c07c370bb3942"
+      "status": "unchanged",
+      "upstream_sha256": "2155bc78731ed37a76106d1f48d5c1125bd9cf579e9da9edb73c07c370bb3942"
     },
     {
       "path": "silk/tables_LTP.c",
-      "bytes": 7432,
-      "sha256": "95b4912701d4dfd46f0364603092885818c00604808c9b7f606e40eec34fb3f0"
+      "status": "derived",
+      "upstream_sha256": "95b4912701d4dfd46f0364603092885818c00604808c9b7f606e40eec34fb3f0",
+      "sha256": "ffd279fcda4adc8743852996cd9f9bb5d393978e922e42d4cd72a890983c7224"
     },
     {
       "path": "silk/tables_NLSF_CB_NB_MB.c",
-      "bytes": 10785,
-      "sha256": "94e49118901f9f9e4f09c9c088f6eeb8936f200686517d791440c26c523463f5"
+      "status": "derived",
+      "upstream_sha256": "94e49118901f9f9e4f09c9c088f6eeb8936f200686517d791440c26c523463f5",
+      "sha256": "adbb1bd29139b451e6e572b82e24115da5420a48427bc6eeea93dabd448c2c0f"
     },
     {
       "path": "silk/tables_NLSF_CB_WB.c",
-      "bytes": 14498,
-      "sha256": "58511404ed6a4f6a8f5b0051e9328df1b60a8c6d59928382438be2cddabc05d8"
+      "status": "derived",
+      "upstream_sha256": "58511404ed6a4f6a8f5b0051e9328df1b60a8c6d59928382438be2cddabc05d8",
+      "sha256": "5543f092962cb4cdbfffd0032ea59a3d5ecc1e7aabaaf072bcbe0d681cc5b34f"
     },
     {
       "path": "silk/tables_gain.c",
-      "bytes": 2451,
-      "sha256": "79b3ca1d67ff4dc665a837a9c6f22063fa706486846df77ae48376f02d1a6914"
+      "status": "derived",
+      "upstream_sha256": "79b3ca1d67ff4dc665a837a9c6f22063fa706486846df77ae48376f02d1a6914",
+      "sha256": "26190b07532a11c106cf8057eeeb12017585f210c9cf097501a5bd3b99ca559d"
     },
     {
       "path": "silk/tables_other.c",
-      "bytes": 4714,
-      "sha256": "07b309e991adab0496fe0a0622195c9b8c11c17290582fd39fe0b357ef7afa5d"
+      "status": "derived",
+      "upstream_sha256": "07b309e991adab0496fe0a0622195c9b8c11c17290582fd39fe0b357ef7afa5d",
+      "sha256": "56c1a08d42360dadcc530633bce4c8924e0530ebfb1ab4d9d4c385bb736883db"
     },
     {
       "path": "silk/tables_pitch_lag.c",
-      "bytes": 3066,
-      "sha256": "0cb26e4e711a16a728aeb3943bf9c23a488de6abd2fe455076f418e325605c4c"
+      "status": "derived",
+      "upstream_sha256": "0cb26e4e711a16a728aeb3943bf9c23a488de6abd2fe455076f418e325605c4c",
+      "sha256": "eec28a486275ba532e0844432810360669f24bc08e6e96439859bad0cfdc16b9"
     },
     {
       "path": "silk/tables_pulses_per_block.c",
-      "bytes": 11423,
-      "sha256": "2fb238cd37048303f2dfa033b1e4c4d6decc427ba81c8eccacae5e19dc7b77fd"
+      "status": "derived",
+      "upstream_sha256": "2fb238cd37048303f2dfa033b1e4c4d6decc427ba81c8eccacae5e19dc7b77fd",
+      "sha256": "68be1e2904d02e587dea562311e29abce5b63f983a0b3a995146008aa102a078"
     },
     {
       "path": "silk/tuning_parameters.h",
-      "bytes": 6122,
-      "sha256": "2823d20d758d468c1b5936914d679e25f42a20efb8487686aeaf72a3f00048b4"
+      "status": "unchanged",
+      "upstream_sha256": "2823d20d758d468c1b5936914d679e25f42a20efb8487686aeaf72a3f00048b4"
     },
     {
       "path": "silk/typedef.h",
-      "bytes": 3522,
-      "sha256": "a25409c0741545a75f28bf8a51ccdc3a7ba2421e783bd02baafe379e6d43e5b7"
+      "status": "derived",
+      "upstream_sha256": "a25409c0741545a75f28bf8a51ccdc3a7ba2421e783bd02baafe379e6d43e5b7",
+      "sha256": "5d216a124f69c49ead3929d71747f0f858a988d98d3f613b42fa8aa1d1518e6c"
     },
     {
-      "path": "src/analysis.h",
-      "bytes": 3583,
-      "sha256": "525530813f8650a82df8e3be6f5fe6e2a953d500af81225fc0294971ecdd4a79"
+      "path": "silk/x86/NSQ_del_dec_sse4_1.c",
+      "status": "derived",
+      "upstream_sha256": "6946c7df19162b5d1fc048583e732736d53978a9de6a34df8cabf22ec8e20091",
+      "sha256": "a0818fd626c5e58a8c20a885b46fe278712dbc3667578935b380136e8034b305"
     },
     {
-      "path": "src/extensions.c",
-      "bytes": 23462,
-      "sha256": "82a896f6067d32cbb489b694f2e90f2dec8208f0a68ca40e1d123e312a1408b5"
+      "path": "silk/x86/NSQ_sse4_1.c",
+      "status": "derived",
+      "upstream_sha256": "36a7281d0dc9493ffd1dab3176b9d4b44bf8b42312fd34df61dc1e7c2477644f",
+      "sha256": "59c688ce009ac3e8c847c5dab2ac01112abe33c83d2c51f7fcd6528ade4e2872"
     },
     {
-      "path": "src/mlp.h",
-      "bytes": 2096,
-      "sha256": "bb553cd83e8081e79244682cce949ad1d6b584232d43eff30a1a254100dba07b"
+      "path": "silk/x86/SigProc_FIX_sse.h",
+      "status": "derived",
+      "upstream_sha256": "2534456f00468ed99a32b61d29d94f6ad12976f77b7fa60b160932211c9a4580",
+      "sha256": "788829cee2fffd7db629cc3116022e3bc183e91a2b4e6ba772e85f5b624d5118"
+    },
+    {
+      "path": "silk/x86/VAD_sse4_1.c",
+      "status": "derived",
+      "upstream_sha256": "1147c6602371ae0eaaf8fb7c960fc74b8340a12dd06c0a731b439e3ce0e4d60a",
+      "sha256": "e5ea23da1e267cf1434357614c8c746aa0ff70b21ea66dbcf75f39e715a24059"
+    },
+    {
+      "path": "silk/x86/VQ_WMat_EC_sse4_1.c",
+      "status": "derived",
+      "upstream_sha256": "e3c21cd270f6a9bf6ace216c77c5c21175e551e6212c3c2b15f5ed8b0c240203",
+      "sha256": "1f29ee4e68a6d97ff1731e8484acba4a5812f4347568deb861a1f82f2499f62c"
+    },
+    {
+      "path": "silk/x86/main_sse.h",
+      "status": "derived",
+      "upstream_sha256": "26199bfd27e6e448170428aa898b40dca9acf5fc58ea2daa2a6923d34431d3b8",
+      "sha256": "0f5f0de697bc748122bbc00426e6d03f53ffd04411955dbff48e92e86db39a29"
     },
     {
       "path": "src/opus.c",
-      "bytes": 11274,
-      "sha256": "1cee175636295bbd576ff384b77c31663b04fe09619598a452e067229205ade1"
+      "status": "modified",
+      "upstream_sha256": "1cee175636295bbd576ff384b77c31663b04fe09619598a452e067229205ade1",
+      "changes": [
+        "opus_packet_parse() implements parsing without self-delimited framing, padding output or packet offset (multistream and extensions only); encode_size() removed."
+      ],
+      "sha256": "a458583c7270e0240191ba85234671be4c68e100a14b24f1a15e64e1806c546f"
     },
     {
       "path": "src/opus_decoder.c",
-      "bytes": 49619,
-      "sha256": "ddc60846096a83669aa33992481ce088eca791d6478ecdbf1e445a59d678779a"
+      "status": "modified",
+      "upstream_sha256": "ddc60846096a83669aa33992481ce088eca791d6478ecdbf1e445a59d678779a",
+      "changes": [
+        "Requests limited to reset, gain and final range; the complexity (deep PLC), bandwidth, sample rate, pitch, last packet duration, phase inversion and extension requests are removed.",
+        "No create/destroy, opus_decode24(), DRED or packet extension parsing; opus_decode_native() is private."
+      ],
+      "sha256": "6af239e1bc7ba6f4a43212b2092acb8067f92859c8d8582ec2cf8b17064742bd"
     },
     {
       "path": "src/opus_encoder.c",
-      "bytes": 119683,
-      "sha256": "c9e0a841e60fb904c9918f9f9a82f744cefed0b55ea47d9d7027dd6b95ac2a2c"
+      "status": "modified",
+      "upstream_sha256": "c9e0a841e60fb904c9918f9f9a82f744cefed0b55ea47d9d7027dd6b95ac2a2c",
+      "changes": [
+        "Reduced to the voice profile: 48 kHz, VOIP, one 20 ms VBR frame per packet, 16-bit input. Packets are bit-identical to upstream for these settings.",
+        "Removed: multi-frame repacketizing, CBR padding, the AUDIO and restricted applications, forced mode, bandwidth and channels, signal and voice ratio hints, LFE, surround masking, tonality analysis, float and 24-bit input, create/destroy.",
+        "Requests: bitrate, complexity, in-band FEC (0 or 1), packet loss, DTX, VBR constraint, lookahead, final range and reset."
+      ],
+      "sha256": "89c324e642b3e2693582bf411dd6bfcc1cd68a95236d4e201173951276c54032"
     },
     {
       "path": "src/opus_private.h",
-      "bytes": 9225,
-      "sha256": "546ef810679530ec9e1129ca72e6fba29c4eba30ed56737b544525cea58feec8"
+      "status": "modified",
+      "upstream_sha256": "546ef810679530ec9e1129ca72e6fba29c4eba30ed56737b544525cea58feec8",
+      "changes": [
+        "Keeps the mode constants and align(); repacketizer, extension, multistream and private encoder/decoder declarations removed."
+      ],
+      "sha256": "aca1c6646973016bb6027294e89d7760b71e6367f55e21c0b033603b61408e93"
     }
   ]
 }

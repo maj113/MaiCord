@@ -37,23 +37,13 @@
 #include "entdec.h"
 #include "modes.h"
 
-#if (defined(OPUS_X86_MAY_HAVE_SSE2) && !defined(FIXED_POINT))
-#include "x86/vq_sse.h"
-#endif
 
-#if defined(FIXED_POINT)
 opus_val32 celt_inner_prod_norm(const celt_norm *x, const celt_norm *y, int len, int arch);
 opus_val32 celt_inner_prod_norm_shift(const celt_norm *x, const celt_norm *y, int len, int arch);
 
 void norm_scaleup(celt_norm *X, int N, int shift);
 void norm_scaledown(celt_norm *X, int N, int shift);
 
-#else
-#define celt_inner_prod_norm celt_inner_prod
-#define celt_inner_prod_norm_shift celt_inner_prod
-#define norm_scaleup(X, N, shift)
-#define norm_scaledown(X, N, shift)
-#endif
 
 void exp_rotation(celt_norm *X, int len, int dir, int stride, int K, int spread);
 
@@ -75,7 +65,7 @@ opus_val16 op_pvq_search_c(celt_norm *X, int *iy, int K, int N, int arch);
 */
 unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
       opus_val32 gain, int resynth
-      ARG_QEXT(ec_enc *ext_enc) ARG_QEXT(int extra_bits), int arch);
+, int arch);
 
 /** Algebraic pulse decoder
  * @param X Decoded normalised spectrum (returned)
@@ -85,8 +75,7 @@ unsigned alg_quant(celt_norm *X, int N, int K, int spread, int B, ec_enc *enc,
  * @ret A mask indicating which blocks in the band received pulses
  */
 unsigned alg_unquant(celt_norm *X, int N, int K, int spread, int B,
-      ec_dec *dec, opus_val32 gain
-      ARG_QEXT(ec_enc *ext_dec) ARG_QEXT(int extra_bits));
+      ec_dec *dec, opus_val32 gain);
 
 void renormalise_vector(celt_norm *X, int N, opus_val32 gain, int arch);
 

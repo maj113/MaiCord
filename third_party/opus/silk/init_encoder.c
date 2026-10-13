@@ -25,20 +25,10 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ***********************************************************************/
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-#ifdef FIXED_POINT
 #include "main_FIX.h"
-#else
-#include "main_FLP.h"
-#endif
 #include "tuning_parameters.h"
 #include "cpu_support.h"
 
-#ifdef ENABLE_DRED
-#include "dred_encoder.h"
-#endif
 
 /*********************************/
 /* Initialize Silk Encoder state */

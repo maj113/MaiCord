@@ -28,9 +28,6 @@ POSSIBILITY OF SUCH DAMAGE.
 #ifndef SILK_MACROS_H
 #define SILK_MACROS_H
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
 
 #include "opus_types.h"
 #include "opus_defines.h"
@@ -104,9 +101,6 @@ POSSIBILITY OF SUCH DAMAGE.
                                         (( (a) & ((b)^0x80000000) & 0x80000000) ? silk_int32_MIN : (a)-(b)) :    \
                                         ((((a)^0x80000000) & (b)  & 0x80000000) ? silk_int32_MAX : (a)-(b)) )
 
-#if defined(FIXED_POINT) && defined(__mips)
-#include "mips/macros_mipsr1.h"
-#endif
 
 #include "ecintrin.h"
 #ifndef OVERRIDE_silk_CLZ16
@@ -135,20 +129,5 @@ static OPUS_INLINE opus_int32 silk_CLZ32(opus_int32 in32)
     (*((Matrix_base_adr) + ((row)+(M)*(column))))
 #endif
 
-#ifdef OPUS_ARM_INLINE_ASM
-#include "arm/macros_armv4.h"
-#endif
-
-#ifdef OPUS_ARM_INLINE_EDSP
-#include "arm/macros_armv5e.h"
-#endif
-
-#ifdef OPUS_ARM_PRESUME_AARCH64_NEON_INTR
-#include "arm/macros_arm64.h"
-#endif
-
-#ifdef OPUS_XTENSA_LX7
-#include "xtensa/macros_lx7.h"
-#endif
 
 #endif /* SILK_MACROS_H */

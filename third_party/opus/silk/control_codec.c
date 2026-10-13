@@ -25,16 +25,8 @@ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ***********************************************************************/
 
-#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
-#ifdef FIXED_POINT
 #include "main_FIX.h"
 #define silk_encoder_state_Fxx      silk_encoder_state_FIX
-#else
-#include "main_FLP.h"
-#define silk_encoder_state_Fxx      silk_encoder_state_FLP
-#endif
 #include "stack_alloc.h"
 #include "tuning_parameters.h"
 #include "pitch_est_defines.h"
@@ -147,12 +139,7 @@ static opus_int silk_setup_resamplers(
         } else {
             VARDECL( opus_int16, x_buf_API_fs_Hz );
             VARDECL( silk_resampler_state_struct, temp_resampler_state );
-#ifdef FIXED_POINT
             opus_int16 *x_bufFIX = psEnc->x_buf;
-#else
-            VARDECL( opus_int16, x_bufFIX );
-            opus_int32 new_buf_samples;
-#endif
             opus_int32 api_buf_samples;
             opus_int32 old_buf_samples;
             opus_int32 buf_length_ms;
@@ -160,12 +147,6 @@ static opus_int silk_setup_resamplers(
             buf_length_ms = silk_LSHIFT( psEnc->sCmn.nb_subfr * 5, 1 ) + LA_SHAPE_MS;
             old_buf_samples = buf_length_ms * psEnc->sCmn.fs_kHz;
 
-#ifndef FIXED_POINT
-            new_buf_samples = buf_length_ms * fs_kHz;
-            ALLOC( x_bufFIX, silk_max( old_buf_samples, new_buf_samples ),
-                   opus_int16 );
-            silk_float2short_array( x_bufFIX, psEnc->x_buf, old_buf_samples );
-#endif
 
             /* Initialize resampler for temporary resampling of x_buf data to API_fs_Hz */
             ALLOC( temp_resampler_state, 1, silk_resampler_state_struct );
@@ -184,9 +165,6 @@ static opus_int silk_setup_resamplers(
             /* Correct resampler state by resampling buffered data from API_fs_Hz to fs_kHz */
             ret += silk_resampler( &psEnc->sCmn.resampler_state, x_bufFIX, x_buf_API_fs_Hz, api_buf_samples );
 
-#ifndef FIXED_POINT
-            silk_short2float_array( psEnc->x_buf, x_bufFIX, new_buf_samples);
-#endif
         }
     }
 
