@@ -9,9 +9,9 @@
 namespace maicord::message_pinned_state_test {
 static_assert(sizeof(MessageRecord) == 64);
 static_assert(sizeof(MessageInput) == 72);
-static_assert(offsetof(GatewayMessageEvent, snapshot) == 440);
+static_assert(offsetof(GatewayMessageEvent, snapshot) == 456);
 static_assert(sizeof(GatewayMessageEvent) ==
-              440 + sizeof(GatewayMessageSnapshot) + sizeof(GatewayMessagePoll) + sizeof(GatewayMessageThread) +
+              456 + sizeof(GatewayMessageSnapshot) + sizeof(GatewayMessagePoll) + sizeof(GatewayMessageThread) +
                   sizeof(GatewayMessageCall));
 static_assert(sizeof(GatewayClientMessageMutation) == 88);
 u32 failures{};
