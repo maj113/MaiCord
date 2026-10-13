@@ -219,7 +219,7 @@ void test_dormant_abi() noexcept {
           "relationships: shipping account DLL loads at ABI/ordinal 125 without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 125 && kAccountModuleApiVersion == 125 && kAccountModuleApiOrdinal == 125 &&
+    check(host.api.version == 126 && kAccountModuleApiVersion == 126 && kAccountModuleApiOrdinal == 126 &&
               host.api.bytes == sizeof(AccountModuleApi) && host.api.relationships &&
               host.api.message_ack && host.api.login_submit_recovery && host.api.login_start_reset &&
               host.api.login_submit_reset && host.api.login_submit_phone_verify &&

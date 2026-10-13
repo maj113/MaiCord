@@ -127,7 +127,7 @@ void test_dormant_abi() noexcept {
         return;
     check(host.api.channel_overview && host.api.pinned_messages && host.api.message_forward &&
               host.api.download && host.api.thread_browser && host.api.thread_creation &&
-              host.api.forum_post && host.api.version == 125 && host.api.bytes == 1168 &&
+              host.api.forum_post && host.api.version == 126 && host.api.bytes == 1168 &&
               sizeof(AccountHost) == 1416 &&
               host.api.channel_overview(nullptr, ChannelOverviewOperation::fetch, 20, nullptr, 1).error ==
                   RestClientSubmitError::invalid_input,
