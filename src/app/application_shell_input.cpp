@@ -10,6 +10,7 @@
 #include "application_content_input.hpp"
 #include "application_channel_snapshots.hpp"
 #include "application_retained_projection.hpp"
+#include "maicord/ui/voice_panel.hpp"
 
 #include "application_account_presentation.hpp"
 #include "application_message_interaction.hpp"
@@ -66,8 +67,7 @@ bool account_identity_contains(float x, float y) noexcept {
     const auto& users = g_app.account_ui->user_store;
     const auto* self = user_store_find(users, g_app.account_ui->chat_state.self_user_id);
     if (!self) return false;
-    const float avatar_top = (footer->rectangle.top + footer->rectangle.bottom - 32) * .5f;
-    if (ui_rect_contains({footer->rectangle.left + 10, avatar_top, footer->rectangle.left + 42, avatar_top + 32}, x, y))
+    if (ui_rect_contains(ui_account_avatar_rectangle(footer->rectangle), x, y))
         return true;
     const Utf8View labels[]{user_store_name(users, *self), user_store_username(users, *self)};
     for (u32 i = 0; i < 2; ++i) {

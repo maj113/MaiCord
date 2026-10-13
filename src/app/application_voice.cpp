@@ -146,7 +146,9 @@ void refresh_view() noexcept {
     next.self_deaf = voice.preferences.self_deaf;
     next.server_mute = joined && (s->flags & gateway_voice_mute);
     next.server_deaf = joined && (s->flags & gateway_voice_deaf);
-    next.speaking = voice.status.transmitting;
+    // The worker's speaker list is current every pump; the audio status that
+    // also reports speech is polled once a second.
+    next.speaking = joined && (gateway_voice_self_speaking(*s) || voice.status.transmitting);
     if (next.state == UiVoicePanelState::hidden && (next.hovered == UiVoiceControl::disconnect ||
                                                     next.hovered == UiVoiceControl::channel))
         next.hovered = UiVoiceControl::none;

@@ -1205,6 +1205,14 @@ static_assert(sizeof(GatewayClientVoiceSnapshot) == 184); // Crosses the account
 constexpr u64 gateway_voice_call_channel(const GatewayClientVoiceSnapshot& voice) noexcept {
     return voice.phase != VoiceSetupPhase::idle && voice.error == GatewayVoiceError::none ? voice.channel_id : 0;
 }
+// True while the voice worker lists the user among the call's speakers: it
+// does as soon as it sends speech.
+constexpr bool gateway_voice_self_speaking(const GatewayClientVoiceSnapshot& voice) noexcept {
+    for (u32 i = 0; voice.user_id && i < voice.speaking_count && i < kGatewayVoiceSpeakingUsers; ++i)
+        if (voice.speaking_users[i] == voice.user_id)
+            return true;
+    return false;
+}
 inline constexpr u32 kGatewayVoiceVideoUsers = 16;
 // A remote participant announcing an active camera or screen stream (op 12):
 // the UI's "video available" flag. frames stays zero until media arrives.

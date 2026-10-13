@@ -1961,6 +1961,26 @@ void test_ui_scene() noexcept {
                !ui_scene_resolve(call_scene, ui_scene_find(call_scene, UiSemantic::channel_footer)),
            "ui_scene_voice_card_spans_both_columns_and_lists_end_above_it");
     ui_scene_release(&call_scene);
+    // Speaking in a connected call rings the account avatar.
+    PaintStream ring_paint{};
+    UiVoicePanelView speaking_view{};
+    speaking_view.state = UiVoicePanelState::connected;
+    speaking_view.speaking = true;
+    const UiRect account_avatar = footer ? ui_account_avatar_rectangle(footer->rectangle) : UiRect{};
+    bool ring = footer && paint_stream_initialize(&ring_paint) && paint_stream_reset(&ring_paint, 1280, 800) &&
+                account_avatar.left == footer->rectangle.left + 10 && ui_rect_width(account_avatar) == 32 &&
+                ui_account_speaking_ring_paint(&ring_paint, &speaking_view, account_avatar, kDefaultTheme) &&
+                ring_paint.count == 1 && ring_paint.quads[0].left == account_avatar.left - 2 &&
+                ring_paint.quads[0].bottom == account_avatar.bottom + 2;
+    speaking_view.state = UiVoicePanelState::connecting;
+    ring = ring && ui_account_speaking_ring_paint(&ring_paint, &speaking_view, account_avatar, kDefaultTheme);
+    speaking_view.state = UiVoicePanelState::connected;
+    speaking_view.speaking = false;
+    ring = ring && ui_account_speaking_ring_paint(&ring_paint, &speaking_view, account_avatar, kDefaultTheme) &&
+           ui_account_speaking_ring_paint(&ring_paint, nullptr, account_avatar, kDefaultTheme) &&
+           ring_paint.count == 1;
+    paint_stream_release(&ring_paint);
+    expect(ring, "account_avatar_speaking_ring_only_while_speaking_in_a_connected_call");
     UiLayoutDiagnostic scene_diagnostics[32]{};
     const u32 scene_rebuilds = scene.layout_rebuilds;
     const u32 scene_layout_passes = scene.layout_passes;

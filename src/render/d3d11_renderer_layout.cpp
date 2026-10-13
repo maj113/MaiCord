@@ -28,6 +28,7 @@
 #include "maicord/ui/shell_presentation.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"
+#include "maicord/ui/voice_panel.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/render/inline_media.hpp"
 
@@ -1319,8 +1320,12 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         if (footer && user) {
             // The name column always reserves this slot: keep a placeholder
             // until the avatar is resident, as member and message rows do.
-            const float top = (footer->rectangle.top + footer->rectangle.bottom - 32) * .5f;
-            const UiRect avatar{footer->rectangle.left + 10, top, footer->rectangle.left + 42, top + 32};
+            const UiRect avatar = ui_account_avatar_rectangle(footer->rectangle);
+            if (!ui_account_speaking_ring_paint(&renderer->paint_stream,
+                                                renderer->navigation_view ? renderer->navigation_view->voice_panel
+                                                                          : nullptr,
+                                                avatar, theme))
+                return layout_step_failed(__LINE__);
             if (!paint_stream_push_rounded(&renderer->paint_stream, avatar.left, avatar.top, avatar.right,
                                            avatar.bottom, theme.avatar_placeholder, ui_rect_width(avatar) * .5f))
                 return layout_step_failed(__LINE__);

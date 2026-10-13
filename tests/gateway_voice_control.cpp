@@ -23,6 +23,16 @@ void test_gateway_voice_control(void (*check)(bool, const char*) noexcept) noexc
     call.phase = VoiceSetupPhase::idle;
     check(private_call && guild_call && failed && gateway_voice_call_channel(call) == 0,
           "voice call channel covers DM and guild calls, but not idle or failed ones");
+    GatewayClientVoiceSnapshot heard{};
+    heard.user_id = 7;
+    heard.speaking_count = 2;
+    heard.speaking_users[0] = 3;
+    heard.speaking_users[1] = 7;
+    const bool self_heard = gateway_voice_self_speaking(heard);
+    heard.speaking_count = 1;
+    check(self_heard && !gateway_voice_self_speaking(heard) &&
+              !gateway_voice_self_speaking(GatewayClientVoiceSnapshot{}),
+          "voice self speaking follows the worker's speaker list");
     GatewayVoiceControl voice{};
     const auto session = utf8_literal("test-session");
     const GatewayVoiceStateUpdate join{10, 20, false, false, false};

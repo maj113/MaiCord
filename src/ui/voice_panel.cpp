@@ -72,6 +72,14 @@ Color ui_voice_panel_status_color(const UiVoicePanelView& view, const Theme& the
         return ui_icon_role_color(theme, UiIconRole::warning);
     return ui_icon_role_color(theme, UiIconRole::success);
 }
+bool ui_account_speaking_ring_paint(PaintStream* stream, const UiVoicePanelView* view, UiRect avatar,
+                                    const Theme& theme) noexcept {
+    if (!view || !view->speaking || view->state != UiVoicePanelState::connected)
+        return true;
+    return paint_stream_push_rounded(stream, avatar.left - 2, avatar.top - 2, avatar.right + 2, avatar.bottom + 2,
+                                     ui_icon_role_color(theme, UiIconRole::success),
+                                     ui_rect_width(avatar) * .5f + 2);
+}
 bool ui_voice_panel_paint(PaintStream* stream, const UiVoicePanelView& view, UiRect footer,
                           const Theme& theme) noexcept {
     if (view.state == UiVoicePanelState::hidden)

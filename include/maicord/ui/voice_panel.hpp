@@ -52,4 +52,13 @@ bool ui_voice_panel_paint(PaintStream* stream, const UiVoicePanelView& view, UiR
                           const Theme& theme) noexcept;
 bool ui_voice_account_controls_paint(PaintStream* stream, const UiVoicePanelView& view, UiRect footer,
                                      const Theme& theme) noexcept;
+// The user's avatar at the left of the account panel.
+constexpr UiRect ui_account_avatar_rectangle(UiRect footer) noexcept {
+    const float top = (footer.top + footer.bottom - 32) * .5f;
+    return {footer.left + 10, top, footer.left + 42, top + 32};
+}
+// While the user speaks in a connected call: a success-coloured disc 2 DIP
+// larger than the avatar, painted beneath it as voice channel rows do.
+bool ui_account_speaking_ring_paint(PaintStream* stream, const UiVoicePanelView* view, UiRect avatar,
+                                    const Theme& theme) noexcept;
 } // namespace maicord
