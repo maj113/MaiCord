@@ -149,10 +149,15 @@ Mp4DemuxError description(Mp4AudioDemuxer& d, const Box& stsd) noexcept {
     if ((channels != configuration.core_channels && channels != configuration.channels) ||
         ((rate >> 16) != configuration.core_sample_rate && (rate >> 16) != configuration.sample_rate))
         return Mp4DemuxError::unsupported;
-    // The ASC fixes the PCM domain: LC 1024 or doubled SBR 2048.
+    // The ASC fixes the PCM domain: LC 1024 or doubled SBR 2048. Muxers such
+    // as ffmpeg give the final packet only the audio's real length, so a last
+    // run of one packet may be shorter; the sample window trims its padding.
+    const u64 packet = u64{d.samples.timescale} * d.frames_per_packet;
     for (u32 i = 0; i < d.samples.stts_count; ++i) {
-        const u32 delta = read_u32(source.data + d.samples.stts_offset + u64{i} * 8 + 4);
-        if (u64{delta} * d.sample_rate != u64{d.samples.timescale} * d.frames_per_packet)
+        const u8* run = source.data + d.samples.stts_offset + u64{i} * 8;
+        const u64 length = u64{read_u32(run + 4)} * d.sample_rate;
+        const bool final_packet = i + 1 == d.samples.stts_count && read_u32(run) == 1;
+        if (length != packet && !(final_packet && length < packet))
             return Mp4DemuxError::unsupported;
     }
     // A validated redundant all-zero CTTS table leaves CT=DT unchanged. The
@@ -414,6 +419,9 @@ bool mp4_audio_demux_sample_window(const Mp4AudioDemuxer& d, i64 target,
                            d.samples.movie_timescale, &span) ||
             !add_time(start, span, &source_end) || !frame_ceil(source_end, d.sample_rate, &end))
             return false;
+    } else if (!frame_ceil(duration, d.sample_rate, &end)) {
+        // Without edits the track's length ends it, short final packet included.
+        return false;
     }
     window.end_source_frame = minimum(end, total);
     window.first_source_frame = minimum(maximum(first, initial), window.end_source_frame);

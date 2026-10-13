@@ -345,7 +345,7 @@ int composition_edit_tests() noexcept {
 
 bool audio_fixture(Writer& w, u32 rate = 48000, u8 channels = 2, u8 asc_flags = 0, bool trim = false,
                    u32 movie_scale = 0, u32 empty_ticks = 0, u32 span_ticks = 0, u32 start_ticks = 1024,
-                   u8 composition_kind = 0, ConstSlice<u8> configuration = {}) noexcept {
+                   u8 composition_kind = 0, ConstSlice<u8> configuration = {}, u32 last_ticks = 0) noexcept {
     if (!movie_scale)
         movie_scale = rate;
     if (!span_ticks)
@@ -379,7 +379,7 @@ bool audio_fixture(Writer& w, u32 rate = 48000, u8 channels = 2, u8 asc_flags = 
     const u32 mdia = begin_box(&w, 'm', 'd', 'i', 'a'), mdhd = begin_box(&w, 'm', 'd', 'h', 'd');
     put_zeroes(&w, 12);
     put_u32(&w, rate);
-    put_u32(&w, 3072);
+    put_u32(&w, last_ticks ? 2048 + last_ticks : 3072);
     put_zeroes(&w, 4);
     end_box(&w, mdhd);
     const u32 hdlr = begin_box(&w, 'h', 'd', 'l', 'r');
@@ -464,11 +464,16 @@ bool audio_fixture(Writer& w, u32 rate = 48000, u8 channels = 2, u8 asc_flags = 
     }
     end_box(&w, mp4a);
     end_box(&w, stsd);
+    // Three packets; last_ticks gives the final one its own length.
     const u32 stts = begin_box(&w, 's', 't', 't', 's');
     put_u32(&w, 0);
-    put_u32(&w, 1);
-    put_u32(&w, 3);
+    put_u32(&w, last_ticks ? 2 : 1);
+    put_u32(&w, last_ticks ? 2 : 3);
     put_u32(&w, 1024);
+    if (last_ticks) {
+        put_u32(&w, 1);
+        put_u32(&w, last_ticks);
+    }
     end_box(&w, stts);
     if (composition_kind) {
         const bool split = composition_kind >= 4;
@@ -1192,6 +1197,17 @@ int exact_audio_time_tests() noexcept {
     if (mp4_audio_demux_sample_window(extreme, 0, &window) ||
         !bytes_equal(&window, &saved_window, sizeof(window)))
         return 42;
+    // ffmpeg-style tail: the last packet carries only the audio's real length.
+    // It plays, and the window ends at the track's length instead of the
+    // final packet's padding; a longer last packet is still refused.
+    if (!audio_fixture(w, 48000, 2, 0, false, 0, 0, 0, 1024, 0, {}, 704) ||
+        mp4_audio_demux_initialize(&d, {w.bytes, w.count}) != Mp4DemuxError::none ||
+        !mp4_audio_demux_sample_window(d, 0, &window) || window.first_source_frame ||
+        window.end_source_frame != 2752 || window.duration_100ns != 573333)
+        return 113;
+    if (!audio_fixture(w, 48000, 2, 0, false, 0, 0, 0, 1024, 0, {}, 1500) ||
+        mp4_audio_demux_initialize(&d, {w.bytes, w.count}) != Mp4DemuxError::unsupported || d.samples.ready)
+        return 114;
     return 0;
 }
 
