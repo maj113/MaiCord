@@ -216,13 +216,16 @@ struct GatewayUserRuntime {
     u64 since_ms;
     GatewayUserTextStorage<kGatewayUserMaximumOperatingSystemBytes> operating_system;
     GatewayUserTextStorage<kGatewayUserMaximumBrowserBytes> browser;
-    GatewayUserTextStorage<kGatewayUserMaximumDeviceBytes> device;
+    GatewayUserTextStorage<kGatewayUserMaximumReleaseChannelBytes> release_channel;
+    GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> client_version;
+    GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> os_version;
+    GatewayUserTextStorage<kGatewayUserMaximumArchitectureBytes> os_arch;
+    GatewayUserTextStorage<kGatewayUserMaximumArchitectureBytes> app_arch;
     GatewayUserTextStorage<kGatewayUserMaximumLocaleBytes> system_locale;
+    GatewayUserTextStorage<kGatewayUserLaunchIdBytes> client_launch_id;
     GatewayUserTextStorage<kGatewayUserMaximumUserAgentBytes> browser_user_agent;
     GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> browser_version;
-    GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> os_version;
-    GatewayUserTextStorage<kGatewayUserMaximumReleaseChannelBytes> release_channel;
-    GatewayUserTextStorage<kGatewayUserLaunchIdBytes> client_launch_id;
+    GatewayUserTextStorage<kGatewayUserMaximumVersionBytes> os_sdk_version;
     u32 client_build_number;
     GatewayUserStatus status;
     bool has_since;
@@ -328,18 +331,19 @@ bool is_user(const GatewayClientRuntime* runtime) noexcept {
     return runtime && runtime->identity == GatewayClientIdentity::normal_user && runtime->user;
 }
 
+template <u32 Capacity> Utf8View user_text(const GatewayUserTextStorage<Capacity>& text) noexcept {
+    return Utf8View{text.data, text.bytes};
+}
+
 GatewayUserIdentify user_identify(const GatewayUserRuntime& user, Utf8View token) noexcept {
     return GatewayUserIdentify{
         token,
-        GatewayUserProperties{
-            Utf8View{user.operating_system.data, user.operating_system.bytes},
-            Utf8View{user.browser.data, user.browser.bytes}, Utf8View{user.device.data, user.device.bytes},
-            Utf8View{user.system_locale.data, user.system_locale.bytes},
-            Utf8View{user.browser_user_agent.data, user.browser_user_agent.bytes},
-            Utf8View{user.browser_version.data, user.browser_version.bytes},
-            Utf8View{user.os_version.data, user.os_version.bytes},
-            Utf8View{user.release_channel.data, user.release_channel.bytes},
-            Utf8View{user.client_launch_id.data, user.client_launch_id.bytes}, user.client_build_number},
+        GatewayUserProperties{user_text(user.operating_system), user_text(user.browser),
+                              user_text(user.release_channel), user_text(user.client_version),
+                              user_text(user.os_version), user_text(user.os_arch), user_text(user.app_arch),
+                              user_text(user.system_locale), user_text(user.client_launch_id),
+                              user_text(user.browser_user_agent), user_text(user.browser_version),
+                              user_text(user.os_sdk_version), user.client_build_number},
         user.since_ms,
         user.status,
         user.has_since,
@@ -364,16 +368,20 @@ void copy_user_text(GatewayUserTextStorage<Capacity>* output, Utf8View input) no
 
 void store_user_configuration(GatewayUserRuntime* user,
                               const GatewayUserClientConfiguration& configuration) noexcept {
-    copy_user_text(&user->operating_system, configuration.properties.operating_system);
-    copy_user_text(&user->browser, configuration.properties.browser);
-    copy_user_text(&user->device, configuration.properties.device);
-    copy_user_text(&user->system_locale, configuration.properties.system_locale);
-    copy_user_text(&user->browser_user_agent, configuration.properties.browser_user_agent);
-    copy_user_text(&user->browser_version, configuration.properties.browser_version);
-    copy_user_text(&user->os_version, configuration.properties.os_version);
-    copy_user_text(&user->release_channel, configuration.properties.release_channel);
-    copy_user_text(&user->client_launch_id, configuration.properties.client_launch_id);
-    user->client_build_number = configuration.properties.client_build_number;
+    const GatewayUserProperties& properties = configuration.properties;
+    copy_user_text(&user->operating_system, properties.operating_system);
+    copy_user_text(&user->browser, properties.browser);
+    copy_user_text(&user->release_channel, properties.release_channel);
+    copy_user_text(&user->client_version, properties.client_version);
+    copy_user_text(&user->os_version, properties.os_version);
+    copy_user_text(&user->os_arch, properties.os_arch);
+    copy_user_text(&user->app_arch, properties.app_arch);
+    copy_user_text(&user->system_locale, properties.system_locale);
+    copy_user_text(&user->client_launch_id, properties.client_launch_id);
+    copy_user_text(&user->browser_user_agent, properties.browser_user_agent);
+    copy_user_text(&user->browser_version, properties.browser_version);
+    copy_user_text(&user->os_sdk_version, properties.os_sdk_version);
+    user->client_build_number = properties.client_build_number;
     user->since_ms = configuration.since_ms;
     user->status = configuration.status;
     user->has_since = configuration.has_since;

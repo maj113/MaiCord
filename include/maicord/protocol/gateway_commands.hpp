@@ -94,11 +94,11 @@ GatewayCommandWriteResult gateway_write_guild_member_request(const GatewayGuildM
 inline constexpr u32 kGatewayUserMaximumTokenBytes = 2 * 1024;
 inline constexpr u32 kGatewayUserMaximumOperatingSystemBytes = 32;
 inline constexpr u32 kGatewayUserMaximumBrowserBytes = 64;
-inline constexpr u32 kGatewayUserMaximumDeviceBytes = 64;
 inline constexpr u32 kGatewayUserMaximumLocaleBytes = 32;
 inline constexpr u32 kGatewayUserMaximumUserAgentBytes = 512;
 inline constexpr u32 kGatewayUserMaximumVersionBytes = 64;
 inline constexpr u32 kGatewayUserMaximumReleaseChannelBytes = 32;
+inline constexpr u32 kGatewayUserMaximumArchitectureBytes = 16;
 inline constexpr u32 kGatewayUserLaunchIdBytes = 36;
 
 bool gateway_user_launch_id_valid(Utf8View value) noexcept;
@@ -110,23 +110,36 @@ enum class GatewayUserStatus : u8 {
     invisible,
 };
 
+// The client properties a user session reports, in the order the Windows
+// desktop client sends them. Identify and the X-Super-Properties header carry
+// the same object.
 struct GatewayUserProperties {
     Utf8View operating_system;
     Utf8View browser;
-    Utf8View device;
+    Utf8View release_channel;
+    Utf8View client_version;
+    Utf8View os_version;
+    Utf8View os_arch;
+    Utf8View app_arch;
     Utf8View system_locale;
+    Utf8View client_launch_id;
     Utf8View browser_user_agent;
     Utf8View browser_version;
-    Utf8View os_version;
-    Utf8View release_channel;
-    Utf8View client_launch_id;
+    Utf8View os_sdk_version;
     u32 client_build_number;
 };
 
+// Writes the properties object, or with a null output measures it. Every
+// string must be non-empty, valid UTF-8 and within its limit, the launch ID a
+// UUID and the build number set. A short output gets output_too_small and no
+// bytes.
+GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserProperties& properties,
+                                                        Slice<u8> output) noexcept;
+
 // Normal-user Gateway v9 fresh-session Identify. It has no application intents/shard
-// tuple and claims no cached versions. The properties must identify MaiCord
-// truthfully; client_build_number is the official client's build number the API
-// expects, not a MaiCord version.
+// tuple and claims no cached versions. The properties are the desktop client's,
+// which the API expects from a user session; client_build_number is that
+// client's build number, not a MaiCord version.
 struct GatewayUserIdentify {
     Utf8View token;
     GatewayUserProperties properties;

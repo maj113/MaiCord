@@ -19,6 +19,17 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
               configuration.timezone_bytes <= kIanaTimezoneMaximumBytes &&
               configuration.timezone[configuration.timezone_bytes] == 0,
           "startup reads bounded host metadata and the captured compatibility build");
+    const GatewayUserProperties& reported = configuration.configuration.properties;
+    const Utf8View os_version = reported.os_version;
+    const Utf8View sdk = reported.os_sdk_version;
+    check(utf8_equal(reported.browser, utf8_literal("Discord Client")) &&
+              utf8_equal(reported.client_version, utf8_literal(kClientVersion)) &&
+              utf8_equal(reported.browser_version, utf8_literal(kClientElectronVersion)) &&
+              utf8_equal(reported.os_arch, utf8_literal("x64")) &&
+              utf8_equal(reported.app_arch, utf8_literal("x64")) && sdk.bytes != 0 &&
+              sdk.bytes < os_version.bytes && sdk.data + sdk.bytes == os_version.data + os_version.bytes &&
+              sdk.data[-1] == '.' && !contains(sdk, utf8_literal(".")),
+          "startup reports the desktop client's properties with the Windows build as its SDK version");
     char tiny[]{'x', 'y'};
     check(host_iana_timezone({tiny, 1}) == 0 && tiny[0] == 0 && tiny[1] == 'y',
           "timezone output is never truncated or written beyond its capacity");

@@ -5,8 +5,8 @@
 
 namespace maicord {
 
-// Public-web client version reported to the server. It is not MaiCord's binary
-// version; update it only when the official web client's version changes.
+// The official client's build number reported to the server. It is not
+// MaiCord's binary version; update it with the versions in kClientUserAgent.
 inline constexpr u32 kClientBuildNumber = 607'562;
 
 enum class UserClientConfigurationError : u8 {

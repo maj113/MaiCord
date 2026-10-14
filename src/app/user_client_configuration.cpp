@@ -114,17 +114,24 @@ UserClientConfigurationResult user_client_configuration_initialize(
             0, UserClientConfigurationError::version};
     }
 
+    // os_version is major.minor.build, and the SDK version is its build.
+    u32 sdk_offset = os_version_bytes;
+    while (storage->os_version[sdk_offset - 1] != '.')
+        --sdk_offset;
     GatewayUserClientConfiguration configuration{};
     configuration.properties = GatewayUserProperties{
         utf8_literal("Windows"),
-        utf8_literal("MaiCord"),
-        utf8_literal("MaiCord"),
-        Utf8View{storage->locale, static_cast<u32>(locale_bytes)},
-        utf8_literal(kClientUserAgent),
-        utf8_literal("0.0.1"),
-        Utf8View{storage->os_version, os_version_bytes},
+        utf8_literal("Discord Client"),
         utf8_literal("stable"),
+        utf8_literal(kClientVersion),
+        Utf8View{storage->os_version, os_version_bytes},
+        utf8_literal("x64"),
+        utf8_literal("x64"),
+        Utf8View{storage->locale, static_cast<u32>(locale_bytes)},
         Utf8View{storage->client_launch_id, kGatewayUserLaunchIdBytes},
+        utf8_literal(kClientUserAgent),
+        utf8_literal(kClientElectronVersion),
+        Utf8View{storage->os_version + sdk_offset, os_version_bytes - sdk_offset},
         kClientBuildNumber,
     };
     configuration.status = GatewayUserStatus::online;

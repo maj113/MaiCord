@@ -122,10 +122,12 @@ void test_account_session_identity(void (*check)(bool, const char*) noexcept) no
     // Exercise the actual account worker startup/snapshot/teardown path. Both
     // initial and resume endpoints are loopback; no service request is made.
     const GatewayUserClientConfiguration configuration{
-        GatewayUserProperties{utf8_literal("Windows"), utf8_literal("MaiCord"), utf8_literal("MaiCord"),
-                              utf8_literal("en-US"), utf8_literal("MaiCord/0.0.1 (Windows; native)"),
-                              utf8_literal("0.0.1"), utf8_literal("10.0.19045"), utf8_literal("stable"),
-                              utf8_literal("00112233-4455-6677-8899-aabbccddeeff"), 603738},
+        GatewayUserProperties{utf8_literal("Windows"), utf8_literal("Discord Client"),
+                              utf8_literal("stable"), utf8_literal("1.0.9256"), utf8_literal("10.0.19045"),
+                              utf8_literal("x64"), utf8_literal("x64"), utf8_literal("en-US"),
+                              utf8_literal("00112233-4455-6677-8899-aabbccddeeff"),
+                              utf8_literal("Agent/1.0 (Windows; native)"), utf8_literal("42.9.0"),
+                              utf8_literal("19045"), 603738},
         0, GatewayUserStatus::online, false, false};
     GatewayEndpoint endpoint{};
     const bool endpoint_ready =

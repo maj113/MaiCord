@@ -22649,16 +22649,19 @@ void test_gateway_commands() noexcept {
 
     const GatewayUserIdentify user_identify{
         utf8_literal("user\"\n-token"),
-        GatewayUserProperties{utf8_literal("Windows"), utf8_literal("MaiCord"), utf8_literal("MaiCord"),
-                              utf8_literal("en-US"), utf8_literal("MaiCord\\1.0\nNative"),
-                              utf8_literal("1.0.0"), utf8_literal("10.0.19045"), utf8_literal("stable"),
-                              utf8_literal("00112233-4455-6677-8899-aabbccddeeff"), 603738},
+        GatewayUserProperties{
+            utf8_literal("Windows"), utf8_literal("Discord Client"), utf8_literal("stable"),
+            utf8_literal("1.0.9256"), utf8_literal("10.0.19045"), utf8_literal("x64"), utf8_literal("x64"),
+            utf8_literal("en-US"), utf8_literal("00112233-4455-6677-8899-aabbccddeeff"),
+            utf8_literal("Agent\\1.0\nNative"), utf8_literal("42.9.0"), utf8_literal("19045"), 603738},
         0,
         GatewayUserStatus::online,
         false,
         false};
+    const ConstSlice<u8> expected_user_properties = byte_literal(
+        R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null})");
     const ConstSlice<u8> expected_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734653,"properties":{"os":"Windows","browser":"MaiCord","device":"MaiCord","system_locale":"en-US","browser_user_agent":"MaiCord\\1.0\nNative","browser_version":"1.0.0","os_version":"10.0.19045","release_channel":"stable","client_build_number":603738,"client_event_source":null,"has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff"},"presence":{"since":null,"activities":[],"status":"online","afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734653,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null},"presence":{"since":null,"activities":[],"status":"online","afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult user_identified =
         gateway_write_user_identify(user_identify, Slice<u8>{output, expected_user_identify.count});
     expect(user_identified.ok() && user_identified.bytes == expected_user_identify.count &&
@@ -22668,6 +22671,37 @@ void test_gateway_commands() noexcept {
                    .ok() &&
                envelope.opcode == 2,
            "gateway_user_identify_valid_json");
+
+    // The X-Super-Properties header carries the same object: measured without
+    // an output, written whole or not at all.
+    const GatewayCommandWriteResult properties_measured =
+        gateway_write_user_properties(user_identify.properties, {});
+    const GatewayCommandWriteResult properties_written = gateway_write_user_properties(
+        user_identify.properties, Slice<u8>{output, expected_user_properties.count});
+    expect(properties_measured.ok() && properties_measured.bytes == expected_user_properties.count &&
+               properties_written.ok() && properties_written.bytes == expected_user_properties.count &&
+               bytes_equal(ConstSlice<u8>{output, properties_written.bytes}, expected_user_properties),
+           "gateway_user_properties_write");
+    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
+        guarded[index] = 0x5A;
+    }
+    unchanged = gateway_write_user_properties(user_identify.properties,
+                                              Slice<u8>{guarded, expected_user_properties.count - 1})
+                    .error == GatewayCommandError::output_too_small;
+    for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
+        unchanged = unchanged && guarded[index] == 0x5A;
+    }
+    expect(unchanged, "gateway_user_properties_output_bound");
+    char header[1024]{};
+    const Base64Result header_expected =
+        base64_encode(expected_user_properties, Slice<char>{header, static_cast<u32>(sizeof(header))});
+    const RestUserPropertiesResult header_written = write_rest_user_super_properties(
+        user_identify.properties, Slice<u8>{guarded, static_cast<u32>(sizeof(guarded))},
+        Slice<u8>{output, static_cast<u32>(sizeof(output))});
+    expect(header_expected.ok() && header_written.ok() && header_written.bytes == header_expected.bytes &&
+               bytes_equal(ConstSlice<u8>{output, header_written.bytes},
+                           ConstSlice<u8>{reinterpret_cast<const u8*>(header), header_expected.bytes}),
+           "rest_user_super_properties_match_identify");
 
     for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
         guarded[index] = 0x5A;
@@ -22761,7 +22795,7 @@ void test_gateway_commands() noexcept {
     idle_user_identify.has_since = true;
     idle_user_identify.afk = true;
     const ConstSlice<u8> expected_idle_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734653,"properties":{"os":"Windows","browser":"MaiCord","device":"MaiCord","system_locale":"en-US","browser_user_agent":"MaiCord\\1.0\nNative","browser_version":"1.0.0","os_version":"10.0.19045","release_channel":"stable","client_build_number":603738,"client_event_source":null,"has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff"},"presence":{"since":987654321,"activities":[],"status":"idle","afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734653,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null},"presence":{"since":987654321,"activities":[],"status":"idle","afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult idle_user_identified = gateway_write_user_identify(
         idle_user_identify, Slice<u8>{output, expected_idle_user_identify.count});
     expect(idle_user_identified.ok() && idle_user_identified.bytes == expected_idle_user_identify.count &&
@@ -25713,10 +25747,12 @@ void test_account_session_store() noexcept {
 }
 void test_gateway_client_contract() noexcept {
     const GatewayUserClientConfiguration configuration{
-        GatewayUserProperties{utf8_literal("Windows"), utf8_literal("MaiCord"), utf8_literal("MaiCord"),
-                              utf8_literal("en-US"), utf8_literal("MaiCord/0.0.1 (Windows; native)"),
-                              utf8_literal("0.0.1"), utf8_literal("10.0.19045"), utf8_literal("stable"),
-                              utf8_literal("00112233-4455-6677-8899-aabbccddeeff"), 603738},
+        GatewayUserProperties{utf8_literal("Windows"), utf8_literal("Discord Client"),
+                              utf8_literal("stable"), utf8_literal("1.0.9256"), utf8_literal("10.0.19045"),
+                              utf8_literal("x64"), utf8_literal("x64"), utf8_literal("en-US"),
+                              utf8_literal("00112233-4455-6677-8899-aabbccddeeff"),
+                              utf8_literal("Agent/1.0 (Windows; native)"), utf8_literal("42.9.0"),
+                              utf8_literal("19045"), 603738},
         0, GatewayUserStatus::online, false, false};
     GatewayUserClientConfiguration invalid_configuration = configuration;
     invalid_configuration.properties.client_launch_id = utf8_literal("not-a-launch-id");

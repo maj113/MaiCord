@@ -101,11 +101,79 @@ bool gateway_user_launch_id_valid(Utf8View value) noexcept {
     return true;
 }
 
+GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserProperties& properties,
+                                                        Slice<u8> output) noexcept {
+    if (properties.client_build_number == 0 || !gateway_user_launch_id_valid(properties.client_launch_id)) {
+        return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
+    }
+    // Each string follows its key, which also carries the separator and any
+    // fixed property before it.
+    struct Field {
+        Utf8View key;
+        Utf8View value;
+        u32 maximum;
+    };
+    const Field fields[] = {
+        {utf8_literal("{\"os\":"), properties.operating_system, kGatewayUserMaximumOperatingSystemBytes},
+        {utf8_literal(",\"browser\":"), properties.browser, kGatewayUserMaximumBrowserBytes},
+        {utf8_literal(",\"release_channel\":"), properties.release_channel,
+         kGatewayUserMaximumReleaseChannelBytes},
+        {utf8_literal(",\"client_version\":"), properties.client_version, kGatewayUserMaximumVersionBytes},
+        {utf8_literal(",\"os_version\":"), properties.os_version, kGatewayUserMaximumVersionBytes},
+        {utf8_literal(",\"os_arch\":"), properties.os_arch, kGatewayUserMaximumArchitectureBytes},
+        {utf8_literal(",\"app_arch\":"), properties.app_arch, kGatewayUserMaximumArchitectureBytes},
+        {utf8_literal(",\"system_locale\":"), properties.system_locale, kGatewayUserMaximumLocaleBytes},
+        {utf8_literal(",\"has_client_mods\":false,\"client_launch_id\":"), properties.client_launch_id,
+         kGatewayUserLaunchIdBytes},
+        {utf8_literal(",\"browser_user_agent\":"), properties.browser_user_agent,
+         kGatewayUserMaximumUserAgentBytes},
+        {utf8_literal(",\"browser_version\":"), properties.browser_version,
+         kGatewayUserMaximumVersionBytes},
+        {utf8_literal(",\"os_sdk_version\":"), properties.os_sdk_version, kGatewayUserMaximumVersionBytes},
+    };
+    constexpr u32 field_count = static_cast<u32>(sizeof(fields) / sizeof(fields[0]));
+    constexpr char build_key[] = ",\"client_build_number\":";
+    constexpr char suffix[] = ",\"client_event_source\":null}";
+    EncodedString encoded[field_count]{};
+    const u32 build_digits = decimal_digits(properties.client_build_number);
+    u32 required =
+        static_cast<u32>(sizeof(build_key) - 1) + build_digits + static_cast<u32>(sizeof(suffix) - 1);
+    for (u32 index = 0; index < field_count; ++index) {
+        const GatewayCommandWriteResult field =
+            encode_bounded(fields[index].value, fields[index].maximum, &encoded[index]);
+        if (!field.ok()) {
+            return field;
+        }
+        required += fields[index].key.bytes + encoded[index].bytes;
+    }
+    if (!output.data) {
+        return GatewayCommandWriteResult{required, GatewayCommandError::none};
+    }
+    if (required > output.count) {
+        return GatewayCommandWriteResult{0, GatewayCommandError::output_too_small};
+    }
+
+    u32 offset = 0;
+    for (u32 index = 0; index < field_count; ++index) {
+        copy_bytes(output.data + offset, fields[index].key.data, fields[index].key.bytes);
+        offset += fields[index].key.bytes;
+        write_encoded(output.data, &offset, encoded[index]);
+    }
+    write_literal(output.data, &offset, build_key);
+    decimal_write(output.data + offset, properties.client_build_number);
+    offset += build_digits;
+    write_literal(output.data, &offset, suffix);
+    return GatewayCommandWriteResult{offset, GatewayCommandError::none};
+}
+
 GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify& identify,
                                                       Slice<u8> output) noexcept {
-    if (!output.data || identify.properties.client_build_number == 0 ||
-        !gateway_user_launch_id_valid(identify.properties.client_launch_id)) {
+    if (!output.data) {
         return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
+    }
+    const GatewayCommandWriteResult properties = gateway_write_user_properties(identify.properties, {});
+    if (!properties.ok()) {
+        return properties;
     }
     const Utf8View status_view = user_status(identify.status);
     if (!status_view.data) {
@@ -113,31 +181,9 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     }
 
     EncodedString token{};
-    EncodedString operating_system{};
-    EncodedString browser{};
-    EncodedString device{};
-    EncodedString locale{};
-    EncodedString user_agent{};
-    EncodedString browser_version{};
-    EncodedString os_version{};
-    EncodedString release_channel{};
-    EncodedString launch_id{};
     EncodedString status{};
     const GatewayCommandWriteResult fields[] = {
         encode_bounded(identify.token, kGatewayUserMaximumTokenBytes, &token),
-        encode_bounded(identify.properties.operating_system, kGatewayUserMaximumOperatingSystemBytes,
-                       &operating_system),
-        encode_bounded(identify.properties.browser, kGatewayUserMaximumBrowserBytes, &browser),
-        encode_bounded(identify.properties.device, kGatewayUserMaximumDeviceBytes, &device),
-        encode_bounded(identify.properties.system_locale, kGatewayUserMaximumLocaleBytes, &locale),
-        encode_bounded(identify.properties.browser_user_agent, kGatewayUserMaximumUserAgentBytes,
-                       &user_agent),
-        encode_bounded(identify.properties.browser_version, kGatewayUserMaximumVersionBytes,
-                       &browser_version),
-        encode_bounded(identify.properties.os_version, kGatewayUserMaximumVersionBytes, &os_version),
-        encode_bounded(identify.properties.release_channel, kGatewayUserMaximumReleaseChannelBytes,
-                       &release_channel),
-        encode_bounded(identify.properties.client_launch_id, kGatewayUserLaunchIdBytes, &launch_id),
         encode_bounded(status_view, 9, &status),
     };
     for (u32 index = 0; index < static_cast<u32>(sizeof(fields) / sizeof(fields[0])); ++index) {
@@ -147,34 +193,18 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     }
 
     constexpr u32 prefix_bytes = sizeof("{\"op\":2,\"d\":{\"token\":") - 1;
-    constexpr u32 capabilities_bytes = sizeof(",\"capabilities\":,\"properties\":{\"os\":") - 1;
-    constexpr u32 browser_bytes = sizeof(",\"browser\":") - 1;
-    constexpr u32 device_bytes = sizeof(",\"device\":") - 1;
-    constexpr u32 locale_bytes = sizeof(",\"system_locale\":") - 1;
-    constexpr u32 user_agent_bytes = sizeof(",\"browser_user_agent\":") - 1;
-    constexpr u32 browser_version_bytes = sizeof(",\"browser_version\":") - 1;
-    constexpr u32 os_version_bytes = sizeof(",\"os_version\":") - 1;
-    constexpr u32 release_bytes = sizeof(",\"release_channel\":") - 1;
-    constexpr u32 build_bytes = sizeof(",\"client_build_number\":") - 1;
-    constexpr u32 fixed_properties_bytes =
-        sizeof(",\"client_event_source\":null,\"has_client_mods\":false,\"client_launch_id\":") - 1;
-    constexpr u32 presence_bytes = sizeof("},\"presence\":{\"since\":") - 1;
+    constexpr u32 capabilities_bytes = sizeof(",\"capabilities\":,\"properties\":") - 1;
+    constexpr u32 presence_bytes = sizeof(",\"presence\":{\"since\":") - 1;
     constexpr u32 activities_bytes = sizeof(",\"activities\":[],\"status\":") - 1;
     constexpr u32 afk_bytes = sizeof(",\"afk\":") - 1;
     constexpr u32 suffix_bytes =
         sizeof("},\"compress\":false,\"client_state\":{\"guild_versions\":{}}}}") - 1;
     const u32 capability_digits = decimal_digits(kGatewayUserCapabilitiesDefault);
-    const u32 build_digits = decimal_digits(identify.properties.client_build_number);
     const u32 since_digits = identify.has_since ? decimal_digits(identify.since_ms) : 4;
     const u32 afk_literal_bytes = identify.afk ? 4 : 5;
     const u64 required = static_cast<u64>(prefix_bytes) + token.bytes + capabilities_bytes +
-                         capability_digits + operating_system.bytes + browser_bytes + browser.bytes +
-                         device_bytes + device.bytes + locale_bytes + locale.bytes + user_agent_bytes +
-                         user_agent.bytes + browser_version_bytes + browser_version.bytes +
-                         os_version_bytes + os_version.bytes + release_bytes + release_channel.bytes +
-                         build_bytes + build_digits + fixed_properties_bytes + launch_id.bytes +
-                         presence_bytes + since_digits + activities_bytes + status.bytes + afk_bytes +
-                         afk_literal_bytes + suffix_bytes;
+                         capability_digits + properties.bytes + presence_bytes + since_digits +
+                         activities_bytes + status.bytes + afk_bytes + afk_literal_bytes + suffix_bytes;
     if (required > kGatewayUserMaximumCommandBytes) {
         return GatewayCommandWriteResult{0, GatewayCommandError::value_too_large};
     }
@@ -188,29 +218,10 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     write_literal(output.data, &offset, ",\"capabilities\":");
     decimal_write(output.data + offset, kGatewayUserCapabilitiesDefault);
     offset += capability_digits;
-    write_literal(output.data, &offset, ",\"properties\":{\"os\":");
-    write_encoded(output.data, &offset, operating_system);
-    write_literal(output.data, &offset, ",\"browser\":");
-    write_encoded(output.data, &offset, browser);
-    write_literal(output.data, &offset, ",\"device\":");
-    write_encoded(output.data, &offset, device);
-    write_literal(output.data, &offset, ",\"system_locale\":");
-    write_encoded(output.data, &offset, locale);
-    write_literal(output.data, &offset, ",\"browser_user_agent\":");
-    write_encoded(output.data, &offset, user_agent);
-    write_literal(output.data, &offset, ",\"browser_version\":");
-    write_encoded(output.data, &offset, browser_version);
-    write_literal(output.data, &offset, ",\"os_version\":");
-    write_encoded(output.data, &offset, os_version);
-    write_literal(output.data, &offset, ",\"release_channel\":");
-    write_encoded(output.data, &offset, release_channel);
-    write_literal(output.data, &offset, ",\"client_build_number\":");
-    decimal_write(output.data + offset, identify.properties.client_build_number);
-    offset += build_digits;
-    write_literal(output.data, &offset,
-                  ",\"client_event_source\":null,\"has_client_mods\":false,\"client_launch_id\":");
-    write_encoded(output.data, &offset, launch_id);
-    write_literal(output.data, &offset, "},\"presence\":{\"since\":");
+    write_literal(output.data, &offset, ",\"properties\":");
+    offset +=
+        gateway_write_user_properties(identify.properties, {output.data + offset, properties.bytes}).bytes;
+    write_literal(output.data, &offset, ",\"presence\":{\"since\":");
     if (identify.has_since) {
         decimal_write(output.data + offset, identify.since_ms);
         offset += since_digits;

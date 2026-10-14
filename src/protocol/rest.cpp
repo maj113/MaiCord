@@ -5,7 +5,6 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/writer.hpp"
-#include "json_write.hpp"
 
 #include <Windows.h>
 
@@ -40,23 +39,6 @@ bool add_size(u32* total, u32 value) noexcept {
     }
     *total += value;
     return true;
-}
-
-bool valid_user_property(Utf8View value, u32 maximum) noexcept {
-    return value.data && value.bytes != 0 && value.bytes <= maximum && utf8_validate(value).valid;
-}
-
-bool valid_user_properties(const GatewayUserProperties& properties) noexcept {
-    return properties.client_build_number != 0 &&
-           valid_user_property(properties.operating_system, kGatewayUserMaximumOperatingSystemBytes) &&
-           valid_user_property(properties.browser, kGatewayUserMaximumBrowserBytes) &&
-           valid_user_property(properties.device, kGatewayUserMaximumDeviceBytes) &&
-           valid_user_property(properties.system_locale, kGatewayUserMaximumLocaleBytes) &&
-           valid_user_property(properties.browser_user_agent, kGatewayUserMaximumUserAgentBytes) &&
-           valid_user_property(properties.browser_version, kGatewayUserMaximumVersionBytes) &&
-           valid_user_property(properties.os_version, kGatewayUserMaximumVersionBytes) &&
-           valid_user_property(properties.release_channel, kGatewayUserMaximumReleaseChannelBytes) &&
-           gateway_user_launch_id_valid(properties.client_launch_id);
 }
 
 bool valid_base64_header(ConstSlice<u8> value) noexcept {
@@ -603,43 +585,12 @@ RestUserPropertiesResult write_rest_user_super_properties(
     if (!json_scratch.data || !output.data || json_scratch.data == output.data) {
         return RestUserPropertiesResult{0, RestUserPropertiesError::invalid_input};
     }
-    if (!valid_user_properties(properties)) {
+    const GatewayCommandWriteResult measured = gateway_write_user_properties(properties, {});
+    if (!measured.ok()) {
         return RestUserPropertiesResult{0, RestUserPropertiesError::invalid_properties};
     }
-    const Utf8View values[]{
-        properties.operating_system,
-        properties.browser,
-        properties.device,
-        properties.system_locale,
-        properties.browser_user_agent,
-        properties.browser_version,
-        properties.os_version,
-        properties.release_channel,
-        properties.client_launch_id,
-    };
-    u32 encoded[static_cast<u32>(sizeof(values) / sizeof(values[0]))]{};
-    for (u32 index = 0; index < static_cast<u32>(sizeof(values) / sizeof(values[0])); ++index) {
-        if (!protocol_detail::measure_json_string(values[index], &encoded[index])) {
-            return RestUserPropertiesResult{0, RestUserPropertiesError::invalid_properties};
-        }
-    }
-    u32 required = 0;
-    const bool sized =
-        add_size(&required, literal_bytes("{\"os\":")) && add_size(&required, encoded[0]) &&
-        add_size(&required, literal_bytes(",\"browser\":")) && add_size(&required, encoded[1]) &&
-        add_size(&required, literal_bytes(",\"device\":")) && add_size(&required, encoded[2]) &&
-        add_size(&required, literal_bytes(",\"system_locale\":")) && add_size(&required, encoded[3]) &&
-        add_size(&required, literal_bytes(",\"browser_user_agent\":")) && add_size(&required, encoded[4]) &&
-        add_size(&required, literal_bytes(",\"browser_version\":")) && add_size(&required, encoded[5]) &&
-        add_size(&required, literal_bytes(",\"os_version\":")) && add_size(&required, encoded[6]) &&
-        add_size(&required, literal_bytes(",\"release_channel\":")) && add_size(&required, encoded[7]) &&
-        add_size(&required, literal_bytes(",\"client_build_number\":")) &&
-        add_size(&required, decimal_digits(properties.client_build_number)) &&
-        add_size(&required, literal_bytes(",\"client_event_source\":null,"
-                                          "\"has_client_mods\":false,"
-                                          "\"client_launch_id\":")) &&
-        add_size(&required, encoded[8]) && add_size(&required, 1);
-    if (!sized || required > json_scratch.count) {
+    const u32 required = measured.bytes;
+    if (required > json_scratch.count) {
         return RestUserPropertiesResult{0, RestUserPropertiesError::json_capacity};
     }
     const u32 base64_bytes = base64_encoded_size(required);
@@ -648,31 +599,9 @@ RestUserPropertiesResult write_rest_user_super_properties(
         return RestUserPropertiesResult{0, RestUserPropertiesError::output_capacity};
     }
 
-    ProtocolWriter writer{json_scratch, 0};
-    const bool written = protocol_writer_append_literal(&writer, "{\"os\":") &&
-                         protocol_writer_append_json_string(&writer, values[0]) &&
-                         protocol_writer_append_literal(&writer, ",\"browser\":") &&
-                         protocol_writer_append_json_string(&writer, values[1]) &&
-                         protocol_writer_append_literal(&writer, ",\"device\":") &&
-                         protocol_writer_append_json_string(&writer, values[2]) &&
-                         protocol_writer_append_literal(&writer, ",\"system_locale\":") &&
-                         protocol_writer_append_json_string(&writer, values[3]) &&
-                         protocol_writer_append_literal(&writer, ",\"browser_user_agent\":") &&
-                         protocol_writer_append_json_string(&writer, values[4]) &&
-                         protocol_writer_append_literal(&writer, ",\"browser_version\":") &&
-                         protocol_writer_append_json_string(&writer, values[5]) &&
-                         protocol_writer_append_literal(&writer, ",\"os_version\":") &&
-                         protocol_writer_append_json_string(&writer, values[6]) &&
-                         protocol_writer_append_literal(&writer, ",\"release_channel\":") &&
-                         protocol_writer_append_json_string(&writer, values[7]) &&
-                         protocol_writer_append_literal(&writer, ",\"client_build_number\":") &&
-                         protocol_writer_append_u64(&writer, properties.client_build_number) &&
-                         protocol_writer_append_literal(&writer, ",\"client_event_source\":null,"
-                                                                 "\"has_client_mods\":false,"
-                                                                 "\"client_launch_id\":") &&
-                         protocol_writer_append_json_string(&writer, values[8]) &&
-                         protocol_writer_append_byte(&writer, '}');
-    if (!written || writer.used != required) {
+    const GatewayCommandWriteResult written =
+        gateway_write_user_properties(properties, Slice<u8>{json_scratch.data, required});
+    if (!written.ok() || written.bytes != required) {
         SecureZeroMemory(json_scratch.data, json_scratch.count);
         return RestUserPropertiesResult{0, RestUserPropertiesError::json_capacity};
     }
