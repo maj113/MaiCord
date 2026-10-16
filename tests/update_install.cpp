@@ -106,26 +106,33 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     const bool identity = ancestry(root, ids, &id_count); enrollment.ancestors = {ids, id_count};
     UpdateGenerationTransaction transaction{}; UpdateInstallContext install{}; UpdatePair selected{}, previous_pins{};
     UpdatePreparationContext preparation{}; UpdatePreparationResult preparation_result{}; UpdateStage stage{};
-    UpdatePairDescriptor generations[3]{}; HANDLE package = nullptr, sources[2]{};
+    UpdatePairDescriptor generations[3]{}; HANDLE package = nullptr;
     struct Cleanup {
         UpdateGenerationTransaction& t; UpdateInstallContext& i; UpdatePair& pair; UpdatePair& previous_pins; UpdatePreparationContext& p;
-        UpdatePreparationResult& result; UpdateStage& stage; UpdatePairDescriptor* generations; HANDLE& package; HANDLE* sources;
+        UpdatePreparationResult& result; UpdateStage& stage; UpdatePairDescriptor* generations; HANDLE& package;
         const wchar_t* root; const wchar_t* work; const wchar_t* artifact; const wchar_t* acceptance; const wchar_t* lock; const wchar_t* state; const wchar_t* gate;
         ~Cleanup() noexcept {
             update_pair_release(&pair, false); update_pair_release(&previous_pins, false); update_install_release(&i); update_stage_cleanup_release(&result.stage);
             update_stage_release(&stage, true); update_preparation_release(&p);
-            for (u32 n = 0; n < 2; ++n) if (sources[n]) CloseHandle(sources[n]); dispose(&package);
+            dispose(&package);
             for (u32 n = 0; n < 3; ++n) remove_fixture_generation(t, generations[n]);
             update_generation_release(&t); DeleteFileW(artifact); DeleteFileW(acceptance); DeleteFileW(lock); DeleteFileW(state); DeleteFileW(gate);
             RemoveDirectoryW(root); RemoveDirectoryW(work);
         }
-    } cleanup{transaction, install, selected, previous_pins, preparation, preparation_result, stage, generations, package, sources,
+    } cleanup{transaction, install, selected, previous_pins, preparation, preparation_result, stage, generations, package,
         root, work, artifact, acceptance, acceptance_lock, state_path, gate_path};
-    u64 package_bytes = 0;
-    const bool packaged = real_package(artifact, &package, sources, &package_bytes, package_digest);
-    check(packaged, "install: signed fixture package streams the actual built EXE/DLL without executing either"); if (!packaged) return;
+    // These coordinator faults depend on authentic pair/state identities, not
+    // shipping payload size. Shipping EXE/DLL integration remains in generation
+    // authentication and client tests; the parser shares this exact native ZIP.
+    u8 package_data[4096]{};
+    const u32 package_bytes = native_pair_package({package_data, sizeof(package_data)});
+    const ConstSlice<u8> package_parts[]{{package_data, package_bytes}};
+    package = CreateFileW(artifact, GENERIC_READ | GENERIC_WRITE | DELETE, FILE_SHARE_READ, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (package == INVALID_HANDLE_VALUE) package = nullptr;
+    const bool packaged = package_bytes == 2792 && package && write(package, package_data, package_bytes) && FlushFileBuffers(package) &&
+        sha256(workspace, {package_parts, 1}, {package_digest, 32}).ok();
+    check(packaged, "install: shared generated native pair package contains exactly 2792 bytes without executing either member"); if (!packaged) return;
     if (!CloseHandle(package)) return; package = nullptr;
-    for (auto& source : sources) { if (!CloseHandle(source)) return; source = nullptr; }
     const UpdateInstallLimits limits{64 * 1024 * 1024, 1000, kUpdateInstallMaximumRetainedBytes, 0};
     check(identity && update_generation_begin(enrollment, &transaction, true).ok() &&
         update_install_initialize(&install, &transaction, key, workspace, limits).ok(), "install: coordinator binds retained enrolled root and public inventory");
@@ -134,7 +141,7 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     const auto seed_text = manifest(documents[0], package_bytes, package_digest, 6);
     const auto next_text = manifest(documents[1], package_bytes, package_digest, 7);
     check(sign(seed_text, signer, workspace, signatures[0]) && sign(next_text, signer, workspace, signatures[1]),
-        "install: independent signed release documents bind same real native pair package");
+        "install: independent signed release documents bind same generated native pair package");
     UpdateManifestPolicy policy{4, 0, 100, 64 * 1024 * 1024, 1000, UpdateChannel::stable};
     UpdatePreparationRequest request{{acceptance, length(acceptance)}, {artifact, length(artifact)}, {work, length(work)}, seed_text, {signatures[0], 64}, true};
     preparation_result = update_prepare_stage(&preparation, request, key, workspace, &policy, {scratch, 256}, &stage);
@@ -154,8 +161,10 @@ void test_update_install(void (*check)(bool, const char*) noexcept) noexcept {
     if (!install.initialized || !transaction.provisioning_admitted) return;
     const auto provision = update_install_provision_current(&install, &stage, {seed_text, {signatures[0], 64}}, policy, preparation.acceptance);
     check(provision.ok() && transaction.state.phase == UpdateGenerationPhase::stable && transaction.state.active.pair.version == 6 &&
+        transaction.state.active.pair.package_bytes == 2792 && transaction.state.active.pair.members[0].bytes == 1024 &&
+        transaction.state.active.pair.members[1].bytes == 1536 && transaction.state.active.pair.account_ordinal == kAccountModuleApiOrdinal &&
         !transaction.provisioning_admitted && provision.retained_bytes_bound && provision.required_free_bytes,
-        "install: explicit current seed provision consumes first-use authority after publishing stable pair and disk/budget preflight");
+        "install: explicit seed provision publishes authenticated native pair/ordinal and consumes first-use authority after disk/budget preflight");
     if (!provision.ok()) return; generations[0] = transaction.state.active.pair;
     check(update_install_select_pair(&install, &install.pair).error == UpdateInstallError::invalid_input && !install.pair.files[0] &&
         transaction.state.active.pair.version == 6, "install: retained selector output cannot overwrite its opaque installation owner");

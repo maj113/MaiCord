@@ -6,6 +6,9 @@
 #include <bcrypt.h>
 
 namespace maicord::signed_update_fixture {
+// Generated, never-executed native pair ZIP. Defined once beside the parser's
+// corruption fixtures in update_pair_package.cpp; requires 4096 output bytes.
+u32 native_pair_package(Slice<u8> output) noexcept;
 // Stream the complete shipping pair with fewer fixture-only I/O calls.
 inline constexpr u32 kFixtureIoBufferBytes = 64 * 1024;
 inline constexpr u8 public_point[65]{

@@ -108,6 +108,11 @@ bool seal(void* opaque, u32, HANDLE* writable, HANDLE* retained, DWORD* native) 
 }
 } // namespace
 
+u32 signed_update_fixture::native_pair_package(Slice<u8> output) noexcept {
+    if (!output.data || output.count < 4096) return 0;
+    return ::maicord::package(output.data).bytes;
+}
+
 void test_update_pair_package(void (*check)(bool, const char*) noexcept) noexcept {
     wchar_t temporary[MAX_PATH]{}, directory[MAX_PATH]{}, artifact[MAX_PATH]{}, acceptance_path[MAX_PATH]{}, lock_path[MAX_PATH]{};
     const DWORD n = GetTempPathW(MAX_PATH, temporary);

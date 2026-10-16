@@ -165,14 +165,18 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
     DEPENDS MaiCordPluginFixture MaiCordUpdateHandoffPeer
     USES_CLIENT MaiCordAccount MaiCord)
 # The same 172 fixtures run once across four private process/profile owners.
-# Each shard checks its exact 43-fixture share of the complete function table.
+# Shard 0 keeps all 12 durable update fixtures serial and runs 40 other fixtures;
+# the remaining shards each run 40. Every shard checks its exact function count.
 foreach(maicord_extension_shard RANGE 0 3)
     set(maicord_extension_test maicord_native_extensions)
+    set(maicord_extension_fixture_count 40)
     if(maicord_extension_shard)
         string(APPEND maicord_extension_test "_shard_${maicord_extension_shard}")
+    else()
+        set(maicord_extension_fixture_count 52)
     endif()
     maicord_add_tests(MaiCordNativeExtensionTests
-        PASS_REGULAR_EXPRESSION "PASS native extensions shard=${maicord_extension_shard}/4 fixtures=43/172"
+        PASS_REGULAR_EXPRESSION "PASS native extensions shard=${maicord_extension_shard}/4 fixtures=${maicord_extension_fixture_count}/172"
         TEST ${maicord_extension_test} --fixture-shard ${maicord_extension_shard} 4)
 endforeach()
 maicord_test(MaiCordUpdateHandoffPeer ENTRY maicord_update_handoff_peer_entry

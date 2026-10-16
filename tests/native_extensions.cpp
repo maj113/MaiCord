@@ -186,8 +186,9 @@ void check(bool success, const char* name) noexcept {
 }
 using ExtensionCheck = void (*)(bool, const char*) noexcept;
 using ExtensionFixture = void (*)(ExtensionCheck) noexcept;
-// Keep the original fixture order. Round-robin shards execute this complete
-// union once, with one process/profile per shard and no shared mutable globals.
+// Keep the original fixture order. The update fixtures share one shard so
+// durable staging/extraction work stays serial; the remaining fixtures run
+// round-robin with one process/profile per shard and no shared mutable globals.
 constexpr ExtensionFixture extension_fixtures[]{
     test_update_manifest,
     test_update_artifact,
@@ -372,8 +373,26 @@ constexpr ExtensionFixture extension_fixtures[]{
 };
 constexpr u32 kExtensionFixtureCount = sizeof(extension_fixtures) / sizeof(extension_fixtures[0]);
 constexpr u32 kExtensionShardCount = 4;
+constexpr u32 kUpdateFixtureCount = 12;
 static_assert(kExtensionFixtureCount == 172);
-static_assert(kExtensionFixtureCount % kExtensionShardCount == 0);
+static_assert(extension_fixtures[0] == test_update_manifest &&
+              extension_fixtures[kUpdateFixtureCount - 1] == test_application_update_startup &&
+              extension_fixtures[kUpdateFixtureCount] == test_desktop_integration);
+static_assert((kExtensionFixtureCount - kUpdateFixtureCount) % kExtensionShardCount == 0);
+
+constexpr u32 fixture_shard(u32 index) noexcept {
+    return index < kUpdateFixtureCount ? 0 : (index - kUpdateFixtureCount) % kExtensionShardCount;
+}
+constexpr u32 shard_fixture_count(u32 shard) noexcept {
+    u32 count = 0;
+    for (u32 index = 0; index < kExtensionFixtureCount; ++index)
+        count += fixture_shard(index) == shard;
+    return count;
+}
+static_assert(shard_fixture_count(0) == 52 && shard_fixture_count(1) == 40 &&
+              shard_fixture_count(2) == 40 && shard_fixture_count(3) == 40);
+static_assert(shard_fixture_count(0) + shard_fixture_count(1) + shard_fixture_count(2) +
+                  shard_fixture_count(3) == kExtensionFixtureCount);
 
 bool read_shard(const wchar_t* p, u32* shard, u32* count) noexcept {
     bool quoted = false;
@@ -419,12 +438,11 @@ extern "C" __declspec(noreturn) void WINAPI maicord_native_extensions_entry() no
     u32 visited = 0, executed = 0;
     for (const auto fixture : extension_fixtures) {
         const u32 index = visited++;
-        if (index % count != shard) continue;
+        if (count != 1 && fixture_shard(index) != shard) continue;
         fixture(check);
         ++executed;
     }
-    const u32 expected = kExtensionFixtureCount / count +
-                         (shard < kExtensionFixtureCount % count ? 1u : 0u);
+    const u32 expected = count == 1 ? kExtensionFixtureCount : shard_fixture_count(shard);
     check(visited == kExtensionFixtureCount && executed == expected,
           "native extensions: every fixture belongs to exactly one complete shard");
     test_write_text(failures ? "FAIL native extensions shard=" : "PASS native extensions shard=");
