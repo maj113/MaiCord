@@ -314,7 +314,34 @@ if ($Apply) {
         }
         return $true
     }
+    function Test-OtherBuildDescendant($ProcessRecord, $SnapshotById) {
+        # Only these tools inherit build ownership. A nested CMake/CTest or
+        # MSBuild invocation must supply its own proof instead of borrowing it.
+        if ($ProcessRecord.Name -notin @('cl.exe', 'link.exe', 'ninja.exe')) { return $false }
+        $visited = [Collections.Generic.HashSet[int]]::new()
+        $child = $ProcessRecord
+        while ($child) {
+            if (!$child.CreationDate -or !$visited.Add([int]$child.ProcessId)) { return $false }
+            $parentId = [int]$child.ParentProcessId
+            if (!$SnapshotById.ContainsKey($parentId)) { return $false }
+            $parent = $SnapshotById[$parentId]
+            # Parent IDs survive process exit. Reject a replacement process
+            # that started after this child, including through shell wrappers.
+            if (!$parent.CreationDate -or
+                $parent.CreationDate.ToUniversalTime() -gt $child.CreationDate.ToUniversalTime()) { return $false }
+            if ($parent.ExecutablePath -and
+                $targets.Contains([IO.Path]::GetFullPath($parent.ExecutablePath))) { return $false }
+            if ($parent.Name -in @('cmake.exe', 'ctest.exe')) {
+                return (Test-ExplicitOtherBuild $parent)
+            }
+            if ($parent.Name -eq 'MSBuild.exe') { return $false }
+            $child = $parent
+        }
+        return $false
+    }
     $processes = @(Get-CimInstance Win32_Process)
+    $snapshotById = @{}
+    foreach ($process in $processes) { $snapshotById.Add([int]$process.ProcessId, $process) }
     $processHandles = [Collections.Generic.List[Diagnostics.Process]]::new()
     $exitGrace = [Diagnostics.Stopwatch]::StartNew()
     try {
@@ -350,7 +377,8 @@ if ($Apply) {
                 [Math]::Abs(($started - $process.CreationDate.ToUniversalTime()).Ticks) -ge 10) {
                 throw "Build or test process identity changed ($($process.Name), PID $($process.ProcessId)); temporary outputs were retained."
             }
-            if ($builder -and !$target -and (Test-ExplicitOtherBuild $process)) { continue }
+            if ($builder -and !$target -and
+                ((Test-ExplicitOtherBuild $process) -or (Test-OtherBuildDescendant $process $snapshotById))) { continue }
             # Briefly tolerate a verified process finishing at the snapshot
             # boundary. All candidates share one second, outside test timing.
             $remainingGrace = [Math]::Max(0, 1000 - [int]$exitGrace.ElapsedMilliseconds)
