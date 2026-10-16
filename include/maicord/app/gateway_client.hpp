@@ -646,8 +646,12 @@ struct GatewayClientStateMutation {
     u8 verification_level;
     u8 default_message_notifications;
     u8 explicit_content_filter;
-    // Role objects: GatewayClientRoleFlag bits.
-    u8 role_flags;
+    union {
+        // Role objects: GatewayClientRoleFlag bits.
+        u8 role_flags;
+        // Channel dispatches: GatewayClientChannelEventFlag bits.
+        u8 channel_event_flags;
+    };
     // The current member's GuildSelfMember bits (with guild_settings_self_member).
     u8 self_member;
     // Role objects: enhanced colours (colors.secondary_color/tertiary_color),
@@ -676,6 +680,10 @@ enum GatewayClientRoleFlag : u8 {
     gateway_client_role_mentionable = 1u << 2,
     gateway_client_role_has_icon = 1u << 3,
     gateway_client_role_in_prompt = 1u << 4,
+};
+enum GatewayClientChannelEventFlag : u8 {
+    // THREAD_CREATE with newly_created=true, never an old membership sync.
+    gateway_client_channel_new_thread = 1u << 0,
 };
 static_assert(sizeof(GatewayClientMessageMutation) == 88);
 
@@ -791,6 +799,8 @@ enum GatewayClientMemberListGroupFlag : u8 {
 };
 
 enum GatewayClientMemberListHydrationFlag : u8 {
+    gateway_member_quarantine_known = 1u << 0,
+    gateway_member_quarantined = 1u << 1,
     gateway_member_timeout_known = 1u << 3,
     gateway_member_roles_omitted = 1u << 6,
     gateway_member_nickname_omitted = 1u << 5,

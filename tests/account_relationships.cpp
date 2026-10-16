@@ -216,10 +216,10 @@ void test_dormant_abi() noexcept {
     AccountHost host{};
     const auto loaded = account_host_load(&host);
     check(loaded.ok(),
-          "relationships: shipping account DLL loads at ABI/ordinal 127 without profile or credential");
+          "relationships: shipping account DLL loads at ABI/ordinal 128 without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 127 && kAccountModuleApiVersion == 127 && kAccountModuleApiOrdinal == 127 &&
+    check(host.api.version == 128 && kAccountModuleApiVersion == 128 && kAccountModuleApiOrdinal == 128 &&
               host.api.bytes == sizeof(AccountModuleApi) && host.api.relationships &&
               host.api.message_ack && host.api.login_submit_recovery && host.api.login_start_reset &&
               host.api.login_submit_reset && host.api.login_submit_phone_verify &&
@@ -243,7 +243,7 @@ void test_dormant_abi() noexcept {
     missing.guild_members_query_cancel = nullptr;
     check(!account_host_api_valid(missing), "member query cancellation is a required account callback");
     missing = complete;
-    missing.version = 126;
+    missing.version = 127;
     check(!account_host_api_valid(missing), "member query cancellation rejects the previous account ABI");
     missing = complete;
     missing.bytes = 1168;

@@ -1069,7 +1069,7 @@ void test_abi() noexcept {
     check(loaded.ok(), "guild admin account: shipping DLL loads without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 127 && kAccountModuleApiVersion == 127 && kAccountModuleApiOrdinal == 127 &&
+    check(host.api.version == 128 && kAccountModuleApiVersion == 128 && kAccountModuleApiOrdinal == 128 &&
               host.api.bytes == sizeof(AccountModuleApi) &&
               offsetof(AccountModuleApi, guild_admin) == 640 && host.api.guild_admin &&
               host.api.guild_admin(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,

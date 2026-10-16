@@ -19,7 +19,7 @@ set_target_properties(MaiCordAccount PROPERTIES
 # DLL ignores, and would cost the image a .rsrc section.
 target_link_options(MaiCordAccount PRIVATE
     /ENTRY:maicord_account_module_entry
-    /EXPORT:maicord_account_get_api,@127,NONAME
+    /EXPORT:maicord_account_get_api,@128,NONAME
     /SUBSYSTEM:WINDOWS,6.02
     /MANIFEST:NO)
 if(MAICORD_GENERATE_LINK_MAPS)

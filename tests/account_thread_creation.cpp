@@ -124,7 +124,7 @@ void dormant_abi() noexcept {
         return;
     ThreadCreationRequest request{
         20, 10, 30, utf8_literal("Thread"), 1440, 11, ThreadCreationOperation::from_message, {}};
-    check(host.api.version == 127 && host.api.bytes == 1176 && host.api.thread_creation &&
+    check(host.api.version == 128 && host.api.bytes == 1176 && host.api.thread_creation &&
               host.api.thread_creation(nullptr, &request, 1).error ==
                   RestClientSubmitError::invalid_input &&
               host.api.thread_creation(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&

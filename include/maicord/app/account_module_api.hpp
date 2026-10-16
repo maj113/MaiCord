@@ -72,8 +72,10 @@ namespace maicord {
 // split from author_name_bytes) after the avatar hash in the payload text.
 // v127: independently cancels the guild-member name query, including a
 // server-rejected request retained for replay; author batches are unaffected.
-inline constexpr u32 kAccountModuleApiVersion = 127;
-inline constexpr u16 kAccountModuleApiOrdinal = 127;
+// v128: Gateway descriptors identify quarantined self membership and thread
+// creation without changing the interface layout; host and module must agree.
+inline constexpr u32 kAccountModuleApiVersion = 128;
+inline constexpr u16 kAccountModuleApiOrdinal = 128;
 inline constexpr u32 kAccountHistoryResponseBytes = 256 * 1024;
 inline constexpr wchar_t kAccountModuleFileNameWide[] = L"MaiCordAccount.dll";
 
