@@ -194,6 +194,15 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
             pass.result.route = gateway_append_user(value, pass.scratch.records, 64, &writer);
         } while (!pass.result.route.ok() && grow_record_index(pass));
         if (!pass.result.route.ok()) return false;
+        if (pass.ready->linked_users.source.data) {
+            GatewayClientUserMutation user{};
+            copy_bytes(&user, pass.scratch.payload.data + pass.user_bytes, sizeof(user));
+            if (user.id == pass.ready->user_id) {
+                // READY's top-level linked_users is the complete account snapshot.
+                user.content_fields &= ~u8{6};
+                copy_bytes(pass.scratch.payload.data + pass.user_bytes, &user, sizeof(user));
+            }
+        }
         pass.user_bytes = writer.used; ++pass.user_count;
         return true;
     }
@@ -377,6 +386,8 @@ bool valid(const GatewayReady& ready, GatewayReadyProjectionScratch scratch) noe
                               ready.private_channels,
                               ready.users,
                               ready.apex_experiments,
+                              ready.regional_feature_config,
+                              ready.linked_users,
                               ready.relationships,
                               ready.merged_presences,
                               ready.merged_members,

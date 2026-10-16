@@ -80,8 +80,10 @@ namespace maicord {
 // replacing the member's cached role list. The interface layout is unchanged.
 // v131: Gateway descriptors carry channel activity cursors for passive/unread
 // updates. Matching host/module semantics retain the same interface layout.
-inline constexpr u32 kAccountModuleApiVersion = 131;
-inline constexpr u16 kAccountModuleApiOrdinal = 131;
+// v132: Gateway descriptors preserve account media eligibility, age status and
+// parental policy. Matching host/module semantics retain the same layout.
+inline constexpr u32 kAccountModuleApiVersion = 132;
+inline constexpr u16 kAccountModuleApiOrdinal = 132;
 inline constexpr u32 kAccountHistoryResponseBytes = 256 * 1024;
 inline constexpr wchar_t kAccountModuleFileNameWide[] = L"MaiCordAccount.dll";
 

@@ -632,6 +632,64 @@ void test_user_mfa() noexcept {
                      utf8_literal(R"({"id":"7","username":"me","mfa_enabled":true,"mfa_enabled":false})"))
                    .ok(),
           "gateway admin: mistyped or duplicate two-factor flags are refused");
+    const Utf8View content_users[]{
+        utf8_literal(R"({"id":"7","nsfw_allowed":true,"age_verification_status":3})"),
+        utf8_literal(R"({"id":"7","nsfw_allowed":false,"age_verification_status":4})"),
+        utf8_literal(R"({"id":"7","nsfw_allowed":null,"age_verification_status":null})"),
+        utf8_literal(R"({"id":"7","age_verification_status":999})"),
+        utf8_literal(R"({"id":"7","age_verification_status":0})"),
+        utf8_literal(R"({"id":"7","age_verification_status":1})"),
+        utf8_literal(R"({"id":"7","age_verification_status":2})"),
+        utf8_literal(R"({"id":"7"})")};
+    constexpr u8 expected_flags[]{224, 96, 32, 0, 0, 0, 0, 0}, expected_ages[]{3, 4, 0, 0, 0, 1, 2, 0};
+    for (u32 i = 0; i < 8; ++i) {
+        const auto routed = route(utf8_literal("USER_UPDATE"), content_users[i]);
+        cursor = 0;
+        check(routed.ok() && gateway_client_user_record(payload, &cursor, &record, &name, &avatar) &&
+            record.flags == expected_flags[i] && record.age_verification_status == expected_ages[i] &&
+            record.content_fields == (i == 7 ? 0 : 1) && !record.reserved,
+            "gateway admin: nullable account eligibility and bounded age proof preserve absent versus explicit authority");
+    }
+    const Utf8View bad_content[]{
+        utf8_literal(R"({"id":"7","nsfw_allowed":0})"),
+        utf8_literal(R"({"id":"7","nsfw_allowed":true,"nsfw_allowed":null})"),
+        utf8_literal(R"({"id":"7","age_verification_status":"3"})"),
+        utf8_literal(R"({"id":"7","age_verification_status":3,"age_verification_status":4})")};
+    for (const auto body : bad_content)
+        check(!route(utf8_literal("USER_UPDATE"), body).ok(),
+            "gateway admin: duplicate or mistyped content eligibility cannot publish account authority");
+    const Utf8View linked_users[]{
+        utf8_literal(R"({"id":"7","linked_users":[]})"),
+        utf8_literal(R"({"id":"7","linked_users":[{"link_status":1,"link_type":1},{"link_status":2,"link_type":2},{"link_status":99,"link_type":1},{"link_status":2,"link_type":99}]})"),
+        utf8_literal(R"({"id":"7","linked_users":[{"link_status":2,"link_type":2},{"link_status":2,"link_type":1}]})")};
+    for (u32 i = 0; i < 3; ++i) {
+        const auto routed = route(utf8_literal("USER_UPDATE"), linked_users[i]); cursor = 0;
+        check(routed.ok() && gateway_client_user_record(payload, &cursor, &record, &name, &avatar) &&
+            record.content_fields == (i == 2 ? 6 : 2),
+            "gateway admin: only active linked parents restrict settings, including a parent after unrelated rows");
+    }
+    const Utf8View bad_linked[]{
+        utf8_literal(R"({"id":"7","linked_users":null})"),
+        utf8_literal(R"({"id":"7","linked_users":[],"linked_users":[]})"),
+        utf8_literal(R"({"id":"7","linked_users":[{"link_status":2}]})"),
+        utf8_literal(R"({"id":"7","linked_users":[{"link_status":"2","link_type":1}]})"),
+        utf8_literal(R"({"id":"7","linked_users":[{"link_status":2,"link_status":1,"link_type":1}]})"),
+        utf8_literal(R"({"id":"7","linked_users":[{"link_status":2,"link_type":1},false]})")};
+    for (const auto body : bad_linked)
+        check(!route(utf8_literal("USER_UPDATE"), body).ok() && !payload.count,
+            "gateway admin: null or malformed linked-user arrays cannot publish a partial parent decision");
+    GatewayClientUserMutation invalid{}; invalid.id = 7;
+    const auto invalid_record = [&](u8 flags, u8 age, u8 fields, u16 reserved) noexcept {
+        invalid.flags = flags; invalid.age_verification_status = age;
+        invalid.content_fields = fields; invalid.reserved = reserved;
+        copy_bytes(storage, &invalid, sizeof(invalid)); cursor = 0;
+        return !gateway_client_user_record({reinterpret_cast<const u8*>(storage), sizeof(invalid)},
+                                            &cursor, &record, &name, &avatar);
+    };
+    check(invalid_record(64, 0, 0, 0) && invalid_record(128, 0, 0, 0) &&
+        invalid_record(0, 3, 0, 0) && invalid_record(0, 5, 1, 0) &&
+        invalid_record(0, 0, 4, 0) && invalid_record(0, 0, 8, 0) && invalid_record(0, 0, 0, 1),
+        "gateway admin: impossible account proof flags and reserved bits are rejected before application");
 }
 
 } // namespace guild_admin_gateway_test

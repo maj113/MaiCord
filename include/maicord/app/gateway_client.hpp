@@ -387,19 +387,25 @@ struct GatewayClientUserMutation {
     u16 name_bytes;
     u8 avatar_bytes;
     // bit 0: display name known; bit 1: avatar known (zero bytes clears it);
-    // bit 2: premium type known; bit 3: two-factor state known; bit 4: two-factor enabled
+    // bit 2: premium type known; bit 3: two-factor state known; bit 4: two-factor enabled;
+    // bits 5/6/7: nsfw_allowed present / nonnull / allowed.
     u8 flags;
     u32 premium_type;
     u16 username_bytes;
     u16 appearance_bytes;
-    // Named tail so brace-initialized records copied into payloads carry no
-    // uninitialized padding bytes.
-    u32 reserved;
+    u8 age_verification_status; // AccountAgeVerification; zero is unknown.
+    // bit 0: age_verification_status present (null clears);
+    // bits 1/2: linked_users present / active parent found.
+    u8 content_fields;
+    u16 reserved;
 };
 static_assert(sizeof(GatewayClientUserMutation) == 24);
 bool gateway_client_user_record(ConstSlice<u8> payload, u32* cursor, GatewayClientUserMutation* user,
                                 Utf8View* name, Utf8View* avatar, Utf8View* username = nullptr,
                                 ConstSlice<u8>* appearance = nullptr) noexcept;
+// Scans every linked row without retaining it. Invalid arrays leave output unchanged.
+bool gateway_client_linked_parent(const JsonIndexedDocument& document, JsonValue value,
+    u32 maximum_depth, bool* parent_managed) noexcept;
 
 // Every rich-message string remains in the leading transient-text area of the
 // mailbox payload. These ranges make the trailing descriptor block entirely
@@ -663,6 +669,8 @@ struct GatewayClientStateMutation {
         u8 member_role_flags;
         // Channel dispatches: GatewayClientChannelEventFlag bits.
         u8 channel_event_flags;
+        // READY only: AccountContentFlag bits.
+        u8 account_content_flags;
     };
     // The current member's GuildSelfMember bits (with guild_settings_self_member).
     u8 self_member;

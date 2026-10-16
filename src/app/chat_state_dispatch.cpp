@@ -662,7 +662,8 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
     ChatStateApplyResult result{};
 
     if (event.kind == GatewayClientEventKind::ready) {
-        if (event.state.id == 0 ||
+        if ((event.state.account_content_flags &
+             ~(account_content_teen_defaults | account_content_age_confirmation | account_content_parent_managed)) || event.state.id == 0 ||
             (store->self_user_id != 0 && store->self_user_id != event.state.id)) {
             return apply_error(ChatStateApplyError::invalid_payload);
         }
@@ -687,6 +688,8 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
             return apply_error(ChatStateApplyError::capacity);
         store->self_user_id = event.state.id;
         store->self_premium_type = 0;
+        store->content_policy = {AccountContentEligibility::unknown, AccountAgeVerification::unknown,
+                                 event.state.account_content_flags};
         store->upload_policy = event.state.upload_policy;
         const u64 restore_channel = store->restore_channel_id ? store->restore_channel_id : store->selected_channel_id;
         const u64 restore_guild = store->restore_channel_id ? store->restore_guild_id : store->selected_guild_id;

@@ -1048,6 +1048,18 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                     current_user_observed = true;
                     if (user.flags & 4)
                         pump->state->self_premium_type = static_cast<u8>(user.premium_type);
+                    if (user.flags & 32)
+                        pump->state->content_policy.eligibility = !(user.flags & 64)
+                            ? AccountContentEligibility::unknown : (user.flags & 128)
+                            ? AccountContentEligibility::allowed : AccountContentEligibility::restricted;
+                    if (user.content_fields & 1)
+                        pump->state->content_policy.age_verification =
+                            static_cast<AccountAgeVerification>(user.age_verification_status);
+                    if (user.content_fields & 2) {
+                        auto& flags = pump->state->content_policy.flags;
+                        flags = static_cast<u8>((flags & ~account_content_parent_managed) |
+                            ((user.content_fields & 4) ? account_content_parent_managed : 0));
+                    }
                     const auto mfa = (user.flags & 16) ? SelfMfaState::enabled : SelfMfaState::disabled;
                     if ((user.flags & 8) && pump->state->self_mfa != mfa) {
                         pump->state->self_mfa = mfa;

@@ -315,6 +315,19 @@ bool visit_ready_member(void* opaque, JsonString name, JsonValue value) noexcept
             context->error = GatewayEventDecodeError::invalid_data; return false;
         }
         context->ready.read_state = value;
+    } else if (json_string_equals_ascii(name, utf8_literal("linked_users"))) {
+        if (context->fields & (1u << 20))
+            context->ready.linked_users.kind = JsonValueKind::null_value;
+        else
+            context->ready.linked_users = value;
+        context->fields |= 1u << 20;
+    } else if (json_string_equals_ascii(name, utf8_literal("regional_feature_config"))) {
+        // Ancillary account policy is normalized during READY projection.
+        if (context->fields & (1u << 19))
+            context->ready.regional_feature_config.kind = JsonValueKind::null_value;
+        else
+            context->ready.regional_feature_config = value;
+        context->fields |= 1u << 19;
     } else if (json_string_equals_ascii(name, utf8_literal("apex_experiments"))) {
         if (!mark_field(&context->fields, 1u << 10, &context->error)) return false;
         context->ready.apex_experiments = value;

@@ -14,6 +14,10 @@ struct Fixture {
     u16 guild_order[1], channel_order[4];
     u8 names[1024];
     ReadStateStore reads;
+    UserStore users;
+    UserRecord user_records[2];
+    u32 user_order[2];
+    u8 user_names[128];
     ReadStateEntry pending[4];
     u32 reserve_calls, cancel_calls, reset_calls;
     u64 cancelled_channel;
@@ -396,20 +400,74 @@ void test_read_state_pump(void (*check)(bool, const char*) noexcept) noexcept {
     check(message_event_pump_consume(&f.pump, event, {f.payload, sizeof(user)}).ok() && f.reset_calls == 1 && f.cancel_calls == 2,
         "read pump: accepted self USER_UPDATE resets token without cancelling desired ACK queue");
 
+    check(user_store_initialize(&f.users, {f.user_records, 2}, {f.user_order, 2},
+                                 {f.user_names, sizeof(f.user_names)}),
+        "content policy pump: bounded account metadata user cache initializes");
+    f.pump.users = &f.users;
+    f.state.content_policy.flags = account_content_age_confirmation;
+    const auto content_update = [&](u64 id, u8 flags, u8 age, u8 fields) noexcept {
+        user = {}; user.id = id; user.flags = flags;
+        user.age_verification_status = age; user.content_fields = fields;
+        copy_bytes(f.payload, &user, sizeof(user));
+        return message_event_pump_consume(&f.pump, event, {f.payload, sizeof(user)});
+    };
+    check(content_update(1, 96, 2, 1).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::restricted &&
+        f.state.content_policy.age_verification == AccountAgeVerification::verified_teen &&
+        account_content_confirmation_required(f.state.content_policy),
+        "content policy pump: self restriction and teen proof retain independent regional confirmation");
+    check(content_update(2, 224, 3, 1).ok() && content_update(1, 0, 0, 0).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::restricted &&
+        f.state.content_policy.age_verification == AccountAgeVerification::verified_teen,
+        "content policy pump: other user metadata and omitted self fields cannot replace account eligibility");
+    check(content_update(1, 224, 3, 1).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::allowed &&
+        !account_content_confirmation_required(f.state.content_policy) && content_update(1, 0, 4, 1).ok() &&
+        !account_content_confirmation_required(f.state.content_policy),
+        "content policy pump: only documented adult proof clears regional age confirmation");
+    check(content_update(1, 32, 0, 1).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::unknown &&
+        f.state.content_policy.age_verification == AccountAgeVerification::unknown &&
+        account_content_confirmation_required(f.state.content_policy),
+        "content policy pump: explicit null clears old eligibility and adult proof without clearing region");
+    check(content_update(1, 0, 0, 6).ok() && content_update(1, 0, 0, 0).ok() &&
+        content_update(2, 0, 0, 2).ok() &&
+        f.state.content_policy.flags == (account_content_age_confirmation | account_content_parent_managed),
+        "content policy pump: active parent survives omitted self fields and unrelated user metadata");
+    check(content_update(1, 0, 0, 2).ok() && f.state.content_policy.flags == account_content_age_confirmation,
+        "content policy pump: empty linked users clear only the parent restriction and preserve region");
+    f.state.content_policy = {AccountContentEligibility::restricted, AccountAgeVerification::verified_teen,
+                              account_content_age_confirmation | account_content_parent_managed};
+    GatewayClientEvent content_resumed{}; content_resumed.kind = GatewayClientEventKind::resumed;
+    check(message_event_pump_consume(&f.pump, content_resumed, {}).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::restricted &&
+        account_content_confirmation_required(f.state.content_policy),
+        "content policy pump: RESUMED retains account metadata until a fresh READY");
+
     u8 guild_ids[8] = {7}; event = ready(true); event.state.id = 2;
     const u32 calls_before_ready = f.reserve_calls, count_before_ready = f.reads.count;
     check(!message_event_pump_consume(&f.pump, event, {guild_ids, 8}).ok() &&
         f.reserve_calls == calls_before_ready && f.reads.count == count_before_ready && f.state.channel_count == 2,
         "read pump: invalid READY identity fails before read carry or channel removals");
+    event = ready(true); event.state.account_content_flags = 8;
+    check(!message_event_pump_consume(&f.pump, event, {guild_ids, 8}).ok() &&
+        f.state.content_policy.eligibility == AccountContentEligibility::restricted &&
+        f.state.content_policy.flags == (account_content_age_confirmation | account_content_parent_managed),
+        "content policy pump: unknown packed regional bits cannot reset prior account state");
     event = ready(true); f.reserve_fail = true;
     check(!message_event_pump_consume(&f.pump, event, {guild_ids, 8}).ok() && f.state.channel_count == 2 &&
         f.reads.count == count_before_ready && !f.reads.preparing_ready,
         "read pump: failed partial READY reserve preserves resident channels and unmatched reads");
     f.reserve_fail = false;
+    event.state.account_content_flags = account_content_teen_defaults;
     check(message_event_pump_consume(&f.pump, event, {guild_ids, 8}).ok() && !f.state.channel_count &&
         f.reads.count == 3 && !f.reads.preparing_ready && read_state_pending(f.reads, 80)->message_id == 90 &&
         read_state_pending(f.reads, 81)->message_id == 210,
         "read pump: partial READY carries omitted resident reads then immediately ends removal capture");
+    check(f.state.content_policy.eligibility == AccountContentEligibility::unknown &&
+        f.state.content_policy.age_verification == AccountAgeVerification::unknown &&
+        f.state.content_policy.flags == account_content_teen_defaults,
+        "content policy pump: fresh READY resets old account proof and installs its own regional policy");
     GatewayClientEvent resumed{}; resumed.kind = GatewayClientEventKind::resumed;
     const u32 before_resume = f.reads.revision;
     check(message_event_pump_consume(&f.pump, resumed, {}).ok() && f.reads.count == 3 && f.reads.revision == before_resume,
@@ -419,7 +477,8 @@ void test_read_state_pump(void (*check)(bool, const char*) noexcept) noexcept {
         "read pump: partial READY channel rehydration consumes only its unmatched read entry");
     event = ready(false);
     check(message_event_pump_consume(&f.pump, event, {guild_ids, 8}).ok() && !f.reads.count && !f.state.channel_count &&
-        !f.reads.preparing_ready, "read pump: full READY replaces old read state without carrying omitted records");
+        !f.reads.preparing_ready && !f.state.content_policy.flags,
+        "read pump: full READY replaces old reads and clears omitted regional policy");
 
     check(initialize(), "read pump: local manual unread fixture resets session and timeline");
     f.records[0] = entry(80, 150, 0);

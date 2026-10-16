@@ -23,6 +23,8 @@ struct Probe {
     GatewayClientDispatchKind order[32];
     u32 batch_counts[8];
     u32 guild_creates;
+    u8 content_region_flags;
+    GatewayClientUserMutation self_content;
     GatewayClientStateMutation huge;
     u64 digest = 14695981039346656037ull;
 };
@@ -43,6 +45,8 @@ bool publish(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> bytes
     for (u32 i = 0; i < bytes.count; ++i) probe.digest = (probe.digest ^ bytes[i]) * 1099511628211ull;
     if (probe.admitted < 32) probe.order[probe.admitted] = event.dispatch_kind;
     ++probe.admitted;
+    if (event.kind == GatewayClientEventKind::ready)
+        probe.content_region_flags = event.state.account_content_flags;
     if (event.dispatch_kind == GatewayClientDispatchKind::ready_state_complete) ++probe.complete;
     if (event.kind == GatewayClientEventKind::dispatch && event.dispatch_kind == GatewayClientDispatchKind::guild_create) {
         ++probe.guild_creates;
@@ -60,6 +64,7 @@ bool publish(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> bytes
         for (u32 i = 0; i < event.state.record_count; ++i) {
             GatewayClientUserMutation mutation{}; Utf8View name{}, avatar{};
             probe.valid = gateway_client_user_record(bytes, &cursor, &mutation, &name, &avatar) && probe.valid;
+            if (mutation.id == 1) probe.self_content = mutation;
             ++probe.users;
         }
         probe.valid = probe.valid && cursor == bytes.count && event.state.record_count <= 64;
@@ -886,10 +891,48 @@ void supplemental_self_member_roles(void (*check)(bool, const char*) noexcept) n
           "supplemental role capacity failure and positional count mismatch publish nothing and preserve "
           "previously applied membership");
 }
+void account_content_metadata(void (*check)(bool, const char*) noexcept) noexcept {
+    const Utf8View tails[]{
+        utf8_literal(""), utf8_literal(R"(,"regional_feature_config":null)"),
+        utf8_literal(R"(,"regional_feature_config":{})"),
+        utf8_literal(R"(,"regional_feature_config":{"teen_by_default_settings":1,"age_gated_features":2})"),
+        utf8_literal(R"(,"regional_feature_config":{"teen_by_default_settings":2,"age_gated_features":1})"),
+        utf8_literal(R"(,"regional_feature_config":{"teen_by_default_settings":1,"teen_by_default_settings":0})"),
+        utf8_literal(R"(,"regional_feature_config":{"age_gated_features":"2"})"),
+        utf8_literal(R"(,"regional_feature_config":{"teen_by_default_settings":1},"regional_feature_config":{})"),
+        utf8_literal(R"(,"linked_users":[{"link_status":2,"link_type":1}])"),
+        utf8_literal(R"(,"linked_users":[{"link_status":2,"link_type":2},{"link_status":99,"link_type":1}])"),
+        utf8_literal(R"(,"linked_users":[])"), utf8_literal(R"(,"linked_users":null)")};
+    for (u32 i = 0; i < 12; ++i) {
+        Probe probe{};
+        const auto result = project(fixture(0, tails[i]), &probe);
+        check(result.ok() && probe.valid && probe.complete == 1 &&
+            probe.content_region_flags == (i == 3 ? 3 : i == 8 ? 4 : 0),
+            "READY content policy: only documented regional bits normalize and absent or malformed ancillary data cannot retain stale flags");
+    }
+    constexpr auto own = utf8_literal(R"({"v":9,"user":{"id":"1","nsfw_allowed":false,"age_verification_status":3,"linked_users":[]},"guilds":[],"session_id":"projection","resume_gateway_url":"wss://gateway.discord.gg","regional_feature_config":{"teen_by_default_settings":1,"age_gated_features":2},"linked_users":[{"link_status":2,"link_type":1}]})");
+    Probe probe{};
+    check(project(own, &probe).ok() && probe.valid && probe.self_content.id == 1 &&
+        probe.self_content.flags == 96 && probe.self_content.age_verification_status == 3 &&
+        probe.self_content.content_fields == 1 && probe.content_region_flags == 7,
+        "READY content policy: own eligibility and age proof stay independent while canonical top-level parent state wins");
+    GatewayReady borrowed{};
+    check(decode(own, &borrowed), "READY content policy: borrowed regional fixture decodes");
+    borrowed.regional_feature_config.source = {payload, 2};
+    Probe alias{};
+    const auto rejected = gateway_ready_project(borrowed, scratch(), 88, 99, publish, work, &alias);
+    check(!rejected.ok() && !alias.admitted,
+        "READY content policy: borrowed regional policy cannot alias mutable projection scratch");
+    check(decode(own, &borrowed), "READY content policy: linked alias fixture restores immutable source");
+    borrowed.linked_users.source = {payload, 2};
+    check(!gateway_ready_project(borrowed, scratch(), 88, 99, publish, work, &alias).ok() && !alias.admitted,
+        "READY content policy: borrowed linked users cannot alias mutable projection scratch");
+}
 } // namespace ready_projection_probe
 
 void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace ready_projection_probe;
+    account_content_metadata(check);
     ready_self_member_roles(check);
     supplemental_self_member_roles(check);
     nested_record_growth(check);

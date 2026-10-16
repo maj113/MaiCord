@@ -2607,6 +2607,41 @@ bool gateway_client_route_guild_placeholder(JsonValue guild, Slice<u32> structur
     return true;
 }
 
+namespace {
+struct RegionalContentPolicy {
+    u8 seen, flags;
+};
+bool regional_content_field(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& policy = *static_cast<RegionalContentPolicy*>(opaque);
+    const u8 bit = json_string_equals_ascii(name, utf8_literal("teen_by_default_settings")) ? 1 :
+                   json_string_equals_ascii(name, utf8_literal("age_gated_features")) ? 2 : 0;
+    if (!bit) return true;
+    if (policy.seen & bit) return false;
+    policy.seen |= bit;
+    u64 flags = 0;
+    if (!json_value_to_u64(value, &flags) || flags > 0xffffffffu) return false;
+    if (bit == 1 && (flags & 1)) policy.flags |= account_content_teen_defaults;
+    if (bit == 2 && (flags & 2)) policy.flags |= account_content_age_confirmation;
+    return true;
+}
+u8 ready_content_region(JsonValue value, Slice<u32> scratch, u32 depth) noexcept {
+    if (!value.source.data || value.kind != JsonValueKind::object) return 0;
+    const auto scan = json_scan_structurals_avx1(value.source, scratch);
+    if (!scan.ok()) return 0;
+    RegionalContentPolicy policy{};
+    const auto read = json_visit_value_object(value, {scratch.data, scan.count}, depth,
+                                               regional_content_field, &policy);
+    return read.ok() ? policy.flags : u8{0};
+}
+bool ready_content_parent(JsonValue value, Slice<u32> scratch, u32 depth) noexcept {
+    if (!value.source.data || value.kind != JsonValueKind::array) return false;
+    const auto scan = json_scan_structurals_avx1(value.source, scratch);
+    if (!scan.ok()) return false;
+    bool parent = false;
+    return gateway_client_linked_parent({value.source, {scratch.data, scan.count}}, value, depth, &parent) && parent;
+}
+} // namespace
+
 GatewayClientDispatchRouteResult gateway_client_route_ready(
     const GatewayReady& ready, Slice<u32> structural_scratch, Slice<u32> object_scratch, u32 maximum_depth,
     Slice<char> payload_scratch, GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
@@ -2667,6 +2702,10 @@ GatewayClientDispatchRouteResult gateway_client_route_ready(
                               &event->state.upload_policy))
         return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
     event->state.upload_policy_known = true;
+    event->state.account_content_flags = ready_content_region(ready.regional_feature_config,
+                                                               structural_scratch, maximum_depth);
+    if (ready_content_parent(ready.linked_users, structural_scratch, maximum_depth))
+        event->state.account_content_flags |= account_content_parent_managed;
     event->state.fields = gateway_client_state_field_id;
     event->state.record_count = context.count;
     event->dispatch_payload_bytes = writer.used;

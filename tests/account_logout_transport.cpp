@@ -259,7 +259,7 @@ void preemption() noexcept {
 }
 
 void abi() noexcept {
-    static_assert(kAccountModuleApiVersion == 131 && kAccountModuleApiOrdinal == 131);
+    static_assert(kAccountModuleApiVersion == 132 && kAccountModuleApiOrdinal == 132);
     static_assert(sizeof(AccountModuleApi) == 1176 && sizeof(AccountHost) == 1424);
     static_assert(offsetof(AccountModuleApi, logout) == 616);
     static_assert(offsetof(AccountLogoutResponse, http_status) == 28);

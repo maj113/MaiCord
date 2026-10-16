@@ -4,6 +4,7 @@
 #include "maicord/model/permission_bits.hpp"
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/upload_allowance.hpp"
+#include "maicord/model/content_policy.hpp"
 
 namespace maicord {
 struct ReadStateStore;
@@ -447,6 +448,8 @@ struct ChatStateStore {
     u64 self_user_id;
     UploadPolicy upload_policy;
     u8 self_premium_type;
+    // Uses the existing alignment gap before last_private_channel_id.
+    AccountContentPolicy content_policy;
     u64 last_private_channel_id;
     u64 restore_channel_id;
     u64 restore_guild_id;
@@ -461,6 +464,7 @@ struct ChatStateStore {
     u16 guild_free_hint;
     u16 channel_free_hint;
 };
+static_assert(sizeof(ChatStateStore) == 288);
 
 enum class ChatStateStoreError : u8 {
     none,

@@ -34,6 +34,8 @@ struct GatewayReady {
     JsonValue private_channels;
     JsonValue users;
     JsonValue apex_experiments;
+    JsonValue regional_feature_config;
+    JsonValue linked_users;
     AccountRequirement required_action;
     JsonValue relationships;
     JsonValue merged_presences;
