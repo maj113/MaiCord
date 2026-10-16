@@ -53,7 +53,7 @@ bool self_has_role(const ChatStateStore& store, u64 guild_id, u64 role_id) noexc
 }
 
 // Current-account membership expressed for the shared resolver. The model has
-// no clock, so retained timeouts are not masked here.
+// no clock, so retained timeouts are not masked here. Quarantine is clockless.
 struct SelfPermissionScope {
     u64 role_ids[kGuildRoleMaximum];
     PermissionGuild guild;
@@ -71,7 +71,8 @@ void self_permission_scope(const ChatStateStore& store, const GuildRecord& guild
             scope->role_ids[count++] = role.id;
     }
     scope->guild = chat_state_store_permission_guild(store, guild.id);
-    scope->member = {store.self_user_id, {scope->role_ids, count}, 0};
+    scope->member = {store.self_user_id, {scope->role_ids, count}, 0,
+                     guild_self_quarantined(guild.settings)};
     scope->options = {0, store.self_mfa == SelfMfaState::disabled};
     scope->raw_base = permission_compute_base(scope->guild, scope->member);
 }

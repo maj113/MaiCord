@@ -1,6 +1,7 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user_store.hpp"
+#include "maicord/model/chat_state.hpp"
 #include "maicord/protocol/json_ids.hpp"
 
 #include "gateway_dispatch_common.hpp"
@@ -97,6 +98,8 @@ struct MemberObject {
     bool nickname_null;
     bool timeout_seen;
     u32 timeout_until;
+    bool flags_seen;
+    u32 flags;
 };
 
 using UserObject = GatewayMemberUser;
@@ -320,6 +323,13 @@ bool visit_member(void* opaque, JsonString name, JsonValue value) noexcept {
         if (!context->nickname_null && !json_value_as_string(value, &context->nickname)) {
             return reject(&context->error);
         }
+    } else if (json_name_is(name, utf8_literal("flags"))) {
+        context->field_detail = (6u << 8) | static_cast<u32>(value.kind);
+        if (context->flags_seen)
+            return reject(&context->error, GatewayEventDecodeError::duplicate_field);
+        context->flags_seen = true;
+        if (!u32_value(value, &context->flags))
+            return reject(&context->error);
     } else if (json_name_is(name, utf8_literal("communication_disabled_until"))) {
         context->field_detail = (5u << 8) | static_cast<u32>(value.kind);
         if (context->timeout_seen)
@@ -634,6 +644,11 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
     if (member.timeout_seen) {
         mutation.hydration_flags |= gateway_member_timeout_known;
         mutation.communication_disabled_until = member.timeout_until;
+    }
+    if (member.flags_seen) {
+        mutation.hydration_flags |= gateway_member_quarantine_known;
+        if (guild_member_flags_quarantined(member.flags))
+            mutation.hydration_flags |= gateway_member_quarantined;
     }
     mutation.nickname_bytes = nickname_bytes;
     mutation.display_name_bytes = display_bytes;
@@ -1022,6 +1037,7 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
     // flags and contradictory omitted-but-populated role payloads fail closed.
     const u8 member_flags =
         static_cast<u8>(gateway_member_roles_omitted | gateway_member_timeout_known |
+                        gateway_member_quarantine_known | gateway_member_quarantined |
                         (event.dispatch_kind == GatewayClientDispatchKind::guild_member_profile_update
                              ? gateway_member_nickname_omitted | gateway_member_avatar_omitted
                              : 0));
@@ -1033,6 +1049,9 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
         return false;
     if (mutation->communication_disabled_until &&
         (!member || !(mutation->hydration_flags & gateway_member_timeout_known)))
+        return false;
+    if ((mutation->hydration_flags & gateway_member_quarantined) &&
+        !(mutation->hydration_flags & gateway_member_quarantine_known))
         return false;
     if (((mutation->hydration_flags & gateway_member_nickname_omitted) && mutation->nickname_bytes) ||
         ((mutation->hydration_flags & gateway_member_avatar_omitted) && mutation->avatar_hash_bytes))

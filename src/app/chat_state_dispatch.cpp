@@ -1143,9 +1143,10 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
         if (event.state.guild_settings_known & guild_settings_self_timeout)
             chat_state_store_set_self_timeout(store, event.state.guild_id,
                                                  event.state.self_communication_disabled_until);
-        if (event.state.guild_settings_known & guild_settings_self_member) {
+        if (event.state.guild_settings_known & (guild_settings_self_member | guild_settings_self_quarantine)) {
             GuildSettings member{};
-            member.known = guild_settings_self_member;
+            member.known = static_cast<u16>(event.state.guild_settings_known &
+                                            (guild_settings_self_member | guild_settings_self_quarantine));
             member.self_member = event.state.self_member;
             chat_state_store_set_guild_settings(store, event.state.guild_id, member);
         }

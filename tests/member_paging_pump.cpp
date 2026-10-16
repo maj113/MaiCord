@@ -120,6 +120,56 @@ struct RoleRefreshProbe {
     u64 guild;
     bool applied;
 };
+void test_self_quarantine(void (*check)(bool, const char*) noexcept) noexcept {
+    auto& f = fixture;
+    const bool initialized = initialize();
+    check(initialized, "member quarantine: fixture initializes");
+    if (!initialized)
+        return;
+    f.state.self_user_id = 20;
+    f.guild.owner_id = 1;
+    const PermissionSet allowed = kPermissionViewChannel | kPermissionReadMessageHistory | kPermissionChangeNickname;
+    const bool permissions = chat_state_store_upsert_role(
+                                 &f.state, {7, 7, allowed | kPermissionSendMessages | kPermissionManageMessages, {}, 0}) &&
+                             chat_state_store_set_self_roles(&f.state, 7, 1, 20, {});
+    const bool synced = apply(utf8_literal(
+        R"({"op":0,"s":1,"t":"GUILD_MEMBER_LIST_UPDATE","d":{"guild_id":"7","id":"70","ops":[{"op":"SYNC","range":[0,0],"items":[{"member":{"user":{"id":"20","username":"Self"},"roles":[],"flags":128}}]}]}})"));
+    check(permissions && synced && guild_self_quarantined(f.guild.settings) &&
+              f.channel.effective_permissions == allowed && !(f.channel.actions & channel_action_send_messages),
+          "member quarantine: list SYNC updates self permissions and removes write actions");
+    check(apply(utf8_literal(
+                    R"({"op":0,"s":2,"t":"GUILD_MEMBER_LIST_UPDATE","d":{"guild_id":"7","id":"70","ops":[{"op":"UPDATE","index":0,"item":{"member":{"user":{"id":"20","username":"Self"},"presence":{"status":"idle"}}}}]}})")) &&
+              guild_self_quarantined(f.guild.settings) && f.channel.effective_permissions == allowed,
+          "member quarantine: sparse in-place presence updates preserve self quarantine");
+    check(apply(utf8_literal(
+                    R"({"op":0,"s":3,"t":"GUILD_MEMBERS_CHUNK","d":{"guild_id":"7","chunk_index":0,"chunk_count":1,"members":[{"user":{"id":"20","username":"Self"},"roles":[],"flags":0}]}})")) &&
+              !guild_self_quarantined(f.guild.settings) && (f.channel.actions & channel_action_send_messages),
+          "member quarantine: a chunk's explicit clear restores current-account write permissions");
+    check(apply(utf8_literal(
+                    R"({"op":0,"s":4,"t":"GUILD_MEMBER_LIST_UPDATE","d":{"guild_id":"7","id":"70","ops":[{"op":"UPDATE","index":0,"item":{"member":{"user":{"id":"20","username":"Self"},"roles":[],"flags":1024}}}]}})")) &&
+              guild_self_quarantined(f.guild.settings) && f.channel.effective_permissions == allowed,
+          "member quarantine: an in-place guild-tag observation disables writes again");
+    check(apply(utf8_literal(
+                    R"({"op":0,"s":5,"t":"GUILD_MEMBERS_CHUNK","d":{"guild_id":"7","chunk_index":0,"chunk_count":1,"members":[{"user":{"id":"21","username":"Other"},"roles":[],"flags":0}]}})")) &&
+              guild_self_quarantined(f.guild.settings),
+          "member quarantine: another member's flags never release current-account restrictions");
+    GatewayClientEvent event{};
+    ConstSlice<u8> payload{};
+    const bool routed = route(utf8_literal(
+                                  R"({"op":0,"s":6,"t":"GUILD_MEMBERS_CHUNK","d":{"guild_id":"7","chunk_index":0,"chunk_count":1,"members":[{"user":{"id":"20","username":"Self"},"roles":[],"flags":0}]}})"),
+                              &event, &payload);
+    const u64 before = state_hash();
+    if (routed) {
+        GatewayClientMemberListMutation mutation{};
+        copy_bytes(&mutation, payload.data, sizeof(mutation));
+        mutation.hydration_flags = gateway_member_quarantined;
+        copy_bytes(f.payload, &mutation, sizeof(mutation));
+    }
+    check(routed && !message_event_pump_consume(&f.pump, event, payload).ok() && state_hash() == before &&
+              guild_self_quarantined(f.guild.settings) && f.channel.effective_permissions == allowed,
+          "member quarantine: forged value without observation marker rejects before changing cached state");
+    user_appearance_release(&f.users.appearance);
+}
 void role_refresh(void* context, u64 guild) noexcept {
     auto& probe = *static_cast<RoleRefreshProbe*>(context);
     ++probe.calls;
@@ -693,6 +743,7 @@ void test_member_paging_pump(void (*check)(bool, const char*) noexcept) noexcept
     user_appearance_release(&f.users.appearance);
     test_nullable_presence(check);
     test_role_hydration(check);
+    test_self_quarantine(check);
     test_member_update_storm(check);
 }
 } // namespace maicord

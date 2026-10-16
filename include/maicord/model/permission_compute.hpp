@@ -12,6 +12,8 @@ struct PermissionMember {
     ConstSlice<u64> role_ids;
     // Unix seconds; zero or past values mean no timeout.
     u64 communication_disabled_until;
+    // Indefinite restriction from the member's active AutoMod flags.
+    bool quarantined = false;
 };
 
 // Guild role table may contain other guilds' rows; they are filtered by ID.
@@ -45,8 +47,9 @@ PermissionSet permission_compute_from_base(PermissionSet base, const PermissionG
                                            ConstSlice<PermissionOverwriteRecord> overwrites,
                                            const PermissionOptions& options) noexcept;
 // Full resolution. An empty overwrite slice yields guild-level permissions.
-// Timeout masking leaves view/read history unless the result is administrator;
-// the two-factor gate strips elevated bits for everyone, including the owner.
+// Timeout masking leaves view/read history; quarantine also permits changing
+// one's nickname. Owners and administrators are exempt from both masks.
+// The two-factor gate strips elevated bits for everyone, including the owner.
 PermissionSet permission_compute(const PermissionGuild& guild, const PermissionMember& member,
                                  ConstSlice<PermissionOverwriteRecord> overwrites,
                                  const PermissionOptions& options) noexcept;

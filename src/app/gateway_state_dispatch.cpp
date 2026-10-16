@@ -132,11 +132,14 @@ bool reject(StateObjectContext* context) noexcept {
 void member_state_from_flags(GatewayClientStateMutation* m) noexcept {
     if ((m->fields & gateway_client_state_field_flags) == 0)
         return;
-    m->guild_settings_known = static_cast<u16>(m->guild_settings_known | guild_settings_self_member);
+    m->guild_settings_known = static_cast<u16>(m->guild_settings_known | guild_settings_self_member |
+                                               guild_settings_self_quarantine);
     if (m->flags & 2u)
         m->self_member |= guild_self_member_onboarding_completed;
     if (m->flags & 8u)
         m->self_member |= guild_self_member_onboarding_started;
+    if (guild_member_flags_quarantined(m->flags))
+        m->self_member |= guild_self_member_quarantined;
 }
 
 // Guild settings and member timeout keys. Null channel IDs and a null timeout
@@ -462,7 +465,7 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
         u64 decoded = 0;
         if (!mark_field(context, gateway_client_state_field_flags))
             return false;
-        if (!json_value_to_u64(value, &decoded)) {
+        if (!json_value_to_u64(value, &decoded) || decoded > 0xFFFFFFFFull) {
             context->mutation.fields = static_cast<u16>(context->mutation.fields & ~gateway_client_state_field_flags);
             return true;
         }
@@ -1096,7 +1099,8 @@ bool merge_guild_properties(StateObjectContext* object, const StateObjectContext
     }
     gateway_guild_detail_merge(&object->details, properties.details);
     const u16 settings = properties.mutation.guild_settings_known &
-                         ~static_cast<u16>(guild_settings_self_timeout | guild_settings_self_member);
+                         ~static_cast<u16>(guild_settings_self_timeout | guild_settings_self_member |
+                                           guild_settings_self_quarantine);
     auto& to = object->mutation;
     const auto& from = properties.mutation;
     // The same setting at both levels must agree.
@@ -1496,7 +1500,7 @@ struct SelfMemberContext {
     bool found;
     bool timeout_known;
     u32 timeout_until;
-    bool member_known;
+    u16 member_known;
     u8 member_state;
 };
 
@@ -1525,7 +1529,8 @@ bool visit_member(void* opaque, u32, JsonValue value) noexcept {
     context->timeout_known = (member.mutation.guild_settings_known & guild_settings_self_timeout) != 0;
     context->timeout_until = member.mutation.self_communication_disabled_until;
     member_state_from_flags(&member.mutation);
-    context->member_known = (member.mutation.guild_settings_known & guild_settings_self_member) != 0;
+    context->member_known = static_cast<u16>(member.mutation.guild_settings_known &
+                                            (guild_settings_self_member | guild_settings_self_quarantine));
     context->member_state = member.mutation.self_member;
     if (!member.roles_seen)
         return true; // Pending or previewing members can arrive without roles.
@@ -1569,7 +1574,7 @@ GatewayEventDecodeResult append_self_member_roles(JsonValue members, Slice<u32> 
         guild->self_communication_disabled_until = context.timeout_until;
     }
     if (context.member_known) {
-        guild->guild_settings_known = static_cast<u16>(guild->guild_settings_known | guild_settings_self_member);
+        guild->guild_settings_known = static_cast<u16>(guild->guild_settings_known | context.member_known);
         guild->self_member = context.member_state;
     }
     return decode_error(GatewayEventDecodeError::none);
@@ -2151,7 +2156,8 @@ GatewayClientDispatchRouteResult route_state_dispatch(
         if (user.mutation.id == self_user_id) {
             member_state_from_flags(&event->state);
             event->state.guild_settings_known &=
-                static_cast<u16>(guild_settings_self_timeout | guild_settings_self_member);
+                static_cast<u16>(guild_settings_self_timeout | guild_settings_self_member |
+                                 guild_settings_self_quarantine);
             if (!object.roles_seen)
                 return route_error(GatewayClientDispatchRouteError::decode,
                                    GatewayEventDecodeError::missing_required_field);
@@ -2186,7 +2192,8 @@ GatewayClientDispatchRouteResult route_state_dispatch(
         const bool unavailable = object.mutation.unavailable &&
                                  (object.mutation.fields & gateway_client_state_field_unavailable) != 0;
         event->state.guild_settings_known &=
-            static_cast<u16>(~(guild_settings_self_timeout | guild_settings_self_member));
+            static_cast<u16>(~(guild_settings_self_timeout | guild_settings_self_member |
+                               guild_settings_self_quarantine));
         event->state.self_member = 0;
         constexpr u16 guild_required =
             gateway_client_state_field_name | gateway_client_state_field_owner_id;

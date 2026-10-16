@@ -545,6 +545,8 @@ void chat_state_store_clear(ChatStateStore* store) noexcept {
 static bool merge_guild_settings(GuildSettings* out, const GuildSettings& in) noexcept {
     const bool mfa_changed = (in.known & guild_settings_mfa_level) &&
                              (!(out->known & guild_settings_mfa_level) || out->mfa_level != in.mfa_level);
+    const bool quarantine_changed = (in.known & guild_settings_self_quarantine) &&
+                                   guild_self_quarantined(*out) != guild_self_quarantined(in);
     if (in.known & guild_settings_mfa_level)
         out->mfa_level = in.mfa_level;
     if (in.known & guild_settings_verification_level)
@@ -562,9 +564,13 @@ static bool merge_guild_settings(GuildSettings* out, const GuildSettings& in) no
     if (in.known & guild_settings_self_timeout)
         out->self_communication_disabled_until = in.self_communication_disabled_until;
     if (in.known & guild_settings_self_member)
-        out->self_member = in.self_member;
+        out->self_member = static_cast<u8>((out->self_member & guild_self_member_quarantined) |
+                                          (in.self_member & ~guild_self_member_quarantined));
+    if (in.known & guild_settings_self_quarantine)
+        out->self_member = static_cast<u8>((out->self_member & ~guild_self_member_quarantined) |
+                                          (in.self_member & guild_self_member_quarantined));
     out->known = static_cast<u16>(out->known | in.known);
-    return mfa_changed;
+    return mfa_changed || quarantine_changed;
 }
 
 bool guild_settings_valid(const GuildSettings& settings) noexcept {
@@ -647,10 +653,10 @@ ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
         record.nsfw_level = input.nsfw_level;
         record.nsfw_level_known = true;
     }
-    const bool mfa_changed = input.settings && merge_guild_settings(&record.settings, *input.settings);
+    const bool permissions_changed = input.settings && merge_guild_settings(&record.settings, *input.settings);
     saturating_increment(record.revision);
     ++store->guild_mutations;
-    if (mfa_changed && found && !record.unavailable)
+    if (permissions_changed && found && !record.unavailable)
         chat_state_store_recompute_guild_permissions(store, input.id);
     const bool changed = chat_state_store_select_default(store);
     return ChatStateStoreResult{order_index, ChatStateStoreError::none, !found, changed};
@@ -662,10 +668,10 @@ bool chat_state_store_set_guild_settings(ChatStateStore* store, u64 guild_id,
     if (!found || !guild_settings_valid(settings))
         return false;
     auto& record = store->guilds[found - store->guilds];
-    const bool mfa_changed = merge_guild_settings(&record.settings, settings);
+    const bool permissions_changed = merge_guild_settings(&record.settings, settings);
     saturating_increment(record.revision);
     ++store->guild_mutations;
-    if (mfa_changed && !record.unavailable)
+    if (permissions_changed && !record.unavailable)
         chat_state_store_recompute_guild_permissions(store, guild_id);
     return true;
 }

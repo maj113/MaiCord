@@ -30,7 +30,8 @@ ModerationCapabilities moderation_capabilities(const ChatStateStore& state,
         if (state.roles[i].guild_id == guild_id && state.roles[i].id != guild_id && state.roles[i].self_assigned)
             self_roles[self_count++] = state.roles[i].id;
     const PermissionGuild scope = chat_state_store_permission_guild(state, guild_id);
-    const PermissionMember me{self, {self_roles, self_count}, 0};
+    const PermissionMember me{self, {self_roles, self_count}, 0,
+                              guild_self_quarantined(guild->settings)};
     const PermissionSet mine = permission_compute(scope, me, {}, {0, false});
     const bool owner = guild->owner_id == self;
     const bool mfa_blocked = chat_state_store_self_mfa_blocked(state, guild_id);

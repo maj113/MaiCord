@@ -61,7 +61,8 @@ GuildSettingsAccess guild_settings_access(const ChatStateStore& store, u64 guild
     for (u32 i = 0; i < store.role_count && count < kGuildRoleMaximum; ++i)
         if (store.roles[i].guild_id == guild_id && store.roles[i].id != guild_id && store.roles[i].self_assigned)
             roles[count++] = store.roles[i].id;
-    const PermissionMember self{store.self_user_id, {roles, count}, 0};
+    const PermissionMember self{store.self_user_id, {roles, count}, 0,
+                                guild_self_quarantined(guild->settings)};
     access.permissions = permission_compute(chat_state_store_permission_guild(store, guild_id), self, {},
                                             {0, store.self_mfa == SelfMfaState::disabled});
     if (const auto* top = chat_state_store_highest_role(store, guild_id, {roles, count})) {

@@ -55,10 +55,12 @@ enum GuildSettingsField : u16 {
     guild_settings_self_timeout = 1u << 7,
     // The current member's pending and onboarding state (GuildSelfMember).
     guild_settings_self_member = 1u << 8,
-    guild_settings_all = 0x1FFu,
+    // Quarantine is independent of pending/onboarding partial observations.
+    guild_settings_self_quarantine = 1u << 9,
+    guild_settings_all = 0x3FFu,
 };
 // GuildSettings::self_member bits, from the member object's pending flag and
-// member flags (COMPLETED_ONBOARDING 1 << 1, STARTED_ONBOARDING 1 << 3).
+// member flags for onboarding and AutoMod quarantine.
 enum GuildSelfMember : u8 {
     guild_self_member_pending = 1u << 0,
     guild_self_member_onboarding_completed = 1u << 1,
@@ -66,7 +68,13 @@ enum GuildSelfMember : u8 {
     // Previewing (lurking): a live GUILD_CREATE without a join time and
     // without the current member. A later member update replaces it.
     guild_self_member_lurking = 1u << 3,
+    guild_self_member_quarantined = 1u << 4,
 };
+// Active AutoMod name and guild-tag quarantine flags. The retired bio flag
+// does not quarantine a member.
+constexpr bool guild_member_flags_quarantined(u32 flags) noexcept {
+    return (flags & ((1u << 7) | (1u << 10))) != 0;
+}
 // Community features carried in GuildRecord::upload_features above the
 // upload-size bits (1, 2, 4), from the guild's features array, and
 // ANIMATED_BANNER (an a_ banner animates only with it).
@@ -105,6 +113,10 @@ struct GuildSettings {
     u8 explicit_content_filter;
     u8 self_member;
 };
+constexpr bool guild_self_quarantined(const GuildSettings& settings) noexcept {
+    return (settings.known & guild_settings_self_quarantine) &&
+           (settings.self_member & guild_self_member_quarantined);
+}
 
 struct GuildInput {
     u64 id;

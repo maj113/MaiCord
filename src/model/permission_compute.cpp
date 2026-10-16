@@ -67,8 +67,12 @@ PermissionSet permission_compute_from_base(PermissionSet permissions, const Perm
     const bool owner = guild.owner_id && member.user_id == guild.owner_id;
     if (!owner && permissions != kPermissionAll) {
         permissions = permission_apply_overwrites(permissions, guild.guild_id, member, overwrites);
-        if (!(permissions & kPermissionAdministrator) && permission_member_timed_out(member, options.now_seconds))
-            permissions &= kPermissionTimeoutAllowedMask;
+        if (!(permissions & kPermissionAdministrator)) {
+            if (permission_member_timed_out(member, options.now_seconds))
+                permissions &= kPermissionTimeoutAllowedMask;
+            if (member.quarantined)
+                permissions &= kPermissionQuarantineAllowedMask;
+        }
     }
     if (guild.elevated_requires_mfa && options.member_lacks_mfa)
         permissions &= ~kPermissionElevatedMask;

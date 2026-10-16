@@ -159,7 +159,8 @@ bool validate_member_list(const MessageEventPump& pump, const GatewayClientEvent
         if (event.dispatch_kind == GatewayClientDispatchKind::guild_members_chunk &&
             (mutation.kind != GatewayClientMemberListItemKind::member ||
              mutation.operation != GatewayClientMemberListOperation::sync ||
-             (mutation.hydration_flags & ~gateway_member_timeout_known)))
+             (mutation.hydration_flags & ~(gateway_member_timeout_known |
+                                          gateway_member_quarantine_known | gateway_member_quarantined))))
             return false;
         if (event.dispatch_kind == GatewayClientDispatchKind::guild_member_profile_update &&
             (mutation.kind != GatewayClientMemberListItemKind::member ||
@@ -378,6 +379,13 @@ bool observe_member_list(MessageEventPump* pump, const GatewayClientEvent& event
                 if (mutation.hydration_flags & gateway_member_timeout_known)
                     guild_member_store_set_timeout(pump->members, list.guild_id, mutation.user_id,
                                                    mutation.communication_disabled_until);
+                if (mutation.user_id == pump->state->self_user_id &&
+                    (mutation.hydration_flags & gateway_member_quarantine_known)) {
+                    GuildSettings settings{}; settings.known = guild_settings_self_quarantine;
+                    settings.self_member = (mutation.hydration_flags & gateway_member_quarantined)
+                                               ? guild_self_member_quarantined : 0;
+                    chat_state_store_set_guild_settings(pump->state, list.guild_id, settings);
+                }
                 if (row_visible)
                     user_store_pin(pump->users, mutation.user_id);
                 ++member_records;
@@ -396,6 +404,13 @@ bool observe_member_list(MessageEventPump* pump, const GatewayClientEvent& event
         if (mutation.hydration_flags & gateway_member_timeout_known)
             guild_member_store_set_timeout(pump->members, list.guild_id, mutation.user_id,
                                                    mutation.communication_disabled_until);
+        if (mutation.user_id == pump->state->self_user_id &&
+            (mutation.hydration_flags & gateway_member_quarantine_known)) {
+            GuildSettings settings{}; settings.known = guild_settings_self_quarantine;
+            settings.self_member = (mutation.hydration_flags & gateway_member_quarantined)
+                                       ? guild_self_member_quarantined : 0;
+            chat_state_store_set_guild_settings(pump->state, list.guild_id, settings);
+        }
         const auto& cached = *admitted.record;
         if (targeted) {
             // The visible-author planner owns pins; a non-positional response

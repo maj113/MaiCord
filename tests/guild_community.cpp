@@ -662,13 +662,15 @@ void test_gateway() noexcept {
         utf8_literal("GUILD_CREATE"),
         utf8_literal(R"({"id":"10","name":"G","owner_id":"1","features":["COMMUNITY","GUILD_ONBOARDING",)"
                      R"("MEMBER_VERIFICATION_GATE_ENABLED"],"roles":[{"id":"10","name":"@everyone","permissions":"0"}],)"
-                     R"("members":[{"user":{"id":"7","username":"me"},"roles":[],"pending":true}],"channels":[]})"));
+                     R"("members":[{"user":{"id":"7","username":"me"},"roles":[],"pending":true,"flags":1024}],"channels":[]})"));
     check(guild_create.ok() && event.dispatch_kind == GatewayClientDispatchKind::guild_create &&
               event.state.upload_features_known &&
               (event.state.upload_features & guild_record_community) &&
               (event.state.upload_features & guild_record_onboarding) &&
               (event.state.upload_features & guild_record_verification_gate) &&
               (event.state.guild_settings_known & guild_settings_self_member) &&
+              (event.state.guild_settings_known & guild_settings_self_quarantine) &&
+              (event.state.self_member & guild_self_member_quarantined) &&
               (event.state.self_member & guild_self_member_pending),
           "gateway: GUILD_CREATE carries community features and the member's pending state");
     // The state model keeps it, and the gate opens and closes with it.
@@ -695,8 +697,15 @@ void test_gateway() noexcept {
     chat_state_apply_gateway_event(&store, event, payload, {ids, 4});
     g = chat_state_store_find_guild(store, 10);
     check(bound && applied.ok() && gated && g &&
+              guild_self_quarantined(g->settings) &&
               !guild_rules_gate(g->upload_features, g->settings.self_member, true),
           "gateway: the stored pending state gates the composer until GUILD_MEMBER_UPDATE clears it");
+    const auto released = route(
+        utf8_literal("GUILD_MEMBER_UPDATE"),
+        utf8_literal(R"({"guild_id":"10","user":{"id":"7","username":"me"},"roles":[],"flags":0})"));
+    check(released.ok() && chat_state_apply_gateway_event(&store, event, payload, {ids, 4}).ok() &&
+              !guild_self_quarantined(g->settings),
+          "gateway: own member flags clear previously stored quarantine through the state consumer");
 
     // A server joined from another client while running: its GUILD_CREATE may
     // lack the member list, list members without roles, or (a preview) leave

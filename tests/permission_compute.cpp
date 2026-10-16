@@ -1,5 +1,6 @@
 #include "maicord/model/guild_ban_store.hpp"
 #include "maicord/model/member_moderation.hpp"
+#include "maicord/model/guild_settings_model.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 
@@ -90,6 +91,22 @@ void test_vectors() noexcept {
     const PermissionMember timed_admin{kOther, {admin_roles, 1}, now + 60};
     check(permission_compute(guild, timed_admin, channel, {now, false}) == kPermissionAll,
           "permission compute: administrators are never timeout-masked");
+    const PermissionMember quarantined{kSelf, {moderator_roles, 2}, 0, true};
+    const PermissionMember quarantined_timed{kSelf, {moderator_roles, 2}, now + 60, true};
+    const PermissionMember quarantined_owner{kOwner, {}, now + 60, true};
+    const PermissionMember quarantined_admin{kOther, {admin_roles, 1}, now + 60, true};
+    const PermissionOverwriteRecord denied_history[] = {{kSelf, kPermissionSendMessages,
+                                                        kPermissionReadMessageHistory, 1}};
+    check(permission_compute(guild, quarantined, {}, plain) == kPermissionQuarantineAllowedMask &&
+              permission_compute(guild, quarantined, channel, plain) == kPermissionQuarantineAllowedMask &&
+              permission_compute(guild, quarantined, {denied_history, 1}, plain) ==
+                  (kPermissionViewChannel | kPermissionChangeNickname) &&
+              permission_compute(guild, quarantined_timed, channel, {now, false}) ==
+                  kPermissionTimeoutAllowedMask &&
+              permission_compute(guild, quarantined_owner, channel, {now, false}) == kPermissionAll &&
+              permission_compute(guild, quarantined_admin, channel, {now, false}) == kPermissionAll,
+          "permission compute: clockless quarantine restricts after overwrites, retains nickname without "
+          "granting denied permissions, composes with timeout and exempts owners and administrators");
 
     const PermissionGuild strict{kGuild, kOwner, {roles, 5}, true};
     check(permission_compute(strict, owner, {}, {0, true}) == (kPermissionAll & ~kPermissionElevatedMask) &&
@@ -117,6 +134,8 @@ PermissionSet reference_permissions(const PermissionGuild& guild, const Permissi
         permissions = permission_apply_overwrites(permissions, guild.guild_id, member, overwrites);
         if (!(permissions & kPermissionAdministrator) && permission_member_timed_out(member, options.now_seconds))
             permissions &= kPermissionTimeoutAllowedMask;
+        if (!(permissions & kPermissionAdministrator) && member.quarantined)
+            permissions &= kPermissionQuarantineAllowedMask;
     }
     if (guild.elevated_requires_mfa && options.member_lacks_mfa)
         permissions &= ~kPermissionElevatedMask;
@@ -138,6 +157,8 @@ void test_base_reuse() noexcept {
         {kSelf, {member_roles, 2}, 1060},
         {kSelf, {member_roles, 2}, 0},
         {kOther, {}, 1060},
+        {kSelf, {member_roles, 2}, 0, true},
+        {kSelf, {member_roles, 2}, 1060, true},
     };
     const PermissionOverwriteRecord ordered[] = {
         {kGuild, 0, kPermissionSendMessages, 0},
@@ -278,6 +299,35 @@ void test_store() noexcept {
               chat_state_store_set_self_timeout(&state, kGuild, 12345) &&
               guild->settings.self_communication_disabled_until == 12345,
           "permission store: settings are partial observations; invalid levels are refused without change");
+    GuildSettings quarantine{};
+    quarantine.known = guild_settings_self_quarantine;
+    quarantine.self_member = guild_self_member_quarantined;
+    const bool quarantined = chat_state_store_set_guild_settings(&state, kGuild, quarantine) &&
+                             guild->base_permissions == kPermissionQuarantineAllowedMask &&
+                             channel->effective_permissions == kPermissionQuarantineAllowedMask &&
+                             !(channel->actions & (channel_action_send_messages | channel_action_manage_messages));
+    const auto settings_access = guild_settings_access(state, kGuild);
+    const auto self_actions = moderation_capabilities(state, model.members, kGuild, kSelf, 0);
+    const auto other_actions = moderation_capabilities(state, model.members, kGuild, kOther, 0);
+    check(quarantined && settings_access.permissions == kPermissionQuarantineAllowedMask &&
+              !settings_access.sections && self_actions.allowed == moderation_action_nickname &&
+              !other_actions.visible && !other_actions.allowed,
+          "permission store: quarantine hides server administration and other-member moderation while "
+          "retaining the current member's nickname repair");
+    GuildSettings pending{};
+    pending.known = guild_settings_self_member;
+    pending.self_member = guild_self_member_pending;
+    const bool preserved = chat_state_store_set_guild_settings(&state, kGuild, pending) &&
+                           guild_self_quarantined(guild->settings) &&
+                           channel->effective_permissions == kPermissionQuarantineAllowedMask;
+    quarantine.self_member = 0;
+    check(quarantined && preserved && chat_state_store_set_guild_settings(&state, kGuild, quarantine) &&
+              !guild_self_quarantined(guild->settings) &&
+              (guild->settings.self_member & guild_self_member_pending) &&
+              (channel->effective_permissions & kPermissionSendMessages) &&
+              (channel->actions & channel_action_manage_messages),
+          "permission store: quarantine changes recompute actions, pending-only updates preserve quarantine, "
+          "and explicit release restores role permissions without clearing pending");
 }
 
 void test_moderation() noexcept {

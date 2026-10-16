@@ -147,6 +147,65 @@ void test_member_timeout() noexcept {
           "gateway admin: the own member update carries the account timeout beside its roles");
 }
 
+void test_member_quarantine() noexcept {
+    GatewayClientMemberListMutation mutation{};
+    const auto ready = route(utf8_literal("READY_GUILD"),
+                             utf8_literal(R"({"id":"100","name":"Lab","owner_id":"1","roles":[{"id":"100","permissions":"0"}],)"
+                                          R"("members":[{"user":{"id":"22"},"roles":[],"flags":0},{"user":{"id":"7"},"roles":[],"flags":128}],"channels":[]})"));
+    check(ready.ok() && event.dispatch_kind == GatewayClientDispatchKind::guild_create &&
+              (event.state.guild_settings_known & guild_settings_self_quarantine) &&
+              (event.state.self_member & guild_self_member_quarantined),
+          "gateway quarantine: READY guild normalization retains only the current member's quarantine");
+    const auto self = route(utf8_literal("GUILD_MEMBER_UPDATE"),
+                            utf8_literal(R"({"guild_id":"100","user":{"id":"7","username":"me"},"roles":[],"flags":138})"));
+    check(self.ok() && event.dispatch_kind == GatewayClientDispatchKind::guild_member_update &&
+              (event.state.guild_settings_known & guild_settings_self_quarantine) &&
+              event.state.self_member == (guild_self_member_quarantined | guild_self_member_onboarding_started |
+                                          guild_self_member_onboarding_completed),
+          "gateway quarantine: own name quarantine preserves onboarding flags");
+    check(route(utf8_literal("GUILD_MEMBER_UPDATE"),
+                utf8_literal(R"({"guild_id":"100","user":{"id":"7","username":"me"},"roles":[],"flags":1024})"))
+                  .ok() &&
+              (event.state.self_member & guild_self_member_quarantined) &&
+              route(utf8_literal("GUILD_MEMBER_UPDATE"),
+                    utf8_literal(R"({"guild_id":"100","user":{"id":"7","username":"me"},"roles":[],"flags":256})"))
+                  .ok() &&
+              (event.state.guild_settings_known & guild_settings_self_quarantine) &&
+              !(event.state.self_member & guild_self_member_quarantined),
+          "gateway quarantine: guild-tag quarantine is active; the retired bio flag explicitly clears it");
+    check(route(utf8_literal("GUILD_MEMBER_UPDATE"),
+                utf8_literal(R"({"guild_id":"100","user":{"id":"7","username":"me"},"roles":[],"pending":false})"))
+                  .ok() &&
+              !(event.state.guild_settings_known & guild_settings_self_quarantine),
+          "gateway quarantine: pending-only updates do not observe quarantine");
+    check(route(utf8_literal("GUILD_MEMBER_UPDATE"),
+                utf8_literal(R"({"guild_id":"100","user":{"id":"7","username":"me"},"roles":[],"flags":4294967296})"))
+                  .ok() &&
+              !(event.state.guild_settings_known & guild_settings_self_quarantine),
+          "gateway quarantine: overflowing own flags remain unobserved instead of truncating into a release");
+    const auto added = route(utf8_literal("GUILD_MEMBER_ADD"),
+                             utf8_literal(R"({"guild_id":"100","user":{"id":"22","username":"cy"},"roles":[],"flags":128})"));
+    check(added.ok() && member_record(&mutation) &&
+              (mutation.hydration_flags & gateway_member_quarantine_known) &&
+              (mutation.hydration_flags & gateway_member_quarantined) &&
+              route(utf8_literal("GUILD_MEMBER_UPDATE"),
+                    utf8_literal(R"({"guild_id":"100","user":{"id":"22","username":"cy"},"flags":0})"))
+                  .ok() && member_record(&mutation) &&
+              (mutation.hydration_flags & gateway_member_quarantine_known) &&
+              !(mutation.hydration_flags & gateway_member_quarantined),
+          "gateway quarantine: direct member hydration carries set and clear observations without role assumptions");
+    check(!route(utf8_literal("GUILD_MEMBER_UPDATE"),
+                 utf8_literal(R"({"guild_id":"100","user":{"id":"22","username":"cy"},"flags":128,"flags":0})"))
+               .ok() &&
+              !route(utf8_literal("GUILD_MEMBER_UPDATE"),
+                     utf8_literal(R"({"guild_id":"100","user":{"id":"22","username":"cy"},"flags":4294967296})"))
+                   .ok() &&
+              !route(utf8_literal("GUILD_MEMBER_UPDATE"),
+                     utf8_literal(R"({"guild_id":"100","user":{"id":"22","username":"cy"},"flags":"128"})"))
+                   .ok(),
+          "gateway quarantine: duplicate, overflowing and string member flags are refused");
+}
+
 constexpr Utf8View kRoles = utf8_literal(
     R"("roles":[{"id":"100","name":"@everyone","permissions":"1024","position":0},)"
     R"({"id":"30","name":"Mods","permissions":"2","position":3,"mentionable":true,"unicode_emoji":"⭐","flags":1},)"
@@ -165,7 +224,8 @@ void test_guild_settings() noexcept {
     append(kRoles);
     append(utf8_literal("}"));
     const auto updated = route(utf8_literal("GUILD_UPDATE"), {body, used});
-    constexpr u16 all_guild = guild_settings_all & ~(guild_settings_self_timeout | guild_settings_self_member);
+    constexpr u16 all_guild = guild_settings_all & ~(guild_settings_self_timeout | guild_settings_self_member |
+                                                    guild_settings_self_quarantine);
     check(updated.ok() && event.dispatch_kind == GatewayClientDispatchKind::guild_update &&
               event.state.guild_settings_known == all_guild && event.state.mfa_level == 1 &&
               event.state.verification_level == 2 && event.state.default_message_notifications == 1 &&
@@ -472,6 +532,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_guild_admin_gateway_entry() 
     test_membership();
     test_bulk_ban_update();
     test_member_timeout();
+    test_member_quarantine();
     test_guild_settings();
     test_guild_details();
     test_detail_store();

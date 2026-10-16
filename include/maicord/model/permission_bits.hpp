@@ -73,6 +73,8 @@ inline constexpr PermissionSet kPermissionElevatedMask =
 // What a timed-out non-administrator member keeps in every channel.
 inline constexpr PermissionSet kPermissionTimeoutAllowedMask =
     kPermissionViewChannel | kPermissionReadMessageHistory;
+inline constexpr PermissionSet kPermissionQuarantineAllowedMask =
+    kPermissionTimeoutAllowedMask | kPermissionChangeNickname;
 // Longest timeout the service accepts.
 inline constexpr u64 kPermissionTimeoutMaximumSeconds = 28ull * 24 * 60 * 60;
 
