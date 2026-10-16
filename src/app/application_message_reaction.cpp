@@ -97,14 +97,41 @@ bool readable(const ChannelRecord& channel) noexcept {
     const auto* guild = chat_state_store_find_guild(g_app.account_ui->chat_state, channel.guild_id);
     return guild && guild->occupied && !guild->unavailable && channel.permissions_resolved;
 }
+bool member_reaction_add_restricted(const ChannelRecord& channel) noexcept {
+    const auto& state = g_app.account_ui->chat_state;
+    const auto* guild = chat_state_store_find_guild(state, channel.guild_id);
+    if (!guild || guild->owner_id == state.self_user_id)
+        return false;
+    const auto& settings = guild->settings;
+    const bool timed_out = (settings.known & guild_settings_self_timeout) &&
+                           settings.self_communication_disabled_until > clock_unix_milliseconds() / 1000;
+    if (!timed_out && !guild_self_quarantined(settings))
+        return false;
+    // Use assigned role permissions: the two-factor gate can strip the
+    // effective Administrator bit without removing this exemption.
+    for (u32 i = 0; i < state.role_count; ++i) {
+        const auto& role = state.roles[i];
+        if (role.guild_id == guild->id && (role.id == guild->id || role.self_assigned) &&
+            (role.permissions & kPermissionAdministrator))
+            return false;
+    }
+    return true;
+}
 bool eligible(const MessageReactionTarget& target, const MessageReactionAuthority& authority,
               bool desired) noexcept {
     const auto* channel =
         chat_state_store_find_channel(g_app.account_ui->chat_state, target.channel_id);
     if (!channel || !readable(*channel))
         return false;
+    // Existing emoji and own-reaction removals bypass Add Reactions, but
+    // neither can change an archived thread or one with unknown archive state.
+    if (channel_is_thread(channel->type) &&
+        (!channel->thread_archived_known || channel->thread_archived))
+        return false;
     if (!desired)
         return true;
+    if (channel->guild_id && member_reaction_add_restricted(*channel))
+        return false;
     if (!authority.present && !(channel->actions & channel_action_add_reactions))
         return false;
     if (target.emoji_id && !authority.present) {

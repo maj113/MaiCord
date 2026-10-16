@@ -5,9 +5,12 @@
 
 namespace maicord::reaction_runtime_test {
 u64 monotonic_clock() noexcept;
+u64 unix_clock() noexcept;
 }
 #define clock_monotonic_milliseconds ::maicord::reaction_runtime_test::monotonic_clock
+#define clock_unix_milliseconds ::maicord::reaction_runtime_test::unix_clock
 #include "../src/app/application_message_reaction.cpp"
+#undef clock_unix_milliseconds
 #undef clock_monotonic_milliseconds
 
 namespace maicord::app_detail {
@@ -22,6 +25,7 @@ namespace maicord::reaction_runtime_test {
 using namespace app_detail;
 u32 failures{}, refreshes{}, frames{}, submissions{}, cancellations{};
 u64 now_ms = 1000, request_serial{}, accepted_request{};
+u64 unix_ms = 1'700'000'000'000;
 bool transport_busy{};
 MessageReactionTarget submitted_target{};
 bool submitted_add{};
@@ -35,6 +39,9 @@ u16 rich_order[16]{};
 
 u64 monotonic_clock() noexcept {
     return now_ms;
+}
+u64 unix_clock() noexcept {
+    return unix_ms;
 }
 
 void write(Utf8View value) noexcept {
@@ -113,6 +120,7 @@ bool seed() noexcept {
     g_app.primary_request_id = 0;
     reset_message_reaction();
     now_ms = 1000;
+    unix_ms = 1'700'000'000'000;
     accepted_request = 0;
     transport_busy = false;
     g_app.account.instance = &account_marker;
@@ -131,6 +139,10 @@ bool seed() noexcept {
         auto* value = channel(id);
         if (!value)
             return false;
+        value->type = 1;
+        value->guild_id = value->parent_id = 0;
+        value->thread_archived = value->thread_archived_known = false;
+        value->thread_locked = value->thread_locked_known = false;
         value->actions = channel_action_view | channel_action_read_history |
                          channel_action_add_reactions | channel_action_send_messages;
     }
@@ -251,6 +263,227 @@ bool snapshot(ConstSlice<GatewayMessageReaction> reactions) noexcept {
         return false;
     application_message_reaction_message_observe(event, found.handle, record->revision, true);
     return true;
+}
+
+bool seed_thread(u8 type = 11, bool locked = false) noexcept {
+    if (!seed() ||
+        !chat_state_store_upsert_guild(&g_app.account_ui->chat_state,
+                                      {10, utf8_literal("Reaction guild"), GuildMutationKind::create, 99})
+             .ok())
+        return false;
+    auto* guild = const_cast<GuildRecord*>(chat_state_store_find_guild(g_app.account_ui->chat_state, 10));
+    guild->settings = {};
+    guild->owner_id = 99;
+    auto* parent = channel(80);
+    parent->type = 0;
+    parent->guild_id = 10;
+    parent->permissions_resolved = true;
+    parent->effective_permissions = kPermissionViewChannel | kPermissionReadMessageHistory;
+    auto* value = channel();
+    value->type = type;
+    value->guild_id = 10;
+    value->parent_id = 80;
+    value->permissions_resolved = true;
+    value->effective_permissions = parent->effective_permissions;
+    value->thread_archived_known = value->thread_locked_known = true;
+    value->thread_locked = locked;
+    value->thread_self_joined_known = value->thread_self_joined = true;
+    value->actions = chat_state_store_thread_actions(g_app.account_ui->chat_state, *value);
+    return readable(*value);
+}
+
+bool restrict_member(bool timeout) noexcept {
+    if (timeout)
+        return chat_state_store_set_self_timeout(&g_app.account_ui->chat_state, 10, unix_ms / 1000 + 60);
+    GuildSettings settings{};
+    settings.known = guild_settings_self_quarantine;
+    settings.self_member = guild_self_member_quarantined;
+    return chat_state_store_set_guild_settings(&g_app.account_ui->chat_state, 10, settings);
+}
+
+void restricted_member_reaction_tests() noexcept {
+    constexpr bool restrictions[]{false, true};
+    for (bool timeout : restrictions) {
+        check(seed_thread() && restrict_member(timeout) &&
+                  application_queue_message_reaction(900, reaction_index()) ==
+                      ApplicationMessageReactionEnqueueResult::permission &&
+                  !owner && reaction()->count == 4 && !(reaction()->flags & 1),
+              "reaction runtime: quarantine and timeout forbid existing emoji additions");
+        GatewayMessageReaction mine{};
+        mine.name = glyph();
+        mine.count = mine.normal_count = 5;
+        mine.me = true;
+        check(snapshot({&mine, 1}) &&
+                  application_queue_message_reaction(900, reaction_index()) ==
+                      ApplicationMessageReactionEnqueueResult::accepted &&
+                  send_next() && !submitted_add && complete() && reaction()->count == 4,
+              "reaction runtime: restricted members can still remove their own active-thread reaction");
+
+        check(seed_thread(), "reaction runtime: live member restriction queue fixture initializes");
+        application_queue_message_reaction(900, reaction_index());
+        const auto before = submissions;
+        check(restrict_member(timeout) && !application_message_reaction_submit(++request_serial, now_ms) &&
+                  owner && !owner->controller.count && reaction()->count == 4 &&
+                  !(reaction()->flags & 1) && submissions == before,
+              "reaction runtime: live member restriction cancels queued existing emoji without REST");
+
+        check(seed_thread(), "reaction runtime: live member restriction retry fixture initializes");
+        application_queue_message_reaction(900, reaction_index());
+        check(send_next() && complete(429, 5000), "reaction runtime: unrestricted existing emoji queues retry");
+        const auto before_retry = submissions;
+        now_ms = 5000;
+        check(restrict_member(timeout) && !application_message_reaction_submit(++request_serial, now_ms) &&
+                  owner && !owner->controller.count && reaction()->count == 4 &&
+                  !(reaction()->flags & 1) && submissions == before_retry,
+              "reaction runtime: live member restriction cancels rate-limited existing emoji retry");
+
+        check(seed_thread() && restrict_member(timeout), "reaction runtime: restricted owner fixture initializes");
+        auto* guild = const_cast<GuildRecord*>(chat_state_store_find_guild(g_app.account_ui->chat_state, 10));
+        guild->owner_id = 5;
+        check(application_queue_message_reaction(900, reaction_index()) ==
+                  ApplicationMessageReactionEnqueueResult::accepted,
+              "reaction runtime: guild owner remains exempt from member reaction restrictions");
+
+        check(seed_thread() && restrict_member(timeout), "reaction runtime: restricted administrator fixture initializes");
+        auto& state = g_app.account_ui->chat_state;
+        RoleRecord administrator{};
+        administrator.id = 12;
+        administrator.guild_id = 10;
+        administrator.permissions = kPermissionAdministrator;
+        state.roles = &administrator;
+        state.role_count = 1;
+        check(application_queue_message_reaction(900, reaction_index()) ==
+                  ApplicationMessageReactionEnqueueResult::permission,
+              "reaction runtime: another member's Administrator role grants no restriction exemption");
+        administrator.self_assigned = true;
+        check(!(channel()->effective_permissions & kPermissionAdministrator) &&
+                  application_queue_message_reaction(900, reaction_index()) ==
+                      ApplicationMessageReactionEnqueueResult::accepted,
+              "reaction runtime: assigned Administrator exemption survives masked effective permissions");
+        reset_message_reaction();
+        state.roles = nullptr;
+        state.role_count = 0;
+    }
+    check(seed_thread() && restrict_member(true), "reaction runtime: timeout expiry fixture initializes");
+    unix_ms += 60'000;
+    check(application_queue_message_reaction(900, reaction_index()) ==
+              ApplicationMessageReactionEnqueueResult::accepted,
+          "reaction runtime: timeout ending at current Unix second restores existing emoji additions");
+}
+
+void thread_reaction_tests() noexcept {
+    constexpr u8 types[]{10, 11, 12};
+    for (u8 type : types) {
+        check(seed_thread(type, true), "reaction runtime: active locked thread fixture initializes");
+        check(!(channel()->actions & channel_action_add_reactions) &&
+                  application_queue_message_reaction_emoji(900, 0, glyph(1), false) ==
+                      ApplicationMessageReactionEnqueueResult::permission &&
+                  application_queue_message_reaction(900, reaction_index()) ==
+                      ApplicationMessageReactionEnqueueResult::accepted &&
+                  send_next() && submitted_add && complete() &&
+                  application_queue_message_reaction(900, reaction_index()) ==
+                      ApplicationMessageReactionEnqueueResult::coalesced &&
+                  send_next() && !submitted_add && complete() && reaction()->count == 4 &&
+                  !(reaction()->flags & 1),
+              "reaction runtime: active locked threads allow existing emoji add and own removal without "
+              "Add Reactions while new emoji remains forbidden");
+
+        check(seed_thread(type), "reaction runtime: archived thread admission fixture initializes");
+        const auto before = submissions;
+        check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, true),
+              "reaction runtime: authoritative archive update applies");
+        channel()->actions |= channel_action_add_reactions;
+        check(application_queue_message_reaction(900, reaction_index()) ==
+                      ApplicationMessageReactionEnqueueResult::permission &&
+                  application_queue_message_reaction_emoji(900, 0, glyph(1), false) ==
+                      ApplicationMessageReactionEnqueueResult::permission &&
+                  !owner && reaction()->count == 4 && !(reaction()->flags & 1),
+              "reaction runtime: archived threads reject existing and new emoji despite stale action bits");
+        GatewayMessageReaction mine{};
+        mine.name = glyph();
+        mine.count = mine.normal_count = 5;
+        mine.me = true;
+        check(snapshot({&mine, 1}) &&
+                  application_queue_message_reaction(900, reaction_index()) ==
+                      ApplicationMessageReactionEnqueueResult::permission &&
+                  reaction()->count == 5 && (reaction()->flags & 1) && !send_next() &&
+                  submissions == before,
+              "reaction runtime: archived threads refuse own removal without mutating aggregates or REST");
+        check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, false) &&
+                  chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, false, false) &&
+                  application_queue_message_reaction(900, reaction_index()) ==
+                      ApplicationMessageReactionEnqueueResult::permission &&
+                  application_queue_message_reaction_emoji(900, 0, glyph(), false) ==
+                      ApplicationMessageReactionEnqueueResult::permission && !owner,
+              "reaction runtime: unknown archive authority refuses both own removal and existing emoji add");
+    }
+
+    check(seed_thread(), "reaction runtime: archive after queued existing add fixture initializes");
+    application_queue_message_reaction(900, reaction_index());
+    const auto before_queue = submissions;
+    check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, true) &&
+              !application_message_reaction_submit(++request_serial, now_ms) && owner &&
+              !owner->controller.count && !owner->controller.flight.active &&
+              reaction()->count == 4 && !(reaction()->flags & 1) && submissions == before_queue,
+          "reaction runtime: submit rechecks source archive state and restores queued existing emoji add");
+
+    constexpr bool known_states[]{false, true};
+    for (bool known : known_states) {
+        check(seed_thread(), "reaction runtime: removal archive authority fixture initializes");
+        GatewayMessageReaction mine{};
+        mine.name = glyph();
+        mine.count = mine.normal_count = 5;
+        mine.me = true;
+        check(snapshot({&mine, 1}) &&
+                  application_queue_message_reaction(900, reaction_index()) ==
+                      ApplicationMessageReactionEnqueueResult::accepted && reaction()->count == 4,
+              "reaction runtime: queued removal projects exactly one own contribution");
+        const auto before_remove = submissions;
+        if (!known)
+            g_app.account_ui->active_channel_id = 80;
+        check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, true, known) &&
+                  !application_message_reaction_pending(now_ms) && owner && !owner->controller.count &&
+                  !send_next() && submissions == before_remove,
+              "reaction runtime: source thread archive authority cancels queued removal after navigation");
+        check(!known || (reaction()->count == 5 && (reaction()->flags & 1)),
+              "reaction runtime: archived resident removal restores exact server own contribution");
+        g_app.account_ui->active_channel_id = 70;
+        // Rehydrate the server's own contribution after returning to the source.
+        check(snapshot({&mine, 1}) &&
+                  chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, false) &&
+                  !send_next() && reaction()->count == 5 && (reaction()->flags & 1) &&
+                  submissions == before_remove,
+              "reaction runtime: renewed active authority cannot replay a canceled removal or inverse add");
+    }
+
+    check(seed_thread(), "reaction runtime: archived retry fixture initializes");
+    application_queue_message_reaction(900, reaction_index());
+    check(send_next() && complete(429, 5000), "reaction runtime: existing emoji rate limit queues retry");
+    const auto before_retry = submissions;
+    now_ms = 5000;
+    check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, true) &&
+              !application_message_reaction_submit(++request_serial, now_ms) && owner &&
+              !owner->controller.count && reaction()->count == 4 && !(reaction()->flags & 1) &&
+              submissions == before_retry,
+          "reaction runtime: archived source cancels due retry without another request or ghost contribution");
+
+    check(seed_thread(), "reaction runtime: archive during in-flight own removal fixture initializes");
+    GatewayMessageReaction mine{};
+    mine.name = glyph();
+    mine.count = mine.normal_count = 5;
+    mine.me = true;
+    check(snapshot({&mine, 1}) &&
+              application_queue_message_reaction(900, reaction_index()) ==
+                  ApplicationMessageReactionEnqueueResult::accepted && send_next() && !submitted_add,
+          "reaction runtime: own removal holds exact transport request");
+    const auto before_cancel = cancellations;
+    check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, 70, 5, true) &&
+              application_message_reaction_synchronize() && owner && !owner->controller.count &&
+              owner->controller.flight.retired && cancellations == before_cancel + 1 &&
+              reaction()->count == 5 && (reaction()->flags & 1) && complete() &&
+              !owner->controller.flight.active && !send_next() && reaction()->count == 5 &&
+              (reaction()->flags & 1),
+          "reaction runtime: archive retires removal flight once and late success cannot replay inverse state");
 }
 
 void run() noexcept {
@@ -627,6 +860,9 @@ void run() noexcept {
         "reaction runtime:128 warm synchronizations do not reproject model, rebuild text or grow backing");
     reset_message_reaction();
     check(!owner, "reaction runtime: actual reset releases bounded lazy owner after no transport borrow");
+    thread_reaction_tests();
+    restricted_member_reaction_tests();
+    reset_message_reaction();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
     g_app.account.instance = nullptr;
