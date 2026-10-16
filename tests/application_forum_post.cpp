@@ -3,6 +3,7 @@
 #include "../src/app/application_forum_post.hpp"
 #include "../src/app/application_state.hpp"
 #include "test_output.hpp"
+#include "maicord/model/read_state.hpp"
 namespace maicord::forum_test {
 u64 now = 1000;
 }
@@ -19,6 +20,12 @@ namespace maicord::forum_test {
 using namespace app_detail;
 u32 failures{}, submissions{}, metadata_submissions{}, cancellations{}, navigations{}, inspections{}, frames{};
 u64 accepted{}, cancelled{}, navigated{};
+u64 parent_ack_cancelled{};
+u32 parent_ack_cancellations{};
+void parent_ack_cancel(void*, u64 id) noexcept {
+    parent_ack_cancelled = id;
+    ++parent_ack_cancellations;
+}
 u8 actor{}, replacement_actor{};
 RestClientSubmitError admission{};
 ForumPostRequest submitted{};
@@ -222,6 +229,7 @@ bool initialize() noexcept {
         !message_composer_initialize(&g_app.message_composer, {composer_text, sizeof(composer_text)}))
         return false;
     state.self_user_id = 5;
+    g_app.message_pump.read_ack_cancel = parent_ack_cancel;
     g_app.plugin_account_scope_serial = 3;
     g_app.account.instance = &actor;
     g_app.account.status.profile_id = 2;
@@ -255,6 +263,12 @@ void run() noexcept {
               !application_forum_post_tag_toggle(ticket, 101) &&
               !application_forum_post_tag_toggle(ticket, 999),
           "forum: actual inventory excludes unauthorized moderated and invented selections");
+    check(chat_state_store_note_history_latest(&g_app.account_ui->chat_state, 70, 850) &&
+              chat_state_store_apply_read_state(&g_app.account_ui->chat_state,
+                  {70, 800, 3, 70'000, 0x80000005u,
+                   read_state_cursor | read_state_mentions | read_state_last_viewed | read_state_flags, {}}) &&
+              forum_metadata_fresh(*forum_owner),
+          "forum: parent activity and read changes preserve fresh metadata before own-post admission");
     check(application_forum_post_draft_submit(ticket) && application_forum_post_submit(11, now) &&
               submitted.tag_count == 0 && submitted.auto_archive_duration == 1440 &&
               !application_forum_post_draft_update(ticket, utf8_literal("Late edit"),
@@ -264,6 +278,11 @@ void run() noexcept {
               message_store_find(g_app.message_view.store, 1900).ok(),
           "forum: optional tags post atomically; immutable draft; strict receipt publishes Core and uses "
           "normal navigation");
+    check(row(70) && row(900) && row(70)->last_message_id == 900 && row(70)->last_read_message_id == 900 &&
+              !row(70)->mention_count && row(70)->read_last_viewed == 70'000 &&
+              row(70)->read_flags == 0x80000005u && row(900)->thread_parent_creation_noted &&
+              parent_ack_cancelled == 70 && parent_ack_cancellations == 1,
+          "forum: successful own HTTP creation acknowledges parent once, clears counts and cancels queued parent ACK");
     reset_owner();
     ticket = begin();
     check(load(20, true), "forum: required-tag metadata fixture");
@@ -285,9 +304,38 @@ void run() noexcept {
     check(draft(ticket) && application_forum_post_view().error && application_forum_post_tag_toggle(ticket, 100) &&
               !application_forum_post_view().error && !application_forum_post_view().status.bytes &&
               application_forum_post_draft_submit(ticket) && application_forum_post_submit(21, now) &&
-              submitted.tag_count == 1 && submitted.applied_tag_ids[0] == 100 &&
-              receipt(21, 200, post(901)) && metadata_submissions == local_metadata_before,
+              submitted.tag_count == 1 && submitted.applied_tag_ids[0] == 100,
           "forum: unchanged text retains local error, real tag correction clears it and reaches atomic POST without another metadata GET");
+    ChannelInput newer_post{940, 7, 70, utf8_literal("Newer post"), 0, 0, 11};
+    newer_post.thread_archived_known = newer_post.thread_locked_known = true;
+    check(chat_state_store_upsert_channel(&g_app.account_ui->chat_state, newer_post).ok() &&
+              chat_state_store_note_thread(&g_app.account_ui->chat_state, 70, 940, 9) &&
+              chat_state_store_apply_read_state(&g_app.account_ui->chat_state,
+                  {70, 900, 2, 0, 0, read_state_cursor | read_state_mentions, {}}),
+          "forum: newer Gateway post and authoritative parent count precede delayed own HTTP receipt");
+    application_forum_post_gateway(7, 70, 940);
+    check(receipt(21, 200, post(901)) && row(70) && row(901) && metadata_submissions == local_metadata_before &&
+              row(70)->last_message_id == 940 && row(70)->last_read_message_id == 901 &&
+              row(70)->mention_count == 2 && row(70)->read_mentions_incomplete &&
+              row(901)->thread_parent_creation_noted && parent_ack_cancellations == 2,
+          "forum: delayed own HTTP receipt acknowledges only its post and retains newer parent activity");
+    const auto parent_cancels_before_duplicate = parent_ack_cancellations;
+    check(chat_state_store_apply_read_state(&g_app.account_ui->chat_state,
+              {70, 800, 4, 0, 0, read_state_cursor | read_state_mentions | read_state_manual, {}}) &&
+              chat_state_store_note_thread(&g_app.account_ui->chat_state, 70, 901, 5) &&
+              row(70)->last_read_message_id == 800 && row(70)->mention_count == 4 &&
+              parent_ack_cancellations == parent_cancels_before_duplicate,
+          "forum: shared HTTP/Gateway creation receipt preserves a later manual parent unread action");
+    reset_owner();
+    ticket = begin();
+    check(load(22) && start(ticket, 23) &&
+              chat_state_store_apply_read_state(&g_app.account_ui->chat_state,
+                  {70, 940, 4, 0, 0, read_state_cursor | read_state_mentions, {}}),
+          "forum: newer parent ACK is already queued before delayed own HTTP publication");
+    check(receipt(23, 200, post(914)) && row(70) && row(914) && row(914)->thread_parent_creation_noted &&
+              row(70)->last_message_id == 940 && row(70)->last_read_message_id == 940 &&
+              row(70)->mention_count == 4 && parent_ack_cancellations == parent_cancels_before_duplicate,
+          "forum: first delayed own HTTP receipt retains a newer queued parent ACK when its cursor does not advance");
     reset_owner();
     permit(kPermissionViewChannel | kPermissionReadMessageHistory |
            kPermissionSendMessages | kPermissionManageThreads);
@@ -382,6 +430,7 @@ void run() noexcept {
         const auto send_before = submissions;
         check(receipt(201 + kind * 2, 200, post(thread_id)) && navigations == nav_before &&
                   forum_owner->known_created == thread_id && !application_forum_post_view().uncertain &&
+                  row(thread_id) && row(thread_id)->thread_parent_creation_noted &&
                   application_forum_post_view().can_retry &&
                   utf8_equal(application_forum_post_view().title, utf8_literal("Captured title")) &&
                   utf8_equal(application_forum_post_view().body, utf8_literal("Starter message")) &&

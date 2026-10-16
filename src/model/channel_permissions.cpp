@@ -463,6 +463,40 @@ bool chat_state_store_note_history_latest(ChatStateStore* store, u64 channel_id,
     return true;
 }
 
+bool chat_state_store_note_thread(ChatStateStore* store, u64 parent_id,
+                                     u64 thread_id, u64 owner_id) noexcept {
+    auto* parent = mutable_channel(store, parent_id);
+    auto* thread = mutable_channel(store, thread_id);
+    if (!parent || !thread || (parent->type != 15 && parent->type != 16) ||
+        thread->type != 11 || thread->parent_id != parent_id ||
+        !parent->guild_id || thread->guild_id != parent->guild_id ||
+        !mutable_guild(store, parent->guild_id))
+        return false;
+    // The parent tracks creation IDs, never a reply's last_message_id.
+    if (!chat_state_store_note_history_latest(store, parent_id, thread_id))
+        return false;
+    if (!owner_id || owner_id != store->self_user_id || thread->thread_parent_creation_noted)
+        return true;
+    if (thread_id > parent->last_read_message_id) {
+        ReadStateEntry entry{};
+        entry.channel_id = parent_id;
+        entry.message_id = thread_id;
+        const bool newer_posts = parent->last_message_id > thread_id;
+        entry.mention_count = newer_posts ? parent->mention_count : 0;
+        entry.fields = static_cast<u8>(read_state_cursor | read_state_mentions |
+            (newer_posts && (entry.mention_count || parent->read_mentions_incomplete)
+                ? read_state_mentions_incomplete : 0));
+        if (!chat_state_store_apply_read_state(store, entry))
+            return false;
+    }
+    // The retained thread is the shared HTTP/Gateway receipt. Metadata refreshes
+    // must not replay the automation after a later manual backward ACK.
+    thread->thread_parent_creation_noted = true;
+    saturating_increment(thread->revision);
+    saturating_increment(store->channel_mutations);
+    return true;
+}
+
 bool chat_state_store_mark_channel_read(ChatStateStore* store, u64 channel_id) noexcept {
     ChannelRecord* channel = mutable_channel(store, channel_id);
     if (!store || !channel) {

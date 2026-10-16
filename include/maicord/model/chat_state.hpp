@@ -245,6 +245,9 @@ struct ChannelRecord {
     // (channel override flags OPT_IN_ENABLED); read while the guild has
     // channel_opt_in.
     bool opted_in : 1;
+    // Own post creation has already updated its forum/media parent read state.
+    // Retained metadata updates preserve this receipt; deleting the thread clears it.
+    bool thread_parent_creation_noted : 1;
     // Slowmode in slowmode_encode form; fits existing padding.
     u8 slowmode_code;
     u32 read_last_viewed;
@@ -632,6 +635,12 @@ bool chat_state_store_note_message(ChatStateStore* store, u64 channel_id, u64 me
 // An older or identical latest ID is an accepted no-op.
 bool chat_state_store_note_history_latest(ChatStateStore* store, u64 channel_id,
                                              u64 latest_message_id) noexcept;
+// Call only for a newly created post, after its thread record is retained.
+// Advances a forum/media parent's latest ID without fabricating mentions.
+// Own creation acknowledges only this post once; delayed receipts preserve
+// newer unread state and an uncertain remaining mention count.
+bool chat_state_store_note_thread(ChatStateStore* store, u64 parent_id,
+                                     u64 thread_id, u64 owner_id) noexcept;
 bool chat_state_store_mark_channel_read(ChatStateStore* store, u64 channel_id) noexcept;
 bool chat_state_store_can_replace_guild_permissions(const ChatStateStore& store, u64 guild_id,
                                                        u32 role_count, u32 overwrite_count) noexcept;

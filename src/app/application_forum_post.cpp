@@ -26,13 +26,21 @@ struct ForumSource {
     u16 parent_generation;
     u8 parent_type;
 };
+// Activity and read-state updates change ChannelRecord::revision while a
+// metadata GET or POST is in flight. Only retained settings and permissions
+// participate here; explicit parent/guild observations also advance the epoch.
+struct ForumParentAuthority {
+    u64 permissions;
+    u32 flags, actions;
+};
 struct ForumFlight {
     ForumSource source;
+    ForumParentAuthority parent_authority;
     ForumPostRequest request;
     u64 id, serial, metadata_epoch;
     u64 changed_threads[8];
     ForumMessageMutation changed_messages[8];
-    u32 draft_revision, parent_revision, publication;
+    u32 draft_revision, publication;
     u64 attachment_id;
     u8* attachment_bank;
     u32 attachment_bank_bytes;
@@ -45,6 +53,7 @@ struct ForumFlight {
 struct ForumOwner {
     ForumSource source;
     ForumFlight flight;
+    ForumParentAuthority metadata_parent_authority;
     ForumParentSnapshot metadata;
     ForumPostSnapshot candidate;
     ApplicationForumPostTag tag_views[kForumPostAvailableTagMaximum];
@@ -56,7 +65,7 @@ struct ForumOwner {
     u64 selected[kForumPostAppliedTagMaximum], uncertain_parents[8];
     u64 serial, metadata_epoch, metadata_checked_epoch, actor_floor, due, known_created;
     Utf8View status;
-    u32 publication, revision, metadata_revision, metadata_parent_revision, draft_revision;
+    u32 publication, revision, metadata_revision, draft_revision;
     u32 title_bytes, body_bytes, parent_name_bytes, busy_count, pins;
     u8 selected_count;
     ForumPhase phase;
@@ -69,6 +78,14 @@ u32 forum_publication{};
 const ChannelRecord* forum_channel(u64 id) noexcept {
     return g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, id)
                             : nullptr;
+}
+ForumParentAuthority forum_parent_authority(const ChannelRecord& parent) noexcept {
+    return {parent.effective_permissions, parent.flags, parent.actions};
+}
+bool forum_parent_authority_current(u64 id, const ForumParentAuthority& authority) noexcept {
+    const auto* parent = forum_channel(id);
+    return parent && authority.permissions == parent->effective_permissions &&
+        authority.flags == parent->flags && authority.actions == parent->actions;
 }
 bool forum_actor_current(const ForumSource& source) noexcept {
     return g_app.account_ui && !g_app.login.visible && source.ui == g_app.account_ui &&
@@ -215,8 +232,7 @@ struct ForumFlightBank {
     ~ForumFlightBank() noexcept { if (data) { SecureZeroMemory(data, bytes); VirtualFree(data, 0, MEM_RELEASE); } }
 };
 bool forum_metadata_fresh(const ForumOwner& owner) noexcept {
-    const auto* parent = forum_channel(owner.source.parent);
-    return owner.metadata_ready && parent && owner.metadata_parent_revision == parent->revision &&
+    return owner.metadata_ready && forum_parent_authority_current(owner.source.parent, owner.metadata_parent_authority) &&
            owner.metadata_checked_epoch == owner.metadata_epoch;
 }
 bool forum_manage_threads(const ForumOwner& owner) noexcept {
@@ -376,8 +392,6 @@ bool forum_publish_thread(ForumOwner& owner, const ForumFlight& flight) noexcept
             old->type != receipt.type || !old->thread_archived_known || !old->thread_locked_known)
             return false;
         owner.known_created = receipt.id;
-        if (!chat_state_store_channel_name(state, *old).bytes)
-            return false;
     } else {
         ChannelInput input{
             receipt.id, receipt.guild_id, receipt.parent_id, thread_creation_name_view(receipt), 0,
@@ -397,6 +411,12 @@ bool forum_publish_thread(ForumOwner& owner, const ForumFlight& flight) noexcept
             return false;
         chat_state_store_recompute_guild_permissions(&state, owner.source.guild);
     }
+    const auto* parent = forum_channel(receipt.parent_id);
+    const u64 previous_parent_cursor = parent ? parent->last_read_message_id : 0;
+    if (chat_state_store_note_thread(&state, receipt.parent_id, receipt.id, state.self_user_id) &&
+        parent && parent->last_read_message_id > previous_parent_cursor &&
+        g_app.message_pump.read_ack_cancel)
+        g_app.message_pump.read_ack_cancel(g_app.message_pump.read_ack_cancel_context, receipt.parent_id);
     owner.known_created = receipt.id;
     return forum_known_created(owner);
 }
@@ -716,7 +736,7 @@ bool application_forum_post_submit(u64 id, u64 now) noexcept {
     admitted.publication = owner.publication;
     admitted.metadata_epoch = owner.metadata_epoch;
     admitted.draft_revision = owner.draft_revision;
-    admitted.parent_revision = forum_channel(owner.source.parent)->revision;
+    admitted.parent_authority = forum_parent_authority(*forum_channel(owner.source.parent));
     admitted.active = true;
     admitted.attachment_id = attachment_id;
     if (operation == ForumOperation::create) {
@@ -811,7 +831,8 @@ bool application_forum_post_response(const RestClientResponse& response, Utf8Vie
     const bool create = flight.request.operation == ForumOperation::create;
     if (flight.request.operation == ForumOperation::attachment_url) {
         auto upload_response = response;
-        if (flight.metadata_epoch != owner.metadata_epoch || flight.parent_revision != forum_channel(owner.source.parent)->revision)
+        if (flight.metadata_epoch != owner.metadata_epoch ||
+            !forum_parent_authority_current(owner.source.parent, flight.parent_authority))
             upload_response.error = RestClientError::response;
         application_forum_attachments_url_response(forum_ticket(owner), flight.attachment_id, upload_response, body);
         if (response.status_code == 401 || response.error == RestClientError::account_restricted ||
@@ -847,7 +868,7 @@ bool application_forum_post_response(const RestClientResponse& response, Utf8Vie
         Slice<u32>{g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount};
     if (!create) {
         if (flight.metadata_epoch != owner.metadata_epoch ||
-            flight.parent_revision != forum_channel(owner.source.parent)->revision) {
+            !forum_parent_authority_current(owner.source.parent, flight.parent_authority)) {
             forum_fail(owner, utf8_literal("Forum settings changed. Try again."));
             return true;
         }
@@ -862,7 +883,7 @@ bool application_forum_post_response(const RestClientResponse& response, Utf8Vie
         owner.metadata = candidate;
         owner.metadata_ready = true;
         owner.metadata_checked_epoch = owner.metadata_epoch;
-        owner.metadata_parent_revision = flight.parent_revision;
+        owner.metadata_parent_authority = flight.parent_authority;
         ++owner.metadata_revision;
         ++owner.revision;
         forum_tags(owner);
@@ -878,7 +899,7 @@ bool application_forum_post_response(const RestClientResponse& response, Utf8Vie
         owner.known_media = media;
         application_forum_attachments_lock(forum_ticket(owner), false);
         if (flight.metadata_epoch != owner.metadata_epoch ||
-            flight.parent_revision != forum_channel(owner.source.parent)->revision) {
+            !forum_parent_authority_current(owner.source.parent, flight.parent_authority)) {
             forum_fail(
                 owner,
                 utf8_literal(

@@ -1224,6 +1224,20 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                                 event.dispatch_kind == GatewayClientDispatchKind::guild_role_delete;
         RoleRecord previous_role{};
         bool previous_known = false;
+        const bool own_thread_creation = event.dispatch_kind == GatewayClientDispatchKind::channel_create &&
+            (event.state.channel_event_flags & gateway_client_channel_new_thread) &&
+            event.state.owner_id != 0 && event.state.owner_id == pump->state->self_user_id;
+        u64 previous_parent_cursor = 0;
+        bool previous_parent_known = false;
+        if (own_thread_creation) {
+            const auto* thread = chat_state_store_find_channel(*pump->state, event.state.id);
+            const u64 parent_id = (event.state.fields & gateway_client_state_field_parent_id)
+                ? event.state.parent_id : thread ? thread->parent_id : 0;
+            if (const auto* parent = chat_state_store_find_channel(*pump->state, parent_id)) {
+                previous_parent_cursor = parent->last_read_message_id;
+                previous_parent_known = true;
+            }
+        }
         if (role_event)
             if (const auto* role =
                     chat_state_store_find_role(*pump->state, event.state.guild_id, event.state.id)) {
@@ -1267,6 +1281,13 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                                                     previous_known ? &previous_role : nullptr) &&
             pump->member_roles_refresh) {
             pump->member_roles_refresh(pump->member_roles_refresh_context, event.state.guild_id);
+        }
+        if (own_thread_creation && previous_parent_known && pump->read_ack_cancel) {
+            const auto* thread = chat_state_store_find_channel(*pump->state, event.state.id);
+            const auto* parent = thread ? chat_state_store_find_channel(*pump->state, thread->parent_id) : nullptr;
+            if (thread && thread->thread_parent_creation_noted && parent &&
+                parent->last_read_message_id > previous_parent_cursor && (parent->type == 15 || parent->type == 16))
+                pump->read_ack_cancel(pump->read_ack_cancel_context, parent->id);
         }
         if (pump->guild_details && (event.dispatch_kind == GatewayClientDispatchKind::guild_create ||
                                     event.dispatch_kind == GatewayClientDispatchKind::guild_update ||

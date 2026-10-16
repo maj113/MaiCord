@@ -131,11 +131,14 @@ ChannelInput channel_input(const GatewayClientStateMutation& state, Utf8View nam
                                state.rate_limit_per_user != 0};
 }
 
-bool validate_channel_state(const GatewayClientStateMutation& state) noexcept {
+bool validate_channel_state(const GatewayClientStateMutation& state, bool allow_new_thread = false) noexcept {
     const bool private_channel = channel_is_private(state.type);
     const u16 required = gateway_client_state_field_id | gateway_client_state_field_type |
         (private_channel ? 0 : gateway_client_state_field_guild_id);
     return (state.fields & required) == required && state.id != 0 &&
+        !(state.channel_event_flags & ~gateway_client_channel_new_thread) &&
+        (allow_new_thread || !state.channel_event_flags) &&
+        (!state.channel_event_flags || state.type == 10 || state.type == 11 || state.type == 12) &&
         !state.guild_banner && state.rate_limit_per_user <= 21601 &&
         !(state.content_policy & ~kChannelContentAgeRestricted) && (!state.content_policy || state.content_policy_known) &&
         (!state.thread_archived || state.thread_archived_known) &&
@@ -1175,7 +1178,7 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
             chat_state_store_find_channel(*store, event.state.id);
         if (!state_payload_disjoint(*store, payload) ||
             !state_payload_disjoint(*store, {reinterpret_cast<const u8*>(&event), sizeof(event)}) ||
-            !validate_channel_state(event.state) ||
+            !validate_channel_state(event.state, event.dispatch_kind == GatewayClientDispatchKind::channel_create) ||
             !gateway_client_event_state_name(event, payload, &name) || name.bytes > 400 ||
             (resident && resident->guild_id != event.state.guild_id) ||
             (!has_overwrites && event.state.overwrite_count != 0) ||
@@ -1275,6 +1278,8 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
             return apply_error(ChatStateApplyError::capacity);
         }
         chat_state_store_recompute_guild_permissions(store, event.state.guild_id);
+        if (event.state.channel_event_flags & gateway_client_channel_new_thread)
+            chat_state_store_note_thread(store, input.parent_id, input.id, event.state.owner_id);
         result.channels = 1;
         result.overwrites = event.state.overwrite_count;
     }

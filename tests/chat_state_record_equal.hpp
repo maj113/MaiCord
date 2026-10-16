@@ -28,6 +28,7 @@ inline bool channel_equal(const ChannelRecord& a, const ChannelRecord& b) noexce
         a.flags == b.flags && a.actions == b.actions && a.mention_count == b.mention_count &&
         a.name_bytes == b.name_bytes && a.generation == b.generation && a.overwrite_count == b.overwrite_count &&
         a.thread_archived == b.thread_archived && a.thread_archived_known == b.thread_archived_known &&
+        a.thread_parent_creation_noted == b.thread_parent_creation_noted &&
         a.revision == b.revision && a.type == b.type && a.occupied == b.occupied &&
         a.permissions_resolved == b.permissions_resolved && a.collapsed == b.collapsed &&
         a.read_state_known == b.read_state_known && a.read_auto_ack_suppressed == b.read_auto_ack_suppressed &&

@@ -83,6 +83,7 @@ struct StateObjectContext {
     bool message_request, message_request_seen, spam, spam_seen, safety_warnings_seen;
     // A guild's join time; the official client reads a guild without one as previewed.
     bool joined_at_seen, joined;
+    bool newly_created_seen, newly_created;
 };
 
 using PayloadWriter = GatewayPayloadWriter;
@@ -312,6 +313,14 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
         context->thread_metadata_seen = true;
         context->thread_metadata = value;
         return true;
+    }
+    if (json_name_is(name, utf8_literal("newly_created"))) {
+        if (context->newly_created_seen) {
+            context->error = GatewayEventDecodeError::duplicate_field;
+            return false;
+        }
+        context->newly_created_seen = true;
+        return json_value_to_bool(value, &context->newly_created) || reject(context);
     }
     if (json_name_is(name, utf8_literal("member"))) {
         if (context->thread_member_seen)
@@ -2065,8 +2074,9 @@ GatewayClientDispatchRouteResult route_state_dispatch(
     const bool guild_create = ready_guild || event_is(envelope.event_name, utf8_literal("GUILD_CREATE"));
     const bool guild_update = event_is(envelope.event_name, utf8_literal("GUILD_UPDATE"));
     const bool guild_delete = event_is(envelope.event_name, utf8_literal("GUILD_DELETE"));
+    const bool thread_create = event_is(envelope.event_name, utf8_literal("THREAD_CREATE"));
     const bool channel_create = event_is(envelope.event_name, utf8_literal("CHANNEL_CREATE")) ||
-                                event_is(envelope.event_name, utf8_literal("THREAD_CREATE"));
+                                thread_create;
     const bool channel_update = event_is(envelope.event_name, utf8_literal("CHANNEL_UPDATE")) ||
                                 event_is(envelope.event_name, utf8_literal("THREAD_UPDATE"));
     const bool channel_delete = event_is(envelope.event_name, utf8_literal("CHANNEL_DELETE")) ||
@@ -2119,6 +2129,10 @@ GatewayClientDispatchRouteResult route_state_dispatch(
     u32 object_scratch[512]{};
     u32 role_scratch[1'024]{};
     event->state = object.mutation;
+
+    if (channel_create || channel_update || channel_delete)
+        event->state.channel_event_flags = thread_create && object.newly_created
+            ? gateway_client_channel_new_thread : 0;
 
     if (guild_emojis_update) {
         if ((object.mutation.fields & gateway_client_state_field_guild_id) == 0 || !object.emojis_seen) {

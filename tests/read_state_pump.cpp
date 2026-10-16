@@ -15,6 +15,7 @@ struct Fixture {
     ReadStateEntry pending[4];
     u32 reserve_calls, cancel_calls, reset_calls;
     u64 cancelled_channel;
+    ReadAckController* cancellation_queue;
     bool reserve_fail;
     u32 observed_calls;
     u64 observed_channel, observed_cursor;
@@ -39,6 +40,7 @@ bool reserve(void* context, u32) noexcept {
 }
 void cancel(void* context, u64 channel_id) noexcept {
     auto& f = *static_cast<Fixture*>(context); ++f.cancel_calls; f.cancelled_channel = channel_id;
+    if (f.cancellation_queue) read_ack_controller_cancel(f.cancellation_queue, channel_id);
 }
 void reset(void* context) noexcept { ++static_cast<Fixture*>(context)->reset_calls; }
 MessageReadBadge badge_policy(void* context,const GatewayClientEvent&,ConstSlice<u8>) noexcept {
@@ -58,6 +60,7 @@ bool channel(u64 id, u64 last) noexcept {
 bool initialize() noexcept {
     auto& f = fixture;
     f.reserve_calls = f.cancel_calls = f.reset_calls = 0; f.cancelled_channel = 0; f.reserve_fail = false;
+    f.cancellation_queue = nullptr;
     f.observed_calls = 0; f.observed_channel = f.observed_cursor = 0;
     f.observed_manual = f.observed_model_committed = false;
     f.badge=MessageReadBadge::none;f.badge_calls=0;
@@ -409,5 +412,50 @@ void test_read_state_pump(void (*check)(bool, const char*) noexcept) noexcept {
     check(!message_event_pump_consume(&f.pump,event,{}).ok()&&f.badge_calls==before_reject&&find(80)->last_message_id==210,
         "read automation: malformed create cannot invoke badge policy or change channel activity");
 
+    check(initialize(),"thread read automation: reset bounded parent activity fixture");
+    ChannelInput parent{};parent.id=80;parent.guild_id=7;parent.type=15;
+    parent.last_message_id=150;parent.last_message_known=true;
+    f.records[0]=entry(80,100,2);
+    check(chat_state_store_upsert_channel(&f.state,parent).ok()&&snapshot(1).ok(),
+        "thread read automation: forum parent retains outstanding read counts");
+    event={};event.kind=GatewayClientEventKind::dispatch;event.dispatch_kind=GatewayClientDispatchKind::channel_create;
+    event.state.id=220;event.state.guild_id=7;event.state.parent_id=80;event.state.owner_id=1;event.state.type=11;
+    event.state.fields=gateway_client_state_field_id|gateway_client_state_field_guild_id|
+        gateway_client_state_field_type|gateway_client_state_field_parent_id|gateway_client_state_field_owner_id;
+    event.state.channel_event_flags=gateway_client_channel_new_thread;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_read_message_id==220&&
+        find(80)->mention_count==0&&f.cancel_calls==1&&f.cancelled_channel==80,
+        "thread read automation: first validated own post creation cancels old parent ACK after committing read state");
+    check(read_state_mark_unread_local(&f.state,80,100,2,true)&&
+        message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_read_message_id==100&&
+        find(80)->mention_count==2&&f.cancel_calls==1,
+        "thread read automation: duplicate own post receipt cannot cancel later manual parent work");
+    event.state.fields&=~gateway_client_state_field_type;
+    check(!message_event_pump_consume(&f.pump,event,{}).ok()&&f.cancel_calls==1&&find(80)->last_read_message_id==100,
+        "thread read automation: rejected post creation cannot cancel parent ACK work");
+    check(initialize(),"thread read automation: reset delayed own receipt cancellation fixture");
+    parent.last_message_id=300;
+    f.records[0]=entry(80,300,2);
+    check(chat_state_store_upsert_channel(&f.state,parent).ok()&&snapshot(1).ok(),
+        "thread read automation: parent has a newer local ACK cursor before delayed own creation");
+    ReadAckIntent queued_slots[1]{};
+    ReadAckController queued_parent_ack{};
+    ReadAckIntent queued_intent{};queued_intent.channel_id=80;queued_intent.message_id=300;
+    check(read_ack_controller_initialize(&queued_parent_ack,{queued_slots,1})&&
+        read_ack_controller_queue(&queued_parent_ack,queued_intent,1000,true),
+        "thread read automation: actual ACK controller retains the newer desired parent cursor");
+    f.cancellation_queue=&queued_parent_ack;
+    event.state.id=219;
+    event.state.fields|=gateway_client_state_field_type;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(219)->thread_parent_creation_noted&&
+        find(80)->last_message_id==300&&find(80)->last_read_message_id==300&&
+        find(80)->mention_count==2&&!f.cancel_calls&&queued_parent_ack.count==1&&
+        queued_parent_ack.pending[0].message_id==300,
+        "thread read automation: first delayed own receipt leaves a newer queued parent ACK intact");
+    event.state.id=320;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_read_message_id==320&&
+        !find(80)->mention_count&&f.cancel_calls==1&&f.cancelled_channel==80&&!queued_parent_ack.count,
+        "thread read automation: a later own creation that advances the parent cursor retires the older ACK");
+    f.cancellation_queue=nullptr;
 }
 } // namespace maicord
