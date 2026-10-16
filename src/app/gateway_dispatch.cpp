@@ -1155,6 +1155,58 @@ void gateway_client_append_notification_sidecar(const GatewayEnvelope& envelope,
     notification_side(envelope, structural_scratch, storage, self_user_id, event, payload);
 }
 
+GatewayReactionBatchVisitResult gateway_client_publish_reaction_batch(
+    const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
+    Slice<char> name_scratch, u64 now_ms,
+    bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept, void* context,
+    GatewayReactionBatchCursor* cursor) noexcept {
+    if (!publish || envelope.opcode != 0 || !envelope.has_sequence || !envelope.has_event_name ||
+        !json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_REACTION_ADD_MANY")))
+        return {{0, GatewayEventDecodeError::invalid_data}, 0, false};
+    struct Binding {
+        const GatewayEnvelope* envelope;
+        u64 now_ms;
+        bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept;
+        void* context;
+        u32 remaining_prefix;
+    } binding{&envelope, now_ms, publish, context,
+              cursor && cursor->active && cursor->sequence == envelope.sequence ? cursor->published : 0};
+    auto result = gateway_visit_message_reaction_add_many(
+        envelope.data, structural_scratch, maximum_depth, name_scratch, &binding,
+        [](void* opaque, const GatewayMessageReactionEvent& reaction) noexcept {
+            auto& binding = *static_cast<Binding*>(opaque);
+            if (binding.remaining_prefix) {
+                --binding.remaining_prefix;
+                return true;
+            }
+            GatewayClientEvent event{};
+            event.kind = GatewayClientEventKind::dispatch;
+            event.dispatch_kind = GatewayClientDispatchKind::message_reaction_add;
+            event.sequence = binding.envelope->sequence;
+            event.has_sequence = binding.envelope->has_sequence;
+            event.timestamp_ms = binding.now_ms;
+            event.reaction.message_id = reaction.message_id;
+            event.reaction.channel_id = reaction.channel_id;
+            event.reaction.user_id = reaction.user_id;
+            event.reaction.emoji_id = reaction.emoji_id;
+            event.reaction.name_bytes = static_cast<u16>(reaction.name.bytes);
+            event.reaction.type = static_cast<u8>(reaction.type);
+            event.reaction.flags = reaction.animated ? 1u : 0u;
+            event.dispatch_payload_bytes = reaction.name.bytes;
+            return binding.publish(binding.context, event,
+                                   {reinterpret_cast<const u8*>(reaction.name.data), reaction.name.bytes});
+        });
+    if (result.ok() && binding.remaining_prefix)
+        result.decoded.error = GatewayEventDecodeError::invalid_data;
+    if (cursor) {
+        if (result.ok())
+            *cursor = {};
+        else if (result.cancelled)
+            *cursor = {envelope.sequence, result.visited, result.visited != 0};
+    }
+    return result;
+}
+
 GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, GatewayClientEvent* event,

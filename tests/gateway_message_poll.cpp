@@ -3,6 +3,7 @@
 #include "maicord/protocol/message_search.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/app/gateway_client.hpp"
+#include "../src/app/gateway_dispatch_common.hpp"
 
 namespace maicord {
 namespace {
@@ -80,8 +81,193 @@ bool search_sink(void*, u32 index, const MessageSearchMessage& message) noexcept
     f.sink_answer_ids[index] = message.message.poll.answers[0].answer_id;
     return true;
 }
+
+struct ReactionBatchCapture {
+    GatewayMessageReactionEvent events[8];
+    char names[8][kMessageReactionMaximumEmojiNameBytes];
+    u32 calls, stop_after;
+    bool bridge_invalid;
+};
+bool reaction_batch_sink(void* opaque, const GatewayMessageReactionEvent& event) noexcept {
+    auto& capture = *static_cast<ReactionBatchCapture*>(opaque);
+    const u32 index = capture.calls++;
+    if (capture.stop_after && index >= capture.stop_after)
+        return false;
+    if (index < 8) {
+        capture.events[index] = event;
+        copy_bytes(capture.names[index], event.name.data, event.name.bytes);
+        capture.events[index].name = {capture.names[index], event.name.bytes};
+    }
+    return true;
+}
+bool reaction_batch_publish_sink(void* opaque, const GatewayClientEvent& event,
+                                 ConstSlice<u8> payload) noexcept {
+    auto& capture = *static_cast<ReactionBatchCapture*>(opaque);
+    GatewayMessageReactionEvent reaction{};
+    const bool decoded = gateway_client_event_as_message_reaction(event, payload, &reaction);
+    capture.bridge_invalid =
+        capture.bridge_invalid || !decoded || event.kind != GatewayClientEventKind::dispatch ||
+        event.dispatch_kind != GatewayClientDispatchKind::message_reaction_add || !event.has_sequence ||
+        event.sequence != 91 || event.timestamp_ms != 1234 ||
+        event.dispatch_payload_bytes != payload.count || event.reaction.name_bytes != payload.count ||
+        reaction.kind != GatewayMessageReactionEventKind::add ||
+        reaction.type != MessageReactionType::normal || reaction.channel_id != 7 ||
+        reaction.message_id != 77;
+    return decoded && reaction_batch_sink(opaque, reaction);
+}
+void reaction_batch_checks(void (*check)(bool, const char*) noexcept) noexcept {
+    ReactionBatchCapture capture{};
+    const auto visit = [&](Utf8View body,
+                           u32 name_capacity = kMessageReactionMaximumEmojiNameBytes) noexcept {
+        return gateway_visit_message_reaction_add_many({body, 0, JsonValueKind::object},
+                                                       {f.structurals, 2048}, 32, {f.text, name_capacity},
+                                                       &capture, reaction_batch_sink);
+    };
+    constexpr auto batch = utf8_literal(
+        R"({"channel_id":"7","message_id":"77","guild_id":"9","reactions":[{"users":["11","12","11"],"emoji":{"id":null,"name":"\u2764\ufe0f"}},{"users":["11"],"emoji":{"id":"44","name":null,"animated":true}},{"users":["12"],"emoji":{"id":"45","name":"wave","animated":true}}]})");
+    const auto accepted = visit(batch);
+    bool normal = true;
+    for (u32 i = 0; i < capture.calls && i < 8; ++i)
+        normal = normal && capture.events[i].kind == GatewayMessageReactionEventKind::add &&
+                 capture.events[i].type == MessageReactionType::normal &&
+                 capture.events[i].channel_id == 7 && capture.events[i].message_id == 77;
+    for (char& byte : f.text)
+        byte = '!';
+    check(accepted.ok() && accepted.visited == 5 && capture.calls == 5 && normal &&
+              capture.events[0].user_id == 11 && capture.events[1].user_id == 12 &&
+              capture.events[2].user_id == 11 && capture.events[3].emoji_id == 44 &&
+              !capture.events[3].name.bytes && capture.events[3].animated &&
+              capture.events[4].emoji_id == 45 && capture.events[4].animated &&
+              utf8_equal(capture.events[0].name, utf8_literal("\xe2\x9d\xa4\xef\xb8\x8f")) &&
+              utf8_equal(capture.events[4].name, utf8_literal("wave")),
+          "reaction batch preserves normal additions wire order repeated users Unicode and unavailable "
+          "custom emoji");
+    capture = {};
+    GatewayEnvelope envelope{};
+    envelope.data = {batch, 0, JsonValueKind::object};
+    envelope.event_name = {utf8_literal("MESSAGE_REACTION_ADD_MANY"), 0, false};
+    envelope.sequence = 91;
+    envelope.has_sequence = true;
+    envelope.has_event_name = true;
+    const auto published =
+        gateway_client_publish_reaction_batch(envelope, {f.structurals, 2048}, 32, {f.text, sizeof(f.text)},
+                                              1234, reaction_batch_publish_sink, &capture);
+    for (char& byte : f.text)
+        byte = '!';
+    check(published.ok() && published.visited == 5 && capture.calls == 5 && !capture.bridge_invalid &&
+              capture.events[0].user_id == 11 && capture.events[1].user_id == 12 &&
+              capture.events[2].user_id == 11 && capture.events[3].emoji_id == 44 &&
+              capture.events[3].animated && !capture.events[3].name.bytes &&
+              capture.events[4].emoji_id == 45 && capture.events[4].animated &&
+              utf8_equal(capture.events[0].name, utf8_literal("\xe2\x9d\xa4\xef\xb8\x8f")) &&
+              utf8_equal(capture.events[4].name, utf8_literal("wave")),
+          "reaction batch bridge stamps sequence time and individual add descriptors with copied name "
+          "payloads");
+    capture = {};
+    capture.stop_after = 1;
+    GatewayReactionBatchCursor cursor{};
+    const auto publish_cancelled =
+        gateway_client_publish_reaction_batch(envelope, {f.structurals, 2048}, 32, {f.text, sizeof(f.text)},
+                                              1234, reaction_batch_publish_sink, &capture, &cursor);
+    check(!publish_cancelled.ok() && publish_cancelled.decoded.ok() && publish_cancelled.cancelled &&
+              publish_cancelled.visited == 1 && capture.calls == 2 && !capture.bridge_invalid &&
+              cursor.active && cursor.sequence == 91 && cursor.published == 1,
+          "reaction batch bridge stops immediately and retains the accepted prefix for resume");
+    capture = {};
+    capture.stop_after = 1;
+    const auto replay_cancelled =
+        gateway_client_publish_reaction_batch(envelope, {f.structurals, 2048}, 32, {f.text, sizeof(f.text)},
+                                              1234, reaction_batch_publish_sink, &capture, &cursor);
+    check(!replay_cancelled.ok() && replay_cancelled.decoded.ok() && replay_cancelled.cancelled &&
+              replay_cancelled.visited == 2 && capture.calls == 2 && !capture.bridge_invalid &&
+              capture.events[0].user_id == 12 && cursor.active && cursor.sequence == 91 &&
+              cursor.published == 2,
+          "reaction batch resumed cancellation advances total progress without repeating accepted users");
+    capture = {};
+    auto shorter = envelope;
+    shorter.data = {
+        utf8_literal(
+            R"({"channel_id":"7","message_id":"77","reactions":[{"users":["11"],"emoji":{"name":"x"}}]})"),
+        0, JsonValueKind::object};
+    const auto shortened =
+        gateway_client_publish_reaction_batch(shorter, {f.structurals, 2048}, 32, {f.text, sizeof(f.text)},
+                                              1234, reaction_batch_publish_sink, &capture, &cursor);
+    check(!shortened.ok() && shortened.decoded.error == GatewayEventDecodeError::invalid_data &&
+              !shortened.cancelled && !capture.calls && cursor.active && cursor.published == 2,
+          "reaction batch replay shorter than its accepted prefix is rejected without publishing");
+    const auto resumed =
+        gateway_client_publish_reaction_batch(envelope, {f.structurals, 2048}, 32, {f.text, sizeof(f.text)},
+                                              1234, reaction_batch_publish_sink, &capture, &cursor);
+    check(resumed.ok() && resumed.visited == 5 && capture.calls == 3 && !capture.bridge_invalid &&
+              capture.events[0].user_id == 11 && capture.events[0].emoji_id == 0 &&
+              capture.events[1].user_id == 11 && capture.events[1].emoji_id == 44 &&
+              capture.events[2].user_id == 12 && capture.events[2].emoji_id == 45 &&
+              utf8_equal(capture.events[2].name, utf8_literal("wave")) && !cursor.active &&
+              !cursor.sequence && !cursor.published,
+          "reaction batch resume publishes only its remaining suffix and clears completed progress");
+    capture = {};
+    check(
+        visit(utf8_literal(R"({"channel_id":"7","message_id":"77","reactions":[]})")).ok() &&
+            visit(
+                utf8_literal(
+                    R"({"channel_id":"7","message_id":"77","reactions":[{"users":[],"emoji":{"id":null,"name":"x"}}]})"))
+                .ok() &&
+            !capture.calls,
+        "reaction batch empty arrays are validated no-ops");
+    const Utf8View malformed[]{
+        utf8_literal(
+            R"({"channel_id":"7","message_id":"77","reactions":[{"users":["11"],"emoji":{"name":"x"}},{"users":["0"],"emoji":{"name":"y"}}]})"),
+        utf8_literal(
+            R"({"channel_id":"7","message_id":"77","reactions":[{"users":["11"],"emoji":{"name":"x"}},{"users":["12"],"emoji":{"name":"y","name":"z"}}]})"),
+        utf8_literal(
+            R"({"channel_id":"7","message_id":"77","reactions":[{"users":null,"emoji":{"name":"x"}}]})"),
+        utf8_literal(
+            R"({"channel_id":"7","message_id":"77","reactions":[{"users":["11"],"emoji":{"id":null,"name":null}}]})"),
+        utf8_literal(R"({"channel_id":"7","message_id":"77","reactions":[],"reactions":[]})"),
+        utf8_literal(R"({"channel_id":"7","message_id":"77","guild_id":null,"reactions":[]})")};
+    bool atomic = true;
+    for (const auto body : malformed) {
+        capture = {};
+        const auto rejected = visit(body);
+        atomic = atomic && !rejected.ok() && !rejected.decoded.ok() && !rejected.cancelled &&
+                 !rejected.visited && !capture.calls;
+    }
+    check(atomic, "reaction batch rejects malformed later users emoji duplicate fields and metadata before "
+                  "publishing a prefix");
+    capture = {};
+    check(!visit(batch, 1).ok() && !capture.calls,
+          "reaction batch name capacity failure cannot publish an earlier valid reaction");
+    capture = {};
+    capture.stop_after = 1;
+    const auto cancelled = visit(batch);
+    check(!cancelled.ok() && cancelled.decoded.ok() && cancelled.cancelled && cancelled.visited == 1 &&
+              capture.calls == 2,
+          "reaction batch stops at the first rejected callback without visiting later entries");
+    capture = {};
+    ProtocolWriter writer{{f.generated, sizeof(f.generated)}, 0};
+    bool written =
+        protocol_writer_append_literal(&writer, "{\"channel_id\":\"7\",\"message_id\":\"77\",\"reactions\":"
+                                                "[{\"emoji\":{\"name\":\"x\"},\"users\":[");
+    for (u32 i = 1; i <= 300; ++i)
+        written = written && (i == 1 || protocol_writer_append_byte(&writer, ',')) &&
+                  protocol_writer_append_byte(&writer, '"') && protocol_writer_append_u64(&writer, i) &&
+                  protocol_writer_append_byte(&writer, '"');
+    written = written && protocol_writer_append_literal(&writer, "]}]}");
+    const Utf8View large{reinterpret_cast<const char*>(f.generated), writer.used};
+    const auto streamed = visit(large);
+    check(written && streamed.ok() && streamed.visited == 300 && capture.calls == 300,
+          "reaction batch streams a populated message linearly without a small actor table cap");
+    capture = {};
+    const auto aliased = gateway_visit_message_reaction_add_many(
+        {large, 0, JsonValueKind::object}, {f.structurals, 2048}, 32,
+        {reinterpret_cast<char*>(f.generated), 128}, &capture, reaction_batch_sink);
+    check(!aliased.ok() && aliased.decoded.error == GatewayEventDecodeError::invalid_input &&
+              !capture.calls && f.generated[0] == '{',
+          "reaction batch rejects scratch aliasing before overwriting its source");
+}
 } // namespace
 void test_gateway_message_poll(void (*check)(bool, const char*) noexcept) noexcept {
+    reaction_batch_checks(check);
     f.used = 0;
     check(decode(complete_poll, true).ok() && f.output.present && f.output.fields == 63 &&
               f.output.answers.count == 2 && f.output.answers[0].answer_id == 7 &&

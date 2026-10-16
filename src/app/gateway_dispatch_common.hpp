@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/protocol/gateway_reaction_events.hpp"
 
 namespace maicord {
 
@@ -12,6 +13,23 @@ void gateway_client_append_notification_sidecar(const GatewayEnvelope& envelope,
                                                 Slice<u32> structural_scratch, Slice<char> storage,
                                                 u64 self_user_id, GatewayClientEvent* event,
                                                 ConstSlice<u8>* payload) noexcept;
+
+// Worker-owned, session-scoped progress. Keep through RESUME and clear when
+// invalidating the saved session or committing a fresh READY.
+struct GatewayReactionBatchCursor {
+    u64 sequence;
+    u32 published;
+    bool active;
+};
+// Each accepted batch entry becomes the same pointer-free event as a single
+// reaction add. The publisher must copy its borrowed name before returning.
+// A cursor suppresses an already-published prefix of this exact replayed
+// sequence. visited includes that prefix; cancellation retains total progress.
+GatewayReactionBatchVisitResult gateway_client_publish_reaction_batch(
+    const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
+    Slice<char> name_scratch, u64 now_ms,
+    bool (*publish)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept, void* context,
+    GatewayReactionBatchCursor* cursor = nullptr) noexcept;
 
 // A member's user object as member-list and thread-member records carry it.
 // field_detail is the last visited field (ordinal << 8 | JSON kind), kept for

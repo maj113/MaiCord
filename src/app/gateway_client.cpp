@@ -21,6 +21,7 @@
 #include "maicord/protocol/websocket_frame.hpp"
 #include "maicord/protocol/websocket_handshake.hpp"
 #include "gateway_user_payload.hpp"
+#include "gateway_dispatch_common.hpp"
 #include "gateway_relationship_dispatch.hpp"
 #include "gateway_ready_projection.hpp"
 #include "gateway_subscription_thread_owner.hpp"
@@ -103,6 +104,7 @@ struct GatewayClientRuntime {
     u64 mailbox_deadline_ms;
     SecureBuffer credential;
     GatewayResumeState resume;
+    GatewayReactionBatchCursor reaction_batch;
     u64 resume_user_id; // Protected by resume_lock together with its matching session.
     SRWLOCK resume_lock;
     SRWLOCK subscription_lock;
@@ -649,6 +651,7 @@ bool publish_ready_projection(void* opaque, const GatewayClientEvent& event,
         // child has passed its typed route. Preflight cannot change state.
         InterlockedExchange(&binding.client->required_action, static_cast<LONG>(binding.required_action));
         binding.runtime->self_user_id = event.state.id;
+        binding.runtime->reaction_batch = {};
         reset_voice(binding.client, binding.runtime);
     }
     return publish_event_payload(binding.client, binding.runtime, event, payload);
@@ -716,6 +719,7 @@ bool release_resolver(GatewayClientRuntime* runtime) noexcept {
 }
 
 void clear_resume(GatewayClientRuntime* runtime) noexcept {
+    runtime->reaction_batch = {};
     AcquireSRWLockExclusive(&runtime->resume_lock);
     gateway_resume_clear(&runtime->resume);
     runtime->resume_user_id = 0;
@@ -2083,7 +2087,35 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             GatewayClientDispatchRouteResult routed{};
             const bool supplemental =
                 json_string_equals_ascii(event.envelope.event_name, utf8_literal("READY_SUPPLEMENTAL"));
-            if (supplemental) {
+            if (json_string_equals_ascii(event.envelope.event_name,
+                                         utf8_literal("MESSAGE_REACTION_ADD_MANY"))) {
+                runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
+                RelationshipStreamBinding binding{client, runtime};
+                const auto batch = gateway_client_publish_reaction_batch(
+                    event.envelope, main_index_view(runtime), 64,
+                    {reinterpret_cast<char*>(runtime->handshake_output + kMessageBytes),
+                     kMessageReactionMaximumEmojiNameBytes},
+                    now_ms, publish_relationship_stream, &binding, &runtime->reaction_batch);
+                runtime->mailbox_deadline_ms = 0;
+                if (batch.cancelled)
+                    return schedule_reconnect(client, runtime, GatewayLifecycleAction::reconnect_resume,
+                                              now_ms, 0)
+                               ? PlaintextDrive::reconnecting
+                               : PlaintextDrive::failed;
+                if (batch.ok()) {
+                    if (runtime->resume.valid && runtime->session.lifecycle.has_sequence)
+                        publish_resume_sequence(runtime, runtime->session.lifecycle.last_sequence);
+                    continue;
+                }
+                routed.error = GatewayClientDispatchRouteError::decode;
+                routed.event_error = batch.decoded.error;
+                routed.scan_error = batch.decoded.scan_error;
+                routed.read_error = batch.decoded.read_error;
+                routed.error_offset = batch.decoded.error_offset;
+                dispatch.kind = GatewayClientEventKind::dispatch;
+                dispatch.sequence = event.envelope.sequence;
+                dispatch.has_sequence = event.envelope.has_sequence;
+            } else if (supplemental) {
                 runtime->mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
                 JsonValue channels{};
                 const auto decoded = gateway_decode_supplemental_private_channels(
@@ -2209,6 +2241,8 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                                              utf8_literal("MESSAGE_DELETE_BULK"));
                 const bool reaction_event =
                     json_string_equals_ascii(event.envelope.event_name,
+                                             utf8_literal("MESSAGE_REACTION_ADD_MANY")) ||
+                    json_string_equals_ascii(event.envelope.event_name,
                                              utf8_literal("MESSAGE_REACTION_ADD")) ||
                     json_string_equals_ascii(event.envelope.event_name,
                                              utf8_literal("MESSAGE_REACTION_REMOVE")) ||
@@ -2243,6 +2277,9 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                                ? PlaintextDrive::reconnecting
                                : PlaintextDrive::failed;
                 }
+                if (json_string_equals_ascii(event.envelope.event_name,
+                                             utf8_literal("MESSAGE_REACTION_ADD_MANY")))
+                    runtime->reaction_batch = {};
                 // A joined guild that cannot be projected is still listed,
                 // as unavailable, instead of silently missing.
                 GatewayClientEvent placeholder{};
