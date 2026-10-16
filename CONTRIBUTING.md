@@ -65,6 +65,13 @@ files instead of re-sorting the lists.
 
 ## Code guidelines
 
+- For Discord API, authentication and Gateway work, use
+  [Discord Userdoccers](https://docs.discord.food/) alongside Discord's official
+  documentation when adding features and checking existing behavior. Cross-check
+  uncertain details against local client research, and cover request metadata,
+  session lifetimes, rate limits and challenge handling with regression tests.
+  Its [MCP endpoint](https://docs.discord.food/mcp) provides `search_docs` and
+  `fetch_page`; use the sitemap/navigation for complete page and section coverage.
 - **Freestanding C++23.** Don't use the STL, the CRT, exceptions or RTTI. Use
   the types in `include/maicord/core`. New Win32 imports need a reason. Every
   build runs the PE audits in `tools/audit_pe.ps1`.

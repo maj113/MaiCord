@@ -24,6 +24,13 @@ has the same rules in more detail.
 
 ## Code rules
 
+- For Discord API, authentication and Gateway work, consult
+  [Discord Userdoccers](https://docs.discord.food/) for new features and to verify
+  existing behavior, alongside Discord's official documentation. Cross-check
+  uncertain details against the supplied client research; keep regression tests
+  for request metadata, session lifetimes, rate limits and challenge handling.
+  Its [MCP endpoint](https://docs.discord.food/mcp) provides `search_docs` and
+  `fetch_page`; use the sitemap/navigation to enumerate all pages and sections.
 - Freestanding C++23: no STL, CRT, exceptions or RTTI. Use
   `include/maicord/core`. Every build runs the PE audits in
   `tools/audit_pe.ps1` (imports, debug data, initialized-data budget).
