@@ -184,187 +184,257 @@ void check(bool success, const char* name) noexcept {
     test_write_text("FAIL ");
     test_write_line(name);
 }
+using ExtensionCheck = void (*)(bool, const char*) noexcept;
+using ExtensionFixture = void (*)(ExtensionCheck) noexcept;
+// Keep the original fixture order. Round-robin shards execute this complete
+// union once, with one process/profile per shard and no shared mutable globals.
+constexpr ExtensionFixture extension_fixtures[]{
+    test_update_manifest,
+    test_update_artifact,
+    test_update_acceptance,
+    test_update_stage,
+    test_update_prepare,
+    test_update_pair_package,
+    test_update_generation,
+    test_update_generation_authentication,
+    test_update_generation_failures,
+    test_update_install,
+    test_update_signed_handoff,
+    test_application_update_startup,
+    test_desktop_integration,
+    test_regional_flag_media,
+    test_flag_surfaces,
+    test_composer_source_spans,
+    test_reaction_sections,
+    test_message_reaction_controller,
+    test_gateway_message_poll,
+    test_message_poll_store,
+    test_message_poll_actions,
+    test_poll_controller,
+    test_poll_controls,
+    test_message_poll_presentation,
+    test_application_login_geometry,
+    test_tsf_end_edit,
+    test_member_list_sparse_model,
+    test_member_list_sparse_wire,
+    test_member_list_visible_users,
+    test_member_user_perf,
+    test_member_paging_pump,
+    test_thread_members,
+    test_thread_authority_model,
+    test_thread_header,
+    test_application_thread_header_activation,
+    test_thread_archive,
+    test_thread_storage,
+    test_read_state_model,
+    test_read_state_wire,
+    test_message_ack,
+    test_bulk_message_ack,
+    test_read_scope,
+    test_bulk_read_ack_controller,
+    test_read_ack_controller,
+    test_channel_context_policy,
+    test_guild_context_policy,
+    test_user_context_menu,
+    test_message_context_extras,
+    test_user_note_store,
+    test_active_now,
+    test_friends_active_now,
+    test_unread_context,
+    test_message_unread_context_menu,
+    test_read_state_pump,
+    test_read_ack_visibility,
+    test_mention_badge_text,
+    test_gateway_ready_projection,
+    test_text_emitter,
+    test_widget_builder,
+    [](ExtensionCheck verify) noexcept {
+        verify(test_thread_member_viewport() == 0, "thread member viewport and scene regressions");
+    },
+    test_thread_member_pump,
+    test_thread_subscriptions,
+    test_role_lookup_performance,
+    test_role_order,
+    test_guild_role_replacement,
+    test_permission_prefix,
+    test_guild_channel_validation,
+    test_channel_name_preflight,
+    [](ExtensionCheck verify) noexcept {
+        verify(test_member_viewport_ranges_and_sparse_scene() == 0, "member viewport planner and sparse scene regressions");
+    },
+    [](ExtensionCheck verify) noexcept {
+        verify(test_member_visible_avatar_requests() == 0, "member list: only on-screen rows request shared avatars; guild avatars keep their own identity");
+    },
+    [](ExtensionCheck verify) noexcept {
+        verify(test_member_media_cache_scroll() == 0, "member list media resolve once per user: unchanged frames 0, scroll only entering rows");
+    },
+    test_ui_page_registry,
+    test_plugin_host,
+    test_message_context_controller_extensions,
+    test_settings_scene,
+    test_profile_editor_layout,
+    test_settings_choice,
+    test_password_recovery,
+    test_password_reset_ui,
+    test_phone_recovery,
+    test_password_phone_ui,
+    test_friends_scene,
+    test_friends_media,
+    test_text_form_confirmation,
+    test_friend_search,
+    test_relationship_sync,
+    test_client_preferences,
+    test_visible_author_hydration,
+    test_scroll_host_preferences,
+    test_menu_rail_smooth_scroll,
+    test_background_theme,
+    test_background_effect_policy,
+    test_background_color_math,
+    test_theme_editor,
+    test_theme_styles,
+    test_theme_style_projection,
+    test_client_theme_storage,
+    test_client_theme_document,
+    test_theme_tokens,
+    test_surface_elevation,
+    test_login_continuations,
+    test_menu_row,
+    test_icon_pack,
+    test_client_preferences_writer,
+    test_plugin_module_loader,
+    test_plugin_catalog,
+    test_plugin_bundle_install,
+    test_video_controls,
+    test_audio_controls,
+    test_ui_cursor,
+    test_audio_presentation,
+    test_ogg_opus,
+    test_opus_decoder,
+    test_wave_pcm,
+    test_mp3_stream,
+    test_video_scene,
+    test_spinner,
+    test_ui_transition,
+    test_tooltip,
+    test_account_menu,
+    test_message_search,
+    test_message_rich_store_sparse,
+    test_message_pins,
+    test_forwarded_message_snapshots,
+    test_forwarded_message_pages,
+    test_search_scene,
+    test_pinned_messages_scene,
+    test_inbox_scene,
+    test_thread_browser_scene,
+    test_forum_post_scene,
+    test_quick_switcher_scene,
+    test_message_forward_scene,
+    test_download_scene,
+    test_http_response_stream,
+    test_attachment_download,
+    test_https_file_download,
+    test_staged_file,
+    test_media_picker,
+    test_channel_overview,
+    test_channel_content_policy,
+    test_channel_overview_controller,
+    test_pinned_message_controller,
+    test_quick_switcher_controller,
+    test_message_forward_controller,
+    test_message_forward_source_flags,
+    test_bounded_edit,
+    test_gif_favorites,
+    test_emoji_preferences,
+    test_thread_starter,
+    test_media_catalog,
+    test_message_create_stickers,
+    test_poll_draft,
+    test_message_composer_stickers,
+    test_search_query,
+    test_search_filter_context,
+    test_search_recent,
+    test_link_trust,
+    test_application_video_request,
+    test_account_video_session,
+    test_hevc,
+    test_video_frame_bounds,
+    test_account_video_commands,
+    test_account_media_video_dispatch,
+    test_local_draft_preview,
+    test_aac_decoder,
+    test_media_audio,
+    test_browser_sign_in,
+    test_browser_sign_in_receiver,
+    test_browser_login_ui,
+    test_gateway_self_status,
+    test_application_plugin_settings_projection,
+    test_plugin_preferences,
+};
+constexpr u32 kExtensionFixtureCount = sizeof(extension_fixtures) / sizeof(extension_fixtures[0]);
+constexpr u32 kExtensionShardCount = 4;
+static_assert(kExtensionFixtureCount == 172);
+static_assert(kExtensionFixtureCount % kExtensionShardCount == 0);
+
+bool read_shard(const wchar_t* p, u32* shard, u32* count) noexcept {
+    bool quoted = false;
+    while (*p) {
+        if (*p == L'"') quoted = !quoted;
+        else if (!quoted && (*p == L' ' || *p == L'\t')) break;
+        ++p;
+    }
+    if (quoted) return false;
+    const auto spaces = [&]() noexcept { while (*p == L' ' || *p == L'\t') ++p; };
+    spaces();
+    *shard = 0;
+    *count = 1;
+    if (!*p) return true; // Offline full-driver use remains available.
+    constexpr wchar_t option[] = L"--fixture-shard";
+    for (u32 i = 0; i < sizeof(option) / sizeof(option[0]) - 1; ++i)
+        if (*p++ != option[i]) return false;
+    if (*p != L' ' && *p != L'\t') return false;
+    spaces();
+    const auto number = [&](u32* value) noexcept {
+        if (*p < L'0' || *p > L'9') return false;
+        *value = 0;
+        do {
+            *value = *value * 10 + static_cast<u32>(*p++ - L'0');
+            if (*value > kExtensionShardCount) return false;
+        } while (*p >= L'0' && *p <= L'9');
+        return true;
+    };
+    if (!number(shard) || (*p != L' ' && *p != L'\t')) return false;
+    spaces();
+    if (!number(count)) return false;
+    spaces();
+    return !*p && *count == kExtensionShardCount && *shard < *count;
+}
 } // namespace
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_native_extensions_entry() noexcept {
     using namespace maicord;
-    test_update_manifest(check);
-    test_update_artifact(check);
-    test_update_acceptance(check);
-    test_update_stage(check);
-    test_update_prepare(check);
-    test_update_pair_package(check);
-    test_update_generation(check);
-    test_update_generation_authentication(check);
-    test_update_generation_failures(check);
-    test_update_install(check);
-    test_update_signed_handoff(check);
-    test_application_update_startup(check);
-    test_desktop_integration(check);
-    test_regional_flag_media(check);
-    test_flag_surfaces(check);
-    test_composer_source_spans(check);
-    test_reaction_sections(check);
-    test_message_reaction_controller(check);
-    test_gateway_message_poll(check);
-    test_message_poll_store(check);
-    test_message_poll_actions(check);
-    test_poll_controller(check);
-    test_poll_controls(check);
-    test_message_poll_presentation(check);
-    test_application_login_geometry(check);
-    test_tsf_end_edit(check);
-    test_member_list_sparse_model(check);
-    test_member_list_sparse_wire(check);
-    test_member_list_visible_users(check);
-    test_member_user_perf(check);
-    test_member_paging_pump(check);
-    test_thread_members(check);
-    test_thread_authority_model(check);
-    test_thread_header(check);
-    test_application_thread_header_activation(check);
-    test_thread_archive(check);
-    test_thread_storage(check);
-    test_read_state_model(check);
-    test_read_state_wire(check);
-    test_message_ack(check);
-    test_bulk_message_ack(check);
-    test_read_scope(check);
-    test_bulk_read_ack_controller(check);
-    test_read_ack_controller(check);
-    test_channel_context_policy(check);
-    test_guild_context_policy(check);
-    test_user_context_menu(check);
-    test_message_context_extras(check);
-    test_user_note_store(check);
-    test_active_now(check);
-    test_friends_active_now(check);
-    test_unread_context(check);
-    test_message_unread_context_menu(check);
-    test_read_state_pump(check);
-    test_read_ack_visibility(check);
-    test_mention_badge_text(check);
-    test_gateway_ready_projection(check);
-    test_text_emitter(check);
-    test_widget_builder(check);
-    check(test_thread_member_viewport() == 0, "thread member viewport and scene regressions");
-    test_thread_member_pump(check);
-    test_thread_subscriptions(check);
-    test_role_lookup_performance(check);
-    test_role_order(check);
-    test_guild_role_replacement(check);
-    test_permission_prefix(check);
-    test_guild_channel_validation(check);
-    test_channel_name_preflight(check);
-    check(test_member_viewport_ranges_and_sparse_scene() == 0,
-          "member viewport planner and sparse scene regressions");
-    check(test_member_visible_avatar_requests() == 0,
-          "member list: only on-screen rows request shared avatars; guild avatars keep their own identity");
-    check(test_member_media_cache_scroll() == 0,
-          "member list media resolve once per user: unchanged frames 0, scroll only entering rows");
-    test_ui_page_registry(check);
-    test_plugin_host(check);
-    test_message_context_controller_extensions(check);
-    test_settings_scene(check);
-    test_profile_editor_layout(check);
-    test_settings_choice(check);
-    test_password_recovery(check);
-    test_password_reset_ui(check);
-    test_phone_recovery(check);
-    test_password_phone_ui(check);
-    test_friends_scene(check);
-    test_friends_media(check);
-    test_text_form_confirmation(check);
-    test_friend_search(check);
-    test_relationship_sync(check);
-    test_client_preferences(check);
-    test_visible_author_hydration(check);
-    test_scroll_host_preferences(check);
-    test_menu_rail_smooth_scroll(check);
-    test_background_theme(check);
-    test_background_effect_policy(check);
-    test_background_color_math(check);
-    test_theme_editor(check);
-    test_theme_styles(check);
-    test_theme_style_projection(check);
-    test_client_theme_storage(check);
-    test_client_theme_document(check);
-    test_theme_tokens(check);
-    test_surface_elevation(check);
-    test_login_continuations(check);
-    test_menu_row(check);
-    test_icon_pack(check);
-    test_client_preferences_writer(check);
-    test_plugin_module_loader(check);
-    test_plugin_catalog(check);
-    test_plugin_bundle_install(check);
-    test_video_controls(check);
-    test_audio_controls(check);
-    test_ui_cursor(check);
-    test_audio_presentation(check);
-    test_ogg_opus(check);
-    test_opus_decoder(check);
-    test_wave_pcm(check);
-    test_mp3_stream(check);
-    test_video_scene(check);
-    test_spinner(check);
-    test_ui_transition(check);
-    test_tooltip(check);
-    test_account_menu(check);
-    test_message_search(check);
-    test_message_rich_store_sparse(check);
-    test_message_pins(check);
-    test_forwarded_message_snapshots(check);
-    test_forwarded_message_pages(check);
-    test_search_scene(check);
-    test_pinned_messages_scene(check);
-    test_inbox_scene(check);
-    test_thread_browser_scene(check);
-    test_forum_post_scene(check);
-    test_quick_switcher_scene(check);
-    test_message_forward_scene(check);
-    test_download_scene(check);
-    test_http_response_stream(check);
-    test_attachment_download(check);
-    test_https_file_download(check);
-    test_staged_file(check);
-    test_media_picker(check);
-    test_channel_overview(check);
-    test_channel_content_policy(check);
-    test_channel_overview_controller(check);
-    test_pinned_message_controller(check);
-    test_quick_switcher_controller(check);
-    test_message_forward_controller(check);
-    test_message_forward_source_flags(check);
-    test_bounded_edit(check);
-    test_gif_favorites(check);
-    test_emoji_preferences(check);
-    test_thread_starter(check);
-    test_media_catalog(check);
-    test_message_create_stickers(check);
-    test_poll_draft(check);
-    test_message_composer_stickers(check);
-    test_search_query(check);
-    test_search_filter_context(check);
-    test_search_recent(check);
-    test_link_trust(check);
-    test_application_video_request(check);
-    test_account_video_session(check);
-    test_hevc(check);
-    test_video_frame_bounds(check);
-    test_account_video_commands(check);
-    test_account_media_video_dispatch(check);
-    test_local_draft_preview(check);
-    test_aac_decoder(check);
-    test_media_audio(check);
-    test_browser_sign_in(check);
-    test_browser_sign_in_receiver(check);
-    test_browser_login_ui(check);
-    test_gateway_self_status(check);
-    test_application_plugin_settings_projection(check);
-    test_plugin_preferences(check);
-    DWORD written = 0;
-    const char* status = failures ? "FAIL native extensions\n" : "PASS native extensions\n";
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), status, 23, &written, nullptr);
+    u32 shard = 0, count = 1;
+    check(read_shard(GetCommandLineW(), &shard, &count),
+          "native extensions: valid fixture shard command");
+    if (failures) ExitProcess(1);
+    u32 visited = 0, executed = 0;
+    for (const auto fixture : extension_fixtures) {
+        const u32 index = visited++;
+        if (index % count != shard) continue;
+        fixture(check);
+        ++executed;
+    }
+    const u32 expected = kExtensionFixtureCount / count +
+                         (shard < kExtensionFixtureCount % count ? 1u : 0u);
+    check(visited == kExtensionFixtureCount && executed == expected,
+          "native extensions: every fixture belongs to exactly one complete shard");
+    test_write_text(failures ? "FAIL native extensions shard=" : "PASS native extensions shard=");
+    test_write_u64(shard);
+    test_write_text("/");
+    test_write_u64(count);
+    test_write_text(" fixtures=");
+    test_write_u64(executed);
+    test_write_text("/");
+    test_write_u64(kExtensionFixtureCount);
+    test_write_line("");
     ExitProcess(failures ? 1 : 0);
 }

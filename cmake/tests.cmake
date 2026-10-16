@@ -98,11 +98,13 @@ endforeach()
 # frames. Neither belongs to the serialized native_gpu chain.
 set_tests_properties(maicord_resize_stress_probe maicord_surface_motion_ui_probe
     PROPERTIES COST 61)
-# The extension driver runs its independent fixtures serially; start that
-# complete process before the matrix shards to avoid delaying its final tail.
+# The extension driver's independent fixture shards also start early so its
+# durable file work overlaps the CPU matrices without a serial final tail.
 set(maicord_test_rank 99)
 foreach(maicord_long_test
     maicord_native_extensions
+    maicord_native_extensions_shard_1 maicord_native_extensions_shard_2
+    maicord_native_extensions_shard_3
     maicord_native_bidi_emoji maicord_native_bidi_emoji_shard_1
     maicord_native_directional_editor_cuts maicord_native_directional_editor_cuts_shard_1
     maicord_update_handoff maicord_account_logout_runtime
@@ -135,10 +137,21 @@ set_tests_properties(maicord_ui_probe maicord_post_resize_pacing_probe
     maicord_account_logout_ui_probe maicord_scoped_read_ui_probe
     PROPERTIES RESOURCE_LOCK native_gpu COST 60)
 # Keep the complete serialized GPU chain ahead of the CPU matrices,
-# including reference tests and newly registered probes.
+# including reference tests and newly registered probes. Independent display,
+# GPU and text-render probes follow the ranked CPU jobs but precede the short
+# font/process tests; their device/window setup must not form the final tail.
 foreach(maicord_registered_test IN LISTS maicord_registered_tests)
     get_property(maicord_test_locks TEST ${maicord_registered_test} PROPERTY RESOURCE_LOCK)
     if("native_gpu" IN_LIST maicord_test_locks)
         set_property(TEST ${maicord_registered_test} PROPERTY COST 60)
+    else()
+        get_property(maicord_test_labels TEST ${maicord_registered_test} PROPERTY LABELS)
+        if("display" IN_LIST maicord_test_labels OR "gpu" IN_LIST maicord_test_labels OR
+           "native-text-render" IN_LIST maicord_test_labels)
+            get_property(maicord_test_cost TEST ${maicord_registered_test} PROPERTY COST)
+            if(NOT maicord_test_cost OR maicord_test_cost LESS 58)
+                set_property(TEST ${maicord_registered_test} PROPERTY COST 58)
+            endif()
+        endif()
     endif()
 endforeach()

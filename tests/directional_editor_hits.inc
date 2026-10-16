@@ -28,6 +28,8 @@ const Utf8View directional_cut_holdouts[]{
     utf8_literal("A\xcc\x81\xcc\x88\xd7\x90\xd7\x91")};
 bool directional_editor_hit_corpus(DWriteTextSystem system,bool cuts) noexcept {
     const u32 first_case=cases;
+    const u64 first_selected=matrix_selected,first_repeated=repeated_matrix_cases;
+    u32 final_scalar_repeats=0;
     const u64 captured_identity=native_text_format_identity(system);
     CHECK(system.native_text&&system.native_format&&captured_identity);
     const auto& texts=directional_editor_samples;
@@ -45,18 +47,26 @@ bool directional_editor_hit_corpus(DWriteTextSystem system,bool cuts) noexcept {
             const TextStyleSpan style{first,end-first,flag};
             // Flag 0 supplies no style span, so every later pattern repeats the
             // first pattern's identical request for this sample/width/wrap.
-            const bool repeated=!flag&&pattern;
+            // On the final scalar, the odd single-scalar cut also equals the
+            // preceding even suffix cut, including its exact style bytes.
+            const bool final_scalar_repeat=cuts&&(pattern&1)&&pattern/2+1==scalars;
+            if(final_scalar_repeat){const TextStyleSpan suffix{first,text.bytes-first,flag};CHECK(bytes_equal(&style,&suffix,sizeof(style)));}
+            const bool repeated=(!flag&&pattern)||final_scalar_repeat;
             for(u32 nowrap=0;nowrap<2;++nowrap)for(float requested:widths){if(cuts&&!matrix_case_selected())continue;const float width=requested==1000000?requested:requested*system.em_size/16;
-                if(repeated){++repeated_matrix_cases;continue;}
+                if(repeated){++repeated_matrix_cases;if(final_scalar_repeat&&flag)++final_scalar_repeats;continue;}
                 if(!compare_hits(system,text,{width},nowrap?TextWrapping::no_wrap:TextWrapping::wrap,{&style,flag&&style.byte_count?1u:0u},true,false,true)){
                     print("directional editor sample/pattern/flag/em/width/nowrap=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(system.em_size);print("/");real(width);print("/");number(nowrap);print("\n");return false;}
             }
         }
     }
+    if(cuts){CHECK(cases-first_case+repeated_matrix_cases-first_repeated==matrix_selected-first_selected);
+        // One duplicate for each nonzero flag, width and wrapping mode per
+        // sample. The registered one/two-shard layouts divide widths evenly.
+        if(matrix_shards<=2)CHECK(final_scalar_repeats==sample_count*12u*8u/matrix_shards);}
     // The corpus keeps its COM format alive for this complete font/em cell.
     // Re-read the real declaration once more before that owner releases it.
     auto control=system;
     CHECK(native_text_format_capture(&control)&&native_text_format_identity(control)==captured_identity);
-    print("directional_format_capture_reuses=");number(cases-first_case);print(" end_capture_controls=1\n");
+    print("directional_format_capture_reuses=");number(cases-first_case);print(" identical_final_cut_repeats=");number(final_scalar_repeats);print(" end_capture_controls=1\n");
     return true;
 }

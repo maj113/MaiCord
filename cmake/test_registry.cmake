@@ -163,8 +163,18 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         "MAICORD_UPDATE_HANDOFF_TEST_PEER=L\"$<TARGET_FILE:MaiCordUpdateHandoffPeer>\""
         "MAICORD_THEME_EXAMPLE_PATH=L\"${CMAKE_CURRENT_SOURCE_DIR}/assets/themes/example.maicord-theme.json\""
     DEPENDS MaiCordPluginFixture MaiCordUpdateHandoffPeer
-    USES_CLIENT MaiCordAccount MaiCord
-    TEST maicord_native_extensions)
+    USES_CLIENT MaiCordAccount MaiCord)
+# The same 172 fixtures run once across four private process/profile owners.
+# Each shard checks its exact 43-fixture share of the complete function table.
+foreach(maicord_extension_shard RANGE 0 3)
+    set(maicord_extension_test maicord_native_extensions)
+    if(maicord_extension_shard)
+        string(APPEND maicord_extension_test "_shard_${maicord_extension_shard}")
+    endif()
+    maicord_add_tests(MaiCordNativeExtensionTests
+        PASS_REGULAR_EXPRESSION "PASS native extensions shard=${maicord_extension_shard}/4 fixtures=43/172"
+        TEST ${maicord_extension_test} --fixture-shard ${maicord_extension_shard} 4)
+endforeach()
 maicord_test(MaiCordUpdateHandoffPeer ENTRY maicord_update_handoff_peer_entry
     SOURCES tests/update_handoff_peer.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_account_host kernel32 bcrypt crypt32)
@@ -1416,10 +1426,12 @@ maicord_test(MaiCordFontFamilyTests ENTRY maicord_font_candidates_entry
     DEFINES MAICORD_FONT_FAMILY=1
     TIMEOUT 10 LABELS native-text-font-family
     TEST maicord_native_font_family)
+# The family test also runs basic() and guards(). Keep the direct-candidates
+# executable for tools/font_reference/font_candidates_compare.py's manual API
+# comparison, but do not compile or run its identical no-argument CTest case.
 maicord_test(MaiCordFontCandidatesTests ENTRY maicord_font_candidates_entry
     SOURCES tests/font_candidates_test.cpp
-    LIBS maicord_core maicord_font kernel32
-    TEST maicord_native_font_candidates)
+    LIBS maicord_core maicord_font kernel32)
 maicord_test(MaiCordFontMatchTests ENTRY maicord_font_match_entry
     SOURCES tests/font_match_test.cpp
     LIBS maicord_core maicord_font kernel32
@@ -1718,8 +1730,6 @@ maicord_add_tests(MaiCordNativeAppLineTests
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 30
     TEST maicord_native_bidi_emoji --matrix-shard 0 2 --bidi-emoji-profile --family "Segoe UI" 400
     TEST maicord_native_bidi_emoji_shard_1 --matrix-shard 1 2 --bidi-emoji-profile --family "Segoe UI" 400)
-maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-emoji-app
-    TEST maicord_native_bidi_emoji_quick --quick --bidi-emoji-profile --family "Segoe UI" 400)
 # Round-robin shards; each verifies its exact share of 177,840 cells.
 maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_symbols --matrix-shard 0 2 --symbols-profile --family "Segoe UI" 400
@@ -1733,8 +1743,6 @@ maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-emoji-a
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 30
     TEST maicord_native_mixed_emoji --matrix-shard 0 2 --mixed-emoji
     TEST maicord_native_mixed_emoji_shard_1 --matrix-shard 1 2 --mixed-emoji)
-maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-emoji-app
-    TEST maicord_native_mixed_emoji_quick --quick --mixed-emoji)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-owned-formats
     TEST maicord_native_owned_formats --native-formats)
 maicord_add_tests(MaiCordNativeAppLineTests

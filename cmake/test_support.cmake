@@ -165,20 +165,23 @@ function(maicord_add_test_codegen_twins target_list_variable)
     endforeach()
     set(${target_list_variable} ${${target_list_variable}} ${twins} PARENT_SCOPE)
 endfunction()
-# Test executables often compile the same source with identical settings
+# Test executables and their non-/GL archives often compile the same source with identical settings
 # (application_state.cpp in about 30, log.cpp in nearly 40). Each such source
 # is compiled once into an OBJECT library shared by the executables whose
 # settings match exactly: same own include directories, definitions, options,
 # features, language settings and runtime, and dependencies whose only usage
 # requirements come from the compile contract. The shared object is the one
-# each executable would have built itself. Called after the codegen twins.
+# each consumer would have built itself. Shared/module fixtures keep their
+# implicit export definitions and position-independent compilation separate.
+# Called after the codegen twins.
 function(maicord_share_test_objects target_list_variable)
     set(signatures)
+    set(compilations 0)
     foreach(target IN LISTS ${target_list_variable})
         get_target_property(type ${target} TYPE)
         get_target_property(codegen ${target} MAICORD_TEST_CODEGEN)
         get_target_property(links ${target} LINK_LIBRARIES)
-        if(NOT type MATCHES "^(EXECUTABLE|SHARED_LIBRARY)$" OR NOT codegen
+        if(NOT type MATCHES "^(EXECUTABLE|STATIC_LIBRARY)$" OR NOT codegen
                 OR NOT "maicord_compile_contract" IN_LIST links)
             continue()
         endif()
@@ -213,8 +216,9 @@ function(maicord_share_test_objects target_list_variable)
             continue()
         endif()
         set(signature)
-        foreach(property IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FEATURES
-                PRECOMPILE_HEADERS CXX_STANDARD CXX_EXTENSIONS MSVC_RUNTIME_LIBRARY)
+        foreach(property IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FLAGS
+                COMPILE_FEATURES PRECOMPILE_HEADERS CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS
+                MSVC_RUNTIME_LIBRARY POSITION_INDEPENDENT_CODE CXX_VISIBILITY_PRESET VISIBILITY_INLINES_HIDDEN)
             get_target_property(value ${target} ${property})
             string(APPEND signature "${property}=${value}|")
         endforeach()
@@ -230,6 +234,7 @@ function(maicord_share_test_objects target_list_variable)
             if(generated OR NOT EXISTS "${path}")
                 continue()
             endif()
+            math(EXPR compilations "${compilations} + 1")
             string(SHA1 key "${path}|${signature}")
             if(NOT DEFINED users_${key})
                 list(APPEND signatures ${key})
@@ -240,25 +245,53 @@ function(maicord_share_test_objects target_list_variable)
     endforeach()
     set(shared)
     set(index 0)
+    set(saved 0)
+    set(archive_saved 0)
     foreach(key IN LISTS signatures)
         list(LENGTH users_${key} count)
         if(count LESS 2)
             continue()
         endif()
         math(EXPR index "${index} + 1")
+        math(EXPR saved "${saved} + ${count} - 1")
+        set(archives 0)
+        foreach(target IN LISTS users_${key})
+            get_target_property(type ${target} TYPE)
+            if(type STREQUAL "STATIC_LIBRARY")
+                math(EXPR archives "${archives} + 1")
+            endif()
+        endforeach()
+        # Without archive sharing, executable users already compiled once and
+        # each archive separately. Count the additional compilations removed.
+        if(archives EQUAL count)
+            math(EXPR archives "${archives} - 1")
+        endif()
+        math(EXPR archive_saved "${archive_saved} + ${archives}")
         set(library maicord_test_shared_${index})
         list(GET users_${key} 0 first)
         add_library(${library} OBJECT "${path_${key}}")
-        foreach(property IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FEATURES
-                CXX_STANDARD CXX_EXTENSIONS MSVC_RUNTIME_LIBRARY LINK_LIBRARIES)
+        foreach(property IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FLAGS
+                COMPILE_FEATURES PRECOMPILE_HEADERS CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS
+                MSVC_RUNTIME_LIBRARY POSITION_INDEPENDENT_CODE CXX_VISIBILITY_PRESET VISIBILITY_INLINES_HIDDEN)
             get_target_property(value ${first} ${property})
             if(NOT value STREQUAL "value-NOTFOUND")
                 set_property(TARGET ${library} PROPERTY ${property} "${value}")
             endif()
         endforeach()
+        # The plain-usage gate proves this contract supplies every compile
+        # requirement. Copying a user's link libraries here would create a
+        # cycle when one of those archives itself consumes the shared object.
+        target_link_libraries(${library} PRIVATE maicord_compile_contract)
         set_property(TARGET ${library} PROPERTY MAICORD_TEST_CODEGEN ON)
-        get_target_property(dependencies ${first} MANUALLY_ADDED_DEPENDENCIES)
+        set(dependencies)
+        foreach(target IN LISTS users_${key})
+            get_target_property(items ${target} MANUALLY_ADDED_DEPENDENCIES)
+            if(items)
+                list(APPEND dependencies ${items})
+            endif()
+        endforeach()
         if(dependencies)
+            list(REMOVE_DUPLICATES dependencies)
             add_dependencies(${library} ${dependencies})
         endif()
         foreach(target IN LISTS users_${key})
@@ -279,6 +312,8 @@ function(maicord_share_test_objects target_list_variable)
         endforeach()
         list(APPEND shared ${library})
     endforeach()
+    math(EXPR remaining "${compilations} - ${saved}")
+    message(STATUS "Compatible test C++ compilations: ${compilations} -> ${remaining} (${saved} duplicates removed; ${archive_saved} from archive sharing)")
     set(${target_list_variable} ${${target_list_variable}} ${shared} PARENT_SCOPE)
 endfunction()
 # Every MaiCord translation unit starts with <Windows.h> (via core/base.hpp)

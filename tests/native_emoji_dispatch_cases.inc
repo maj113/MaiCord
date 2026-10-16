@@ -37,7 +37,10 @@ bool emoji_dispatch_case(DWriteTextSystem system,DWriteTextSystem reference,Utf8
     DWriteEditLayoutOwner layouts[2]{};TextEditMetric selections[2][48];
     for(u32 i=0;i<2;++i){layouts[i].selections=selections[i];layouts[i].selection_capacity=48;}
     struct Release {DWriteEditLayoutOwner* p;~Release() noexcept {text_edit_layout_release(p);text_edit_layout_release(p+1);}} release{layouts};
-    for(u32 mode=0;mode<(detailed?4u:1u);++mode)for(u32 f=0;f<(detailed?5u:1u);++f)for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap){
+    u32 fresh_native_admissions=0,oracle_layout_builds=0,oracle_layout_reuses=0;
+    // Editor typography is independent of drawing's tracking/letter mode.
+    // Keep each immutable oracle layout across those four drawing inputs.
+    for(u32 f=0;f<(detailed?5u:1u);++f)for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap)for(u32 mode=0;mode<(detailed?4u:1u);++mode){
         if(multiline_quick&&mixed&&width!=widths[(mode+f+nowrap)%3])continue;
         ++cases;system.tracking=reference.tracking=mode&1?.03f:0;system.independent_letters=reference.independent_letters=(mode&2)!=0;
         const TextStyleSpan style{0,text.bytes,flags[f]};const ConstSlice<TextStyleSpan> styles{&style,flags[f]?1u:0u};const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
@@ -54,14 +57,28 @@ bool emoji_dispatch_case(DWriteTextSystem system,DWriteTextSystem reference,Utf8
             // The app's editor resets tracking/independent typography before
             // shaping. Require native geometry for every drawing-mode input.
             auto edit_system=system;const bool native_editor=required;
+            // Preserve fresh native admission for every drawing mode while
+            // retaining its allocations; only the reference layout is shared.
+            text_edit_layout_invalidate(layouts);CHECK(!layouts[0].active&&!layouts[0].geometry&&!layouts[0].layout);
             for(u32 caret=0;caret<=units;++caret){
                 const TextEditLayoutInput input{text,text_edit_signature(text),0,caret,9.125f,32.25f,width,40,1000000,static_cast<u8>(nowrap?0:text_edit_layout_wrap),styles};
                 CHECK(text_edit_layout_measure(layouts,input,edit_system)&&(layouts[0].geometry==native_editor));
-                CHECK(text_edit_layout_measure(layouts+1,input,reference)&&same_edit(layouts[0],layouts[1]));
+                if(!caret){auto* previous_oracle=layouts[1].layout;
+                    // Keep the old object alive across measurement so a new
+                    // COM layout cannot reuse its address and fake a cache hit.
+                    if(previous_oracle)previous_oracle->AddRef();
+                    struct ReleaseOracle {IDWriteTextLayout*& p;~ReleaseOracle() noexcept {com_release(p);}} release_oracle{previous_oracle};
+                    CHECK(text_edit_layout_measure(layouts+1,input,reference));
+                    ++fresh_native_admissions;if(layouts[1].layout==previous_oracle)++oracle_layout_reuses;else ++oracle_layout_builds;
+                }else CHECK(text_edit_layout_measure(layouts+1,input,reference));
+                CHECK(same_edit(layouts[0],layouts[1]));
                 const auto builds=layouts[0].builds;CHECK(text_edit_layout_measure(layouts,input,edit_system)&&layouts[0].builds==builds);
             }
         }
     }
+    const bool quick_mixed=multiline_quick&&mixed;
+    const u32 expected_cells=detailed?(quick_mixed?40u:120u):(quick_mixed?2u:6u),expected_builds=detailed?30u:expected_cells;
+    CHECK(fresh_native_admissions==expected_cells&&oracle_layout_builds==expected_builds&&oracle_layout_reuses==expected_cells-expected_builds);
     return true;
 }
 bool emoji_dispatch_cuts(DWriteTextSystem system,DWriteTextSystem reference,Utf8View text,bool mixed=false) noexcept {
