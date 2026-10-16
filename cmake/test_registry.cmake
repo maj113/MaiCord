@@ -187,6 +187,9 @@ add_test(NAME maicord_theme_literals COMMAND "${Python3_EXECUTABLE}" -B tools/ch
 add_test(NAME maicord_theme_example COMMAND "${Python3_EXECUTABLE}" -B tools/generate_theme_example.py --check
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 set_tests_properties(maicord_theme_literals maicord_theme_example PROPERTIES TIMEOUT 10)
+add_test(NAME maicord_build_output_guard COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass
+    -File "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_output_guard.ps1")
+set_tests_properties(maicord_build_output_guard PROPERTIES TIMEOUT 10)
 maicord_test(MaiCordAccountVideoSessionProbe ENTRY maicord_account_video_session_probe_entry
     SOURCES tests/integration/account_video_session_probe.cpp src/app/account_video_session.cpp
         src/platform/hevc_gpu_decoder.cpp src/render/video_frame_gpu.cpp ${MAICORD_VIDEO_FRAME_HEADER}
