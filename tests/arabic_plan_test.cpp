@@ -88,6 +88,8 @@ bool control_storage_checks(const SfntShapePlan& plan,const SfntCmap& cmap,SfntS
     const u32 repeated[]{0,0};if(shape(storage,{repeated,2},&result)!=SfntStatus::invalid_input || result.glyph_count)return false;
     return shape(storage,{boundaries,2},&result)==SfntStatus::ok;
 }
+#if !defined(MAICORD_ARABIC_OWNED)
+// Fixed component transactions run once in the base plan variant.
 bool component_transactions() noexcept {
     SfntComponentGlyph initial[3]{{{2,SfntGlyphClass::base,8},0,0,0},{{2,SfntGlyphClass::base,4},1,0,0},{{2,SfntGlyphClass::base,2},2,0,0}};
     SfntComponentNode saved[3],joined[3];SfntComponentForest forest{};u32 consumed_indices[]{0,1,2};
@@ -126,6 +128,7 @@ bool component_transactions() noexcept {
     }
     return true;
 }
+#endif
 #include "arabic_cgj_units.inc"
 bool plan_checks(const SfntLayout& layout,bool independent,u8* scratch,const SfntLookupPlanResult& full,ConstSlice<SfntLookupStep> expected,bool budgets) noexcept {
     SfntLookupStep output[768];SfntLookupPlanResult result{};
@@ -272,7 +275,9 @@ bool corpus(ConstSlice<u8> corpus_bytes,bool diagnostic=false,bool reorder=true,
     return r.at==r.bytes.count;
 }
 int run() noexcept {
+#if !defined(MAICORD_ARABIC_OWNED)
     if(!component_transactions())return 2;
+#endif
 #if defined(MAICORD_ARABIC_OWNED)
     if(!owned_start())return 3;
 #endif

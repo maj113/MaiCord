@@ -127,6 +127,8 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         }
     }return r.at==r.data.count && tested_pair;
 }
+#ifdef MAICORD_LIGATURE_POSITION_TESTS
+// The ligature variant owns these common units; every variant keeps its corpus.
 void put(u8* p,u32 at,u16 v) noexcept {p[at]=static_cast<u8>(v>>8);p[at+1]=static_cast<u8>(v);}
 bool units() noexcept {
     double advance[]{100,200};u8 flags[]{2,2};SfntPosition positions[2]{{1,2,3},{4,5,6}},before[2];copy_bytes(before,positions,sizeof(before));
@@ -164,13 +166,8 @@ bool guarded_storage() noexcept {
     flags[0]=2;flags[1]=3;a[0]=100;a[1]=200;const bool ok=sfnt_position_initialize({a,2},{flags,2},true,{p,2})==SfntStatus::ok && sfnt_position_finalize({p,2},{flags,2},1000,1000,{out,2})==SfntStatus::ok && out[0].advance==100 && out[1].advance==0 && out[1].advance_offset==-200;
     VirtualFree(mem,0,MEM_RELEASE);return ok;
 }
-#ifdef MAICORD_MARK_POSITION_TESTS
 #include "gpos_mark_execute_units.inc"
-#endif
-#ifdef MAICORD_CURSIVE_POSITION_TESTS
 #include "gpos_cursive_execute_units.inc"
-#endif
-#ifdef MAICORD_LIGATURE_POSITION_TESTS
 #include "gpos_ligature_execute_units.inc"
 #endif
 bool file_corpus(const wchar_t* path) noexcept {
@@ -178,14 +175,10 @@ bool file_corpus(const wchar_t* path) noexcept {
     HANDLE map=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!map){CloseHandle(file);return false;}const auto* data=static_cast<const u8*>(MapViewOfFile(map,FILE_MAP_READ,0,0,0));const bool ok=data && corpus({data,static_cast<u32>(size.QuadPart)});if(data)UnmapViewOfFile(data);CloseHandle(map);CloseHandle(file);return ok;
 }
 int run() noexcept {
-    if(!units() || !guarded_storage()){print(utf8_literal("FAIL position units/guards\n"));return 3;}
-#ifdef MAICORD_MARK_POSITION_TESTS
-    if(!mark_units()){print(utf8_literal("FAIL mark units\n"));return 4;}
-#endif
-#ifdef MAICORD_CURSIVE_POSITION_TESTS
-    if(!cursive_units()){print(utf8_literal("FAIL cursive units\n"));return 5;}
-#endif
 #ifdef MAICORD_LIGATURE_POSITION_TESTS
+    if(!units() || !guarded_storage()){print(utf8_literal("FAIL position units/guards\n"));return 3;}
+    if(!mark_units()){print(utf8_literal("FAIL mark units\n"));return 4;}
+    if(!cursive_units()){print(utf8_literal("FAIL cursive units\n"));return 5;}
     if(!ligature_units()){print(utf8_literal("FAIL ligature units\n"));return 6;}
 #endif
     const wchar_t* command=GetCommandLineW();bool quote=false;while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}while(*command==' ' || *command=='\t')++command;
@@ -193,7 +186,9 @@ int run() noexcept {
     else {wchar_t path[32768];u32 n=0;quote=*command=='"';if(quote)++command;while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}if(quote){if(*command!='"')return 2;++command;}while(*command==' ' || *command=='\t')++command;if(*command || !n)return 2;path[n]=0;ok=file_corpus(path);}
     print(utf8_literal("configurations="));number(configurations);print(utf8_literal("\nexecutions="));number(executions);print(utf8_literal("\nfloat_checks="));number(float_checks);print(utf8_literal("\nbudget_checks="));number(budget_checks);print(utf8_literal("\nfailures="));number(failures);print(utf8_literal("\n"));
 #ifdef MAICORD_MARK_POSITION_TESTS
+#ifdef MAICORD_LIGATURE_POSITION_TESTS
     print(utf8_literal("linear_search_steps="));number(linear_search_steps);print(utf8_literal("\nlinear_mark_matches="));number(linear_mark_matches);print(utf8_literal("\n"));
+#endif
     print(utf8_literal("mark_matches="));number(mark_matches);print(utf8_literal("\ntarget_steps="));number(target_steps);print(utf8_literal("\ncompatibility_anchors="));number(compatibility_anchors);print(utf8_literal("\n"));
 #ifndef MAICORD_CURSIVE_POSITION_TESTS
     print(ok&&!failures?utf8_literal("PASS native mark positioning\n"):utf8_literal("FAIL native mark positioning\n"));
@@ -203,7 +198,9 @@ int run() noexcept {
 #endif
 #ifdef MAICORD_CURSIVE_POSITION_TESTS
     print(utf8_literal("cursive_matches="));number(cursive_matches);print(utf8_literal("\ncursive_steps="));number(cursive_steps);print(utf8_literal("\ncursive_words="));number(cursive_words);print(utf8_literal("\n"));
+#ifdef MAICORD_LIGATURE_POSITION_TESTS
     print(utf8_literal("long_cursive_scan="));number(long_cursive_scan);print(utf8_literal("\nlong_cursive_edges="));number(long_cursive_edges);print(utf8_literal("\nlong_chain_words="));number(long_chain_words);print(utf8_literal("\ncursive_unresolved_failures="));number(cursive_unresolved_failures);print(utf8_literal("\n"));
+#endif
 #ifdef MAICORD_LIGATURE_POSITION_TESTS
     print(ok&&!failures?utf8_literal("PASS native ligature positioning\n"):utf8_literal("FAIL native ligature positioning\n"));
 #else
