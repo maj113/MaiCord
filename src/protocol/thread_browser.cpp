@@ -548,11 +548,13 @@ ThreadBrowserResult decode(
     const bool paged = query.mode != ThreadBrowserMode::search;
     if (paged && page.has_more && !page.count)
         return {0, ThreadBrowserError::field};
-    if (paged && page.has_more &&
-        query.offset > kThreadBrowserMaximumOffset - kThreadBrowserArchivedLimit)
-        return {0, ThreadBrowserError::capacity};
+    // The last reachable page still contains usable rows when the server has
+    // more than 10,000 results. Stop local offset pagination without losing it.
+    const bool continuation_reachable = paged &&
+        query.offset <= kThreadBrowserMaximumOffset - kThreadBrowserArchivedLimit;
     *output = {row_scratch, name_scratch, page.count, page.name_bytes,
-        paged ? query.offset + kThreadBrowserArchivedLimit : 0, paged && page.has_more, {}};
+        continuation_reachable ? query.offset + kThreadBrowserArchivedLimit : 0,
+        continuation_reachable && page.has_more, {}};
     if (post_output) *post_output = {post_scratch, text_scratch, page.count, page.text_bytes};
     return {input.bytes};
 }

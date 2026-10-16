@@ -2603,8 +2603,17 @@ bool application_search_response(const RestClientResponse& response, Utf8View bo
         }
     }
     const auto now = clock_monotonic_milliseconds();
-    const auto retry =
+    auto retry =
         maximum(response.rate.retry_after_ms, response.retry_at_ms > now ? response.retry_at_ms - now : 0);
+    if (response.transport_ok() && response.status_code == 202) {
+        const auto indexing = decode_search_indexing_body(
+            body, {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount},
+            64);
+        // Index readiness is local to this accepted search ticket. Recognized
+        // replies with missing/zero retry_after permit a short bounded delay.
+        if (indexing.ok())
+            retry = maximum(retry, indexing.retry_after_ms ? indexing.retry_after_ms : 5000);
+    }
     if (valid && !publish_polls(*s, *s->candidate, decoded.page.message_count)) {
         valid = false;
         s->validation = utf8_literal("Couldn't load poll results. Search again.");

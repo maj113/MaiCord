@@ -36,12 +36,12 @@ void transport() noexcept {
         "thread browser account: archived GET uses exact supplied DETAILS owner and bodyless parent-major "
         "search route");
     request.parent_id = ~u64{0};
-    request.offset = 1'000'000;
+    request.offset = 9975;
     check(account_thread_browser_submit(&details, &request, 102).ok() &&
               exact(&details, 102, ~u64{0},
                     utf8_literal("/api/v10/channels/18446744073709551615/threads/"
                                  "search?archived=true&sort_by=last_message_time&sort_order=desc&limit=25&"
-                                 "offset=1000000")),
+                                 "offset=9975")),
           "thread browser account: full-width parent and maximum archived offset retain exact numeric "
           "identity");
     char name[] = "quote &/?#=+%";

@@ -10,7 +10,7 @@ inline constexpr u32 kThreadBrowserNameMaximumBytes = 400;
 inline constexpr u32 kThreadBrowserNameMaximumScalars = 100;
 inline constexpr u32 kThreadBrowserMaximumTargetBytes = 1344;
 inline constexpr u32 kThreadBrowserMaximumBodyBytes = 512 * 1024;
-inline constexpr u32 kThreadBrowserMaximumOffset = 1'000'000;
+inline constexpr u32 kThreadBrowserMaximumOffset = 9975;
 inline constexpr u64 kThreadBrowserRouteId = 0x5448524453454152ull;
 
 // active: GET /channels/{id}/threads/search?archived=false (the archived

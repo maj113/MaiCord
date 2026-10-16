@@ -28,10 +28,12 @@ struct RateBodyContext {
     u32 error_offset;
     RateLimitBodyError error;
     bool global;
+    bool retry_only;
 };
 
 constexpr u32 rate_body_field_retry_after = 1u << 0;
 constexpr u32 rate_body_field_global = 1u << 1;
+constexpr u32 rate_body_field_code = 1u << 2;
 
 bool add_size(u32* total, u32 value) noexcept {
     if (!total || value > ~0u - *total) {
@@ -397,7 +399,20 @@ bool visit_rate_body(void* opaque, JsonString name, JsonValue value) noexcept {
             context->error_offset = value.source_offset;
             return false;
         }
-    } else if (json_string_equals_ascii(name, utf8_literal("global"))) {
+    } else if (context->retry_only && json_string_equals_ascii(name, utf8_literal("code"))) {
+        if ((context->fields & rate_body_field_code) != 0) {
+            context->error = RateLimitBodyError::duplicate_field;
+            context->error_offset = name.source_offset;
+            return false;
+        }
+        context->fields |= rate_body_field_code;
+        u64 code = 0;
+        if (!json_value_to_u64(value, &code) || code != 110000) {
+            context->error = RateLimitBodyError::invalid_code;
+            context->error_offset = value.source_offset;
+            return false;
+        }
+    } else if (!context->retry_only && json_string_equals_ascii(name, utf8_literal("global"))) {
         if ((context->fields & rate_body_field_global) != 0) {
             context->error = RateLimitBodyError::duplicate_field;
             context->error_offset = name.source_offset;
@@ -969,8 +984,8 @@ RestBodyKind rest_classify_body(ConstSlice<u8> body) noexcept {
                                                         : RestBodyKind::binary;
 }
 
-RateLimitBodyResult decode_rate_limit_body(Utf8View body, Slice<u32> structural_scratch,
-                                           u32 maximum_depth) noexcept {
+static RateLimitBodyResult decode_retry_body(Utf8View body, Slice<u32> structural_scratch,
+                                             u32 maximum_depth, bool retry_only) noexcept {
     if (!body.data || body.bytes == 0 || !structural_scratch.data || structural_scratch.count == 0 ||
         maximum_depth == 0) {
         return RateLimitBodyResult{
@@ -984,6 +999,7 @@ RateLimitBodyResult decode_rate_limit_body(Utf8View body, Slice<u32> structural_
             scan.error, JsonReadError::none, false};
     }
     RateBodyContext context{};
+    context.retry_only = retry_only;
     const JsonReadResult read =
         json_visit_root_object(body, ConstSlice<u32>{structural_scratch.data, scan.count}, maximum_depth,
                                visit_rate_body, &context);
@@ -997,7 +1013,9 @@ RateLimitBodyResult decode_rate_limit_body(Utf8View body, Slice<u32> structural_
             read.error,
             false};
     }
-    if (context.fields != (rate_body_field_retry_after | rate_body_field_global)) {
+    const u32 required = rate_body_field_retry_after | rate_body_field_global;
+    if (retry_only ? !(context.fields & (rate_body_field_code | rate_body_field_retry_after))
+                   : (context.fields & required) != required) {
         return RateLimitBodyResult{0,
                                    0,
                                    RateLimitBodyError::missing_required_field,
@@ -1011,6 +1029,16 @@ RateLimitBodyResult decode_rate_limit_body(Utf8View body, Slice<u32> structural_
                                JsonScanError::none,
                                JsonReadError::none,
                                context.global};
+}
+
+RateLimitBodyResult decode_rate_limit_body(Utf8View body, Slice<u32> structural_scratch,
+                                           u32 maximum_depth) noexcept {
+    return decode_retry_body(body, structural_scratch, maximum_depth, false);
+}
+
+RateLimitBodyResult decode_search_indexing_body(Utf8View body, Slice<u32> structural_scratch,
+                                            u32 maximum_depth) noexcept {
+    return decode_retry_body(body, structural_scratch, maximum_depth, true);
 }
 
 bool rest_rate_scheduler_initialize(RestRateScheduler* scheduler,

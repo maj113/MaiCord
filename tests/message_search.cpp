@@ -711,7 +711,7 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
               !message_search_next_wake(&controller) && message_search_submit(&controller, 2, 100, &token),
           "search controller: busy REST admission waits without creating a retry timer");
     const auto old_token = token;
-    check(message_search_complete(&controller, token, 202, true, false, nullptr, 100, 0) &&
+    check(message_search_complete(&controller, token, 202, true, false, nullptr, 100, 5000) &&
               controller.state == MessageSearchState::indexing && !controller.has_results &&
               message_search_next_wake(&controller) == 5100 &&
               !message_search_submit(&controller, 2, 5100, &token) &&
@@ -758,6 +758,11 @@ void test_message_search(void (*check)(bool, const char*) noexcept) noexcept {
     check(controller.state == MessageSearchState::rate_limited &&
               message_search_next_wake(&controller) == 1001,
           "search controller:429 respects authoritative retry separately from indexing");
+    message_search_begin(&controller, 124, query);
+    message_search_submit(&controller, 31, 1, &token);
+    message_search_complete(&controller, token, 202, true, false, nullptr, 1, 0);
+    check(controller.failure == MessageSearchFailure::deadline && !message_search_next_wake(&controller),
+          "search controller: indexing without a valid retry source cannot fabricate an early wake");
     message_search_begin(&controller, 124, query);
     message_search_submit(&controller, 31, ~u64{0} - 1, &token);
     message_search_complete(&controller, token, 202, true, false, nullptr, ~u64{0} - 1, 5000);

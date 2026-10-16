@@ -254,6 +254,7 @@ enum class RateLimitBodyError : u8 {
     invalid_retry_after,
     invalid_global,
     missing_required_field,
+    invalid_code,
 };
 
 struct RateLimitBodyResult {
@@ -271,6 +272,13 @@ struct RateLimitBodyResult {
 
 RateLimitBodyResult decode_rate_limit_body(Utf8View body, Slice<u32> structural_scratch,
                                            u32 maximum_depth) noexcept;
+
+// Reads search indexing retry_after seconds, rounded up to milliseconds. An
+// omitted retry_after requires code 110000; a supplied code must also be 110000.
+// Valid missing/zero delays permit a short retry. Global never establishes a
+// 429 rate-limit scope through this decoder.
+RateLimitBodyResult decode_search_indexing_body(Utf8View body, Slice<u32> structural_scratch,
+                                            u32 maximum_depth) noexcept;
 
 enum class RestMajorParameter : u8 {
     none,

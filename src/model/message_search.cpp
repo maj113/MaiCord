@@ -86,8 +86,8 @@ bool message_search_complete(MessageSearchController* controller, const MessageS
             fail(controller, MessageSearchFailure::retry_limit);
             return true;
         }
-        const u64 delay = retry_after_ms ? retry_after_ms : (http_status == 202 ? 5000 : 0);
-        // A 429 without a server retry deadline must not guess a rate.
+        const u64 delay = retry_after_ms;
+        // Neither index readiness nor rate limits may invent a server deadline.
         if (!delay || delay > ~u64{0} - now_ms) {
             fail(controller, MessageSearchFailure::deadline);
             return true;

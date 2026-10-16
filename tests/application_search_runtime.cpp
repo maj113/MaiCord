@@ -1495,6 +1495,107 @@ void thread_scope_runtime() noexcept {
           "search runtime: closing the browser restores the server scope");
 }
 
+void indexing_retry_runtime() noexcept {
+    u32 scratch[256];
+    struct RetryCase {
+        Utf8View body;
+        u64 milliseconds;
+    };
+    constexpr RetryCase valid[] = {
+        {utf8_literal(R"({"code":110000,"retry_after":30})"), 30000},
+        {utf8_literal(R"({"code":110000,"retry_after":30.0001,"documents_indexed":0})"), 30001},
+        {utf8_literal(R"({"code":110000,"retry_after":0.0001})"), 1},
+        {utf8_literal(R"({"code":110000,"retry_after":0,"global":true})"), 0},
+        {utf8_literal(R"({"code":110000,"retry_after":18446744073709551.615})"), ~u64{0}},
+        {utf8_literal(R"({"code":110000,"message":"Index not yet available"})"), 0},
+        {utf8_literal(R"({"retry_after":1})"), 1000},
+    };
+    bool parsed = true;
+    for (const auto& item : valid) {
+        const auto decoded = decode_search_indexing_body(item.body, {scratch, 256}, 64);
+        parsed &= decoded.ok() && decoded.retry_after_ms == item.milliseconds && !decoded.global;
+    }
+    check(parsed && decode_rate_limit_body(valid[0].body, {scratch, 256}, 64).error ==
+                        RateLimitBodyError::missing_required_field,
+          "search indexing: retry seconds ceil exactly and never relax the separate 429 scope decoder");
+    constexpr Utf8View invalid[] = {
+        {}, utf8_literal("{}"), utf8_literal(R"({"code":110000,"retry_after":-1})"),
+        utf8_literal(R"({"code":110000,"retry_after":-0})"), utf8_literal(R"({"code":110000,"retry_after":"30"})"),
+        utf8_literal(R"({"code":110000,"retry_after":true})"), utf8_literal(R"({"code":110000,"retry_after":NaN})"),
+        utf8_literal(R"({"code":110000,"retry_after":Infinity})"), utf8_literal(R"({"code":110000,"retry_after":1e999})"),
+        utf8_literal(R"({"code":110000,"retry_after":18446744073709552})"),
+        utf8_literal(R"({"code":110000,"retry_after":18446744073709551.6151})"),
+        utf8_literal(R"({"code":110000,"retry_after":30,"retry_after":1})"),
+        utf8_literal(R"({"code":110000,"retry_after":30,"retry_\u0061fter":1})"),
+        utf8_literal(R"({"nested":{"retry_after":30}})"),
+        utf8_literal(R"({"code":110000,"retry_after":30)"), utf8_literal(R"({"code":110000,"retry_after":30} trailing)"),
+        utf8_literal(R"({"code":110001,"retry_after":30})"), utf8_literal(R"({"code":1})"),
+        utf8_literal(R"({"code":110000,"code":110000})"), utf8_literal(R"({"code":"110000"})"),
+    };
+    bool rejected = true;
+    for (const auto body : invalid)
+        rejected &= !decode_search_indexing_body(body, {scratch, 256}, 64).ok();
+    check(rejected,
+          "search indexing: malformed duplicate negative nonfinite and overflowing retry bodies fail closed");
+
+    check(open(true), "search indexing: native scope opens for retry integration");
+    u64 request = 8000;
+    const auto* bank = g_app.search->bank;
+    struct RuntimeCase {
+        Utf8View body;
+        u64 header;
+        u64 floor;
+    };
+    constexpr RuntimeCase cases[] = {
+        {valid[1].body, 0, 30001}, {valid[0].body, 1250, 30000},
+        {valid[0].body, 60000, 60000}, {valid[3].body, 0, 5000},
+        {invalid[11], 7000, 7000}, {valid[5].body, 0, 5000}, {valid[6].body, 0, 1000},
+    };
+    bool floors = true;
+    for (const auto& item : cases) {
+        floors &= query(utf8_literal("index retry floor")) && application_search_submit(++request, 1);
+        const u64 before = clock_monotonic_milliseconds();
+        floors &= response(request, 202, item.body, 0, item.header);
+        const u64 deadline = application_search_next_wake();
+        floors &= g_app.search->controller.state == MessageSearchState::indexing &&
+                  g_app.search->bank == bank && deadline >= before + item.floor &&
+                  !application_search_pending(deadline - 1) && application_search_pending(deadline);
+    }
+    check(floors,
+          "search indexing: body-only and header conflicts preserve the longest floor including valid zero and malformed body");
+    bool no_guess = true;
+    for (const auto body : invalid) {
+        no_guess &= query(utf8_literal("invalid index retry")) && application_search_submit(++request, 1) &&
+                    response(request, 202, body) &&
+                    g_app.search->controller.failure == MessageSearchFailure::deadline &&
+                    !application_search_next_wake() && !application_search_pending(~u64{0});
+    }
+    check(no_guess, "search indexing: absent or invalid retry sources cannot create automatic polling");
+    const u64 header_deadline = clock_monotonic_milliseconds() + 60000;
+    check(query(utf8_literal("index absolute header")) && application_search_submit(++request, 1) &&
+              response(request, 202, valid[0].body, header_deadline) &&
+              application_search_next_wake() == header_deadline,
+          "search indexing: absolute authoritative deadline survives a shorter body floor");
+    check(query(utf8_literal("index stale receipt")) && application_search_submit(++request, 1) &&
+              query(utf8_literal("index replacement")) && response(request, 202, valid[0].body) &&
+              g_app.search->controller.state == MessageSearchState::ready_to_submit &&
+              !g_app.search->controller.retry_at_ms && application_search_pending(1),
+          "search indexing: cancelled prior-query receipt cannot delay its replacement");
+    check(application_search_submit(++request, 1) && response(request, 202, valid[0].body) &&
+              application_search_next_wake() && click(UiSearchAction::close) &&
+              !application_search_next_wake() && !application_search_pending(~u64{0}) &&
+              !response(request, 202, valid[0].body),
+          "search indexing: closing the pane retires its index floor and rejects a duplicate receipt");
+    check(open(true) && query(utf8_literal("index profile receipt")) &&
+              application_search_submit(++request, 1),
+          "search indexing: profile receipt fixture submits one exact ticket");
+    ++g_app.account.status.profile_id;
+    check(application_search_synchronize() && response(request, 202, valid[0].body) &&
+              !g_app.search->controller.retry_at_ms && !application_search_next_wake() &&
+              !application_search_active(),
+          "search indexing: old-profile receipt cannot retain or publish an index floor");
+}
+
 void run() noexcept {
     check(initialize(), "search runtime: real borrowed model, shell and hidden native host initialize");
     if (!g_app.search || !g_app.renderer.search_scene) {
@@ -1800,6 +1901,7 @@ void run() noexcept {
               !application_search_input(UiInputKind::character, 'x', false) &&
               !application_search_active() && repaints != 0,
           "search runtime: Escape key tail is consumed and closed search cannot capture later typing");
+    indexing_retry_runtime();
     thread_scope_runtime();
     rich_bank_capacity();
     rich_publication();

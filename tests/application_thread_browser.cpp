@@ -40,10 +40,12 @@ RestClientSubmitResult WINAPI submit(void* instance, const ThreadBrowserRequest*
     submitted.name = {submitted_name, request->name.bytes};
     return {};
 }
-bool receipt(u64 id, u16 status, Utf8View payload = {}, u64 retry = 0, RestClientError error = {}) noexcept {
+bool receipt(u64 id, u16 status, Utf8View payload = {}, u64 retry = 0, RestClientError error = {},
+    u64 retry_after_ms = 0) noexcept {
     RestClientResponse response{};
     response.request_id = id; response.status_code = status; response.body_bytes = payload.bytes;
     response.error = error; response.rate_limited = status == 429; response.retry_at_ms = retry;
+    response.rate.retry_after_ms = retry_after_ms;
     if (id == accepted) accepted = 0;
     return application_thread_browser_response(response, payload);
 }
@@ -193,6 +195,110 @@ bool initialize() noexcept {
     return chat_state_store_upsert_channel(&state, {500, 7, 70, utf8_literal("Metadata only"), 0, 0, 11}).ok() &&
         chat_state_store_upsert_channel(&state, {501, 7, 70, utf8_literal("Unjoined private"), 0, 0, 12}).ok();
 }
+void run_indexing() noexcept {
+    check(application_thread_browser_open(70), "browser indexing: captured parent opens");
+    now = maximum(now, browser_owner->actor_floor);
+    const u64 actor_floor = browser_owner->actor_floor;
+    constexpr auto indexing_payload = utf8_literal(R"({"code":110000,"retry_after":30.0001})");
+    constexpr auto zero = utf8_literal(R"({"code":110000,"retry_after":0})");
+    constexpr auto missing = utf8_literal(R"({"code":110000,"message":"Index not yet available"})");
+    constexpr auto bad = utf8_literal(R"({"code":110000,"retry_after":30,"retry_after":1})");
+    struct Case { Utf8View payload; u64 header, delay; };
+    constexpr Case cases[] = {{indexing_payload, 0, 30001}, {indexing_payload, 1250, 30001},
+        {indexing_payload, 60000, 60000}, {zero, 0, 5000}, {missing, 0, 5000}, {bad, 7000, 7000}, {{}, 8000, 8000}};
+    u64 request = 8000;
+    row(70)->thread_listing_synced = false;
+    check(application_thread_browser_open(70) && application_thread_browser_submit(++request, now),
+        "browser indexing: unsynced Active fallback uses the search endpoint");
+    const u32 saved_rows = browser_owner->row_count;
+    check(receipt(request, 202, missing) && browser_owner->queued &&
+        browser_owner->row_count == saved_rows && !browser_owner->error &&
+        application_thread_browser_next_wake() == now + 5000 && browser_owner->actor_floor == actor_floor,
+        "browser indexing: optional retry_after preserves usable saved Active rows during bounded preparation");
+    check(action(UiThreadBrowserAction::archived) && application_thread_browser_submit(++request, now) &&
+        submitted.mode == ThreadBrowserMode::archived && receipt(request, 202, indexing_payload) &&
+        application_thread_browser_next_wake() == now + 30001,
+        "browser indexing: Archived listings respect the same scoped readiness floor");
+    bool floors = true;
+    for (const auto& item : cases) {
+        floors &= application_thread_browser_search(utf8_literal("Index fixture")) &&
+            application_thread_browser_submit(++request, now);
+        const u64 publication = browser_owner->publication;
+        const u8 bank = browser_owner->bank;
+        floors &= receipt(request, 202, item.payload, 0, {}, item.header) &&
+            browser_owner->queued && !browser_owner->error && browser_owner->indexing_retries == 1 &&
+            browser_owner->bank == bank && browser_owner->publication == publication &&
+            browser_owner->actor_floor == actor_floor && application_thread_browser_next_wake() == now + item.delay &&
+            !application_thread_browser_pending(now + item.delay - 1) &&
+            application_thread_browser_pending(now + item.delay);
+    }
+    check(floors, "browser indexing: body seconds ceil and the longest valid header floor gate only the exact choice");
+    check(application_thread_browser_search(utf8_literal("Absolute index floor")) &&
+        application_thread_browser_submit(++request, now) && receipt(request, 202, indexing_payload, now + 90000) &&
+        application_thread_browser_next_wake() == now + 90000,
+        "browser indexing: absolute server header survives a shorter body floor");
+    constexpr Utf8View malformed[] = {{}, bad, utf8_literal(R"({"code":110000,"retry_after":-1})"),
+        utf8_literal(R"({"code":110000,"retry_after":1e999})"),
+        utf8_literal(R"({"code":110000,"retry_after":18446744073709552})"),
+        utf8_literal(R"({"code":110000,"retry_after":18446744073709551.615})"),
+        utf8_literal(R"({"code":110001,"retry_after":1})"), utf8_literal(R"({"code":1})")};
+    bool no_guess = true;
+    for (const auto payload : malformed)
+        no_guess &= application_thread_browser_search(utf8_literal("Invalid index floor")) &&
+            application_thread_browser_submit(++request, now) && receipt(request, 202, payload) &&
+            browser_owner->error && !browser_owner->queued && !application_thread_browser_next_wake();
+    check(no_guess, "browser indexing: missing malformed negative and overflowing sources require explicit retry");
+    bool bounded = application_thread_browser_search(utf8_literal("Bound index polls"));
+    for (u32 attempt = 0; attempt < 6; ++attempt) {
+        bounded &= application_thread_browser_submit(++request, now) && receipt(request, 202, zero);
+        if (attempt < 5) {
+            bounded &= browser_owner->queued && browser_owner->indexing_retries == attempt + 1 &&
+                application_thread_browser_next_wake() == now + 5000;
+            now += 5000;
+        } else bounded &= browser_owner->error && !browser_owner->queued && !application_thread_browser_next_wake();
+    }
+    check(bounded && action(UiThreadBrowserAction::retry) && !browser_owner->indexing_retries &&
+        application_thread_browser_submit(++request, now),
+        "browser indexing: sixth response stops polling and explicit Retry resets the bounded choice budget");
+    check(application_thread_browser_search(utf8_literal("Replacement index query")) &&
+        receipt(request, 202, indexing_payload) && browser_owner->queued && !browser_owner->indexing_retries &&
+        application_thread_browser_next_wake() == maximum<u64>(1, actor_floor),
+        "browser indexing: cancelled prior query cannot attach a readiness floor to its replacement");
+    choose(*browser_owner, UiThreadBrowserTab::archived, 399);
+    check(repaint() && application_thread_browser_submit(++request, now) && submitted.offset == 9975 &&
+        receipt(request, 200, page(1000, 25, true, true)) && browser_owner->row_count == 25 &&
+        browser_owner->rows[0].thread_id == 1000 && browser_owner->rows[24].thread_id == 1024 &&
+        !browser_owner->has_more && !browser_owner->error && !application_thread_browser_next_wake(),
+        "browser: final reachable offset9975 retains all25 rows even when the server has more results");
+    const u32 terminal_submissions = submissions;
+    check(!action(UiThreadBrowserAction::next) && submissions == terminal_submissions &&
+        browser_owner->row_count == 25 && action(UiThreadBrowserAction::previous) &&
+        browser_owner->page_index == 398 && application_thread_browser_pending(now),
+        "browser: final page cannot submit an unreachable Next while Previous remains usable");
+    check(application_thread_browser_submit(++request, now) && receipt(request, 202, indexing_payload),
+        "browser indexing: close fixture has a scoped readiness wake");
+    application_thread_browser_close();
+    check(!application_thread_browser_next_wake() && !application_thread_browser_pending(~u64{0}) &&
+        !receipt(request, 202, indexing_payload) && application_thread_browser_open(70) &&
+        application_thread_browser_search(utf8_literal("Profile index receipt")) &&
+        application_thread_browser_submit(++request, now),
+        "browser indexing: close removes readiness polling and duplicate receipt cannot reopen it");
+    const u64 profile = g_app.account.status.profile_id;
+    ++g_app.account.status.profile_id;
+    check(receipt(request, 202, indexing_payload) && !application_thread_browser_active() &&
+        !application_thread_browser_next_wake() && browser_owner->actor_floor == actor_floor,
+        "browser indexing: old-profile 202 receipt cannot mutate scoped or actor-wide floors");
+    g_app.account.status.profile_id = profile;
+    application_thread_browser_close();
+    check(application_thread_browser_open(70) && application_thread_browser_search(utf8_literal("Generation index receipt")) &&
+        application_thread_browser_submit(++request, now), "browser indexing: captured generation fixture submits");
+    ++row(70)->generation;
+    check(receipt(request, 202, indexing_payload) && !application_thread_browser_active() &&
+        !application_thread_browser_next_wake(),
+        "browser indexing: reused parent generation cannot accept prior indexing receipt");
+    application_thread_browser_release();
+}
+
 void run() noexcept {
     check(initialize(), "browser: native host initializes with captured profile 2");
     if (!g_app.account_ui || !g_app.window) return;
@@ -549,6 +655,7 @@ void run() noexcept {
     application_thread_browser_release();
     g_app.account.api.forum_post = nullptr;
 
+    run_indexing();
     // Scrolling the channel list beside the open browser rebuilds the retained
     // shell text, not just a frame over stale glyphs.
     check(application_thread_browser_open(71), "browser: scroll refresh fixture");

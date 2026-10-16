@@ -265,11 +265,19 @@ void run() noexcept {
         ThreadBrowserError::input && same_page(fixture.page, preserved),
         "thread browser: overlapping candidate banks refuse before any scratch mutation");
     auto max_offset = archived; max_offset.offset = kThreadBrowserMaximumOffset;
-    check(thread_browser_request_valid(max_offset) && !fixture.decode(valid_page, max_offset).ok() &&
-        same_page(fixture.page, preserved), "thread browser: exhausted offset budget cannot publish an unreachable continuation");
+    max_offset.offset = 9975;
+    check(thread_browser_write_target(max_offset, {target, sizeof(target)}).ok(),
+        "thread browser: documented final offset9975 is accepted");
+    auto beyond_offset = max_offset; beyond_offset.offset = 10000;
+    check(!thread_browser_request_valid(beyond_offset) &&
+        thread_browser_write_target(beyond_offset, {target, sizeof(target)}).error == ThreadBrowserError::input,
+        "thread browser: first aligned offset beyond9975 is rejected before transport");
+    beyond_offset.mode = ThreadBrowserMode::active;
+    check(!thread_browser_request_valid(beyond_offset),
+        "thread browser: active fallback uses the same documented search offset limit");
 
     u8 generated[24'000];
-    const auto make_page = [&](u32 count, bool duplicate, bool members, bool foreign_member) noexcept {
+    const auto make_page = [&](u32 count, bool duplicate, bool members, bool foreign_member, bool more = false) noexcept {
         ProtocolWriter writer{{generated, sizeof(generated)}, 0};
         bool okay = protocol_writer_append_literal(&writer, "{\"threads\":[");
         for (u32 at = 0; at < count; ++at) {
@@ -278,7 +286,7 @@ void run() noexcept {
             okay &= protocol_writer_append_u64(&writer, duplicate ? 100 : 100 + at);
             okay &= protocol_writer_append_literal(&writer, "\",\"parent_id\":\"10\",\"guild_id\":\"40\",\"type\":11,\"name\":\"x\",\"thread_metadata\":{\"archived\":true,\"locked\":false}}");
         }
-        okay &= protocol_writer_append_literal(&writer, "],\"has_more\":false");
+        okay &= protocol_writer_append_c_string(&writer, more ? "],\"has_more\":true" : "],\"has_more\":false");
         if (members) {
             okay &= protocol_writer_append_literal(&writer, ",\"members\":[{\"id\":\"100\",\"user_id\":\"");
             okay &= protocol_writer_append_u64(&writer, foreign_member ? 31 : 30);
@@ -294,6 +302,14 @@ void run() noexcept {
         "thread browser: duplicate separate self member proof rejects whole page");
     check(!fixture.decode(make_page(2, false, true, true), archived).ok() && same_page(fixture.page, preserved),
         "thread browser: foreign member actor rejects whole page");
+    check(fixture.decode(make_page(25, false, false, false, true), max_offset).ok() &&
+        fixture.page.row_count == 25 && fixture.rows[0].id == 100 && fixture.rows[24].id == 124 &&
+        !fixture.page.has_more && !fixture.page.next_offset,
+        "thread browser: final offset9975 publishes all25 rows while suppressing an unreachable continuation");
+    auto penultimate = max_offset; penultimate.offset = 9950;
+    check(fixture.decode(make_page(25, false, false, false, true), penultimate).ok() &&
+        fixture.page.row_count == 25 && fixture.page.has_more && fixture.page.next_offset == 9975,
+        "thread browser: penultimate page retains its reachable final offset9975 continuation");
     check(fixture.decode(make_page(25, false, false, false), archived).ok() && fixture.page.row_count == 25,
         "thread browser: exact archived page limit accepted");
     const auto page25 = fixture.page;

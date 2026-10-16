@@ -104,7 +104,7 @@ struct ApplicationThreadBrowser {
     u32 revision, projected_channels, projected_permissions, page_index, total, row_count, query_bytes;
     u32 held_key, busy_count, projected_forum;
     // Active-tab REST fallback when the Gateway active inventory is not synced.
-    u32 active_offset, active_retries;
+    u32 active_offset, active_retries, indexing_retries;
     bool active_requested, active_loaded;
     float thumb_grab;
     UiThreadBrowserTab tab;
@@ -235,6 +235,7 @@ void choose(ApplicationThreadBrowser& value, UiThreadBrowserTab tab, u32 page) n
     value.has_more = false;
     value.due = value.actor_floor;
     value.busy_count = 0;
+    value.indexing_retries = 0;
     invalidate(value);
 }
 void fail(ApplicationThreadBrowser& value, Utf8View notice) noexcept {
@@ -824,7 +825,7 @@ bool application_thread_browser_response(const RestClientResponse& response, Utf
     const u64 now = clock_monotonic_milliseconds();
     if (actor_current(flight.scope) && (response.rate_limited || response.status_code == 429))
         value.actor_floor = maximum(value.actor_floor, maximum(response.retry_at_ms, deadline_after(now, maximum(response.rate.retry_after_ms, u64{50}))));
-    const bool same = !flight.retired && current(value) && flight.choice == value.choice &&
+    const bool same = !flight.retired && actor_current(flight.scope) && current(value) && flight.choice == value.choice &&
         flight.scope.parent == value.scope.parent && flight.scope.generation == value.scope.generation;
     if (!same) {
         if (value.release_pending && !forum_meta_active(value)) free_owner(); else repaint();
@@ -840,6 +841,28 @@ bool application_thread_browser_response(const RestClientResponse& response, Utf
     } else if (response.status_code == 403) {
         fail(value, utf8_literal("You no longer have permission to browse these threads."));
         invalidate(value);
+    } else if (response.transport_ok() && response.status_code == 202) {
+        u64 delay = maximum(response.rate.retry_after_ms,
+            response.retry_at_ms > now ? response.retry_at_ms - now : 0);
+        if (body.data && body.bytes == response.body_bytes && body.bytes <= kThreadBrowserMaximumBodyBytes) {
+            const auto indexing = decode_search_indexing_body(body,
+                {g_app.account_ui->message_history_page_structurals, kMessageHistoryPageStructuralCount}, 64);
+            if (indexing.ok()) delay = maximum(delay, indexing.retry_after_ms ? indexing.retry_after_ms : 5000);
+        }
+        // Index readiness belongs to this exact choice, never the actor's 429
+        // floor. Only recognized replies may omit their optional retry_after.
+        if (!delay || delay > ~u64{0} - now || value.indexing_retries >= 5) {
+            fail_choice(value, utf8_literal("Couldn't load threads. Try again."),
+                utf8_literal("Showing saved threads. Couldn't refresh them."));
+        } else {
+            ++value.indexing_retries;
+            value.due = now + delay;
+            value.queued = true;
+            value.error = false;
+            value.status = value.tab == UiThreadBrowserTab::active && value.row_count
+                ? utf8_literal("Showing saved threads. Preparing threads…") : utf8_literal("Preparing threads…");
+            ++value.revision;
+        }
     } else if (!response.transport_ok() || response.status_code < 200 || response.status_code >= 300 ||
         !body.data || body.bytes != response.body_bytes || body.bytes > kThreadBrowserMaximumBodyBytes) {
         fail_choice(value, utf8_literal("Couldn't load threads. Try again."),
