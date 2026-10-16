@@ -34,10 +34,24 @@ constexpr u32 kTimeoutMs = 5000;
 u32 g_failures;
 void check(bool passed, const char* name) noexcept { test_check(&g_failures, passed, name); }
 u32 g_log_paths, g_log_lines;
+HANDLE g_probe_log_entered, g_probe_log_release;
+volatile LONG g_probe_log_armed, g_probe_log_released;
 // Log lines carry hosts and numbers only: a '/' would be a URL path.
 void capture_log(LogLevel, const char*, const char* line) noexcept {
     ++g_log_lines;
     for (const char* c = line; *c; ++c) if (*c == '/') { ++g_log_paths; break; }
+    if (InterlockedCompareExchange(&g_probe_log_armed, 0, 0)) {
+        PluginBrowserWorkerView view{};
+        if (plugin_browser_worker_view(&view, ~u64{0}) && view.phase == PluginBrowserPhase::idle &&
+            view.command == PluginBrowserCommandKind::probe && view.address_error == PluginProviderAddressError::none &&
+            view.probe.error == PluginProviderProbeError::none && view.probe.signed_provider &&
+            InterlockedCompareExchange(&g_probe_log_armed, 0, 1) == 1) {
+            // Hold the completed command before its worker function returns.
+            SetEvent(g_probe_log_entered);
+            InterlockedExchange(&g_probe_log_released,
+                WaitForSingleObject(g_probe_log_release, kTimeoutMs) == WAIT_OBJECT_0 ? 1 : 0);
+        }
+    }
 }
 
 struct Fixture {
@@ -381,6 +395,16 @@ bool run_command(const PluginBrowserCommand& cmd) noexcept {
         wait_view([serial](const PluginBrowserWorkerView& v) noexcept { return v.command_serial == serial && v.phase == PluginBrowserPhase::idle; });
 }
 void test_worker() noexcept {
+    g_probe_log_entered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    g_probe_log_release = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    const bool gate_ready = g_probe_log_entered && g_probe_log_release;
+    check(gate_ready, "plugin worker: completion log gate is available");
+    if (!gate_ready) {
+        if (g_probe_log_entered) CloseHandle(g_probe_log_entered);
+        if (g_probe_log_release) CloseHandle(g_probe_log_release);
+        g_probe_log_entered = g_probe_log_release = nullptr;
+        return;
+    }
     check(publish({kSequence + 6, false, nullptr, false, true}), "plugin worker: a fresh index to serve");
     PluginBrowserConfig config{};
     constexpr Utf8View repository = utf8_literal("example/plugins");
@@ -457,13 +481,24 @@ void test_worker() noexcept {
     constexpr char good[] = "https://example.github.io/custom";
     copy_bytes(cmd.text, good, sizeof(good) - 1);
     cmd.text_bytes = sizeof(good) - 1;
-    check(run_command(cmd) && g_view.address_error == PluginProviderAddressError::none && g_view.probe.error == PluginProviderProbeError::none &&
-        g_view.probe.signed_provider && g_view.probe.requests == 2 && g_view.address.path_bytes == 8,
-        "plugin worker: the probe fetches the signed custom index without admitting it");
+    InterlockedExchange(&g_probe_log_armed, 1);
+    const bool probed = run_command(cmd) && g_view.address_error == PluginProviderAddressError::none &&
+        g_view.probe.error == PluginProviderProbeError::none && g_view.probe.signed_provider && g_view.probe.requests == 2 &&
+        g_view.address.path_bytes == 8;
+    const bool entered = WaitForSingleObject(g_probe_log_entered, kTimeoutMs) == WAIT_OBJECT_0;
     cmd = {};
     cmd.kind = PluginBrowserCommandKind::add_provider;
+    u64 add_serial = 0;
+    const bool admitted = plugin_browser_worker_command(cmd, &add_serial);
+    SetEvent(g_probe_log_release);
+    check(probed, "plugin worker: the probe fetches the signed custom index without admitting it");
+    const bool added = admitted && wait_view([add_serial](const PluginBrowserWorkerView& v) noexcept {
+        return v.command_serial == add_serial && v.phase == PluginBrowserPhase::idle;
+    });
+    check(entered && added && InterlockedCompareExchange(&g_probe_log_released, 0, 0) == 1,
+        "plugin worker: a published completion admits the next command before returning");
     PluginProviders providers{};
-    check(run_command(cmd) && g_view.add.error == PluginProviderAddError::none &&
+    check(added && g_view.add.error == PluginProviderAddError::none &&
         plugin_providers_load({g.paths.providers, g.paths.providers_count}, &providers).ok() && providers.count == 1,
         "plugin worker: the confirmed probe is saved, admitted and cached");
     const u64 provider = providers.entries[0].id;
@@ -481,6 +516,10 @@ void test_worker() noexcept {
         "plugin worker: a manual check publishes the revocation and removes the trust");
     plugin_browser_worker_stop();
     check(!plugin_browser_worker_running(), "plugin worker: stops and frees its state");
+    InterlockedExchange(&g_probe_log_armed, 0);
+    CloseHandle(g_probe_log_entered);
+    CloseHandle(g_probe_log_release);
+    g_probe_log_entered = g_probe_log_release = nullptr;
 }
 
 bool setup() noexcept {

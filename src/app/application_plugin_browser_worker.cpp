@@ -391,7 +391,8 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
         const PluginProviderAddResult& add;
         const Worker* w;
     } r{serial, cmd.kind, manager, settled, record, address_error, add, w};
-    publish(w, [&r](PluginBrowserWorkerView& v) noexcept {
+    publish(w, [w, &r](PluginBrowserWorkerView& v) noexcept {
+        w->command_running = false;
         v.phase = PluginBrowserPhase::idle;
         v.command_serial = r.serial;
         v.command = r.kind;
@@ -408,10 +409,9 @@ void run_command(Worker* w, const PluginBrowserCommand& cmd, u64 serial) noexcep
         .hex("owner", cmd.owner).field("manager", static_cast<u8>(manager.error)).field("record", static_cast<u8>(record.error))
         .field("address", static_cast<u8>(address_error)).field("probe", static_cast<u8>(w->probe.error))
         .field("add", static_cast<u8>(add.error)).write(manager.ok() && record.ok() ? LogLevel::info : LogLevel::warning);
-    AcquireSRWLockExclusive(&w->lock);
-    w->command_running = false;
+    AcquireSRWLockShared(&w->lock);
     const bool want = w->want_snapshot;
-    ReleaseSRWLockExclusive(&w->lock);
+    ReleaseSRWLockShared(&w->lock);
     if (want && changed) build_snapshot(w);
 }
 
