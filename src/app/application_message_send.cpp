@@ -58,7 +58,6 @@ bool queue_composer_message(bool mention_confirmed) noexcept {
     } else {
         application_attachment_did_queue({attachment_ids, attachment_count}, queued.nonce);
         application_emoji_preferences_track_message(emoji_uses);
-        application_composer_note_sent(composer.channel_id);
         const TypingStoreResult typing_stopped =
             typing_store_note_message(&g_app.account_ui->typing_store, composer.channel_id,
                                               g_app.account_ui->chat_state.self_user_id, true);
@@ -119,8 +118,10 @@ bool accept_message_send_response(const RestClientResponse& response, Utf8View b
         log_write(LogLevel::error, "message", "history_decode_storage_admission_failed");
         return false;
     }
+    u64 request_channel = 0;
     for (const auto& request : ui.message_composer_controller.requests) {
         if (request.occupied && request.nonce == ui.message_composer_controller.inflight_nonce) {
+            request_channel = request.channel_id;
             g_app.message_rejection = response.rejection;
             g_app.message_rejection_channel_id = request.channel_id;
             // Retrying this failed message opens the browser challenge.
@@ -129,20 +130,16 @@ bool accept_message_send_response(const RestClientResponse& response, Utf8View b
             break;
         }
     }
-    u64 rejected_channel = 0;
-    for (const auto& request : ui.message_composer_controller.requests)
-        if (request.occupied && request.nonce == ui.message_composer_controller.inflight_nonce)
-            rejected_channel = request.channel_id;
     const auto accepted = message_send_accept_response(&ui.message_composer_controller, response, body, scratch,
         ui.active_channel_id, ui.chat_state.self_user_id, clock_monotonic_milliseconds());
     // AutoMod blocks and undeliverable DMs also get the official client's in-channel notice.
     if (const auto notice = message_send_rejection_system_notice(response.rejection);
-        notice.bytes && rejected_channel && rejected_channel == ui.active_channel_id &&
+        notice.bytes && request_channel && request_channel == ui.active_channel_id &&
         response.transport_ok() && response.status_code >= 400) {
         static u32 notice_sequence = 0;
         const auto inserted = message_timeline_insert_local(
             &g_app.message_view.timeline,
-            message_send_rejection_notice_input(rejected_channel, notice, clock_unix_milliseconds(),
+            message_send_rejection_notice_input(request_channel, notice, clock_unix_milliseconds(),
                                                 ++notice_sequence));
         if (!inserted.ok())
             log_write(LogLevel::warning, "message", "rejection_notice_insert_failed");
@@ -152,6 +149,9 @@ bool accept_message_send_response(const RestClientResponse& response, Utf8View b
                 static_cast<u64>(accepted.http.error));
         return false;
     }
+    // Delivery starts the prediction even when its body cannot be reconciled.
+    if (request_channel && response.transport_ok() && response.status_code >= 200 && response.status_code < 300)
+        application_composer_note_sent(request_channel);
     if (accepted.body_expected && !accepted.body_decoded) {
         log_u64(LogLevel::warning, "message", "message_send_response_decode_error", static_cast<u64>(accepted.decode.error));
     } else if (!accepted.message.ok()) {

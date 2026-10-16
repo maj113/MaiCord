@@ -19,6 +19,8 @@
 namespace maicord::history_decode_storage_test {
 using namespace app_detail;
 u32 failures, refreshes;
+u32 slowmode_starts;
+u64 slowmode_channel;
 u32 notice_begins, notice_failures, notice_successes;
 u64 notice_channel, notice_message;
 bool notice_failed_before_reset;
@@ -93,6 +95,7 @@ struct CommitFailure {
 };
 
 bool reset_models(AccountUiRuntime& ui) noexcept {
+    slowmode_starts = 0; slowmode_channel = 0;
     auto& view = g_app.message_view;
     g_app.message_pump = {};
     if (!message_store_initialize(&view.store, {fixture.records, 4}, {fixture.order, 4},
@@ -369,13 +372,15 @@ void send(AccountUiRuntime& ui) noexcept {
         if (failure.ready()) check(!accept_message_send_response(response, send_body) &&
             same(ui.message_composer_controller, controller) && same(g_app.message_view.store, store) &&
             same(g_app.message_rejection, rejection) && g_app.message_rejection_channel_id == rejection_channel &&
-            content(nonce, utf8_literal("local")) && refreshes == refresh_before && !ui.history_decode_storage.arena.committed,
+            content(nonce, utf8_literal("local")) && refreshes == refresh_before && !ui.history_decode_storage.arena.committed &&
+            !slowmode_starts,
             "send actual response entrypoint rejects commit failure before HTTP tracker, decode, model and UI mutation");
     }
     const auto* base = ui.history_decode_storage.arena.base;
     check(accept_message_send_response(response, send_body) && content(900, utf8_literal("server")) &&
         !message_store_find(g_app.message_view.store, nonce).ok() && !ui.message_composer_controller.request_count &&
-        !ui.message_composer_controller.inflight_nonce && ui.history_decode_storage.arena.commit_count == 1,
+        !ui.message_composer_controller.inflight_nonce && ui.history_decode_storage.arena.commit_count == 1 &&
+        slowmode_starts == 1 && slowmode_channel == 7,
         "send actual response retries and reconciles authoritative output on first bank commitment");
     const auto* detail = message_rich_store_find(ui.message_rich_store, 900);
     check(detail && detail->attachment_count == 1 && detail->attachments[0].size == 64,
@@ -383,8 +388,103 @@ void send(AccountUiRuntime& ui) noexcept {
     check(queue_send(ui) != 0, "send second actual request submits");
     response.body_bytes = second_send_body.bytes;
     check(accept_message_send_response(response, second_send_body) && content(902, utf8_literal("second")) &&
-        ui.history_decode_storage.arena.base == base && ui.history_decode_storage.arena.commit_count == 1,
+        ui.history_decode_storage.arena.base == base && ui.history_decode_storage.arena.commit_count == 1 &&
+        slowmode_starts == 2 && slowmode_channel == 7,
         "send subsequent actual response reuses committed bank without allocation");
+}
+
+void send_lifecycle(AccountUiRuntime& ui) noexcept {
+    if (!reset_models(ui)) { check(false, "send cooldown lifecycle initializes"); return; }
+    const auto saved_scene = g_app.message_composer_scene;
+    auto& composer = g_app.message_composer;
+    auto& controller = ui.message_composer_controller;
+    g_app.message_composer_scene = {};
+    g_app.message_composer_scene.active = true;
+    g_app.message_composer_scene.model = &composer;
+    g_app.message_composer_scene.channel_allows_send = true;
+    check(message_composer_insert_utf8(&composer, utf8_literal("local")) == MessageComposerResult::changed &&
+        queue_message_send() && controller.request_count == 1 && !controller.inflight_nonce &&
+        !composer.bytes && !slowmode_starts,
+        "send local queue admission without a submitted request does not predict slowmode");
+    u64 queued_nonce = 0;
+    for (const auto& request : controller.requests)
+        if (request.occupied) { queued_nonce = request.nonce; break; }
+    check(queued_nonce && message_composer_insert_utf8(&composer, utf8_literal("next draft")) ==
+            MessageComposerResult::changed &&
+        message_composer_controller_submit_failed(&controller, queued_nonce, clock_monotonic_milliseconds()).ok() &&
+        !slowmode_starts && utf8_equal(message_composer_text(composer), utf8_literal("next draft")),
+        "send local admission failure leaves the next draft without a predicted cooldown");
+    g_app.message_composer_scene = saved_scene;
+
+    struct RejectionCase { u16 status; RestClientError error; u32 code; const char* label; };
+    constexpr RejectionCase rejections[] = {
+        {403, RestClientError::none, 0, "send terminal 403 does not start predicted slowmode"},
+        {403, RestClientError::none, 200000, "send AutoMod rejection does not start predicted slowmode"},
+        {200, RestClientError::receive, 0, "send failed transport with 2xx status does not start predicted slowmode"},
+        {429, RestClientError::none, 0, "send server retry wait does not start predicted slowmode"},
+    };
+    constexpr u64 retry_base = 900'000'000'000ull;
+    for (const auto& rejection : rejections) {
+        if (!reset_models(ui)) { check(false, "send rejection cooldown fixture initializes"); return; }
+        const u64 nonce = queue_send(ui);
+        RestClientResponse response{};
+        response.status_code = rejection.status; response.error = rejection.error;
+        response.rejection = {rejection.code, rejection.code != 0, false};
+        response.rate_limited = rejection.status == 429;
+        response.retry_at_ms = response.rate_limited ? retry_base + 500 : 0;
+        check(nonce && accept_message_send_response(response, {}) && !slowmode_starts, rejection.label);
+        if (response.rate_limited) {
+            MessageComposerSubmit submission{};
+            check(message_composer_controller_prepare_submit(&controller, retry_base + 499, &submission).error ==
+                    MessageComposerControllerError::not_found &&
+                message_composer_controller_prepare_submit(&controller, retry_base + 500, &submission).ok() &&
+                submission.nonce == nonce && !slowmode_starts,
+                "send authoritative 429 still refuses 499 and admits 500 without a local prediction");
+        }
+    }
+    const Utf8View invalid_bodies[] = {{}, utf8_literal("{")};
+    for (const auto body : invalid_bodies) {
+        if (!reset_models(ui)) { check(false, "send invalid body cooldown fixture initializes"); return; }
+        const u64 nonce = queue_send(ui);
+        RestClientResponse response{}; response.status_code = 200; response.body_bytes = body.bytes;
+        check(nonce && accept_message_send_response(response, body) && slowmode_starts == 1 &&
+            slowmode_channel == 7 && !controller.inflight_nonce && controller.request_count == 1 &&
+            content(nonce, utf8_literal("local")),
+            "send successful receipt starts slowmode even when its absent or malformed body cannot reconcile");
+    }
+    if (!reset_models(ui)) { check(false, "send offscreen cooldown fixture initializes"); return; }
+    const u64 offscreen_nonce = queue_send(ui);
+    check(message_composer_controller_select_channel(&controller, 9).ok(), "send cooldown navigation selects another composer");
+    ui.active_channel_id = 9;
+    RestClientResponse success{}; success.status_code = 200; success.body_bytes = send_body.bytes;
+    check(offscreen_nonce && accept_message_send_response(success, send_body) && slowmode_starts == 1 &&
+        slowmode_channel == 7 && composer.channel_id == 9 && !controller.request_count,
+        "send offscreen success starts cooldown for the captured request channel, not the active composer");
+    check(!accept_message_send_response(success, send_body) && slowmode_starts == 1 && slowmode_channel == 7,
+        "send duplicate receipt without an inflight request cannot restart any cooldown");
+
+    for (u32 drained = 0; drained < 2; ++drained) {
+        if (!reset_models(ui)) { check(false, "send Gateway-first cooldown fixture initializes"); return; }
+        const u64 nonce = queue_send(ui);
+        check(nonce && message_send_tracker_observe_gateway(&controller.sends, &g_app.message_view.timeline,
+            nonce, 7, 11, 900, clock_monotonic_milliseconds()).ok(),
+            "send Gateway-first cooldown observes delivery before its response");
+        if (drained) {
+            bool changed = false;
+            MessageSendCompletion completion{};
+            const u64 deadline = message_composer_controller_next_wake_at(controller);
+            check(deadline && message_composer_controller_tick(&controller, deadline, &changed) &&
+                message_composer_controller_take_completion(&controller, &completion) && completion.gateway_observed &&
+                !controller.request_count && controller.inflight_nonce == nonce &&
+                message_composer_controller_select_channel(&controller, 9).ok(),
+                "send Gateway-first completion drains its request while retaining the pending HTTP nonce");
+            ui.active_channel_id = 9;
+        }
+        check(accept_message_send_response(success, send_body) && !controller.inflight_nonce &&
+            slowmode_starts == (drained ? 0u : 1u) && slowmode_channel == (drained ? 0u : 7u),
+            drained ? "send drained late success has no request channel and cannot cool down the current channel"
+                    : "send matched Gateway-first success predicts slowmode even without another model change");
+    }
 }
 
 void edit(AccountUiRuntime& ui) noexcept {
@@ -586,7 +686,8 @@ void run() noexcept {
     measurement("MEASURE history_storage_owner_bytes=", sizeof(StableStorage));
     measurement("MEASURE history_snapshot_bank_bytes=", sizeof(HistorySnapshotDecodeBank));
     measurement("MEASURE history_inline_owner_bytes_removed=", kHistoryDecodeBaseBytes - sizeof(StableStorage));
-    storage(*owner, page); history(*owner); forwarded_history(*owner); send(*owner); edit(*owner); caption_edit(*owner);
+    storage(*owner, page); history(*owner); forwarded_history(*owner);
+    send(*owner); send_lifecycle(*owner); edit(*owner); caption_edit(*owner);
     const auto* base = owner->history_decode_storage.arena.base;
     application_history_decode_storage_release(*owner);
     check(!owner->history_decode_storage.arena.base && vm(base, MEM_FREE), "history final production owner releases active reservation");
@@ -631,7 +732,10 @@ void application_composer_text_input_suspend() noexcept {}
 bool application_composer_text_input_composing() noexcept { return false; }
 bool stop_local_typing(u64) noexcept { return true; }
 bool application_composer_prepare_send(bool* handled) noexcept { *handled = false; return true; }
-void application_composer_note_sent(u64) noexcept {}
+void application_composer_note_sent(u64 channel) noexcept {
+    ++history_decode_storage_test::slowmode_starts;
+    history_decode_storage_test::slowmode_channel = channel;
+}
 bool application_mention_confirmation_request(bool* opened) noexcept {
     *opened = false;
     return true;

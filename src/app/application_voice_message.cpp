@@ -163,7 +163,6 @@ bool queue_send() noexcept {
     }
     const u64 id = g_voice.draft_id;
     application_attachment_did_queue({&id, 1}, queued.nonce);
-    application_composer_note_sent(channel);
     g_voice.draft_id = 0; // The send owns the draft now; completion removes it.
     return true;
 }
