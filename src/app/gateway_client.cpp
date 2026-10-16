@@ -2134,6 +2134,21 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                                    : PlaintextDrive::failed;
                 }
                 if (routed.ok()) {
+                    RelationshipStreamBinding member_binding{client, runtime};
+                    if (!gateway_ready_publish_supplemental_members(
+                             event.envelope.data, runtime->self_user_id, main_index_view(runtime),
+                             {runtime->ready_object_scratch,
+                              static_cast<u32>(kPlainOutputBytes / sizeof(u32))},
+                             {reinterpret_cast<char*>(runtime->handshake_output + kMessageBytes),
+                              kGatewayClientDispatchPayloadCapacity},
+                             event.envelope.sequence, now_ms, publish_relationship_stream, &member_binding)
+                             .ok())
+                        return schedule_reconnect(client, runtime, GatewayLifecycleAction::reconnect_resume,
+                                                  now_ms, 0)
+                                   ? PlaintextDrive::reconnecting
+                                   : PlaintextDrive::failed;
+                }
+                if (routed.ok()) {
                     GatewayClientEvent complete{};
                     complete.kind = GatewayClientEventKind::dispatch;
                     complete.dispatch_kind = GatewayClientDispatchKind::supplemental_state_complete;

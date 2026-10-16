@@ -219,7 +219,7 @@ void dormant_abi() noexcept {
     request.parent_id = 20;
     request.guild_id = 10;
     request.operation = ForumPostOperation::parent_metadata;
-    check(host.api.version == 128 && host.api.bytes == 1176 && host.api.forum_post &&
+    check(host.api.version == 129 && host.api.bytes == 1176 && host.api.forum_post &&
               host.api.forum_post(nullptr, &request, 1).error == RestClientSubmitError::invalid_input &&
               host.api.forum_post(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               !host.instance && !host.login_instance,

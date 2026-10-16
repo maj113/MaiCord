@@ -852,6 +852,8 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 }
                 u32 roles_end = 0;
                 if (!guild_roles_payload_bytes(event, payload, &roles_end, offsets) ||
+                    (!(event.state.member_role_flags & gateway_client_member_roles_known) &&
+                     event.state.member_role_count) ||
                     event.state.member_role_count > kGuildRoleMaximum || roles_end > payload.count ||
                     event.state.member_role_count > (payload.count - roles_end) / 8u)
                     return apply_error(ChatStateApplyError::invalid_payload);
@@ -988,7 +990,8 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                         return apply_error(ChatStateApplyError::capacity);
                     }
                 }
-                if (!chat_state_store_set_self_roles(
+                if ((event.state.member_role_flags & gateway_client_member_roles_known) &&
+                    !chat_state_store_set_self_roles(
                         store, event.state.id, event.state.owner_id, store->self_user_id,
                         ConstSlice<u64>{self_roles, event.state.member_role_count})) {
                     return apply_error(ChatStateApplyError::invalid_payload);
@@ -1138,9 +1141,11 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
         auto& roles = member_scratch.ids;
         if (!guild || event.state.id == 0 || event.state.id != store->self_user_id ||
             !member_roles(event, payload, Slice<u64>{roles, kGuildRoleMaximum}) ||
-            !chat_state_store_set_self_roles(
-                store, event.state.guild_id, guild->owner_id, event.state.id,
-                ConstSlice<u64>{roles, event.state.member_role_count})) {
+            (!(event.state.member_role_flags & gateway_client_member_roles_known) &&
+             event.state.member_role_count) ||
+            ((event.state.member_role_flags & gateway_client_member_roles_known) &&
+             !chat_state_store_set_self_roles(store, event.state.guild_id, guild->owner_id, event.state.id,
+                                              ConstSlice<u64>{roles, event.state.member_role_count}))) {
             return apply_error(ChatStateApplyError::invalid_payload);
         }
         if (event.state.guild_settings_known & guild_settings_self_timeout)

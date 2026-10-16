@@ -45,4 +45,21 @@ struct GatewayReadyProjectionResult {
 GatewayReadyProjectionResult gateway_ready_project(const GatewayReady& ready,
     GatewayReadyProjectionScratch scratch, u64 sequence, u64 now_ms,
     GatewayReadyPublish publish, GatewayReadyContinue work, void* context) noexcept;
+// Ancillary, row-atomic supplemental hydration. Invalid rows are skipped. The
+// caller pins the source and fences the current Gateway session until return.
+GatewayClientDispatchRouteResult gateway_ready_publish_supplemental_members(
+    JsonValue data, u64 self_user_id, Slice<u32> arrays, Slice<u32> records, Slice<char> payload,
+    u64 sequence, u64 now_ms, GatewayReadyPublish publish, void* context) noexcept;
+// Internal READY routes; merged members replace the guild-local member list.
+GatewayClientDispatchRouteResult gateway_client_route_ready_guild(const GatewayEnvelope& envelope,
+                                                                  JsonValue members, Slice<u32> scratch,
+                                                                  Slice<char> storage, u64 self_user_id,
+                                                                  GatewayClientLargeRecord large,
+                                                                  GatewayClientEvent* event,
+                                                                  ConstSlice<u8>* payload) noexcept;
+GatewayClientDispatchRouteResult gateway_client_route_self_members(JsonValue members, u64 guild_id,
+                                                                   u64 self_user_id, Slice<u32> scratch,
+                                                                   Slice<char> storage,
+                                                                   GatewayClientEvent* event,
+                                                                   ConstSlice<u8>* payload) noexcept;
 } // namespace maicord

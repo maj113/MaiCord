@@ -6,6 +6,13 @@ namespace maicord {
 
 struct GatewayPayloadWriter;
 
+// Appends the shared notification metadata to an already normalized state
+// record, using the same final storage as its typed payload.
+void gateway_client_append_notification_sidecar(const GatewayEnvelope& envelope,
+                                                Slice<u32> structural_scratch, Slice<char> storage,
+                                                u64 self_user_id, GatewayClientEvent* event,
+                                                ConstSlice<u8>* payload) noexcept;
+
 // A member's user object as member-list and thread-member records carry it.
 // field_detail is the last visited field (ordinal << 8 | JSON kind), kept for
 // skipped-dispatch diagnostics.

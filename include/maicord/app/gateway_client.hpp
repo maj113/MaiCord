@@ -649,6 +649,8 @@ struct GatewayClientStateMutation {
     union {
         // Role objects: GatewayClientRoleFlag bits.
         u8 role_flags;
+        // guild_create / own guild_member_update: presence of role authority.
+        u8 member_role_flags;
         // Channel dispatches: GatewayClientChannelEventFlag bits.
         u8 channel_event_flags;
     };
@@ -674,6 +676,9 @@ constexpr u8 gateway_client_private_safety_type(u8 flags) noexcept {
     return static_cast<u8>(flags >> kGatewayClientPrivateSafetyShift);
 }
 
+enum GatewayClientMemberRoleFlag : u8 {
+    gateway_client_member_roles_known = 1u << 0,
+};
 enum GatewayClientRoleFlag : u8 {
     gateway_client_role_hoist = 1u << 0,
     gateway_client_role_managed = 1u << 1,

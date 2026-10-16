@@ -1,6 +1,7 @@
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat_state.hpp"
+#include "maicord/model/permission_compute.hpp"
 #include "maicord/protocol/guild_moderation.hpp"
 #include "test_output.hpp"
 
@@ -349,6 +350,115 @@ bool apply_details() noexcept {
            guild_detail_store_apply_gateway_event(&s.details, s.store, event, payload);
 }
 
+void test_self_member_authority() noexcept {
+    check(detail_fixture(), "self member authority: bounded state fixture initializes");
+    auto& s = detail_state;
+    const auto apply = [&]() noexcept {
+        return chat_state_apply_gateway_event(&s.store, event, payload, {s.guild_ids, 4}).ok();
+    };
+    const auto seed = route(
+        utf8_literal("GUILD_CREATE"),
+        utf8_literal(
+            R"({"id":"100","name":"Lab","owner_id":"1","roles":[{"id":"100","permissions":"1024"},{"id":"30","permissions":"2048"}],)"
+            R"("members":[{"user_id":"22"},{"user_id":"7","roles":["30"]}],"channels":[)"
+            R"({"id":"500","type":0,"name":"chat","permission_overwrites":[]},)"
+            R"({"id":"501","type":0,"name":"readonly","permission_overwrites":[{"id":"7","type":1,"allow":"0","deny":"2048"}]}]})"));
+    check(seed.ok() && (event.state.member_role_flags & gateway_client_member_roles_known) &&
+              event.state.member_role_count == 1 && apply(),
+          "self member authority: deduplicated self identity hydrates a live guild snapshot with explicit "
+          "role authority");
+    const auto* guild = chat_state_store_find_guild(s.store, 100);
+    const auto* role = chat_state_store_find_role(s.store, 100, 30);
+    const auto* channel = chat_state_store_find_channel(s.store, 500);
+    const auto* denied = chat_state_store_find_channel(s.store, 501);
+    check(
+        guild && guild->member_roles_known && role && role->self_assigned && channel &&
+            channel->permissions_resolved &&
+            channel->effective_permissions == (kPermissionViewChannel | kPermissionSendMessages) &&
+            denied && denied->effective_permissions == kPermissionViewChannel,
+        "self member authority: own assigned role grants send while the member overwrite still denies it");
+    const auto absent = route(
+        utf8_literal("GUILD_MEMBER_UPDATE"),
+        utf8_literal(
+            R"({"guild_id":"100","user_id":"7","communication_disabled_until":"2026-10-07T00:00:00+00:00","flags":128})"));
+    const bool restricted = absent.ok() &&
+                            event.dispatch_kind == GatewayClientDispatchKind::guild_member_update &&
+                            !event.state.member_role_count &&
+                            !(event.state.member_role_flags & gateway_client_member_roles_known) && apply();
+    guild = chat_state_store_find_guild(s.store, 100);
+    role = chat_state_store_find_role(s.store, 100, 30);
+    channel = chat_state_store_find_channel(s.store, 500);
+    const u64 roles[]{30};
+    const PermissionMember timed{kSelf, {roles, 1}, 1'791'331'200u};
+    check(restricted && guild && guild->member_roles_known && role && role->self_assigned &&
+              guild->settings.self_communication_disabled_until == 1'791'331'200u &&
+              guild_self_quarantined(guild->settings) && channel &&
+              channel->effective_permissions == kPermissionViewChannel &&
+              chat_state_store_member_permissions(s.store, 100, 500, timed, {1'791'331'199u, false}) ==
+                  kPermissionViewChannel,
+          "self member authority: omitted roles preserve assignments while timeout and quarantine "
+          "observations restrict permissions");
+    const auto released =
+        route(utf8_literal("GUILD_MEMBER_UPDATE"),
+              utf8_literal(
+                  R"({"guild_id":"100","user":{"id":"7"},"communication_disabled_until":null,"flags":0})"));
+    check(
+        released.ok() && apply() && guild && !guild->settings.self_communication_disabled_until &&
+            !guild_self_quarantined(guild->settings) && role && role->self_assigned && channel &&
+            channel->effective_permissions == (kPermissionViewChannel | kPermissionSendMessages),
+        "self member authority: explicit restriction clears restore the retained role without a roles key");
+    constexpr Utf8View malformed[]{
+        utf8_literal(R"({"guild_id":"100","user":{"id":"7"},"user_id":"8","roles":[]})"),
+        utf8_literal(R"({"guild_id":"100","user_id":"7","user_id":"7","roles":[]})"),
+        utf8_literal(R"({"guild_id":"100","user_id":"7","roles":["30",false]})"),
+        utf8_literal(R"({"guild_id":"100","user_id":"7","roles":"30"})"),
+        utf8_literal(R"({"guild_id":"100","user_id":"7","roles":["30","30"]})"),
+    };
+    u32 rejected = 0;
+    const u32 revision = channel ? channel->revision : 0;
+    for (const auto data : malformed) {
+        const auto result = route(utf8_literal("GUILD_MEMBER_UPDATE"), data);
+        rejected += !result.ok() ? !payload.count : !apply();
+    }
+    check(rejected == sizeof(malformed) / sizeof(malformed[0]) && guild && guild->member_roles_known &&
+              role && role->self_assigned && channel && channel->revision == revision &&
+              channel->effective_permissions == (kPermissionViewChannel | kPermissionSendMessages),
+          "self member authority: conflicting identities and malformed or repeated roles never partially "
+          "clear retained assignments");
+    GatewayClientEvent bounded{};
+    ConstSlice<u8> bounded_payload{};
+    const auto too_small = gateway_client_route_dispatch(
+        envelope(utf8_literal("GUILD_MEMBER_UPDATE"),
+                 utf8_literal(R"({"guild_id":"100","user_id":"7","roles":["30"]})")),
+        {scratch, 8192}, 64, {storage, 1}, {}, kSelf, &bounded, &bounded_payload);
+    check(too_small.error == GatewayClientDispatchRouteError::payload_capacity && !bounded_payload.count &&
+              role && role->self_assigned && channel && channel->revision == revision,
+          "self member authority: insufficient normalized role storage emits no payload and leaves the "
+          "model untouched");
+    const auto empty = route(utf8_literal("GUILD_MEMBER_UPDATE"),
+                             utf8_literal(R"({"guild_id":"100","user_id":"7","roles":[]})"));
+    check(empty.ok() && (event.state.member_role_flags & gateway_client_member_roles_known) &&
+              !event.state.member_role_count && apply() && guild && guild->member_roles_known && role &&
+              !role->self_assigned && channel && channel->permissions_resolved &&
+              channel->effective_permissions == kPermissionViewChannel,
+          "self member authority: explicit empty roles authoritatively revoke send while retaining "
+          "everyone access");
+    const auto replacement = route(
+        utf8_literal("GUILD_CREATE"),
+        utf8_literal(
+            R"({"id":"100","name":"Lab","owner_id":"1","roles":[{"id":"100","permissions":"1024"},{"id":"30","permissions":"2048"}],)"
+            R"("members":[{"user_id":"22","roles":[]},{"user_id":"7","flags":0}],)"
+            R"("channels":[{"id":"500","type":0,"name":"chat","permission_overwrites":[]}]})"));
+    const bool replaced = replacement.ok() && apply();
+    guild = chat_state_store_find_guild(s.store, 100);
+    channel = chat_state_store_find_channel(s.store, 500);
+    check(replaced && guild && !guild->member_roles_known && !guild->permissions_resolved && channel &&
+              !channel->permissions_resolved && !channel->effective_permissions &&
+              s.store.channel_count == 1,
+          "self member authority: replacing a known guild without self roles invalidates authority instead "
+          "of retaining a falsely known empty assignment");
+}
+
 void test_guild_details() noexcept {
     char body[4096];
     u32 used = 0;
@@ -533,6 +643,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_guild_admin_gateway_entry() 
     test_bulk_ban_update();
     test_member_timeout();
     test_member_quarantine();
+    test_self_member_authority();
     test_guild_settings();
     test_guild_details();
     test_detail_store();

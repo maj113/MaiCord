@@ -84,6 +84,7 @@ bool build(u32 count, u32 mode, bool named) noexcept {
     event.state.fields = gateway_client_state_field_id | gateway_client_state_field_name |
         gateway_client_state_field_owner_id;
     event.state.name_bytes = 5; event.state.role_count = 1;
+    event.state.member_role_flags = gateway_client_member_roles_known;
     event.state.record_count = count; event.state.overwrite_count = named ? count : 0;
     GatewayClientRoleMutation role{}; role.id = kGuild; role.permissions = kPermissions;
     if (!append("Bench", 5) || !append(&role, sizeof(role))) return false;

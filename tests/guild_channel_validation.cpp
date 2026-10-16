@@ -82,6 +82,7 @@ bool build(u32 count, u32 mode = 0, u32 malformed = 0) noexcept {
     e.state.id = kGuild; e.state.owner_id = kOwner; e.state.name_bytes = 6;
     e.state.fields = gateway_client_state_field_id | gateway_client_state_field_name | gateway_client_state_field_owner_id;
     e.state.role_count = 1; e.state.record_count = count; e.state.overwrite_count = count;
+    e.state.member_role_flags = gateway_client_member_roles_known;
     GatewayClientRoleMutation role{}; role.id = kGuild; role.permissions = kBase;
     if (!append("Target", 6) || !append(&role, sizeof(role))) return false;
     for (u32 i = 0; i < count; ++i) {

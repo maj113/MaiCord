@@ -93,6 +93,7 @@ bool build(u32 count, u32 sequence, bool names, bool emojis, bool high_ids = fal
     event.state.id = kGuild; event.state.owner_id = kOwner;
     event.state.fields = gateway_client_state_field_id | gateway_client_state_field_name | gateway_client_state_field_owner_id;
     event.state.name_bytes = 5; event.state.role_count = 2; event.state.member_role_count = 1;
+    event.state.member_role_flags = gateway_client_member_roles_known;
     event.state.record_count = count; event.state.emojis_known = emojis;
     event.state.emoji_count = emojis ? 2 : 0; event.state.emoji_role_count = emojis ? 2 : 0;
     if (!append("Bench", 5)) return false;
@@ -196,7 +197,10 @@ bool branch_emojis(bool update) noexcept {
         // GUILD_UPDATE roles and emoji payload omit the GUILD_CREATE self-role tuple.
         const u32 tuple = 5 + 2 * (sizeof(GatewayClientRoleMutation) + 1);
         copy_bytes(payload + tuple, payload + tuple + 8, used - tuple - 8);
-        used -= 8; event.state.member_role_count = 0; event.dispatch_payload_bytes = used;
+        used -= 8;
+        event.state.member_role_count = 0;
+        event.state.member_role_flags = 0;
+        event.dispatch_payload_bytes = used;
     } else {
         event = {}; used = 0;
         event.kind = GatewayClientEventKind::dispatch; event.dispatch_kind = GatewayClientDispatchKind::guild_emojis_update;

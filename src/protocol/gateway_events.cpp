@@ -302,6 +302,13 @@ bool visit_ready_member(void* opaque, JsonString name, JsonValue value) noexcept
             context->error = GatewayEventDecodeError::invalid_data; return false;
         }
         context->ready.merged_presences = value;
+    } else if (json_string_equals_ascii(name, utf8_literal("merged_members"))) {
+        // Optional member authority is checked per guild during projection.
+        if (context->fields & (1u << 18))
+            context->ready.merged_members.kind = JsonValueKind::null_value;
+        else
+            context->ready.merged_members = value;
+        context->fields |= 1u << 18;
     } else if (json_string_equals_ascii(name, utf8_literal("read_state"))) {
         if (!mark_field(&context->fields, 1u << 14, &context->error)) return false;
         if (value.kind != JsonValueKind::object) {

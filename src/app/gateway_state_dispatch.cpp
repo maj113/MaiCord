@@ -5,6 +5,8 @@
 #include "maicord/model/chat_state.hpp"
 
 #include "gateway_guild_details.hpp"
+#include "gateway_dispatch_common.hpp"
+#include "gateway_ready_projection.hpp"
 #include "gateway_payload_writer.hpp"
 #include "gateway_state_payload.hpp"
 #include "gateway_user_payload.hpp"
@@ -1539,28 +1541,78 @@ struct SelfMemberContext {
     u32 role_count;
     GatewayEventDecodeError error;
     bool found;
+    bool roles_known;
     bool timeout_known;
     u32 timeout_until;
     u16 member_known;
     u8 member_state;
 };
 
+struct MemberIdentity {
+    u64 user_id, nested_id;
+    bool user_id_seen, user_seen, nested_id_seen;
+};
+bool visit_member_identity_id(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& identity = *static_cast<MemberIdentity*>(opaque);
+    if (!json_name_is(name, utf8_literal("id")))
+        return true;
+    if (identity.nested_id_seen)
+        return false;
+    identity.nested_id_seen = true;
+    return json_value_to_snowflake(value, &identity.nested_id);
+}
+bool visit_member_identity(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& identity = *static_cast<MemberIdentity*>(opaque);
+    if (json_name_is(name, utf8_literal("user_id"))) {
+        if (identity.user_id_seen)
+            return false;
+        identity.user_id_seen = true;
+        return json_value_to_snowflake(value, &identity.user_id);
+    }
+    if (!json_name_is(name, utf8_literal("user")))
+        return true;
+    if (identity.user_seen || value.kind != JsonValueKind::object)
+        return false;
+    identity.user_seen = true;
+    u32 scratch[512]{};
+    const auto scan = json_scan_structurals_avx1(value.source, {scratch, 512});
+    return scan.ok() &&
+           json_visit_value_object(value, {scratch, scan.count}, 64, visit_member_identity_id, &identity)
+               .ok() &&
+           identity.nested_id_seen;
+}
+bool member_identity(JsonValue value, Slice<u32> scratch, u32 maximum_depth,
+                     MemberIdentity* identity) noexcept {
+    const auto scan = json_scan_structurals_avx1(value.source, scratch);
+    return scan.ok() && value.kind == JsonValueKind::object &&
+           json_visit_value_object(value, {scratch.data, scan.count}, maximum_depth, visit_member_identity,
+                                   identity)
+               .ok();
+}
+
 bool visit_member(void* opaque, u32, JsonValue value) noexcept {
     auto* context = static_cast<SelfMemberContext*>(opaque);
     // Only the current member's roles and state are read here. Any other entry
     // (voice members, a member without roles) is skipped rather than costing
     // the guild, so a server joined while running always appears.
+    MemberIdentity identity{};
+    const bool identified =
+        member_identity(value, context->object_scratch, context->maximum_depth, &identity);
+    const bool self =
+        identity.user_id == context->self_user_id || identity.nested_id == context->self_user_id;
+    if (!self)
+        return true;
+    if (!identified ||
+        (identity.user_id_seen && identity.user_seen && identity.user_id != identity.nested_id)) {
+        context->error = GatewayEventDecodeError::invalid_data;
+        return false;
+    }
     StateObjectContext member{};
     const GatewayEventDecodeResult decoded =
         decode_state_object(value, context->object_scratch, context->maximum_depth, &member);
-    if (!decoded.ok() || !member.user_seen)
-        return true;
-    StateObjectContext user{};
-    const GatewayEventDecodeResult user_decoded =
-        decode_state_object(member.user, context->object_scratch, context->maximum_depth, &user);
-    if (!user_decoded.ok() || (user.mutation.fields & gateway_client_state_field_id) == 0 ||
-        user.mutation.id != context->self_user_id) {
-        return true;
+    if (!decoded.ok()) {
+        context->error = decoded.error;
+        return false;
     }
     if (context->found) {
         context->error = GatewayEventDecodeError::invalid_data;
@@ -1575,6 +1627,7 @@ bool visit_member(void* opaque, u32, JsonValue value) noexcept {
     context->member_state = member.mutation.self_member;
     if (!member.roles_seen)
         return true; // Pending or previewing members can arrive without roles.
+    context->roles_known = true;
     u32 role_scratch[1'024]{};
     const GatewayEventDecodeResult roles =
         append_snowflake_array(member.roles, Slice<u32>{role_scratch, 1'024}, context->maximum_depth,
@@ -1610,6 +1663,8 @@ GatewayEventDecodeResult append_self_member_roles(JsonValue members, Slice<u32> 
     }
     *found = context.found;
     *count = context.role_count;
+    if (context.roles_known)
+        guild->member_role_flags |= gateway_client_member_roles_known;
     if (context.timeout_known) {
         guild->guild_settings_known = static_cast<u16>(guild->guild_settings_known | guild_settings_self_timeout);
         guild->self_communication_disabled_until = context.timeout_until;
@@ -2045,10 +2100,12 @@ GatewayClientDispatchRouteResult gateway_client_route_private_channel(
 }
 
 namespace {
-GatewayClientDispatchRouteResult route_state_dispatch(
-    const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
-    Slice<char> payload_scratch, u64 self_user_id, GatewayClientEvent* event, ConstSlice<u8>* payload,
-    bool* handled, bool* overflowed) noexcept {
+GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& envelope,
+                                                      Slice<u32> structural_scratch, u32 maximum_depth,
+                                                      Slice<char> payload_scratch, u64 self_user_id,
+                                                      GatewayClientEvent* event, ConstSlice<u8>* payload,
+                                                      bool* handled, bool* overflowed,
+                                                      JsonValue ready_members = {}) noexcept {
     if (!event || !payload || !handled) {
         return route_error(GatewayClientDispatchRouteError::invalid_input);
     }
@@ -2098,7 +2155,15 @@ GatewayClientDispatchRouteResult route_state_dispatch(
         decode_state_object(envelope.data, structural_scratch, maximum_depth, &object,
                             channel_create || channel_update || channel_delete);
     if (!decoded.ok()) {
-        return route_error(GatewayClientDispatchRouteError::decode, decoded.error);
+        auto result = route_error(GatewayClientDispatchRouteError::decode, decoded.error);
+        // READY can grow its nested index and retry this record. Keep the
+        // established error contract of the other state/receipt routes.
+        if (ready_guild) {
+            result.scan_error = decoded.scan_error;
+            result.read_error = decoded.read_error;
+            result.error_offset = decoded.error_offset;
+        }
+        return result;
     }
     if ((channel_create || channel_update) && !hydrate_self_member(&object, self_user_id))
         return route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
@@ -2188,37 +2253,38 @@ GatewayClientDispatchRouteResult route_state_dispatch(
                                                : GatewayClientDispatchKind::guild_role_update;
         }
     } else if (member_update) {
-        if ((object.mutation.fields & gateway_client_state_field_guild_id) == 0 || !object.user_seen ||
-            self_user_id == 0) {
+        if ((object.mutation.fields & gateway_client_state_field_guild_id) == 0 || self_user_id == 0) {
             return route_error(GatewayClientDispatchRouteError::decode,
                                GatewayEventDecodeError::missing_required_field);
         }
-        StateObjectContext user{};
-        const GatewayEventDecodeResult user_decoded =
-            decode_state_object(object.user, Slice<u32>{object_scratch, 512}, maximum_depth, &user);
-        if (!user_decoded.ok() || (user.mutation.fields & gateway_client_state_field_id) == 0) {
+        MemberIdentity identity{};
+        if (!member_identity(envelope.data, {object_scratch, 512}, maximum_depth, &identity) ||
+            (!identity.user_id_seen && !identity.user_seen) ||
+            (identity.user_id_seen && identity.user_seen && identity.user_id != identity.nested_id)) {
             return route_error(GatewayClientDispatchRouteError::decode,
-                               user_decoded.ok() ? GatewayEventDecodeError::missing_required_field
-                                                 : user_decoded.error);
+                               GatewayEventDecodeError::invalid_data);
         }
-        if (user.mutation.id == self_user_id) {
+        const u64 member_id = identity.user_id_seen ? identity.user_id : identity.nested_id;
+        if (member_id == self_user_id) {
+            event->state.member_role_flags = 0;
             member_state_from_flags(&event->state);
             event->state.guild_settings_known &=
                 static_cast<u16>(guild_settings_self_timeout | guild_settings_self_member |
                                  guild_settings_self_quarantine);
-            if (!object.roles_seen)
-                return route_error(GatewayClientDispatchRouteError::decode,
-                                   GatewayEventDecodeError::missing_required_field);
             u32 role_count = 0;
-            const GatewayEventDecodeResult roles = append_snowflake_array(
-                object.roles, structural_scratch, maximum_depth, &writer, &role_count);
+            const GatewayEventDecodeResult roles =
+                !object.roles_seen ? GatewayEventDecodeResult{}
+                                   : append_snowflake_array(object.roles, structural_scratch, maximum_depth,
+                                                            &writer, &role_count);
             if (!roles.ok()) {
                 return route_error(roles.error == GatewayEventDecodeError::invalid_data
                                        ? GatewayClientDispatchRouteError::payload_capacity
                                        : GatewayClientDispatchRouteError::decode,
                                    roles.error);
             }
-            event->state.id = user.mutation.id;
+            if (object.roles_seen)
+                event->state.member_role_flags = gateway_client_member_roles_known;
+            event->state.id = member_id;
             event->state.fields |= gateway_client_state_field_id;
             event->state.member_role_count = role_count;
             event->state.record_count = role_count;
@@ -2230,6 +2296,14 @@ GatewayClientDispatchRouteResult route_state_dispatch(
             *handled = false;
         }
     } else if (guild_create || guild_update || guild_delete) {
+        event->state.member_role_flags = 0;
+        if (ready_guild && ready_members.source.data) {
+            if (ready_members.kind != JsonValueKind::array)
+                return route_error(GatewayClientDispatchRouteError::decode,
+                                   GatewayEventDecodeError::invalid_data);
+            object.members = ready_members;
+            object.members_seen = true;
+        }
         if ((object.mutation.fields & gateway_client_state_field_id) == 0) {
             return route_detail(GatewayClientDispatchRouteError::decode,
                                 GatewayEventDecodeError::missing_required_field, 1);
@@ -2405,6 +2479,72 @@ GatewayClientDispatchRouteResult gateway_client_route_state_dispatch(
                                        event, payload, handled, &overflowed);
     routed.payload_overflow = !routed.ok() && overflowed;
     return routed;
+}
+
+GatewayClientDispatchRouteResult gateway_client_route_ready_guild(const GatewayEnvelope& envelope,
+                                                                  JsonValue members, Slice<u32> scratch,
+                                                                  Slice<char> storage, u64 self_user_id,
+                                                                  GatewayClientLargeRecord large,
+                                                                  GatewayClientEvent* event,
+                                                                  ConstSlice<u8>* payload) noexcept {
+    if (!event || !payload || !storage.data || !storage.count || !self_user_id)
+        return route_error(GatewayClientDispatchRouteError::invalid_input);
+    u32 capacity = storage.count;
+    for (;;) {
+        *event = {};
+        *payload = {};
+        event->kind = GatewayClientEventKind::dispatch;
+        event->sequence = envelope.sequence;
+        event->has_sequence = envelope.has_sequence;
+        bool handled = false, overflowed = false;
+        auto routed = route_state_dispatch(envelope, scratch, 64, storage, self_user_id, event, payload,
+                                           &handled, &overflowed, members);
+        routed.payload_overflow = !routed.ok() && overflowed;
+        event->dispatch_payload_bytes = payload->count;
+        if (routed.ok()) {
+            gateway_client_append_notification_sidecar(envelope, scratch, storage, self_user_id, event,
+                                                       payload);
+            return routed;
+        }
+        if (!overflowed || !large.acquire || capacity >= kGatewayClientGuildRecordCapacity)
+            return routed;
+        capacity = capacity < 256 * 1024                              ? 256 * 1024
+                   : capacity > kGatewayClientGuildRecordCapacity / 2 ? kGatewayClientGuildRecordCapacity
+                                                                      : capacity * 2;
+        if (!large.acquire(large.context, capacity, &storage) || !storage.data || storage.count < capacity)
+            return routed;
+    }
+}
+
+GatewayClientDispatchRouteResult gateway_client_route_self_members(JsonValue members, u64 guild_id,
+                                                                   u64 self_user_id, Slice<u32> scratch,
+                                                                   Slice<char> storage,
+                                                                   GatewayClientEvent* event,
+                                                                   ConstSlice<u8>* payload) noexcept {
+    if (!event || !payload || !guild_id || !self_user_id || members.kind != JsonValueKind::array)
+        return route_error(GatewayClientDispatchRouteError::invalid_input);
+    *event = {};
+    *payload = {};
+    u32 object_scratch[512]{};
+    PayloadWriter writer{storage, 0};
+    bool found = false;
+    const auto decoded =
+        append_self_member_roles(members, scratch, {object_scratch, 512}, 64, self_user_id, &writer,
+                                 &event->state.member_role_count, &event->state, &found);
+    if (!decoded.ok() || event->state.member_role_count > kGatewayGuildRoleMaximum)
+        return route_error(GatewayClientDispatchRouteError::decode,
+                           decoded.ok() ? GatewayEventDecodeError::invalid_data : decoded.error);
+    if (!found)
+        return {};
+    event->kind = GatewayClientEventKind::dispatch;
+    event->dispatch_kind = GatewayClientDispatchKind::guild_member_update;
+    event->state.id = self_user_id;
+    event->state.guild_id = guild_id;
+    event->state.fields = gateway_client_state_field_id | gateway_client_state_field_guild_id;
+    event->state.record_count = event->state.member_role_count;
+    event->dispatch_payload_bytes = writer.used;
+    *payload = {reinterpret_cast<const u8*>(storage.data), writer.used};
+    return {};
 }
 
 GatewayClientDispatchRouteResult gateway_client_route_dispatch_large(

@@ -597,9 +597,15 @@ bool chat_state_store_can_replace_channel_overwrites(const ChatStateStore& store
 }
 
 void chat_state_store_remove_guild_roles(ChatStateStore* store, u64 guild_id) noexcept {
-    if (!store || !store->roles || guild_id == 0) {
+    if (!store || guild_id == 0) {
         return;
     }
+    // A replacement role table cannot retain authority for assignments that
+    // were removed with the old table. A complete self list restores it.
+    if (auto* guild = mutable_guild(store, guild_id))
+        guild->member_roles_known = false;
+    if (!store->roles)
+        return;
     u32 output = 0;
     for (u32 index = 0; index < store->role_count; ++index) {
         if (store->roles[index].guild_id != guild_id) {

@@ -37,6 +37,7 @@ struct GatewayReady {
     AccountRequirement required_action;
     JsonValue relationships;
     JsonValue merged_presences;
+    JsonValue merged_members;
     JsonValue read_state;
     JsonValue user_guild_settings, user_settings_proto, notification_settings;
     JsonValue auth_session_id_hash;

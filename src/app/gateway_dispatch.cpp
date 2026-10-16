@@ -1148,6 +1148,13 @@ void notification_side(const GatewayEnvelope& env, Slice<u32> scratch, Slice<cha
 
 } // namespace
 
+void gateway_client_append_notification_sidecar(const GatewayEnvelope& envelope,
+                                                Slice<u32> structural_scratch, Slice<char> storage,
+                                                u64 self_user_id, GatewayClientEvent* event,
+                                                ConstSlice<u8>* payload) noexcept {
+    notification_side(envelope, structural_scratch, storage, self_user_id, event, payload);
+}
+
 GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     const GatewayEnvelope& envelope, Slice<u32> structural_scratch, u32 maximum_depth,
     Slice<char> content_scratch, Slice<u64> bulk_ids, u64 self_user_id, GatewayClientEvent* event,

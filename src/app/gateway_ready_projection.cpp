@@ -7,6 +7,84 @@
 namespace maicord {
 namespace {
 enum class RecordKind : u8 { user, guild, private_channel };
+// Boundaries only: init validates the complete array with the JSON reader.
+// Thereafter each source byte is walked once, without a DOM or per-guild index.
+struct MemberArrayCursor {
+    JsonValue array;
+    u32 offset = 1, count = 0;
+    bool valid = false;
+    bool init(JsonValue value, Slice<u32> scratch) noexcept {
+        *this = {};
+        array = value;
+        offset = 1;
+        if (value.kind != JsonValueKind::array || !value.source.data)
+            return false;
+        if (!value.validated) {
+            const auto scan = json_scan_structurals_avx1(value.source, scratch);
+            if (!scan.ok())
+                return false;
+            const auto read = json_visit_value_array(
+                value, {scratch.data, scan.count}, 64, +[](void*, u32, JsonValue) noexcept { return true; },
+                nullptr);
+            if (!read.ok())
+                return false;
+        }
+        valid = true;
+        JsonValue row{};
+        while (next(&row))
+            ++count;
+        offset = 1;
+        return true;
+    }
+    bool next(JsonValue* value) noexcept {
+        const auto source = array.source;
+        while (offset < source.bytes &&
+               (source.data[offset] == ' ' || source.data[offset] == '\r' || source.data[offset] == '\n' ||
+                source.data[offset] == '\t' || source.data[offset] == ','))
+            ++offset;
+        if (!valid || offset >= source.bytes || source.data[offset] == ']')
+            return false;
+        const u32 begin = offset;
+        u32 depth = 0;
+        bool quoted = false, escaped = false;
+        for (; offset < source.bytes; ++offset) {
+            const char ch = source.data[offset];
+            if (quoted) {
+                if (escaped)
+                    escaped = false;
+                else if (ch == '\\')
+                    escaped = true;
+                else if (ch == '"')
+                    quoted = false;
+                continue;
+            }
+            if (ch == '"')
+                quoted = true;
+            else if (ch == '[' || ch == '{')
+                ++depth;
+            else if (ch == ']' || ch == '}') {
+                if (!depth)
+                    break;
+                if (!--depth) {
+                    ++offset;
+                    break;
+                }
+            } else if (!depth && (ch == ',' || ch == ' ' || ch == '\r' || ch == '\n' || ch == '\t'))
+                break;
+        }
+        const char first = source.data[begin];
+        *value = {{source.data + begin, offset - begin},
+                  array.source_offset + begin,
+                  first == '['                   ? JsonValueKind::array
+                  : first == '{'                 ? JsonValueKind::object
+                  : first == 'n'                 ? JsonValueKind::null_value
+                  : first == '"'                 ? JsonValueKind::string
+                  : first == 't' || first == 'f' ? JsonValueKind::boolean
+                                                 : JsonValueKind::number,
+                  true};
+        return true;
+    }
+};
 struct Pass {
     const GatewayReady* ready;
     GatewayReadyProjectionScratch scratch;
@@ -19,6 +97,8 @@ struct Pass {
     u32 user_bytes, user_count;
     bool staging;
     u32 staged_bytes, staged_records;
+    MemberArrayCursor members;
+    bool merged_invalid;
 };
 // A staged record: descriptor, payload size, then the payload, 8-byte aligned.
 struct StagedRecord {
@@ -124,11 +204,26 @@ bool record(void* opaque, u32, JsonValue value) noexcept {
     envelope.sequence = pass.sequence; envelope.opcode = 0;
     envelope.has_sequence = envelope.has_event_name = true;
     GatewayClientEvent event{}; ConstSlice<u8> payload{};
+    JsonValue members{};
+    bool bad_members = false;
+    if (pass.kind == RecordKind::guild && pass.ready->merged_members.source.data) {
+        bad_members =
+            pass.merged_invalid || !pass.members.next(&members) || members.kind != JsonValueKind::array;
+    }
     do {
         event = {}; payload = {};
-        pass.result.route = gateway_client_route_dispatch_large(envelope, pass.scratch.records, 64,
-            pass.scratch.payload, {}, pass.ready->user_id,
-            pass.kind == RecordKind::guild ? pass.scratch.large : GatewayClientLargeRecord{}, &event, &payload);
+        if (bad_members) {
+            pass.result.route.error = GatewayClientDispatchRouteError::decode;
+            pass.result.route.event_error = GatewayEventDecodeError::invalid_data;
+        } else if (pass.kind == RecordKind::guild) {
+            pass.result.route = gateway_client_route_ready_guild(envelope, members, pass.scratch.records,
+                                                                 pass.scratch.payload, pass.ready->user_id,
+                                                                 pass.scratch.large, &event, &payload);
+        } else
+            pass.result.route = gateway_client_route_dispatch_large(
+                envelope, pass.scratch.records, 64, pass.scratch.payload, {}, pass.ready->user_id,
+                pass.kind == RecordKind::guild ? pass.scratch.large : GatewayClientLargeRecord{}, &event,
+                &payload);
     } while (!pass.result.route.ok() && grow_record_index(pass));
     const bool expected = pass.kind == RecordKind::guild ?
         event.dispatch_kind == GatewayClientDispatchKind::guild_create :
@@ -216,6 +311,16 @@ bool run(Pass& pass) noexcept {
     gateway_client_publish_user_settings(ready.user_settings_proto, ready.auth_session_id_hash, false,
         pass.scratch.payload, pass.sequence, true, pass.now_ms, relationship, &pass);
     if (pass.result.interrupted) return false;
+    pass.members = {};
+    pass.merged_invalid = false;
+    if (ready.merged_members.source.data) {
+        // Count before positional binding: a short or long array cannot shift
+        // another guild's member into this guild's permission authority.
+        MemberArrayCursor guilds;
+        pass.merged_invalid = !pass.members.init(ready.merged_members, pass.scratch.records) ||
+                              !guilds.init(ready.guilds, pass.scratch.records) ||
+                              pass.members.count != guilds.count;
+    }
     if (!records(pass, ready.guilds, RecordKind::guild, GatewayClientFailureStage::ready_guild_route)) return false;
     if (ready.private_channels.kind == JsonValueKind::array && !records(pass, ready.private_channels,
         RecordKind::private_channel, GatewayClientFailureStage::ready_private_route)) return false;
@@ -267,9 +372,18 @@ bool valid(const GatewayReady& ready, GatewayReadyProjectionScratch scratch) noe
         if (!byte_range_valid(buffers[i])) return false;
         for (u32 j = 0; j < i; ++j) if (byte_ranges_overlap(buffers[i], buffers[j])) return false;
     }
-    const JsonValue sources[]{ready.user, ready.guilds, ready.private_channels, ready.users,
-        ready.apex_experiments, ready.relationships, ready.merged_presences, ready.read_state,
-        ready.user_guild_settings,ready.user_settings_proto,ready.notification_settings};
+    const JsonValue sources[]{ready.user,
+                              ready.guilds,
+                              ready.private_channels,
+                              ready.users,
+                              ready.apex_experiments,
+                              ready.relationships,
+                              ready.merged_presences,
+                              ready.merged_members,
+                              ready.read_state,
+                              ready.user_guild_settings,
+                              ready.user_settings_proto,
+                              ready.notification_settings};
     for (const auto& value : sources) {
         const ConstSlice<u8> source{reinterpret_cast<const u8*>(value.source.data), value.source.bytes};
         if (!byte_range_valid(source) || source.count > kGatewaySessionMaximumDecodedMessageBytes) return false;
@@ -308,5 +422,79 @@ GatewayReadyProjectionResult gateway_ready_project(const GatewayReady& ready,
     }
     if (scratch.staging) reserved_bytes_decommit(scratch.staging);
     return pass.result;
+}
+
+GatewayClientDispatchRouteResult gateway_ready_publish_supplemental_members(
+    JsonValue data, u64 self_user_id, Slice<u32> arrays, Slice<u32> records, Slice<char> storage,
+    u64 sequence, u64 now_ms, GatewayReadyPublish publish, void* context) noexcept {
+    GatewayClientDispatchRouteResult invalid{};
+    invalid.error = GatewayClientDispatchRouteError::invalid_input;
+    if (!self_user_id || !publish || !arrays.data || !arrays.count || !records.data || !records.count ||
+        arrays.count > kGatewaySessionMaximumStructuralCount ||
+        records.count > kGatewaySessionMaximumStructuralCount ||
+        storage.count > kGatewayClientDispatchPayloadCapacity ||
+        data.source.bytes > kGatewaySessionMaximumDecodedMessageBytes || !storage.data || !storage.count ||
+        data.kind != JsonValueKind::object)
+        return invalid;
+    const ConstSlice<u8> buffers[]{{reinterpret_cast<const u8*>(arrays.data), arrays.count * 4u},
+                                   {reinterpret_cast<const u8*>(records.data), records.count * 4u},
+                                   {reinterpret_cast<const u8*>(storage.data), storage.count},
+                                   {reinterpret_cast<const u8*>(data.source.data), data.source.bytes}};
+    for (u32 i = 0; i < 4; ++i) {
+        if (!byte_range_valid(buffers[i]))
+            return invalid;
+        for (u32 j = 0; j < i; ++j)
+            if (byte_ranges_overlap(buffers[i], buffers[j]))
+                return invalid;
+    }
+    struct Fields {
+        JsonValue guilds, members;
+        bool guilds_seen, members_seen;
+    } fields{};
+    const auto scan = json_scan_structurals_avx1(data.source, arrays);
+    if (!scan.ok())
+        return {}; // Optional authority stays unchanged on an unsupported shape.
+    const auto read = json_visit_value_object(
+        data, {arrays.data, scan.count}, 64,
+        +[](void* opaque, JsonString name, JsonValue value) noexcept {
+            auto& fields = *static_cast<Fields*>(opaque);
+            if (json_name_is(name, utf8_literal("guilds"))) {
+                if (fields.guilds_seen)
+                    return false;
+                fields.guilds_seen = true;
+                fields.guilds = value;
+            } else if (json_name_is(name, utf8_literal("merged_members"))) {
+                if (fields.members_seen)
+                    return false;
+                fields.members_seen = true;
+                fields.members = value;
+            }
+            return true;
+        },
+        &fields);
+    if (!read.ok() || !fields.guilds_seen || !fields.members_seen)
+        return {};
+    MemberArrayCursor guilds, members;
+    if (!guilds.init(fields.guilds, records) || !members.init(fields.members, records) ||
+        guilds.count != members.count)
+        return {};
+    JsonValue guild{}, member_rows{};
+    while (guilds.next(&guild) && members.next(&member_rows)) {
+        GatewayClientEvent identity{}, event{};
+        if (member_rows.kind != JsonValueKind::array ||
+            !gateway_client_route_guild_placeholder(guild, records, 64, &identity))
+            continue;
+        ConstSlice<u8> payload{};
+        const auto routed = gateway_client_route_self_members(member_rows, identity.state.id, self_user_id,
+                                                              records, storage, &event, &payload);
+        if (!routed.ok() || event.dispatch_kind != GatewayClientDispatchKind::guild_member_update)
+            continue;
+        event.sequence = sequence;
+        event.has_sequence = true;
+        event.timestamp_ms = now_ms;
+        if (!publish(context, event, payload))
+            return invalid;
+    }
+    return {};
 }
 } // namespace maicord

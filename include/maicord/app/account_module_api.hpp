@@ -74,8 +74,10 @@ namespace maicord {
 // server-rejected request retained for replay; author batches are unaffected.
 // v128: Gateway descriptors identify quarantined self membership and thread
 // creation without changing the interface layout; host and module must agree.
-inline constexpr u32 kAccountModuleApiVersion = 128;
-inline constexpr u16 kAccountModuleApiOrdinal = 128;
+// v129: Guild and self-member Gateway descriptors distinguish omitted roles
+// from known-empty roles; matching host/module semantics retain the same layout.
+inline constexpr u32 kAccountModuleApiVersion = 129;
+inline constexpr u16 kAccountModuleApiOrdinal = 129;
 inline constexpr u32 kAccountHistoryResponseBytes = 256 * 1024;
 inline constexpr wchar_t kAccountModuleFileNameWide[] = L"MaiCordAccount.dll";
 

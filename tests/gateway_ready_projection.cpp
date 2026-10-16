@@ -1,9 +1,11 @@
 #include "../src/app/gateway_ready_projection.hpp"
+#include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/reserved_bytes.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/core/trace_record.hpp"
 #include "maicord/model/chat_state.hpp"
+#include "maicord/model/permission_compute.hpp"
 #include "maicord/protocol/gateway_runtime.hpp"
 #include "maicord/protocol/writer.hpp"
 
@@ -679,10 +681,217 @@ void channel_create_projection(void (*check)(bool, const char*) noexcept) noexce
         channel_state_equal(event.state, seed.state),
         "channel receipt rejects null outputs before it changes caller state");
 }
+struct SelfMemberProbe {
+    ChatStateStore store;
+    GuildRecord guilds[2];
+    ChannelRecord channels[3];
+    RoleRecord roles[4];
+    PermissionOverwriteRecord overwrites[2];
+    u16 guild_order[2], channel_order[3];
+    u8 names[2048];
+    u64 guild_ids[2];
+    u32 guild_events, member_events, published, notification_guilds;
+    bool applied;
+};
+SelfMemberProbe self_members;
+bool reset_self_members() noexcept {
+    clear_bytes(&self_members, sizeof(self_members));
+    auto& p = self_members;
+    p.applied = chat_state_store_initialize(&p.store, {p.guilds, 2}, {p.guild_order, 2}, {p.channels, 3},
+                                            {p.channel_order, 3}, {p.names, sizeof(p.names)}) &&
+                chat_state_store_bind_permissions(&p.store, {p.roles, 4}, {p.overwrites, 2});
+    return p.applied;
+}
+bool publish_self_members(void* opaque, const GatewayClientEvent& event, ConstSlice<u8> bytes) noexcept {
+    auto& p = *static_cast<SelfMemberProbe*>(opaque);
+    ++p.published;
+    if (event.kind == GatewayClientEventKind::ready ||
+        event.dispatch_kind == GatewayClientDispatchKind::guild_create ||
+        event.dispatch_kind == GatewayClientDispatchKind::guild_member_update) {
+        GatewayClientEvent ordinary = event;
+        ConstSlice<u8> body = bytes;
+        if (event.dispatch_kind == GatewayClientDispatchKind::guild_create && event.state.id == 8) {
+            GatewayClientNotificationSidecar side{};
+            ConstSlice<u8> rows{};
+            GatewayClientNotificationThreadRecord sensitive{};
+            p.applied =
+                p.applied && event.notification_payload_bytes &&
+                gateway_client_notification_trim(event, bytes, &ordinary, &body) &&
+                !ordinary.notification_payload_bytes && ordinary.dispatch_payload_bytes == body.count &&
+                body.count + event.notification_payload_bytes == bytes.count &&
+                gateway_client_notification_sidecar(
+                    {bytes.data + body.count, event.notification_payload_bytes}, &side, &rows) &&
+                side.guild_id == 8 && (side.flags & gateway_notification_guild_default_known) &&
+                (side.flags & gateway_notification_guild_default_mentions) &&
+                (side.flags & gateway_notification_channel_age_baseline_complete) &&
+                (side.known_gates & notification_gate_age_access) &&
+                !(side.gates & notification_gate_age_access) && side.thread_count == 1 &&
+                gateway_client_notification_thread_at(rows, 0, &sensitive) &&
+                sensitive.flags == gateway_notification_channel_metadata &&
+                sensitive.thread.thread_id == 801 && (sensitive.gates & notification_gate_age_access);
+            ++p.notification_guilds;
+        }
+        p.applied =
+            p.applied && chat_state_apply_gateway_event(&p.store, ordinary, body, {p.guild_ids, 2}).ok();
+        p.guild_events += event.dispatch_kind == GatewayClientDispatchKind::guild_create;
+        p.member_events += event.dispatch_kind == GatewayClientDispatchKind::guild_member_update;
+    }
+    return p.applied;
+}
+Utf8View self_member_ready(Utf8View merged, Utf8View tail = utf8_literal("")) noexcept {
+    ProtocolWriter writer{{source, sizeof(source)}, 0};
+    const bool ok =
+        protocol_writer_append_literal(
+            &writer,
+            R"({"v":9,"user":{"id":"1","username":"self"},"session_id":"members",)"
+            R"("resume_gateway_url":"wss://gateway.discord.gg","guilds":[)"
+            R"({"id":"8","name":"First","owner_id":"99","default_message_notifications":1,"nsfw_level":0,"roles":[{"id":"8","permissions":"0"},{"id":"80","permissions":"3072"}],)"
+            R"("channels":[{"id":"800","type":0,"name":"allowed","permission_overwrites":[]},)"
+            R"({"id":"801","type":0,"name":"member-deny","nsfw":true,"permission_overwrites":[{"id":"1","type":1,"allow":"0","deny":"2048"}]}]},)"
+            R"({"id":"9","name":"Second","owner_id":"99","roles":[{"id":"9","permissions":"3072"},{"id":"90","permissions":"0"}],)"
+            R"("channels":[{"id":"900","type":0,"name":"role-deny","permission_overwrites":[{"id":"90","type":0,"allow":"0","deny":"1024"}]}]}],)"
+            R"("merged_members":)") &&
+        protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(merged.data), merged.bytes) &&
+        protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(tail.data), tail.bytes) &&
+        protocol_writer_append_literal(
+            &writer,
+            R"(,"user_guild_settings":{"entries":[],"partial":false},"notification_settings":{"flags":0},"user_settings_proto":""})");
+    return ok ? Utf8View{reinterpret_cast<const char*>(source), writer.used} : Utf8View{};
+}
+GatewayReadyProjectionResult project_self_members(Utf8View merged) noexcept {
+    GatewayReady ready{};
+    if (!decode(self_member_ready(merged), &ready)) {
+        GatewayReadyProjectionResult failed{};
+        failed.route.error = GatewayClientDispatchRouteError::decode;
+        return failed;
+    }
+    return gateway_ready_project(ready, scratch(), 88, 99, publish_self_members, nullptr, &self_members);
+}
+void ready_self_member_roles(void (*check)(bool, const char*) noexcept) noexcept {
+    check(reset_self_members(), "READY self members initialize existing bounded permission stores");
+    const auto projected = project_self_members(utf8_literal(
+        R"([[{"user_id":"1","roles":["80"]}],[{"user_id":"2"},{"user_id":"1","roles":["90"]}]])"));
+    auto& p = self_members;
+    const auto* first = chat_state_store_find_guild(p.store, 8);
+    const auto* second = chat_state_store_find_guild(p.store, 9);
+    const auto* allowed = chat_state_store_find_channel(p.store, 800);
+    const auto* member_denied = chat_state_store_find_channel(p.store, 801);
+    const auto* role_denied = chat_state_store_find_channel(p.store, 900);
+    const auto* first_role = chat_state_store_find_role(p.store, 8, 80);
+    const auto* second_role = chat_state_store_find_role(p.store, 9, 90);
+    check(projected.ok() && !projected.degraded_guilds && p.applied && p.guild_events == 2 &&
+              p.notification_guilds == 1 && first && second && first->member_roles_known &&
+              second->member_roles_known && first_role && first_role->self_assigned && second_role &&
+              second_role->self_assigned && allowed && allowed->permissions_resolved &&
+              allowed->effective_permissions == (kPermissionViewChannel | kPermissionSendMessages) &&
+              member_denied && member_denied->effective_permissions == kPermissionViewChannel &&
+              role_denied && role_denied->permissions_resolved &&
+              !(role_denied->effective_permissions & kPermissionViewChannel),
+          "READY merged-member projection retains defaults and sparse age metadata, applies the trimmed "
+          "body, "
+          "and honors role and member permissions");
+    check(reset_self_members(), "READY missing-role fixture resets");
+    const auto missing = project_self_members(
+        utf8_literal(R"([[{"user_id":"1","flags":128}],[{"user_id":"2","roles":[]}]])"));
+    first = chat_state_store_find_guild(p.store, 8);
+    second = chat_state_store_find_guild(p.store, 9);
+    allowed = chat_state_store_find_channel(p.store, 800);
+    check(missing.ok() && p.applied && first && second && !first->member_roles_known &&
+              !second->member_roles_known &&
+              (first->settings.self_member & guild_self_member_quarantined) && allowed &&
+              !allowed->permissions_resolved,
+          "READY self without roles retains its observed flags while another member's empty roles never "
+          "authorize self permissions");
+    check(reset_self_members(), "READY empty-role fixture resets");
+    const auto empty = project_self_members(utf8_literal(R"([[{"user":{"id":"1"},"roles":[]}],[]])"));
+    first = chat_state_store_find_guild(p.store, 8);
+    first_role = chat_state_store_find_role(p.store, 8, 80);
+    allowed = chat_state_store_find_channel(p.store, 800);
+    check(empty.ok() && p.applied && first && first->member_roles_known && first->permissions_resolved &&
+              first_role && !first_role->self_assigned && allowed && allowed->permissions_resolved &&
+              !allowed->effective_permissions,
+          "READY an explicit empty self-role array is authoritative and grants none of the guild's named "
+          "roles");
+    check(reset_self_members(), "READY malformed-role fixture resets");
+    const auto malformed = project_self_members(
+        utf8_literal(R"([[{"user_id":"1","roles":["80",false]}],[{"user_id":"1","roles":["90"]}]])"));
+    first = chat_state_store_find_guild(p.store, 8);
+    second = chat_state_store_find_guild(p.store, 9);
+    check(malformed.ok() && malformed.degraded_guilds == 1 && p.applied && first && first->unavailable &&
+              !first->member_roles_known && second && second->member_roles_known && p.guild_events == 1,
+          "READY a malformed self-role tail degrades only that guild and never publishes its valid role "
+          "prefix");
+    check(reset_self_members(), "READY misaligned-member fixture resets");
+    const auto misaligned = project_self_members(utf8_literal(R"([[{"user_id":"1","roles":["80"]}]])"));
+    first = chat_state_store_find_guild(p.store, 8);
+    second = chat_state_store_find_guild(p.store, 9);
+    check(misaligned.ok() && misaligned.degraded_guilds == 2 && p.applied && !p.guild_events && first &&
+              second && first->unavailable && second->unavailable && !first->member_roles_known &&
+              !second->member_roles_known,
+          "READY a short parallel member array cannot bind partial or shifted role authority to any guild");
+    check(reset_self_members(), "READY duplicate-member fixture resets");
+    GatewayReady duplicate{};
+    const auto duplicated = self_member_ready(utf8_literal(R"([[{"user_id":"1","roles":["80"]}],[]])"),
+                                              utf8_literal(R"(,"merged_members":[])"));
+    const bool duplicate_decoded = decode(duplicated, &duplicate);
+    const auto duplicate_projected =
+        gateway_ready_project(duplicate, scratch(), 88, 99, publish_self_members, nullptr, &p);
+    first = chat_state_store_find_guild(p.store, 8);
+    second = chat_state_store_find_guild(p.store, 9);
+    check(duplicate_decoded && duplicate.merged_members.kind == JsonValueKind::null_value &&
+              duplicate_projected.ok() && duplicate_projected.degraded_guilds == 2 && p.applied &&
+              !p.guild_events && first && second && first->unavailable && second->unavailable &&
+              !first->member_roles_known && !second->member_roles_known,
+          "READY duplicate merged-member authority degrades the optional guild snapshots without failing "
+          "the session or assigning roles");
+}
+void supplemental_self_member_roles(void (*check)(bool, const char*) noexcept) noexcept {
+    check(reset_self_members(), "supplemental members reset the permission fixture");
+    const auto seed = project_self_members(
+        utf8_literal(R"([[{"user_id":"1","roles":["80"]}],[{"user_id":"1","roles":["90"]}]])"));
+    auto& p = self_members;
+    const auto supplement = [&](Utf8View text, u32 capacity = sizeof(payload)) noexcept {
+        return gateway_ready_publish_supplemental_members(
+            {text, 0, JsonValueKind::object}, 1, {arrays, 32768}, {records, 16384}, {payload, capacity}, 89,
+            100, publish_self_members, &p);
+    };
+    const auto metadata = supplement(utf8_literal(
+        R"({"guilds":[{"id":"8"},{"id":"9"}],"merged_members":[[{"user_id":"2","roles":[]}],[{"user_id":"1","flags":128}]]})"));
+    const auto* first_role = chat_state_store_find_role(p.store, 8, 80);
+    const auto* second_role = chat_state_store_find_role(p.store, 9, 90);
+    const auto* second = chat_state_store_find_guild(p.store, 9);
+    check(seed.ok() && metadata.ok() && p.applied && p.member_events == 1 && first_role &&
+              first_role->self_assigned && second_role && second_role->self_assigned && second &&
+              second->member_roles_known && guild_self_quarantined(second->settings),
+          "supplemental other-member rows never clear self roles and self flags without roles preserve "
+          "prior assignments");
+    const auto cleared = supplement(utf8_literal(
+        R"({"guilds":[{"id":"8"},{"id":"9"}],"merged_members":[[{"user_id":"1","roles":[]}],[{"user_id":"1","roles":["90",false]}]]})"));
+    const auto* first = chat_state_store_find_guild(p.store, 8);
+    const auto* channel = chat_state_store_find_channel(p.store, 800);
+    check(cleared.ok() && p.applied && p.member_events == 2 && first && first->member_roles_known &&
+              first_role && !first_role->self_assigned && channel && channel->permissions_resolved &&
+              !channel->effective_permissions && second_role && second_role->self_assigned && second &&
+              guild_self_quarantined(second->settings),
+          "supplemental explicit empty self roles revoke authority while a malformed sibling row publishes "
+          "no partial role prefix");
+    const u32 published = p.published;
+    const u32 revision = channel ? channel->revision : 0;
+    const auto capacity = supplement(
+        utf8_literal(R"({"guilds":[{"id":"8"}],"merged_members":[[{"user_id":"1","roles":["80"]}]]})"), 1);
+    const auto mismatch = supplement(utf8_literal(
+        R"({"guilds":[{"id":"8"},{"id":"9"}],"merged_members":[[{"user_id":"1","roles":["80"]}]]})"));
+    check(capacity.ok() && mismatch.ok() && p.published == published && p.member_events == 2 &&
+              first_role && !first_role->self_assigned && channel && channel->revision == revision,
+          "supplemental role capacity failure and positional count mismatch publish nothing and preserve "
+          "previously applied membership");
+}
 } // namespace ready_projection_probe
 
 void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace ready_projection_probe;
+    ready_self_member_roles(check);
+    supplemental_self_member_roles(check);
     nested_record_growth(check);
     indexed_channel_records(check);
     huge_community_guild(check);
