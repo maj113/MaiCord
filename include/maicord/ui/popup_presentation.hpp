@@ -5,6 +5,7 @@
 #include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
+struct UiTextMeasureCache;
 
 enum class PopupMediaPresentationStatus : u8 {
     skip,
@@ -27,7 +28,7 @@ using PopupEditGeometry = UiEditGeometry;
 bool popup_presentation_build(const PopupScene& scene, const Theme& theme, PaintStream* paint) noexcept;
 UiRect popup_avatar_rectangle(const UiLayoutNode& row) noexcept;
 bool popup_text_presentation_build(const PopupScene& scene, const Theme& theme,
-                                   UiTextCommandStream* text) noexcept;
+                                   UiTextCommandStream* text, UiTextMeasureCache* measure = nullptr) noexcept;
 PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& scene, u32 index,
                                                               PopupMediaCommand* command) noexcept;
 
@@ -35,5 +36,5 @@ PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& 
 
 namespace maicord {
 bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& theme,
-                                          UiTextOutput* text) noexcept;
+                                          UiTextOutput* text, UiTextMeasureCache* measure = nullptr) noexcept;
 } // namespace maicord

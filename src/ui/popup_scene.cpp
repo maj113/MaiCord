@@ -138,6 +138,16 @@ UiLayoutStyle row_style(const PopupItem& item, u32 index, bool quick_strip, Cons
                         float content_width, const UiResolvedThemeStyles* styles = nullptr) noexcept {
     UiLayoutStyle style = ui_layout_style();
     style.flow = UiLayoutFlow::overlay;
+    if (items.count && (items[0].flags & popup_item_command_header)) {
+        const auto& metrics = menu_metrics(styles);
+        const bool close = (item.flags & popup_item_command_close) != 0;
+        style.width = ui_layout_fixed(close ? metrics.menu_row_height : content_width);
+        style.height = ui_layout_fixed(index < 2 ? metrics.menu_row_height : metrics.menu_detail_height);
+        style.margin.left = close ? maximum(0.f, content_width - metrics.menu_row_height) : 0.f;
+        style.margin.top = index < 2 ? 0.f : (index - 2) * metrics.menu_detail_height;
+        style.horizontal_alignment = UiLayoutAlignment::start;
+        return style;
+    }
     if (items.count && (items[0].flags & popup_item_command_category)) {
         const bool rail = (item.flags & popup_item_command_category) != 0;
         u32 ordinal = 0;
@@ -228,6 +238,9 @@ PopupSceneResult failure(PopupScene* scene, PopupSceneError error) noexcept {
 }
 
 float popup_height(ConstSlice<PopupItem> items, const UiResolvedThemeStyles* styles = nullptr) noexcept {
+    if (items.count && (items[0].flags & popup_item_command_header))
+        return 2.f * menu_metrics(styles).menu_padding + menu_metrics(styles).menu_row_height +
+               (items.count > 2 ? items.count - 2 : 0) * menu_metrics(styles).menu_detail_height;
     if (items.count && (items[0].flags & popup_item_command_category))
         return 420.0f;
     if (quick_reaction_strip(items)) {
@@ -402,6 +415,7 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
     // Reuse the retained rows directly. Reopening would reset input authority,
     // selection, edit state and a descriptor slice which may alias scene.items.
     const ConstSlice<PopupItem> items{scene->items.data, scene->item_count};
+    const bool command_selected = items.count && (items[0].flags & popup_item_command_header);
     const auto layout = [&](UiWidgetHandle handle) noexcept {
         auto* widget = ui_widget_manager_resolve(&scene->widgets, handle);
         return widget ? ui_layout_engine_resolve(&scene->widgets.layout, widget->layout) : nullptr;
@@ -434,8 +448,17 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
     }
     panel->spec.style =
         panel_style(rectangle.left - scene->viewport.left, rectangle.top - scene->viewport.top,
-                    ui_rect_width(rectangle), ui_rect_height(rectangle), false,
-                    scrollable_menu(scene->kind), feedback_height, styles);
+                    ui_rect_width(rectangle), ui_rect_height(rectangle), command_selected,
+                    !command_selected && scrollable_menu(scene->kind), feedback_height, styles);
+    if (command_selected) {
+        auto* body = layout(ui_widget_manager_find(scene->widgets, 0x10001u));
+        if (!body)
+            return false;
+        body->spec.style.width = ui_layout_fixed(maximum(1.f, ui_rect_width(rectangle) - 2.f * padding));
+        body->spec.style.height = ui_layout_fixed(maximum(0.f,
+            ui_rect_height(rectangle) - 2.f * padding - menu_metrics(styles).menu_row_height));
+        body->spec.style.margin.top = menu_metrics(styles).menu_row_height;
+    }
     for (u32 i = 0; i < items.count; ++i) {
         layout(scene->rows[i].widget)->spec.style =
             row_style(items[i], i, false, items, ui_rect_width(rectangle) - 2.f * padding, styles);
@@ -444,7 +467,8 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
     if (!ui_widget_manager_layout_rectangle(&scene->widgets, scene->viewport).ok())
         return false;
     UiWidgetScrollGeometry scroll{};
-    if (scrollable_menu(scene->kind) && !ui_widget_scroll_geometry(scene->widgets, scene->panel, &scroll))
+    if (!command_selected && scrollable_menu(scene->kind) &&
+        !ui_widget_scroll_geometry(scene->widgets, scene->panel, &scroll))
         return false;
     scene->scroll_max = scroll.maximum.y;
     scene->scroll_offset = panel->scroll_offset.y;
@@ -474,11 +498,13 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
         (kind != PopupKind::autocomplete && preferred_width < 96.0f) ||
         // Command palette pitches: 56 DIP body rows, 40 DIP category rail.
         !ui_coordinate_valid(grid_scroll_fraction) || grid_scroll_fraction < 0.0f ||
-        grid_scroll_fraction >= 56.0f || !ui_coordinate_valid(category_scroll_fraction) ||
+        (!(items[0].flags & popup_item_command_header) && grid_scroll_fraction >= 56.0f) ||
+        !ui_coordinate_valid(category_scroll_fraction) ||
         category_scroll_fraction < 0 || category_scroll_fraction >= 40.0f) {
         return failure(scene, PopupSceneError::invalid_input);
     }
     const bool commands = (items[0].flags & popup_item_command_category) != 0;
+    const bool command_selected = (items[0].flags & popup_item_command_header) != 0;
     UiPopupFeedback admitted_feedback = feedback ? *feedback : UiPopupFeedback{};
     if (feedback && admitted_feedback.style.height == 0 && admitted_feedback.style.text_inset == 0)
         admitted_feedback.style = ui_popup_feedback_style();
@@ -493,7 +519,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     const float feedback_height = feedback ? admitted_feedback.style.height : 0;
     // Command autocomplete adds independent rail/body viewports. Preflight the
     // whole tree before resetting a retained popup or materializing its arrays.
-    const u32 fixed_widgets = commands ? 4u : 2u;
+    const u32 fixed_widgets = commands ? 4u : command_selected ? 3u : 2u;
     if (items.count > (kInvalidUiWidgetSlot - fixed_widgets) / kPopupWidgetsPerItem)
         return failure(scene, PopupSceneError::capacity);
     bool has_quick_reaction = false;
@@ -521,7 +547,8 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
                                 popup_item_checked | popup_item_emoji | popup_item_custom_emoji |
                                 popup_item_quick_reaction | popup_item_avatar | popup_item_emoji_preview |
                                 popup_item_guild_icon | popup_item_command_row |
-                                popup_item_command_category))) != 0 ||
+                                popup_item_command_category | popup_item_command_header |
+                                popup_item_command_close))) != 0 ||
             ((!item.detail.data && item.detail.bytes) || !utf8_validate(item.detail).valid) ||
             item.status > 4 ||
             (item.status && !(item.flags & popup_item_avatar) &&
@@ -542,7 +569,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     const bool quick_strip = quick_reaction_strip(items);
     const auto* styles = !commands && !quick_strip ? scene->theme_styles : nullptr;
     const float padding = menu_metrics(styles).menu_padding;
-    const bool scrollable = !commands && scrollable_menu(kind);
+    const bool scrollable = !commands && !command_selected && scrollable_menu(kind);
     if (has_quick_reaction && (kind != PopupKind::context_menu || !quick_strip)) {
         return failure(scene, PopupSceneError::invalid_input);
     }
@@ -598,7 +625,8 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
                                      UiLayoutNodeSpec{utf8_literal("PopupPanel"),
                                                       panel_style(rectangle.left - viewport.left,
                                                                   rectangle.top - viewport.top, width,
-                                                                  height, quick_strip || commands,
+                                                                  height, quick_strip || commands ||
+                                                                      (items[0].flags & popup_item_command_header),
                                                                   scrollable, feedback_height, styles),
                                                       UiSize{}, 0.0f, kPopupPanelId}})
                   : UiWidgetResult{};
@@ -606,17 +634,21 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
         return failure(scene, PopupSceneError::widget);
     }
     UiWidgetHandle command_rail{}, command_body{};
-    if (commands) {
-        for (u32 column = 0; column != 2; ++column) {
+    if (commands || command_selected) {
+        for (u32 column = command_selected ? 1u : 0u; column != 2; ++column) {
             auto style = ui_layout_style();
             style.flow = UiLayoutFlow::overlay;
             style.width =
-                ui_layout_fixed(column ? maximum(1.0f, width - 2 * kPopupPanelPadding - 48) : 48.0f);
-            style.height = ui_layout_fixed(height - 2 * kPopupPanelPadding);
-            style.margin.left = column ? 48.0f : 0.0f;
+                ui_layout_fixed(command_selected ? maximum(1.f, width - 2.f * padding) :
+                    column ? maximum(1.0f, width - 2 * kPopupPanelPadding - 48) : 48.0f);
+            style.height = ui_layout_fixed(maximum(0.f, height - 2.f * padding -
+                (command_selected ? menu_metrics(styles).menu_row_height : 0.f)));
+            style.margin.left = column && !command_selected ? 48.0f : 0.0f;
+            style.margin.top = command_selected ? menu_metrics(styles).menu_row_height : 0.f;
             style.horizontal_alignment = UiLayoutAlignment::start;
             style.flags = ui_layout_node_visible | ui_layout_node_clip_children |
-                          ui_layout_node_scroll_vertical | ui_layout_node_allow_overlap;
+                          ui_layout_node_scroll_vertical | ui_layout_node_allow_overlap |
+                          ui_layout_node_allow_zero_size;
             const auto child = ui_widget_manager_add_prevalidated(
                 &scene->widgets, panel.handle,
                 {0x10000u + column,
@@ -635,7 +667,7 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
         const UiWidgetResult row = ui_widget_manager_add_prevalidated(
             &scene->widgets,
             commands ? ((items[index].flags & popup_item_command_category) ? command_rail : command_body)
-                     : panel.handle,
+                     : command_selected && index >= 2 ? command_body : panel.handle,
             UiWidgetDesc{id, UiWidgetKind::button,
                          static_cast<u16>(ui_widget_hit_test | ui_widget_focusable |
                                           (enabled ? ui_widget_enabled : 0)),
@@ -659,12 +691,12 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     if (!ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok()) {
         return failure(scene, PopupSceneError::layout);
     }
-    if (commands) {
+    if (commands || command_selected) {
         const auto* rail = ui_widget_manager_resolve(&scene->widgets, command_rail);
         const auto* body = ui_widget_manager_resolve(&scene->widgets, command_body);
-        if (!rail || !body ||
+        if ((!command_selected && (!rail ||
             !ui_layout_engine_set_scroll(&scene->widgets.layout, rail->layout,
-                                         {0, category_scroll_fraction}) ||
+                                         {0, category_scroll_fraction}))) || !body ||
             !ui_layout_engine_set_scroll(&scene->widgets.layout, body->layout, {0, grid_scroll_fraction}) ||
             !ui_widget_manager_layout_rectangle(&scene->widgets, viewport).ok())
             return failure(scene, PopupSceneError::layout);

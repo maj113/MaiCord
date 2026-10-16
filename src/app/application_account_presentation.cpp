@@ -11,6 +11,7 @@
 #include "application_composer_input.hpp"
 #include "application_message_feedback.hpp"
 #include "application_composer.hpp"
+#include "application_commands.hpp"
 #include "application_attachments.hpp"
 #include "application_friends.hpp"
 #include "application_settings.hpp"
@@ -240,10 +241,11 @@ bool synchronize_shell_widget_scenes() noexcept {
     }
     // A server waiting for its rules shows why the composer is held.
     const Utf8View community_notice = !friends ? application_guild_community_composer_notice() : Utf8View{};
-    const MessageComposerProjectionContext composer_projection{
+    MessageComposerProjectionContext composer_projection{
         g_app.account_ui ? &g_app.account_ui->user_store : nullptr,
         g_app.account_ui ? &g_app.account_ui->chat_state : nullptr,
         g_app.account_ui ? g_app.account_ui->chat_state.selected_guild_id : 0, community_notice};
+    application_commands_composer(&composer_projection);
     char typing_label_storage[kMessageTypingLabelMaximumBytes]{};
     Utf8View typing_label{};
     if (!friends && g_app.account_ui && g_app.account_ui->active_channel_id != 0) {

@@ -3,6 +3,7 @@
 #include "../src/app/application_plugins.hpp"
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/ui/popup_presentation.hpp"
+#include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "test_output.hpp"
@@ -14,9 +15,12 @@ void test_notification_retry(void (*)(bool, const char*) noexcept) noexcept;
 void test_community_retry(void (*)(bool, const char*) noexcept) noexcept;
 void test_invite_retry(void (*)(bool, const char*) noexcept) noexcept;
 u32 edits_committed;
+UiRect command_viewport{0, 0, 800, 600};
 bool refresh_message_composer_ui() noexcept {
+    MessageComposerProjectionContext projection{};
+    application_commands_composer(&projection);
     if (!message_composer_scene_update(&g_app.message_composer_scene, &g_app.message_composer,
-                                       {0, 540, 800, 600}, true).ok()) return false;
+                                       {0, 540, 800, 600}, true, 0, {}, &projection).ok()) return false;
     bool handled = false;
     return application_commands_sync(&handled);
 }
@@ -28,7 +32,7 @@ bool composer_apply_result(MessageComposerResult result, bool) noexcept {
     }
     return refresh_message_composer_ui();
 }
-UiRect application_viewport_dips() noexcept { return {0, 0, 800, 600}; }
+UiRect application_viewport_dips() noexcept { return command_viewport; }
 void set_popup_owner(PopupOwnerKind owner) noexcept {
     if (g_app.popup_owner_kind == PopupOwnerKind::commands && owner != PopupOwnerKind::commands)
         application_commands_dismiss();
@@ -52,6 +56,14 @@ char payload[65536];
 u32 payload_bytes;
 u64 submitted_application, submitted_nonce;
 RestClientSubmitError submit_error;
+bool measure_header_name(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
+    if (!request.no_wrap || request.styles.count != 1 ||
+        request.styles[0].byte_count != request.text.bytes ||
+        request.styles[0].flags != text_style_bold)
+        return false;
+    *value = {{47, 20}, 16, 1};
+    return true;
+}
 void check(bool ok, const char* label) noexcept {
     test_check(&failures, ok, label);
 }
@@ -140,10 +152,15 @@ void run() noexcept {
     MessageRecord records[4]{}; u32 order[4]{}, heights[4]{}; u64 fenwick[4]{};
     u8 text[512]{}, draft_text[512]{}, request_text[kMessageComposerMaximumBytes]{};
     MessageDraftRecord draft_records[4]{};
+    UserRecord bot_records[2]{}; u32 bot_order[2]{}; u8 bot_names[128]{};
     MessageStore store{}; UiVariableList list{}; MessageTimeline timeline{}; MessageDraftStore drafts{};
     auto& composer = g_app.message_composer;
     auto& controller = g_app.account_ui->message_composer_controller;
     const bool ready = message_composer_initialize(&composer, {input, sizeof(input)}) &&
+        user_store_initialize(&g_app.account_ui->user_store, {bot_records, 2}, {bot_order, 2},
+                              {bot_names, sizeof(bot_names)}) &&
+        user_store_upsert(&g_app.account_ui->user_store, 11, utf8_literal("Test bot")).ok() &&
+        user_store_upsert(&g_app.account_ui->user_store, 21, utf8_literal("Other bot")).ok() &&
         message_composer_scene_initialize_owned(&g_app.message_composer_scene) &&
         popup_scene_initialize_owned(&g_app.popup_scene, 32, {widgets, 70}, {nodes, 70}) &&
         message_store_initialize(&store, {records, 4}, {order, 4}, {text, sizeof(text)}) &&
@@ -159,12 +176,70 @@ void run() noexcept {
         command_retry_cases();
         edit(utf8_literal("/"));
         check(application_commands_submit(1) && operation == 0, "load server command index");
-        respond(200, utf8_literal(R"({"applications":[{"id":"10","name":"Test"},{"id":"20","name":"Other"}],"application_commands":[{"id":"100","application_id":"10","version":"7","name":"wordle","description":"Play wordle","type":1},{"id":"101","application_id":"10","version":"7","name":"echo","description":"Echo","type":1,"options":[{"name":"text","type":3,"required":true}]},{"id":"102","application_id":"10","version":"7","name":"pick","description":"Pick","type":1,"options":[{"name":"mode","type":4,"required":true,"choices":[{"name":"One","value":1},{"name":"Two","value":2}]}]},{"id":"103","application_id":"10","version":"7","name":"admin","description":"Admin","type":1,"options":[{"name":"group","type":2,"options":[{"name":"run","description":"Run","type":1,"options":[{"name":"count","type":4,"required":true}]}]}]},{"id":"104","application_id":"10","version":"7","name":"bump","description":"First bump","type":1},{"id":"105","application_id":"20","version":"7","name":"bump","description":"Second bump","type":1},{"id":"106","application_id":"10","version":"7","name":"search","description":"Search","type":1,"options":[{"name":"query","type":3,"required":true,"autocomplete":true},{"name":"count","type":4}]}]})"));
+        respond(200, utf8_literal(R"({"applications":[{"id":"10","name":"Test","bot":{"id":"11"}},{"id":"20","name":"Other","bot":{"id":"21"}}],"application_commands":[{"id":"100","application_id":"10","version":"7","name":"wordle","description":"Play wordle","type":1},{"id":"101","application_id":"10","version":"7","name":"echo","description":"Echo","type":1,"options":[{"name":"text","type":3,"required":true}]},{"id":"102","application_id":"10","version":"7","name":"pick","description":"Pick","type":1,"options":[{"name":"mode","type":4,"required":true,"choices":[{"name":"One","value":1},{"name":"Two","value":2}]}]},{"id":"103","application_id":"10","version":"7","name":"admin","description":"Admin","type":1,"options":[{"name":"group","type":2,"options":[{"name":"run","description":"Run","type":1,"options":[{"name":"count","type":4,"required":true}]}]}]},{"id":"104","application_id":"10","version":"7","name":"bump","description":"First bump","type":1},{"id":"105","application_id":"20","version":"7","name":"bump","description":"Second bump","type":1},{"id":"106","application_id":"10","version":"7","name":"search","description":"Search","type":1,"options":[{"name":"query","type":3,"required":true,"autocomplete":true},{"name":"count","type":4}]}]})"));
         check(application_commands_submit(2) && operation == 1, "load user command index");
         respond(200, utf8_literal(R"({"applications":[],"application_commands":[]})"));
         edit(utf8_literal("/word"));
         check(application_commands_key(VK_RETURN) && utf8_equal(message_composer_text(composer),
               utf8_literal("/wordle ")), "Enter selects command without submitting");
+        check(g_app.popup_scene.item_count == 2 &&
+              (g_app.popup_scene.items[0].flags & popup_item_command_header) &&
+              utf8_equal(g_app.popup_scene.items[0].detail, utf8_literal("Play wordle")) &&
+              ui_rect_height(g_app.popup_scene.rectangle) <= kUiMenuRowHeight + 2 * kPopupPanelPadding,
+              "selected no-option command collapses into a compact description and close header");
+        const auto& selected_scene = g_app.message_composer_scene;
+        check(selected_scene.command.name_bytes == 7 && selected_scene.command.bot_id == 11 &&
+              selected_scene.display_style_count == 1 && selected_scene.display_styles[0].byte_offset == 0 &&
+              selected_scene.display_styles[0].byte_count == 7 &&
+              (selected_scene.display_styles[0].flags & text_style_bold) &&
+              ui_rect_has_area(message_composer_scene_command_avatar(selected_scene)),
+              "selected command projects its bot avatar and bold editable name into the composer");
+        const auto* close_layout = popup_scene_layout_node(g_app.popup_scene, g_app.popup_scene.rows[1].widget);
+        bool hover_changed = false;
+        check(close_layout && popup_scene_set_hover(&g_app.popup_scene,
+              (close_layout->rectangle.left + close_layout->rectangle.right) * .5f,
+              (close_layout->rectangle.top + close_layout->rectangle.bottom) * .5f, &hover_changed) &&
+              popup_scene_selected_action(g_app.popup_scene) == action_named(utf8_literal("Clear command")),
+              "compact close control owns only its trailing hit target");
+        command_viewport.right = 240;
+        check(refresh_message_composer_ui() && g_app.popup_scene.rectangle.right <= 240 &&
+              ui_rect_height(g_app.popup_scene.rectangle) <= kUiMenuRowHeight + 2 * kPopupPanelPadding,
+              "compact command header stays inside a narrow composer viewport");
+        command_viewport.right = 800;
+        check(refresh_message_composer_ui(), "restore command viewport");
+        UiResolvedThemeStyles command_styles{};
+        command_styles.ready = true;
+        command_styles.geometry_revision = 1;
+        command_styles.metrics.menu_row_height = 44;
+        command_styles.metrics.menu_padding = 8;
+        check(popup_scene_bind_theme_styles(&g_app.popup_scene, &command_styles) &&
+              ui_rect_height(g_app.popup_scene.rectangle) == 60,
+              "compact command header follows resolved menu geometry");
+        check(popup_scene_bind_theme_styles(&g_app.popup_scene, nullptr), "restore command menu geometry");
+        UiTextMeasureRecord header_measure_records[4]{};
+        UiTextMeasureCache header_measure{};
+        UiTextCommand header_text[4]{}; UiTextCommandStream header_stream{};
+        const auto original_header_name = g_app.popup_scene.items[0].label;
+        g_app.popup_scene.items[0].label = utf8_literal("/caf\xC3\xA9");
+        bool measured_name = false, measured_description = false;
+        const bool header_shaped = ui_text_measure_cache_initialize(&header_measure, {header_measure_records, 4},
+            measure_header_name, nullptr) && ui_text_command_stream_initialize(&header_stream, {header_text, 4}) &&
+            popup_text_presentation_build(g_app.popup_scene, kDefaultTheme, &header_stream, &header_measure);
+        float name_right = 0, description_left = 0;
+        for (u32 i = 0; header_shaped && i < header_stream.count; ++i) {
+            const auto& item = header_text[i];
+            if (utf8_equal(item.text, g_app.popup_scene.items[0].label)) {
+                measured_name = ui_rect_width(item.rectangle) == 47;
+                name_right = item.rectangle.right;
+            } else if (utf8_equal(item.text, g_app.popup_scene.items[0].detail)) {
+                measured_description = true;
+                description_left = item.rectangle.left;
+            }
+        }
+        check(header_shaped && measured_name && measured_description && header_measure.backend_calls == 1 &&
+              description_left - name_right == UiThemeMetrics{}.menu_gap,
+              "command summary joins Unicode bold name and description using shaped width and theme gap");
+        g_app.popup_scene.items[0].label = original_header_name;
         const u32 before = calls;
         check(application_commands_key(VK_RETURN) && !g_app.popup_scene.active && composer.bytes &&
               calls == before, "Enter queues and dismisses picker before network completion");
@@ -198,7 +273,7 @@ void run() noexcept {
         check(composer.bytes && g_app.popup_scene.active, "failure preserves arguments and restores picker");
         bool error_visible = false;
         for (u32 i = 0; i < g_app.popup_scene.item_count; ++i)
-            error_visible |= utf8_equal(g_app.popup_scene.items[i].label,
+            error_visible |= utf8_equal(g_app.popup_scene.items[i].detail,
                 utf8_literal("Command failed. Try again."));
         check(error_visible, "failure explanation is retained");
         edit(utf8_literal("/word")); application_commands_key(VK_RETURN); application_commands_key(VK_RETURN);
@@ -212,6 +287,17 @@ void run() noexcept {
         popup_scene_close(&g_app.popup_scene); set_popup_owner(PopupOwnerKind::none);
         message_composer_select_all(&composer); refresh_message_composer_ui();
         check(!g_app.popup_scene.active, "dismissed picker stays closed during selection edits");
+        check(g_app.message_composer_scene.command.name_bytes == 7 && composer.bytes,
+              "Escape-style popup dismissal keeps the selected editable command identity");
+        edit(utf8_literal("/wor"));
+        check(g_app.popup_scene.active && !g_app.message_composer_scene.command.name_bytes &&
+              (g_app.popup_scene.items[0].flags & popup_item_command_category),
+              "backspacing through a selected command name restores discovery and clears its decoration");
+        application_commands_key(VK_RETURN);
+        const u32 clear_action = action_named(utf8_literal("Clear command"));
+        check(clear_action && application_commands_activate(clear_action) && !composer.bytes &&
+              !g_app.popup_scene.active && !g_app.message_composer_scene.command.name_bytes,
+              "close clears selected command and restores the empty composer");
 
         edit(utf8_literal("/echo \t"));
         check(action_named(utf8_literal("/echo")) != 0,
@@ -231,6 +317,10 @@ void run() noexcept {
         application_commands_key(VK_RETURN);
         const u32 old_option_action = action_named(utf8_literal("mode"));
         application_commands_key(VK_TAB);
+        check((g_app.popup_scene.items[0].flags & popup_item_command_header) &&
+              utf8_equal(g_app.popup_scene.items[0].label, utf8_literal("mode")) &&
+              g_app.popup_scene.item_count == 4 && ui_rect_height(g_app.popup_scene.rectangle) < 200,
+              "focused option shows its compact summary above only its two choices");
         const u32 choice_action = action_named(utf8_literal("Two"));
         check(choice_action && application_commands_activate(choice_action) &&
               utf8_equal(message_composer_text(composer), utf8_literal("/pick mode:2 ")),
@@ -253,6 +343,7 @@ void run() noexcept {
         edit(utf8_literal("/bump"));
         const u32 second_app_action = action_named(utf8_literal("/bump"), 1);
         check(second_app_action && application_commands_activate(second_app_action) &&
+              g_app.message_composer_scene.command.bot_id == 21 &&
               application_commands_key(VK_RETURN) && application_commands_submit(1003) &&
               submitted_application == 20 && payload_contains(utf8_literal("\"id\":\"105\"")),
               "duplicate command labels retain the selected application and command identity");

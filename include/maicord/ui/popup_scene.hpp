@@ -57,6 +57,8 @@ enum PopupItemFlag : u16 {
     popup_item_danger = 1u << 1,
     popup_item_separator_before = 1u << 2,
     popup_item_checked = 1u << 3,
+    popup_item_command_header = 1u << 4,
+    popup_item_command_close = 1u << 5,
     popup_item_emoji = 1u << 6,
     popup_item_custom_emoji = 1u << 7,
     popup_item_quick_reaction = 1u << 8,
@@ -108,7 +110,7 @@ static_assert(offsetof(PopupItem, status) == 60 && offsetof(PopupItem, presentat
 
 constexpr bool popup_item_menu_row(const PopupItem& item) noexcept {
     constexpr u16 specialized = popup_item_emoji | popup_item_custom_emoji | popup_item_quick_reaction |
-                                popup_item_command_category;
+                                popup_item_command_category | popup_item_command_header | popup_item_command_close;
     return (item.flags & specialized) == 0;
 }
 

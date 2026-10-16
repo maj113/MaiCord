@@ -31,12 +31,22 @@ enum class MessageComposerProjectionKind : u8 {
     regional_flag,
 };
 
+struct MessageComposerCommand {
+    u64 bot_id;
+    u32 avatar_variant;
+    u16 name_bytes; // Includes the leading slash; source bytes remain editable.
+    bool animated;
+};
+static_assert(sizeof(MessageComposerCommand) == 16);
+static_assert(__is_trivial(MessageComposerCommand) && __is_standard_layout(MessageComposerCommand));
+
 struct MessageComposerProjectionContext {
     const UserStore* users;
     const ChatStateStore* state;
     u64 guild_id;
     // Replaces the "Message #channel" placeholder while non-empty.
     Utf8View placeholder_override{};
+    MessageComposerCommand command{};
 };
 
 struct MessageComposerProjectionSpan {
@@ -125,6 +135,7 @@ struct MessageComposerAttachmentStrip {
 };
 
 struct MessageComposerScene {
+    MessageComposerCommand command;
     MessageComposerAtomicSpan* atomic_spans;
     TextStyleSpan* source_styles;
     TextStyleSpan* display_styles;
@@ -209,6 +220,9 @@ struct MessageComposerScene {
     UiComposerVoiceMode voice_mode;
     const UiComposerVoiceView* voice;
 };
+
+// Bot identity replaces the attachment button for a selected command.
+UiRect message_composer_scene_command_avatar(const MessageComposerScene&) noexcept;
 
 bool message_composer_scene_initialize(MessageComposerScene* scene, Slice<UiWidget> widgets,
                                        Slice<UiLayoutNode> layout_nodes) noexcept;
@@ -311,9 +325,11 @@ bool message_composer_scene_composition_range(const MessageComposerScene& scene,
 
 // Size budget: 512 bytes plus the plugin slot handles and count, the spelling
 // slice and its revision, the voice view, the status tone (one aligned word)
-// and the widget manager's hit filter (function and context).
+// and the widget manager's hit filter (function and context). Selected command
+// identity adds exactly one 16-byte inline record, without another allocation.
 static_assert(sizeof(MessageComposerScene) < 512 + sizeof(UiWidgetHandle) * kMessageComposerPluginSlots + 8 +
                                                  sizeof(ConstSlice<TextCompositionSpan>) + 8 +
-                                                 sizeof(const UiComposerVoiceView*) + 8 + 2 * sizeof(void*));
+                                                 sizeof(const UiComposerVoiceView*) + 8 + 2 * sizeof(void*) +
+                                                 sizeof(MessageComposerCommand));
 
 } // namespace maicord

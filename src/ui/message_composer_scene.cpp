@@ -323,6 +323,7 @@ u64 projection_input_signature(const MessageComposerScene& scene, const MessageC
     signature = hash64_mix(signature, model.anchor);
     signature = hash64_mix(signature, model.caret);
     signature = hash64_mix(signature, context ? context->guild_id : 0);
+    signature = hash64_mix(signature, context ? context->command.name_bytes : 0);
     signature = hash64_mix(signature, context ? reinterpret_cast<usize>(context->users) : 0);
     signature = hash64_mix(signature, context ? reinterpret_cast<usize>(context->state) : 0);
     if (context && context->users)
@@ -618,10 +619,11 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
                        scene->source_styles[style_index].byte_count <=
                    cursor)
             ++style_index;
-        const u32 style = style_index < scene->source_style_count &&
+        const u32 style = (context && cursor < context->command.name_bytes ? text_style_bold : 0) |
+                          (style_index < scene->source_style_count &&
                                   scene->source_styles[style_index].byte_offset <= cursor
                               ? scene->source_styles[style_index].flags
-                              : 0;
+                              : 0);
         ProjectedToken token{};
         const bool flag_token = have_flag && flag.first_byte == cursor && flag.end_byte <= end;
         if (flag_token)
@@ -694,6 +696,7 @@ void project_display(MessageComposerScene* scene, const MessageComposer& model,
         signature = hash64_mix(signature, span.target);
         signature = hash64_mix(signature, span.animated);
     }
+    signature = hash64_mix(signature, context ? context->command.name_bytes : 0);
     scene->display_signature = hash64_mix(signature, scene->projection_span_count);
 }
 
@@ -1076,6 +1079,7 @@ MessageComposerSceneResult message_composer_scene_update(
         scene->model = model;
         scene->viewport = viewport;
         scene->active = false;
+        scene->command = {};
         scene->channel_allows_send = false;
         scene->reply_message_id = 0;
         scene->reply_mention_visible = false;
@@ -1113,7 +1117,8 @@ MessageComposerSceneResult message_composer_scene_update(
         return static_cast<u16>(ui_widget_hit_test | ui_widget_focusable | (enabled ? ui_widget_enabled : 0));
     };
     // While recording, Add deletes the recording and Emoji stops or plays it.
-    add->flags = enabled_if(voice_bar ? voice_controls : attachments.can_attach);
+    add->flags = projection && projection->command.name_bytes ? ui_widget_none :
+        enabled_if(voice_bar ? voice_controls : attachments.can_attach);
     send->flags = enabled_if(send_enabled);
     emoji->flags = enabled_if(voice_bar ? voice_controls : channel_allows_send);
     gif->flags = sticker->flags =
@@ -1197,6 +1202,10 @@ MessageComposerSceneResult message_composer_scene_update(
                           mention_visibility_changed || typing_changed || attachments_resized ||
                           !ui_rect_equal(scene->viewport, viewport);
     bool changed = relayout || scene->model != model || scene->observed_revision != model->revision ||
+                   scene->command.name_bytes != (projection ? projection->command.name_bytes : 0) ||
+                   scene->command.bot_id != (projection ? projection->command.bot_id : 0) ||
+                   scene->command.avatar_variant != (projection ? projection->command.avatar_variant : 0) ||
+                   scene->command.animated != (projection && projection->command.animated) ||
                    scene->channel_allows_send != can_send || reply_changed || typing_changed ||
                    attachments_changed || scene->mention_reply_author != mention_reply_author ||
                    scene->status_is_error != status_is_error || scene->reply_sendable != reply_sendable ||
@@ -1221,6 +1230,7 @@ MessageComposerSceneResult message_composer_scene_update(
         ++scene->projection_passes;
     }
     scene->model = model;
+    scene->command = projection ? projection->command : MessageComposerCommand{};
     model->atomic_spans = {scene->atomic_spans, scene->projection_span_count};
     model->atomic_revision = model->text_revision;
     changed = changed || scene->display_signature != previous_display_signature;
@@ -1245,6 +1255,16 @@ MessageComposerSceneResult message_composer_scene_update(
     scene->retained_content = attachments.retained_content;
     scene->active = true;
     return MessageComposerSceneResult{MessageComposerSceneError::none, changed};
+}
+
+UiRect message_composer_scene_command_avatar(const MessageComposerScene& scene) noexcept {
+    const auto* attachment = message_composer_scene_layout_node(scene, MessageComposerControl::add_attachment);
+    if (!scene.active || !scene.command.bot_id || !attachment)
+        return {};
+    const float extent = composer_metrics(scene.theme_styles).menu_icon;
+    const float x = (attachment->rectangle.left + attachment->rectangle.right) * .5f;
+    const float y = (attachment->rectangle.top + attachment->rectangle.bottom) * .5f;
+    return {x - extent * .5f, y - extent * .5f, x + extent * .5f, y + extent * .5f};
 }
 
 MessageComposerControl message_composer_scene_hit_test(const MessageComposerScene& scene, float x,

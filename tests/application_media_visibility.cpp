@@ -507,6 +507,22 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
                 valid;
     check(valid && !pump.avatar_key_is_current(avatar) && identity_requests == before_hidden,
           "avatar admission: grouped authors without a visible avatar never queue discarded decodes");
+    char command_text[32]{};
+    MessageComposer command_model{};
+    MessageComposerProjectionContext command_projection{};
+    command_projection.command = {9, avatar.variant, 5, true};
+    const bool composer_ready = message_composer_initialize(&command_model, {command_text, sizeof(command_text)}) &&
+        message_composer_restore(&command_model, 7, utf8_literal("/test "), 6, 6) &&
+        message_composer_scene_initialize_owned(&g_app.message_composer_scene) &&
+        message_composer_scene_update(&g_app.message_composer_scene, &command_model,
+            {0, 300, 600, 360}, true, 0, {}, &command_projection).ok();
+    check(composer_ready && !g_app.popup_scene.active && pump.avatar_key_is_current(avatar),
+          "command avatar: selected composer admits its bot after the discovery picker closes");
+    command_projection.command = {};
+    check(composer_ready && message_composer_scene_update(&g_app.message_composer_scene, &command_model,
+              {0, 300, 600, 360}, true, 0, {}, &command_projection).ok() && !pump.avatar_key_is_current(avatar),
+          "command avatar: clearing command presentation retires its media ownership");
+    message_composer_scene_release(&g_app.message_composer_scene);
     for (u32 index = 0; index < g_app.message_scene.count; ++index)
         fixture.rows[index].grouped = grouped[index];
     check(pump.avatar_key_is_current(avatar) &&

@@ -6,6 +6,8 @@
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
+#include "maicord/ui/text_measure_cache.hpp"
+#include "maicord/core/hash.hpp"
 
 namespace maicord {
 namespace {
@@ -62,7 +64,7 @@ bool paint_menu_row_check(const PopupScene& scene, u32 index, const Theme& theme
 }
 
 Color menu_row_foreground(const PopupItem& item, const Theme& theme) noexcept {
-    if (item.flags & popup_item_command_row)
+    if (item.flags & (popup_item_command_row | popup_item_command_header))
         return theme.text_primary;
     if (!(item.flags & popup_item_enabled))
         return theme.text_secondary;
@@ -182,7 +184,7 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
             const auto avatar = popup_avatar_rectangle(*layout);
             if (!paint_stream_push_rounded(paint, avatar.left, avatar.top, avatar.right, avatar.bottom,
                                            theme.interactive, theme.scale.radius_lg) ||
-                !paint_popup_presence(
+                (!(item.flags & (popup_item_command_row | popup_item_command_category)) && !paint_popup_presence(
                     paint, {avatar.right + 1, avatar.bottom - 7, avatar.right + 8, avatar.bottom},
                     static_cast<UiPresence>(item.status),
                     (item.flags & popup_item_enabled) &&
@@ -191,7 +193,19 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
                         : theme.base_lower,
                     (item.flags & popup_item_enabled) &&
                         (scene.selected_index == index || (item.flags & popup_item_checked)),
-                    theme)) {
+                    theme))) {
+                success = false;
+                break;
+            }
+        }
+        if (item.flags & popup_item_command_close) {
+            const float inset = popup_paint_metrics(scene, theme).menu_gap;
+            auto icon = layout->rectangle;
+            icon.left += inset;
+            icon.top += inset;
+            icon.right -= inset;
+            icon.bottom -= inset;
+            if (!ui_icon_paint(paint, UiIcon::close, icon, theme.text_secondary)) {
                 success = false;
                 break;
             }
@@ -226,13 +240,15 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
 }
 
 bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& theme,
-                                          UiTextOutput* text) noexcept {
+                                          UiTextOutput* text, UiTextMeasureCache* measure) noexcept {
     if (!ui_text_output_valid(text) || !scene.active || scene.item_count == 0 ||
         scene.item_count > scene.items.count || scene.item_count > scene.rows.count) {
         return !scene.active;
     }
     for (u32 index = 0; index < scene.item_count; ++index) {
         const PopupItem& item = scene.items[index];
+        if (item.flags & popup_item_command_close)
+            continue;
         if ((item.flags & popup_item_custom_emoji) != 0 ||
             ((item.flags & popup_item_emoji) &&
              !(item.flags & (popup_item_custom_emoji | popup_item_avatar | popup_item_guild_icon)) &&
@@ -263,6 +279,10 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
         const auto hint =
             !centered && item.shortcut < popup_shortcut_count ? hints[item.shortcut] : Utf8View{};
         UiRect label_rectangle = label->content_rectangle;
+        const bool command_header = (item.flags & popup_item_command_header) != 0;
+        if (command_header)
+            label_rectangle.right = maximum(label_rectangle.left,
+                label_rectangle.right - popup_metrics(scene).menu_row_height);
         const bool shared_row = popup_item_menu_row(item);
         UiMenuRowGeometry menu_geometry{};
         if (shared_row) {
@@ -278,7 +298,21 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
             Color detail_color = theme.text_primary;
             detail_color.alpha *= .65f;
             UiRect detail = shared_row ? menu_geometry.detail : label_rectangle;
-            if (!shared_row) {
+            if (command_header) {
+                const float available = ui_rect_width(label_rectangle) * .5f;
+                const TextStyleSpan name_style{0, item.label.bytes, text_style_bold};
+                UiTextMeasureValue measured{};
+                const bool shaped = measure && ui_text_measure_cache_measure(measure,
+                    {{scene.owner_id, hash64_bytes(kHash64Seed, item.label.data, item.label.bytes),
+                      0, 0x4348, 0}, item.label, {&name_style, 1},
+                     {maximum(1.f, ui_rect_width(label_rectangle)), ui_rect_height(label_rectangle)}, true},
+                    &measured).ok();
+                // The renderer supplies its normal text backend. A caller
+                // without shaping uses two bounded slots, never byte estimates.
+                const float name_width = shaped ? minimum(available, measured.size.width) : available;
+                label_rectangle.right = label_rectangle.left + name_width;
+                detail.left = minimum(detail.right, label_rectangle.right + popup_metrics(scene).menu_gap);
+            } else if (!shared_row) {
                 if (item.flags & popup_item_command_row) {
                     detail.top += 25;
                     label_rectangle.bottom = label_rectangle.top + 25;
@@ -295,7 +329,7 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                      shared_row ? ui_menu_row_slot_clip(menu_geometry, detail) : item_layout.clip_rectangle,
                      detail_color,
                      text_style_none,
-                     (shared_row && popup_item_menu_presentation(item).secondary_line) ||
+                     command_header || (shared_row && popup_item_menu_presentation(item).secondary_line) ||
                              (item.flags & popup_item_command_row)
                          ? UiTextAlignment::start
                          : UiTextAlignment::end,
@@ -333,6 +367,7 @@ bool popup_text_presentation_build_output(const PopupScene& scene, const Theme& 
                           shared_row ? ui_menu_row_slot_clip(menu_geometry, label_rectangle)
                                      : item_layout.clip_rectangle,
                           color,
+                          command_header ? text_style_bold :
                           (item.flags & popup_item_emoji) != 0 ? text_style_picker_emoji : text_style_none,
                           centered ? UiTextAlignment::center : UiTextAlignment::start,
                           UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis})) {
@@ -414,8 +449,8 @@ PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& 
 
 namespace maicord {
 bool popup_text_presentation_build(const PopupScene& scene, const Theme& theme,
-                                   UiTextCommandStream* text) noexcept {
+                                   UiTextCommandStream* text, UiTextMeasureCache* measure) noexcept {
     UiTextOutput output{text, nullptr};
-    return popup_text_presentation_build_output(scene, theme, &output);
+    return popup_text_presentation_build_output(scene, theme, &output, measure);
 }
 } // namespace maicord

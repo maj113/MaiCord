@@ -833,8 +833,10 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                                                              : theme.base_low,
                                           Color{}, kUiControlCornerRadius, 0.0f) ||
         (voice_bar && !ui_composer_voice_bar_paint(*composer_scene->voice, edit->content_rectangle, theme, stream)) ||
-        !ui_button_icon_paint(stream, composer_scene->widgets, composer_scene->add_attachment,
-                              voice_bar ? UiIcon::trash : UiIcon::attachment, theme) ||
+        (!composer_scene->command.bot_id &&
+         !ui_button_icon_paint(stream, composer_scene->widgets, composer_scene->add_attachment,
+                              composer_scene->command.name_bytes ? UiIcon::command :
+                              voice_bar ? UiIcon::trash : UiIcon::attachment, theme)) ||
         (message_composer_scene_control_visible(*composer_scene, MessageComposerControl::gif) &&
          !ui_button_icon_paint(stream, composer_scene->widgets, composer_scene->gif, UiIcon::gif, theme)) ||
         (message_composer_scene_control_visible(*composer_scene, MessageComposerControl::sticker) &&

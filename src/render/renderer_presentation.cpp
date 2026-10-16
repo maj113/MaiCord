@@ -654,6 +654,10 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
         if (!presentation_stamp_push(&stamp, scene.active) ||
             !presentation_stamp_pointer(&stamp, scene.model) ||
             !presentation_stamp_push(&stamp, scene.observed_revision) ||
+            !presentation_stamp_push(&stamp, scene.command.name_bytes) ||
+            !presentation_stamp_push(&stamp, scene.command.bot_id) ||
+            !presentation_stamp_push(&stamp, scene.command.avatar_variant) ||
+            !presentation_stamp_push(&stamp, scene.command.animated) ||
             !presentation_stamp_push(&stamp, scene.composition_revision) ||
             !presentation_stamp_push(&stamp, scene.reply_message_id) ||
             !presentation_stamp_push(&stamp, scene.mention_reply_author) ||

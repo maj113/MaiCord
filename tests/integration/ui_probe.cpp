@@ -7095,18 +7095,99 @@ bool probe_autocomplete_identity() noexcept {
         return false;
     const auto& quad = g_probe.renderer.media_draw.quad_data[g_probe.renderer.media_quad_count - 1];
     g_probe.failure_stage = 147;
+    const ProbePixelSample user_status{{media.rectangle.right + 4.5f, media.rectangle.bottom - 3.5f},
+                                       kDefaultTheme.tokens.status.online,
+                                       3};
     if (quad.left != media.rectangle.left || quad.right != media.rectangle.right ||
-        !probe_capture_frame(L"autocomplete.bmp"))
+        !probe_exact_pixels({&user_status, 1}) || !probe_capture_frame(L"autocomplete.bmp"))
         return false;
     popup_scene_close(&g_probe.popup_scene);
     if (!rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme))
         return false;
     log_write(LogLevel::info, "probe",
               "autocomplete_avatar_status_and_distinct_name_columns_hardware_passed");
+    {
+        g_probe.failure_stage = 148;
+        // Application artwork has no presence. Once resident, its alpha reveals
+        // the actual rail/row surface rather than the loading placeholder.
+        PopupItem apps[]{{.label = utf8_literal("Test app"),
+                          .action = 200000,
+                          .flags = popup_item_enabled | popup_item_command_category | popup_item_avatar,
+                          .media_id = 9918,
+                          .media_variant = 118},
+                         {.label = utf8_literal("/wordle"),
+                          .action = 100000,
+                          .flags = popup_item_enabled | popup_item_command_row | popup_item_avatar,
+                          .media_id = 9918,
+                          .detail = utf8_literal("Play wordle"),
+                          .media_variant = 118}};
+        if (!popup_scene_open(&g_probe.popup_scene, PopupKind::autocomplete, 77, {apps, 2}, anchor,
+                              viewport, ui_rect_width(anchor), true)
+                 .ok() ||
+            !rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme))
+            return false;
+        ProbePixelSample missing[2]{};
+        PopupMediaCommand artwork[2]{};
+        for (u32 i = 0; i < 2; ++i) {
+            if (popup_media_presentation_resolve(g_probe.popup_scene, i, &artwork[i]) !=
+                PopupMediaPresentationStatus::ready)
+                return false;
+            const auto r = artwork[i].rectangle;
+            missing[i] = {
+                {(r.left + r.right) * .5f, (r.top + r.bottom) * .5f}, kDefaultTheme.interactive, 3};
+        }
+        if (!probe_exact_pixels({missing, 2}))
+            return false;
+        for (u32 y = 0; y < 24; ++y)
+            for (u32 x = 0; x < 24; ++x) {
+                const u32 at = (y * 24 + x) * 4;
+                const u8 alpha = x < 8 ? 0 : x < 16 ? 128 : 255;
+                // Original premultiplied magenta artwork: transparent, half,
+                // opaque thirds, all sampled well inside the circular mask.
+                pixels[at] = pixels[at + 2] = static_cast<u8>((240 * alpha + 127) / 255);
+                pixels[at + 1] = static_cast<u8>((80 * alpha + 127) / 255);
+                pixels[at + 3] = alpha;
+            }
+        if (!renderer_upload_media_rgba8(&g_probe.renderer, media_asset_user_avatar(9918, 118, false), 24,
+                                         24, 96, {pixels, sizeof(pixels)})
+                 .ok())
+            return false;
+        for (u32 selected = 0; selected < 2; ++selected) {
+            g_probe.popup_scene.selected_index = selected;
+            ++g_probe.popup_scene.revision;
+            if (!rebuild_probe_content_text() || !probe_present(&g_probe.renderer, kDefaultTheme))
+                return false;
+            UiPoint points[10]{};
+            u8 actual[10][4]{};
+            for (u32 i = 0; i < 2; ++i) {
+                const auto r = artwork[i].rectangle;
+                const float y = (r.top + r.bottom) * .5f;
+                points[i * 5] = {r.left - 4, y};
+                points[i * 5 + 1] = {r.left + 6, y};
+                points[i * 5 + 2] = {r.left + 12, y};
+                points[i * 5 + 3] = {r.left + 18, y};
+                points[i * 5 + 4] = {r.right + 4.5f, r.bottom - 6};
+            }
+            if (!probe_read_pixels(kDefaultTheme, {points, 10}, actual))
+                return false;
+            for (u32 i = 0; i < 2; ++i)
+                for (u32 channel = 0; channel < 3; ++channel) {
+                    const u32 background = actual[i * 5][channel];
+                    const u32 opaque = channel == 1 ? 80 : 240;
+                    const u32 half = (opaque * 128 + 127) / 255 + (background * 127 + 127) / 255;
+                    const u32 expected[]{background, half, opaque, background};
+                    for (u32 sample = 0; sample < 4; ++sample) {
+                        const u32 value = actual[i * 5 + sample + 1][channel];
+                        if (maximum(value, expected[sample]) - minimum(value, expected[sample]) > 3)
+                            return false;
+                    }
+                }
+        }
+        popup_scene_close(&g_probe.popup_scene);
+    }
     for (u32 pass = 0; pass < 2; ++pass) {
         PopupItem items[]{{utf8_literal("All"), 200000, popup_item_enabled | popup_item_command_category},
-                          {pass ? utf8_literal("Command failed. Try again.")
-                                : utf8_literal("/wordle"),
+                          {pass ? utf8_literal("Command failed. Try again.") : utf8_literal("/wordle"),
                            100000,
                            static_cast<u16>(pass ? popup_item_command_row
                                                  : popup_item_command_row | popup_item_enabled)}};

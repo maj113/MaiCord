@@ -1599,6 +1599,16 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (!content_hidden && renderer->message_composer_scene && renderer->media_atlas &&
         renderer->media_gpu.texture_view) {
         const auto& composer = *renderer->message_composer_scene;
+        const auto avatar = message_composer_scene_command_avatar(composer);
+        if (ui_rect_has_area(avatar)) {
+            const auto allocation = media_atlas_peek(renderer->media_atlas,
+                media_asset_user_avatar(composer.command.bot_id, composer.command.avatar_variant,
+                                        composer.command.animated));
+            if (allocation.ok() &&
+                !queue_media_quad(renderer, allocation, avatar.left, avatar.top, avatar.right, avatar.bottom,
+                                  composer.viewport, true))
+                return layout_step_failed(__LINE__);
+        }
         for (u32 i = 0; i < composer.projection_span_count; ++i) {
             UiRect rectangle{}, clip{};
             if (!text_composer_emoji_rectangle(renderer->composer_layout, composer, i, &rectangle, &clip))
@@ -2504,11 +2514,15 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             if (!allocation.ok()) {
                 continue;
             }
+            const u32 before = renderer->media_quad_count;
             if (!queue_media_quad(renderer, allocation, command.rectangle.left, command.rectangle.top,
                                   command.rectangle.right, command.rectangle.bottom, command.clip,
                                   command.avatar || command.guild_icon, first_interaction_media)) {
                 return layout_step_failed(__LINE__);
             }
+            if (command.avatar && (popup.items[index].flags &
+                                   (popup_item_command_row | popup_item_command_category)))
+                reveal_media_underlay(*renderer, before, command.rectangle, theme.interactive);
             first_interaction_media = false;
         }
     }

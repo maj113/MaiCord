@@ -435,6 +435,20 @@ __declspec(noinline) bool ApplicationMediaPump::scan_visible_media(u64 now_ms, u
     // animation timeline rather than starting a second playback path.
     if (chat_visible && application.message_composer_scene.active) {
         const auto& composer = application.message_composer_scene;
+        if (composer.command.bot_id) {
+            const auto* user = user_store_find(application.account_ui->user_store, composer.command.bot_id);
+            const auto key = media_asset_user_avatar(composer.command.bot_id, composer.command.avatar_variant,
+                                                     composer.command.animated);
+            const bool observed = composer.command.animated &&
+                animation_timeline_observe_visible(&application.animations.timeline, key, now_us);
+            bool stop = false;
+            if (user && !(observed && media_atlas_find(application.renderer.media_atlas, key).ok()) &&
+                !request_visible_user_avatar(*user, now_ms, now_seconds, &uploads, repaint, &stop,
+                                            composer.command.animated && !observed))
+                return false;
+            if (stop)
+                return true;
+        }
         for (u32 i = 0; i < composer.projection_span_count; ++i) {
             UiRect rectangle{}, clip{};
             if (!text_composer_emoji_rectangle(application.renderer.composer_layout, composer, i,

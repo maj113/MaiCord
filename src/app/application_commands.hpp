@@ -1,7 +1,9 @@
 #pragma once
 #include "maicord/app/rest_client.hpp"
 #include "maicord/ui/scroll_host.hpp"
+namespace maicord { struct MessageComposerProjectionContext; }
 namespace maicord::app_detail {
+void application_commands_composer(MessageComposerProjectionContext*) noexcept;
 bool application_commands_sync(bool* handled) noexcept;
 bool application_commands_activate(u32 action) noexcept;
 bool application_commands_send(bool* handled) noexcept;

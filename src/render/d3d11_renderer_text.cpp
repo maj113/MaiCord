@@ -1596,7 +1596,8 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         boundaries->popup_start = boundaries->popup_end = emitter->count;
         boundaries->settings_choice_start = emitter->count;
         const auto* popup = d3d11_renderer_settings_popup(*renderer);
-        if (popup && !popup_text_presentation_build_output(*popup, theme, &output))
+        if (popup && !popup_text_presentation_build_output(*popup, theme, &output,
+                                                          renderer->message_measure_cache))
             return false;
         boundaries->settings_choice_end = emitter->count;
         const auto* dialog = renderer->settings_profile_dialog;
@@ -1703,7 +1704,8 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
         !ui_shortcuts_scene_text_output(*renderer->shortcuts_scene, theme, &output))
         return false;
     if (renderer->popup_scene && renderer->popup_scene->active &&
-        !popup_text_presentation_build_output(*renderer->popup_scene, theme, &output))
+        !popup_text_presentation_build_output(*renderer->popup_scene, theme, &output,
+                                               renderer->message_measure_cache))
         return false;
     boundaries->popup_end = emitter->count;
     boundaries->settings_choice_start = boundaries->settings_choice_end = emitter->count;

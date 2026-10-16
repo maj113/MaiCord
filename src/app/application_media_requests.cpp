@@ -532,6 +532,10 @@ bool ApplicationMediaPump::avatar_key_is_current(MediaAssetKey key) noexcept {
         return variant && media_asset_key_equal(
                               key, media_asset_user_avatar(id, variant, asset_hash_animated(hash)));
     };
+    const auto& composer = application.message_composer_scene;
+    if (content_media_visible() && ui_rect_has_area(message_composer_scene_command_avatar(composer)) &&
+        matches(composer.command.bot_id))
+        return true;
     // Member rows count only while chat content (and so the sidebar) is shown.
     if (content_media_visible() && application.member_list_scene.active &&
         member_plain_avatar_current(application.member_list_scene, key))

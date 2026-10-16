@@ -21,6 +21,7 @@ namespace {
 constexpr u32 choose_base = 100000, rail_base = 200000, option_base = 300000, value_base = 400000;
 // Local plugin commands, ordered as application_plugins_commands returns them.
 constexpr u32 plugin_base = 500000;
+constexpr u32 clear_selection = choose_base - 3;
 constexpr u32 plugin_rows = 8;
 constexpr float row_height = 56, rail_height = 40;
 struct Entry {
@@ -182,8 +183,7 @@ struct OptionsUi {
 bool option_row(void* opaque, u32 index, JsonValue option) noexcept {
     auto& ctx = *static_cast<OptionsUi*>(opaque);
     ++ctx.c->option_count;
-    const u32 first = static_cast<u32>(ctx.c->offset / row_height);
-    if (index + 1 < first || *ctx.count == 23)
+    if (*ctx.count == 31)
         return true;
     const u32 n = (*ctx.count)++;
     auto& c = *ctx.c;
@@ -199,6 +199,10 @@ struct ChoicesUi {
     u32* count;
     Utf8View query;
 };
+float option_row_height() noexcept {
+    const auto* styles = g_app.popup_scene.theme_styles;
+    return styles && styles->ready ? styles->metrics.menu_detail_height : row_height;
+}
 bool choice_row(void* opaque, u32, JsonValue choice) noexcept {
     auto& ui = *static_cast<ChoicesUi*>(opaque);
     auto& c = *ui.c;
@@ -218,7 +222,7 @@ bool choice_row(void* opaque, u32, JsonValue choice) noexcept {
     } else
         encoded = copy_label(c.choice_values[slot], 512, value.source);
     c.choice_bytes[slot] = encoded.bytes;
-    if (slot + 1 >= static_cast<u32>(c.offset / row_height) && *ui.count < 31)
+    if (*ui.count < 31)
         ui.items[(*ui.count)++] = {copy_label(c.labels[n], 512, name), value_base + slot,
                                    popup_item_enabled | popup_item_command_row, 0};
     ++c.choice_count;
@@ -264,7 +268,7 @@ bool render_choices(PopupItem* items, u32* count) noexcept {
                 const auto& choice = state.suggestions.choices[slot];
                 c.choice_bytes[slot] = copy_label(c.choice_values[slot], 512, choice.value).bytes;
                 ++c.choice_count;
-                if (slot + 1 < static_cast<u32>(c.offset / row_height) || *count >= 31)
+                if (*count >= 31)
                     continue;
                 const u32 n = (*count)++;
                 items[n] = {copy_label(c.labels[n], 512, choice.name), value_base + slot,
@@ -312,7 +316,7 @@ bool render() noexcept {
     PopupItem items[32]{};
     u32 count = 0;
     const u32 rail_first = static_cast<u32>(c.rail_offset / rail_height);
-    for (u32 r = rail_first; r <= c.app_count && count < 11; ++r) {
+    for (u32 r = rail_first; !c.selected.command && r <= c.app_count && count < 11; ++r) {
         auto* app = r ? c.apps[r - 1] : nullptr;
         items[count] = {app ? app->name : utf8_literal("All"), rail_base + r,
                         popup_item_enabled | popup_item_command_category, 0};
@@ -321,7 +325,7 @@ bool render() noexcept {
         avatar(items[count], app);
         ++count;
     }
-    if (!count)
+    if (!count && !c.selected.command)
         items[count++] = {utf8_literal("All"), rail_base, popup_item_enabled | popup_item_command_category,
                           0};
     const u32 body_begin = count;
@@ -340,19 +344,17 @@ bool render() noexcept {
             ++count;
         }
     }
-    if (c.error.bytes || (!c.selected.command && !c.count && !local_count)) {
-        items[count++] = {c.error.bytes ? c.error
-                          : c.pending   ? utf8_literal("Loading commands…")
-                                        : utf8_literal("No matching commands"),
-                          choose_base - 1, popup_item_command_row, 0};
-    } else if (c.selected.command) {
-        if (c.offset < row_height) {
-            items[count] = {copy_label(c.labels[count], 512, utf8_literal("/"), c.selected.command->name),
-                            choose_base - 2, popup_item_command_row, 0};
-            items[count++].detail = c.sending || c.queued
-                                        ? utf8_literal("Sending…")
-                                        : utf8_literal("Tab to edit options · Enter to run");
+    if (c.selected.command) {
+        items[count] = {copy_label(c.labels[count], 512, utf8_literal("/"), c.selected.command->name),
+                        choose_base - 2, popup_item_command_header, 0};
+        items[count++].detail = c.error.bytes ? c.error : c.selected.command->description;
+        if (c.focused_option.source.bytes) {
+            items[0].label = field_text(*c.selected.index, c.focused_option, "name", {c.labels[0], 512});
+            if (!c.error.bytes)
+                items[0].detail = field_text(*c.selected.index, c.focused_option, "description", {c.details[0], 1024});
         }
+        items[count++] = {utf8_literal("Clear command"), clear_selection,
+                          popup_item_enabled | popup_item_command_close, 0};
         c.option_count = 0;
         c.choices_shown = render_choices(items, &count);
         if (c.choices_shown)
@@ -362,6 +364,11 @@ bool render() noexcept {
             json_visit_indexed_array(c.selected.index->document, c.selected.command->options, 64,
                                      option_row, &options);
         }
+    } else if (c.error.bytes || (!c.count && !local_count)) {
+        items[count++] = {c.error.bytes ? c.error
+                          : c.pending   ? utf8_literal("Loading commands…")
+                                        : utf8_literal("No matching commands"),
+                          choose_base - 1, popup_item_command_row, 0};
     } else {
         const u32 first = static_cast<u32>(c.offset / row_height);
         for (u32 n = first; n < c.count && count < 23; ++n) {
@@ -381,7 +388,8 @@ bool render() noexcept {
     const auto result =
         popup_scene_open(&g_app.popup_scene, PopupKind::autocomplete, c.channel, {items, count}, anchor,
                          viewport, ui_rect_width(anchor), true,
-                         c.offset - static_cast<u32>(c.offset / row_height) * row_height,
+                         c.selected.command ? c.offset :
+                             c.offset - static_cast<u32>(c.offset / row_height) * row_height,
                          c.rail_offset - rail_first * rail_height);
     if (!result.ok())
         return false;
@@ -404,6 +412,28 @@ bool render() noexcept {
     return true;
 }
 } // namespace
+void application_commands_composer(MessageComposerProjectionContext* projection) noexcept {
+    projection->command = {};
+    if (!commands || !commands->selected.command || g_app.message_edit.editor_active)
+        return;
+    const auto& c = *commands;
+    const auto input = message_composer_text(g_app.message_composer);
+    const auto name = c.selected.command->name;
+    if (name.bytes >= 0xffffu || c.channel != g_app.message_composer.channel_id || input.bytes < name.bytes + 1 ||
+        !input.bytes || input.data[0] != '/' || !utf8_equal({input.data + 1, name.bytes}, name) ||
+        (input.bytes > name.bytes + 1 && !command_space(input.data[name.bytes + 1])))
+        return;
+    projection->command.name_bytes = static_cast<u16>(name.bytes + 1);
+    if (c.selected.app && c.selected.app->bot_id && g_app.account_ui) {
+        const auto* user = user_store_find(g_app.account_ui->user_store, c.selected.app->bot_id);
+        if (user) {
+            const auto hash = user_store_avatar_hash(*user);
+            projection->command.bot_id = user->id;
+            projection->command.avatar_variant = user_avatar_variant(hash);
+            projection->command.animated = hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
+        }
+    }
+}
 bool application_commands_sync(bool* handled) noexcept {
     *handled = false;
     const auto input = message_composer_text(g_app.message_composer);
@@ -509,7 +539,15 @@ bool application_commands_activate(u32 action) noexcept {
     auto& c = *commands;
     const u32 text_revision = g_app.message_composer.text_revision;
     MessageComposerResult edit_result = MessageComposerResult::unchanged;
-    if (action >= plugin_base) {
+    if (action == clear_selection && c.selected.command) {
+        c.selected = {};
+        c.focused_option = {};
+        c.choice_count = c.option_count = 0;
+        command_autocomplete_cancel(&c.autocomplete);
+        c.offset = c.rail_offset = 0;
+        c.revision = 0;
+        edit_result = message_composer_clear(&g_app.message_composer);
+    } else if (action >= plugin_base) {
         const auto input = message_composer_text(g_app.message_composer);
         NativePluginSdkCommandView local[plugin_rows];
         const u32 local_count = input.bytes ? application_plugins_commands(
@@ -804,16 +842,30 @@ bool application_commands_response(const RestClientResponse& response, Utf8View 
 bool application_commands_scroll_range(bool rail, UiScrollRange* range) noexcept {
     if (!commands || g_app.popup_owner_kind != PopupOwnerKind::commands || !g_app.popup_scene.active)
         return false;
+    const auto& c = *commands;
+    const auto* styles = g_app.popup_scene.theme_styles;
+    const float padding = c.selected.command && styles && styles->ready ?
+        styles->metrics.menu_padding : kPopupPanelPadding;
     auto rect = g_app.popup_scene.rectangle;
-    rect.left += 6;
-    rect.right -= 6;
-    rect.top += 6;
-    rect.bottom -= 6;
+    rect.left += padding;
+    rect.right -= padding;
+    rect.top += padding;
+    rect.bottom -= padding;
+    if (c.selected.command) {
+        if (rail || !c.option_count)
+            return false;
+        // The compact summary and its close control stay above the options.
+        rect.top += styles && styles->ready ? styles->metrics.menu_row_height : kUiMenuRowHeight;
+        const double extent = option_row_height();
+        const double height = c.option_count * extent;
+        *range = {rect, c.offset, maximum(0.0, height - ui_rect_height(rect)), extent,
+                  1, 0, c.generation};
+        return true;
+    }
     if (rail)
         rect.right = minimum(rect.right, rect.left + 48);
     else
         rect.left += 48;
-    const auto& c = *commands;
     const double extent = rail ? rail_height : row_height;
     const double height =
         rail ? (c.app_count + 1) * extent : (c.selected.command ? c.option_count + 1 : c.count) * extent;
@@ -867,8 +919,9 @@ bool application_commands_key(u32 key) noexcept {
                 --c.keyboard_row;
         } else if (c.keyboard_row < first + count - 1)
             ++c.keyboard_row;
-        const float top = c.keyboard_row * row_height;
-        return reveal_command_row(top, top + row_height) && render();
+        const float extent = c.selected.command ? option_row_height() : row_height;
+        const float top = (c.selected.command ? c.keyboard_row - 1 : c.keyboard_row) * extent;
+        return reveal_command_row(top, top + extent) && render();
     }
     return false;
 }
