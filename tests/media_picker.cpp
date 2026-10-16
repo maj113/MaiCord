@@ -853,6 +853,47 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     paint_stream_release(&paint);
     ui_media_picker_scene_release(&scene);
 }
+void test_picker_resize(void (*check)(bool, const char*) noexcept) noexcept {
+    UiMediaPickerScene scene{};
+    PickerFixture fixture{0, 32, 900, UiMediaPickerItemKind::gif, false};
+    UiMediaPickerSource source{&fixture, 7, 1, fixture.count, 1, {}, resolve_picker};
+    UiMediaPickerContent content{};
+    content.account_scope = 7;
+    content.query_generation = 1;
+    content.revision = 1;
+    content.kind = UiMediaPickerKind::gif;
+    content.phase = UiMediaPickerPhase::ready;
+    content.available_tabs = 7;
+    content.edit.active = true;
+    auto style = ui_media_picker_style();
+    style.metrics.panel_width = 400;
+    style.metrics.padding = 16;
+    const UiRect viewport{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, &style, 600) &&
+              ui_rect_width(scene.panel) == 600 && scene.panel.right == anchor.right &&
+              scene.cell_count != 0 &&
+              scene.projection->cells[0].rectangle.left == scene.body.left + style.metrics.padding &&
+              ui_media_picker_scene_scroll(&scene, 40),
+          "media picker resize: requested width preserves themed padding and right anchor");
+    const auto bank = scene.storage.arena.base;
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, &style, 10) &&
+              ui_rect_width(scene.panel) == 400 && scene.scroll_dips == 40 &&
+              scene.storage.arena.base == bank && scene.query_generation == source.query_generation,
+          "media picker resize: theme minimum retains query scroll and bounded storage");
+    check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 350, 800}, anchor, &style, 900) &&
+              ui_rect_width(scene.panel) == 334 && scene.panel.left == style.metrics.viewport_inset &&
+              scene.panel.right == 350 - style.metrics.viewport_inset,
+          "media picker resize: narrow viewport takes precedence over preferred width and minimum");
+    content.kind = UiMediaPickerKind::emoji;
+    content.available_tabs = ui_media_picker_tab_bit(content.kind);
+    content.variant = UiMediaPickerVariant::reaction;
+    source.count = 0;
+    ++source.revision;
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 900) &&
+              ui_rect_width(scene.panel) == kUiMediaPickerReactionWidth,
+          "media picker resize: reaction popout ignores expression drawer preference");
+    ui_media_picker_scene_release(&scene);
+}
 } // namespace
 void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
     test_picker_scrollbars(check);
@@ -860,6 +901,7 @@ void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
     test_picker_emoji(check);
     test_picker_style(check);
     test_picker_favorites(check);
+    test_picker_resize(check);
     UiMediaPickerScene scene{};
     PickerFixture fixture{0, 65'536, 10, UiMediaPickerItemKind::category, false};
     UiMediaPickerSource source{&fixture, 7, 1, fixture.count, 1, {}, resolve_picker};

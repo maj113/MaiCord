@@ -5,6 +5,8 @@
 
 namespace maicord {
 
+inline constexpr float kUiScrollLineDips = 32;
+
 struct UiScrollRange {
     UiRect viewport;
     double offset;

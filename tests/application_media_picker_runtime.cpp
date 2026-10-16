@@ -398,6 +398,44 @@ void run() noexcept {
         return;
     }
     auto& p = *g_app.media_picker;
+    const auto pointer = [](float x, float y) noexcept {
+        return MAKELPARAM(static_cast<short>(x), static_cast<short>(y));
+    };
+    const float initial_width = ui_rect_width(p.scene.panel), fixed_edge = p.scene.panel.right;
+    const float resize_y = (p.scene.panel.top + p.scene.panel.bottom) * .5f;
+    const auto resize_generation = p.generation;
+    check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
+                                                   pointer(p.scene.panel.left, resize_y)) &&
+              p.resizing && GetCapture() == g_app.window &&
+              application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON,
+                                                       pointer(fixed_edge - initial_width - 64, resize_y)) &&
+              ui_rect_width(p.scene.panel) == initial_width + 64 && p.scene.panel.right == fixed_edge &&
+              p.generation == resize_generation && !p.edit.bytes &&
+              application_media_picker_window_message(WM_LBUTTONUP, 0,
+                                                       pointer(fixed_edge - initial_width - 64, resize_y)) &&
+              !p.resizing && GetCapture() != g_app.window,
+          "picker runtime: left-edge captured resize keeps right anchor and query identity");
+    const float saved_width = p.preferred_width;
+    application_media_picker_close();
+    check(application_media_picker_open(UiMediaPickerKind::gif) && p.preferred_width == saved_width &&
+              ui_rect_width(p.scene.panel) == saved_width,
+          "picker runtime: expression drawer width survives close and reopen");
+    check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
+                                                   pointer(p.scene.panel.left, resize_y)) &&
+              application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON,
+                                                       pointer(fixed_edge + 200, resize_y)) &&
+              ui_rect_width(p.scene.panel) == initial_width &&
+              !application_media_picker_window_message(WM_CANCELMODE, 0, 0) &&
+              !p.resizing && GetCapture() != g_app.window,
+          "picker runtime: resize clamps to the minimum and native cancel releases capture");
+    check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
+                                                   pointer(p.scene.panel.left, resize_y)) &&
+              application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON, pointer(-1000, resize_y)) &&
+              p.scene.panel.left == p.scene.viewport.left + p.scene.style.metrics.viewport_inset &&
+              !application_media_picker_window_message(WM_CAPTURECHANGED, 0, 0) && !p.resizing,
+          "picker runtime: outward resize clamps to viewport and lost capture ends the drag");
+    p.preferred_width = 0;
+    check(application_media_picker_synchronize(), "picker runtime: default width restores after resize");
     owner_measurements("picker_open");
     check(send_pending(101) && account.query.operation == MediaCatalogOperation::gif_categories &&
               account.query.limit == kMediaCatalogMaximumPageItems && !application_media_picker_next_wake(),
@@ -859,6 +897,22 @@ void run() noexcept {
           "common picker: per-tab query restores with real Unicode glyph and cannot enter catalog-preview "
           "domain");
     check(query({}), "common picker: clearing local search restores complete emoji sections");
+    UiScrollRange wheel_range{};
+    UiScrollHost wheel_host{};
+    wheel_host.immediate = true;
+    const UiScrollBinding wheel_binding{&p, p.scope, body_scroll_read, body_scroll_write};
+    const UiPoint wheel_point{(p.scene.body.left + p.scene.body.right) * .5f,
+                              (p.scene.body.top + p.scene.body.bottom) * .5f};
+    check(body_scroll_read(&p, p.scope, &wheel_range) && wheel_range.line == kUiScrollLineDips &&
+              ui_scroll_host_wheel(&wheel_host, wheel_binding, wheel_point, -120, 3, false, 1) ==
+                  UiScrollDispatch::handled && p.scene.scroll_dips == 3 * kUiScrollLineDips &&
+              ui_scroll_host_wheel(&wheel_host, wheel_binding, wheel_point, -30, 3, false, 2) ==
+                  UiScrollDispatch::handled && p.scene.scroll_dips == 3.75f * kUiScrollLineDips &&
+              ui_scroll_host_wheel(&wheel_host, wheel_binding, wheel_point, 120, 3, false, 3) ==
+                  UiScrollDispatch::handled && p.scene.scroll_dips == .75f * kUiScrollLineDips &&
+              ui_scroll_host_wheel(&wheel_host, wheel_binding, wheel_point, 30, 3, false, 4) ==
+                  UiScrollDispatch::handled && p.scene.scroll_dips == 0,
+          "common picker: shared wheel line gives symmetric detents and high-resolution deltas");
     focus(p, true);
     u8 keyboard[256]{}, shifted_keyboard[256]{};
     const bool keyboard_ready = GetKeyboardState(keyboard) != FALSE;

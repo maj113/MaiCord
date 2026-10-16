@@ -250,9 +250,12 @@ struct UiMediaPickerScene {
 };
 // Placement shrinks into the available viewport. Fixed storage commits only on
 // first use and remains bounded independently of the source item count.
+// Zero preferred width uses the theme default; expression drawers may grow to
+// the available width. Reaction popouts retain their own themed width.
 bool ui_media_picker_scene_update(UiMediaPickerScene*, const UiMediaPickerSource*,
                                   const UiMediaPickerContent*, UiRect viewport, UiRect anchor,
-                                  const UiMediaPickerStyle* style = nullptr) noexcept;
+                                  const UiMediaPickerStyle* style = nullptr,
+                                  float preferred_width = 0) noexcept;
 bool ui_media_picker_scene_current(const UiMediaPickerScene&) noexcept;
 // The section at the top of the body (its rail entry is the current category).
 u32 ui_media_picker_scene_current_section(const UiMediaPickerScene&) noexcept;

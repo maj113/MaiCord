@@ -32,10 +32,14 @@ struct PickerLayout {
 };
 bool picker_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* source,
                    UiMediaPickerKind kind, UiMediaPickerVariant variant, bool back, UiRect viewport,
-                   UiRect anchor, PickerLayout* output) noexcept {
+                   UiRect anchor, float preferred_width, PickerLayout* output) noexcept {
     const auto& m = style.metrics;
     const bool reaction = variant == UiMediaPickerVariant::reaction;
-    const float width = minimum(m.panel_width, ui_rect_width(viewport) - m.viewport_inset * 2);
+    const float available_width = ui_rect_width(viewport) - m.viewport_inset * 2;
+    const float minimum_width = minimum(m.panel_width, available_width);
+    const float width = reaction || preferred_width == 0
+                            ? minimum_width
+                            : clamped(preferred_width, minimum_width, available_width);
     const float height = minimum(m.panel_height, ui_rect_height(viewport) - m.viewport_inset * 2);
     if (width < 240 || height < 200)
         return false;
@@ -552,10 +556,11 @@ bool ui_media_picker_scene_current(const UiMediaPickerScene& scene) noexcept {
 }
 bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPickerSource* source,
                                   const UiMediaPickerContent* content, UiRect viewport, UiRect anchor,
-                                  const UiMediaPickerStyle* override_style) noexcept {
+                                  const UiMediaPickerStyle* override_style, float preferred_width) noexcept {
     if (!scene)
         return false;
-    if (!finite_rectangle(viewport) || !finite_rectangle(anchor))
+    if (!finite_rectangle(viewport) || !finite_rectangle(anchor) ||
+        !bounded(preferred_width, 0, kMaximumUiCoordinate))
         return false;
     // Keep basic descriptor admission unconditional even when the publication
     // revision permits reuse of already validated section metadata.
@@ -589,10 +594,10 @@ bool ui_media_picker_scene_update(UiMediaPickerScene* scene, const UiMediaPicker
         override_style && ui_media_picker_style_valid(*override_style) ? *override_style : defaults;
     PickerLayout layout{};
     if (!picker_layout(effective, source, content->kind, content->variant, content->back, viewport, anchor,
-                       &layout)) {
+                       preferred_width, &layout)) {
         effective = defaults;
         if (!picker_layout(effective, source, content->kind, content->variant, content->back, viewport,
-                           anchor, &layout))
+                           anchor, preferred_width, &layout))
             return false;
     }
     const bool same_style = bytes_equal(&scene->style, &effective, sizeof(effective));

@@ -26,6 +26,7 @@
 #include "maicord/protocol/cdn_url.hpp"
 #include "maicord/ui/reaction_picker.hpp"
 #include "maicord/ui/regional_flag.hpp"
+#include "maicord/ui/splitter.hpp"
 
 #include <limits.h>
 
@@ -135,6 +136,8 @@ struct ApplicationMediaPicker {
     u64 scrollbar_scope, scrollbar_revision;
     float scrollbar_grab;
     bool scrollbar_dragging, scrollbar_rail;
+    float preferred_width, resize_fixed_edge, resize_pointer_offset;
+    bool resizing;
     // Reaction popout: the Emoji component targeting one message instead of
     // the composer. Zero message ID is the composer's expression picker.
     u64 reaction_message_id;
@@ -982,7 +985,7 @@ void application_media_picker_close() noexcept {
         p->reaction_scope = {};
         p->reaction_error = false;
     }
-    p->captured = p->dragging = p->scrollbar_dragging = false;
+    p->captured = p->dragging = p->scrollbar_dragging = p->resizing = false;
     p->hover_at = 0;
     if (GetCapture() == g_app.window)
         ReleaseCapture();
@@ -1119,10 +1122,13 @@ bool application_media_picker_synchronize() noexcept {
         viewport.bottom = static_cast<float>(g_app.renderer.height) * 96.f / maximum(g_app.renderer.dpi, 1u);
     } else if (composer)
         viewport.bottom = minimum(viewport.bottom, composer->rectangle.top);
+    if (p->resizing && !ui_rect_equal(viewport, p->scene.viewport))
+        revoke_capture(*p);
     const u32 prior_generation = p->scene.generation;
     if ((!reaction && !composer) ||
         !ui_media_picker_scene_update(&p->scene, &p->source, &p->content, viewport,
-                                      reaction ? p->reaction_anchor : composer->rectangle))
+                                      reaction ? p->reaction_anchor : composer->rectangle, nullptr,
+                                      p->preferred_width))
         return false;
     // A saved-state response rebuilds cell handles. Restore pointer state
     // once for that update so a stationary cursor keeps its action hint.
@@ -1545,7 +1551,7 @@ bool scroll_read(void* opaque, u64 scope, UiScrollRange* output, bool rail) noex
     *output = {viewport,
                rail ? p.scene.rail_scroll_dips : p.scene.scroll_dips,
                scrollbar.maximum_scroll,
-               rail ? p.scene.style.metrics.rail_pitch : p.scene.cell_pitch,
+               kUiScrollLineDips,
                1,
                0,
                (static_cast<u64>(p.generation) << 32) | p.source.revision};
@@ -1579,7 +1585,7 @@ bool rail_scroll_write(void* opaque, u64 scope, double offset, bool* changed) no
     return scroll_write(opaque, scope, offset, changed, true);
 }
 void revoke_capture(ApplicationMediaPicker& p) noexcept {
-    p.captured = p.dragging = p.scrollbar_dragging = false;
+    p.captured = p.dragging = p.scrollbar_dragging = p.resizing = false;
     ui_media_picker_scene_set_scrollbar_state(&p.scene, false, UiScrollbarVisualState::normal);
     ui_media_picker_scene_set_scrollbar_state(&p.scene, true, UiScrollbarVisualState::normal);
     ui_media_picker_scene_cancel_capture(&p.scene);
@@ -1790,6 +1796,10 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
     auto* p = g_app.media_picker;
     if (!p)
         return false;
+    if (message == WM_CANCELMODE) {
+        revoke_capture(*p);
+        return false;
+    }
     if (message == WM_KILLFOCUS) {
         focus(*p, false);
         revoke_capture(*p);
@@ -1827,6 +1837,43 @@ bool application_media_picker_window_message(UINT message, WPARAM wparam, LPARAM
     const float scale = g_app.renderer.dpi ? 96.f / g_app.renderer.dpi : 1;
     const float x = point.x * scale, y = point.y * scale;
     const bool inside = ui_rect_contains(ui_rect_intersection(p->scene.panel, p->scene.viewport), x, y);
+    const bool resize_hit = !p->reaction_message_id &&
+                            ui_rect_contains(p->scene.viewport, x, y) &&
+                            ui_splitter_hit(p->scene.panel, UiSplitterEdge::left, x, y);
+    if (p->resizing) {
+        if (message == WM_SETCURSOR) {
+            application_set_cursor(UiCursor::resize_we);
+            return true;
+        }
+        if (message == WM_MOUSEMOVE || message == WM_LBUTTONUP) {
+            const float maximum_width = p->resize_fixed_edge - p->scene.viewport.left -
+                                        p->scene.style.metrics.viewport_inset;
+            const UiSplitterLimits limits{minimum(p->scene.style.metrics.panel_width, maximum_width),
+                                           maximum_width};
+            p->preferred_width = ui_splitter_drag_width(
+                p->resize_fixed_edge, UiSplitterEdge::left, x - p->resize_pointer_offset, limits);
+            if (message == WM_LBUTTONUP)
+                revoke_capture(*p);
+            repaint(true);
+            return true;
+        }
+    }
+    if ((message == WM_LBUTTONDOWN || message == WM_LBUTTONDBLCLK) && resize_hit) {
+        revoke_capture(*p);
+        focus(*p, false);
+        ui_scroll_host_cancel(&g_app.scroll_host);
+        p->resize_fixed_edge = p->scene.panel.right;
+        p->resize_pointer_offset = x - p->scene.panel.left;
+        p->resizing = p->captured = true;
+        p->hover_at = 0;
+        SetCapture(g_app.window);
+        application_set_cursor(UiCursor::resize_we);
+        return true;
+    }
+    if (message == WM_SETCURSOR && resize_hit) {
+        application_set_cursor(UiCursor::resize_we);
+        return true;
+    }
     const auto hit = inside ? ui_media_picker_scene_hit_test(p->scene, x, y) : UiMediaPickerTarget{};
     const auto body_scrollbar = ui_media_picker_scene_scrollbar(p->scene);
     // The category rail remains wheel/keyboard scrollable without an overlay

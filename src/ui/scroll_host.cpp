@@ -101,7 +101,7 @@ bool widget_read(void* context, u64 key, UiScrollRange* range) noexcept {
     if (!ui_widget_scroll_geometry(manager, widget_handle(key), &geometry))
         return false;
     *range = UiScrollRange{ui_rect_intersection(node->rectangle, node->clip_rectangle), geometry.offset.y,
-                           geometry.maximum.y, 32, 1};
+                           geometry.maximum.y, kUiScrollLineDips, 1};
     return true;
 }
 bool widget_write(void* context, u64 key, double offset, bool* changed) noexcept {
