@@ -292,10 +292,19 @@ if ($ConfigureScratch) {
 }
 if ($Apply) {
     function Test-ExplicitOtherBuild($ProcessRecord) {
+        $separator = '(?:=|\s+)'
         $option = if ($ProcessRecord.Name -eq 'ctest.exe') { '--test-dir' }
-            elseif ($ProcessRecord.Name -eq 'cmake.exe') { '--build' } else { return $false }
+            elseif ($ProcessRecord.Name -eq 'cmake.exe') { '--build' }
+            elseif ($ProcessRecord.Name -eq 'ninja.exe') {
+                if ([regex]::Matches($ProcessRecord.CommandLine, '(?:^|\s)"?-C').Count -ne 1) { return $false }
+                $separator = '\s+'
+                '(?:"-C"|-C)'
+            } else { return $false }
+        $prefix = if ($ProcessRecord.Name -eq 'cmake.exe') {
+            '^\s*(?:"[^"]+"|[^\s"]+)\s+'
+        } else { '(?:^|\s)' }
         $match = [regex]::Match($ProcessRecord.CommandLine,
-            '(?:^|\s)' + $option + '(?:=|\s+)(?:"(?<path>[A-Za-z]:[\\/][^"]+)"|(?<path>[A-Za-z]:[\\/][^\s"]+))(?=\s|$)')
+            $prefix + $option + $separator + '(?:"(?<path>[A-Za-z]:[\\/][^"]+)"|(?<path>[A-Za-z]:[\\/][^\s"]+))(?=\s|$)')
         if (!$match.Success) { return $false }
         $other = [IO.Path]::GetFullPath($match.Groups['path'].Value)
         foreach ($protected in @($repository, $releaseRoot)) {
@@ -314,10 +323,24 @@ if ($Apply) {
         }
         return $true
     }
+    function Test-CMakeLinkHelper($ProcessRecord) {
+        if ($ProcessRecord.Name -ne 'cmake.exe') { return $false }
+        # Ninja invokes CMake as a linker wrapper. Only these modes, with an
+        # actual link.exe command, inherit the owning build's outside proof.
+        $match = [regex]::Match($ProcessRecord.CommandLine,
+            '^\s*(?:"[^"]+"|[^\s"]+)\s+-E\s+vs_link_(?:exe|dll)\s+(?:[^\r\n]*?\s+)?--\s+(?:"(?<tool>[^"]+)"|(?<tool>[^\s"]+))(?=\s|$)')
+        return $match.Success -and
+            [IO.Path]::GetFileName($match.Groups['tool'].Value).Equals('link.exe', [StringComparison]::OrdinalIgnoreCase)
+    }
     function Test-OtherBuildDescendant($ProcessRecord, $SnapshotById) {
         # Only these tools inherit build ownership. A nested CMake/CTest or
         # MSBuild invocation must supply its own proof instead of borrowing it.
-        if ($ProcessRecord.Name -notin @('cl.exe', 'link.exe', 'ninja.exe')) { return $false }
+        if ($ProcessRecord.Name -notin @('cl.exe', 'link.exe', 'ninja.exe') -and
+            !(Test-CMakeLinkHelper $ProcessRecord)) { return $false }
+        if ($ProcessRecord.Name -eq 'ninja.exe' -and
+            [regex]::IsMatch($ProcessRecord.CommandLine, '(?:^|\s)"?-C')) {
+            return (Test-ExplicitOtherBuild $ProcessRecord)
+        }
         $visited = [Collections.Generic.HashSet[int]]::new()
         $child = $ProcessRecord
         while ($child) {
@@ -332,9 +355,14 @@ if ($Apply) {
             if ($parent.ExecutablePath -and
                 $targets.Contains([IO.Path]::GetFullPath($parent.ExecutablePath))) { return $false }
             if ($parent.Name -in @('cmake.exe', 'ctest.exe')) {
-                return (Test-ExplicitOtherBuild $parent)
+                if (Test-ExplicitOtherBuild $parent) { return $true }
+                if (!(Test-CMakeLinkHelper $parent)) { return $false }
             }
             if ($parent.Name -eq 'MSBuild.exe') { return $false }
+            if ($parent.Name -eq 'ninja.exe' -and
+                [regex]::IsMatch($parent.CommandLine, '(?:^|\s)"?-C')) {
+                return (Test-ExplicitOtherBuild $parent)
+            }
             $child = $parent
         }
         return $false
@@ -346,7 +374,10 @@ if ($Apply) {
     $exitGrace = [Diagnostics.Stopwatch]::StartNew()
     try {
         foreach ($process in $processes) {
-            $builder = $process.Name -in @('cl.exe', 'link.exe', 'ninja.exe', 'cmake.exe', 'ctest.exe', 'MSBuild.exe')
+            # The supported build wrapper selects the fixed Ninja preset.
+            # MSBuild hosts are outside this graph, including reusable workers.
+            # Exact cleanup-target executables still block regardless of name.
+            $builder = $process.Name -in @('cl.exe', 'link.exe', 'ninja.exe', 'cmake.exe', 'ctest.exe')
             $target = $process.ExecutablePath -and $targets.Contains([IO.Path]::GetFullPath($process.ExecutablePath))
             if (!$builder -and !$target) { continue }
             # A CIM snapshot can still describe a process that exited before
