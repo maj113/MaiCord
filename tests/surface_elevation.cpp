@@ -217,6 +217,31 @@ void test_surface_elevation(void (*check)(bool, const char*) noexcept) noexcept 
     }
     check(derived, "accent tokens: gradient themes derive fill/text/outline/selected/focus from the palette and "
                    "pass the 4.5:1 label, 3:1 indicator and selected-text contrast checks");
+    bool mentions = true;
+    for (const auto& theme : gradients) {
+        const auto& mention = theme.tokens.mention;
+        const auto& defaults = theme.appearance == ThemeAppearance::light ? kLightTheme : kDefaultTheme;
+        mentions = mentions && same(mention.bar, theme.tokens.emphasis.outline) &&
+                   same(mention.text, defaults.tokens.mention.text) &&
+                   same(mention.background,
+                        ui_theme_color_alpha(mention.bar, defaults.tokens.mention.background.alpha)) &&
+                   same(mention.inline_background, defaults.tokens.mention.inline_background) &&
+                   ui_theme_contrast_ratio(theme.tokens.text.normal,
+                                           composite(mention.background, theme.tokens.background.primary)) >= 4.5f;
+    }
+    check(mentions, "mention tokens: gradient message highlights follow the theme hue, retain their opacity "
+                    "and readable message text, and leave inline styles untouched");
+    Theme translucent = kDefaultTheme;
+    translucent.accent.alpha = .5f;
+    translucent = ui_theme_resolve_defaults(translucent);
+    translucent.background = gradient.background;
+    const auto original_mentions = translucent.tokens.mention;
+    check(ui_theme_resolve_emphasis(&translucent) &&
+              translucent.tokens.mention.background.alpha == original_mentions.background.alpha &&
+              translucent.tokens.mention.bar.alpha == original_mentions.bar.alpha &&
+              translucent.tokens.mention.text.alpha == original_mentions.text.alpha &&
+              translucent.tokens.mention.inline_background.alpha == original_mentions.inline_background.alpha,
+          "mention tokens: gradient adaptation preserves translucent palette opacity for message highlights");
     // The hue follows the most chromatic stop (default ramp: violet 0x6935b8).
     const auto stop = background_color_oklab(background_color_rgb24(0x6935b8));
     const auto fill = background_color_oklab(gradient.tokens.emphasis.fill);
@@ -239,6 +264,10 @@ void test_surface_elevation(void (*check)(bool, const char*) noexcept) noexcept 
     Theme authored = gradients[0];
     const Color custom{.9f, .2f, .3f, 1};
     authored.tokens.emphasis.fill = custom;
+    authored.tokens.mention.bar = custom;
+    authored.tokens.mention.text = custom;
+    authored.tokens.mention.background = ui_theme_color_alpha(custom, .3f);
+    authored.tokens.mention.inline_background = ui_theme_color_alpha(custom, .4f);
     Theme again = authored;
     check(ui_theme_resolve_emphasis(&again) && same(again.tokens.emphasis.fill, custom) &&
               bytes_equal(&again, &authored, sizeof(Theme)),

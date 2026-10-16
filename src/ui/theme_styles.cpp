@@ -426,6 +426,10 @@ bool ui_theme_resolve_emphasis(Theme* theme) noexcept {
         {UiThemeToken::emphasis_outline, &theme->tokens.emphasis.outline, derived.outline},
         {UiThemeToken::emphasis_selected, &theme->tokens.emphasis.selected, derived.selected},
         {UiThemeToken::border_focus, &theme->tokens.border.focus, derived.outline},
+        {UiThemeToken::mention_background, &theme->tokens.mention.background,
+         ui_theme_color_alpha(derived.outline, theme->tokens.mention.background.alpha)},
+        {UiThemeToken::mention_bar, &theme->tokens.mention.bar,
+         ui_theme_color_alpha(derived.outline, theme->tokens.mention.bar.alpha)},
     };
     for (const auto& target : targets) {
         const u32 id = static_cast<u32>(target.id);
