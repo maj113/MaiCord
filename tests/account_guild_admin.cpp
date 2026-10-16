@@ -93,6 +93,89 @@ void test_transport() noexcept {
     check(same(capture.reason, capture.reason_bytes, utf8_literal("spam%20%26%20ads%20%2F%20repeat")),
           "guild admin account: the reason is copied before the caller reuses its text");
 
+    const u64 role_ids[] = {200, 201};
+    MemberPatch atomic_role{};
+    atomic_role.fields = member_patch_roles;
+    atomic_role.role_ids = {role_ids, 1};
+    request = guild_request(GuildAdminOperation::member_role_add, 42);
+    request.guild_id = 7;
+    request.member = &atomic_role;
+    request.reason = utf8_literal("role & audit");
+    check(account_guild_admin_submit(&details, &request, 170).ok() &&
+              captured(RestMethod::put, RestMajorParameter::guild, 7, GuildAdminOperation::member_role_add,
+                       utf8_literal("/api/v10/guilds/7/members/42/roles/200"), {},
+                       utf8_literal("role%20%26%20audit")) &&
+              !guild_admin_has_body(request.operation),
+          "guild admin account: adding one member role is a bodyless PUT with guild rate identity and "
+          "audit header");
+    request.operation = GuildAdminOperation::member_role_remove;
+    request.reason = utf8_literal("");
+    check(account_guild_admin_submit(&details, &request, 171).ok() &&
+              captured(RestMethod::delete_method, RestMajorParameter::guild, 7,
+                       GuildAdminOperation::member_role_remove,
+                       utf8_literal("/api/v10/guilds/7/members/42/roles/200"), {}, {}, true) &&
+              !guild_admin_has_body(request.operation),
+          "guild admin account: removing one member role is a bodyless DELETE with an empty audit header");
+    const u32 before_invalid_role = capture.submissions;
+    const auto rejected_role = [&](GuildAdminRequest invalid) noexcept {
+        return account_guild_admin_submit(&details, &invalid, 172).error ==
+               RestClientSubmitError::invalid_input;
+    };
+    auto invalid_role = request;
+    invalid_role.guild_id = 0;
+    bool roles_rejected = rejected_role(invalid_role);
+    invalid_role = request;
+    invalid_role.target_id = 0;
+    roles_rejected = rejected_role(invalid_role) && roles_rejected;
+    invalid_role = request;
+    invalid_role.member = nullptr;
+    roles_rejected = rejected_role(invalid_role) && roles_rejected;
+    invalid_role = request;
+    invalid_role.channel_id = 50;
+    roles_rejected = rejected_role(invalid_role) && roles_rejected;
+    invalid_role = request;
+    invalid_role.delete_message_seconds = 1;
+    roles_rejected = rejected_role(invalid_role) && roles_rejected;
+    MemberPatch bad_role = atomic_role;
+    invalid_role = request;
+    invalid_role.member = &bad_role;
+    const ConstSlice<u64> invalid_roles[] = {{}, {nullptr, 1}, {role_ids, 2}};
+    for (const auto ids : invalid_roles) {
+        bad_role.role_ids = ids;
+        roles_rejected = rejected_role(invalid_role) && roles_rejected;
+    }
+    const u64 zero_role = 0;
+    bad_role.role_ids = {&zero_role, 1};
+    roles_rejected = rejected_role(invalid_role) && roles_rejected;
+    bad_role = atomic_role;
+    bad_role.fields |= member_patch_nickname;
+    roles_rejected = rejected_role(invalid_role) && roles_rejected;
+    bad_role = atomic_role;
+    bad_role.nickname = utf8_literal("extra");
+    roles_rejected = rejected_role(invalid_role) && roles_rejected;
+    bad_role = atomic_role;
+    bad_role.communication_disabled_until_ms = 1;
+    roles_rejected = rejected_role(invalid_role) && roles_rejected;
+    check(roles_rejected && capture.submissions == before_invalid_role,
+          "guild admin account: atomic role changes reject absent identities role lists and unrelated "
+          "patch parameters before transport");
+    const u64 maximum_role = ~0ull;
+    atomic_role.role_ids = {&maximum_role, 1};
+    request.guild_id = request.target_id = ~0ull;
+    request.reason = {};
+    u8 maximum_target[128];
+    const auto maximum_written =
+        guild_admin_write_target(request, {maximum_target, sizeof(maximum_target)});
+    const bool maximum_remove = maximum_written.ok() &&
+                                same(maximum_target, maximum_written.bytes,
+                                     utf8_literal("/api/v10/guilds/18446744073709551615/members/"
+                                                  "18446744073709551615/roles/18446744073709551615")) &&
+                                bounded(request);
+    request.operation = GuildAdminOperation::member_role_add;
+    check(
+        maximum_remove && bounded(request),
+        "guild admin protocol: both atomic role routes fit maximum IDs and refuse short targets untouched");
+
     // Server lifecycle and drag-and-drop submissions, captured at the transport.
     request = guild_request(GuildAdminOperation::guild_leave);
     check(account_guild_admin_submit(&details, &request, 150).ok() && capture.id == 150 &&
@@ -741,28 +824,6 @@ void test_role_toggle() noexcept {
     check(add_sent && remove_sent && last_sent,
           "role toggle: adding or removing a role PATCHes /members/{u} with the full ordered list");
 
-    // No operation ever writes a /members/{u}/roles/{r} path.
-    bool per_role = false;
-    u8 target[kGuildAdminMaximumTargetBytes];
-    const u64 members[] = {0, 20};
-    for (u32 op = 0; op < static_cast<u32>(GuildAdminOperation::count); ++op) {
-        for (const u64 member : members) {
-            GuildAdminRequest probe{};
-            probe.operation = static_cast<GuildAdminOperation>(op);
-            probe.guild_id = 10;
-            probe.target_id = member;
-            probe.member = (probe.operation == GuildAdminOperation::member_update ||
-                            probe.operation == GuildAdminOperation::member_update_self)
-                               ? &patch
-                               : nullptr;
-            const auto written = guild_admin_write_target(probe, {target, sizeof(target)});
-            for (u32 i = 0; written.ok() && i + 9 <= written.bytes; ++i)
-                if (bytes_equal(target + i, "/members/", 9))
-                    for (u32 j = i + 9; j + 7 <= written.bytes; ++j)
-                        per_role = per_role || bytes_equal(target + j, "/roles/", 7);
-        }
-    }
-    check(!per_role, "role toggle: no operation produces the per-role member route");
 }
 
 void test_decoders() noexcept {
@@ -1069,7 +1130,7 @@ void test_abi() noexcept {
     check(loaded.ok(), "guild admin account: shipping DLL loads without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 129 && kAccountModuleApiVersion == 129 && kAccountModuleApiOrdinal == 129 &&
+    check(host.api.version == 130 && kAccountModuleApiVersion == 130 && kAccountModuleApiOrdinal == 130 &&
               host.api.bytes == sizeof(AccountModuleApi) &&
               offsetof(AccountModuleApi, guild_admin) == 640 && host.api.guild_admin &&
               host.api.guild_admin(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,

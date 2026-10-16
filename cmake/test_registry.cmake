@@ -672,6 +672,14 @@ maicord_test(MaiCordAccountMenuRuntimeTests ENTRY maicord_account_menu_runtime_e
     INCLUDES src/app
     TIMEOUT 10
     TEST maicord_account_menu_runtime)
+maicord_test(MaiCordProfileRuntimeTests ENTRY maicord_profile_runtime_entry
+    SOURCES tests/application_profile_runtime.cpp src/app/application_profile.cpp
+        src/app/application_state.cpp src/core/log.cpp
+    LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_ui
+        maicord_message_runtime kernel32 user32 bcrypt
+    INCLUDES src/app
+    TIMEOUT 10
+    TEST maicord_profile_runtime)
 maicord_test(MaiCordAccountMessageSearchTests ENTRY maicord_account_message_search_test_entry
     SOURCES tests/account_message_search.cpp src/app/account_message_search.cpp
     LIBS maicord_core maicord_platform maicord_protocol kernel32

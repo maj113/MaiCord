@@ -246,6 +246,14 @@ bool member_patch_valid(const MemberPatch& patch, bool self) noexcept {
     return !(f & member_patch_timeout) || patch.communication_disabled_until_ms < kTimestampLimitMs;
 }
 
+bool member_role_patch_valid(const MemberPatch& patch) noexcept {
+    return patch.fields == member_patch_roles && patch.role_ids.count == 1 && patch.role_ids.data &&
+           byte_range_valid({reinterpret_cast<const u8*>(patch.role_ids.data), sizeof(u64)}) &&
+           patch.role_ids[0] && !patch.nickname.data && !patch.nickname.bytes && !patch.avatar.data &&
+           !patch.avatar.bytes && !patch.communication_disabled_until_ms && !patch.voice_channel_id &&
+           !patch.mute && !patch.deafen;
+}
+
 bool overwrite_valid(const PermissionOverwriteWrite& overwrite) noexcept {
     return overwrite.id && overwrite.type <= 1 && !(overwrite.allow & overwrite.deny);
 }
@@ -1487,6 +1495,7 @@ RestMethod guild_admin_method(GuildAdminOperation op) noexcept {
         return RestMethod::post;
     case Op::ban_add:
     case Op::overwrite_put:
+    case Op::member_role_add:
         return RestMethod::put;
     case Op::role_delete:
     case Op::member_kick:
@@ -1495,6 +1504,7 @@ RestMethod guild_admin_method(GuildAdminOperation op) noexcept {
     case Op::overwrite_delete:
     case Op::invite_delete:
     case Op::guild_leave:
+    case Op::member_role_remove:
         return RestMethod::delete_method;
     default:
         return RestMethod::get;
@@ -1502,6 +1512,8 @@ RestMethod guild_admin_method(GuildAdminOperation op) noexcept {
 }
 
 bool guild_admin_has_body(GuildAdminOperation op) noexcept {
+    if (op == Op::member_role_add)
+        return false;
     const auto method = guild_admin_method(op);
     return method == RestMethod::patch || method == RestMethod::post ||
            method == RestMethod::put || op == Op::guild_leave;
@@ -1519,7 +1531,8 @@ bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
         return false;
     const bool needs_target = op == Op::role_update || op == Op::role_delete || op == Op::member_update ||
                               op == Op::member_kick || op == Op::ban_add || op == Op::ban_remove ||
-                              op == Op::overwrite_put || op == Op::overwrite_delete;
+                              op == Op::overwrite_put || op == Op::overwrite_delete ||
+                              op == Op::member_role_add || op == Op::member_role_remove;
     if (needs_target != (r.target_id != 0))
         return false;
     if ((op == Op::invite_delete) != (r.invite_code.bytes != 0) ||
@@ -1550,8 +1563,11 @@ bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
         return false;
     if ((op == Op::role_update && !r.role) || (r.role && !role_patch_valid(*r.role, op == Op::role_create)))
         return false;
-    const bool member = op == Op::member_update || op == Op::member_update_self;
-    if (member != (r.member != nullptr) || (r.member && !member_patch_valid(*r.member, op == Op::member_update_self)))
+    const bool member_role = op == Op::member_role_add || op == Op::member_role_remove;
+    const bool member = op == Op::member_update || op == Op::member_update_self || member_role;
+    if (member != (r.member != nullptr) ||
+        (r.member && (member_role ? !member_role_patch_valid(*r.member)
+                                  : !member_patch_valid(*r.member, op == Op::member_update_self))))
         return false;
     if ((op == Op::member_profile_self) != (r.profile != nullptr) || (r.profile && !profile_patch_valid(*r.profile)))
         return false;
@@ -1613,6 +1629,13 @@ GuildAdminResult guild_admin_write_target(const GuildAdminRequest& r, Slice<u8> 
         case Op::role_member_counts: text("/roles/member-counts"); break;
         case Op::member_update:
         case Op::member_kick: text("/members/"); id(r.target_id); break;
+        case Op::member_role_add:
+        case Op::member_role_remove:
+            text("/members/");
+            id(r.target_id);
+            text("/roles/");
+            id(r.member->role_ids[0]);
+            break;
         case Op::member_update_self: text("/members/@me"); break;
         case Op::member_profile_self: text("/profile/@me"); break;
         case Op::ban_list: text("/bans"); break;

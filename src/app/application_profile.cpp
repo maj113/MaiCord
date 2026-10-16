@@ -161,7 +161,7 @@ bool open_friend_menu(ApplicationProfile& p, UiRect anchor) noexcept {
 }
 // The role picker: assignable roles the member does not hold, in display order.
 bool open_role_menu(ApplicationProfile& p, UiRect anchor) noexcept {
-    if (!g_app.account_ui || p.mutation)
+    if (!g_app.account_ui || p.mutation != ProfileRoleChange::none)
         return true;
     const auto& state = g_app.account_ui->chat_state;
     const u64 guild = p.data.guild_id;
@@ -204,20 +204,10 @@ bool open_role_menu(ApplicationProfile& p, UiRect anchor) noexcept {
     return open_menu(p, count, anchor, 240);
 }
 bool mutate_role(ApplicationProfile& p, u64 role, bool add) noexcept {
-    if (p.mutation || !g_app.account_ui || !role_editable(g_app.account_ui->chat_state, p.data.guild_id, role))
+    if (p.mutation != ProfileRoleChange::none || !g_app.account_ui ||
+        !role_editable(g_app.account_ui->chat_state, p.data.guild_id, role))
         return true;
-    p.edit_value = {};
-    char digits[20];
-    u32 count = 0;
-    u64 value = role;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    for (u32 i = 0; i < count; ++i)
-        p.edit_value.data[i] = digits[count - i - 1];
-    p.edit_value.bytes = static_cast<u16>(count);
-    p.mutation = add ? 5 : 6;
+    p.mutation = add ? ProfileRoleChange::add : ProfileRoleChange::remove;
     p.mutation_role = role;
     p.pending = true;
     p.retry_at = 0;
@@ -442,7 +432,7 @@ bool application_profile_open(u64 user, UiRect anchor, ProfileAnchor kind) noexc
                         clock_monotonic_milliseconds() - p->loaded_at < 60000;
     dismiss_popup();
     if (!cached) {
-        p->mutation = 0;
+        p->mutation = ProfileRoleChange::none;
         p->mutation_role = 0;
         p->scene.roles_busy = false;
         p->effect = {};
@@ -517,9 +507,9 @@ bool application_profile_close() noexcept {
     g_app.profile->message_blink_at = 0;
     g_app.profile->message_dragging = false;
     g_app.profile->pending = false;
-    if (g_app.profile->mutation >= 5) {
+    if (g_app.profile->mutation != ProfileRoleChange::none) {
         g_app.profile->loaded_at = 0;
-        g_app.profile->mutation = 0;
+        g_app.profile->mutation = ProfileRoleChange::none;
         g_app.profile->mutation_role = 0;
         s.roles_busy = false;
     }
@@ -942,9 +932,11 @@ bool application_profile_submit(u64 now) noexcept {
         return false;
     auto& host = g_app.account;
     auto& ui = *g_app.account_ui;
-    if (p->mutation >= 5 && !role_editable(ui.chat_state, p->data.guild_id, p->mutation_role)) {
+    const bool roles = p->mutation != ProfileRoleChange::none;
+    if (roles && !role_editable(ui.chat_state, p->data.guild_id, p->mutation_role)) {
         p->pending = false;
-        p->mutation = 0;
+        p->mutation = ProfileRoleChange::none;
+        p->mutation_role = 0;
         p->scene.roles_busy = false;
         p->scene.phase = ProfilePhase::failed;
         profile_scene_layout(&p->scene, p->scene.viewport, true);
@@ -956,15 +948,32 @@ bool application_profile_submit(u64 now) noexcept {
     const bool effect = p->effect_pending && !p->pending;
     const auto effect_id =
         p->data.guild_effect_sku_id ? p->data.guild_effect_sku_id : p->data.effect_sku_id;
-    const auto result =
-        host.api.profile_get(host.instance, effect ? effect_id : p->data.user_id, p->data.guild_id,
-                             ui.message_history_request_id, effect ? 4 : p->mutation, p->edit_value.view());
+    RestClientSubmitResult result{RestClientSubmitError::invalid_input};
+    if (roles && !effect) {
+        MemberPatch patch{};
+        patch.fields = member_patch_roles;
+        patch.role_ids = {&p->mutation_role, 1};
+        GuildAdminRequest request{};
+        request.operation = p->mutation == ProfileRoleChange::add ? GuildAdminOperation::member_role_add
+                                                                  : GuildAdminOperation::member_role_remove;
+        request.guild_id = p->data.guild_id;
+        request.target_id = p->data.user_id;
+        request.member = &patch;
+        if (host.api.guild_admin)
+            result = host.api.guild_admin(host.instance, &request, ui.message_history_request_id);
+    } else if (host.api.profile_get) {
+        result = host.api.profile_get(host.instance, effect ? effect_id : p->data.user_id, p->data.guild_id,
+                                      ui.message_history_request_id, effect ? 4 : 0, {});
+    }
     if (result.error == RestClientSubmitError::busy) {
         p->retry_at = now + 100;
         return true;
     }
     if (!result.ok()) {
         p->pending = false;
+        p->mutation = ProfileRoleChange::none;
+        p->mutation_role = 0;
+        p->scene.roles_busy = false;
         p->scene.phase = ProfilePhase::failed;
         profile_scene_layout(&p->scene, p->scene.viewport, true);
         repaint(true);
@@ -973,7 +982,9 @@ bool application_profile_submit(u64 now) noexcept {
     p->requested_effect = effect ? effect_id : 0;
     if (effect)
         p->effect_pending = false;
-    p->submitted_mutation = effect ? 4 : p->mutation;
+    p->submitted_request = effect  ? ProfileRequest::effect
+                           : roles ? ProfileRequest::roles
+                                   : ProfileRequest::profile;
     p->requested_user = p->data.user_id;
     p->requested_guild = p->data.guild_id;
     p->pending = false;
@@ -986,8 +997,8 @@ bool application_profile_response(const RestClientResponse& response, Utf8View b
     auto* p = g_app.profile;
     if (!p || p->requested_user != p->data.user_id || p->requested_guild != p->data.guild_id)
         return true;
-    if (p->submitted_mutation == 4) {
-        p->submitted_mutation = 0;
+    if (p->submitted_request == ProfileRequest::effect) {
+        p->submitted_request = ProfileRequest::profile;
         if (response.error == RestClientError::none && response.status_code == 200) {
             profile_effect_decode(body, {g_app.account_ui->profile_decode.structurals, 16384},
                                           p->requested_effect, &p->effect);
@@ -995,13 +1006,14 @@ bool application_profile_response(const RestClientResponse& response, Utf8View b
         }
         return repaint();
     }
-    if (p->submitted_mutation) {
+    if (p->submitted_request == ProfileRequest::roles) {
         const bool saved = response.error == RestClientError::none && response.status_code >= 200 &&
                            response.status_code < 300;
-        p->submitted_mutation = 0;
+        p->submitted_request = ProfileRequest::profile;
         p->scene.roles_busy = false;
+        p->mutation = ProfileRoleChange::none;
+        p->mutation_role = 0;
         if (saved) {
-            p->mutation = 0;
             p->pending = true;
             p->retry_at = 0;
             p->loaded_at = 0;

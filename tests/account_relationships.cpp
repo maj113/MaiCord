@@ -216,10 +216,10 @@ void test_dormant_abi() noexcept {
     AccountHost host{};
     const auto loaded = account_host_load(&host);
     check(loaded.ok(),
-          "relationships: shipping account DLL loads at ABI/ordinal 129 without profile or credential");
+          "relationships: shipping account DLL loads at ABI/ordinal 130 without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 129 && kAccountModuleApiVersion == 129 && kAccountModuleApiOrdinal == 129 &&
+    check(host.api.version == 130 && kAccountModuleApiVersion == 130 && kAccountModuleApiOrdinal == 130 &&
               host.api.bytes == sizeof(AccountModuleApi) && host.api.relationships &&
               host.api.message_ack && host.api.login_submit_recovery && host.api.login_start_reset &&
               host.api.login_submit_reset && host.api.login_submit_phone_verify &&

@@ -76,8 +76,10 @@ namespace maicord {
 // creation without changing the interface layout; host and module must agree.
 // v129: Guild and self-member Gateway descriptors distinguish omitted roles
 // from known-empty roles; matching host/module semantics retain the same layout.
-inline constexpr u32 kAccountModuleApiVersion = 129;
-inline constexpr u16 kAccountModuleApiOrdinal = 129;
+// v130: guild_admin accepts atomic member-role additions and removals without
+// replacing the member's cached role list. The interface layout is unchanged.
+inline constexpr u32 kAccountModuleApiVersion = 130;
+inline constexpr u16 kAccountModuleApiOrdinal = 130;
 inline constexpr u32 kAccountHistoryResponseBytes = 256 * 1024;
 inline constexpr wchar_t kAccountModuleFileNameWide[] = L"MaiCordAccount.dll";
 

@@ -10,6 +10,16 @@ enum class ProfileAnchor : u8 {
     member,
     account
 };
+enum class ProfileRoleChange : u8 {
+    none,
+    add,
+    remove
+};
+enum class ProfileRequest : u8 {
+    profile,
+    effect,
+    roles
+};
 struct ApplicationProfile {
     ProfileAnchor anchor_kind;
     MessageComposer message, pending_message;
@@ -28,9 +38,9 @@ struct ApplicationProfile {
     bool effect_pending;
     ProfileScene scene;
     u64 requested_user, requested_guild, loaded_at, retry_at;
-    ProfileString<32> edit_value;
     u64 mutation_role;
-    u8 mutation, submitted_mutation;
+    ProfileRoleChange mutation;
+    ProfileRequest submitted_request;
     bool pending;
     // The note field: its editor while editing and the text the card shows.
     MessageComposer note;

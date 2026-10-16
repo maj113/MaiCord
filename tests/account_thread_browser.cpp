@@ -141,7 +141,7 @@ void dormant_abi() noexcept {
     if (!loaded.ok())
         return;
     ThreadBrowserRequest request{20, 10, {}, 0, ThreadBrowserMode::archived, {}};
-    check(host.api.thread_browser && host.api.version == 129 && host.api.bytes == 1176 &&
+    check(host.api.thread_browser && host.api.version == 130 && host.api.bytes == 1176 &&
               sizeof(AccountHost) == 1424 &&
               host.api.thread_browser(nullptr, &request, 1).error == RestClientSubmitError::invalid_input &&
               host.api.thread_browser(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&

@@ -42,6 +42,8 @@ enum class GuildAdminOperation : u8 {
     profile_update,      // PATCH  /guilds/{g}/profile          (GuildServerProfileWrite)
     vanity_get,          // GET    /guilds/{g}/vanity-url
     vanity_update,       // PATCH  /guilds/{g}/vanity-url       {"code"}
+    member_role_add,     // PUT    /guilds/{g}/members/{u}/roles/{r} (no body)
+    member_role_remove,  // DELETE /guilds/{g}/members/{u}/roles/{r} (no body)
     count,
 };
 
@@ -210,7 +212,9 @@ enum MemberPatchField : u8 {
 // Empty nickname resets it (null for another member, "" for oneself). A zero
 // timeout clears it; otherwise it is a Unix time in
 // milliseconds, sent as YYYY-MM-DDTHH:MM:SS.mmmZ. Roles replace the member's
-// whole list (guild_admin_member_roles_toggle). A zero voice channel
+// whole list (guild_admin_member_roles_toggle). member_role_add/remove instead
+// require only member_patch_roles and exactly one role ID, carried in the URL.
+// A zero voice channel
 // disconnects the member. The avatar is a complete data URI; empty removes
 // the per-server avatar (null).
 struct MemberPatch {
