@@ -1,4 +1,6 @@
-# Offline performance benchmark
+# Performance benchmarks
+
+## Offline workload
 
 ```
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\perf\run_perf.ps1 [-Runs 2] [-WarmOnly] [-Raw] [-Sampling] [-Debugger]
@@ -28,6 +30,55 @@ network.
   with mixed content, member list syncs for a 48,000-member guild, generated media
   frames, and typing/presence/message churn. Every REST submission is answered.
 
+## Production startup
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\perf\run_perf.ps1 -ProductionStartup -Runs 5
+```
+
+This command uses `tools\build.ps1 -StartupProbe -StartupProbeRuns 5`.
+It builds the actual `MaiCord.exe` with `MAICORD_STARTUP_PROBE` and the real account backend.
+The build script refuses to overwrite a client that runs from the Release directory.
+The default is three fresh/warm pairs. `-Runs 5` requests five pairs, or ten launches.
+`-ProductionStartup` does not accept `-WarmOnly`, `-Sampling` or `-Debugger`.
+
+Each pair starts with a fresh temporary profile in the single Release directory.
+The warm launch reuses that profile. A cold launch means a fresh application profile, not empty Windows filesystem caches.
+Only each child process receives the temporary `LOCALAPPDATA`, `TEMP` and `TMP` paths.
+The child also requires `MAICORD_STARTUP_BENCHMARK=1` and a valid profile marker.
+The build script removes the temporary profiles and restores the normal client before it returns.
+
+The client starts without saved credentials through the production login path.
+It can contact the unauthenticated remote-auth service. This mode does not use the offline account module.
+It skips desktop registration, notifications, updates and instance forwarding.
+Its window uses the quiet probe styles and does not take focus.
+After the first successful `Present`, the client requests normal window closure.
+
+The runner prints each `MAICORD_STARTUP` record and cold/warm medians.
+It accepts a record only from its child process, after exit code zero and valid cycle, CPU-time and memory queries.
+It also requires `backend_loaded=1` and `login_active=1` for every accepted launch.
+These flags confirm that the real backend and login instance exist. They do not mean that authentication finished.
+
+| Measurement | Definition |
+| --- | --- |
+| Process TTFF | Process creation to the first successful `Present` return, including the loader work before entry. |
+| App TTFF | `application_run` to the same `Present` return. |
+| Main/process cycles | Raw lifetime counts from `QueryThreadCycleTime` and `QueryProcessCycleTime`, through the first present. |
+| Main/process CPU time | User plus kernel time from `GetThreadTimes` and `GetProcessTimes`, through the first present. |
+| WS/private/PWS | Whole-process working set, private committed bytes and private working set at the first present. |
+
+TTFF does not measure display scanout. CPU cycle counts do not measure retired instructions.
+The raw record uses microseconds for times and bytes for memory. The table uses milliseconds and KiB.
+
+If the private working-set query is unavailable, the record has `pws_ok=0` and the table shows `unavailable`.
+The other memory values remain valid. The runner does not print arbitrary child stderr or account logs after a failure.
+
+Use the same machine, display state, DPI and compiler options for each comparison.
+Record the requested and actual compiler-worker counts with the build duration.
+Measure the sum of all required client EXE/DLL bytes for each layout.
+Keep production-startup results separate from the offline workload results.
+The offline workload always uses its synthetic account module and does not measure the production account implementation.
+
 ## Phases
 
 Each launch runs one window through these phases, in order: `startup` (process
@@ -43,11 +94,13 @@ focused window (it pauses media animations only after a real deactivation).
 
 ## Report
 
-- **Per phase:** wall time, presents, main-thread and process CPU (TSC cycles),
+- **Per phase:** wall time, presents, main-thread and process CPU,
   main-thread CPU per presented frame (p50/p95/p99), main-loop wakes, context
   switches, client `VirtualAlloc`/`VirtualFree`/heap calls (import hooks on the
   probe image only), page faults, private working set, private bytes, threads and
   handles.
+  Raw reports include exact `main_cycles` and `process_cycles` deltas from the Windows cycle counters.
+  The existing CPU-millisecond columns divide those counts by the calibrated TSC rate.
 - **Retained work:** Markdown parser runs against cache hits, content text streams
   built (and how many kept the shell's glyphs), paint streams built.
 - **Uploads:** paint, glyph and media instance bytes written to the GPU per

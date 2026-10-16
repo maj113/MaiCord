@@ -1515,6 +1515,8 @@ void report_phase(Phase phase) noexcept {
     o.s(kPhaseNames[static_cast<u32>(phase)]);
     o.kv("ms", static_cast<u64>((stats.end.qpc - stats.begin.qpc) * 1000.0 / freq));
     o.kv("frames", stats.frame_count);
+    o.kv("main_cycles", stats.end.main_cycles - stats.begin.main_cycles);
+    o.kv("process_cycles", stats.end.process_cycles - stats.begin.process_cycles);
     o.kvf("main_cpu_ms", cycles_to_us(stats.end.main_cycles - stats.begin.main_cycles) / 1000.0);
     o.kvf("proc_cpu_ms", cycles_to_us(stats.end.process_cycles - stats.begin.process_cycles) / 1000.0);
     o.kvf("proc_time_ms", static_cast<double>((stats.end.user_100ns + stats.end.kernel_100ns) -

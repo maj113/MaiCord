@@ -1,6 +1,8 @@
 # The shipping pair: MaiCord.exe and the account module MaiCordAccount.dll,
 # their runtime assets and the cold-code size policy.
 
+option(MAICORD_STARTUP_PROBE "Measure isolated production-path startup" OFF)
+
 add_library(MaiCordAccount SHARED
     src/app/account_message_poll.cpp src/app/account_guild_invite.cpp src/app/account_settings_rest.cpp
     src/app/account_self_status.cpp src/app/account_module.cpp src/app/account_message_search.cpp
@@ -115,6 +117,15 @@ target_link_libraries(MaiCord PRIVATE maicord_compile_contract
     maicord_render_core maicord_atlas_gpu maicord_renderer maicord_media_core maicord_webauthn
     kernel32 user32 shell32 d3d11 dxgi dcomp maicord_uia maicord_app_core ws2_32 secur32 bcrypt)
 target_include_directories(MaiCord PRIVATE "${MAICORD_GENERATED_DIRECTORY}")
+if(MAICORD_STARTUP_PROBE)
+    set_property(TARGET MaiCord PROPERTY MAICORD_STARTUP_PROBE ON)
+    # Only these sources use the probe. Restoring a normal client after the
+    # measurement must not recompile unrelated application sources.
+    set_property(SOURCE src/app/main.cpp src/app/application_window.cpp
+        src/app/application_frame_presentation.cpp src/app/application_shutdown_metrics.cpp
+        APPEND PROPERTY COMPILE_DEFINITIONS
+        "$<$<BOOL:$<TARGET_PROPERTY:MAICORD_STARTUP_PROBE>>:MAICORD_STARTUP_PROBE=1>")
+endif()
 set_target_properties(MaiCord PROPERTIES
     CXX_EXTENSIONS OFF
     MSVC_RUNTIME_LIBRARY "MultiThreaded")

@@ -1,7 +1,7 @@
 #requires -Version 5.1
-# Offline performance benchmark. Without -Execute this builds MaiCordPerfProbe
-# through tools/build.ps1 (single Release cache, temporary outputs removed
-# afterwards) and build.ps1 calls back here with -Execute to run it.
+# Performance benchmarks. Without -Execute, tools/build.ps1 builds the offline
+# probe or the production startup probe in the single Release cache, calls back
+# here to run it, and removes the temporary outputs afterwards.
 [CmdletBinding()]
 param(
     [ValidateRange(1, 10)][int]$Runs = 2,
@@ -9,6 +9,8 @@ param(
     [switch]$WarmOnly,
     # Also print each probe's raw report.
     [switch]$Raw,
+    # Measure the real account startup through a temporary shipping-client build.
+    [switch]$ProductionStartup,
     [switch]$Execute,
     [string]$Probe,
     [string]$ProfileRoot,
@@ -21,13 +23,23 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if ($ProductionStartup) {
+    if ($WarmOnly -or $Debugger -or $Sampling) {
+        throw '-ProductionStartup does not support -WarmOnly, -Debugger or -Sampling.'
+    }
+    if (!$PSBoundParameters.ContainsKey('Runs')) { $Runs = 3 }
+}
 if (!$Execute) {
     $build = Join-Path (Split-Path -Parent $PSScriptRoot) 'build.ps1'
-    $arguments = @{ PerfProbe = $true; SkipClient = $true; PerfRuns = $Runs }
-    if ($WarmOnly) { $arguments.PerfWarmOnly = $true }
-    if ($Raw) { $arguments.PerfRaw = $true }
-    if ($Debugger) { $arguments.PerfDebugger = $true }
-    if ($Sampling) { $arguments.PerfProfile = $true }
+    if ($ProductionStartup) {
+        $arguments = @{ StartupProbe = $true; StartupProbeRuns = $Runs }
+    } else {
+        $arguments = @{ PerfProbe = $true; SkipClient = $true; PerfRuns = $Runs }
+        if ($WarmOnly) { $arguments.PerfWarmOnly = $true }
+        if ($Raw) { $arguments.PerfRaw = $true }
+        if ($Debugger) { $arguments.PerfDebugger = $true }
+        if ($Sampling) { $arguments.PerfProfile = $true }
+    }
     & $build @arguments
     return
 }
@@ -49,6 +61,11 @@ function Invoke-Probe([string]$RunProfile) {
     $start.RedirectStandardOutput = $true
     $start.RedirectStandardError = $true
     $start.WorkingDirectory = Split-Path -Parent $Probe
+    if ($ProductionStartup) {
+        $start.CreateNoWindow = $true
+        $start.WindowStyle = [Diagnostics.ProcessWindowStyle]::Hidden
+        $start.EnvironmentVariables['MAICORD_STARTUP_BENCHMARK'] = '1'
+    }
     $temp = Join-Path $RunProfile 'Temp'
     [void](New-Item -ItemType Directory -Force -Path $temp)
     $start.EnvironmentVariables['LOCALAPPDATA'] = $RunProfile
@@ -57,18 +74,57 @@ function Invoke-Probe([string]$RunProfile) {
     if ($Sampling) { $start.EnvironmentVariables['MAICORD_PERF_PROFILE'] = '1' }
     $process = [Diagnostics.Process]::new()
     $process.StartInfo = $start
-    [void]$process.Start()
-    $stdout = $process.StandardOutput.ReadToEndAsync()
-    $stderr = $process.StandardError.ReadToEndAsync()
-    if (!$process.WaitForExit($RunTimeoutSeconds * 1000)) {
-        try { $process.Kill() } catch {}
-        $process.WaitForExit()
-        throw "The perf probe exceeded $RunTimeoutSeconds seconds."
+    $probeStarted = $false
+    try {
+        [void]$process.Start()
+        $probeStarted = $true
+        $probeProcessId = $process.Id
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (!$process.WaitForExit($RunTimeoutSeconds * 1000)) {
+            try { $process.Kill() } catch {}
+            $process.WaitForExit()
+            throw "The perf probe exceeded $RunTimeoutSeconds seconds."
+        }
+        $text = $stdout.GetAwaiter().GetResult()
+        [void]$stderr.GetAwaiter().GetResult()
+        $code = $process.ExitCode
+    } finally {
+        # This handle belongs only to the child launched above. Never locate or
+        # terminate another MaiCord instance when a benchmark fails.
+        if ($probeStarted -and !$process.HasExited) {
+            try { $process.Kill() } catch {}
+        }
+        $process.Dispose()
     }
-    $text = $stdout.GetAwaiter().GetResult()
-    [void]$stderr.GetAwaiter().GetResult()
-    $code = $process.ExitCode
-    $process.Dispose()
+    if ($ProductionStartup) {
+        $records = @($text -split "`r?`n" | Where-Object { $_ -match '^MAICORD_STARTUP(?:\s|$)' })
+        if ($code -ne 0 -or $records.Count -ne 1) {
+            throw "The production startup report is incomplete (exit $code; $($records.Count) records)."
+        }
+        $record = (ConvertFrom-Report $records[0]).lines['MAICORD_STARTUP']
+        foreach ($field in @('pid', 'ttff_us', 'app_ttff_us', 'main_cycles', 'process_cycles',
+                'main_cpu_us', 'process_cpu_us', 'ws_bytes', 'private_bytes', 'pws_bytes',
+                'cycles_ok', 'times_ok', 'memory_ok', 'pws_ok', 'backend_loaded', 'login_active')) {
+            [UInt64]$number = 0
+            if (!$record.ContainsKey($field) -or ![UInt64]::TryParse($record[$field], [ref]$number)) {
+                throw "The production startup report has an invalid $field field."
+            }
+        }
+        if ([UInt64]$record.pid -ne $probeProcessId -or $record.cycles_ok -ne '1' -or
+            $record.times_ok -ne '1' -or $record.memory_ok -ne '1' -or
+            $record.pws_ok -notin @('0', '1') -or $record.backend_loaded -ne '1' -or
+            $record.login_active -ne '1' -or [UInt64]$record.ttff_us -eq 0 -or
+            [UInt64]$record.app_ttff_us -eq 0 -or [UInt64]$record.app_ttff_us -gt [UInt64]$record.ttff_us) {
+            # These fields passed UInt64 validation. Do not expose arbitrary
+            # stdout/stderr or account logs when a startup measurement fails.
+            throw ("Invalid production first-present snapshot: pid={0} backend_loaded={1} login_active={2} cycles_ok={3} times_ok={4} memory_ok={5} pws_ok={6} ttff_us={7} app_ttff_us={8}." -f
+                $record.pid, $record.backend_loaded, $record.login_active, $record.cycles_ok,
+                $record.times_ok, $record.memory_ok, $record.pws_ok, $record.ttff_us, $record.app_ttff_us)
+        }
+        Write-Host $records[0]
+        return $records[0]
+    }
     # Startup stages (load_trace, microseconds since application_run) of this launch.
     $log = Join-Path $RunProfile 'MaiCord\logs\maicord.log'
     $stages = [Collections.Generic.List[string]]::new()
@@ -154,14 +210,46 @@ if ($WarmOnly) {
     }
 }
 
+$startup = @()
+if ($cold.Count) { $startup += , @('cold', $cold) }
+$startup += , @('warm', $warm)
+if ($ProductionStartup) {
+    Write-Host ''
+    Write-Host "MaiCord production startup ($Runs fresh/warm pairs; medians; real account startup without saved credentials)"
+    Write-Host 'Cold means a fresh application profile; Windows filesystem caches are unchanged.'
+    foreach ($row in $startup) {
+        $records = @($row[1] | ForEach-Object { $_.lines['MAICORD_STARTUP'] })
+        $loaded = @($records | Where-Object { $_.backend_loaded -eq '1' }).Count
+        $active = @($records | Where-Object { $_.login_active -eq '1' }).Count
+        Write-Host ("  {0}: backend loaded {1}/{3}, login active {2}/{3}" -f $row[0], $loaded, $active, $records.Count)
+    }
+    $columns = @(
+        @('ttff_us', 'process TTFF ms', 1000, 3), @('app_ttff_us', 'app TTFF ms', 1000, 3),
+        @('main_cycles', 'main cycles', 1, 0), @('process_cycles', 'process cycles', 1, 0),
+        @('main_cpu_us', 'main CPU ms', 1000, 3), @('process_cpu_us', 'process CPU ms', 1000, 3),
+        @('ws_bytes', 'WS KiB', 1024, 1), @('private_bytes', 'private KiB', 1024, 1),
+        @('pws_bytes', 'PWS KiB', 1024, 1))
+    foreach ($column in $columns) {
+        $line = '{0,-20}' -f $column[1]
+        foreach ($row in $startup) {
+            $records = @($row[1] | ForEach-Object { $_.lines['MAICORD_STARTUP'] })
+            if ($column[0] -eq 'pws_bytes' -and @($records | Where-Object { $_.pws_ok -ne '1' }).Count) {
+                $line += '{0,18} {1}' -f 'unavailable', $row[0]
+            } else {
+                $median = Get-Median @($records | ForEach-Object { [double]$_[$column[0]] / $column[2] })
+                $line += '{0,18} {1}' -f (Format-Number $median $column[3]), $row[0]
+            }
+        }
+        Write-Host $line
+    }
+    return
+}
+
 $first = $warm[0].lines['MAICORD_PERF']
 if ($first.failure) { Write-Host "Probe failure: $($first.failure)" }
 Write-Host ''
 Write-Host "MaiCord perf ($Runs run(s); medians; client $($first.width)x$($first.height) at $($first.dpi) dpi; TSC $($first.tsc_mhz) MHz)"
 Write-Host ''
-$startup = @()
-if ($cold.Count) { $startup += , @('cold', $cold) }
-$startup += , @('warm', $warm)
 Write-Host ('{0,-8}{1,16}{2,12}{3,14}' -f 'startup', 'first_present_ms', 'ready_ms', 'history_ms')
 foreach ($row in $startup) {
     $values = $row[1] | ForEach-Object { $_.lines['startup'] }

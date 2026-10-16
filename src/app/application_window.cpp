@@ -7,7 +7,7 @@
 
 #include <Windows.h>
 
-#if defined(MAICORD_PERF_PROBE)
+#if defined(MAICORD_PERF_PROBE) || defined(MAICORD_STARTUP_PROBE)
 #include "../../tools/perf/probe_window.hpp"
 #endif
 
@@ -89,7 +89,7 @@ bool application_create_main_window(WNDPROC window_proc) noexcept {
         log_write(LogLevel::error, "window", "register_class_failed");
         return false;
     }
-#if defined(MAICORD_PERF_PROBE)
+#if defined(MAICORD_PERF_PROBE) || defined(MAICORD_STARTUP_PROBE)
     // The benchmark window never activates and has no taskbar button.
     constexpr DWORD extended_style = WS_EX_NOREDIRECTIONBITMAP | probe_window::kExtendedStyle;
 #else

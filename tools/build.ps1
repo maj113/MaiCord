@@ -37,7 +37,10 @@ param(
     [switch]$PerfWarmOnly,
     [switch]$PerfRaw,
     [switch]$PerfDebugger,
-    [switch]$PerfProfile
+    [switch]$PerfProfile,
+    # Measure real-backend first-present startup using isolated temporary profiles.
+    [switch]$StartupProbe,
+    [ValidateRange(1, 10)][int]$StartupProbeRuns = 3
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,6 +48,7 @@ if ($AudioPlaybackProbe -and !$Test) { throw '-AudioPlaybackProbe requires -Test
 if ($TestNames.Count -and !$Test) { throw '-TestNames requires -Test.' }
 if ($SkipClient -and !$Test -and !$PerfProbe) { throw '-SkipClient requires -Test or -PerfProbe.' }
 if ($Test -and $PerfProbe) { throw '-PerfProbe is a separate temporary configuration; run it without -Test.' }
+if ($StartupProbe -and ($Test -or $PerfProbe -or $SkipClient)) { throw '-StartupProbe requires its own client build.' }
 $TestShard = @($TestShard | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 if (@($TestShard | Where-Object { $_ -cnotin @('app', 'core') }).Count) { throw "Unknown test shard in: $($TestShard -join ', ')" }
 if ($TestShard.Count -and !$Test) { throw '-TestShard requires -Test.' }
@@ -62,6 +66,7 @@ $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
 $locked = $false
 $pushed = $false
 $invocationFailure = $null
+$startupRestorePending = $false
 $previousBytecode = $env:PYTHONDONTWRITEBYTECODE
 
 function Invoke-CMake([string[]]$Arguments) {
@@ -70,6 +75,20 @@ function Invoke-CMake([string[]]$Arguments) {
         $description = (@($Arguments | Select-Object -First 6) -join ' ')
         if ($Arguments.Count -gt 6) { $description += ' ...' }
         throw "CMake failed ($LASTEXITCODE): $description"
+    }
+}
+function Invoke-ClientBuild([string]$Label = 'Client compile/link') {
+    $clientBuildTimer = [Diagnostics.Stopwatch]::StartNew()
+    Invoke-CMake -Arguments @('--build', $cacheRoot, '--target', 'MaiCord', 'MaiCordAccount', '--parallel', [string]$compileJobs)
+    $clientBuildTimer.Stop()
+    Write-Host ('{0}: {1:F2} seconds ({2} workers).' -f $Label, $clientBuildTimer.Elapsed.TotalSeconds, $compileJobs)
+    # Both images keep large zero-filled globals in .bss; 16 KiB of initialized
+    # .data leaves room for small tables but not for a serialized aggregate.
+    & (Join-Path $PSScriptRoot 'audit_pe.ps1') -Executable $binary -RequireD3D11Only -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo -MaximumInitializedDataBytes 16384 -DelayLoad dcomp.dll, shell32.dll, ws2_32.dll, secur32.dll, ole32.dll, advapi32.dll, combase.dll
+    & (Join-Path $PSScriptRoot 'audit_pe.ps1') -Executable (Join-Path $cacheRoot 'MaiCordAccount.dll') -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo -MaximumInitializedDataBytes 16384
+    foreach ($name in @('MaiCord.exe', 'MaiCordAccount.dll')) {
+        $image = Get-Item -LiteralPath (Join-Path $cacheRoot $name)
+        Write-Host ('Client image: {0} bytes={1}' -f $image.Name, $image.Length)
     }
 }
 function Get-BuildFiles {
@@ -263,19 +282,28 @@ try {
     $pushed = $true
     $env:PYTHONDONTWRITEBYTECODE = '1'
     $mapOption = if ($LinkMaps) { 'ON' } else { 'OFF' }
+    $startupOption = if ($StartupProbe) { 'ON' } else { 'OFF' }
     Invoke-CMake -Arguments @('--preset', 'x64-release', "-DMAICORD_GENERATE_LINK_MAPS=$mapOption", '-DMAICORD_TEST_AUDIO_PLAYBACK=OFF',
-        '-DMAICORD_TEST_PROFILE_DIRECTORY=', '-DMAICORD_TEST_PROFILE_NAMES=', '-DMAICORD_BUILD_PERF_PROBE=OFF')
+        "-DMAICORD_STARTUP_PROBE=$startupOption", '-DMAICORD_TEST_PROFILE_DIRECTORY=', '-DMAICORD_TEST_PROFILE_NAMES=', '-DMAICORD_BUILD_PERF_PROBE=OFF')
+    $startupRestorePending = $StartupProbe.IsPresent
     if ($SkipClient) {
         Write-Host 'Skipping the client build and PE audits (-SkipClient).'
     } else {
-        Invoke-CMake -Arguments @('--build', $cacheRoot, '--target', 'MaiCord', 'MaiCordAccount', '--parallel', [string]$compileJobs)
-        # Both images keep large zero-filled globals in .bss; 16 KiB of initialized
-        # .data leaves room for small tables but not for a serialized aggregate.
-        # -DelayLoad matches MAICORD_CLIENT_DELAY_LOADS in cmake/client.cmake.
-        & (Join-Path $PSScriptRoot 'audit_pe.ps1') -Executable $binary -RequireD3D11Only -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo -MaximumInitializedDataBytes 16384 -DelayLoad dcomp.dll, shell32.dll, ws2_32.dll, secur32.dll, ole32.dll, advapi32.dll, combase.dll
-        & (Join-Path $PSScriptRoot 'audit_pe.ps1') -Executable (Join-Path $cacheRoot 'MaiCordAccount.dll') -ForbidMediaFoundation -ForbidDirectWrite -RequireNoDebugInfo -MaximumInitializedDataBytes 16384
+        Invoke-ClientBuild
     }
     & (Join-Path $PSScriptRoot 'maintain_build_outputs.ps1') -Apply -ConfigureScratch
+    if ($StartupProbe) {
+        $startupProfile = Join-Path $cacheRoot ('test-profile-' + [guid]::NewGuid().ToString('N'))
+        try {
+            [void](New-Item -ItemType Directory -Path $startupProfile)
+            [IO.File]::WriteAllText((Join-Path $startupProfile '.maicord-test-profile'), $repository)
+            & (Join-Path $PSScriptRoot 'perf\run_perf.ps1') -ProductionStartup -Execute -Probe $binary -ProfileRoot $startupProfile -Runs $StartupProbeRuns
+        } finally {
+            if (Test-Path -LiteralPath $startupProfile -PathType Container) {
+                & (Join-Path $PSScriptRoot 'maintain_build_outputs.ps1') -Apply -TestProfile $startupProfile
+            }
+        }
+    }
     if ($Test -or $PerfProbe) {
         $before = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
         foreach ($path in Get-BuildFiles) { [void]$before.Add($path) }
@@ -433,18 +461,30 @@ try {
     throw
 } finally {
     try {
-        # Keep runtime assets only. The next invocation regenerates the one
-        # Release cache; configuring tests OFF here would recreate discarded files.
-        if ($locked -and $pushed -and (Test-Path -LiteralPath (Join-Path $cacheRoot 'maicord-build-outputs.txt'))) {
-            & (Join-Path $PSScriptRoot 'maintain_build_outputs.ps1') -Apply -RuntimeOnly
+        # Cover candidate build/audit failures as well as measurement and profile
+        # cleanup failures. Never leave the gated candidate as the normal client.
+        if ($startupRestorePending) {
+            Invoke-CMake -Arguments @('--preset', 'x64-release', '-DMAICORD_STARTUP_PROBE=OFF')
+            Invoke-ClientBuild -Label 'Normal client restoration'
         }
     } catch {
-        if ($invocationFailure) { Write-Warning "Runtime-only finalization failed: $_" }
-        else { throw }
+        if ($invocationFailure) { Write-Warning "Normal client restoration failed: $_" }
+        else { $invocationFailure = $_; throw }
     } finally {
-        $env:PYTHONDONTWRITEBYTECODE = $previousBytecode
-        if ($pushed) { Pop-Location }
-        if ($locked) { $mutex.ReleaseMutex() }
-        $mutex.Dispose()
+        try {
+            # Keep runtime assets only. The next invocation regenerates the one
+            # Release cache; configuring tests OFF here would recreate discarded files.
+            if ($locked -and $pushed -and (Test-Path -LiteralPath (Join-Path $cacheRoot 'maicord-build-outputs.txt'))) {
+                & (Join-Path $PSScriptRoot 'maintain_build_outputs.ps1') -Apply -RuntimeOnly
+            }
+        } catch {
+            if ($invocationFailure) { Write-Warning "Runtime-only finalization failed: $_" }
+            else { throw }
+        } finally {
+            $env:PYTHONDONTWRITEBYTECODE = $previousBytecode
+            if ($pushed) { Pop-Location }
+            if ($locked) { $mutex.ReleaseMutex() }
+            $mutex.Dispose()
+        }
     }
 }

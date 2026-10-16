@@ -75,6 +75,8 @@
 #include "application_voice_message.hpp"
 #if defined(MAICORD_PERF_PROBE)
 #include "../../tools/perf/perf_probe.hpp"
+#endif
+#if defined(MAICORD_PERF_PROBE) || defined(MAICORD_STARTUP_PROBE)
 #include "../../tools/perf/probe_window.hpp"
 #endif
 // Isolated probe builds never touch desktop integration, notifications,
@@ -177,7 +179,9 @@ int application_run() noexcept {
     MAICORD_PERF_MARK("log_open");
     application_preferences_initialize();
     MAICORD_PERF_MARK("preferences");
-#if !defined(MAICORD_ISOLATED_MAIN)
+    // Startup candidates retain the real account/login path below, while
+    // avoiding process-global notification registration and desktop integration.
+#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
     if (!application_notifications_initialize(&g_app))
         log_write(LogLevel::warning, "notifications", "early_activation_unavailable");
     application_notifications_set_avatar_source(application_notification_avatar_uri);
@@ -225,7 +229,7 @@ int application_run() noexcept {
         message_view_runtime_release(&g_app.message_view);
         return 2;
     }
-#if !defined(MAICORD_ISOLATED_MAIN)
+#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
     application_notifications_attach_window(&g_app);
     application_desktop_window_created();
 #endif
@@ -277,7 +281,7 @@ int application_run() noexcept {
     // visible paint. The handshake remains asynchronous behind the restoration view.
     application_account_attach_if_present();
     MAICORD_PERF_MARK("account_attach");
-#if defined(MAICORD_PERF_PROBE)
+#if defined(MAICORD_PERF_PROBE) || defined(MAICORD_STARTUP_PROBE)
     // Shown without activation at the bottom of the z-order: the probe never
     // takes keyboard focus or covers another window.
     probe_window::show(g_app.window);
@@ -288,7 +292,7 @@ int application_run() noexcept {
     application_trace_load_stage("window_shown");
     MAICORD_PERF_MARK("window_shown");
     application_request_frame();
-#if !defined(MAICORD_ISOLATED_MAIN)
+#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
     application_updates_confirm_startup();
     application_updates_initialize(application_update_build_config());
     application_plugin_browser_initialize();
@@ -728,9 +732,11 @@ int application_run() noexcept {
         // Shell integration (taskbar button state, notification-area icon)
         // follows the frame: its first COM activation and Shell_NotifyIcon
         // round trips (~15 ms) would otherwise delay the first image.
+#if !defined(MAICORD_STARTUP_PROBE)
         if (!logout_blocked)
             application_taskbar_attention_tick(restart_now_ms);
-#if !defined(MAICORD_ISOLATED_MAIN)
+#endif
+#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
         application_desktop_tick(restart_now_ms);
 #endif
 #if defined(MAICORD_PERF_PROBE)
@@ -798,12 +804,16 @@ int application_run() noexcept {
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_entry() noexcept {
+#if defined(MAICORD_STARTUP_PROBE)
+    if (!maicord::app_detail::application_startup_probe_initialize())
+        ExitProcess(126);
+#endif
 #if defined(MAICORD_PERF_PROBE)
     maicord::perf::startup_trace_initialize();
     if (!maicord::perf::probe_initialize())
         ExitProcess(125);
 #endif
-#if defined(MAICORD_ISOLATED_MAIN)
+#if defined(MAICORD_ISOLATED_MAIN) || defined(MAICORD_STARTUP_PROBE)
     const auto startup = maicord::app_detail::application_update_startup_gate(
         maicord::app_detail::application_update_startup_command(GetCommandLineW()));
 #else
@@ -817,7 +827,7 @@ extern "C" __declspec(noreturn) void WINAPI maicord_entry() noexcept {
     if (startup.mode == maicord::app_detail::ApplicationUpdateStartupMode::refused ||
         startup.mode == maicord::app_detail::ApplicationUpdateStartupMode::dispatched)
         ExitProcess(startup.exit_code);
-#if !defined(MAICORD_ISOLATED_MAIN)
+#if !defined(MAICORD_ISOLATED_MAIN) && !defined(MAICORD_STARTUP_PROBE)
     maicord::app_detail::application_desktop_prepare(
         command, startup.mode == maicord::app_detail::ApplicationUpdateStartupMode::child);
 #endif

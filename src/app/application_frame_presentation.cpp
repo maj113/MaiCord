@@ -20,6 +20,9 @@
 #include "application_gif_favorite_star.hpp"
 #include "application_load_trace.hpp"
 #include "application_perf_mark.hpp"
+#if defined(MAICORD_STARTUP_PROBE)
+#include "application_shutdown_metrics.hpp"
+#endif
 #include "application_frame_presentation.hpp"
 #include "application_media.hpp"
 #include "application_background.hpp"
@@ -268,6 +271,10 @@ bool application_present_frame() noexcept {
     const bool presented = renderer_present(&g_app.renderer, application_theme());
     const u64 after =
         static_cast<u64>(g_app.renderer.full_present_draws) + g_app.renderer.partial_present_draws;
+#if defined(MAICORD_STARTUP_PROBE)
+    if (presented && after != before)
+        application_startup_probe_first_present();
+#endif
     if (g_app.local_poster_presentation.pending)
         application_media_posters_presented(g_app, presented, before, after);
     if (!presented)
