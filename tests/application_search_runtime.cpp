@@ -955,6 +955,10 @@ void poll_publication() noexcept {
               second->allow_multiselect,
           "search polls: scratch reuse retains both independent questions/answers after decoder and "
           "candidate owner teardown");
+    check(first && second && !first->results_known && !second->results_known &&
+              !first->answers[0].count_known && !first->answers[0].me_known &&
+              !second->answers[0].count_known && !second->answers[0].me_known,
+          "search polls: shipping Search publication keeps omitted results and own membership unknown");
 }
 
 bool choice_draft(Utf8View text, u32 caret = ~u32{0}) noexcept {

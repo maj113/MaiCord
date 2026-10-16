@@ -304,7 +304,7 @@ void navigation_history_gate(AccountUiRuntime& ui) noexcept {
     view.timeline.newer_refetch_required = false;
     g_app.reply_refresh = {7, 899, 900, 898, 0, AttachmentRefreshState::awaiting_response};
     constexpr auto page = utf8_literal(
-        R"([{"id":"901","channel_id":"7","author":{"id":"42","username":"new author"},"content":"new target","timestamp":"2024-08-30T12:00:01Z","embeds":[{"type":"rich","title":"New rich target"}]}])");
+        R"([{"id":"901","channel_id":"7","author":{"id":"42","username":"new author"},"content":"new target","timestamp":"2024-08-30T12:00:01Z","embeds":[{"type":"rich","title":"New rich target"}],"poll":{"question":{"text":"Historical choice"},"answers":[{"answer_id":7,"poll_media":{"text":"First"}},{"answer_id":42,"poll_media":{"text":"Second"}}],"expiry":"2099-01-01T00:00:00Z","allow_multiselect":true,"layout_type":1}}])");
     g_app.pending_message_jump_channel_id = 7;
     g_app.pending_message_jump_message_id = 901;
     check(pump_message_history() && is_primary(MessageHistoryRequestOwner::message_jump, last_history_id),
@@ -357,7 +357,8 @@ void navigation_history_gate(AccountUiRuntime& ui) noexcept {
               bytes_equal(&ui.guild_member_store, &members_before, sizeof(members_before)) &&
               bytes_equal(&g_app.reply_refresh, &reply_before, sizeof(reply_before)) &&
               !user_store_find(ui.user_store, 42) &&
-              !message_rich_store_find(ui.message_rich_store, 901),
+              !message_rich_store_find(ui.message_rich_store, 901) &&
+              !message_poll_store_find(ui.message_poll_store, 901),
           "stale jump leaves decode storage, users, members, rich content and reply receipt untouched");
     navigation_gate_current = true;
     g_app.pending_message_jump_channel_id = 7;
@@ -377,6 +378,12 @@ void navigation_history_gate(AccountUiRuntime& ui) noexcept {
               g_app.context_focus == &g_app.message_scene.widgets && !g_app.pending_message_jump_message_id,
           "current exact jump reaches real decoder/history apply, hydrates rich author and scrolls focused "
           "target");
+    const auto* historical_poll = message_poll_store_find(ui.message_poll_store, 901);
+    check(historical_poll && historical_poll->answer_count == 2 && !historical_poll->results_known &&
+              !historical_poll->answers[0].count_known && !historical_poll->answers[0].me_known &&
+              !historical_poll->answers[1].count_known && !historical_poll->answers[1].me_known &&
+              !historical_poll->last_gateway_serial,
+          "history poll: shipping decoder and accepted history page preserve omitted results as unknown");
     navigation_gate_request = 0;
     message_scene_release(&g_app.message_scene);
     view.timeline.rich_store = nullptr;
@@ -494,6 +501,7 @@ void run() noexcept {
                                                &ui->message_drafts, &view.timeline,
                                                {request_text, sizeof(request_text)}) &&
         application_history_decode_storage_initialize(*ui) &&
+        message_poll_store_initialize_owned(&ui->message_poll_store, 16, 8192) &&
         chat_state_store_initialize(&ui->chat_state, {ui->guild_record_storage, kChatStateGuildCapacity},
                                        {ui->guild_order_storage, kChatStateGuildCapacity},
                                        {ui->channel_record_storage, kChatStateChannelCapacity},
@@ -604,6 +612,7 @@ void run() noexcept {
     scoped_read_routing();
     application_message_history_reset_reaction_turn();
     application_history_decode_storage_release(*ui);
+    message_poll_store_release(&ui->message_poll_store);
     g_app.account_ui = nullptr;
     g_app.account.instance = nullptr;
     VirtualFree(ui, 0, MEM_RELEASE);

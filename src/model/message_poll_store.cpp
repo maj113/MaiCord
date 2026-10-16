@@ -365,18 +365,8 @@ MessagePollStoreResult message_poll_store_apply(MessagePollStore* store, u64 id,
         }
     }
     next.fields |= input.fields & (ignore_results ? ~gateway_message_poll_field_results : ~u32{0});
-    // A poll that arrives without results (a fresh MESSAGE_CREATE) starts at zero
-    // votes and no own vote; later vote events and fetched results update it.
-    if (!old && !(input.fields & gateway_message_poll_field_results)) {
-        for (u32 i = 0; i < next.answer_count; ++i) {
-            auto& target = next.answers[i];
-            target.count = 0;
-            target.me_voted = false;
-            target.count_known = target.me_known = true;
-        }
-        next.results_known = true;
-        next.is_finalized = false;
-    }
+    // Omitted results leave new answers unknown and retain previously observed
+    // counts and own votes. Only an explicit results object establishes zeroes.
     for (u32 i = 0; i < next.answer_count; ++i)
         if (!next.answers[i].count_known)
             next.results_known = false;

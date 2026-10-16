@@ -145,13 +145,18 @@ void number(u64 value) noexcept {
     while (count)
         body[body_bytes++] = digits[--count];
 }
-Utf8View snapshot_body(u16 mine = 0, u32 count = 0, bool multiple = false) noexcept {
+Utf8View snapshot_body(u16 mine = 0, u32 count = 0, bool multiple = false,
+                       bool known = true) noexcept {
     body_bytes = 0;
     // GET /channels/70/messages?limit=1&around=900 answers a one-message page.
     append("[{\"id\":\"900\",\"channel_id\":\"70\",\"poll\":{\"question\":{\"text\":\"Choice\"},\"answers\":"
            "[{\"answer_id\":7,\"poll_media\":{\"text\":\"Alpha\"}},{\"answer_id\":42,\"poll_media\":{"
            "\"text\":\"Beta\"}}],\"expiry\":\"1970-01-01T00:00:10.000Z\",\"allow_multiselect\":");
     append(multiple ? "true" : "false");
+    if (!known) {
+        append(",\"layout_type\":1}}]");
+        return {body, body_bytes};
+    }
     append(
         ",\"layout_type\":1,\"results\":{\"is_finalized\":false,\"answer_counts\":[{\"id\":7,\"count\":");
     number(count);
@@ -309,6 +314,50 @@ void run() noexcept {
     receipt(113, 200, snapshot_body(0, 0, true));
     check(state(&value) && value.can_vote,
           "poll app: only fresh known GET clears reconnect ambiguity barrier");
+
+    reset();
+    message_poll_store_reset(&g_app.account_ui->message_poll_store);
+    check(seed(900, false, false) && state(&value, &source) && !value.results_known &&
+              !value.answers[0].count_known && !value.answers[0].me_known &&
+              !value.answers[1].me_known && !value.can_vote && !value.can_remove_vote && value.can_retry &&
+              !action(UiPollActionKind::toggle_answer, 7) && !action(UiPollActionKind::vote),
+          "poll app: received omitted results expose unknown state and block selection and vote");
+    check(application_poll_open(source) && application_poll_pending(now) &&
+              application_poll_submit(114, now) &&
+              submitted.operation == PollOperation::refresh && submitted.channel_id == 70 &&
+              submitted.message_id == 900,
+          "poll app: unknown membership reconciles through the exact scoped read before voting");
+    const u32 before_unknown_receipt = submissions;
+    check(receipt(114, 200, snapshot_body(0, 0, false, false)) && state(&value) &&
+              !value.results_known && !value.answers[0].count_known && !value.answers[0].me_known &&
+              !value.can_vote && value.can_retry && !owner->source_checked &&
+              !application_poll_pending(now) && !application_poll_pending(now + 60000) &&
+              submissions == before_unknown_receipt && !action(UiPollActionKind::vote),
+          "poll app: successful read with omitted results remains unknown without an automatic repeat");
+    check(action(UiPollActionKind::retry) && application_poll_submit(115, now) &&
+              submitted.operation == PollOperation::refresh &&
+              receipt(115, 200, snapshot_body(2, 9)) && state(&value) && value.results_known &&
+              value.answers[1].me_known && value.answers[1].me_voted && !value.can_vote &&
+              value.can_remove_vote && !action(UiPollActionKind::toggle_answer, 7) &&
+              !action(UiPollActionKind::vote),
+          "poll app: explicit recovery reveals an existing own vote and prevents replacement selection");
+    check(seed(900, false, false) && state(&value) && value.results_known &&
+              value.answers[0].count_known && value.answers[0].count == 9 &&
+              value.answers[1].me_voted && value.can_remove_vote,
+          "poll app: later metadata with omitted results retains known counts and own selection");
+
+    reset();
+    message_poll_store_reset(&g_app.account_ui->message_poll_store);
+    seed(900, false, false);
+    state(&value, &source);
+    application_poll_open(source);
+    check(application_poll_submit(116, now) && submitted.operation == PollOperation::refresh,
+          "poll app: unknown source admits a copied refresh before actor replacement");
+    g_app.account.instance = &other_actor;
+    check(receipt(116, 200, snapshot_body(2, 9)) &&
+              !message_poll_store_find(g_app.account_ui->message_poll_store, 900)->results_known &&
+              !message_poll_store_find(g_app.account_ui->message_poll_store, 900)->answers[1].me_known,
+          "poll app: held results from an old account instance cannot authorize unknown membership");
 
     reset();
     action(UiPollActionKind::toggle_answer, 7);

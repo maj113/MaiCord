@@ -79,7 +79,9 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
     for (u32 frame = 0; frame < 64; ++frame) {
         const auto update = message_poll_store_apply(&store, 10, 20, metadata);
         const auto* current = message_poll_store_find(store, 10);
-        retained &= update.ok() && !update.changed && current && current->answers[0].count == 5;
+        retained &= update.ok() && !update.changed && current && current->results_known &&
+                    current->answers[0].count_known && current->answers[0].count == 5 &&
+                    current->answers[1].me_known && current->answers[1].me_voted;
     }
     costs = message_poll_store_metrics(store);
     check(retained && store.revision == stable_revision && store.content_revision == stable_content &&
@@ -172,23 +174,41 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
 
     auto unknown = full_poll({}, {answers, 2});
     unknown.layout_type = 2;
-    applied = message_poll_store_apply(&store, 11, 20, unknown, 21);
+    applied = message_poll_store_apply(&store, 11, 20, unknown);
     poll = message_poll_store_find(store, 11);
-    check(applied.ok() && poll && poll->layout_type == 2 && poll->results_known &&
-              poll->answers[0].count_known && !poll->answers[0].count && poll->answers[0].me_known &&
-              !poll->answers[0].me_voted && poll->answers[1].count_known && !poll->is_finalized,
-          "poll model: a poll without results (fresh MESSAGE_CREATE) starts at zero votes and no "
-          "own vote");
+    check(applied.ok() && poll && poll->layout_type == 2 && !poll->results_known &&
+              !poll->answers[0].count_known && !poll->answers[0].me_known &&
+              !poll->answers[1].count_known && !poll->answers[1].me_known && !poll->is_finalized,
+          "poll model: first HTTP/history poll without results has unknown counts and own votes");
     if (!poll)
         return;
+    check(message_poll_store_apply(&store, 11, 20, unknown, 21).ok() &&
+              !poll->results_known && !poll->answers[0].count_known && !poll->answers[0].me_known &&
+              message_poll_store_apply(&store, 11, 21, unknown, 22).error == MessagePollStoreError::stale &&
+              poll->channel_id == 20 && poll->last_gateway_serial == 21,
+          "poll model: Gateway metadata cannot infer empty results or cross the existing channel scope");
+    const auto unknown_ticket = message_poll_store_result_ticket(store, 11, 21);
     check(message_poll_store_vote(&store, {20, 11, 7, 0, 1, true, false}, 7, 22).changed &&
-              poll->answers[0].count == 1 && poll->answers[0].me_known && poll->answers[0].me_voted &&
-              poll->results_known,
-          "poll model: the first own vote event counts from zero");
+              !poll->answers[0].count_known && poll->answers[0].me_known && poll->answers[0].me_voted &&
+              !poll->answers[1].me_known && !poll->results_known,
+          "poll model: an own vote event establishes its own mark without inventing aggregate counts");
     const u32 own_revision = poll->result_revision;
     check(!message_poll_store_vote(&store, {20, 11, 7, 0, 1, true, false}, 7, 23).changed &&
-              poll->result_revision == own_revision && poll->answers[0].count == 1,
-          "poll model: own duplicate vote event keeps the count");
+              poll->result_revision == own_revision && !poll->answers[0].count_known,
+          "poll model: duplicate own event preserves unknown aggregate state");
+    results.results_known = true;
+    const auto unknown_late_results = message_poll_store_apply(&store, 11, 20, results, 0, &unknown_ticket);
+    check(unknown_late_results.ok() && unknown_late_results.results_ignored &&
+              !poll->results_known && !poll->answers[0].count_known && poll->answers[0].me_voted &&
+              !poll->answers[1].me_known,
+          "poll model: older HTTP results cannot replace newer partial Gateway own authority");
+    const auto unknown_current_ticket = message_poll_store_result_ticket(store, 11, 23);
+    check(message_poll_store_apply(&store, 11, 20, results, 0, &unknown_current_ticket).changed &&
+              poll->results_known && poll->answers[0].count_known && !poll->answers[0].count &&
+              poll->answers[0].me_known && !poll->answers[0].me_voted && poll->answers[1].me_known &&
+              message_poll_store_own_vote(&store, 11, 20, 7, 1u).changed &&
+              poll->answers[0].count == 1 && poll->answers[0].me_voted,
+          "poll model: current explicit empty results establish zero before an accepted own vote");
     // The accepted PUT answers/@me: answer 5 (index 1) only.
     check(message_poll_store_own_vote(&store, 11, 20, 7, 2u).changed && poll->answers[0].count == 0 &&
               !poll->answers[0].me_voted && poll->answers[1].count == 1 && poll->answers[1].me_voted,
@@ -212,6 +232,11 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
               message_poll_store_apply(&store, 11, 20, unknown, 0, &deleted_ticket).error ==
                   MessagePollStoreError::stale,
           "poll model: delete/recreate with identical IDs cannot accept an old HTTP content ticket");
+    poll = message_poll_store_find(store, 11);
+    check(poll && poll->last_gateway_serial == 24 && !poll->results_known &&
+              !poll->answers[0].count_known && !poll->answers[0].me_known &&
+              !poll->answers[1].count_known && !poll->answers[1].me_known,
+          "poll model: first Gateway publication without results also leaves every answer unknown");
 
     const auto before_page = message_poll_store_metrics(store);
     auto* const before_owner = store.owned;
