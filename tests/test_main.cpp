@@ -13451,6 +13451,14 @@ void test_account_media_cached_frame() noexcept {
            "account_media_stop_releases_worker_and_cache");
 }
 
+bool stop_media_worker_fixture(AccountMediaWorker* worker, const char* label) noexcept {
+    if (account_media_worker_stop(worker, 5'000))
+        return true;
+    expect(false, label);
+    // Live decode lanes still own this stack fixture when joining fails.
+    ExitProcess(1);
+}
+
 void test_account_media_worker_decode_boundary() noexcept {
     GifFixtureResult fixture{};
     expect(build_indexed_gif_fixture(Slice<u8>{g_png_encoded, sizeof(g_png_encoded)},
@@ -13532,7 +13540,7 @@ void test_account_media_worker_decode_boundary() noexcept {
     expect(reuse_sequences && serial_store.stored() && observed_advances == 7 && single_hits == 3 && serial_hits == 0,
            "account_media_worker_gif_metadata_actual_assignment_single_3_hits_serial_4_misses");
     const bool decoded_off_ui = worker.lanes[0].thread_id != 0 && worker.lanes[0].thread_id != GetCurrentThreadId();
-    const bool worker_stopped = account_media_worker_stop(&worker, 5000);
+    const bool worker_stopped = stop_media_worker_fixture(&worker, "account_media_worker_decode_stop");
 
     expect(stored.stored() && decoded_off_ui &&
                queued.state == AccountMediaRequestState::queued && first_wait == WAIT_OBJECT_0 &&
@@ -13577,12 +13585,13 @@ void test_account_media_worker_failure_is_edge_triggered() noexcept {
     expect(before_due && no_stale_wake && account_media_worker_next_wake_at_ms(&worker) == 0,
            "account_media_worker_invisible_failure_deadline_consumed_once_without_polling");
 
+    const bool stopped = stop_media_worker_fixture(&worker, "account_media_worker_failure_stop");
     expect(stored.stored() && queued.state == AccountMediaRequestState::queued &&
                waited == WAIT_OBJECT_0 && failure.state == AccountMediaRequestState::failed &&
                failure.error == AccountMediaError::decode && failure.retry_at_ms > 1'002 &&
                retained.state == AccountMediaRequestState::retry_wait &&
                retained.retry_at_ms == failure.retry_at_ms && retained_wake == failure.retry_at_ms &&
-               account_media_worker_stop(&worker, 5'000),
+               stopped,
            "account_media_worker_failure_reported_once_then_retained_as_retry_wait");
 }
 
@@ -13634,7 +13643,7 @@ void test_account_media_worker_reclaimed_failure_cooldown() noexcept {
     const DWORD retry_wait = WaitForSingleObject(account_media_worker_notification_handle(&worker), 2'000);
     const auto reported = account_media_worker_request_static_asset(&worker, bad_key, cooldown + 1, 1'100);
     const u64 queued_after_expiry = worker.counters.queued;
-    const bool stopped = account_media_worker_stop(&worker, 5'000);
+    const bool stopped = stop_media_worker_fixture(&worker, "account_media_worker_reclaimed_failure_stop");
     expect(bad_stored.stored() && good_stored.stored() && bad_restored.stored() &&
         bad_queued.state == AccountMediaRequestState::queued && bad_wait == WAIT_OBJECT_0 &&
         good_queued.state == AccountMediaRequestState::queued && good_wait == WAIT_OBJECT_0 &&
@@ -13688,7 +13697,7 @@ void test_account_media_worker_later_frame_failure_cooldown() noexcept {
         account_media_worker_advance_animation(&worker, key, stored.generation, 3, 1'105);
     const u64 wake = account_media_worker_next_wake_at_ms(&worker);
     const u64 queued_after_retry = worker.counters.queued;
-    const bool stopped = account_media_worker_stop(&worker, 5'000);
+    const bool stopped = stop_media_worker_fixture(&worker, "account_media_worker_later_frame_failure_stop");
     expect(stored.stored() && queued.state == AccountMediaRequestState::queued &&
                first_wait == WAIT_OBJECT_0 && ready.state == AccountMediaRequestState::ready &&
                first_taken && first.frame_index == 0 && advance.state == AccountMediaRequestState::queued &&
@@ -13829,9 +13838,10 @@ void test_account_media_worker_shared_parallel_lanes() noexcept {
                           worker.lanes[0].media.cache.counters.lease_acquires >= 8 &&
                           worker.lanes[0].media.cache.counters.lease_acquires ==
                               worker.lanes[0].media.cache.counters.lease_releases;
+    const bool stopped = stop_media_worker_fixture(&worker, "account_media_worker_parallel_lanes_stop");
     expect(initial_queued && shared_cache && initial_frames == kAccountMediaDecodeLaneCount &&
                advances_queued && advanced_frames == kAccountMediaDecodeLaneCount && distinct_threads &&
-               counters && account_media_worker_stop(&worker, 5'000),
+               counters && stopped,
            "account_media_worker_four_parallel_lanes_share_leased_cache");
 }
 
@@ -13890,7 +13900,7 @@ void test_account_media_worker_animation_priority_reserve() noexcept {
     const bool animation_owned_reserved_lane =
         media_asset_key_equal(worker.lanes[0].command.key, animated) ||
         media_asset_key_equal(worker.lanes[0].completed.key, animated);
-    const bool stopped=account_media_worker_stop(&worker,5'000);
+    const bool stopped = stop_media_worker_fixture(&worker, "account_media_worker_priority_reserve_stop");
     expect(stored && stills_queued && final_still.state == AccountMediaRequestState::busy &&
                animated_stored.stored() && animated_queued.state == AccountMediaRequestState::queued &&
                frames == kAccountMediaDecodeLaneCount && seen_animated && animation_owned_reserved_lane &&
