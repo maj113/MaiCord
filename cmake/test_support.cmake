@@ -402,6 +402,8 @@ function(maicord_add_test_precompiled_headers target_list_variable)
                 set(provider maicord_test_pch_${level}_${mode}_${runtime})
                 set(stub "${directory}/${provider}.cpp")
                 file(CONFIGURE OUTPUT "${stub}" CONTENT "#include \"${${level}_header}\"\n")
+                set_property(GLOBAL APPEND PROPERTY MAICORD_OWNED_OUTPUTS
+                    "file|${stub}\n" "file|${directory}/${provider}.pch\n")
                 add_library(${provider} OBJECT "${stub}")
                 target_link_libraries(${provider} PRIVATE maicord_compile_contract)
                 set_target_properties(${provider} PROPERTIES CXX_EXTENSIONS OFF MAICORD_TEST_CODEGEN ON)
