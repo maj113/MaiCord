@@ -336,7 +336,8 @@ bool chat_state_store_self_has_role(const ChatStateStore& store, u64 guild_id, u
 }
 
 bool chat_state_store_note_message(ChatStateStore* store, u64 channel_id, u64 message_id,
-                                      u64 author_id, bool current_member_mentioned, bool viewed) noexcept {
+                                      u64 author_id, bool current_member_mentioned, bool viewed,
+                                      bool acknowledge_self, bool low_importance) noexcept {
     ChannelRecord* channel = mutable_channel(store, channel_id);
     if (!store || !channel || message_id == 0 || author_id == 0 || message_id <= channel->last_message_id) {
         return false;
@@ -350,12 +351,20 @@ bool chat_state_store_note_message(ChatStateStore* store, u64 channel_id, u64 me
     channel->last_message_id = message_id;
     if (channel_is_private(channel->type))
         private_channel_store_touch_sort(store->private_channels, channel_id);
-    if (viewed || author_id == store->self_user_id) {
+    if (viewed || (acknowledge_self && author_id == store->self_user_id)) {
         channel->last_read_message_id = message_id;
         channel->mention_count = 0;
+        channel->read_flags &= ~4u;
         channel->read_state_known = true;
         channel->read_mentions_incomplete = false;
     } else if (current_member_mentioned) {
+        // Unknown bits survive local automation. A ping upgrades a channel
+        // containing only low-importance badges; later ordinary badges cannot
+        // downgrade an outstanding ping.
+        if (!low_importance)
+            channel->read_flags &= ~4u;
+        else if (channel->mention_count == 0)
+            channel->read_flags |= 4u;
         saturating_increment(channel->mention_count);
     }
     const bool new_unread = channel_activity_visible(*store, *channel);

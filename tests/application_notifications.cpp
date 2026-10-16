@@ -212,6 +212,7 @@ bool initialize() noexcept {
         !message_event_pump_set_state_store(&g_app.message_pump, &f.ui.chat_state, {f.guild_ids, 4}) ||
         !message_event_pump_set_user_store(&g_app.message_pump, &f.ui.user_store)) return false;
     message_event_pump_set_create_observer(&g_app.message_pump, application_notifications_message, &g_app);
+    message_event_pump_set_read_badge(&g_app.message_pump, application_notifications_read_badge, &g_app);
     return application_notifications_fixture_sink(&g_app, capture, &f) &&
         application_notifications_fixture_retention_remove(&g_app,capture_removal,&f);
 }
@@ -1063,6 +1064,35 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     controls_regressions(check);
     pack_regressions(check);
     retention_regressions(check);
+    check(initialize()&&hydrate(),"read badge host: production settings and relationship owner initialize");
+    const auto badge_channel=[&]() noexcept {return chat_state_store_find_channel(f.ui.chat_state,21);};
+    g_app.preferences.desktop_enabled=false;g_app.preferences.message_sounds_enabled=false;
+    check(message(3000,11)&&badge_channel()->mention_count==0&&
+        dispatch(utf8_literal("NOTIFICATION_SETTINGS_UPDATE"),utf8_literal(R"({"flags":32})"),12)&&
+        message(3001,13)&&badge_channel()->mention_count==1&&(badge_channel()->read_flags&4u),
+        "read badge host: account flag sidecar enables low-importance all-message counts independently of output preferences");
+    f.relationship_flags=notification_gate_blocked;
+    check(message(3002,14)&&badge_channel()->mention_count==1,
+        "read badge host: production relationship authority blocks all-message counts");
+    f.relationship_flags=notification_gate_ignored;
+    check(message(3003,15)&&badge_channel()->mention_count==1,
+        "read badge host: ignored relationship cannot increment all-message counts");
+    f.relationship_flags=0;
+    check(settings(utf8_literal(R"({"guild_id":"10","muted":true})"))&&
+        message(3004,21)&&badge_channel()->mention_count==1,
+        "read badge host: inherited guild mute blocks non-ping badges");
+    check(dispatch(utf8_literal("MESSAGE_CREATE"),utf8_literal(R"({"id":"3005","channel_id":"21","type":0,"author":{"id":"2","username":"Peer"},"content":"","timestamp":"2026-10-02T00:00:00Z","mention_everyone":false,"mentions":[{"id":"1","username":"self"}],"mention_roles":[]})"),22)&&
+        badge_channel()->mention_count==2&&!(badge_channel()->read_flags&4u),
+        "read badge host: direct guild mention survives mute and upgrades low-importance count");
+    const u64 badge_cursor=badge_channel()->last_read_message_id;
+    check(message(3006,23,21,utf8_literal("\"\""),1,{},utf8_literal("self"),0,46)&&
+        badge_channel()->last_read_message_id==badge_cursor&&badge_channel()->mention_count==2,
+        "read badge host: own poll result does not clear existing read cursor or counts");
+    check(dispatch(utf8_literal("NOTIFICATION_SETTINGS_UPDATE"),utf8_literal(R"({"flags":0})"),24)&&
+        settings(utf8_literal(R"({"guild_id":"10","muted":false})"))&&
+        message(3007,25)&&badge_channel()->mention_count==2,
+        "read badge host: account flag update disables all-message counts without discarding existing pings");
+    application_notifications_release(&g_app);
 }
 } // namespace maicord
 

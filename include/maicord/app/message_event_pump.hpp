@@ -9,6 +9,7 @@
 #include "maicord/model/voice_state_store.hpp"
 #include "maicord/model/thread_member_store.hpp"
 #include "maicord/model/user_store.hpp"
+#include "maicord/model/message_notifications.hpp"
 
 namespace maicord {
 
@@ -135,6 +136,8 @@ using MessageReadTokenResetFunction = void (*)(void* context) noexcept;
 // Called synchronously only after a validated live create has committed to
 // channel activity (and, for the selected channel, its loaded timeline).
 using MessageCreateObserveFunction = void (*)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept;
+// Called after create payload validation, before channel activity is committed.
+using MessageReadBadgeFunction = MessageReadBadge (*)(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept;
 using MessageMemberRolesRefreshFunction = void (*)(void*, u64 guild_id) noexcept;
 // Borrowed typed data are valid only during this synchronous post-validation
 // callback. Model-applied=false describes a valid event outside the loaded
@@ -169,6 +172,8 @@ struct MessageEventPump {
     void* read_ack_observe_context;
     MessageCreateObserveFunction message_create_observe;
     void* message_create_context;
+    MessageReadBadgeFunction read_badge;
+    void* read_badge_context;
     MessageMemberRolesRefreshFunction member_roles_refresh;
     void* member_roles_refresh_context;
     MessageReactionObserveFunction reaction_observe;
@@ -216,6 +221,7 @@ bool message_event_pump_initialize(MessageEventPump* pump, MessageTimeline* time
 void message_event_pump_reset(MessageEventPump* pump) noexcept;
 void message_event_pump_set_create_observer(MessageEventPump*, MessageCreateObserveFunction,
                                             void*) noexcept;
+void message_event_pump_set_read_badge(MessageEventPump*, MessageReadBadgeFunction, void*) noexcept;
 void message_event_pump_set_member_roles_refresh(MessageEventPump*, MessageMemberRolesRefreshFunction,
                                                  void*) noexcept;
 void message_event_pump_set_reaction_observers(MessageEventPump*, MessageReactionObserveFunction,

@@ -625,7 +625,8 @@ bool chat_state_store_set_guild_hide_muted(ChatStateStore* store, u64 guild_id, 
 bool chat_state_store_set_guild_channel_opt_in(ChatStateStore* store, u64 guild_id, bool enabled) noexcept;
 bool chat_state_store_set_channel_opted_in(ChatStateStore* store, u64 channel_id, bool opted_in) noexcept;
 bool chat_state_store_note_message(ChatStateStore* store, u64 channel_id, u64 message_id,
-                                      u64 author_id, bool current_member_mentioned, bool viewed) noexcept;
+                                      u64 author_id, bool current_member_mentioned, bool viewed,
+                                      bool acknowledge_self = true, bool low_importance = false) noexcept;
 // Reconciles validated history metadata without replaying CREATE activity or
 // altering read cursors, mention counts, or manual auto-ACK suppression.
 // An older or identical latest ID is an accepted no-op.

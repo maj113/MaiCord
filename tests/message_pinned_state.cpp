@@ -38,6 +38,7 @@ struct Fixture {
     char packed[16384];
 } fixture{};
 constexpr u32 pinned_mention = message_presentation_pinned | message_presentation_mentions_current_user;
+constexpr u32 live_badge = message_presentation_read_badge_known | message_presentation_read_badge;
 const MessageRecord* resident(u64 id) noexcept {
     const auto found = message_store_find(fixture.store, id);
     return found.ok() ? message_store_resolve(fixture.store, found.handle) : nullptr;
@@ -90,30 +91,30 @@ void run() noexcept {
             gateway_client_event_as_message(body_event, body, &projected) && projected.pinned &&
             (projected.fields & gateway_message_field_pinned) && projected.mentions_current_user,
         "pinned state: actual Gateway parser, worker packing and UI unpacking preserve pin presence/value");
-    check(message_event_pump_consume(&fixture.pump, packed, payload).ok() && flags(100, pinned_mention),
+    check(message_event_pump_consume(&fixture.pump, packed, payload).ok() && flags(100, pinned_mention | live_badge),
           "pinned state: create keeps both pin and current-user mention");
     check(apply(utf8_literal(
               R"({"op":0,"t":"MESSAGE_UPDATE","s":2,"d":{"id":"100","channel_id":"7","pinned":false}})")) &&
-              flags(100, message_presentation_mentions_current_user),
+              flags(100, message_presentation_mentions_current_user | live_badge),
           "pinned state: explicit false update clears only pin and retains omitted content/mention");
     check(apply(utf8_literal(
               R"({"op":0,"t":"MESSAGE_UPDATE","s":3,"d":{"id":"100","channel_id":"7","pinned":true}})")) &&
-              flags(100, pinned_mention),
+              flags(100, pinned_mention | live_badge),
           "pinned state: partial true update restores pin without replacing mention");
     check(
         apply(utf8_literal(
             R"({"op":0,"t":"MESSAGE_UPDATE","s":4,"d":{"id":"100","channel_id":"7","content":"edited"}})")) &&
-            flags(100, pinned_mention),
+            flags(100, pinned_mention | live_badge),
         "pinned state: omitted pin and mention survive ordinary content edit");
     check(
         apply(utf8_literal(
             R"({"op":0,"t":"MESSAGE_UPDATE","s":5,"d":{"id":"100","channel_id":"7","mention_everyone":false,"mentions":[],"mention_roles":[]}})")) &&
-            flags(100, message_presentation_pinned),
+            flags(100, message_presentation_pinned | live_badge),
         "pinned state: explicit empty mentions clear highlight without clearing pin");
     check(
         apply(utf8_literal(
             R"({"op":0,"t":"MESSAGE_UPDATE","s":6,"d":{"id":"100","channel_id":"7","mention_everyone":true}})")) &&
-            flags(100, pinned_mention),
+            flags(100, pinned_mention | live_badge),
         "pinned state: mention-only update adds highlight while preserving pin");
 
     constexpr Utf8View invalid[]{
@@ -128,15 +129,15 @@ void run() noexcept {
         const auto result = gateway_decode_message_update(
             {input, 0, JsonValueKind::object}, {fixture.structurals, 2048}, 32,
             {fixture.decoded_text, sizeof(fixture.decoded_text)}, &failed);
-        check(!result.ok() && !failed.id && !failed.fields && !failed.pinned && flags(100, pinned_mention),
+        check(!result.ok() && !failed.id && !failed.fields && !failed.pinned && flags(100, pinned_mention | live_badge),
               "pinned state: duplicate/nonboolean pin rejects atomically before resident mutation");
     }
     const auto* prior = resident(100);
     const auto revision = prior ? prior->revision : 0;
-    check(message_store_set_presentation_flags(&fixture.store, 100, pinned_mention) &&
+    check(message_store_set_presentation_flags(&fixture.store, 100, pinned_mention | live_badge) &&
               resident(100)->revision == revision &&
               !message_store_set_presentation_flags(&fixture.store, 100, 1u << 31) &&
-              flags(100, pinned_mention),
+              flags(100, pinned_mention | live_badge),
           "pinned state: known-bit setter accepts pin and unchanged state without revision churn");
     MessageInput invalid_flags{200, 7, 41, 200, 0, utf8_literal("x"), 0};
     invalid_flags.presentation_flags = 1u << 8;
@@ -155,11 +156,11 @@ void run() noexcept {
     check(message_reconcile_validate_create(&fixture.store, full, MessageContentAvailability::available)
                   .ok() &&
               message_reconcile_create(&fixture.store, full, MessageContentAvailability::available).ok() &&
-              flags(100, pinned_mention),
+              flags(100, pinned_mention | live_badge),
           "pinned state: full duplicate create/history refresh retains omitted pin and mention bits");
     full.fields |= gateway_message_field_pinned;
     check(message_reconcile_create(&fixture.store, full, MessageContentAvailability::available).ok() &&
-              flags(100, message_presentation_mentions_current_user),
+              flags(100, message_presentation_mentions_current_user | live_badge),
           "pinned state: explicit false in full refresh clears cached pin while retaining mention bits");
     GatewayMessageEvent partial{};
     partial.id = 100;
@@ -167,7 +168,7 @@ void run() noexcept {
     partial.fields = gateway_message_field_id | gateway_message_field_channel_id;
     partial.pinned = true;
     check(message_reconcile_update(&fixture.store, partial, MessageContentAvailability::available).ok() &&
-              flags(100, message_presentation_mentions_current_user),
+              flags(100, message_presentation_mentions_current_user | live_badge),
           "pinned state: value without presence cannot manufacture pinned state");
 
     check(message_timeline_reset(&fixture.timeline), "pinned state: empty history fixture resets");

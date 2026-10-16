@@ -126,7 +126,7 @@ struct ApplicationNotifications {
     u64 profile, audio_epoch, audio_submitted, selected, create_sequence;
     u32 seen_next, guild_scope_count, channel_scope_count, os_setting, global_known_gates, global_gates;
     bool live, ready, snapshot, snapshot_failed, enrolled, focused, has_create_sequence, snapshot_partial, work_pending,
-        backpressured, history_turn, audio_backpressured, audio_failed, audio_preference;
+        backpressured, history_turn, audio_backpressured, audio_failed, audio_preference, mention_on_all;
     NotificationSoundpack current_pack;
     Utf8View status;
 #if defined(MAICORD_NOTIFICATION_FIXTURE)
@@ -765,7 +765,7 @@ void application_notifications_account_stop(Application* a) noexcept {
     auto& n=*a->notifications;
     audio_reset(n,false);
     if(n.enrolled && n.profile) transport_error(n,desktop_notifications_remove_profile(&n.native,n.profile));
-    n.ready=n.live=false; n.snapshot=false; n.profile=0; n.pending={}; n.global={};
+    n.ready=n.live=false; n.snapshot=false; n.profile=0; n.pending={}; n.global={}; n.mention_on_all=false;
     release_retention(n);
     if(n.display) desktop_notification_queue_reset(&n.display->queue,0,0);
     n.backpressured=n.audio_backpressured=false;
@@ -911,7 +911,7 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
         // Same-account partial READY settings retain omitted guild/override
         // rows. A full snapshot clears them at its typed begin boundary.
         n->settings.thread_count=0; ++n->settings.revision;
-        n->global={}; n->global_known_gates=n->global_gates=0;
+        n->global={}; n->global_known_gates=n->global_gates=0; n->mention_on_all=false;
         n->profile=a->account.status.profile_id; n->live=true; n->ready=n->snapshot=false;
         audio_preferences(*a,*n); audio_reset(*n,n->audio_preference);
         if(++n->generation==0) ++n->generation;
@@ -1011,6 +1011,8 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
             n->settings.version=maximum(n->settings.version,event.notification.version);
         n->snapshot=false;
     } else if(kind==GatewayClientDispatchKind::notification_global) {
+        if(event.notification.flags&gateway_notification_account_flags_known)
+            n->mention_on_all=(event.notification.account_flags&32u)!=0;
         MessageNotificationGlobal global{};
         const bool valid=payload.count==sizeof(global) && !(event.notification.flags&gateway_notification_incomplete);
         if(event.notification.flags&gateway_notification_restricted_known) {
@@ -1111,6 +1113,37 @@ void application_notifications_gateway(Application* a,const GatewayClientEvent& 
         else if(message_notifications_upsert_thread(&n->settings,row.thread)!=MessageNotificationApplyError::none)
             message_notifications_mark_incomplete(&n->settings,side.guild_id);
     }
+}
+MessageReadBadge application_notifications_read_badge(void* context,const GatewayClientEvent& event,
+                                                      ConstSlice<u8> payload) noexcept {
+    const auto* a=static_cast<Application*>(context);
+    if(!a||!a->notifications||!a->account_ui||
+        event.message.mention_role_count>kGatewayMessageMentionRoleMaximumIds)return MessageReadBadge::none;
+    const auto& n=*a->notifications;const auto& state=a->account_ui->chat_state;
+    const auto* channel=chat_state_store_find_channel(state,event.message.channel_id);
+    if(!channel)return MessageReadBadge::none;
+    const auto* parent=channel->parent_id?chat_state_store_find_channel(state,channel->parent_id):nullptr;
+    const auto* guild=channel->guild_id?chat_state_store_find_guild(state,channel->guild_id):nullptr;
+    u64 mentioned_roles[kGatewayMessageMentionRoleMaximumIds],self_roles[kGatewayMessageMentionRoleMaximumIds];
+    u32 role_count=0;
+    for(u32 i=0;i<event.message.mention_role_count;++i){
+        if(!gateway_client_event_message_mention_role_at(event,payload,i,mentioned_roles+i))return MessageReadBadge::none;
+        if(chat_state_store_self_has_role(state,channel->guild_id,mentioned_roles[i]))self_roles[role_count++]=mentioned_roles[i];
+    }
+    MessageNotificationPolicyInput input{};
+    input.settings=&n.settings;input.self_id=state.self_user_id;input.author_id=event.message.author_id;
+    input.guild_id=channel->guild_id;input.channel_id=channel->id;input.parent_id=channel->parent_id;
+    input.category_id=parent?(parent->type==4?parent->id:parent->parent_id):0;
+    input.channel_type=channel->type;input.message_type=event.message.type;input.now_ms=clock_unix_milliseconds();
+    input.direct_mention=(event.message.mention_flags&gateway_client_message_mention_current_user)!=0;
+    input.everyone_mention=(event.message.mention_flags&gateway_client_message_mention_everyone)!=0;
+    input.roles_known=guild&&guild->member_roles_known;
+    input.mention_roles={mentioned_roles,event.message.mention_role_count};input.self_roles={self_roles,role_count};
+    input.guild_default_known=!guild||(guild->settings.known&guild_settings_default_notifications);
+    input.guild_default=guild&&guild->settings.default_message_notifications?MessageNotificationLevel::mentions:MessageNotificationLevel::all;
+    if(application_friends_notification_gates(input.author_id,&input.gates))
+        input.known_gates=notification_gate_blocked|notification_gate_ignored;
+    return message_read_badge(input,n.mention_on_all);
 }
 void application_notifications_message(void* context,const GatewayClientEvent& event,ConstSlice<u8> payload) noexcept {
     auto* a=static_cast<Application*>(context);

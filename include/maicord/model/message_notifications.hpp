@@ -127,4 +127,9 @@ MessageNotificationReason message_notification_admit(const MessageNotificationPo
 // Override the gate mask without copying the input's roles/global/scope facts.
 MessageNotificationReason message_notification_admit(const MessageNotificationPolicyInput&,u32 required_gates) noexcept;
 MessageNotificationDecision message_notification_decide(const MessageNotificationPolicyInput&) noexcept;
+enum class MessageReadBadge : u8 { none, mention, low_importance };
+// Read-state automations use relationship, mention and mute facts only. Device
+// output, focus, quiet mode, silent messages and popup admission do not apply.
+MessageReadBadge message_read_badge(const MessageNotificationPolicyInput&,
+                                    bool mention_on_all_messages) noexcept;
 } // namespace maicord

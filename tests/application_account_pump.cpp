@@ -14,6 +14,7 @@
 #include "../src/app/application_thread_browser.hpp"
 #include "../src/app/application_thread_creation.hpp"
 #include "../src/app/application_forum_post.hpp"
+#include "../src/app/application_notifications.hpp"
 #include "../src/app/application_thread_header_activation.hpp"
 #include "../src/app/application_video.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
@@ -292,6 +293,12 @@ void application_plugins_render_rendered() noexcept {
 }
 void application_notifications_message(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept {
     ++notification_callbacks;
+}
+MessageReadBadge application_notifications_read_badge(void*, const GatewayClientEvent&,
+                                                      ConstSlice<u8>) noexcept {
+    // This pump fixture has no notification-settings or relationship owner.
+    // It admits no badge counts; policy behavior uses the real host fixture.
+    return MessageReadBadge::none;
 }
 void application_notifications_selection(Application*) noexcept {
     ++notification_callbacks;
@@ -1086,11 +1093,14 @@ void test_member_role_refresh() noexcept {
     ui.guild_member_store = {};
     message_event_pump_reset(&event_pump);
     check(!event_pump.member_roles_refresh && !event_pump.member_roles_refresh_context &&
-              !event_pump.message_create_observe && !event_pump.message_create_context,
+              !event_pump.message_create_observe && !event_pump.message_create_context &&
+              !event_pump.read_badge && !event_pump.read_badge_context,
           "role_refresh_full_pump_reset_retires_borrowed_observer_contexts");
     reset_counts();
     check(application_pump_account() && event_pump.member_roles_refresh == refresh &&
-              event_pump.member_roles_refresh_context == context,
+              event_pump.member_roles_refresh_context == context &&
+              event_pump.read_badge == application_notifications_read_badge &&
+              event_pump.read_badge_context == &g_app,
           "role_refresh_new_account_drain_reinstalls_current_observer_after_full_reset");
     reset_counts();
 }

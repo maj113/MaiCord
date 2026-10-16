@@ -82,5 +82,75 @@ void test_notification_policy(void(*check)(bool,const char*)noexcept) noexcept {
     check(message_notification_decide(edge).reason==R::special,"known sensitive age scope suppresses without fabricated consent");
     edge.gates=notification_gate_interaction_relationship;
     check(message_notification_decide(edge).reason==R::special,"known interaction relationship suppresses independently of author");
+
+    MessageNotificationGuildSetting badge_guilds[2]{};MessageNotificationOverride badge_overrides[3]{};
+    MessageNotificationThreadSetting badge_threads[2]{};MessageNotificationStore badge_settings{};
+    check(message_notifications_initialize(&badge_settings,{badge_guilds,2},{badge_overrides,3},{badge_threads,2})&&
+        message_notifications_apply_settings(&badge_settings,{},{},false,1)==E::none,
+        "read badge: complete empty settings establish private defaults");
+    auto badge=input(badge_settings);badge.guild_id=0;badge.channel_type=1;
+    badge.known_gates=notification_gate_blocked|notification_gate_ignored;
+    badge.global.quiet=true;badge.global.status=MessageNotificationStatus::dnd;
+    badge.message_flags=4096;badge.focused=badge.selected=true;badge.desktop_enabled=badge.sound_enabled=false;
+    using B=MessageReadBadge;
+    check(message_read_badge(badge,false)==B::mention&&message_notification_decide(badge).reason==R::silent,
+        "read badge: private messages count independently of silent, DND, quiet, focus and output toggles");
+    MessageNotificationGuildSetting badge_guild{};badge_guild.guild_id=0;
+    badge_guild.setting.fields=notification_muted;badge_guild.setting.muted=true;
+    check(message_notifications_apply_settings(&badge_settings,{&badge_guild,1},{},true,2)==E::none&&
+        message_read_badge(badge,false)==B::none,"read badge: muted private messages do not count by default");
+    badge.direct_mention=true;
+    check(message_read_badge(badge,false)==B::mention,"read badge: explicit mention survives private mute");
+    badge.message_type=2;
+    check(message_read_badge(badge,true)==B::none,"read badge: private recipient removal never invents a mention");
+    badge.message_type=0;badge.gates=notification_gate_blocked;
+    check(message_read_badge(badge,false)==B::none,"read badge: blocked author cannot count a direct mention");
+    badge.gates=notification_gate_ignored;
+    check(message_read_badge(badge,false)==B::none,"read badge: ignored author cannot count a direct mention");
+    badge.gates=0;badge.known_gates=0;
+    check(message_read_badge(badge,false)==B::none,"read badge: unknown relationship authority does not fabricate counts");
+    badge.known_gates=notification_gate_blocked|notification_gate_ignored;
+    badge.guild_id=10;badge.channel_type=0;badge.direct_mention=false;badge.everyone_mention=true;
+    badge_guild.guild_id=10;badge_guild.setting.fields=notification_level|notification_muted|notification_suppress_everyone|notification_suppress_roles;
+    badge_guild.setting.level=L::none;badge_guild.setting.muted=true;
+    badge_guild.setting.suppress_everyone=badge_guild.setting.suppress_roles=true;
+    check(message_notifications_apply_settings(&badge_settings,{&badge_guild,1},{},true,3)==E::none&&
+        message_read_badge(badge,false)==B::none,"read badge: suppressed everyone does not count");
+    badge.everyone_mention=false;badge.mention_roles={&role,1};badge.self_roles={&role,1};badge.roles_known=true;
+    check(message_read_badge(badge,false)==B::none,"read badge: suppressed matching role does not count");
+    badge.direct_mention=true;
+    check(message_read_badge(badge,false)==B::mention,"read badge: guild direct mention survives mute and notification NONE");
+    badge.direct_mention=false;badge_guild.setting.suppress_roles=false;
+    check(message_notifications_apply_settings(&badge_settings,{&badge_guild,1},{},true,4)==E::none&&
+        message_read_badge(badge,false)==B::mention,"read badge: unsuppressed matching role survives mute and NONE");
+    badge.mention_roles={};badge.self_roles={};badge_guild.setting.muted=false;badge_guild.setting.level=L::all;
+    check(message_notifications_apply_settings(&badge_settings,{&badge_guild,1},{},true,5)==E::none&&
+        message_read_badge(badge,false)==B::none&&message_read_badge(badge,true)==B::low_importance,
+        "read badge: all-message count requires explicit account setting and is low importance");
+    badge.channel_type=2;
+    check(message_read_badge(badge,true)==B::none,"read badge: voice all-message mode does not add non-ping counts");
+    badge.channel_type=13;
+    check(message_read_badge(badge,true)==B::none,"read badge: stage all-message mode does not add non-ping counts");
+    badge.channel_type=0;badge.author_id=1;
+    check(message_read_badge(badge,true)==B::none,"read badge: ordinary own messages do not badge themselves");
+    badge.author_id=2;badge.channel_type=11;badge.channel_id=30;badge.parent_id=20;
+    check(message_read_badge(badge,true)==B::none,"read badge: missing self-thread setting does not inherit ALL");
+    MessageNotificationThreadSetting badge_thread{};badge_thread.guild_id=10;badge_thread.thread_id=30;
+    badge_thread.setting.fields=notification_flags|notification_muted;badge_thread.setting.flags=8;
+    check(message_notifications_upsert_thread(&badge_settings,badge_thread)==E::none&&
+        message_read_badge(badge,true)==B::none,"read badge: thread NONE overrides inherited ALL for ordinary messages");
+    badge_thread.setting.flags=2;badge_guild.setting.level=L::mentions;
+    check(message_notifications_upsert_thread(&badge_settings,badge_thread)==E::none&&
+        message_notifications_apply_settings(&badge_settings,{&badge_guild,1},{},true,6)==E::none&&
+        message_read_badge(badge,true)==B::low_importance,"read badge: explicit thread ALL overrides inherited mentions");
+    badge_guild.setting.muted=true;
+    check(message_notifications_apply_settings(&badge_settings,{&badge_guild,1},{},true,7)==E::none&&
+        message_read_badge(badge,true)==B::low_importance,"read badge: explicit thread ALL resolves before ancestor mute");
+    badge_thread.setting.flags=4;
+    check(message_notifications_upsert_thread(&badge_settings,badge_thread)==E::none&&
+        message_read_badge(badge,true)==B::none,"read badge: thread mentions mode excludes ordinary messages");
+    badge.direct_mention=true;badge_thread.setting.flags=8;
+    check(message_notifications_upsert_thread(&badge_settings,badge_thread)==E::none&&
+        message_read_badge(badge,true)==B::mention,"read badge: direct thread mention survives thread NONE");
 }
 } // namespace maicord

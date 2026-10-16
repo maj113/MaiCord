@@ -19,6 +19,8 @@ struct Fixture {
     u32 observed_calls;
     u64 observed_channel, observed_cursor;
     bool observed_manual, observed_model_committed;
+    MessageReadBadge badge;
+    u32 badge_calls;
     MessageStore messages;
     MessageRecord message_records[8];
     u32 message_order[8], heights[8];
@@ -39,6 +41,9 @@ void cancel(void* context, u64 channel_id) noexcept {
     auto& f = *static_cast<Fixture*>(context); ++f.cancel_calls; f.cancelled_channel = channel_id;
 }
 void reset(void* context) noexcept { ++static_cast<Fixture*>(context)->reset_calls; }
+MessageReadBadge badge_policy(void* context,const GatewayClientEvent&,ConstSlice<u8>) noexcept {
+    auto& f=*static_cast<Fixture*>(context);++f.badge_calls;return f.badge;
+}
 void observe_ack(void* context, u64 channel_id, u64 cursor, bool manual) noexcept {
     auto& f = *static_cast<Fixture*>(context); ++f.observed_calls;
     f.observed_channel = channel_id; f.observed_cursor = cursor; f.observed_manual = manual;
@@ -55,6 +60,7 @@ bool initialize() noexcept {
     f.reserve_calls = f.cancel_calls = f.reset_calls = 0; f.cancelled_channel = 0; f.reserve_fail = false;
     f.observed_calls = 0; f.observed_channel = f.observed_cursor = 0;
     f.observed_manual = f.observed_model_committed = false;
+    f.badge=MessageReadBadge::none;f.badge_calls=0;
     if (!chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1}, {f.channels, 4},
             {f.channel_order, 4}, {f.names, sizeof(f.names)}) ||
         !chat_state_store_upsert_guild(&f.state, {7, utf8_literal("Guild"), GuildMutationKind::create, 1}).ok() ||
@@ -355,5 +361,53 @@ void test_read_state_pump(void (*check)(bool, const char*) noexcept) noexcept {
         f.cancelled_channel == 80,
         "read pump: removing typed observer restores legacy remote manual cancellation");
     manual_controller(check);
+
+    check(initialize(),"read automation: reset bounded timeline and read-state fixture");
+    message_event_pump_set_read_badge(&f.pump,badge_policy,&f);
+    f.records[0]=entry(80,100,0);
+    check(snapshot(1).ok(),"read automation: authoritative read metadata is loaded");
+    event=message(160,80,2);f.badge=MessageReadBadge::low_importance;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->mention_count==1&&
+        find(80)->read_flags==0x80000005u&&f.guild.mention_count==1&&f.badge_calls==1,
+        "read automation: low-importance badge increments channel and guild counts while retaining unknown flag bits");
+    event=message(170,80,2);f.badge=MessageReadBadge::none;
+    event.message.mention_flags=gateway_client_message_mention_current_user;
+    const auto suppressed=message_event_pump_consume(&f.pump,event,{});
+    const auto raw_handle=message_store_find(f.messages,170);
+    const auto* raw=raw_handle.ok()?message_store_resolve(f.messages,raw_handle.handle):nullptr;
+    check(suppressed.ok()&&find(80)->mention_count==1&&f.guild.mention_count==1&&raw&&
+        (raw->presentation_flags&message_presentation_mentions_current_user)&&
+        (raw->presentation_flags&message_presentation_read_badge_known)&&
+        !(raw->presentation_flags&message_presentation_read_badge),
+        "read automation: rejected badge retains raw mention styling without changing read counts");
+    f.badge=MessageReadBadge::mention;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->mention_count==1&&
+        raw&&!(raw->presentation_flags&message_presentation_read_badge),
+        "read automation: duplicate create cannot change its original denied badge decision after policy changes");
+    event=ack(80,150,true,false);
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->mention_count==1,
+        "read automation: cached manual recount uses live badge decisions independently of mention styling");
+    const u32 before_poll_cancels=f.cancel_calls;
+    f.badge=MessageReadBadge::none;
+    event=message(180,80,1);event.message.type=46;event.message.fields|=gateway_message_field_type;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_message_id==180&&
+        find(80)->last_read_message_id==150&&find(80)->mention_count==1&&f.cancel_calls==before_poll_cancels,
+        "read automation: own POLL_RESULT advances latest without clearing cursor, mentions or outbound ACK work");
+    event=message(190,80,2);f.badge=MessageReadBadge::mention;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->mention_count==2&&
+        find(80)->read_flags==0x80000001u,
+        "read automation: ping upgrades low-importance counts while preserving unknown flags");
+    event=message(200,80,2);f.badge=MessageReadBadge::low_importance;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->mention_count==3&&
+        find(80)->read_flags==0x80000001u,
+        "read automation: later non-ping message cannot downgrade outstanding ping importance");
+    event=message(210,80,1);f.badge=MessageReadBadge::none;
+    check(message_event_pump_consume(&f.pump,event,{}).ok()&&find(80)->last_read_message_id==210&&
+        find(80)->mention_count==0&&f.cancel_calls==before_poll_cancels+1,
+        "read automation: ordinary own create still clears read counts and cancels older outgoing ACK");
+    const u32 before_reject=f.badge_calls;event=message(220,80,2);event.message.content_bytes=1;
+    check(!message_event_pump_consume(&f.pump,event,{}).ok()&&f.badge_calls==before_reject&&find(80)->last_message_id==210,
+        "read automation: malformed create cannot invoke badge policy or change channel activity");
+
 }
 } // namespace maicord

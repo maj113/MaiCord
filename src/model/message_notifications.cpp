@@ -201,4 +201,54 @@ MessageNotificationDecision message_notification_decide(const MessageNotificatio
     const auto reason=message_notification_admit(i);
     return reason==MessageNotificationReason::eligible?MessageNotificationDecision{reason,i.desktop_enabled,i.sound_enabled}:reject(reason);
 }
+MessageReadBadge message_read_badge(const MessageNotificationPolicyInput& i,
+                                    bool mention_on_all_messages) noexcept {
+    using B=MessageReadBadge;using L=MessageNotificationLevel;
+    constexpr u32 relationships=notification_gate_blocked|notification_gate_ignored;
+    if(!i.settings||!i.channel_id||!i.self_id||!i.author_id||
+       (i.author_id==i.self_id&&i.message_type!=46)||
+       (i.known_gates&relationships)!=relationships||(i.gates&relationships))return B::none;
+    const auto* guild=message_notifications_guild(*i.settings,i.guild_id);
+    const bool settings_known=(guild&&!guild->incomplete)||(!guild&&i.settings->complete);
+    const auto* channel=message_notifications_override(*i.settings,i.guild_id,i.channel_id);
+    const auto* parent=message_notifications_override(*i.settings,i.guild_id,i.parent_id);
+    const auto* category=message_notifications_override(*i.settings,i.guild_id,i.category_id);
+    const auto* thread=message_notifications_thread(*i.settings,i.channel_id);
+    bool mentioned=i.direct_mention;
+    if(settings_known){
+        const bool suppress_everyone=guild&&guild->setting.suppress_everyone;
+        const bool suppress_roles=guild&&guild->setting.suppress_roles;
+        mentioned|=i.everyone_mention&&!suppress_everyone;
+        if(!suppress_roles&&i.roles_known&&slice_valid(i.mention_roles)&&slice_valid(i.self_roles))
+            for(u32 m=0;m<i.mention_roles.count;++m)
+                for(u32 r=0;r<i.self_roles.count;++r)
+                    mentioned|=i.mention_roles[m]==i.self_roles[r];
+    }
+    const bool scope_muted=(guild&&message_notification_muted(guild->setting,i.now_ms))||
+        (parent&&message_notification_muted(parent->setting,i.now_ms))||
+        (category&&message_notification_muted(category->setting,i.now_ms));
+    const bool muted=scope_muted||(channel&&message_notification_muted(channel->setting,i.now_ms));
+    const bool private_channel=i.channel_type==1||i.channel_type==3||i.channel_type==18;
+    if(private_channel){
+        if(i.message_type==2)return B::none;
+        if((settings_known&&!muted)||mentioned)return B::mention;
+    }else if(mentioned)return B::mention;
+    if(!mention_on_all_messages||i.channel_type==2||i.channel_type==13)return B::none;
+    const bool is_thread=i.channel_type==10||i.channel_type==11||i.channel_type==12||i.channel_type==19;
+    if(is_thread){
+        // Explicit thread flags resolve before ancestor mute/default settings.
+        // An absent self-thread setting is not inherited notification consent.
+        if(!thread||thread->guild_id!=i.guild_id||!(thread->setting.fields&notification_flags))return B::none;
+        if(thread->setting.flags&2u)return B::low_importance;
+        if(thread->setting.flags&(4u|8u))return B::none;
+        if(!i.parent_id||scope_muted)return B::none;
+    }else if(muted)return B::none;
+    if(!settings_known)return B::none;
+    L level=!is_thread&&channel?channel->setting.level:L::inherit;
+    if(level==L::inherit&&parent)level=parent->setting.level;
+    if(level==L::inherit&&category)level=category->setting.level;
+    if(level==L::inherit&&guild)level=guild->setting.level;
+    if(level==L::inherit&&i.guild_default_known)level=i.guild_default;
+    return level==L::all?B::low_importance:B::none;
+}
 } // namespace maicord

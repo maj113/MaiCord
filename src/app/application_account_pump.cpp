@@ -524,6 +524,7 @@ bool drain_account_events() noexcept {
                                              nullptr);
     message_event_pump_set_read_token_reset(&g_app.message_pump, application_read_state_reset_token);
     message_event_pump_set_create_observer(&g_app.message_pump, application_notifications_message, &g_app);
+    message_event_pump_set_read_badge(&g_app.message_pump, application_notifications_read_badge, &g_app);
     message_event_pump_set_member_roles_refresh(&g_app.message_pump, refresh_member_role_authority, &g_app);
     const bool observe_reactions = application_message_reaction_observation_needed();
     const bool observe_forum = application_forum_post_observation_needed();

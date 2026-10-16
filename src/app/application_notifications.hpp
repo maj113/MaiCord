@@ -21,6 +21,8 @@ void application_notifications_set_avatar_source(ApplicationNotificationAvatarFu
 void application_notifications_attach_window(Application*) noexcept;
 void application_notifications_gateway(Application*, const GatewayClientEvent&, ConstSlice<u8>) noexcept;
 void application_notifications_message(void*, const GatewayClientEvent&, ConstSlice<u8>) noexcept;
+MessageReadBadge application_notifications_read_badge(void*, const GatewayClientEvent&,
+                                                      ConstSlice<u8>) noexcept;
 void application_notifications_drain(Application*) noexcept;
 bool application_notifications_can_pop(Application*) noexcept;
 bool application_notifications_gateway_pending(const Application*) noexcept;

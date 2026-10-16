@@ -28,12 +28,16 @@ enum MessagePresentationFlag : u32 {
     message_presentation_has_poll = 1u << 2,
     message_presentation_has_call = 1u << 3,
     message_presentation_has_activity = 1u << 4,
+    // Live CREATE badge decision; raw mention styling remains independent.
+    message_presentation_read_badge_known = 1u << 5,
+    message_presentation_read_badge = 1u << 6,
 };
 
 inline constexpr u32 kMessagePresentationForwardingObstacles =
     message_presentation_has_poll | message_presentation_has_call | message_presentation_has_activity;
 inline constexpr u32 kMessagePresentationKnownFlags = message_presentation_mentions_current_user |
-    message_presentation_pinned | kMessagePresentationForwardingObstacles;
+    message_presentation_pinned | kMessagePresentationForwardingObstacles |
+    message_presentation_read_badge_known | message_presentation_read_badge;
 
 struct MessageHandle {
     u32 slot;

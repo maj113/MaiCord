@@ -11005,7 +11005,8 @@ void test_message_event_pump() noexcept {
     message_event_pump_set_reaction_observers(&pump, nullptr, nullptr, nullptr, nullptr);
     message_event_pump_reset(&deferred_pump);
     expect(!pump.reaction_observe && !pump.reaction_source_observe && !pump.reaction_delete_observe &&
-        !pump.reaction_observe_context && !deferred_pump.reaction_source_observe && sizeof(MessageEventPump) == 328 + sizeof(ReservedBytes),
+        !pump.reaction_observe_context && !deferred_pump.reaction_source_observe &&
+        !pump.read_badge && !pump.read_badge_context && sizeof(MessageEventPump) == 344 + sizeof(ReservedBytes),
         "message_event_pump_reaction_observers_clear_without_extra_owner_or_work_bank");
 }
 

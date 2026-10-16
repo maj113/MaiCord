@@ -9,7 +9,7 @@
 namespace maicord {
 namespace {
 
-static_assert(sizeof(MessageEventPump) == 328 + sizeof(ReservedBytes));
+static_assert(sizeof(MessageEventPump) == 344 + sizeof(ReservedBytes));
 
 ReadStateEntry read_model_entry(const GatewayClientReadStateMutation& record) noexcept {
     return {record.channel_id,
@@ -62,7 +62,9 @@ bool cached_mentions(const MessageEventPump& pump, u64 channel_id, u64 cursor, u
         const auto& message = store->records[slot];
         if (message.channel_id == channel_id && message.id > cursor &&
             message.delivery == MessageDeliveryState::authoritative &&
-            (message.presentation_flags & message_presentation_mentions_current_user))
+            (message.presentation_flags &
+                ((message.presentation_flags & message_presentation_read_badge_known)
+                     ? message_presentation_read_badge : message_presentation_mentions_current_user)))
             saturating_increment(*count);
     }
     return true;
@@ -798,6 +800,13 @@ void message_event_pump_set_create_observer(MessageEventPump* pump, MessageCreat
     if (pump) {
         pump->message_create_observe = observe;
         pump->message_create_context = context;
+    }
+}
+void message_event_pump_set_read_badge(MessageEventPump* pump, MessageReadBadgeFunction policy,
+                                       void* context) noexcept {
+    if (pump) {
+        pump->read_badge = policy;
+        pump->read_badge_context = context;
     }
 }
 void message_event_pump_set_member_roles_refresh(MessageEventPump* pump,
@@ -1541,6 +1550,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             presentation_mention_known = true;
         }
         bool message_validated = false;
+        MessageReadBadge read_badge = MessageReadBadge::none;
         if (event.dispatch_kind == GatewayClientDispatchKind::message_create && pump->state) {
             GatewayMessageEvent message{};
             if (!gateway_client_event_as_message(event, payload, &message)) {
@@ -1550,11 +1560,21 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                 return result;
             }
             const u32 channel_mutations = pump->state->channel_mutations;
+            const auto* channel = chat_state_store_find_channel(*pump->state, message.channel_id);
+            read_badge = pump->read_badge
+                             ? pump->read_badge(pump->read_badge_context, event, payload)
+                             : ((presentation_mentioned ||
+                                 (channel && channel_is_private(channel->type) &&
+                                  event.message.type != 2 && !channel->notification_muted))
+                                    ? MessageReadBadge::mention : MessageReadBadge::none);
+            const bool acknowledge_self = event.message.type != 46;
             const bool noted =
                 chat_state_store_note_message(pump->state, message.channel_id, message.id,
-                                                 message.author_id, presentation_mentioned, false);
+                                                 message.author_id, read_badge != MessageReadBadge::none,
+                                                 false, acknowledge_self,
+                                                 read_badge == MessageReadBadge::low_importance);
             message_validated = true;
-            if (noted && message.author_id == pump->state->self_user_id && pump->read_ack_cancel)
+            if (noted && acknowledge_self && message.author_id == pump->state->self_user_id && pump->read_ack_cancel)
                 pump->read_ack_cancel(pump->read_ack_cancel_context, message.channel_id);
             result.repaint = noted && channel_mutations != pump->state->channel_mutations;
         }
@@ -1621,11 +1641,18 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
                     presentation_record.ok()
                         ? message_store_resolve(*pump->timeline->store, presentation_record.handle)
                         : nullptr;
+                // Replayed creates can arrive after notification settings or
+                // relationships change; preserve the first receipt's decision.
+                const bool cache_badge = message_validated && presentation &&
+                    !(presentation->presentation_flags & message_presentation_read_badge_known);
                 if (!presentation ||
                     !message_store_set_presentation_flags(
                         pump->timeline->store, event.message.id,
                         (presentation->presentation_flags & ~message_presentation_mentions_current_user) |
-                            (presentation_mentioned ? message_presentation_mentions_current_user : 0u))) {
+                            (presentation_mentioned ? message_presentation_mentions_current_user : 0u) |
+                            (cache_badge ? message_presentation_read_badge_known : 0u) |
+                            (cache_badge && read_badge != MessageReadBadge::none
+                                 ? message_presentation_read_badge : 0u))) {
                     ++pump->rejected;
                     pump->resync_required = true;
                     reject(&result, MessageEventPumpRejectReason::message_presentation);
