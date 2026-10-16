@@ -199,6 +199,14 @@ inline void run(void (*check)(bool, const char*) noexcept) noexcept {
     reject = false;
     check(refresh_account_scroll() && attempts == scroll_attempts + 4,
           "scroll refresh: pending retry backoff is honored instead of the scroll-only path");
+    // Resizing publishes new row/media rectangles before text is rebuilt.
+    // A delay for the previous projection must not preserve its glyph positions.
+    const u32 resize_attempts = attempts;
+    ui.text_rebuild_retry_at_ms = clock_monotonic_milliseconds() + 60'000;
+    g_app.renderer.width = 937;
+    check(refresh_account_text_for_layout() && attempts == resize_attempts + 1 && last_force &&
+              accepted_width == 937 && !ui.text_rebuild_retry_at_ms && !ui.text_rebuild_failures,
+          "text retry: changed layout rebuilds at its new width before the previous retry deadline");
     ui.text_rebuild_retry_at_ms = 0;
     ui.text_rebuild_failures = 0;
     // The scheduler wakes at the earliest typing expiry, so an expired record

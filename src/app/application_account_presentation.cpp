@@ -861,7 +861,7 @@ bool application_synchronize_theme_consumers() noexcept {
     theme_consumers_pending = false;
     const bool ready =
         synchronize_shell_layout() &&
-        (g_app.login.visible ? application_refresh_login_view() : refresh_account_text(true)) &&
+        (g_app.login.visible ? application_refresh_login_view() : refresh_account_text_for_layout()) &&
         application_settings_synchronize() && application_theme_editor_synchronize() &&
         application_text_form_synchronize() && application_forum_form_synchronize() &&
         application_search_synchronize() && application_composer_text_input_synchronize();

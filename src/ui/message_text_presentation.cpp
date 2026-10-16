@@ -2875,7 +2875,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                     const bool icon = message_rich_embed_author_icon(*rich_store, embed).bytes != 0;
                     const float inset =
                         kMessageEmbedContentInset + (icon ? kMessageEmbedAuthorIcon + kMessageEmbedIconGap : 0.0f);
-                    measured_items.embed_author_tops[index] = flow.cursor_y - flow.start_y;
+                    measured_items.embed_author_tops[index] = ui_text_flow_required_height(flow);
                     const u32 first = presentation->command_count;
                     if (!append_embed_plain_line(presentation, &context, author_name, &flow, inset, kMessageEmbedEndInset,
                                                  theme.text_primary, owner, record->id, record->revision,
@@ -2942,7 +2942,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                                                  &media_width, &media_height))) {
                 if (!media_only && !ui_text_flow_advance(&flow, kMessageEmbedMediaGap))
                     return fail(presentation, MessageTextPresentationError::layout);
-                measured_items.embed_media_tops[index] = flow.cursor_y - flow.start_y;
+                measured_items.embed_media_tops[index] = ui_text_flow_required_height(flow);
                 measured_items.embed_media_widths[index] = media_width;
                 measured_items.embed_media_heights[index] = media_height;
                 const MessageMediaObscure obscure = message_scene_media_obscure(
@@ -2999,7 +2999,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                     const bool icon = message_rich_embed_footer_icon(*rich_store, embed).bytes != 0;
                     const float inset =
                         kMessageEmbedContentInset + (icon ? kMessageEmbedFooterIcon + kMessageEmbedIconGap : 0.0f);
-                    measured_items.embed_footer_tops[index] = flow.cursor_y - flow.start_y;
+                    measured_items.embed_footer_tops[index] = ui_text_flow_required_height(flow);
                     const u32 first = presentation->command_count;
                     if (!append_embed_plain_line(presentation, &context, line, &flow, inset, kMessageEmbedEndInset,
                                                  muted, owner, record->id, record->revision, measurement_index,

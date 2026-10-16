@@ -1,5 +1,6 @@
 #include "application_shell_input.hpp"
 #include "application_account_presentation.hpp"
+#include "application_account_text_retry.hpp"
 #include "application_state.hpp"
 #include "maicord/ui/splitter.hpp"
 
@@ -77,7 +78,7 @@ bool apply_pending_pane_layout() noexcept {
     if (!g_app.pane_layout_pending)
         return true;
     g_app.pane_layout_pending = false;
-    if (synchronize_shell_layout() && refresh_account_text(true))
+    if (synchronize_shell_layout() && refresh_account_text_for_layout())
         return true;
     g_app.pane_layout_pending = true;
     return false;

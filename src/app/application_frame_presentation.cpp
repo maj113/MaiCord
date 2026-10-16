@@ -29,6 +29,7 @@
 #include "application_window_resize.hpp"
 
 #include "application_account_presentation.hpp"
+#include "application_account_text_retry.hpp"
 #include "application_login_ui.hpp"
 #include "application_state.hpp"
 #include "application_ui_runtime.hpp"
@@ -411,7 +412,7 @@ void application_resize_surface(u32 width, u32 height) noexcept {
     const bool resized =
         renderer_resize(&g_app.renderer, static_cast<u32>(width), static_cast<u32>(height));
     const bool shell_ready = resized && synchronize_shell_layout();
-    const bool account_text_ready = shell_ready && refresh_account_text(true);
+    const bool account_text_ready = shell_ready && refresh_account_text_for_layout();
     const bool login_ready =
         account_text_ready && (!g_app.login.visible || application_synchronize_login_view());
     if (!application_present_resize_projection(login_ready)) {

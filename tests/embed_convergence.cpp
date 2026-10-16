@@ -3,6 +3,7 @@
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/message_component_layout.hpp"
+#include "maicord/ui/text_flow_layout.hpp"
 
 namespace maicord {
 namespace {
@@ -51,6 +52,17 @@ bool finish(void*, const Theme&) noexcept {
 } // namespace
 
 void test_embed_convergence(void (*check)(bool, const char*) noexcept) noexcept {
+    const float intrinsic_height = 550.0f * 457.0f / 1003.0f + 6.0f;
+    const float origins[]{0.0f, 98.015625f, 401.984375f, 907.984375f, -201.015625f};
+    bool translated_extent = true;
+    for (float top : origins) {
+        UiTextFlowLayout flow{};
+        const UiRect bounds{0, top, 550, top + 400};
+        translated_extent = translated_extent && ui_text_flow_initialize(&flow, bounds, bounds) &&
+                            ui_text_flow_advance(&flow, intrinsic_height) &&
+                            ui_text_flow_required_height(flow) == intrinsic_height;
+    }
+    check(translated_extent, "media_flow_measurement_is_independent_of_viewport_origin");
     if (!text_system_initialize(&text_system, L"Segoe UI", 16, L"en-US").ok()) {
         check(false, "embed_native_text_system");
         return;
@@ -161,6 +173,84 @@ void test_embed_convergence(void (*check)(bool, const char*) noexcept) noexcept 
                     message_text_coordinator_converge(request).ok();
     }
     check(scrolling, "embed_resize_converges_while_scrolling_rematerializes_rows");
+    GatewayMessageAttachment attachment{};
+    attachment.id = 91;
+    attachment.filename = utf8_literal("preview.png");
+    attachment.content_type = utf8_literal("image/png");
+    attachment.url = utf8_literal("https://example.com/preview.png");
+    attachment.width = 1003;
+    attachment.height = 457;
+    attachment.has_width = attachment.has_height = true;
+    GatewayMessageReaction reaction{};
+    reaction.emoji_id = 92;
+    reaction.name = utf8_literal("sample");
+    reaction.count = reaction.normal_count = 3;
+    message.embeds = {};
+    message.embed_fields = {};
+    message.attachments = {&attachment, 1};
+    message.reactions = {&reaction, 1};
+    message.fields |= gateway_message_field_attachments | gateway_message_field_reactions |
+                      gateway_message_field_referenced_message;
+    message.reference.state = GatewayMessageReferenceState::available;
+    message.reference.message_id = 90;
+    message.reference.author_name = utf8_literal("Sample author");
+    message.reference.content = utf8_literal("An image reply");
+    bool image_scrolling = true;
+    for (u64 id = 1; id <= 8; ++id) {
+        message.id = id;
+        const auto& previous = f.record[f.order[id - 1]];
+        const MessageInput body{id, previous.channel_id, previous.author_id, previous.timestamp_ms,
+                                0, utf8_literal("A sample body above the attachment.")};
+        image_scrolling = image_scrolling && message_store_upsert(&f.store, body).ok();
+        image_scrolling = image_scrolling && message_rich_store_apply(
+            &f.rich, id, f.record[f.order[id - 1]].revision, message).ok();
+    }
+    bool separated = true;
+    bool image_steady = true;
+    UiResolvedThemeStyles theme_styles{};
+    for (u32 step = 0; step < 8 && image_scrolling; ++step) {
+        if (step == 2 || step == 4) {
+            for (u64 id = 1; id <= 8; ++id) {
+                bool dimensions_changed = false;
+                image_scrolling = image_scrolling && message_rich_store_set_attachment_dimensions(
+                    &f.rich, id, f.record[f.order[id - 1]].revision, attachment.id, attachment.width,
+                    step == 2 ? 617 : attachment.height, &dimensions_changed) && dimensions_changed;
+            }
+        }
+        if (step == 6) {
+            UiThemeMetrics metrics{};
+            metrics.message_left = 22.25f;
+            metrics.message_rich_gap = 9.5f;
+            image_scrolling = image_scrolling &&
+                              ui_theme_styles_apply(&theme_styles, {}, metrics).ok() &&
+                              message_scene_bind_theme_styles(&f.scene, &theme_styles);
+        }
+        const float left = 351.0f + static_cast<float>(step) * 27.0f;
+        image_scrolling = image_scrolling && message_scene_update(&f.scene, {left, 98, 979, 908}).ok();
+        bool moved = false;
+        image_scrolling = image_scrolling && message_timeline_scroll_to_start(&f.timeline, &moved) &&
+                          message_timeline_scroll_by(&f.timeline, 60'000 + step * 31, 0, &moved) &&
+                          message_text_coordinator_converge(request).ok();
+        if (image_scrolling) {
+            const auto repeated = message_text_coordinator_converge(request);
+            image_steady = image_steady && repeated.ok() && repeated.passes == 1;
+        }
+        for (u32 index = 0; index < f.presentation.command_count && image_scrolling; ++index) {
+            const auto& command = f.commands[index];
+            if (command.measurement_kind != MessageTextMeasurementKind::content &&
+                command.measurement_kind != MessageTextMeasurementKind::reply)
+                continue;
+            const auto* row = message_scene_find_row(f.scene,
+                f.measurements[command.measurement_index].source_index);
+            const auto* media = row ? message_scene_rich_item_layout_node(
+                f.scene, *row, MessageSceneRichItemKind::attachment, 0) : nullptr;
+            separated = separated && media && command.rectangle.top + command.measured_height <=
+                                                   media->rectangle.top;
+        }
+    }
+    check(image_scrolling, "image_reply_reaction_text_converges_at_fractional_scroll_origins");
+    check(image_scrolling && separated, "image_reply_body_text_stays_above_the_attachment");
+    check(image_scrolling && image_steady, "image_metrics_stay_stable_after_resize_theme_and_metadata_changes");
     message_scene_release(&f.scene);
     text_system_release(&text_system);
 }

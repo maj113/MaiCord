@@ -14,10 +14,12 @@ bool advance_cursor(UiTextFlowLayout* flow, float extent) noexcept {
     if (!ui_extent_valid(extent)) {
         return fail(flow, UiTextFlowError::invalid_item);
     }
-    const float next = flow->cursor_y + extent;
-    if (!ui_coordinate_valid(next) || next < flow->cursor_y) {
+    const float height = flow->required_height + extent;
+    const float next = flow->content_rectangle.top + height;
+    if (!ui_coordinate_valid(next) || height < flow->required_height || next < flow->cursor_y) {
         return fail(flow, UiTextFlowError::coordinate_overflow);
     }
+    flow->required_height = height;
     flow->cursor_y = next;
     flow->overflow = flow->overflow || next > flow->content_rectangle.bottom + kUiTextFlowOverflowTolerance;
     return true;
@@ -37,7 +39,6 @@ bool ui_text_flow_initialize(UiTextFlowLayout* flow, UiRect content_rectangle,
     *flow = UiTextFlowLayout{};
     flow->content_rectangle = content_rectangle;
     flow->clip_rectangle = clip_rectangle;
-    flow->start_y = content_rectangle.top;
     flow->cursor_y = content_rectangle.top;
     flow->active = true;
     return true;
@@ -106,10 +107,7 @@ bool ui_text_flow_ensure_extent(UiTextFlowLayout* flow, float minimum_extent) no
 }
 
 float ui_text_flow_required_height(const UiTextFlowLayout& flow) noexcept {
-    if (!flow.active || flow.cursor_y < flow.start_y) {
-        return 0.0f;
-    }
-    return flow.cursor_y - flow.start_y;
+    return flow.active ? flow.required_height : 0.0f;
 }
 
 } // namespace maicord

@@ -18,7 +18,8 @@ enum class UiTextFlowError : u8 {
 struct UiTextFlowLayout {
     UiRect content_rectangle;
     UiRect clip_rectangle;
-    float start_y;
+    // Keep measured extent independent of the viewport/scroll origin.
+    float required_height;
     float cursor_y;
     u32 item_count;
     u32 spacer_count;
