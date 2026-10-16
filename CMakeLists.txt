@@ -32,8 +32,8 @@ set(CMAKE_CONFIGURATION_TYPES Release CACHE STRING "Build configurations" FORCE)
 project(MaiCord VERSION 0.3.0 LANGUAGES C CXX RC ASM_MASM)
 
 # Shipping build: MaiCord.exe and MaiCordAccount.dll. Targets defined up to
-# cmake/tests.cmake are production targets (tools/maintain_build_outputs.ps1
-# never treats their outputs as temporary).
+# cmake/tests.cmake are production targets. Their intermediate products are
+# removed by runtime-only finalization after the wrapper finishes.
 include(cmake/build_contract.cmake)     # compiler/linker contract, maicord_library/maicord_program
 include(cmake/generated_sources.cmake)  # packed UI data, shaders, icon, sounds
 include(cmake/libraries.cmake)          # shipping static libraries
@@ -45,3 +45,4 @@ include(cmake/tests.cmake)              # MAICORD_BUILD_TESTS (tools/build.ps1 -
 include(cmake/perf_probe.cmake)         # MAICORD_BUILD_PERF_PROBE (tools/build.ps1 -PerfProbe)
 include(cmake/benchmarks.cmake)         # MAICORD_BUILD_BENCHMARKS (tools/benchmark_*.ps1)
 include(cmake/integration.cmake)        # MAICORD_BUILD_INTEGRATION_TESTS (tools/probe_*.ps1)
+include(cmake/build_outputs.cmake)      # transient ownership for runtime-only cleanup

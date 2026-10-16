@@ -3,7 +3,7 @@
 param(
     [ValidateSet('Release')][string]$Configuration = 'Release',
     [Alias('Tests')][switch]$Test,
-    # Keep link maps for size analysis. A normal build removes these temporary maps.
+    # Emit link maps for in-run size analysis; finalization removes them.
     [switch]$LinkMaps,
     [switch]$AudioPlaybackProbe,
     # Build and run tests without relinking the client (e.g. while it is running):
@@ -61,6 +61,7 @@ $cacheRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 
 $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
 $locked = $false
 $pushed = $false
+$invocationFailure = $null
 $previousBytecode = $env:PYTHONDONTWRITEBYTECODE
 
 function Invoke-CMake([string[]]$Arguments) {
@@ -424,25 +425,26 @@ try {
                 Get-ChildItem -LiteralPath $crashDumps -Filter 'MaiCord?*.exe.*.dmp' -File -ErrorAction SilentlyContinue |
                     Remove-Item -Force -ErrorAction SilentlyContinue
             }
-            try {
-                Invoke-CMake -Arguments @('--preset', 'x64-release', '-DMAICORD_BUILD_TESTS=OFF', '-DMAICORD_BUILD_PERF_PROBE=OFF', '-DMAICORD_TEST_AUDIO_PLAYBACK=OFF', '-DMAICORD_TEST_PROFILE_DIRECTORY=', '-DMAICORD_TEST_PROFILE_NAMES=')
-                & (Join-Path $PSScriptRoot 'maintain_build_outputs.ps1') -Apply -ConfigureScratch
-                foreach ($logName in @('.ninja_log', '.ninja_deps')) {
-                    $logPath = Join-Path $cacheRoot $logName
-                    if ((Test-Path -LiteralPath $logPath) -and ((Get-Item -LiteralPath $logPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-                        throw "Reparse point in Ninja state: $logPath"
-                    }
-                }
-                & ninja -C $cacheRoot -t recompact
-                if ($LASTEXITCODE -ne 0) { throw 'Ninja dependency/log compaction failed.' }
-            }
-            catch { if (!$primaryFailure) { $primaryFailure = $_ } else { Write-Warning "Restoring shipping-only configuration failed: $_" } }
         }
         if ($primaryFailure) { throw $primaryFailure }
     }
+} catch {
+    $invocationFailure = $_
+    throw
 } finally {
-    $env:PYTHONDONTWRITEBYTECODE = $previousBytecode
-    if ($pushed) { Pop-Location }
-    if ($locked) { $mutex.ReleaseMutex() }
-    $mutex.Dispose()
+    try {
+        # Keep runtime assets only. The next invocation regenerates the one
+        # Release cache; configuring tests OFF here would recreate discarded files.
+        if ($locked -and $pushed -and (Test-Path -LiteralPath (Join-Path $cacheRoot 'maicord-build-outputs.txt'))) {
+            & (Join-Path $PSScriptRoot 'maintain_build_outputs.ps1') -Apply -RuntimeOnly
+        }
+    } catch {
+        if ($invocationFailure) { Write-Warning "Runtime-only finalization failed: $_" }
+        else { throw }
+    } finally {
+        $env:PYTHONDONTWRITEBYTECODE = $previousBytecode
+        if ($pushed) { Pop-Location }
+        if ($locked) { $mutex.ReleaseMutex() }
+        $mutex.Dispose()
+    }
 }

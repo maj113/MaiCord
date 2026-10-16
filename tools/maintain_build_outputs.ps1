@@ -3,6 +3,7 @@
 param(
     [switch]$Apply,
     [switch]$ConfigureScratch,
+    [switch]$RuntimeOnly,
     [string[]]$NewFiles = @(),
     [string]$TestProfile
 )
@@ -165,8 +166,90 @@ if ($resourceNames.Contains('indic_input_fixtures.rc')) {
 }
 # The test-only showcase plugin's stamped manifest (rewritten by every link, so
 # it is never a new file of the run that last wrote it).
-foreach ($pluginManifest in Get-ChildItem -LiteralPath $releaseRoot -File -Filter '*.maicord-plugin.json' -Force) {
-    [void]$targets.Add((Assert-ReleasePath $pluginManifest.FullName))
+if ($allowedTargets.Contains('MaiCordShowcasePlugin')) {
+    $pluginManifest = Assert-ReleasePath (Join-Path $releaseRoot 'showcase.maicord-plugin.json')
+    if (Test-Path -LiteralPath $pluginManifest -PathType Leaf) { [void]$targets.Add($pluginManifest) }
+}
+if ($RuntimeOnly) {
+    $ConfigureScratch = $true
+    $ownership = Assert-ReleasePath (Join-Path $releaseRoot 'maicord-build-outputs.txt')
+    if (!(Test-Path -LiteralPath $ownership -PathType Leaf)) {
+        throw 'Runtime-only cleanup requires the CMake build-output ownership manifest.'
+    }
+    $records = @(Get-Content -LiteralPath $ownership)
+    if (!$records.Count -or $records[0] -ne ('repository|' + $repository.Replace('\', '/'))) {
+        throw 'Build-output ownership manifest belongs to a different repository.'
+    }
+    foreach ($record in $records | Select-Object -Skip 1) {
+        if (!$record) { continue }
+        if ($record -notmatch '^(file|objects)\|(.+)$') { throw 'Invalid build-output ownership record.' }
+        $kind = $Matches[1]
+        $path = Assert-ReleasePath $Matches[2]
+        if ($kind -eq 'file') {
+            if ($path -in @((Join-Path $releaseRoot 'MaiCord.exe'), (Join-Path $releaseRoot 'MaiCordAccount.dll'))) { continue }
+            # Runtime directories can never become disposable through a manifest.
+            if ($path.StartsWith((Join-Path $releaseRoot 'fonts') + '\', [StringComparison]::OrdinalIgnoreCase) -or
+                $path.StartsWith((Join-Path $releaseRoot 'licenses') + '\', [StringComparison]::OrdinalIgnoreCase)) {
+                throw 'Runtime asset appeared in the disposable build-output manifest.'
+            }
+            if (Test-Path -LiteralPath $path -PathType Leaf) { [void]$targets.Add($path) }
+            if ([IO.Path]::GetExtension($path) -in @('.exe', '.dll', '.lib')) {
+                foreach ($extension in @('.lib', '.exp', '.pdb', '.map', '.ilk', '.iobj', '.ipdb')) {
+                    $sidecar = Assert-ReleasePath ([IO.Path]::ChangeExtension($path, $extension))
+                    if (Test-Path -LiteralPath $sidecar -PathType Leaf) { [void]$targets.Add($sidecar) }
+                }
+            }
+        } else {
+            if ($path -notmatch '\\CMakeFiles\\[A-Za-z0-9_.+-]+\.dir$') { throw 'Invalid build object directory.' }
+            if (!(Test-Path -LiteralPath $path -PathType Container)) { continue }
+            $pending = [Collections.Generic.Queue[string]]::new()
+            $pending.Enqueue($path)
+            while ($pending.Count) {
+                $directory = Assert-ReleasePath $pending.Dequeue()
+                [void]$scratchDirectories.Add($directory)
+                foreach ($child in Get-ChildItem -LiteralPath $directory -Force) {
+                    $childPath = Assert-ReleasePath $child.FullName
+                    if ($child.PSIsContainer) { $pending.Enqueue($childPath) }
+                    elseif ($child.Extension -match '^\.(obj|res|rsp|pdb|idb|iobj|ipdb|ilk|exp|lib|pch|i)$' -or
+                        $child.Name -cmatch '^application_pch_O(?:2|s)\.cpp$') { [void]$targets.Add($childPath) }
+                }
+            }
+        }
+    }
+    foreach ($name in @('CMakeCache.txt', 'build.ninja', 'cmake_install.cmake', '.ninja_deps', '.ninja_log', '.ninja_lock',
+            'CTestTestfile.cmake', 'maicord-test-targets.txt', 'maicord-test-shards.txt', 'notification_sounds.rc',
+            'MaiCord.map', 'MaiCordAccount.map',
+            'CMakeFiles\cmake.check_cache', 'CMakeFiles\cmake.verify_globs', 'CMakeFiles\InstallScripts.json',
+            'CMakeFiles\rules.ninja', 'CMakeFiles\TargetDirectories.txt', 'CMakeFiles\VerifyGlobs.cmake',
+            'CMakeFiles\ShowIncludes\foo.h', 'CMakeFiles\ShowIncludes\main.c', 'CMakeFiles\ShowIncludes\main.obj')) {
+        $path = Assert-ReleasePath (Join-Path $releaseRoot $name)
+        if (Test-Path -LiteralPath $path -PathType Leaf) { [void]$targets.Add($path) }
+    }
+    foreach ($version in Get-ChildItem -LiteralPath (Join-Path $releaseRoot 'CMakeFiles') -Directory -Force) {
+        if ($version.Name -notmatch '^\d+\.\d+(?:\.\d+)?$') { continue }
+        foreach ($name in @('CMakeASM_MASMCompiler.cmake', 'CMakeCCompiler.cmake', 'CMakeCXXCompiler.cmake',
+                'CMakeRCCompiler.cmake', 'CMakeSystem.cmake', 'CMakeDetermineCompilerABI_C.bin', 'CMakeDetermineCompilerABI_CXX.bin')) {
+            $path = Assert-ReleasePath (Join-Path $version.FullName $name)
+            if (Test-Path -LiteralPath $path -PathType Leaf) { [void]$targets.Add($path) }
+        }
+    }
+    [void]$targets.Add($ownership)
+    # Include empty configure-created directories without treating unknown
+    # files in them as disposable products.
+    foreach ($name in @('generated', 'CMakeFiles', 'third_party')) {
+        $root = Assert-ReleasePath (Join-Path $releaseRoot $name)
+        if (!(Test-Path -LiteralPath $root -PathType Container)) { continue }
+        $pending = [Collections.Generic.Queue[string]]::new()
+        $pending.Enqueue($root)
+        while ($pending.Count) {
+            $directory = Assert-ReleasePath $pending.Dequeue()
+            [void]$scratchDirectories.Add($directory)
+            foreach ($child in Get-ChildItem -LiteralPath $directory -Force) {
+                [void](Assert-ReleasePath $child.FullName)
+                if ($child.PSIsContainer) { $pending.Enqueue($child.FullName) }
+            }
+        }
+    }
 }
 if ($ConfigureScratch) {
     # The resource editor's precompiled cache is not a build input or runtime asset.
@@ -208,6 +291,29 @@ if ($ConfigureScratch) {
     }
 }
 if ($Apply) {
+    function Test-ExplicitOtherBuild($ProcessRecord) {
+        $option = if ($ProcessRecord.Name -eq 'ctest.exe') { '--test-dir' }
+            elseif ($ProcessRecord.Name -eq 'cmake.exe') { '--build' } else { return $false }
+        $match = [regex]::Match($ProcessRecord.CommandLine,
+            '(?:^|\s)' + $option + '(?:=|\s+)(?:"(?<path>[A-Za-z]:[\\/][^"]+)"|(?<path>[A-Za-z]:[\\/][^\s"]+))(?=\s|$)')
+        if (!$match.Success) { return $false }
+        $other = [IO.Path]::GetFullPath($match.Groups['path'].Value)
+        foreach ($protected in @($repository, $releaseRoot)) {
+            $otherPrefix = $other.TrimEnd('\') + '\'
+            $protectedPrefix = $protected.TrimEnd('\') + '\'
+            if ($otherPrefix.Equals($protectedPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+                $other.StartsWith($protectedPrefix, [StringComparison]::OrdinalIgnoreCase) -or
+                $protected.StartsWith($otherPrefix, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+        }
+        if (!(Test-Path -LiteralPath $other -PathType Container)) { return $false }
+        # An explicit outside path is proof only if no ancestor redirects it.
+        $ancestor = $other
+        while ($ancestor) {
+            if ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { return $false }
+            $ancestor = [IO.Path]::GetDirectoryName($ancestor)
+        }
+        return $true
+    }
     $processes = @(Get-CimInstance Win32_Process)
     $processHandles = [Collections.Generic.List[Diagnostics.Process]]::new()
     $exitGrace = [Diagnostics.Stopwatch]::StartNew()
@@ -244,6 +350,7 @@ if ($Apply) {
                 [Math]::Abs(($started - $process.CreationDate.ToUniversalTime()).Ticks) -ge 10) {
                 throw "Build or test process identity changed ($($process.Name), PID $($process.ProcessId)); temporary outputs were retained."
             }
+            if ($builder -and !$target -and (Test-ExplicitOtherBuild $process)) { continue }
             # Briefly tolerate a verified process finishing at the snapshot
             # boundary. All candidates share one second, outside test timing.
             $remainingGrace = [Math]::Max(0, 1000 - [int]$exitGrace.ElapsedMilliseconds)
@@ -289,28 +396,8 @@ foreach ($target in $allowedTargets) {
     }
 }
 foreach ($path in $targets) { [void](Assert-ReleasePath $path) }
-# Prune outputs of targets the current build graph no longer references, such as
-# test objects and executables left behind by an interrupted test run.
-$ninjaFile = Join-Path $releaseRoot 'build.ninja'
-if ($ConfigureScratch -and (Test-Path -LiteralPath $ninjaFile -PathType Leaf)) {
-    $graph = [IO.File]::ReadAllText($ninjaFile)
-    if ($graph.Contains('MaiCord.exe') -and $graph.Contains('MaiCordAccount.dll')) {
-        foreach ($directory in Get-ChildItem -LiteralPath (Join-Path $releaseRoot 'CMakeFiles') -Directory -Filter '*.dir' -Force) {
-            $name = $directory.Name
-            if ($graph.Contains("CMakeFiles\$name\") -or $graph.Contains("CMakeFiles/$name/")) { continue }
-            $root = Assert-ReleasePath $directory.FullName
-            [void]$parents.Add($root)
-            foreach ($child in Get-ChildItem -LiteralPath $root -Directory -Recurse -Force) { [void]$parents.Add((Assert-ReleasePath $child.FullName)) }
-            foreach ($file in Get-ChildItem -LiteralPath $root -File -Recurse -Force) { [void]$targets.Add((Assert-ReleasePath $file.FullName)) }
-        }
-        foreach ($file in Get-ChildItem -LiteralPath $releaseRoot -File -Force) {
-            if ($file.Extension -notmatch '^\.(exe|dll|lib|exp|pdb|map|ilk)$') { continue }
-            if ($graph.Contains($file.Name)) { continue }
-            [void]$targets.Add((Assert-ReleasePath $file.FullName))
-        }
-    }
-}
-foreach ($path in $targets) {
+$orderedTargets = @($targets | Where-Object { !$RuntimeOnly -or $_ -ne $ownership })
+foreach ($path in $orderedTargets) {
     Assert-CurrentPlain $path
     $removedBytes += (Get-Item -LiteralPath $path -Force).Length
     if ($Apply) { Remove-Item -LiteralPath $path -Force }
@@ -332,6 +419,12 @@ if ($Apply) {
     foreach ($root in $ownedTestRoots) {
         if (Test-Path -LiteralPath $root) { throw "Owned temporary test directory remains: $root" }
     }
+}
+# Keep retry authority through every file/directory operation and assertion.
+if ($RuntimeOnly) {
+    Assert-CurrentPlain $ownership
+    $removedBytes += (Get-Item -LiteralPath $ownership -Force).Length
+    if ($Apply) { Remove-Item -LiteralPath $ownership -Force }
 }
 $bytes = [long]((Get-ChildItem -LiteralPath $releaseRoot -File -Recurse -Force | Measure-Object Length -Sum).Sum)
 [pscustomobject]@{ ReleaseDirectory = $releaseRoot; Bytes = $bytes; TemporaryFiles = $targets.Count; TemporaryBytes = $removedBytes; RemovedDirectories = $removedDirectories; Removed = [bool]$Apply }
