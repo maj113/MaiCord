@@ -186,8 +186,132 @@ void sort_records(Slice<char> output, u32 count) noexcept {
         swap_records(output, 0, end - 1); sift(output, 0, end - 1);
     }
 }
+struct CursorRoot {
+    JsonValue rows;
+    u64 guild_id;
+    Utf8View array_name;
+    u8 seen;
+    GatewayEventDecodeError error;
+};
+bool cursor_root_field(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& root = *static_cast<CursorRoot*>(opaque);
+    const u8 bit = static_cast<u8>(json_string_equals_ascii(name, utf8_literal("guild_id")) ? 1u
+                   : json_string_equals_ascii(name, root.array_name) ? 2u : 0u);
+    if (!bit) return true;
+    if (root.seen & bit) return reject(&root.error, GatewayEventDecodeError::duplicate_field);
+    root.seen |= bit;
+    if (bit == 1) {
+        if (!json_value_to_snowflake(value, &root.guild_id)) return reject(&root.error);
+    } else {
+        if (value.kind != JsonValueKind::array) return reject(&root.error);
+        root.rows = value;
+    }
+    return true;
+}
+struct CursorRow {
+    GatewayClientChannelCursor record;
+    u8 seen;
+    GatewayEventDecodeError error;
+};
+bool cursor_row_field(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& row = *static_cast<CursorRow*>(opaque);
+    const u8 bit = static_cast<u8>(json_string_equals_ascii(name, utf8_literal("id")) ? 1u
+                   : json_string_equals_ascii(name, utf8_literal("last_message_id")) ? 2u : 0u);
+    // Optional pin metadata does not imply a pin change or a read acknowledgement.
+    if (!bit) return true;
+    if (row.seen & bit) return reject(&row.error, GatewayEventDecodeError::duplicate_field);
+    row.seen |= bit;
+    if (bit == 1) {
+        if (!json_value_to_snowflake(value, &row.record.channel_id))
+            return reject(&row.error, GatewayEventDecodeError::invalid_channel_id);
+    } else if (!json_value_to_nullable_snowflake(value, &row.record.last_message_id))
+        return reject(&row.error, GatewayEventDecodeError::invalid_message_id);
+    return true;
+}
+struct CursorRows {
+    JsonIndexedDocument document;
+    Slice<char> storage;
+    u32 depth, count;
+    GatewayClientDispatchRouteResult result;
+};
+bool cursor_row(void* opaque, u32, JsonValue value) noexcept {
+    auto& rows = *static_cast<CursorRows*>(opaque);
+    if (value.kind != JsonValueKind::object) {
+        rows.result = failure(GatewayEventDecodeError::invalid_data, value.source_offset); return false;
+    }
+    CursorRow row{};
+    const auto read = json_visit_indexed_object(rows.document, value, rows.depth, cursor_row_field, &row);
+    if (!read.ok()) {
+        rows.result = failure(row.error != GatewayEventDecodeError::none ? row.error :
+            GatewayEventDecodeError::invalid_json, read.error_offset, JsonScanError::none, read.error);
+        return false;
+    }
+    if (row.seen != 3) {
+        rows.result = failure(GatewayEventDecodeError::missing_required_field, value.source_offset); return false;
+    }
+    if (rows.count == kGatewayChannelCursorMaximumEntries ||
+        (rows.count + 1) * sizeof(row.record) > rows.storage.count) {
+        rows.result.error = GatewayClientDispatchRouteError::payload_capacity; return false;
+    }
+    copy_bytes(rows.storage.data + rows.count * sizeof(row.record), &row.record, sizeof(row.record));
+    ++rows.count;
+    return true;
+}
 } // namespace
 
+GatewayClientDispatchRouteResult gateway_client_route_channel_cursors(const GatewayEnvelope& envelope,
+    Slice<u32> scratch, u32 depth, Slice<char> storage,
+    GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
+    if (payload) *payload = {};
+    if (!event || !payload || !scratch.data || !scratch.count || !depth ||
+        (!storage.data && storage.count) || scratch.count > 0x3fffffffu ||
+        byte_ranges_overlap({reinterpret_cast<const u8*>(envelope.data.source.data), envelope.data.source.bytes},
+                            {reinterpret_cast<const u8*>(storage.data), storage.count}) ||
+        byte_ranges_overlap({reinterpret_cast<const u8*>(scratch.data), scratch.count * 4u},
+                            {reinterpret_cast<const u8*>(storage.data), storage.count}))
+        return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
+    CursorRoot root{};
+    if (json_string_equals_ascii(envelope.event_name, utf8_literal("PASSIVE_UPDATE_V2")))
+        root.array_name = utf8_literal("updated_channels");
+    else if (json_string_equals_ascii(envelope.event_name, utf8_literal("CHANNEL_UNREAD_UPDATE")))
+        root.array_name = utf8_literal("channel_unread_updates");
+    else return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};
+    if (envelope.data.kind != JsonValueKind::object)
+        return failure(GatewayEventDecodeError::invalid_data);
+    const auto scan = json_scan_structurals_avx1(envelope.data.source, scratch);
+    if (!scan.ok()) return failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+    const JsonIndexedDocument document{envelope.data.source, {scratch.data, scan.count}};
+    const auto read = json_visit_value_object(envelope.data, document.structurals, depth, cursor_root_field, &root);
+    if (!read.ok()) return failure(root.error != GatewayEventDecodeError::none ? root.error :
+        GatewayEventDecodeError::invalid_json, read.error_offset, JsonScanError::none, read.error);
+    if (root.seen != 3) return failure(GatewayEventDecodeError::missing_required_field);
+    CursorRows rows{document, storage, depth, 0, {}};
+    const auto array = json_visit_indexed_array(document, root.rows, depth, cursor_row, &rows);
+    if (!rows.result.ok()) return rows.result;
+    if (!array.ok()) return failure(GatewayEventDecodeError::invalid_json, array.error_offset,
+        JsonScanError::none, array.error);
+    event->kind = GatewayClientEventKind::dispatch;
+    event->sequence = envelope.sequence; event->has_sequence = envelope.has_sequence;
+    event->dispatch_kind = GatewayClientDispatchKind::channel_cursor_update;
+    event->state = {};
+    event->state.guild_id = root.guild_id;
+    event->state.fields = gateway_client_state_field_guild_id;
+    event->state.record_count = rows.count;
+    event->dispatch_payload_bytes = rows.count * u32{sizeof(GatewayClientChannelCursor)};
+    *payload = {reinterpret_cast<const u8*>(storage.data), event->dispatch_payload_bytes};
+    return {};
+}
+bool gateway_client_channel_cursor_record(ConstSlice<u8> payload, u32 index,
+    GatewayClientChannelCursor* output) noexcept {
+    if (!output || !payload.data || payload.count % sizeof(GatewayClientChannelCursor) ||
+        payload.count / sizeof(GatewayClientChannelCursor) > kGatewayChannelCursorMaximumEntries ||
+        index >= payload.count / sizeof(GatewayClientChannelCursor)) return false;
+    GatewayClientChannelCursor record{};
+    copy_bytes(&record, payload.data + index * sizeof(record), sizeof(record));
+    if (!record.channel_id) return false;
+    *output = record;
+    return true;
+}
 GatewayClientDispatchRouteResult gateway_client_read_state_metadata(JsonValue data,
     Slice<u32> scratch, u32 depth, GatewayClientReadStateEvent* output) noexcept {
     if (!output) return {GatewayEventDecodeError::none, GatewayClientDispatchRouteError::invalid_input};

@@ -113,7 +113,7 @@ void dormant_abi() noexcept {
     if (!host.module)
         return;
     const auto poll = lunch();
-    check(host.api.version == 130 && host.api.bytes == 1176 && host.api.poll_create &&
+    check(host.api.version == 131 && host.api.bytes == 1176 && host.api.poll_create &&
               host.api.poll_create(nullptr, 20, 77, &poll, 1).error ==
                   RestClientSubmitError::invalid_input &&
               host.api.poll_create(nullptr, 20, 77, nullptr, 1).error ==

@@ -230,6 +230,9 @@ enum class GatewayClientDispatchKind : u8 {
     soundboard_sounds,
     // GUILD_BULK_BAN_UPDATE, verbatim JSON (guild_moderation.hpp decodes it).
     guild_bulk_ban_update,
+    // state.guild_id and state.record_count, followed by ChannelCursor records.
+    // Latest activity only: never a read cursor, message body or mention count.
+    channel_cursor_update,
 };
 
 enum class GatewayClientDispatchRouteError : u8 {
@@ -252,6 +255,13 @@ inline constexpr u32 kGatewayClientEventNameCapacity = 64;
 inline constexpr u32 kGatewayClientEventCapacity = 256;
 // Ordinary typed records, the mailbox ring and the UI pop scratch.
 inline constexpr u32 kGatewayClientDispatchPayloadCapacity = 128 * 1024;
+struct GatewayClientChannelCursor {
+    u64 channel_id;
+    u64 last_message_id; // Zero is a nullable cursor with no forward activity.
+};
+static_assert(sizeof(GatewayClientChannelCursor) == 16);
+inline constexpr u32 kGatewayChannelCursorMaximumEntries =
+    kGatewayClientDispatchPayloadCapacity / sizeof(GatewayClientChannelCursor);
 // A whole guild snapshot at the server's own limits (500 channels plus active
 // threads with 160-byte headers, names and 32 bytes per permission overwrite,
 // 250 roles, the emoji list) can exceed the ordinary capacity. Only such a
@@ -1304,6 +1314,13 @@ u32 gateway_client_user_runtime_bytes() noexcept;
 bool gateway_client_ready_matches_identity(GatewayClientIdentity identity,
                                            const GatewayReady& ready) noexcept;
 
+// Shared unread-channel normalization. Staging storage may be touched on error;
+// the descriptor and payload are committed only after the complete array validates.
+GatewayClientDispatchRouteResult gateway_client_route_channel_cursors(const GatewayEnvelope& envelope,
+    Slice<u32> structural_scratch, u32 maximum_depth, Slice<char> storage,
+    GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept;
+bool gateway_client_channel_cursor_record(ConstSlice<u8> payload, u32 index,
+    GatewayClientChannelCursor* output) noexcept;
 // Deterministic worker-side routing boundary. It decodes supported message
 // mutations while the Gateway envelope views are still valid. Returned payload
 // bytes point into content_scratch or bulk_ids and must be copied before reuse.

@@ -56,10 +56,79 @@ bool ready(Utf8View data, GatewayReady* output) noexcept {
     return gateway_decode_ready({data, 0, JsonValueKind::object},
         {structurals, structural_count}, 64, output).ok();
 }
+GatewayClientDispatchRouteResult cursors(Utf8View name, Utf8View data, GatewayClientEvent* event,
+    ConstSlice<u8>* payload, u32 capacity = sizeof(storage), bool direct = false) noexcept {
+    GatewayEnvelope envelope{};
+    envelope.has_event_name = true; envelope.event_name = {name, 0, false};
+    envelope.data = {data, 0, JsonValueKind::object};
+    envelope.sequence = 42; envelope.has_sequence = true;
+    if (direct) return gateway_client_route_channel_cursors(envelope, {structurals, structural_count},
+        64, {storage, capacity}, event, payload);
+    return gateway_client_route_dispatch(envelope, {structurals, structural_count}, 64,
+        {storage, capacity}, {}, event, payload);
+}
+void cursor_cases(void (*check)(bool, const char*) noexcept) noexcept {
+    constexpr auto passive = utf8_literal("PASSIVE_UPDATE_V2");
+    constexpr auto unread = utf8_literal("CHANNEL_UNREAD_UPDATE");
+    constexpr auto body = utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"81\",\"last_message_id\":null,\"last_pin_timestamp\":null},{\"id\":\"80\",\"last_message_id\":\"200\"}],\"updated_voice_states\":[]}");
+    GatewayClientEvent event{}; ConstSlice<u8> payload{};
+    GatewayClientChannelCursor first{}, second{};
+    check(cursors(passive, body, &event, &payload).ok() && event.sequence == 42 && event.has_sequence &&
+        event.dispatch_kind == GatewayClientDispatchKind::channel_cursor_update && event.state.guild_id == 7 &&
+        event.state.record_count == 2 && payload.count == 32 &&
+        gateway_client_channel_cursor_record(payload, 0, &first) && first.channel_id == 81 && !first.last_message_id &&
+        gateway_client_channel_cursor_record(payload, 1, &second) && second.channel_id == 80 && second.last_message_id == 200,
+        "channel cursor wire: passive rows retain guild, nullable latest and sequence without voice payload");
+    check(spsc_mailbox_push(&mailbox, event, payload).ok(), "channel cursor wire: normalized rows enter existing mailbox");
+    clear_bytes(storage, 32);
+    GatewayClientEvent popped{};
+    const auto read = spsc_mailbox_pop(&mailbox, &popped, {popped_bytes, sizeof(popped_bytes)});
+    check(read.ok() && popped.sequence == 42 && popped.state.record_count == 2 &&
+        gateway_client_channel_cursor_record({popped_bytes, read.payload_bytes}, 1, &second) && second.last_message_id == 200,
+        "channel cursor wire: mailbox owns rows after normalization storage is reused");
+    check(cursors(unread, utf8_literal("{\"guild_id\":\"7\",\"channel_unread_updates\":[{\"id\":\"80\",\"last_message_id\":\"200\",\"last_pin_timestamp\":\"2026-10-17T00:00:00Z\"}]}"),
+        &event, &payload).ok() && event.state.record_count == 1 &&
+        gateway_client_channel_cursor_record(payload, 0, &first) && first.channel_id == 80 && first.last_message_id == 200,
+        "channel cursor wire: ordinary unread update shares normalization and ignores optional pin metadata");
+    const Utf8View malformed[]{
+        utf8_literal("{\"updated_channels\":[]}"),
+        utf8_literal("{\"guild_id\":\"7\"}"),
+        utf8_literal("{\"guild_id\":\"7\",\"guild_id\":\"8\",\"updated_channels\":[]}"),
+        utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[],\"updated_channels\":[]}"),
+        utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":null}"),
+        utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[false]}"),
+        utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"last_message_id\":null}]}"),
+        utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"80\"}]}"),
+        utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"80\",\"id\":\"81\",\"last_message_id\":null}]}"),
+        utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"80\",\"last_message_id\":null,\"last_message_id\":\"200\"}]}"),
+        utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":80,\"last_message_id\":null}]}"),
+        utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"80\",\"last_message_id\":200}]}"),
+        utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"80\",\"last_message_id\":\"200\"},{\"id\":\"81\",\"last_message_id\":false}]}"),
+    };
+    for (const auto data : malformed) {
+        const auto before = event;
+        check(!cursors(passive, data, &event, &payload, sizeof(storage), true).ok() && !payload.count &&
+            bytes_equal(&before, &event, sizeof(event)),
+            "channel cursor wire: malformed or incomplete batch never commits a partial descriptor");
+    }
+    const auto before = event;
+    check(!cursors(passive, body, &event, &payload, 31, true).ok() && !payload.count &&
+        bytes_equal(&before, &event, sizeof(event)),
+        "channel cursor wire: output capacity refusal never publishes a valid prefix");
+    check(cursors(passive, utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[]}"), &event, &payload, 0).ok() &&
+        !event.state.record_count && !payload.count, "channel cursor wire: empty batch needs no payload storage");
+    first = {80, 200}; second = first;
+    GatewayClientChannelCursor invalid{}; copy_bytes(storage, &invalid, sizeof(invalid));
+    check(!gateway_client_channel_cursor_record({reinterpret_cast<const u8*>(storage), 16}, 0, &first) &&
+        bytes_equal(&first, &second, sizeof(first)) &&
+        !gateway_client_channel_cursor_record({reinterpret_cast<const u8*>(storage), 15}, 0, &first),
+        "channel cursor wire: invalid typed records leave caller output unchanged");
+}
 } // namespace read_wire_probe
 
 void test_read_state_wire(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace read_wire_probe;
+    cursor_cases(check);
     GatewayClientEvent event{}; ConstSlice<u8> payload{};
     GatewayClientReadStateMutation first{}, second{}, third{};
     constexpr auto full = utf8_literal("{\"version\":7,\"partial\":false,\"entries\":[{\"id\":\"99\",\"last_message_id\":\"80\",\"mention_count\":4,\"flags\":4294967295,\"last_viewed\":4000},{\"read_state_type\":1,\"id\":\"7\",\"last_acked_id\":\"70\",\"badge_count\":2},{\"read_state_type\":null,\"id\":\"50\",\"last_message_id\":null,\"mention_count\":null},{\"id\":\"60\",\"last_message_id\":0}]}");

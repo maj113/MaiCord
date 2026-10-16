@@ -1225,6 +1225,10 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
     event->sequence = envelope.sequence;
     event->has_sequence = envelope.has_sequence;
     event->dispatch_kind = GatewayClientDispatchKind::unknown;
+    if (json_string_equals_ascii(envelope.event_name, utf8_literal("PASSIVE_UPDATE_V2")) ||
+        json_string_equals_ascii(envelope.event_name, utf8_literal("CHANNEL_UNREAD_UPDATE")))
+        return gateway_client_route_channel_cursors(envelope, structural_scratch, maximum_depth,
+                                                     content_scratch, event, payload);
     if (notification_route(envelope, structural_scratch, content_scratch, event, payload))
         return {};
     if (json_string_equals_ascii(envelope.event_name, utf8_literal("MESSAGE_ACK")))

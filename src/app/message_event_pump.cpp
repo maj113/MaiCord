@@ -1073,6 +1073,55 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             pump->read_token_reset(pump->read_ack_cancel_context);
         return result;
     }
+    if (event.kind == GatewayClientEventKind::dispatch &&
+        event.dispatch_kind == GatewayClientDispatchKind::channel_cursor_update) {
+        // Validate the whole batch before updating even its first resident channel.
+        bool valid = event.state.guild_id && event.state.fields == gateway_client_state_field_guild_id &&
+            event.state.record_count <= kGatewayChannelCursorMaximumEntries &&
+            payload.count == event.state.record_count * u32{sizeof(GatewayClientChannelCursor)};
+        for (u32 index = 0; valid && index < event.state.record_count; ++index) {
+            GatewayClientChannelCursor record{};
+            valid = gateway_client_channel_cursor_record(payload, index, &record);
+            const auto* channel = valid && pump->state
+                ? chat_state_store_find_channel(*pump->state, record.channel_id) : nullptr;
+            if (channel && channel->guild_id != event.state.guild_id)
+                valid = false;
+        }
+        if (!valid) {
+            ++pump->rejected;
+            reject(&result, MessageEventPumpRejectReason::guild_state);
+            return result;
+        }
+        const auto* guild = pump->state
+            ? chat_state_store_find_guild(*pump->state, event.state.guild_id) : nullptr;
+        if (!guild || guild->unavailable) {
+            ++pump->ignored;
+            result.kind = MessageEventPumpConsumeKind::ignored_dispatch;
+            return result;
+        }
+        const u32 revision = pump->state->channel_mutations;
+        for (u32 index = 0; index < event.state.record_count; ++index) {
+            GatewayClientChannelCursor record{};
+            gateway_client_channel_cursor_record(payload, index, &record);
+            const auto* channel = chat_state_store_find_channel(*pump->state, record.channel_id);
+            constexpr u32 readable = channel_action_view | channel_action_read_history;
+            if (!channel || !channel->permissions_resolved || (channel->actions & readable) != readable ||
+                (channel->flags & kChannelObfuscatedFlag) ||
+                !chat_state_store_channel_visible(*pump->state, *channel) ||
+                !record.last_message_id || record.last_message_id <= channel->last_message_id)
+                continue;
+            if (chat_state_store_note_history_latest(pump->state, channel->id, record.last_message_id) &&
+                channel->id == pump->state->selected_channel_id && channel_is_message_capable(channel->type)) {
+                // A cursor has no message body. Fetch only the selected view and
+                // withhold automatic ACKs until its new tail can actually be seen.
+                pump->catchup_required = true;
+                pump->timeline->newer_refetch_required = true;
+            }
+        }
+        result.kind = MessageEventPumpConsumeKind::state_applied;
+        result.repaint = revision != pump->state->channel_mutations;
+        return result;
+    }
     if (event.dispatch_kind == GatewayClientDispatchKind::read_state_snapshot ||
         event.dispatch_kind == GatewayClientDispatchKind::message_ack) {
         if (!pump->state || !pump->state->read_state) {

@@ -9,6 +9,8 @@ struct Fixture {
     ChatStateStore state;
     GuildRecord guild;
     ChannelRecord channels[4];
+    RoleRecord roles[1];
+    PermissionOverwriteRecord overwrites[1];
     u16 guild_order[1], channel_order[4];
     u8 names[1024];
     ReadStateStore reads;
@@ -118,6 +120,105 @@ GatewayClientEvent message(u64 id, u64 channel_id, u64 author) noexcept {
         gateway_message_field_author_id | gateway_message_field_content | gateway_message_field_timestamp;
     return event;
 }
+void cursor_cases(void (*check)(bool, const char*) noexcept) noexcept {
+    auto& f = fixture;
+    const bool initialized = initialize() &&
+        chat_state_store_bind_permissions(&f.state, {f.roles, 1}, {f.overwrites, 1}) &&
+        chat_state_store_upsert_role(&f.state, {7, 7, kPermissionViewChannel | kPermissionReadMessageHistory, {}}) &&
+        chat_state_store_set_self_roles(&f.state, 7, 2, 1, {});
+    check(initialized, "channel cursor pump: readable guild role authority initializes");
+    if (!initialized) return;
+    chat_state_store_recompute_guild_permissions(&f.state, 7);
+    f.records[0] = entry(80, 100, 2); f.records[1] = entry(81, 200, 0);
+    check(snapshot(2).ok() && read_state_mark_unread_local(&f.state, 80, 100, 2, false),
+        "channel cursor pump: selected manual unread and offscreen read state initialize");
+    message_event_pump_set_read_ack_observer(&f.pump, observe_ack, &f);
+    message_event_pump_set_read_badge(&f.pump, badge_policy, &f);
+    u32 structurals[256]{}; char storage[64]{};
+    const auto consume = [&](Utf8View name, Utf8View data, u64 sequence = 42) noexcept {
+        GatewayEnvelope envelope{};
+        envelope.has_event_name = true; envelope.event_name = {name, 0, false};
+        envelope.data = {data, 0, JsonValueKind::object};
+        envelope.sequence = sequence; envelope.has_sequence = true;
+        GatewayClientEvent event{}; ConstSlice<u8> payload{};
+        const auto routed = gateway_client_route_dispatch(envelope, {structurals, 256}, 64,
+            {storage, sizeof(storage)}, {}, &event, &payload);
+        check(routed.ok(), "channel cursor pump: production route normalizes fixture");
+        return message_event_pump_consume(&f.pump, event, payload);
+    };
+    constexpr auto passive = utf8_literal("PASSIVE_UPDATE_V2");
+    constexpr auto unread = utf8_literal("CHANNEL_UNREAD_UPDATE");
+    const auto offscreen = consume(passive, utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"81\",\"last_message_id\":\"250\"}]}"));
+    check(offscreen.ok() && offscreen.repaint && find(81)->last_message_id == 250 &&
+        find(81)->last_read_message_id == 200 && !find(81)->mention_count && f.guild.unread_channels == 2 &&
+        f.pump.has_sequence && f.pump.last_sequence == 42 && !f.pump.catchup_required &&
+        !f.timeline.newer_refetch_required && !f.pump.resync_required && !f.messages.count,
+        "channel cursor pump: offscreen activity updates unread aggregation and sequence without fetching content");
+    const auto offscreen_before = *find(81);
+    const u32 mutation_before = f.state.channel_mutations;
+    const auto old = consume(passive, utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"81\",\"last_message_id\":\"250\"},{\"id\":\"81\",\"last_message_id\":\"240\"},{\"id\":\"81\",\"last_message_id\":null}]}"), 43);
+    check(old.ok() && !old.repaint && f.state.channel_mutations == mutation_before &&
+        bytes_equal(find(81), &offscreen_before, sizeof(offscreen_before)) && !f.pump.catchup_required,
+        "channel cursor pump: duplicate, lower and null cursors never regress activity or touch metadata");
+    const auto selected_before = *find(80);
+    const auto selected = consume(unread, utf8_literal("{\"guild_id\":\"7\",\"channel_unread_updates\":[{\"id\":\"80\",\"last_message_id\":\"300\"}]}"), 44);
+    auto selected_after = *find(80);
+    selected_after.last_message_id = selected_before.last_message_id;
+    selected_after.revision = selected_before.revision;
+    check(selected.ok() && selected.repaint && find(80)->last_message_id == 300 &&
+        bytes_equal(&selected_before, &selected_after, sizeof(selected_before)) &&
+        f.pump.catchup_required && f.timeline.newer_refetch_required && !f.pump.resync_required &&
+        !f.messages.count && !f.cancel_calls && !f.observed_calls && !f.badge_calls && !f.reserve_calls,
+        "channel cursor pump: selected forward cursor requires tail catchup while preserving read, mention and manual metadata");
+    f.pump.catchup_required = f.timeline.newer_refetch_required = false;
+    const auto unchanged = *find(80);
+    auto typed = GatewayClientEvent{}; typed.kind = GatewayClientEventKind::dispatch;
+    typed.dispatch_kind = GatewayClientDispatchKind::channel_cursor_update;
+    typed.state.guild_id = 7; typed.state.fields = gateway_client_state_field_guild_id;
+    typed.state.record_count = 2; typed.dispatch_payload_bytes = 32;
+    GatewayClientChannelCursor rows[2]{{80, 400}, {0, 500}};
+    const auto malformed = message_event_pump_consume(&f.pump, typed,
+        {reinterpret_cast<const u8*>(rows), sizeof(rows)});
+    check(!malformed.ok() && bytes_equal(find(80), &unchanged, sizeof(unchanged)) &&
+        !f.pump.catchup_required && !f.timeline.newer_refetch_required,
+        "channel cursor pump: invalid trailing typed row rejects before earlier resident mutation");
+    rows[1] = {81, 500}; f.channels[1].guild_id = 9;
+    check(!message_event_pump_consume(&f.pump, typed, {reinterpret_cast<const u8*>(rows), sizeof(rows)}).ok() &&
+        bytes_equal(find(80), &unchanged, sizeof(unchanged)),
+        "channel cursor pump: cross-guild trailing row rejects the complete batch");
+    f.channels[1].guild_id = 7;
+    typed.state.record_count = kGatewayChannelCursorMaximumEntries + 1; typed.dispatch_payload_bytes = 0;
+    check(!message_event_pump_consume(&f.pump, typed, {}).ok() && find(80)->last_message_id == 300,
+        "channel cursor pump: excessive typed count fails without reading payload or changing state");
+    const auto blocked_update = [&]() noexcept {
+        return consume(passive, utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"80\",\"last_message_id\":\"400\"}]}"));
+    };
+    f.channels[0].permissions_resolved = false;
+    check(blocked_update().ok() && find(80)->last_message_id == 300,
+        "channel cursor pump: unresolved permissions cannot expose new activity");
+    chat_state_store_recompute_guild_permissions(&f.state, 7);
+    f.channels[0].flags |= kChannelObfuscatedFlag;
+    check(blocked_update().ok() && find(80)->last_message_id == 300,
+        "channel cursor pump: obfuscated channel cannot expose new activity");
+    f.channels[0].flags &= ~kChannelObfuscatedFlag;
+    check(chat_state_store_append_channel_overwrite(&f.state, 80, {7, 0, kPermissionReadMessageHistory, 0}),
+        "channel cursor pump: explicit history denial installs");
+    chat_state_store_recompute_guild_permissions(&f.state, 7);
+    check(blocked_update().ok() && find(80)->last_message_id == 300,
+        "channel cursor pump: resolved history denial prevents cursor admission");
+    chat_state_store_clear_channel_overwrites(&f.state, 80);
+    chat_state_store_recompute_guild_permissions(&f.state, 7);
+    f.guild.unavailable = true;
+    check(blocked_update().ok() && find(80)->last_message_id == 300,
+        "channel cursor pump: unavailable guild does not accept activity");
+    f.guild.unavailable = false;
+    const u32 count_before = f.state.channel_count;
+    check(consume(passive, utf8_literal("{\"guild_id\":\"9\",\"updated_channels\":[{\"id\":\"999\",\"last_message_id\":\"400\"}]}")).ok() &&
+        consume(passive, utf8_literal("{\"guild_id\":\"7\",\"updated_channels\":[{\"id\":\"999\",\"last_message_id\":\"400\"}]}")).ok() &&
+        f.state.channel_count == count_before && !find(999) && !f.pump.catchup_required &&
+        !f.timeline.newer_refetch_required && !f.cancel_calls && !f.observed_calls && !f.badge_calls,
+        "channel cursor pump: unknown guild and channel create no model, content or read-side work");
+}
 struct ManualBacking { u32 calls; bool fail; };
 bool manual_reserve(void* context, u32) noexcept {
     auto& probe = *static_cast<ManualBacking*>(context); ++probe.calls; return !probe.fail;
@@ -208,6 +309,7 @@ void manual_controller(void (*check)(bool, const char*) noexcept) noexcept {
 
 void test_read_state_pump(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace read_pump_probe;
+    cursor_cases(check);
     auto& f = fixture;
     const bool initialized = initialize();
     check(initialized, "read pump: bounded isolated read and cached-message fixture initializes");
