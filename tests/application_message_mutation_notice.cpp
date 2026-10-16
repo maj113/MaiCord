@@ -330,6 +330,74 @@ void notice_tests() noexcept {
     check(!application_message_mutation_notice_text().bytes,
           "mutation notice: missing channel cannot create a visible owner or result");
 }
+void delete_policy_tests() noexcept {
+    check(model_reset(), "delete policy: authoritative fixture initializes");
+    const auto found = message_store_find(g_app.message_view.store, 900);
+    auto* record = const_cast<MessageRecord*>(message_store_resolve(g_app.message_view.store, found.handle));
+    if (!record)
+        return;
+    auto& navigation = g_app.account_ui->navigation_view;
+    auto* saved_rows = navigation.channel_rows;
+    const u32 saved_count = navigation.channel_count;
+    ChannelViewRow row{};
+    row.id = 70;
+    navigation.channel_rows = &row;
+    navigation.channel_count = 1;
+    const u16 undeletable[]{1, 2, 3, 4, 5, 21, 35, 56, 57, 64, 68};
+    for (const u16 type : undeletable) {
+        record->type = type;
+        for (u32 moderator = 0; moderator < 2; ++moderator) {
+            row.actions = moderator ? channel_action_manage_messages : 0;
+            check(!message_can_delete(*record) && !queue_message_delete(900) &&
+                      !application_message_delete_request(900, false) && !g_app.message_delete.message_id,
+                  "delete policy: undeletable service types reject author and moderator actions");
+        }
+    }
+    const u16 deletable[]{0, 6, 7, 8, 12, 18, 19, 20, 23, 25, 26, 27, 31, 32, 36, 41, 44, 46, 47, 65, 67};
+    for (const u16 type : deletable) {
+        record->type = type;
+        row.actions = 0;
+        check(message_can_delete(*record) && queue_message_delete(900) &&
+                  application_message_delete_pending_available(),
+              "delete policy: author retains deletion of ordinary and deletable service messages");
+        reset_message_delete();
+        record->author_id = 6;
+        check(!message_can_delete(*record), "delete policy: other authors require manage messages");
+        row.actions = channel_action_manage_messages;
+        check(message_can_delete(*record), "delete policy: moderator retains deletable service messages");
+        record->author_id = 5;
+    }
+    record->type = 24;
+    row.actions = 0;
+    check(!message_can_delete(*record) && !queue_message_delete(900),
+          "delete policy: own automod message still requires manage messages");
+    row.actions = channel_action_manage_messages;
+    check(message_can_delete(*record) && queue_message_delete(900) &&
+              application_message_delete_pending_available(),
+          "delete policy: manage messages permits automod deletion");
+    auto throttled = response(429);
+    throttled.rate_limited = true;
+    throttled.retry_at_ms = 12345;
+    check(accept_message_delete_response(throttled), "delete policy: automod delete enters retry wait");
+    row.actions = 0;
+    check(!application_message_delete_pending_available(),
+          "delete policy: automod retry rechecks manage messages after permission loss");
+    reset_message_delete();
+    record->type = 0;
+    check(application_message_delete_request(900, false), "delete policy: confirmation captures allowed message");
+    record->type = 3;
+    check(!form.valid(form.owner) && form.save(form.owner, {}) && !g_app.message_delete.message_id,
+          "delete policy: confirmation refuses message changed into an undeletable call");
+    record->type = 0;
+    check(queue_message_delete(900) && accept_message_delete_response(throttled),
+          "delete policy: ordinary delete enters retry wait");
+    record->type = 21;
+    check(!application_message_delete_pending_available(),
+          "delete policy: retry rechecks source type even without a revision change");
+    reset_message_delete();
+    navigation.channel_rows = saved_rows;
+    navigation.channel_count = saved_count;
+}
 void delete_tests() noexcept {
     check(model_reset(), "mutation delete: real timeline initializes");
     const auto forbidden = response(403);
@@ -514,6 +582,7 @@ void run() noexcept {
           "mutation notice: actual account identity and occupied channel fixture initializes");
     if (g_app.account_ui && g_app.message_composer.text && channel()) {
         notice_tests();
+        delete_policy_tests();
         delete_tests();
         delete_confirmation_tests();
         reaction_tests();

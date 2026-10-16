@@ -101,7 +101,24 @@ bool message_can_delete(const MessageRecord& record) noexcept {
         !application_thread_actions_channel_readable(record.channel_id)) {
         return false;
     }
-    if (record.author_id != 0 && record.author_id == g_app.account_ui->chat_state.self_user_id) {
+    // These service messages cannot be deleted, even by their author or a moderator.
+    switch (record.type) {
+    case 1: // Recipient added
+    case 2: // Recipient removed
+    case 3: // Call
+    case 4: // Channel name changed
+    case 5: // Channel icon changed
+    case 21: // Thread starter reference
+    case 35: // Premium referral
+    case 56: // Chat wallpaper set
+    case 57: // Chat wallpaper removed
+    case 64: // Premium group invite
+    case 68: // Media mention
+        return false;
+    }
+    // Auto moderation actions require Manage Messages even when authored by self.
+    if (record.type != 24 && record.author_id != 0 &&
+        record.author_id == g_app.account_ui->chat_state.self_user_id) {
         return true;
     }
     const ChannelViewRow* channel =
