@@ -5,6 +5,34 @@
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
 
 namespace maicord {
+namespace {
+bool emoji_bounds_centered(UiRect ink, UiRect square) noexcept {
+    const float dx = ink.left + ink.right - square.left - square.right;
+    const float dy = ink.top + ink.bottom - square.top - square.bottom;
+    return ui_rect_has_area(ink) && dx >= -.01f && dx <= .01f && dy >= -.01f && dy <= .01f &&
+           ink.left >= square.left && ink.right <= square.right && ink.top >= square.top &&
+           ink.bottom <= square.bottom;
+}
+bool native_emoji_centered(const D3D11Renderer& renderer, const UiTooltipScene& scene) noexcept {
+    UiRect square{}, ink{};
+    if (!ui_tooltip_emoji(scene, &square))
+        return false;
+    u32 count = 0;
+    for (u32 b = renderer.form_text_first_batch; b < renderer.content_text->batch_count; ++b) {
+        const auto& batch = renderer.content_text->batches[b];
+        for (u32 i = 0; i < batch.quad_count; ++i) {
+            const auto& q = renderer.content_text->quads[batch.first_quad + i];
+            if (q.left >= square.right || q.right <= square.left || q.top >= scene.rectangle.bottom ||
+                q.bottom <= scene.rectangle.top)
+                continue;
+            ink = count++ ? UiRect{minimum(ink.left, q.left), minimum(ink.top, q.top),
+                                   maximum(ink.right, q.right), maximum(ink.bottom, q.bottom)}
+                          : UiRect{q.left, q.top, q.right, q.bottom};
+        }
+    }
+    return count && emoji_bounds_centered(ink, square);
+}
+} // namespace
 bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept) noexcept {
     if (!renderer.ui_scene || !renderer.dpi || !renderer.content_text)
         return false;
@@ -123,6 +151,59 @@ bool tooltip_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) n
                 (!capture || capture(L"tooltip-narrow-wrap.bmp"));
         if (keyboard_passed && !valid)
             log_u64(LogLevel::error, "probe", "tooltip_native_failure_stage", 3);
+        // The broken heart regression uses real native font ink, not the
+        // centered text command's line box. Include different color-layer
+        // bounds and a joined emoji, then rebuild each unchanged presentation.
+        const Utf8View emoji[]{utf8_literal("\xF0\x9F\x92\x94"), utf8_literal("\xF0\x9F\x94\xA5"),
+                               utf8_literal("\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x92\xBB")};
+        target.label = utf8_literal(":broken_heart: reacted by Ada");
+        target.placement = UiTooltipPlacement::above;
+        const bool wrapping_passed = valid;
+        for (u32 i = 0; i < 3 && valid; ++i) {
+            ui_tooltip_clear(&scene);
+            ++target.key.action;
+            target.emoji = {{}, emoji[i]};
+            valid = ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 3000) &&
+                    ui_tooltip_tick(&scene, 3500, &measure) && present() &&
+                    native_emoji_centered(renderer, scene) && present() &&
+                    native_emoji_centered(renderer, scene);
+        }
+        // Custom images use the same centered square while preserving their
+        // aspect ratio. Original synthetic pixels avoid external asset data.
+        u8 pixels[16 * 8 * 4];
+        for (u32 i = 0; i < sizeof(pixels); ++i)
+            pixels[i] = 255;
+        for (u32 i = 0; i < 2 && valid; ++i) {
+            const u16 width = i ? 8 : 16, height = i ? 16 : 8;
+            const auto asset = media_asset_custom_emoji(0x746f6f6c + i, false);
+            valid = renderer_upload_media_straight_rgba8(&renderer, asset, width, height, width * 4,
+                                                         {pixels, sizeof(pixels)})
+                        .ok();
+            ui_tooltip_clear(&scene);
+            ++target.key.action;
+            target.emoji = {asset, {}};
+            valid = valid && ui_tooltip_offer(&scene, target, viewport, UiTooltipTrigger::pointer, 3000) &&
+                    ui_tooltip_tick(&scene, 3500, &measure) && present();
+            UiRect square{};
+            const auto allocation = media_atlas_peek(renderer.media_atlas, asset);
+            u32 matches = 0;
+            valid = valid && allocation.ok() && ui_tooltip_emoji(scene, &square);
+            for (u32 q = 0; q < renderer.media_quad_count && valid; ++q) {
+                const auto handle = renderer.media_draw.handle_data[q];
+                if (renderer.media_draw.domain_data[q] || handle.slot != allocation.handle.slot ||
+                    handle.generation != allocation.handle.generation)
+                    continue;
+                const auto& quad = renderer.media_draw.quad_data[q];
+                const UiRect ink{quad.left, quad.top, quad.right, quad.bottom};
+                valid = emoji_bounds_centered(ink, square) &&
+                        ui_rect_width(ink) == scene.style.emoji_size * (i ? .5f : 1.f) &&
+                        ui_rect_height(ink) == scene.style.emoji_size * (i ? 1.f : .5f);
+                ++matches;
+            }
+            valid = valid && matches == 1;
+        }
+        if (wrapping_passed && !valid)
+            log_u64(LogLevel::error, "probe", "tooltip_native_failure_stage", 5);
         const bool presentation_passed = valid;
         valid = valid && ui_page_registry_initialize(&registry, {pages, 1}) &&
                 ui_page_registry_register(&registry, {{1, 1}, utf8_literal("Tooltip Modality"), &content})

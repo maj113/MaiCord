@@ -166,15 +166,25 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     UiTextOutput reaction_output{&reaction_text, nullptr};
     check(ui_text_command_stream_initialize(&reaction_text, {commands, 2}) &&
               ui_tooltip_text_output(scene, kDefaultTheme, &reaction_output) && reaction_text.count == 2 &&
-              commands[0].style_flags == text_style_jumbo_emoji && ui_rect_equal(commands[0].rectangle, square) &&
+              commands[0].style_flags == text_style_jumbo_emoji &&
+              ui_rect_equal(commands[0].rectangle, square) &&
+              commands[0].horizontal_alignment == UiTextAlignment::center &&
+              commands[0].vertical_alignment == UiTextAlignment::center &&
+              commands[0].wrapping == UiTextWrapping::no_wrap &&
+              commands[0].overflow == UiTextOverflow::clip &&
+              square.top + square.bottom == scene.rectangle.top + scene.rectangle.bottom &&
               commands[1].horizontal_alignment == UiTextAlignment::start &&
               commands[1].rectangle.left == square.right + 12 && commands[1].styles.count == 2 &&
               commands[1].styles[1].byte_offset == 18 && commands[1].styles[1].byte_count == 3 &&
-              (commands[1].styles[1].flags & text_style_bold) && !(commands[1].styles[0].flags & text_style_bold),
+              (commands[1].styles[1].flags & text_style_bold) &&
+              !(commands[1].styles[0].flags & text_style_bold),
           "tooltip reaction: a Unicode emoji is jumbo text and reactor names are bold runs");
     reaction.emoji = {media_asset_custom_emoji(42, false), {}};
     check(ui_tooltip_offer(&scene, reaction, viewport, UiTooltipTrigger::pointer, 3700) &&
               ui_tooltip_tick(&scene, 3700, &cache) && ui_tooltip_emoji(scene, &square) &&
+              ui_rect_width(square) == scene.style.emoji_size &&
+              ui_rect_height(square) == scene.style.emoji_size &&
+              square.top + square.bottom == scene.rectangle.top + scene.rectangle.bottom &&
               ui_text_command_stream_initialize(&reaction_text, {commands, 2}) &&
               ui_tooltip_text_output(scene, kDefaultTheme, &reaction_output) && reaction_text.count == 1 &&
               commands[0].rectangle.left == square.right + 12,

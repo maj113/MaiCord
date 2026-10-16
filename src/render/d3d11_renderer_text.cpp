@@ -468,6 +468,16 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
     for (u32 index = 0; index < styles.count; ++index) {
         picker_emoji = picker_emoji || (styles[index].flags & text_style_picker_emoji) != 0;
     }
+    // Standalone emoji previews behave like images: center all native color
+    // layers together by their ink. Inline and wrapped jumbo message text
+    // retain their normal baseline and line-box alignment.
+    const bool centered_jumbo_emoji =
+        styles.count == 1 && !styles[0].byte_offset && styles[0].byte_count == input.bytes &&
+        styles[0].flags == text_style_jumbo_emoji && !flag_projection.count && !semantics.count &&
+        !selection_active && !cluster_effect && face == UiTextFace::normal &&
+        horizontal_alignment == UiTextAlignment::center && vertical_alignment == UiTextAlignment::center &&
+        wrapping == UiTextWrapping::no_wrap;
+    const bool center_emoji_ink = picker_emoji || centered_jumbo_emoji;
     const bool cache_picker =
         picker_emoji && input.bytes <= 64 && styles.count == 1 && !styles[0].byte_offset &&
         styles[0].byte_count == input.bytes && styles[0].flags == text_style_picker_emoji &&
@@ -717,7 +727,7 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
             *atlas_invalidated ? RendererTextBuildError::atlas : RendererTextBuildError::capacity;
         return false;
     }
-    if (picker_emoji) {
+    if (center_emoji_ink) {
         if (picker_cache && !substituted && storage->quad_count - first_quad <= 4) {
             auto& e = picker_cache->entries[picker_cache->cursor++ % 256];
             e.system = text_system;
@@ -752,8 +762,7 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
         if (!bounded.ok()) {
             storage->quad_count = first_quad;
             storage->last_error = RendererTextBuildError::layout;
-            log_u64(LogLevel::error, "render", "picker_emoji_quad_bounds_error",
-                    static_cast<u64>(bounded.error));
+            log_u64(LogLevel::error, "render", "emoji_quad_bounds_error", static_cast<u64>(bounded.error));
             shaped_text_reset(&storage->scratch);
             return false;
         }
