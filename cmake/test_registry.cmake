@@ -118,7 +118,7 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
         tests/guild_channel_validation.cpp tests/channel_name_preflight.cpp tests/read_state_model.cpp
         tests/read_state_wire.cpp tests/message_ack.cpp tests/read_ack_controller.cpp tests/bulk_message_ack.cpp
         tests/read_scope.cpp tests/bulk_read_ack_controller.cpp tests/read_state_pump.cpp
-        tests/read_ack_visibility.cpp tests/channel_context_policy.cpp tests/guild_context_policy.cpp
+        tests/channel_context_policy.cpp tests/guild_context_policy.cpp
         tests/user_social_menus.cpp tests/unread_context.cpp tests/mention_badge_text.cpp
         tests/gateway_ready_projection.cpp tests/text_emitter.cpp tests/member_user_perf.cpp
         src/render/text_edit_layout.cpp tests/message_context_controller.cpp tests/settings_scene.cpp

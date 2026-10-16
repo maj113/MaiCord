@@ -1,4 +1,5 @@
 #include "maicord/app/read_ack_controller.hpp"
+#include "maicord/app/read_ack_visibility.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
@@ -219,5 +220,39 @@ void test_read_ack_controller(void (*check)(bool, const char*) noexcept) noexcep
         !read_ack_controller_queue(&maximum_queue, desired(kReadAckMaximumIntents + 1, 99), 0, true) &&
         read_ack_controller_queue(&maximum_queue, desired(1, 999), 1, false) && maximum_queue.count == kReadAckMaximumIntents,
         "4096 intent capacity rejects growth but still coalesces existing channels");
+}
+void test_read_ack_visibility(void (*check)(bool, const char*) noexcept) noexcept {
+    constexpr ReadAckVisibility visible{true, true, true, true, false, false, false, false, false, false};
+    static_assert(read_ack_automatic_eligible(visible));
+    check(read_ack_automatic_eligible(visible),
+        "automatic ACK: foreground visible live history following bottom admits newly caught-up metadata");
+    bool ReadAckVisibility::* const required[]{&ReadAckVisibility::foreground, &ReadAckVisibility::chat_visible,
+        &ReadAckVisibility::following_bottom, &ReadAckVisibility::current_history};
+    for (const auto gate : required) {
+        auto view = visible;
+        view.*gate = false;
+        check(!read_ack_automatic_eligible(view),
+            "automatic ACK: foreground, visible chat, bottom and current history are independently required");
+    }
+    bool ReadAckVisibility::* const blockers[]{&ReadAckVisibility::loading_more, &ReadAckVisibility::newer_history_required,
+        &ReadAckVisibility::catchup_required, &ReadAckVisibility::resync_required,
+        &ReadAckVisibility::idle, &ReadAckVisibility::manual_suppressed};
+    for (const auto gate : blockers) {
+        auto view = visible;
+        view.*gate = true;
+        check(!read_ack_automatic_eligible(view),
+            "automatic ACK: loading, stale history, catchup, resync, idle and manual suppression independently block clearing");
+    }
+    auto history = visible;
+    history.current_history = false;
+    history.newer_history_required = true;
+    history.catchup_required = true;
+    check(!read_ack_automatic_eligible(history),
+        "automatic ACK: bottom of a partial resident page is unread until live history catches up");
+    auto manual = visible;
+    manual.manual_suppressed = true;
+    manual.idle = true;
+    check(!read_ack_automatic_eligible(manual),
+        "automatic ACK: idle manually unread channel stays unread while selected");
 }
 } // namespace maicord
