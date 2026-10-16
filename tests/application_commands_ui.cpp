@@ -1,7 +1,9 @@
 #include "../src/app/application_commands.hpp"
 #include "../src/app/application_state.hpp"
 #include "../src/app/application_plugins.hpp"
+#include "../src/app/application_message_feedback.hpp"
 #include "maicord/app/message_composer_controller.hpp"
+#include "maicord/app/message_send_response.hpp"
 #include "maicord/ui/popup_presentation.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/core/time.hpp"
@@ -44,6 +46,11 @@ u32 application_plugins_commands(Utf8View, Slice<NativePluginSdkCommandView>) no
 bool application_plugins_command_pending() noexcept { return false; }
 void application_plugins_menu_dismissed() noexcept {}
 bool queue_message_send() noexcept { return true; }
+// Slowmode tests leave reaction, edit, history and connection UI effects idle.
+bool queue_message_reaction_emoji(u64, u64, Utf8View, bool) noexcept { return false; }
+u64 application_message_edit_latest_own() noexcept { return 0; }
+bool queue_message_edit_content(u64, Utf8View) noexcept { return false; }
+Utf8View application_account_notice() noexcept { return {}; }
 u32 context_changes;
 void application_user_actions_commands_changed() noexcept { ++context_changes; }
 } // namespace maicord::app_detail
@@ -138,6 +145,127 @@ void command_retry_cases() noexcept {
     popup_scene_close(&g_app.popup_scene);
     set_popup_owner(PopupOwnerKind::none);
     edit({});
+}
+void composer_slowmode_cases() noexcept {
+    auto& ui = *g_app.account_ui;
+    const auto saved_state = ui.chat_state;
+    const auto saved_instance = g_app.account.instance;
+    const u64 saved_active_channel = ui.active_channel_id;
+    const u64 saved_composer_channel = g_app.message_composer.channel_id;
+    GuildRecord guilds[1]{};
+    ChannelRecord channels[1]{};
+    RoleRecord roles[1]{};
+    PermissionOverwriteRecord overwrites[1]{};
+    u16 guild_order[1]{}, channel_order[1]{};
+    u8 names[256]{};
+    u32 account_owners[8]{};
+    constexpr u64 guild_id = 55, channel_id = 9, self_id = 7;
+    constexpr PermissionSet ordinary = kPermissionViewChannel | kPermissionSendMessages;
+    constexpr Utf8View draft = utf8_literal("slowmode draft stays");
+    ChannelInput channel_input{};
+    channel_input.id = channel_id;
+    channel_input.guild_id = guild_id;
+    channel_input.name = utf8_literal("slowmode");
+    channel_input.rate_limit_per_user = 21'600;
+    channel_input.rate_limit_known = true;
+    const bool initialized = chat_state_store_initialize(&ui.chat_state, {guilds, 1}, {guild_order, 1},
+        {channels, 1}, {channel_order, 1}, {names, sizeof(names)}) &&
+        chat_state_store_bind_permissions(&ui.chat_state, {roles, 1}, {overwrites, 1}) &&
+        chat_state_store_upsert_guild(&ui.chat_state, {guild_id, utf8_literal("Guild"), GuildMutationKind::create, 1}).ok() &&
+        chat_state_store_upsert_channel(&ui.chat_state, channel_input).ok() &&
+        message_composer_controller_select_channel(&ui.message_composer_controller, channel_id).ok() &&
+        message_composer_replace_range(&g_app.message_composer, 0, g_app.message_composer.bytes, draft) !=
+            MessageComposerResult::invalid_input;
+    check(initialized, "slowmode production feedback fixture initializes");
+    if (initialized) {
+        ui.active_channel_id = channel_id;
+        const auto permissions = [&](PermissionSet bits, bool owner = false) noexcept {
+            const bool updated = chat_state_store_upsert_role(&ui.chat_state,
+                {guild_id, guild_id, ordinary | bits, {}}) &&
+                chat_state_store_set_self_roles(&ui.chat_state, guild_id, owner ? self_id : 1, self_id, {});
+            chat_state_store_recompute_guild_permissions(&ui.chat_state, guild_id);
+            return updated;
+        };
+        struct Case { PermissionSet bits; bool resolved, owner, blocked; const char* label; };
+        constexpr Case cases[] = {
+            {kPermissionBypassSlowmode, true, false, false, "slowmode dedicated bypass alone does not arm or block the draft"},
+            {kPermissionManageMessages, true, false, true, "slowmode Manage Messages alone no longer bypasses the countdown"},
+            {kPermissionManageChannels, true, false, true, "slowmode Manage Channels alone no longer bypasses the countdown"},
+            {kPermissionManageThreads, true, false, true, "slowmode Manage Threads alone no longer bypasses the countdown"},
+            {kPermissionBypassSlowmode, false, false, true, "slowmode unresolved permission bits cannot exempt the draft"},
+            {kPermissionAdministrator, true, false, false, "slowmode administrator effective-all remains exempt"},
+            {0, true, true, false, "slowmode owner effective-all remains exempt"},
+        };
+        for (u32 i = 0; i < sizeof(cases) / sizeof(cases[0]); ++i) {
+            const auto& test = cases[i];
+            g_app.account.instance = &account_owners[i];
+            check(permissions(test.bits, test.owner), "slowmode effective permissions project");
+            channels[0].permissions_resolved = test.resolved;
+            application_composer_note_sent(channel_id);
+            bool handled = false;
+            const bool active = application_composer_slowmode_active(channel_id);
+            check(application_composer_prepare_send(&handled) && active == test.blocked && handled == test.blocked &&
+                utf8_equal(message_composer_text(g_app.message_composer), draft) &&
+                (application_composer_status_notice().bytes != 0) == test.blocked, test.label);
+        }
+        g_app.account.instance = &account_owners[7];
+        check(permissions(kPermissionBypassSlowmode) &&
+            chat_state_store_append_channel_overwrite(&ui.chat_state, channel_id,
+                {guild_id, 0, kPermissionBypassSlowmode, 0}), "slowmode channel deny fixture initializes");
+        chat_state_store_recompute_guild_permissions(&ui.chat_state, guild_id);
+        application_composer_note_sent(channel_id);
+        bool handled = false;
+        check(!(channels[0].effective_permissions & kPermissionBypassSlowmode) &&
+            application_composer_slowmode_active(channel_id) && application_composer_prepare_send(&handled) && handled &&
+            utf8_equal(message_composer_text(g_app.message_composer), draft),
+            "slowmode channel overwrite denying bypass retains countdown and draft");
+        chat_state_store_clear_channel_overwrites(&ui.chat_state, channel_id);
+        check(permissions(kPermissionBypassSlowmode) && !application_composer_status_notice().bytes &&
+            !application_composer_slowmode_active(channel_id), "slowmode live grant immediately retires the predicted countdown");
+        handled = true;
+        check(application_composer_prepare_send(&handled) && !handled && permissions(0) &&
+            !application_composer_slowmode_active(channel_id) && utf8_equal(message_composer_text(g_app.message_composer), draft),
+            "slowmode revoking a grant does not resurrect the retired prediction or consume the draft");
+        application_composer_note_sent(channel_id);
+        check(application_composer_slowmode_active(channel_id), "slowmode ordinary send rearms the prediction");
+        channels[0].slowmode_code = 0;
+        check(!application_composer_status_notice().bytes && !application_composer_slowmode_active(channel_id),
+            "slowmode disabled channel immediately removes its predicted notice and block");
+        channels[0].slowmode_code = slowmode_encode(21'600);
+        handled = true;
+        check(application_composer_prepare_send(&handled) && !handled &&
+            !application_composer_slowmode_active(channel_id) && utf8_equal(message_composer_text(g_app.message_composer), draft),
+            "slowmode re-enabling the channel does not resurrect an old prediction");
+
+        auto& controller = ui.message_composer_controller;
+        const auto queued = message_composer_controller_queue_send(&controller, true, self_id, 1000, 100, 0);
+        check(queued.ok() && message_composer_controller_mark_submitted(&controller, queued.nonce).ok(),
+            "slowmode authoritative retry fixture queues and submits a real request");
+        RestClientResponse response{};
+        response.status_code = 429;
+        response.rate_limited = true;
+        response.retry_at_ms = 500;
+        const auto receipt = message_send_accept_response(&controller, response, {}, {}, channel_id, self_id, 110);
+        application_composer_note_sent(channel_id);
+        const auto replaced = message_composer_replace_range(&g_app.message_composer, 0, g_app.message_composer.bytes, draft);
+        handled = true;
+        MessageComposerSubmit submission{};
+        check(receipt.http.ok() && replaced != MessageComposerResult::invalid_input && permissions(kPermissionBypassSlowmode) &&
+            application_composer_prepare_send(&handled) && !handled && !application_composer_slowmode_active(channel_id) &&
+            utf8_equal(message_composer_text(g_app.message_composer), draft) &&
+            message_composer_controller_prepare_submit(&controller, 499, &submission).error ==
+                MessageComposerControllerError::not_found &&
+            message_composer_controller_prepare_submit(&controller, 500, &submission).ok() && submission.nonce == queued.nonce,
+            "slowmode bypass clears only the prediction while a real 429 keeps its exact 499/500 retry floor");
+        message_composer_controller_cancel_unsent(&controller, queued.nonce);
+        application_message_interaction_tick(~u64{0});
+        check(!application_composer_status_notice().bytes, "slowmode retired countdown leaves an empty status strip");
+    }
+    ui.chat_state = saved_state;
+    ui.active_channel_id = saved_active_channel;
+    message_composer_controller_select_channel(&ui.message_composer_controller, saved_composer_channel);
+    g_app.account.instance = saved_instance;
+    application_composer_slowmode_active(0);
 }
 void run() noexcept {
     Arena arena{};
@@ -423,8 +551,10 @@ void run() noexcept {
         respond(204);
         check(!application_commands_context_invoke(2, 999, 1), "unknown commands never submit");
     }
-    if (ready)
+    if (ready) {
+        composer_slowmode_cases();
         test_invite_retry(check);
+    }
     application_commands_release(); popup_scene_release(&g_app.popup_scene);
     message_composer_scene_release(&g_app.message_composer_scene); message_composer_release(&composer);
     g_app.account_ui = nullptr; arena_release(&arena);

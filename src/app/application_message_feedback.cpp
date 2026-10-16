@@ -35,22 +35,27 @@ void feedback_bind_account() noexcept {
     feedback.account_instance = g_app.account.instance;
 }
 
-u64 slowmode_remaining(u64 channel_id, u64 now_ms) noexcept {
-    feedback_bind_account();
-    return channel_id && channel_id == feedback.slowmode_channel_id && now_ms < feedback.slowmode_until_ms
-               ? feedback.slowmode_until_ms - now_ms
-               : 0;
-}
-
-// Manage Messages or Manage Channels bypasses slowmode.
+// Only resolved channel permissions can exempt the local slowmode prediction.
 u32 slowmode_seconds(u64 channel_id) noexcept {
     const auto* channel =
         g_app.account_ui ? chat_state_store_find_channel(g_app.account_ui->chat_state, channel_id) : nullptr;
     if (!channel || channel_is_private(channel->type) ||
         (channel->permissions_resolved &&
-         (channel->effective_permissions & (kPermissionManageMessages | kPermissionManageChannels))))
+         (channel->effective_permissions & kPermissionBypassSlowmode)))
         return 0;
     return channel_slowmode_seconds(*channel);
+}
+
+u64 slowmode_remaining(u64 channel_id, u64 now_ms) noexcept {
+    feedback_bind_account();
+    if (channel_id && channel_id == feedback.slowmode_channel_id && !slowmode_seconds(channel_id)) {
+        // This deadline predicts channel slowmode; server rate limits belong
+        // to the send controller and REST scheduler and remain authoritative.
+        feedback.slowmode_channel_id = feedback.slowmode_until_ms = 0;
+    }
+    return channel_id && channel_id == feedback.slowmode_channel_id && now_ms < feedback.slowmode_until_ms
+               ? feedback.slowmode_until_ms - now_ms
+               : 0;
 }
 
 const MessageRecord* latest_message(u64 channel_id) noexcept {
@@ -205,7 +210,7 @@ Utf8View application_composer_status_notice() noexcept {
     if (feedback.connected_once && feedback.connection.shown != ConnectionNoticeState::connected)
         return connection_notice_text(feedback.connection.shown);
     if (feedback.slowmode_label_bytes && g_app.account_ui &&
-        g_app.account_ui->active_channel_id == feedback.slowmode_channel_id)
+        slowmode_remaining(g_app.account_ui->active_channel_id, clock_monotonic_milliseconds()))
         return {feedback.slowmode_label, feedback.slowmode_label_bytes};
     return {};
 }

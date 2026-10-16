@@ -11,7 +11,8 @@ namespace maicord::app_detail {
 // typed text must not be sent (it was consumed, or slowmode is cooling down).
 bool application_composer_prepare_send(bool* handled) noexcept;
 void application_composer_note_sent(u64 channel_id) noexcept;
-// A slowmode cooldown is running for this channel (sends wait for it).
+// A predicted channel slowmode cooldown is running. Current bypass permission
+// or disabled slowmode retires it; authoritative server retry deadlines are separate.
 bool application_composer_slowmode_active(u64 channel_id) noexcept;
 // Connection strip above the composer, debounced; slowmode countdown otherwise.
 void application_composer_gateway_event(GatewayClientEventKind kind) noexcept;
