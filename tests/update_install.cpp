@@ -11,7 +11,7 @@ bool file_hash(HANDLE file, u64 bytes, u8* digest) noexcept {
     if (!seek(file)) return false;
     BCRYPT_HASH_HANDLE hash = nullptr;
     if (BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, &hash, nullptr, 0, nullptr, 0, 0) < 0) return false;
-    u8 buffer[4096]{}; bool ok = true;
+    u8 buffer[kFixtureIoBufferBytes]{}; bool ok = true;
     while (bytes && ok) { DWORD got = 0; const DWORD wanted = static_cast<DWORD>(minimum<u64>(bytes, sizeof(buffer)));
         ok = ReadFile(file, buffer, wanted, &got, nullptr) && got && got <= wanted && BCryptHashData(hash, buffer, got, 0) >= 0;
         bytes -= got;

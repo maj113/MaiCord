@@ -98,8 +98,11 @@ endforeach()
 # frames. Neither belongs to the serialized native_gpu chain.
 set_tests_properties(maicord_resize_stress_probe maicord_surface_motion_ui_probe
     PROPERTIES COST 61)
+# The extension driver runs its independent fixtures serially; start that
+# complete process before the matrix shards to avoid delaying its final tail.
 set(maicord_test_rank 99)
 foreach(maicord_long_test
+    maicord_native_extensions
     maicord_native_bidi_emoji maicord_native_bidi_emoji_shard_1
     maicord_native_directional_editor_cuts maicord_native_directional_editor_cuts_shard_1
     maicord_update_handoff maicord_account_logout_runtime
@@ -108,7 +111,7 @@ foreach(maicord_long_test
     maicord_native_style_clusters maicord_native_style_clusters_shard_1
     maicord_native_matrix_decorations
     maicord_native_symbols maicord_native_symbols_shard_1
-    maicord_native_extensions maicord_native_directional_edit_cuts
+    maicord_native_directional_edit_cuts
     maicord_notification_audio_faults maicord_native_simulated_styles
     maicord_native_directional_semantic_ranges maicord_core
     maicord_native_matrix_styled maicord_native_matrix_multiline_private_hits

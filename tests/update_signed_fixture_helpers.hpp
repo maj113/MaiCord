@@ -6,6 +6,8 @@
 #include <bcrypt.h>
 
 namespace maicord::signed_update_fixture {
+// Stream the complete shipping pair with fewer fixture-only I/O calls.
+inline constexpr u32 kFixtureIoBufferBytes = 64 * 1024;
 inline constexpr u8 public_point[65]{
     4, 0x6b,0x17,0xd1,0xf2,0xe1,0x2c,0x42,0x47,0xf8,0xbc,0xe6,0xe5,0x63,0xa4,0x40,0xf2,
     0x77,0x03,0x7d,0x81,0x2d,0xeb,0x33,0xa0,0xf4,0xa1,0x39,0x45,0xd8,0x98,0xc2,0x96,
@@ -29,7 +31,7 @@ inline bool write(HANDLE h, const void* data, u32 bytes) noexcept {
 }
 inline bool seek(HANDLE h) noexcept { LARGE_INTEGER zero{}; return SetFilePointerEx(h, zero, nullptr, FILE_BEGIN) != FALSE; }
 inline bool copy(HANDLE source, HANDLE destination, u64 bytes) noexcept {
-    if (!seek(source)) return false; u8 buffer[4096]{};
+    if (!seek(source)) return false; u8 buffer[kFixtureIoBufferBytes]{};
     while (bytes) { DWORD got = 0; const DWORD wanted = static_cast<DWORD>(minimum<u64>(bytes, sizeof(buffer)));
         if (!ReadFile(source, buffer, wanted, &got, nullptr) || !got || got > wanted || !write(destination, buffer, got)) return false; bytes -= got; }
     return true;
@@ -47,7 +49,7 @@ inline u32 crc(u32 value, const u8* p, u32 bytes) noexcept {
 }
 inline bool hash_file(HANDLE h, u64 bytes, u8* digest, BCRYPT_HASH_HANDLE* owner) noexcept {
     if (*owner || !seek(h) || BCryptCreateHash(BCRYPT_SHA256_ALG_HANDLE, owner, nullptr, 0, nullptr, 0, 0) < 0) return false;
-    u8 buffer[4096]{}; bool ok = true;
+    u8 buffer[kFixtureIoBufferBytes]{}; bool ok = true;
     while (ok && bytes) { DWORD got = 0; const DWORD wanted = static_cast<DWORD>(minimum<u64>(bytes, sizeof(buffer)));
         ok = ReadFile(h, buffer, wanted, &got, nullptr) && got && got <= wanted && BCryptHashData(*owner, buffer, got, 0) >= 0;
         if (got <= bytes) bytes -= got; else ok = false; }
@@ -57,7 +59,7 @@ inline bool hash_file(HANDLE h, u64 bytes, u8* digest, BCRYPT_HASH_HANDLE* owner
 // Exactly two stored regular members. All failed file/CNG owners stay explicit.
 inline bool package(const wchar_t* destination, const wchar_t* const* paths, HANDLE* output, HANDLE* sources,
     u64* package_bytes, u8* digest, BCRYPT_HASH_HANDLE* hash_owner) noexcept {
-    u32 sizes[2]{}, checksums[2]{}, offsets[2]{}; u8 buffer[4096]{};
+    u32 sizes[2]{}, checksums[2]{}, offsets[2]{}; u8 buffer[kFixtureIoBufferBytes]{};
     for (u32 i = 0; i < 2; ++i) {
         sources[i] = CreateFileW(paths[i], GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (sources[i] == INVALID_HANDLE_VALUE) { sources[i] = nullptr; return false; }
@@ -94,7 +96,7 @@ inline bool real_package(const wchar_t* path, HANDLE* package_owner, HANDLE* sou
     return false; // Root must supply explicit built shipping fixture paths.
 #endif
 #if defined(MAICORD_UPDATE_PAIR_TEST_EXECUTABLE) && defined(MAICORD_UPDATE_PAIR_TEST_ACCOUNT)
-    u32 sizes[2]{}, crcs[2]{}, offsets[2]{}; u8 buffer[4096]{};
+    u32 sizes[2]{}, crcs[2]{}, offsets[2]{}; u8 buffer[kFixtureIoBufferBytes]{};
     for (u32 i = 0; i < 2; ++i) {
         sources[i] = CreateFileW(paths[i], GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (sources[i] == INVALID_HANDLE_VALUE) { sources[i] = nullptr; return false; }
