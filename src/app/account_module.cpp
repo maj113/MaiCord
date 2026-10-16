@@ -72,6 +72,9 @@ struct AccountModuleRuntime {
     AccountSoundboard soundboard;
     // Voice message recording and preview.
     AccountVoiceMessage voice_message;
+    // Views point into this stable owner. REST and replacement Gateway workers
+    // share the same launch identity until the authenticated account stops.
+    UserClientConfigurationStorage client_configuration;
 };
 
 bool copy_path(const wchar_t* source, wchar_t* destination) noexcept;
@@ -589,7 +592,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
         return result;
     }
 
-    UserClientConfigurationStorage configuration{};
+    UserClientConfigurationStorage& configuration = runtime->client_configuration;
     const UserClientConfigurationResult configured = user_client_configuration_initialize(&configuration);
     if (!configured.ok()) {
         account_media_worker_stop(&runtime->media, 5'000);
@@ -610,7 +613,6 @@ AccountModuleStartResult WINAPI module_start(const wchar_t* profile_path, const 
                                        // cross-process RESUMED dispatch cannot reconstruct the UI. Keep
                                        // validating the session file, but identify as a fresh session.
                                        nullptr, {configuration.timezone, configuration.timezone_bytes});
-    SecureZeroMemory(&configuration, sizeof(configuration));
     if (!started.ok()) {
         account_media_worker_stop(&runtime->media, 5'000);
         account_profile_release(&profile);
@@ -634,20 +636,12 @@ AccountModuleStatus WINAPI module_pump(void* instance, u64 monotonic_now_ms, u64
     }
     user_account_coordinator_pump(&runtime->coordinator, monotonic_now_ms);
     if (user_account_coordinator_gateway_restart_due(&runtime->coordinator, monotonic_now_ms)) {
-        // Same configuration as the first start; the saved status follows READY.
-        UserClientConfigurationStorage configuration{};
-        if (user_client_configuration_initialize(&configuration).ok()) {
-            configuration.configuration.status = GatewayUserStatus::invisible;
-            // Soundboard and video sinks re-attach to the new runtime on
-            // their next pump/snapshot, as for any fresh session.
-            user_account_coordinator_restart_gateway(&runtime->coordinator, &configuration.configuration,
-                                                     monotonic_now_ms);
-        } else {
-            runtime->coordinator.state.gateway_restart_at_ms =
-                monotonic_now_ms + user_account_coordinator_restart_delay(
-                                       runtime->coordinator.state.gateway_restart_attempt);
-        }
-        SecureZeroMemory(&configuration, sizeof(configuration));
+        // Reuse the authenticated owner's initial identity; the saved status
+        // follows READY. Soundboard and video sinks re-attach on their next
+        // pump/snapshot, as for any fresh session.
+        user_account_coordinator_restart_gateway(&runtime->coordinator,
+                                                 &runtime->client_configuration.configuration,
+                                                 monotonic_now_ms);
     }
     if (!account_media_worker_healthy(&runtime->media)) {
         return module_failure(AccountModuleError::media);
@@ -1264,6 +1258,12 @@ bool WINAPI module_guild_members_request(void* instance,
         return true;
     }
     return gateway_client_request_guild_members(gateway, *request);
+}
+void WINAPI module_guild_members_query_cancel(void* instance) noexcept {
+    auto* runtime = static_cast<AccountModuleRuntime*>(instance);
+    auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
+    if (gateway)
+        gateway_client_cancel_guild_member_query(gateway);
 }
 RestClientSubmitResult WINAPI module_gif_favorites(void* instance,
                                                    AccountGifFavoritesOperation operation,
@@ -2127,6 +2127,7 @@ extern "C" bool WINAPI maicord_account_get_api(maicord::u32 requested_version,
             maicord::cdn_host_name,
         },
         maicord::module_guild_moderation,
+        maicord::module_guild_members_query_cancel,
     };
     return true;
 }

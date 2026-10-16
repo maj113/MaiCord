@@ -1,5 +1,6 @@
 #include "maicord/protocol/account_requirement.hpp"
 #include "maicord/core/json_scan.hpp"
+#include "maicord/protocol/user_auth.hpp"
 namespace maicord {
 namespace {
 struct Update {
@@ -33,6 +34,78 @@ bool error_member(void* context, JsonString name, JsonValue value) noexcept {
         result.value.captcha |= value.kind != JsonValueKind::null_value;
     }
     return true;
+}
+bool nonempty_string(JsonValue value, u32 maximum) noexcept {
+    JsonString text{};
+    if (!json_value_as_string(value, &text))
+        return false;
+    const auto measured = json_string_decode_utf8(text, {});
+    return measured.error == JsonStringDecodeError::output_too_small && measured.bytes &&
+           measured.bytes <= maximum;
+}
+struct MfaMethod {
+    u8 fields;
+};
+bool mfa_method_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& method = *static_cast<MfaMethod*>(context);
+    const u8 field = json_string_equals_ascii(name, utf8_literal("type"))                   ? 1
+                     : json_string_equals_ascii(name, utf8_literal("challenge"))            ? 2
+                     : json_string_equals_ascii(name, utf8_literal("backup_codes_allowed")) ? 4
+                                                                                            : 0;
+    if (!field)
+        return true;
+    if (method.fields & field)
+        return false;
+    method.fields |= field;
+    return field == 1   ? nonempty_string(value, 64)
+           : field == 2 ? nonempty_string(value, kUserAuthMaximumWebauthnChallengeBytes)
+                        : value.kind == JsonValueKind::boolean;
+}
+bool mfa_method(void* context, u32, JsonValue value) noexcept {
+    if (value.kind != JsonValueKind::object)
+        return false;
+    const auto& document = *static_cast<const JsonIndexedDocument*>(context);
+    MfaMethod method{};
+    return json_visit_indexed_object(document, value, 16, mfa_method_member, &method).ok() &&
+           (method.fields & 1);
+}
+struct MfaRequest {
+    const JsonIndexedDocument* document;
+    u8 fields;
+};
+bool mfa_request_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& request = *static_cast<MfaRequest*>(context);
+    const u8 field = json_string_equals_ascii(name, utf8_literal("ticket"))    ? 1
+                     : json_string_equals_ascii(name, utf8_literal("methods")) ? 2
+                                                                               : 0;
+    if (!field)
+        return true;
+    if (request.fields & field)
+        return false;
+    request.fields |= field;
+    if (field == 1)
+        return nonempty_string(value, kUserAuthMaximumTicketBytes);
+    if (value.kind != JsonValueKind::array)
+        return false;
+    const auto methods = json_visit_indexed_array(*request.document, value, 16, mfa_method,
+                                                  const_cast<JsonIndexedDocument*>(request.document));
+    return methods.ok() && methods.member_count;
+}
+struct MfaRejection {
+    Rejection rejection;
+    const JsonIndexedDocument* document;
+    bool mfa;
+};
+bool mfa_rejection_member(void* context, JsonString name, JsonValue value) noexcept {
+    auto& result = *static_cast<MfaRejection*>(context);
+    if (!json_string_equals_ascii(name, utf8_literal("mfa")))
+        return error_member(&result.rejection, name, value);
+    if (result.mfa || value.kind != JsonValueKind::object)
+        return false;
+    result.mfa = true;
+    MfaRequest request{result.document};
+    return json_visit_indexed_object(*result.document, value, 16, mfa_request_member, &request).ok() &&
+           request.fields == 3;
 }
 } // namespace
 AccountRequirement decode_account_requirement(JsonValue value) noexcept {
@@ -104,6 +177,18 @@ bool api_rejection_decode(Utf8View body, Slice<u32> scratch, ApiRejection* outpu
         return false;
     *output = parsed.value;
     return true;
+}
+bool api_rejection_is_mfa_challenge(Utf8View body, Slice<u32> scratch) noexcept {
+    if (!body.bytes || body.bytes > 16384)
+        return false;
+    const auto scan = json_scan_structurals_avx1(body, scratch);
+    if (!scan.ok())
+        return false;
+    const JsonIndexedDocument document{body, {scratch.data, scan.count}};
+    MfaRejection parsed{{}, &document};
+    return json_visit_root_object(body, document.structurals, 16, mfa_rejection_member, &parsed).ok() &&
+           parsed.mfa && parsed.rejection.value.has_code && parsed.rejection.value.code == 60003 &&
+           !parsed.rejection.value.captcha;
 }
 Utf8View api_rejection_notice(ApiRejection value) noexcept {
     if (value.captcha)

@@ -2,12 +2,9 @@
 
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/platform/timezone.hpp"
+#include "maicord/protocol/client_user_agent.hpp"
 
 namespace maicord {
-
-// The official client's build number reported to the server. It is not
-// MaiCord's binary version; update it with the versions in kClientUserAgent.
-inline constexpr u32 kClientBuildNumber = 607'562;
 
 enum class UserClientConfigurationError : u8 {
     none,
@@ -36,7 +33,8 @@ struct UserClientConfigurationResult {
     }
 };
 
-// Builds the native-Windows identity and a random RFC 4122 launch UUID. Views
+// Builds the Windows compatibility profile with one RFC 4122 UUID per loaded
+// client image, shared by auth, REST and Gateway owners. Views
 // in configuration point into storage and are valid only while that storage
 // object stays in place.
 UserClientConfigurationResult user_client_configuration_initialize(

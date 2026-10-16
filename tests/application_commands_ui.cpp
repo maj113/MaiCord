@@ -8,6 +8,11 @@
 #include "test_output.hpp"
 
 namespace maicord::app_detail {
+void test_activity_retry(void (*)(bool, const char*) noexcept) noexcept;
+void test_custom_status_retry(void (*)(bool, const char*) noexcept) noexcept;
+void test_notification_retry(void (*)(bool, const char*) noexcept) noexcept;
+void test_community_retry(void (*)(bool, const char*) noexcept) noexcept;
+void test_invite_retry(void (*)(bool, const char*) noexcept) noexcept;
 u32 edits_committed;
 bool refresh_message_composer_ui() noexcept {
     if (!message_composer_scene_update(&g_app.message_composer_scene, &g_app.message_composer,
@@ -33,10 +38,11 @@ bool reveal_command_row(float, float) noexcept { return true; }
 // No plugins are loaded in this fixture.
 u32 application_plugins_commands(Utf8View, Slice<NativePluginSdkCommandView>) noexcept { return 0; }
 bool application_plugins_command_pending() noexcept { return false; }
+void application_plugins_menu_dismissed() noexcept {}
 bool queue_message_send() noexcept { return true; }
 u32 context_changes;
 void application_user_actions_commands_changed() noexcept { ++context_changes; }
-}
+} // namespace maicord::app_detail
 
 namespace maicord {
 namespace {
@@ -81,6 +87,46 @@ void respond(u16 status, Utf8View body = {}) noexcept {
     g_app.details_request_owner = MessageHistoryRequestOwner::none;
     check(application_commands_response(response, body), "response refresh");
 }
+void command_retry_cases() noexcept {
+    constexpr u64 deadline = 900000000000ull;
+    for (u32 kind = 0; kind < 4; ++kind) {
+        application_commands_release();
+        popup_scene_close(&g_app.popup_scene);
+        set_popup_owner(PopupOwnerKind::none);
+        edit({});
+        edit(utf8_literal("/"));
+        const u32 before = calls;
+        check(application_commands_submit(700 + kind) && operation == 0,
+              "command retry fixture submits server index");
+        RestClientResponse response{};
+        response.status_code = 429;
+        response.rate_limited = kind != 1;
+        response.retry_at_ms = kind == 2 ? 0 : deadline;
+        response.rejection.captcha = kind == 0;
+        g_app.details_request_owner = MessageHistoryRequestOwner::none;
+        check(application_commands_response(response, {}), "command retry response refresh");
+        if (kind == 3) {
+            check(!application_commands_pending(deadline - 1) && application_commands_pending(deadline) &&
+                      application_commands_next_wake() == deadline && calls == before + 1,
+                  "command genuine 429 waits for the exact server deadline without another request");
+            check(application_commands_submit(deadline) && operation == 0 && calls == before + 2,
+                  "command genuine 429 retries the same index once admitted");
+            respond(403);
+        }
+        // The independent user index is still needed; its failure must not
+        // turn the terminal server-index response into another fetch.
+        check(application_commands_submit(deadline + 1) && operation == 1,
+              "command terminal response leaves only the independent user index");
+        respond(403);
+        check(!application_commands_pending(deadline) && !application_commands_next_wake() &&
+                  calls == before + (kind == 3 ? 3u : 2u),
+              "command challenge or missing retry classification leaves no automatic replay");
+    }
+    application_commands_release();
+    popup_scene_close(&g_app.popup_scene);
+    set_popup_owner(PopupOwnerKind::none);
+    edit({});
+}
 void run() noexcept {
     Arena arena{};
     const usize bytes = sizeof(AccountUiRuntime);
@@ -110,6 +156,7 @@ void run() noexcept {
     check(ready, "command UI fixture");
     if (ready) {
         composer.focused = true;
+        command_retry_cases();
         edit(utf8_literal("/"));
         check(application_commands_submit(1) && operation == 0, "load server command index");
         respond(200, utf8_literal(R"({"applications":[{"id":"10","name":"Test"},{"id":"20","name":"Other"}],"application_commands":[{"id":"100","application_id":"10","version":"7","name":"wordle","description":"Play wordle","type":1},{"id":"101","application_id":"10","version":"7","name":"echo","description":"Echo","type":1,"options":[{"name":"text","type":3,"required":true}]},{"id":"102","application_id":"10","version":"7","name":"pick","description":"Pick","type":1,"options":[{"name":"mode","type":4,"required":true,"choices":[{"name":"One","value":1},{"name":"Two","value":2}]}]},{"id":"103","application_id":"10","version":"7","name":"admin","description":"Admin","type":1,"options":[{"name":"group","type":2,"options":[{"name":"run","description":"Run","type":1,"options":[{"name":"count","type":4,"required":true}]}]}]},{"id":"104","application_id":"10","version":"7","name":"bump","description":"First bump","type":1},{"id":"105","application_id":"20","version":"7","name":"bump","description":"Second bump","type":1},{"id":"106","application_id":"10","version":"7","name":"search","description":"Search","type":1,"options":[{"name":"query","type":3,"required":true,"autocomplete":true},{"name":"count","type":4}]}]})"));
@@ -285,6 +332,8 @@ void run() noexcept {
         respond(204);
         check(!application_commands_context_invoke(2, 999, 1), "unknown commands never submit");
     }
+    if (ready)
+        test_invite_retry(check);
     application_commands_release(); popup_scene_release(&g_app.popup_scene);
     message_composer_scene_release(&g_app.message_composer_scene); message_composer_release(&composer);
     g_app.account_ui = nullptr; arena_release(&arena);
@@ -293,5 +342,9 @@ void run() noexcept {
 }
 extern "C" void maicord_command_ui_tests_entry() noexcept {
     maicord::run();
+    maicord::app_detail::test_activity_retry(maicord::check);
+    maicord::app_detail::test_custom_status_retry(maicord::check);
+    maicord::app_detail::test_notification_retry(maicord::check);
+    maicord::app_detail::test_community_retry(maicord::check);
     ExitProcess(maicord::failures ? 1 : 0);
 }

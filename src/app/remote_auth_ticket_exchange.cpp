@@ -82,6 +82,10 @@ bool submit_replay(void* context, const SecureBuffer* rqtoken, const SecureBuffe
 void retain_response(RemoteAuthTicketExchangeResult* result, const RestClientResponse& response,
                      const ConsumeContext& consumed) noexcept {
     result->http_status = response.status_code;
+    // Rate-limit metadata is independent of response JSON/decryption success.
+    // Zero means the transport could not determine a server deadline.
+    if (response.rate_limited || response.status_code == 429)
+        result->retry_at_ms = maximum(result->retry_at_ms, response.retry_at_ms);
     result->response_bytes = response.body_bytes;
     result->content_type = response.content_type;
     result->content_encoding = response.content_encoding;
@@ -114,7 +118,18 @@ RemoteAuthTicketExchangeResult stop_transport(RemoteAuthTicketExchange* exchange
     if (!exchange->transport.worker.thread) {
         return result;
     }
-    const RestClientResult stopped = rest_client_stop(&exchange->transport, timeout_ms);
+    RestClientResponse receipt{};
+    const RestClientResult stopped =
+        rest_client_stop_user_auth(&exchange->transport, timeout_ms, &receipt);
+    // Cancellation can win the wait after the worker has published a response.
+    // Keep only its exact, completed rate-limit receipt; never visit its body.
+    if (exchange->admitted_request_id && receipt.request_id == exchange->admitted_request_id &&
+        receipt.transport_ok() && receipt.status_code == 429) {
+        result.http_status = 429;
+        result.retry_at_ms = maximum(result.retry_at_ms, receipt.retry_at_ms);
+    }
+    if (!exchange->transport.worker.thread && !exchange->transport.runtime)
+        exchange->admitted_request_id = 0;
     if ((exchange->transport.worker.thread || exchange->transport.runtime || !stopped.ok()) && result.ok()) {
         result.error = RemoteAuthTicketExchangeError::stop;
         result.native_error = stopped.native_error;
@@ -175,6 +190,7 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
 
     clear_ephemeral(exchange);
     secure_buffer_clear(&exchange->credential);
+    exchange->admitted_request_id = 0;
     if (WaitForSingleObject(cancel_event, 0) == WAIT_OBJECT_0) {
         return failure(RemoteAuthTicketExchangeError::cancelled);
     }
@@ -224,6 +240,7 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
             result.native_error = ERROR_INVALID_STATE;
             break;
         }
+        exchange->admitted_request_id = request_id;
         if (captcha_key) {
             secure_buffer_clear(&exchange->captcha_solution);
             captcha_key = nullptr;
@@ -284,7 +301,11 @@ RemoteAuthTicketExchangeResult remote_auth_ticket_exchange_run(
             }
             break;
         }
-        if (!consumed.challenge.ok() || consumed.response.kind != UserAuthResponseKind::captcha_required ||
+        // A 429 ends this one-time ticket exchange, even if its body resembles
+        // a CAPTCHA challenge. The host may start a fresh QR only after its
+        // retained deadline; this worker never schedules a ticket replay.
+        if (response.rate_limited || response.status_code == 429 || !consumed.challenge.ok() ||
+            consumed.response.kind != UserAuthResponseKind::captcha_required ||
             attempt == kMaximumCaptchaAttempts) {
             result.error = RemoteAuthTicketExchangeError::response;
             if (response.native_error != 0) {

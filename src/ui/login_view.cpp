@@ -62,7 +62,7 @@ bool login_view_valid(const LoginView& view) noexcept {
 }
 
 bool login_view_action_disabled(const LoginView& view) noexcept {
-    return view.status == LoginStatus::restoring_session || view.status == LoginStatus::submitting ||
+    return view.auth_rate_limited || view.status == LoginStatus::restoring_session || view.status == LoginStatus::submitting ||
            view.status == LoginStatus::recovery_rate_limited ||
            (view.status == LoginStatus::mfa_backup_acknowledgement &&
             view.backup_acknowledgement_seconds != 0) ||
@@ -70,7 +70,7 @@ bool login_view_action_disabled(const LoginView& view) noexcept {
 }
 
 bool login_view_captcha_action(const LoginView& view) noexcept {
-    return login_captcha_mode(view.status, view.remote_status) && view.status != LoginStatus::cancelling &&
+    return !view.auth_rate_limited && login_captcha_mode(view.status, view.remote_status) && view.status != LoginStatus::cancelling &&
            view.captcha_status != LoginCaptchaStatus::starting;
 }
 
@@ -86,7 +86,20 @@ bool login_view_password_reveal_available(const LoginView& view) noexcept {
            status != LoginStatus::webauthn_required && status != LoginStatus::webauthn_failed;
 }
 
+bool login_view_auth_retry_resume(const LoginView& view) noexcept {
+    return view.auth_rate_limited && view.auth_retry_time_unknown &&
+        view.status != LoginStatus::restoring_session && view.status != LoginStatus::submitting &&
+        view.status != LoginStatus::cancelling && view.status != LoginStatus::reset_pending &&
+        view.status != LoginStatus::reset_mfa_pending && view.status != LoginStatus::recovery_pending &&
+        view.status != LoginStatus::recovery_phone_verify_pending &&
+        view.status != LoginStatus::recovery_phone_resend_pending &&
+        view.status != LoginStatus::recovery_phone_token_ready && view.status != LoginStatus::browser_starting &&
+        view.status != LoginStatus::browser_waiting && view.status != LoginStatus::browser_exchange_pending &&
+        view.captcha_status != LoginCaptchaStatus::starting && view.captcha_status != LoginCaptchaStatus::waiting;
+}
+
 bool login_view_submit_disabled(const LoginView& view) noexcept {
+    if (login_view_auth_retry_resume(view)) return false;
     if (login_captcha_mode(view.status, view.remote_status))
         return !login_view_captcha_action(view);
     const bool mfa_code_status =
@@ -122,6 +135,7 @@ bool login_view_matches_scene(const LoginView& view, const LoginScene* scene) no
            scene->credential_fields_hidden == login_credential_fields_hidden(view.status, view.remote_status, view.reset_mode) &&
            scene->action_disabled == login_view_action_disabled(view) &&
            scene->submit_disabled == login_view_submit_disabled(view) &&
+           scene->auth_retry_resume == login_view_auth_retry_resume(view) &&
            (!scene->captcha_action || login_view_captcha_action(view)) &&
            (!scene->password_reveal_available || login_view_password_reveal_available(view)) &&
            scene->password_revealed == (scene->password_reveal_available && view.password_revealed);

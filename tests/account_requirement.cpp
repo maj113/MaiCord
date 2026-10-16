@@ -100,6 +100,49 @@ void test_account_requirement(void (*check)(bool, const char*) noexcept) noexcep
                   !rejection.captcha,
               "malformed error responses never leave stale diagnostics");
 
+    constexpr Utf8View elevation[]{
+        utf8_literal(R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"totp"}]}})"),
+        utf8_literal(
+            R"({"mfa":{"methods":[{"type":"webauthn","challenge":"{}"},{"type":"totp","backup_codes_allowed":true},{"type":"password"}],"ticket":"synthetic\u002dticket"},"code":60003,"message":"not retained"})"),
+        utf8_literal(
+            R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"future_method","extra":17}],"future":true}})")};
+    for (const auto body : elevation)
+        check(api_rejection_is_mfa_challenge(body, {scratch, 512}),
+              "operation MFA elevation requires bounded ticket and methods without retaining challenge "
+              "secrets");
+    constexpr Utf8View invalid_elevation[]{
+        utf8_literal(R"({"code":60003})"),
+        utf8_literal(R"({"code":50014,"mfa":{"ticket":"synthetic","methods":[{"type":"totp"}]}})"),
+        utf8_literal(R"({"code":60003,"mfa":true,"ticket":"synthetic","totp":true})"),
+        utf8_literal(R"({"code":60003,"mfa":{"ticket":"","methods":[{"type":"totp"}]}})"),
+        utf8_literal(R"({"code":60003,"mfa":{"ticket":null,"methods":[{"type":"totp"}]}})"),
+        utf8_literal(R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[]}})"),
+        utf8_literal(R"({"code":60003,"mfa":{"ticket":"synthetic","methods":{}}})"),
+        utf8_literal(R"({"code":60003,"mfa":{"ticket":"synthetic","methods":["totp"]}})"),
+        utf8_literal(R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{}]}})"),
+        utf8_literal(R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":""}]}})"),
+        utf8_literal(R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":17}]}})"),
+        utf8_literal(
+            R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"totp","type":"sms"}]}})"),
+        utf8_literal(
+            R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"totp","backup_codes_allowed":1}]}})"),
+        utf8_literal(
+            R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"webauthn","challenge":{}}]}})"),
+        utf8_literal(
+            R"({"code":60003,"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"totp"}]}})"),
+        utf8_literal(R"({"code":60003,"mfa":{},"mfa":{"ticket":"synthetic","methods":[{"type":"totp"}]}})"),
+        utf8_literal(
+            R"({"code":60003,"mfa":{"ticket":"synthetic","ticket":"other","methods":[{"type":"totp"}]}})"),
+        utf8_literal(
+            R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"totp"}],"methods":[]}})"),
+        utf8_literal(
+            R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"totp"}]},"captcha_key":["required"]})"),
+        utf8_literal(R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"totp"}]}} {})"),
+        utf8_literal(R"({"code":60003,"mfa":)")};
+    for (const auto body : invalid_elevation)
+        check(!api_rejection_is_mfa_challenge(body, {scratch, 512}),
+              "partial duplicate mistyped or malformed elevation errors never exempt session rejection");
+
     char text[128]{};
     MessageComposer composer{};
     MessageComposerScene scene{};

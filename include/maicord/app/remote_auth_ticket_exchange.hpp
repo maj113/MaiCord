@@ -30,6 +30,7 @@ enum class RemoteAuthTicketExchangeError : u8 {
 
 struct RemoteAuthTicketExchangeResult {
     u64 error_code;
+    u64 retry_at_ms;
     u32 native_error;
     u32 response_bytes;
     u32 decode_error_offset;
@@ -70,6 +71,7 @@ struct RemoteAuthTicketExchange {
     SecureBuffer credential;
     SecureBuffer captcha_solution;
     CaptchaChallenge captcha;
+    u64 admitted_request_id;
     volatile LONG captcha_submitted;
 };
 

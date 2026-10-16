@@ -9,8 +9,8 @@
 #include "application_search.hpp"
 #include "application_settings.hpp"
 #include "application_text_form.hpp"
+#include "rest_rate_retry.hpp"
 #include "maicord/app/pinned_message_controller.hpp"
-#include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/time.hpp"
@@ -404,10 +404,10 @@ bool application_pinned_messages_response(const RestClientResponse& response, Ut
     PinnedMessageCompletion completion{PinnedMessageCompletionKind::rejected};
     MessagePinsDecodeResult decoded{};
     const auto now = clock_monotonic_milliseconds();
-    if (response.rate_limited || response.status_code == 429) {
-        completion = {PinnedMessageCompletionKind::rate_limited,
-            maximum(response.retry_at_ms, deadline_after(now, response.rate.retry_after_ms))};
-    } else if (response.error == RestClientError::cancelled) completion.kind = PinnedMessageCompletionKind::cancelled;
+    if (const u64 retry_at = rest_rate_retry_deadline(response)) {
+        completion = {PinnedMessageCompletionKind::rate_limited, retry_at};
+    } else if (response.status_code == 429) completion.kind = PinnedMessageCompletionKind::rejected;
+    else if (response.error == RestClientError::cancelled) completion.kind = PinnedMessageCompletionKind::cancelled;
     else if (!response.transport_ok() || response.status_code >= 500) completion.kind = PinnedMessageCompletionKind::ambiguous;
     else if (response.status_code == 403 || response.status_code == 401) completion.kind = PinnedMessageCompletionKind::permission_lost;
     else if (response.status_code >= 200 && response.status_code < 300) {

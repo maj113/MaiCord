@@ -231,11 +231,14 @@ struct LoginView {
     LoginCaptchaStatus captcha_status;
     bool caps_lock;
     bool password_revealed;
+    bool auth_rate_limited;
+    bool auth_retry_time_unknown;
 };
 
 bool login_view_valid(const LoginView& view) noexcept;
 bool login_view_action_disabled(const LoginView& view) noexcept;
 bool login_view_submit_disabled(const LoginView& view) noexcept;
+bool login_view_auth_retry_resume(const LoginView& view) noexcept;
 bool login_view_recovery_disabled(const LoginView& view) noexcept;
 // The challenge's "Verify in browser" action; disabled only while opening.
 bool login_view_captcha_action(const LoginView& view) noexcept;

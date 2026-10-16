@@ -673,6 +673,7 @@ u32 application_tooltip_owner_bytes() noexcept {
     return sizeof(ApplicationTooltip);
 }
 void application_tooltip_clear() noexcept {
+    application_reaction_tooltip_leave();
     if (!g_app.tooltip)
         return;
     auto& owner = *g_app.tooltip;
@@ -714,6 +715,7 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
     if (!pointer && !keyboard && !press)
         return;
     if (press) {
+        application_reaction_tooltip_leave();
         if (g_app.tooltip) {
             g_app.tooltip->pressed = true;
             ui_tooltip_clear(&g_app.tooltip->scene);
@@ -746,6 +748,7 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
         owner->dismissed = {};
     }
     if (keyboard && (wparam == VK_RETURN || wparam == VK_SPACE || wparam == VK_ESCAPE)) {
+        application_reaction_tooltip_leave();
         owner->dismissed = owner->scene.key;
         ui_tooltip_clear(&owner->scene);
         application_request_frame();

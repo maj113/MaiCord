@@ -1,6 +1,7 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/app/rest_client.hpp"
 #include "maicord/app/account_logout.hpp"
+#include "maicord/app/user_client_configuration.hpp"
 
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/deadline.hpp"
@@ -31,6 +32,8 @@ static_assert(kRequestHeadBytes <= kRestMaximumHeaderBytes &&
               kUserAuthRequestHeadBytes <= kRestMaximumHeaderBytes);
 inline constexpr u32 kUserAuthEncryptedInputBytes = 32 * 1024;
 inline constexpr u32 kUserAuthRecordOutputBytes = 20 * 1024;
+inline constexpr u32 kUserClientMetadataBytes = kRestUserSuperPropertiesMaximumBytes +
+                                               kRestUserLocaleMaximumBytes + kRestUserTimezoneMaximumBytes;
 inline constexpr u32 kRateStructuralCount = 256;
 inline constexpr u32 kRateBucketCount = 32;
 inline constexpr u32 kRateBindingCount = 64;
@@ -254,7 +257,7 @@ u32 allocation_bytes(u32 response_capacity, bool user_auth_mode, bool normal_use
     }
     const u64 raw =
         static_cast<u64>(sizeof(RestClientRuntime)) + (shared ? 0 : sizeof(RestLocalRates)) +
-        (user_auth_mode ? kHandshakeOutputBytes
+        (user_auth_mode ? kHandshakeOutputBytes + kUserClientMetadataBytes
                         : static_cast<u64>(ordinary_fixed_storage_bytes(normal_user)) +
                               maximum(kRestClientMaximumRequestBodyBytes, response_capacity));
     return page_rounded_bytes(raw);
@@ -272,7 +275,15 @@ void assign_storage(RestClientRuntime* runtime, RestSharedState* shared = nullpt
                                        {local->bindings, kRateBindingCount});
     }
     if (runtime->user_auth_mode) {
-        runtime->handshake_output = cursor;
+        runtime->user_super_properties = cursor;
+        cursor += kRestUserSuperPropertiesMaximumBytes;
+        runtime->user_locale = reinterpret_cast<char*>(cursor);
+        cursor += kRestUserLocaleMaximumBytes;
+        runtime->user_timezone = reinterpret_cast<char*>(cursor);
+        // Metadata uses the ordinary allocation, before its final aligned TLS
+        // output block. Passwords, CAPTCHA values, and request heads stay locked.
+        runtime->handshake_output = reinterpret_cast<u8*>(runtime) + runtime->allocation_bytes -
+                                    kHandshakeOutputBytes;
         cursor = runtime->secret_storage.data;
         runtime->request_body = cursor;
         cursor += runtime->request_body_capacity;
@@ -466,6 +477,21 @@ bool copy_user_configuration(RestClientRuntime* runtime,
     runtime->user_locale_bytes = configuration.locale.bytes;
     runtime->user_timezone_bytes = configuration.timezone.bytes;
     return true;
+}
+
+bool initialize_auth_user_configuration(RestClientRuntime* runtime) noexcept {
+    UserClientConfigurationStorage storage{};
+    if (!user_client_configuration_initialize(&storage).ok())
+        return false;
+    u8 scratch[kRestUserSuperPropertiesMaximumBytes]{};
+    const auto properties = write_rest_user_super_properties(
+        storage.configuration.properties, {scratch, sizeof(scratch)},
+        {runtime->user_super_properties, kRestUserSuperPropertiesMaximumBytes});
+    if (!properties.ok())
+        return false;
+    return copy_user_configuration(runtime,
+        {{runtime->user_super_properties, properties.bytes}, storage.configuration.properties.system_locale,
+         {storage.timezone, storage.timezone_bytes}});
 }
 
 bool valid_route(const RestRouteKey& route) noexcept {
@@ -952,12 +978,22 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
     if (!step.ok() || step.state != RestResponseState::complete || step.extra_bytes != 0) {
         return false;
     }
-    if (runtime->authorization == RestAuthorization::normal_user &&
-        runtime->response.parsed_head.head.status_code == 401) {
-        InterlockedExchange(&client->authentication_rejected, 1);
-        if (client->shared)
-            InterlockedExchange(&client->shared->authentication_rejected, 1);
-    }
+    struct SessionRejection {
+        RestClient* client;
+        bool pending;
+        void commit() noexcept {
+            if (!pending)
+                return;
+            InterlockedExchange(&client->authentication_rejected, 1);
+            if (client->shared)
+                InterlockedExchange(&client->shared->authentication_rejected, 1);
+            pending = false;
+        }
+        ~SessionRejection() noexcept {
+            commit();
+        }
+    } session_rejection{client, runtime->authorization == RestAuthorization::normal_user &&
+                                    runtime->response.parsed_head.head.status_code == 401};
     runtime->wire_body_bytes = runtime->response.http.body_bytes;
     runtime->wire_encoding = runtime->response.parsed_head.representation.content_encoding;
     runtime->decode_us = 0;
@@ -1005,15 +1041,27 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
         api_rejection_decode(
             {reinterpret_cast<const char*>(runtime->response_body), runtime->response.http.body_bytes},
             {runtime->rate_structural_scratch, kRateStructuralCount}, &rejection);
+    if (session_rejection.pending && rejection.has_code && rejection.code == 60003 &&
+        api_rejection_is_mfa_challenge(
+            {reinterpret_cast<const char*>(runtime->response_body), runtime->response.http.body_bytes},
+            {runtime->rate_structural_scratch, kRateStructuralCount}))
+        session_rejection.pending = false;
+    // Commit before publishing ordinary 401s. Early decompression/allocation
+    // failures also commit through the guard; an existing peer rejection is
+    // never cleared by a later valid elevation challenge.
+    session_rejection.commit();
     const bool action_required = api_rejection_requires_action(rejection);
+    const bool auth_limited =
+        runtime->user_auth_mode && runtime->response.parsed_head.head.status_code == 429;
     RateLimitBodyResult rate_body{};
     const RateLimitBodyResult* rate_body_pointer = nullptr;
     if (runtime->response.parsed_head.head.status_code == 429) {
-        rate_body = decode_rate_limit_body(
-            Utf8View{reinterpret_cast<const char*>(runtime->response_body),
-                     runtime->response.http.body_bytes},
-            Slice<u32>{runtime->rate_structural_scratch, kRateStructuralCount}, 8);
-        if (!rate_body.ok() && !action_required) {
+        rate_body =
+            decode_rate_limit_body(Utf8View{reinterpret_cast<const char*>(runtime->response_body),
+                                            runtime->response.http.body_bytes},
+                                   Slice<u32>{runtime->rate_structural_scratch, kRateStructuralCount}, 8);
+        if (!rate_body.ok() && !action_required && !auth_limited &&
+            !(runtime->response.parsed_head.rate.fields & rate_limit_field_retry_after)) {
             return false;
         }
         if (rate_body.ok())
@@ -1023,8 +1071,8 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
     // A verification challenge is terminal even if labelled 429 without a
     // retry deadline. Preserve the actual HTTP response instead of hiding it
     // behind a transport error. Genuine rate-limit headers still feed the scheduler.
-    if (action_required && runtime->response.parsed_head.head.status_code == 429 && !rate_body_pointer &&
-        !(runtime->response.parsed_head.rate.fields & rate_limit_field_retry_after))
+    if ((action_required || auth_limited) && runtime->response.parsed_head.head.status_code == 429 &&
+        !rate_body_pointer && !(runtime->response.parsed_head.rate.fields & rate_limit_field_retry_after))
         cancel_rate_lease(runtime);
     else {
         RateLock guard(runtime);
@@ -1038,6 +1086,11 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
     }
     RestClientResponse completed{};
     prepare_response_metadata(runtime, observation, &completed);
+    // Auth challenge/error JSON need not have the rate-limit body schema.
+    // Preserve a verified 429 even without a deadline, so its owner can hold
+    // retries instead of interpreting a challenge or inventing a short delay.
+    if (auth_limited)
+        completed.rate_limited = true;
     completed.rejection = rejection;
     // Retry eligibility is shared by every request type, including typing,
     // edits, reactions and commands. Keep the raw rate headers for diagnostics.
@@ -1053,8 +1106,7 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
     return true;
 }
 
-RestClientError client_transport_error(const RestClientRuntime* runtime,
-                                       TlsStreamError error) noexcept {
+RestClientError client_transport_error(const RestClientRuntime* runtime, TlsStreamError error) noexcept {
     switch (error) {
     case TlsStreamError::resolve:
         return RestClientError::resolve;
@@ -1456,7 +1508,8 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
     }
     assign_storage(runtime, shared);
     runtime->default_body = runtime->request_body;
-    if (user_configuration && !copy_user_configuration(runtime, *user_configuration)) {
+    if ((user_configuration && !copy_user_configuration(runtime, *user_configuration)) ||
+        (user_auth_mode && !initialize_auth_user_configuration(runtime))) {
         destroy_client_storage(client, nullptr);
         RestClientResult invalid{};
         invalid.error = RestClientError::invalid_input;
@@ -1854,11 +1907,15 @@ RestClientSubmitResult rest_client_submit_user_auth(
         return RestClientSubmitResult{RestClientSubmitError::busy};
     }
 
+    const RestUserRequestHeaders user_headers{
+        {runtime->user_super_properties, runtime->user_super_properties_bytes},
+        {runtime->user_locale, runtime->user_locale_bytes},
+        {runtime->user_timezone, runtime->user_timezone_bytes}};
     const UserAuthWriteResult head = user_auth_write_request_head(
         request.operation, request.body->bytes,
         UserAuthCaptchaHeaders{locked_utf8(request.captcha_key), locked_utf8(request.captcha_rqtoken),
                                locked_utf8(request.captcha_session_id)},
-        Slice<u8>{runtime->request_head, runtime->request_head_capacity});
+        Slice<u8>{runtime->request_head, runtime->request_head_capacity}, &user_headers);
     const ConstSlice<u8> body = secure_buffer_view(*request.body);
     if (!head.ok() || !copy_bytes(runtime->request_body, runtime->request_body_capacity, body.data,
                                   body.count)) {
@@ -2090,7 +2147,23 @@ RestClientResult rest_client_status(const RestClient* client) noexcept {
     return client_result(client);
 }
 
-RestClientResult rest_client_stop(RestClient* client, u32 timeout_ms) noexcept {
+static void capture_user_auth_stop_receipt(RestClient* client, RestClientResponse* receipt) noexcept {
+    if (!receipt || !client || !client->runtime ||
+        InterlockedCompareExchange(&client->request_state, 0, 0) != request_state_ready)
+        return;
+    const auto* runtime = static_cast<const RestClientRuntime*>(client->runtime);
+    if (!runtime->user_auth_mode || !runtime->completed.transport_ok() ||
+        runtime->completed.status_code != 429)
+        return;
+    receipt->request_id = runtime->completed.request_id;
+    receipt->status_code = 429;
+    receipt->retry_at_ms = runtime->completed.retry_at_ms;
+}
+
+static RestClientResult stop_client(RestClient* client, u32 timeout_ms,
+                                    RestClientResponse* receipt) noexcept {
+    if (receipt)
+        *receipt = {};
     if (!client || !client->worker.thread) {
         RestClientResult invalid{};
         invalid.error = RestClientError::invalid_input;
@@ -2108,6 +2181,9 @@ RestClientResult rest_client_stop(RestClient* client, u32 timeout_ms) noexcept {
     }
     const NetworkWorkerResult joined = network_worker_join(&client->worker, timeout_ms);
     RestClientResult value = client_result(client);
+    // The worker may finish publishing after Stop begins, while join waits.
+    // Read only a release-published ready receipt, before any storage cleanup.
+    capture_user_auth_stop_receipt(client, receipt);
     if (!joined.ok()) {
         value.error = RestClientError::worker;
         value.native_error = joined.native_error;
@@ -2124,8 +2200,7 @@ RestClientResult rest_client_stop(RestClient* client, u32 timeout_ms) noexcept {
     const u64 reused_requests = value.reused_requests;
     const u64 responses = value.responses;
     *client = RestClient{};
-    value.phase = final_error == RestClientError::none ? RestClientPhase::stopped
-                                                              : RestClientPhase::failed;
+    value.phase = final_error == RestClientError::none ? RestClientPhase::stopped : RestClientPhase::failed;
     value.error = final_error;
     value.native_error = final_native_error;
     value.connections = connections;
@@ -2133,6 +2208,15 @@ RestClientResult rest_client_stop(RestClient* client, u32 timeout_ms) noexcept {
     value.reused_requests = reused_requests;
     value.responses = responses;
     return value;
+}
+
+RestClientResult rest_client_stop(RestClient* client, u32 timeout_ms) noexcept {
+    return stop_client(client, timeout_ms, nullptr);
+}
+
+RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
+                                            RestClientResponse* receipt) noexcept {
+    return stop_client(client, timeout_ms, receipt);
 }
 
 u32 rest_client_runtime_bytes(u32 response_capacity) noexcept {

@@ -68,6 +68,7 @@ enum class RemoteAuthClientEventKind : u8 {
 struct RemoteAuthClientEvent {
     u64 next_wake_at_ms;
     u64 ticket_error_code;
+    u64 retry_at_ms;
     u32 native_error;
     u32 ticket_response_bytes;
     u32 ticket_decode_error_offset;
@@ -93,6 +94,7 @@ struct RemoteAuthClientEvent {
 struct RemoteAuthClientResult {
     u64 next_wake_at_ms;
     u64 ticket_error_code;
+    u64 retry_at_ms;
     u32 native_error;
     u32 ticket_response_bytes;
     u32 ticket_decode_error_offset;
@@ -133,6 +135,7 @@ struct RemoteAuthClient {
     volatile LONG ticket_response_bytes;
     volatile LONG ticket_decode_error_offset;
     volatile LONG64 ticket_error_code;
+    volatile LONG64 retry_at_ms;
     volatile LONG http_status;
     volatile LONG handshake_error;
     volatile LONG handshake_stage;

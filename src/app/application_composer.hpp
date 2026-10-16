@@ -24,6 +24,8 @@ u64 application_mention_member_query_next_wake() noexcept;
 // The search bar's from:/mentions: people suggestions ask the same debounced
 // gateway member search (opcode 8 query) as the composer's '@'.
 void application_member_query_note(u64 guild_id, u64 channel_id, Utf8View query) noexcept;
+// Withdraws Search suggestions without cancelling a newer composer query.
+void application_member_query_cancel() noexcept;
 bool stop_local_typing(u64 channel_id) noexcept;
 bool note_local_typing_input() noexcept;
 bool composer_apply_result(MessageComposerResult result, bool content_input = false) noexcept;

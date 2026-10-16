@@ -366,9 +366,9 @@ bool application_custom_status_response(const RestClientResponse& response, Utf8
                                                                  body);
     request.request_id = 0;
     const bool ok = consumed && response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
-    const u64 now = clock_monotonic_milliseconds();
-    if (!ok && (response.rate_limited || response.status_code == 429) && request.attempts < 3) {
-        request.retry_at = maximum(response.retry_at_ms, deadline_after(now, response.rate.retry_after_ms));
+    if (!ok && response.transport_ok() && response.status_code == 429 && response.rate_limited &&
+        response.retry_at_ms && !api_rejection_requires_action(response.rejection) && request.attempts < 3) {
+        request.retry_at = response.retry_at_ms;
     } else if (!ok) {
         // An ambiguous settings write is never silently resent.
         log_u64(LogLevel::warning, "account", "custom_status_response_status", response.status_code);

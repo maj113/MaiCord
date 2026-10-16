@@ -1751,14 +1751,15 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
                             owner->guild_id == request.guild_id;
     b.request_id = 0;
     const bool ok = response.transport_ok() && guild_community_classify(response.status_code) == GuildCommunityOutcome::ok;
-    if (response.transport_ok() && response.status_code == 429) {
+    if (response.transport_ok() && response.status_code == 429 && response.rate_limited &&
+        response.retry_at_ms && !api_rejection_requires_action(response.rejection)) {
         // Retry the same request once the server allows it.
         if (b.queue_count < kQueueCapacity) {
             for (u32 i = b.queue_count; i > 0; --i)
                 b.queue[i] = b.queue[i - 1];
             b.queue[0] = request;
             ++b.queue_count;
-            b.retry_at = response.retry_at_ms ? response.retry_at_ms : clock_monotonic_milliseconds() + 2'000;
+            b.retry_at = response.retry_at_ms;
             return true;
         }
     }

@@ -314,6 +314,8 @@ RestClientResult rest_client_start_user(RestClient* client, SecureBuffer* creden
 // enumerated user-auth operations, including the one-time Remote Auth ticket
 // exchange. Request/TLS-record/decrypted-response storage is VirtualLock-backed
 // and erased before release.
+// Startup caches nonsecret client-properties, locale, and optional IANA timezone
+// in the ordinary owner allocation. Auth requests never attach Authorization.
 RestClientResult rest_client_start_user_auth(RestClient* client,
                                              u32 response_capacity) noexcept;
 
@@ -399,12 +401,18 @@ RestClientTakeResult rest_client_take_response(RestClient* client,
                                                Slice<u8> body_output) noexcept;
 // Invokes the consumer synchronously over the internal locked response body.
 // Rejection leaves the response ready and untouched so the caller can retry.
-RestClientTakeResult rest_client_consume_user_auth_response(
-    RestClient* client, RestClientResponse* response,
-    RestUserAuthConsumeFunction consumer, void* context) noexcept;
+RestClientTakeResult rest_client_consume_user_auth_response(RestClient* client,
+                                                            RestClientResponse* response,
+                                                            RestUserAuthConsumeFunction consumer,
+                                                            void* context) noexcept;
 HANDLE rest_client_notification_handle(const RestClient* client) noexcept;
 RestClientResult rest_client_status(const RestClient* client) noexcept;
 RestClientResult rest_client_stop(RestClient* client, u32 timeout_ms) noexcept;
+// Stops an auth worker and preserves only a published HTTP 429 request ID and
+// retry deadline before releasing storage. No response body is visited. A failed
+// join retains the owner; receipt is empty unless a complete response is ready.
+RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
+                                            RestClientResponse* receipt) noexcept;
 
 // Committed runtime bytes for a configured response body capacity.
 u32 rest_client_runtime_bytes(u32 response_capacity) noexcept;

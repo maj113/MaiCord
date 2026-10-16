@@ -292,8 +292,9 @@ bool application_activity_sharing_response(const RestClientResponse& response, U
                                                                  g.self_user_id, g.request_id, &response, body);
     g.request_id = 0;
     const bool ok = consumed && response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
-    if (!ok && (response.rate_limited || response.status_code == 429) && g.attempts < 3) {
-        g.retry_at = maximum(response.retry_at_ms, deadline_after(clock_monotonic_milliseconds(), 1000));
+    if (!ok && response.transport_ok() && response.status_code == 429 && response.rate_limited &&
+        response.retry_at_ms && !api_rejection_requires_action(response.rejection) && g.attempts < 3) {
+        g.retry_at = response.retry_at_ms;
     } else {
         if (!ok)
             log_u64(LogLevel::warning, "activity", "sharing_response_status", response.status_code);

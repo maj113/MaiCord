@@ -11,7 +11,7 @@ inline constexpr u32 kReactionTooltipNames = 3;
 // The reaction pill under the pointer as a tooltip target; marks its first
 // reactors as needed when they are not known yet.
 bool application_reaction_tooltip_target(UiPoint point, u64 scope, UiTooltipTarget* target) noexcept;
-// The pointer left the pills: a fetch not yet submitted is dropped.
+// The pointer left the pills: withdraw interest; a submitted fetch only drains.
 void application_reaction_tooltip_leave() noexcept;
 // Admits a needed reactor fetch to the history request lane.
 void application_reaction_tooltip_pump() noexcept;

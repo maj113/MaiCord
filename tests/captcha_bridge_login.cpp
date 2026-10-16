@@ -79,9 +79,25 @@ RestClientTakeResult rest_client_consume_user_auth_response(
 }
 HANDLE rest_client_notification_handle(const RestClient*) noexcept { return reinterpret_cast<HANDLE>(1); }
 bool rest_client_cancel(RestClient*, u64) noexcept { return true; }
+RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
+                                            RestClientResponse* receipt) noexcept {
+    using namespace captcha_login_test;
+    if (receipt) {
+        *receipt = {};
+        if (fixture.ready && fixture.metadata.transport_ok() && fixture.metadata.status_code == 429) {
+            receipt->request_id = fixture.metadata.request_id;
+            receipt->status_code = 429;
+            receipt->retry_at_ms = fixture.metadata.retry_at_ms;
+        }
+    }
+    return rest_client_stop(client, timeout_ms);
+}
 RestClientResult rest_client_stop(RestClient* client, u32) noexcept {
-    *client = {}; fixture.ready = false;
-    RestClientResult result{}; result.phase = RestClientPhase::stopped; return result;
+    *client = {};
+    fixture.ready = false;
+    RestClientResult result{};
+    result.phase = RestClientPhase::stopped;
+    return result;
 }
 
 // QR owner boundary: only the CAPTCHA continuation is exercised here.

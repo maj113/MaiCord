@@ -270,6 +270,52 @@ void run() noexcept {
           "pins runtime: successful mutation refetches authoritative page before another action");
     check(records[0].presentation_flags == (message_presentation_mentions_current_user | message_presentation_pinned),
           "pins runtime: successful Pin receipt adds resident pin flag without clearing mention state");
+    for (u32 kind = 0; kind < 3; ++kind) {
+        const u64 ticket = 40 + kind;
+        check(application_pinned_messages_action(900, false, false) &&
+              application_pinned_messages_submit(ticket, 1),
+              "pins runtime: explicit mutation seeds terminal 429 receipt fixture");
+        RestClientResponse limited{};
+        limited.request_id = ticket;
+        limited.status_code = 429;
+        limited.rate_limited = kind != 2;
+        limited.rate.retry_after_ms = 600'000;
+        limited.retry_at_ms = kind ? clock_monotonic_milliseconds() + 60'000 : 0;
+        limited.rejection.captcha = kind == 0;
+        limited.rejection.has_code = kind == 1;
+        limited.rejection.code = kind == 1 ? 40004 : 0;
+        const u32 submissions = account.submissions;
+        check(application_pinned_messages_response(limited, {}) &&
+              owner.controller.failure == PinnedMessageFailure::rejected &&
+              !owner.controller.request_id && !owner.controller.queued && !owner.controller.retry_at_ms &&
+              !application_pinned_messages_next_wake() &&
+              !application_pinned_messages_pending(~u64{0}) &&
+              !application_pinned_messages_submit(100 + ticket, ~u64{0}) &&
+              account.submissions == submissions &&
+              records[0].presentation_flags == (message_presentation_mentions_current_user | message_presentation_pinned),
+              "pins runtime: challenge and nonauthoritative 429 receipts ignore raw Retry-After without queued mutation wake or readmission");
+    }
+    check(application_pinned_messages_action(900, false, false) && application_pinned_messages_submit(50, 1),
+          "pins runtime: explicit mutation seeds genuine authoritative rate limit");
+    RestClientResponse limited{};
+    limited.request_id = 50;
+    limited.status_code = 429;
+    limited.rate_limited = true;
+    limited.retry_at_ms = clock_monotonic_milliseconds() + 60'000;
+    limited.rate.retry_after_ms = 600'000;
+    const u32 limited_submissions = account.submissions;
+    check(application_pinned_messages_response(limited, {}) && owner.controller.queued &&
+          owner.controller.failure == PinnedMessageFailure::rate_limited &&
+          owner.controller.retry_at_ms == limited.retry_at_ms &&
+          application_pinned_messages_next_wake() == limited.retry_at_ms &&
+          !application_pinned_messages_pending(limited.retry_at_ms - 1) &&
+          !application_pinned_messages_submit(51, limited.retry_at_ms - 1) &&
+          account.submissions == limited_submissions,
+          "pins runtime: genuine authority flag schedules the exact server deadline without reconstructing it from raw headers");
+    check(application_pinned_messages_submit(51, limited.retry_at_ms) &&
+          account.submissions == limited_submissions + 1 && response(51, 400) &&
+          !application_pinned_messages_next_wake() && !owner.controller.queued,
+          "pins runtime: genuine rate limit readmits one mutation at its deadline and a terminal response ends the retry");
     message_store_upsert(&g_app.message_view.store,
         {300, 70, 3, 0, 0, utf8_literal("Resident original pin"), 0,
          MessageContentAvailability::available, MessageDeliveryState::authoritative,

@@ -16,6 +16,9 @@ struct Fixture {
     bool ready, fail_stop, fail_submit, joined_error, any_captcha;
     RestClientPhase phase;
     RestClientError error;
+    RestClientResponse stop_receipt;
+    bool publish_during_stop;
+    u32 body_visits;
 } fixture{};
 #include "user_auth_coordinator_test_support.inc"
 }
@@ -69,6 +72,7 @@ RestClientTakeResult rest_client_consume_user_auth_response(
     RestUserAuthConsumeFunction consume, void* context) noexcept {
     using namespace browser_exchange_coordinator_test;
     *response = fixture.metadata;
+    ++fixture.body_visits;
     if (!consume(context, fixture.metadata, secure_buffer_view(fixture.response)))
         return {0, RestClientTakeError::invalid_input};
     fixture.ready = false;
@@ -94,8 +98,24 @@ RestClientResult rest_client_stop(RestClient* client, u32) noexcept {
 }
 
 namespace maicord {
-void test_browser_handoff_exchange_protocol(void (*check)(bool, const char*) noexcept) noexcept;
+RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
+                                            RestClientResponse* receipt) noexcept {
+    using namespace browser_exchange_coordinator_test;
+    if (fixture.publish_during_stop) {
+        fixture.metadata = fixture.stop_receipt;
+        fixture.ready = true;
+        fixture.publish_during_stop = false;
+    }
+    *receipt = {};
+    if (fixture.ready && fixture.metadata.transport_ok() && fixture.metadata.status_code == 429) {
+        receipt->request_id = fixture.metadata.request_id;
+        receipt->status_code = 429;
+        receipt->retry_at_ms = fixture.metadata.retry_at_ms;
+    }
+    return rest_client_stop(client, timeout_ms);
 }
+void test_browser_handoff_exchange_protocol(void (*check)(bool, const char*) noexcept) noexcept;
+} // namespace maicord
 namespace maicord::browser_exchange_coordinator_test {
 bool wait_browser(BrowserLogin* owner, BrowserSignInReceiverPhase phase, u32 timeout = 3000) noexcept {
     const u64 end = GetTickCount64() + timeout;
@@ -474,12 +494,63 @@ void run() noexcept {
         fixture.operation == UserAuthOperation::password && caller_intact(),
         "browser coordinator: ordinary admitted password request retains operation and protected ownership");
     user_auth_coordinator_stop(&coordinator, 1);
+    for (u32 scenario = 0; scenario < 8; ++scenario) {
+        UserAuthCoordinator stopping{};
+        check(user_auth_coordinator_start(&stopping).ok() &&
+                  user_auth_coordinator_submit_password(&stopping, {&solution, &solution, nullptr, false})
+                      .ok(),
+              "ordinary Stop: exact protected password request prepares");
+        auto* pending = runtime_of(&stopping);
+        if (!pending)
+            continue;
+        const u64 request_id = pending->active_request_id;
+        fixture.stop_receipt = {};
+        fixture.stop_receipt.request_id = request_id + (scenario == 4 ? 1 : 0);
+        fixture.stop_receipt.status_code = scenario == 3 ? 200 : 429;
+        fixture.stop_receipt.retry_at_ms = scenario == 2 ? 0 : 900'000'123;
+        fixture.stop_receipt.error = scenario == 5 ? RestClientError::receive : RestClientError::none;
+        check(body(utf8_literal(R"({"token":"synthetic-late-session"})")),
+              "ordinary Stop: untrusted body remains protected until destruction");
+        fixture.publish_during_stop = scenario != 0 && scenario != 7;
+        if (scenario == 0) {
+            fixture.metadata = fixture.stop_receipt;
+            fixture.ready = true;
+        }
+        fixture.fail_stop = scenario == 6 || scenario == 7;
+        const u32 visits = fixture.body_visits, submissions = fixture.submissions;
+        auto stopped = user_auth_coordinator_stop(&stopping, 1);
+        if (scenario == 6 || scenario == 7) {
+            if (scenario == 7) {
+                check(
+                    stopped.phase == UserAuthCoordinatorPhase::stopping && !stopped.http_status &&
+                        stopped.request_id == request_id && erased(*pending),
+                    "ordinary Stop: empty failed join retains the admitted request identity for its retry");
+                fixture.publish_during_stop = true;
+            } else {
+                check(stopped.phase == UserAuthCoordinatorPhase::stopping && stopped.http_status == 429 &&
+                          stopped.retry_at_ms == 900'000'123 && stopping.runtime && erased(*pending) &&
+                          !pending->active_request_id,
+                      "ordinary Stop: failed join retains only matching cooldown and quarantined empty "
+                      "secret owner");
+            }
+            fixture.fail_stop = false;
+            fixture.ready = false;
+            stopped = user_auth_coordinator_stop(&stopping, 1);
+        }
+        const bool limited = scenario != 3 && scenario != 4 && scenario != 5;
+        check(stopped.ok() && stopped.phase == UserAuthCoordinatorPhase::stopped && !stopping.runtime &&
+                  stopped.http_status == (limited ? 429 : 0) &&
+                  stopped.retry_at_ms == (limited && scenario != 2 ? 900'000'123 : 0) &&
+                  fixture.body_visits == visits && fixture.submissions == submissions,
+              "ordinary Stop: preserves exact ready/join-time429 including missing deadline, never visits "
+              "body or resubmits");
+    }
     run_mfa_retry();
     run_browser_owner();
     secure_buffer_release(&input); secure_buffer_release(&solution);
     secure_buffer_release(&fixture.request); secure_buffer_release(&fixture.response); secure_buffer_release(&fixture.headers);
 }
-}
+} // namespace maicord::browser_exchange_coordinator_test
 extern "C" __declspec(noreturn) void WINAPI maicord_browser_handoff_exchange_coordinator_entry() noexcept {
     maicord::browser_exchange_coordinator_test::run();
     ExitProcess(maicord::browser_exchange_coordinator_test::failures ? 1 : 0);

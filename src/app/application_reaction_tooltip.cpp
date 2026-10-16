@@ -1,6 +1,7 @@
 #include "application_reaction_tooltip.hpp"
 #include "application_message_history.hpp"
 #include "application_state.hpp"
+#include "application_channel_authority.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/model/guild_member_store.hpp"
@@ -13,9 +14,15 @@ namespace {
 // Long names are cut so three of them and the emoji name fit the tooltip.
 constexpr u32 kNameBytes = 36;
 
-enum class Phase : u8 { idle, required, submitted, ready, failed };
+enum class Phase : u8 {
+    idle,
+    required,
+    submitted,
+    ready,
+    failed
+};
 struct ReactionTooltip {
-    u64 scope, channel_id, message_id, emoji_id, epoch;
+    u64 scope, channel_id, message_id, emoji_id, epoch, channel_epoch;
     u32 count;
     MessageReactionType type;
     Phase phase;
@@ -29,6 +36,25 @@ struct ReactionTooltip {
 };
 static_assert(kReactionTooltipNames <= kUiTooltipMaximumBold);
 ReactionTooltip hovered{};
+bool source_current() noexcept {
+    if (!g_app.account_ui)
+        return false;
+    const auto& ui = *g_app.account_ui;
+    const u64 scope = g_app.plugin_account_scope_serial ? g_app.plugin_account_scope_serial
+                                                        : g_app.account.status.profile_id;
+    const auto found = message_store_find(g_app.message_view.store, hovered.message_id);
+    const auto* message =
+        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    return hovered.scope == scope && hovered.channel_epoch == g_app.load_trace.channel_epoch &&
+           hovered.channel_id == ui.active_channel_id &&
+           hovered.channel_id == ui.chat_state.selected_channel_id &&
+           application_channel_readable(g_app, hovered.channel_id) && message &&
+           message->channel_id == hovered.channel_id;
+}
+void synchronize_source() noexcept {
+    if (hovered.phase != Phase::idle && !source_current())
+        hovered.phase = Phase::idle;
+}
 
 // The label for the hovered reaction: its name until the reactors are known.
 Utf8View compose(Utf8View name, u32* bold_count) noexcept {
@@ -37,8 +63,9 @@ Utf8View compose(Utf8View name, u32* bold_count) noexcept {
     const u32 known = s.phase == Phase::ready ? s.name_count : 0;
     for (u32 i = 0; i < known; ++i)
         names[i] = {s.names[i], s.name_bytes[i]};
-    const auto label = message_reaction_tooltip_label(s.emoji_id, name, {names, known}, s.count,
-                                                      {s.label, sizeof(s.label)}, {s.bold, kReactionTooltipNames});
+    const auto label =
+        message_reaction_tooltip_label(s.emoji_id, name, {names, known}, s.count,
+                                       {s.label, sizeof(s.label)}, {s.bold, kReactionTooltipNames});
     *bold_count = label.bold_count;
     return {s.label, label.bytes};
 }
@@ -48,8 +75,9 @@ Utf8View compose(Utf8View name, u32* bold_count) noexcept {
 void track(u64 scope, u64 channel_id, u64 message_id, u64 emoji_id, Utf8View name, MessageReactionType type,
            u32 count) noexcept {
     auto& s = hovered;
-    if (s.phase != Phase::idle && s.scope == scope && s.channel_id == channel_id && s.message_id == message_id &&
-        s.emoji_id == emoji_id && s.type == type && s.count == count &&
+    if (s.phase != Phase::idle && s.scope == scope && s.channel_id == channel_id &&
+        s.message_id == message_id && s.emoji_id == emoji_id && s.type == type && s.count == count &&
+        s.channel_epoch == g_app.load_trace.channel_epoch &&
         utf8_equal({s.emoji_name, s.emoji_name_bytes}, name))
         return;
     const u64 epoch = s.epoch + 1;
@@ -61,6 +89,7 @@ void track(u64 scope, u64 channel_id, u64 message_id, u64 emoji_id, Utf8View nam
     s.type = type;
     s.count = count;
     s.epoch = epoch;
+    s.channel_epoch = g_app.load_trace.channel_epoch;
     copy_bytes(s.emoji_name, name.data, name.bytes);
     s.emoji_name_bytes = static_cast<u8>(name.bytes);
     s.phase = Phase::required;
@@ -131,20 +160,25 @@ bool application_reaction_tooltip_target(UiPoint point, u64 scope, UiTooltipTarg
 }
 
 void application_reaction_tooltip_leave() noexcept {
-    if (hovered.phase == Phase::required)
-        hovered.phase = Phase::idle;
+    // A submitted request remains owned by PRIMARY until it drains. Its
+    // retired UI interest must not be recreated by the lane-reset recovery.
+    hovered.phase = Phase::idle;
 }
 
 void application_reaction_tooltip_pump() noexcept {
-    if (hovered.phase == Phase::required && g_app.message_history_request_owner == MessageHistoryRequestOwner::none)
+    synchronize_source();
+    if (hovered.phase == Phase::required &&
+        g_app.message_history_request_owner == MessageHistoryRequestOwner::none)
         pump_message_history();
 }
 
 bool application_reaction_tooltip_pending() noexcept {
+    synchronize_source();
     return hovered.phase == Phase::required;
 }
 
 bool application_reaction_tooltip_query(ReactionTooltipQuery* query) noexcept {
+    synchronize_source();
     auto& s = hovered;
     // Still submitted with the lane free: the lane was reset under the request.
     if (s.phase == Phase::submitted)
@@ -171,16 +205,18 @@ void application_reaction_tooltip_response(const RestClientResponse& response, C
                                            Slice<u32> page_scratch, Slice<u32> object_scratch) noexcept {
     auto& s = hovered;
     // A response for a reaction no longer hovered: the new one is required.
+    synchronize_source();
     if (s.phase != Phase::submitted)
         return;
     s.phase = Phase::failed;
-    if (!response.transport_ok() || response.status_code != 200 || !body.data || !body.count || !g_app.account_ui)
+    if (!response.transport_ok() || response.status_code != 200 || !body.data || !body.count ||
+        !g_app.account_ui)
         return;
     ReactionUser users[kReactionTooltipNames]{};
     char text[1024];
     const auto decoded =
-        decode_reaction_users({reinterpret_cast<const char*>(body.data), body.count}, page_scratch, object_scratch,
-                              16, {users, kReactionTooltipNames}, {text, sizeof(text)});
+        decode_reaction_users({reinterpret_cast<const char*>(body.data), body.count}, page_scratch,
+                              object_scratch, 16, {users, kReactionTooltipNames}, {text, sizeof(text)});
     if (!decoded.ok())
         return;
     // In a server, members are named as the member list names them.

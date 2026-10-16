@@ -224,12 +224,13 @@ RestClientSubmitResult WINAPI submit(void*, AccountMediaCatalogOperation operati
     account.target_bytes = target.bytes;
     return {target.ok() ? account.admission : RestClientSubmitError::invalid_input};
 }
-bool response(u64 id, Utf8View body, u16 status = 200, u64 retry_at = 0) noexcept {
+bool response(u64 id, Utf8View body, u16 status = 200, u64 retry_at = 0, bool rate_limited = false) noexcept {
     RestClientResponse value{};
     value.request_id = id;
     value.status_code = status;
     value.body_bytes = body.bytes;
     value.retry_at_ms = retry_at;
+    value.rate_limited = rate_limited;
     return application_media_picker_response(value, body);
 }
 bool query(Utf8View text) noexcept {
@@ -638,11 +639,18 @@ void run() noexcept {
               same(message_composer_text(p.edit), utf8_literal("Fixture category")) && send_pending(114),
           "picker runtime: explicit category activation requests its query while preserving outbox");
     const auto retry_at = clock_monotonic_milliseconds() + 5000;
-    check(response(114, {}, 429, retry_at) && p.due_at == retry_at &&
+    check(response(114, {}, 429, retry_at, true) && p.due_at == retry_at &&
               !application_media_picker_pending(retry_at - 1) &&
               application_media_picker_pending(retry_at) &&
               application_media_picker_next_wake() == retry_at,
           "picker runtime: authoritative rate limit gates retries through the existing primary lane");
+    check(send_pending(1900) && response(1900, {}, 429, retry_at, false) && !p.wanted &&
+              !application_media_picker_pending(~u64{0}) && !application_media_picker_next_wake(),
+          "picker runtime: terminal verification 429 ignores a stray deadline and does not retry");
+    check(query(utf8_literal("no retry deadline")) && send_pending(1901) &&
+              response(1901, {}, 429, 0, true) && !p.wanted &&
+              !application_media_picker_pending(~u64{0}) && !application_media_picker_next_wake(),
+          "picker runtime: a rate flag without a server deadline does not invent a timer");
     focus(p, true);
     SetCapture(g_app.window);
     p.captured = p.dragging = true;

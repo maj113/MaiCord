@@ -169,7 +169,7 @@ struct ApplicationSearch {
     u16 heading_bytes;
     float thumb_grab;
     bool panel, focused, caret_visible, dragging, filters, suggestions, sort_menu, admission_busy, captured,
-        scrollbar_dragging, submitted_cancelled;
+        scrollbar_dragging, submitted_cancelled, member_query_active;
     // Selected tab, the tab of the published bank, and per-tab totals from the tabs endpoint.
     MessageSearchTab tab, result_tab;
     u8 tab_known;
@@ -187,7 +187,16 @@ static_assert(sizeof(ApplicationSearch) <= 8192);
 namespace {
 u32 search_publication_counter{};
 u32 filter_publication_counter{};
+void member_query_withdraw(ApplicationSearch& s, bool invalidate_choices = false) noexcept {
+    if (!s.member_query_active)
+        return;
+    s.member_query_active = false;
+    if (invalidate_choices && s.choices)
+        s.choices->initialized = false;
+    application_member_query_cancel();
+}
 void choices_release(ApplicationSearch& s) noexcept {
+    member_query_withdraw(s);
     s.content.filter_choices = nullptr;
     if (s.choices)
         VirtualFree(s.choices, 0, MEM_RELEASE);
@@ -733,6 +742,8 @@ void cancel_submitted(ApplicationSearch& s) noexcept {
     // The shared worker queue keeps this request ID until its completion is consumed.
 }
 void focus(ApplicationSearch& s, bool value) noexcept {
+    if (!value)
+        member_query_withdraw(s, true);
     if (value)
         application_pinned_messages_close();
     if (s.focused != value)
@@ -1084,14 +1095,17 @@ void choice_user(ApplicationSearch& s, SearchFilterChoices& b, u64 id, u8 rank,
 }
 bool choices_synchronize(ApplicationSearch& s) noexcept {
     if (!s.focused || !s.suggestions || !front() || !context_current(s) ||
-        application_composer_text_input_composing())
+        application_composer_text_input_composing()) {
+        member_query_withdraw(s, true);
         return false;
+    }
     const auto stamp = choices_stamp(s);
     if (s.choices && s.choices->initialized && stamp == s.choices->stamp)
         return false;
     const auto filter =
         ui_search_filter_context(message_composer_text(s.edit), s.edit.anchor, s.edit.caret);
     if (filter.kind == UiSearchFilterKind::none) {
+        member_query_withdraw(s);
         if (s.choices) {
             s.choices->filter = filter;
             s.choices->stamp = stamp;
@@ -1155,6 +1169,7 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
         : kind == UiSearchFilterKind::link_from ? utf8_literal("Type a website, like youtube.com.")
         : kind == UiSearchFilterKind::file_name ? utf8_literal("Type part of a file name.")
                                                 : utf8_literal("Press Enter or Tab to insert.");
+    bool requested_members = false;
     if (kind == UiSearchFilterKind::has || kind == UiSearchFilterKind::pinned ||
         kind == UiSearchFilterKind::author_type || kind == UiSearchFilterKind::file_type) {
         auto prefix = filter.prefix();
@@ -1235,8 +1250,10 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
             auto query = b.filter.prefix();
             if (query.bytes && query.data[0] == '@')
                 query = {query.data + 1, query.bytes - 1};
-            if (query.bytes)
+            if (query.bytes) {
                 application_member_query_note(member_guild, active->id, query);
+                requested_members = s.member_query_active = true;
+            }
             for (u32 i = 0; i < ui.guild_member_store.count; ++i) {
                 const auto& member = ui.guild_member_store.records[ui.guild_member_store.order[i]];
                 if (member.occupied && member.guild_id == member_guild)
@@ -1245,6 +1262,8 @@ bool choices_synchronize(ApplicationSearch& s) noexcept {
             }
         }
     }
+    if (!requested_members)
+        member_query_withdraw(s);
     if (!b.source.rows.count && kind != UiSearchFilterKind::link_from &&
         kind != UiSearchFilterKind::file_name)
         b.source.hint = b.capacity_limited ? utf8_literal("Up to four values per filter.")
@@ -2188,8 +2207,10 @@ bool application_search_synchronize() noexcept {
     if (!available()) {
         g_app.renderer.search_scene = nullptr;
         renderer_unbind_search_message_text_presentation(&g_app.renderer);
-        if (g_app.search)
+        if (g_app.search) {
+            member_query_withdraw(*g_app.search, true);
             current_scope(*g_app.search);
+        }
         if (g_app.search && g_app.search->focused)
             focus(*g_app.search, false);
         return true;

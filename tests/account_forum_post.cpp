@@ -208,7 +208,7 @@ void transport() noexcept {
           "forum account: published receipt remains available for exact drain");
 }
 void dormant_abi() noexcept {
-    static_assert(sizeof(AccountModuleApi) == 1168 && sizeof(AccountHost) == 1416);
+    static_assert(sizeof(AccountModuleApi) == 1176 && sizeof(AccountHost) == 1424);
     static_assert(offsetof(AccountModuleApi, thread_creation) == 592 &&
                   offsetof(AccountModuleApi, forum_post) == 600);
     AccountHost host{};
@@ -219,11 +219,9 @@ void dormant_abi() noexcept {
     request.parent_id = 20;
     request.guild_id = 10;
     request.operation = ForumPostOperation::parent_metadata;
-    check(host.api.version == 126 && host.api.bytes == 1168 && host.api.forum_post &&
-              host.api.forum_post(nullptr, &request, 1).error ==
-                  RestClientSubmitError::invalid_input &&
-              host.api.forum_post(nullptr, nullptr, 1).error ==
-                  RestClientSubmitError::invalid_input &&
+    check(host.api.version == 127 && host.api.bytes == 1176 && host.api.forum_post &&
+              host.api.forum_post(nullptr, &request, 1).error == RestClientSubmitError::invalid_input &&
+              host.api.forum_post(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               !host.instance && !host.login_instance,
           "forum account: dormant callback allocates no account or worker");
     auto missing = host.api;

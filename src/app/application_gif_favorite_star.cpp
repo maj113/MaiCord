@@ -49,14 +49,17 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
             const auto* rich = message ? (content_scope ? message_rich_store_snapshot(store, message->id)
                                                         : message_rich_store_find(store, message->id))
                                        : nullptr;
-            if (!rich || !application_channel_readable(g_app, message->channel_id) ||
+            if (!rich || message->channel_id != g_app.account_ui->active_channel_id ||
+                message->channel_id != g_app.account_ui->chat_state.selected_channel_id ||
+                !application_channel_readable(g_app, message->channel_id) ||
                 rich->message_revision != message->revision)
                 continue;
             for (u32 i = 0; i < rich->attachment_count; ++i) {
                 const auto& attachment = rich->attachments[i];
-                const auto widget = message_scene_rich_item_widget(*row, MessageSceneRichItemKind::attachment, i);
-                const auto* node =
-                    message_scene_rich_item_layout_node(scene, *row, MessageSceneRichItemKind::attachment, i);
+                const auto widget =
+                    message_scene_rich_item_widget(*row, MessageSceneRichItemKind::attachment, i);
+                const auto* node = message_scene_rich_item_layout_node(
+                    scene, *row, MessageSceneRichItemKind::attachment, i);
                 float width = 0, height = 0;
                 if (!node || (owner.generation && !same(widget, owner)) ||
                     message_rich_attachment_format(store, attachment) != MediaAttachmentFormat::gif ||
@@ -115,10 +118,10 @@ void application_gif_favorite_star_synchronize() noexcept {
     GifStar gif{};
     const bool found = hovered.generation && find(hovered, 0, 0, &gif);
     ApplicationGifFavoriteState state{};
+    // Refresh the source interest even when a scene reuses the same widget
+    // handle after a channel or account transition.
+    application_gif_favorites_set_hovered(found);
     if (found) {
-        // The saved list loads once a GIF is hovered, so the star tells the truth.
-        if (!same(g_loaded_owner, gif.owner))
-            application_gif_favorites_open();
         state = application_gif_favorites_state(gif.url);
     }
     g_loaded_owner = found ? gif.owner : UiWidgetHandle{};

@@ -1,6 +1,8 @@
 #include "application_gif_favorites.hpp"
 #include "application_state.hpp"
+#include "application_channel_authority.hpp"
 #include "application_media_picker.hpp"
+#include "rest_rate_retry.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/time.hpp"
@@ -121,15 +123,27 @@ struct ApplicationGifFavorites {
     u8* response_body;
     u64 profile_id, self_user_id, request_id, due_at, revision, data_revision;
     u64 gateway_revision, submitted_generation;
+    u64 hover_scope, hover_channel, hover_epoch;
     u32 generation, queue_count, data_version;
     AccountGifFavoritesOperation operation;
     u8 attempts;
-    bool visible, authoritative, failed, fetch_wanted, admission_busy, was_running, receipt_consumed;
+    bool visible, hovered, authoritative, failed, fetch_wanted, admission_busy, was_running,
+        receipt_consumed;
     char failed_url[kUrlBytes];
     u32 failed_url_bytes;
     Utf8View status;
 };
 namespace {
+bool interested(const ApplicationGifFavorites& p) noexcept {
+    return p.visible || p.hovered;
+}
+bool hover_current(const ApplicationGifFavorites& p) noexcept {
+    return g_app.account_ui && p.hover_scope == g_app.plugin_account_scope_serial && p.hover_channel &&
+           p.hover_epoch == g_app.load_trace.channel_epoch &&
+           p.hover_channel == g_app.account_ui->active_channel_id &&
+           p.hover_channel == g_app.account_ui->chat_state.selected_channel_id &&
+           application_channel_readable(g_app, p.hover_channel);
+}
 bool scope(const ApplicationGifFavorites& p) noexcept {
     return g_app.account.instance && g_app.account_ui && p.profile_id && p.self_user_id &&
            p.profile_id == g_app.account.status.profile_id &&
@@ -138,8 +152,7 @@ bool scope(const ApplicationGifFavorites& p) noexcept {
 bool online() noexcept {
     return g_app.account.instance && g_app.account_ui && g_app.account.status.profile_id &&
            g_app.account_ui->chat_state.self_user_id && g_app.account.status.running &&
-           !g_app.account.status.failed &&
-           g_app.account.status.required_action == AccountRequirement::none;
+           !g_app.account.status.failed && g_app.account.status.required_action == AccountRequirement::none;
 }
 void changed(ApplicationGifFavorites& p, bool data = false) noexcept {
     if (!++p.revision)
@@ -199,6 +212,8 @@ void clear_scope(ApplicationGifFavorites& p) noexcept {
     if (!++p.generation)
         ++p.generation;
     p.authoritative = false;
+    p.hovered = false;
+    p.hover_scope = p.hover_channel = p.hover_epoch = 0;
     p.fetch_wanted = false;
     p.due_at = 0;
     dispose(p.queue, kQueueCapacity * sizeof(FavoriteAction));
@@ -214,7 +229,7 @@ void bind_scope(ApplicationGifFavorites& p) noexcept {
     p.self_user_id = g_app.account_ui->chat_state.self_user_id;
     p.gateway_revision = g_app.account.status.frecency_settings_revision;
     p.was_running = g_app.account.status.running;
-    p.fetch_wanted = p.visible;
+    p.fetch_wanted = interested(p);
     p.due_at = p.fetch_wanted ? 1 : 0;
 }
 void cancel_fetch(ApplicationGifFavorites& p) noexcept {
@@ -223,6 +238,19 @@ void cancel_fetch(ApplicationGifFavorites& p) noexcept {
     if (g_app.account.api.gif_favorites && g_app.account.instance)
         g_app.account.api.gif_favorites(g_app.account.instance, AccountGifFavoritesOperation::cancel, {},
                                         p.request_id);
+}
+void withdraw_unused_interest(ApplicationGifFavorites& p) noexcept {
+    if (interested(p))
+        return;
+    if (p.operation == AccountGifFavoritesOperation::fetch && p.request_id && !p.queue_count) {
+        if (!++p.generation)
+            ++p.generation;
+        cancel_fetch(p);
+    }
+    if (!p.queue_count) {
+        p.fetch_wanted = false;
+        p.due_at = 0;
+    }
 }
 void schedule(ApplicationGifFavorites& p) noexcept {
     if (p.request_id)
@@ -234,11 +262,12 @@ void schedule(ApplicationGifFavorites& p) noexcept {
     // server deadline. The accepted submission clears this fence.
     if (p.due_at > 1)
         return;
-    p.due_at = (p.queue_count || (p.visible && p.fetch_wanted)) ? 1 : 0;
+    p.due_at = (p.queue_count || (interested(p) && p.fetch_wanted)) ? 1 : 0;
 }
 } // namespace
 
-bool application_gif_favorites_open() noexcept {
+namespace {
+bool open_interest(bool hover) noexcept {
     if (!online())
         return false;
     if (!g_app.gif_favorites) {
@@ -249,9 +278,16 @@ bool application_gif_favorites_open() noexcept {
         g_app.gif_favorites->generation = 1;
     }
     auto& p = *g_app.gif_favorites;
-    const bool became_visible = !p.visible;
-    p.visible = true;
     application_gif_favorites_synchronize();
+    const bool became_visible = !interested(p);
+    if (hover) {
+        p.hovered = true;
+        p.hover_scope = g_app.plugin_account_scope_serial;
+        p.hover_channel = g_app.account_ui->active_channel_id;
+        p.hover_epoch = g_app.load_trace.channel_epoch;
+    } else {
+        p.visible = true;
+    }
     if (!scope(p) && !p.request_id)
         bind_scope(p);
     bool scheduled = false;
@@ -267,6 +303,10 @@ bool application_gif_favorites_open() noexcept {
         changed(p);
     return scope(p);
 }
+} // namespace
+bool application_gif_favorites_open() noexcept {
+    return open_interest(false);
+}
 void application_gif_favorites_set_visible(bool visible) noexcept {
     if (visible) {
         application_gif_favorites_open();
@@ -276,15 +316,22 @@ void application_gif_favorites_set_visible(bool visible) noexcept {
     if (!p || !p->visible)
         return;
     p->visible = false;
-    if (p->operation == AccountGifFavoritesOperation::fetch && p->request_id && !p->queue_count) {
-        if (!++p->generation)
-            ++p->generation;
-        cancel_fetch(*p);
+    withdraw_unused_interest(*p);
+    changed(*p);
+}
+void application_gif_favorites_set_hovered(bool hovered) noexcept {
+    if (hovered && online() && g_app.account_ui->active_channel_id &&
+        g_app.account_ui->active_channel_id == g_app.account_ui->chat_state.selected_channel_id &&
+        application_channel_readable(g_app, g_app.account_ui->active_channel_id)) {
+        open_interest(true);
+        return;
     }
-    if (!p->queue_count) {
-        p->fetch_wanted = false;
-        p->due_at = 0;
-    }
+    auto* p = g_app.gif_favorites;
+    if (!p || !p->hovered)
+        return;
+    p->hovered = false;
+    p->hover_scope = p->hover_channel = p->hover_epoch = 0;
+    withdraw_unused_interest(*p);
     changed(*p);
 }
 void application_gif_favorites_release() noexcept {
@@ -314,6 +361,12 @@ void application_gif_favorites_synchronize() noexcept {
         }
         return;
     }
+    if (p->hovered && !hover_current(*p)) {
+        p->hovered = false;
+        p->hover_scope = p->hover_channel = p->hover_epoch = 0;
+        withdraw_unused_interest(*p);
+        changed(*p);
+    }
     const bool running = g_app.account.status.running;
     const bool reconnect = running && !p->was_running;
     const bool update = p->gateway_revision != g_app.account.status.frecency_settings_revision;
@@ -339,7 +392,7 @@ ApplicationGifFavoritesView application_gif_favorites_view() noexcept {
             p->data_revision,
             p->authoritative,
             (p->request_id && p->operation == AccountGifFavoritesOperation::fetch) ||
-                (p->fetch_wanted && (p->visible || p->queue_count)),
+                (p->fetch_wanted && (interested(*p) || p->queue_count)),
             p->failed,
             p->status};
 }
@@ -514,7 +567,6 @@ bool application_gif_favorites_response(const RestClientResponse& response, Utf8
     auto& p = *owner;
     const auto operation = p.operation;
     const bool current = scope(p) && p.submitted_generation == p.generation;
-    const u64 now_ms = clock_monotonic_milliseconds();
     p.request_id = 0;
     p.admission_busy = false;
     p.receipt_consumed = true;
@@ -522,15 +574,12 @@ bool application_gif_favorites_response(const RestClientResponse& response, Utf8
         // Stale writes have an ambiguous outcome. Discard this action; preserve
         // distinct queued choices for a fresh authoritative rebase.
         if (scope(p) && operation == AccountGifFavoritesOperation::update)
-            mark_failure(
-                p, utf8_literal("Favorites changed on another device. Try again."),
-                true);
+            mark_failure(p, utf8_literal("Favorites changed on another device. Try again."), true);
         p.authoritative = false;
-        p.fetch_wanted = scope(p) && (p.visible || p.queue_count);
+        p.fetch_wanted = scope(p) && (interested(p) || p.queue_count);
         schedule(p);
-    } else if (response.transport_ok() && (response.rate_limited || response.status_code == 429) &&
-               response.retry_at_ms > now_ms && p.attempts < 3) {
-        p.due_at = response.retry_at_ms;
+    } else if (const u64 retry_at = rest_rate_retry_deadline(response); retry_at && p.attempts < 3) {
+        p.due_at = retry_at;
     } else if (response.transport_ok() && response.status_code >= 200 && response.status_code < 300) {
         bool conflict = false;
         auto* bank = decode_response(body, &conflict);

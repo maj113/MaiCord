@@ -216,10 +216,10 @@ void test_dormant_abi() noexcept {
     AccountHost host{};
     const auto loaded = account_host_load(&host);
     check(loaded.ok(),
-          "relationships: shipping account DLL loads at ABI/ordinal 125 without profile or credential");
+          "relationships: shipping account DLL loads at ABI/ordinal 127 without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 126 && kAccountModuleApiVersion == 126 && kAccountModuleApiOrdinal == 126 &&
+    check(host.api.version == 127 && kAccountModuleApiVersion == 127 && kAccountModuleApiOrdinal == 127 &&
               host.api.bytes == sizeof(AccountModuleApi) && host.api.relationships &&
               host.api.message_ack && host.api.login_submit_recovery && host.api.login_start_reset &&
               host.api.login_submit_reset && host.api.login_submit_phone_verify &&
@@ -232,11 +232,23 @@ void test_dormant_abi() noexcept {
               host.api.gif_favorites && host.api.channel_overview && host.api.guild_members_request &&
               host.api.pinned_messages && host.api.message_forward && host.api.download &&
               host.api.thread_action && host.api.thread_browser && host.api.thread_creation &&
-              host.api.forum_post && host.api.poll && sizeof(AccountModuleApi) == 1168 && sizeof(AccountHost) == 1416 &&
-              sizeof(AccountLoginStatus) == 136,
+              host.api.forum_post && host.api.poll && sizeof(AccountModuleApi) == 1176 &&
+              sizeof(AccountHost) == 1424 && sizeof(AccountLoginStatus) == 136,
           "relationships: appended mandatory ABI entry preserves exact shipping interface layout");
     const AccountModuleApi complete = host.api;
     AccountModuleApi missing = host.api;
+    check(offsetof(AccountModuleApi, guild_members_query_cancel) == 1168 &&
+              complete.guild_members_query_cancel,
+          "member query cancellation appends a typed callback without moving earlier entries");
+    missing.guild_members_query_cancel = nullptr;
+    check(!account_host_api_valid(missing), "member query cancellation is a required account callback");
+    missing = complete;
+    missing.version = 126;
+    check(!account_host_api_valid(missing), "member query cancellation rejects the previous account ABI");
+    missing = complete;
+    missing.bytes = 1168;
+    check(!account_host_api_valid(missing), "member query cancellation rejects the truncated account API");
+    missing = complete;
     missing.poll = nullptr;
     check(!account_host_api_valid(missing), "poll: host rejects absent typed DETAILS callback");
     missing = host.api;

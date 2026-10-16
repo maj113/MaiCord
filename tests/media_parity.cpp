@@ -239,6 +239,7 @@ void test_media_parity(Check check) noexcept {
     media_url_resolve(&resolver, original, 1000, 100);
     RestClientResponse limited{};
     limited.status_code = 429;
+    limited.rate_limited = true;
     limited.retry_at_ms = 50'000;
     for (u32 attempt = 1; attempt <= 3; ++attempt) {
         resolver.pending_slot = 1;
@@ -265,6 +266,34 @@ void test_media_parity(Check check) noexcept {
     check(media_url_resolution_state(resolver, original) == MediaUrlState::queued &&
               !media_url_next(&resolver, 49'999) && media_url_next(&resolver, 50'000),
           "attachment_refresh_finite_failure_remains_pending_until_its_real_deadline");
+    limited.retry_at_ms = 2001;
+    resolver.pending_slot = 1;
+    resolver.entries[0].state = MediaUrlState::pending;
+    media_url_complete(&resolver, limited, {}, 2000, 100);
+    check(media_url_next_wake(resolver) == 2001 && !media_url_next(&resolver, 2000) &&
+              media_url_next(&resolver, 2001),
+          "attachment_refresh_429_uses_exact_server_deadline_without_local_backoff");
+    bool terminal_rates = true;
+    for (u32 scenario = 0; scenario < 3; ++scenario) {
+        resolver = {};
+        media_url_resolve(&resolver, original, 1000, 100);
+        resolver.pending_slot = 1;
+        resolver.entries[0].state = MediaUrlState::pending;
+        resolver.entries[0].attempts = 1;
+        RestClientResponse terminal{};
+        terminal.status_code = 429;
+        terminal.rate_limited = scenario != 0;
+        terminal.retry_at_ms = scenario == 2 ? 0 : 50'000;
+        terminal.rejection.captcha = scenario == 1;
+        media_url_complete(&resolver, terminal, {}, 2000, 100);
+        terminal_rates = terminal_rates && resolver.entries[0].state == MediaUrlState::failed &&
+                         !resolver.pending_slot && !resolver.entries[0].retry_at_ms &&
+                         !media_url_next_wake(resolver) && !media_url_next(&resolver, 99'999) &&
+                         !media_url_resolve(&resolver, original, 99'999, 100).bytes &&
+                         resolver.entries[0].state == MediaUrlState::failed;
+    }
+    check(terminal_rates,
+          "attachment_refresh_verification_unclassified_and_missing_deadline429_never_queue_retry_or_wake");
 
     MessageRichEmbed embed{};
     embed.type = GatewayMessageEmbedType::image;

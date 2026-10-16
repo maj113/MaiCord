@@ -11,7 +11,9 @@
 
 namespace maicord::remote_auth_cancellation_test {
 enum class Mode : u8 { success, captcha_success, pre_cancel, response_cancel, consume_cancel, join_cancel,
-                       captcha_cancel, retry_cancel, join_failure };
+                       captcha_cancel, retry_cancel, join_failure, limited_challenge, limited_malformed,
+                       limited_response_cancel };
+constexpr u64 kServerRetryAt = 900'000'123;
 struct Fixture {
     SecureBuffer response;
     HANDLE ready, cancel, captcha;
@@ -19,6 +21,7 @@ struct Fixture {
     u32 starts, submissions, consumes, cancels, joins, challenges, retries;
     u64 request_id;
     bool decoded_credential;
+    bool limited_stop_receipt;
 } fixture{};
 u32 failures{};
 void check(bool value, const char* label) noexcept {
@@ -31,7 +34,8 @@ bool erased(const SecureBuffer& value) noexcept {
 }
 bool challenge_mode() noexcept {
     return fixture.submissions == 1 && (fixture.mode == Mode::captcha_success ||
-        fixture.mode == Mode::captcha_cancel || fixture.mode == Mode::retry_cancel);
+        fixture.mode == Mode::captcha_cancel || fixture.mode == Mode::retry_cancel ||
+        fixture.mode == Mode::limited_challenge);
 }
 constexpr auto token = utf8_literal("synthetic-session");
 bool encrypted_receipt(const RemoteAuthHandshake& handshake) noexcept {
@@ -99,7 +103,8 @@ RestClientSubmitResult rest_client_submit_user_auth(
             "remote auth: actual CAPTCHA retry submits exact protected solution and replay tuple");
     }
     SetEvent(fixture.ready);
-    if (fixture.mode == Mode::response_cancel) SetEvent(fixture.cancel);
+    if (fixture.mode == Mode::response_cancel || fixture.mode == Mode::limited_response_cancel)
+        SetEvent(fixture.cancel);
     return {};
 }
 HANDLE rest_client_notification_handle(const RestClient*) noexcept {
@@ -109,23 +114,29 @@ bool rest_client_cancel(RestClient*, u64 request_id) noexcept {
     using namespace remote_auth_cancellation_test;
     ++fixture.cancels;
     check(request_id == fixture.request_id, "remote auth: cancellation targets admitted request");
-    return true;
+    // Real cancellation cannot claim a response already published as ready.
+    return WaitForSingleObject(fixture.ready, 0) != WAIT_OBJECT_0;
 }
 RestClientTakeResult rest_client_consume_user_auth_response(
     RestClient*, RestClientResponse* response,
     RestUserAuthConsumeFunction consume, void* context) noexcept {
     using namespace remote_auth_cancellation_test;
     ++fixture.consumes; *response = {}; response->request_id = fixture.request_id;
-    response->status_code = challenge_mode() ? 400 : 200;
+    const bool limited = fixture.mode == Mode::limited_challenge || fixture.mode == Mode::limited_malformed;
+    response->status_code = limited ? 429 : challenge_mode() ? 400 : 200;
+    response->rate_limited = limited;
+    response->retry_at_ms = limited ? kServerRetryAt : 0;
     constexpr auto challenge = utf8_literal("{\"captcha_key\":[\"challenge\"],\"captcha_service\":\"hcaptcha\",\"captcha_sitekey\":\"synthetic-sitekey\",\"captcha_rqtoken\":\"synthetic-rqtoken\",\"captcha_session_id\":\"synthetic-session-id\"}");
-    const ConstSlice<u8> body = challenge_mode()
+    constexpr auto malformed = utf8_literal("{not-json");
+    const ConstSlice<u8> body = fixture.mode == Mode::limited_malformed
+        ? ConstSlice<u8>{reinterpret_cast<const u8*>(malformed.data), malformed.bytes} : challenge_mode()
         ? ConstSlice<u8>{reinterpret_cast<const u8*>(challenge.data), challenge.bytes}
         : secure_buffer_view(fixture.response);
     response->body_bytes = body.count;
     const bool accepted = consume(context, *response, body);
     // The callback is the production decode/decrypt boundary. Signaling here
     // forces the late-cancel gate to erase a successfully decrypted token.
-    fixture.decoded_credential = accepted && !challenge_mode();
+    fixture.decoded_credential = accepted && response->status_code >= 200 && response->status_code < 300;
     if (fixture.mode == Mode::consume_cancel) SetEvent(fixture.cancel);
     ResetEvent(fixture.ready);
     return {body.count, accepted ? RestClientTakeError::none : RestClientTakeError::consumer_rejected};
@@ -139,6 +150,18 @@ RestClientResult rest_client_stop(RestClient* client, u32) noexcept {
     if (fixture.mode != Mode::join_failure) *client = {};
     return result;
 }
+RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
+                                           RestClientResponse* receipt) noexcept {
+    using namespace remote_auth_cancellation_test;
+    *receipt = {};
+    if (WaitForSingleObject(fixture.ready, 0) == WAIT_OBJECT_0 &&
+        (fixture.mode == Mode::limited_response_cancel || fixture.limited_stop_receipt)) {
+        receipt->request_id = fixture.request_id;
+        receipt->status_code = 429;
+        receipt->retry_at_ms = kServerRetryAt;
+    }
+    return rest_client_stop(client, timeout_ms);
+}
 } // namespace maicord
 
 namespace maicord::remote_auth_cancellation_test {
@@ -151,11 +174,13 @@ void run() noexcept {
     check(initialized, "remote auth: isolated synthetic fixture initializes");
     if (!initialized) return;
     constexpr Mode modes[]{Mode::success, Mode::captcha_success, Mode::pre_cancel, Mode::response_cancel,
-        Mode::consume_cancel, Mode::join_cancel, Mode::captcha_cancel, Mode::retry_cancel, Mode::join_failure};
+        Mode::consume_cancel, Mode::join_cancel, Mode::captcha_cancel, Mode::retry_cancel, Mode::join_failure,
+        Mode::limited_challenge, Mode::limited_malformed, Mode::limited_response_cancel};
     for (Mode mode : modes) {
         fixture.mode = mode;
         fixture.starts = fixture.submissions = fixture.consumes = fixture.cancels = fixture.joins = 0;
         fixture.challenges = fixture.retries = 0; fixture.decoded_credential = false;
+        fixture.limited_stop_receipt = false;
         ResetEvent(fixture.ready); ResetEvent(fixture.cancel); ResetEvent(fixture.captcha);
         RemoteAuthTicketExchange exchange{}; RemoteAuthHandshake handshake{};
         const bool prepared = remote_auth_ticket_exchange_initialize(&exchange).ok() &&
@@ -179,6 +204,25 @@ void run() noexcept {
                 output.bytes == token.bytes && bytes_equal(output.data, token.data, token.bytes) &&
                 erased(exchange.credential), "remote auth: uncancelled real CNG receipt transfers once");
             secure_buffer_release(&output);
+        } else if (mode == Mode::limited_challenge || mode == Mode::limited_malformed) {
+            check(result.error == RemoteAuthTicketExchangeError::response && result.http_status == 429 &&
+                result.retry_at_ms == kServerRetryAt && fixture.submissions == 1 && fixture.consumes == 1 &&
+                fixture.joins == 1 && !fixture.challenges && !fixture.retries && !fixture.decoded_credential &&
+                erased(exchange.credential),
+                "remote auth: server deadline survives CAPTCHA-shaped or malformed429 and the one-time ticket never replays");
+            if (mode == Mode::limited_malformed)
+                check(result.decode_error != UserAuthDecodeError::none,
+                    "remote auth: malformed rate-limit body retains decode failure independently of server floor");
+            RemoteAuthClient published{};
+            published.notification_event = fixture.ready;
+            RemoteAuthClientRuntime runtime{};
+            publish_ticket_status(&published, result);
+            const auto status = remote_auth_client_status(&published);
+            publish_event(&published, &runtime, RemoteAuthClientEventKind::failed);
+            RemoteAuthClientEvent event{};
+            check(status.retry_at_ms == kServerRetryAt && status.http_status == 429 &&
+                spsc_queue_pop(&runtime.events, &event) && event.retry_at_ms == kServerRetryAt && event.http_status == 429,
+                "remote auth: QR snapshot and terminal event preserve exact server retry floor");
         } else {
             check(result.error == (mode == Mode::join_failure ? RemoteAuthTicketExchangeError::stop :
                         RemoteAuthTicketExchangeError::cancelled) && erased(exchange.credential),
@@ -189,6 +233,12 @@ void run() noexcept {
             if (mode == Mode::response_cancel)
                 check(fixture.submissions == 1 && !fixture.consumes && fixture.cancels == 1,
                       "remote auth: simultaneous response and cancel chooses cancel before decode");
+            if (mode == Mode::limited_response_cancel)
+                check(result.http_status == 429 && result.retry_at_ms == kServerRetryAt &&
+                    fixture.submissions == 1 && !fixture.consumes && fixture.cancels == 1 &&
+                    fixture.joins == 1 && !fixture.challenges && !fixture.retries &&
+                    !fixture.decoded_credential && handshake.phase == RemoteAuthHandshakePhase::ticket_ready,
+                    "remote auth: dual-ready cancellation preserves server floor without decoding or replaying the ticket");
             if (mode == Mode::consume_cancel || mode == Mode::join_cancel || mode == Mode::join_failure)
                 check(fixture.decoded_credential && handshake.phase == RemoteAuthHandshakePhase::authenticated,
                       "remote auth: post-decode and join gates erase a successfully decrypted credential");
@@ -233,18 +283,32 @@ void run() noexcept {
         check(handles_ready, "remote auth: synthetic outer client thread joins without network");
         if (handles_ready) {
             rest_client_start_user_auth(&runtime->ticket_exchange.transport, 1024);
+            runtime->ticket_exchange.admitted_request_id = 19;
+            fixture.request_id = 20;
+            fixture.limited_stop_receipt = true;
+            SetEvent(fixture.ready);
             fixture.mode = Mode::join_failure;
             const auto thread = client.thread, notification = client.notification_event;
+            const auto mismatched = remote_auth_client_stop(&client, 1);
+            check(mismatched.error == RemoteAuthClientError::stop && !mismatched.http_status &&
+                !mismatched.retry_at_ms && runtime->ticket_exchange.admitted_request_id == 19,
+                "remote auth: stop ignores a rate-limit receipt for another request");
+            fixture.request_id = 19;
             const auto stopped = remote_auth_client_stop(&client, 1);
             check(stopped.error == RemoteAuthClientError::stop && stopped.phase == RemoteAuthClientPhase::stopping &&
                 client.runtime == runtime && client.thread == thread && client.notification_event == notification &&
                 runtime->ticket_exchange.transport.worker.thread && runtime->ticket_exchange.transport.runtime &&
+                stopped.http_status == 429 && stopped.retry_at_ms == kServerRetryAt &&
+                runtime->ticket_exchange.admitted_request_id == 19 &&
                 WaitForSingleObject(thread, 0) == WAIT_OBJECT_0,
                 "remote auth: joined outer thread cannot release a still-live nested worker or client handles");
             fixture.mode = Mode::success;
+            fixture.limited_stop_receipt = false;
+            ResetEvent(fixture.ready);
             const auto retried = remote_auth_client_stop(&client, 1000);
             check(retried.ok() && retried.phase == RemoteAuthClientPhase::stopped && !client.runtime &&
-                !client.thread && !client.notification_event && !client.cancel_event && !client.captcha_event,
+                !client.thread && !client.notification_event && !client.cancel_event && !client.captcha_event &&
+                retried.http_status == 429 && retried.retry_at_ms == kServerRetryAt,
                 "remote auth: enclosing client stop retry releases nested worker and every native owner");
         }
     }

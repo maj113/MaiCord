@@ -72,7 +72,7 @@ UiInputDisposition login_input(void*, const UiInputEvent& event) noexcept {
         application_account_switch_login_escape())
         return UiInputDisposition::handled;
     if (event.kind == UiInputKind::key_down)
-        return disposition(application_login_handle_key(event.code));
+        return disposition(application_login_handle_key(event.code, event.repeated));
     if (event.kind == UiInputKind::character)
         return disposition(application_login_handle_character(event.code));
     return UiInputDisposition::ignored;

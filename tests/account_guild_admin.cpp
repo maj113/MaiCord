@@ -1069,7 +1069,7 @@ void test_abi() noexcept {
     check(loaded.ok(), "guild admin account: shipping DLL loads without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 126 && kAccountModuleApiVersion == 126 && kAccountModuleApiOrdinal == 126 &&
+    check(host.api.version == 127 && kAccountModuleApiVersion == 127 && kAccountModuleApiOrdinal == 127 &&
               host.api.bytes == sizeof(AccountModuleApi) &&
               offsetof(AccountModuleApi, guild_admin) == 640 && host.api.guild_admin &&
               host.api.guild_admin(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
@@ -1077,7 +1077,7 @@ void test_abi() noexcept {
     auto missing = host.api;
     missing.guild_admin = nullptr;
     check(!account_host_api_valid(missing), "guild admin account: the host requires the guild admin entry");
-    check(host.api.bytes == 1168 && offsetof(AccountModuleApi, guild_moderation) == 1160 && host.api.guild_moderation &&
+    check(host.api.bytes == 1176 && offsetof(AccountModuleApi, guild_moderation) == 1160 && host.api.guild_moderation &&
               host.api.guild_moderation(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
           "guild moderation account: the appended v125 entry rejects an absent owner without creating runtime");
     missing = host.api;

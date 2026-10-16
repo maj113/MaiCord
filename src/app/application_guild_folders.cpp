@@ -315,9 +315,10 @@ bool application_guild_folders_response(const RestClientResponse& response, Utf8
         }
         return true;
     }
-    if (response.transport_ok() && (response.rate_limited || response.status_code == 429) && ++folders.attempts < 4) {
+    if (response.transport_ok() && response.rate_limited && response.status_code == 429 &&
+        response.retry_at_ms != 0 && ++folders.attempts < 4) {
         folders.dirty = true;
-        folders.retry_at_ms = response.retry_at_ms ? response.retry_at_ms : clock_monotonic_milliseconds() + 2000;
+        folders.retry_at_ms = response.retry_at_ms;
         return true;
     }
     log_u64(LogLevel::warning, "guild_folders", "save_failed", response.status_code);

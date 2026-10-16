@@ -33,7 +33,7 @@ struct Broker {
     u32 generation, submitted_generation, submitted_edits, submitted_uses;
     AccountGifFavoritesOperation operation;
     u8 attempts;
-    bool authoritative, stale, fetch_wanted, was_running, receipt_consumed, admission_busy;
+    bool authoritative, stale, fetch_wanted, was_running, receipt_consumed, admission_busy, terminal_rate_limit;
 };
 Broker* broker;
 
@@ -73,7 +73,7 @@ void clear_scope(Broker& p) noexcept {
     if (!++p.generation)
         ++p.generation;
     replace_groups(p, nullptr, 0, {});
-    p.authoritative = p.stale = p.fetch_wanted = false;
+    p.authoritative = p.stale = p.fetch_wanted = p.terminal_rate_limit = false;
     p.attempts = 0;
     p.retry_at = 0;
 }
@@ -257,7 +257,7 @@ u64 uses_due(const ReactionPreferenceStore& preferences) noexcept {
 }
 u64 due_at(const Broker& p) noexcept {
     const auto* preferences = store();
-    if (!preferences)
+    if (!preferences || p.terminal_rate_limit)
         return 0;
     const u64 retry = maximum<u64>(1, p.retry_at);
     if (preferences->favorite_edit_count || p.fetch_wanted)
@@ -266,9 +266,10 @@ u64 due_at(const Broker& p) noexcept {
     return uses ? maximum(retry, uses) : 0;
 }
 
-void fail(Broker& p, AccountGifFavoritesOperation operation) noexcept {
+void fail(Broker& p, AccountGifFavoritesOperation operation, bool retry = true) noexcept {
+    p.terminal_rate_limit = !retry;
     p.retry_at = clock_monotonic_milliseconds() + kFailureBackoffMs;
-    if (++p.attempts < 3)
+    if (retry && ++p.attempts < 3)
         return;
     // Give up on this batch; a fresh snapshot restores the visible truth.
     if (operation == AccountGifFavoritesOperation::update && store())
@@ -291,8 +292,10 @@ bool application_emoji_preferences_toggle_favorite(ReactionEmojiRef emoji) noexc
     auto* preferences = store();
     if (!preferences || !reaction_preferences_toggle_favorite_emoji(preferences, emoji).ok())
         return false;
-    if (ensure())
+    if (ensure()) {
+        broker->terminal_rate_limit = false;
         application_emoji_preferences_synchronize();
+    }
     application_request_frame();
     return true;
 }
@@ -331,6 +334,7 @@ void application_emoji_preferences_open() noexcept {
         return;
     application_emoji_preferences_synchronize();
     auto& p = *broker;
+    p.terminal_rate_limit = false;
     if (scope(p) && (p.stale || !p.authoritative) && !p.request_id) {
         p.fetch_wanted = true;
         p.retry_at = 0;
@@ -497,13 +501,13 @@ bool application_emoji_preferences_response(const RestClientResponse& response, 
         p.fetch_wanted = scope(p);
         return true;
     }
-    if (response.transport_ok() && (response.rate_limited || response.status_code == 429) &&
+    if (response.transport_ok() && response.rate_limited && response.status_code == 429 &&
         response.retry_at_ms > now) {
         p.retry_at = response.retry_at_ms;
         return true;
     }
     if (!response.transport_ok() || response.status_code < 200 || response.status_code >= 300) {
-        fail(p, operation);
+        fail(p, operation, response.status_code != 429);
         return true;
     }
     bool out_of_date = false;

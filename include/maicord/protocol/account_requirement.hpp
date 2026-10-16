@@ -36,5 +36,8 @@ constexpr bool api_rejection_requires_action(ApiRejection value) noexcept {
 // Retain only numeric codes and challenge presence. Never retain error prose,
 // captcha material, or nested validation values from the response body.
 bool api_rejection_decode(Utf8View body, Slice<u32> scratch, ApiRejection* output) noexcept;
+// Recognizes only a complete 60003 error with a nonempty MFA ticket and method
+// list. Visits bounded JSON without retaining any ticket or challenge material.
+bool api_rejection_is_mfa_challenge(Utf8View body, Slice<u32> scratch) noexcept;
 Utf8View api_rejection_notice(ApiRejection value) noexcept;
 } // namespace maicord

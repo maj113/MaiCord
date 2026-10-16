@@ -46,7 +46,7 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
     account.gateway.phase = static_cast<LONG>(GatewayClientPhase::failed);
     account.gateway.close_code = 0;
     // A READY that cannot be decoded (the 18M-member guild failure) and any
-    // other non-authentication worker failure keep the session and UI and
+    // other recoverable worker failure keep the session and UI and
     // schedule a worker restart instead of returning to the login screen.
     const GatewayClientError recoverable[] = {GatewayClientError::session, GatewayClientError::connect,
                                               GatewayClientError::timeout, GatewayClientError::memory};
@@ -62,14 +62,47 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
                    user_account_coordinator_gateway_restart_due(&account, 3'000) &&
                    user_account_coordinator_pump(&account, 5'000).gateway_restart_at_ms == 3'000;
     }
-    check(restarts, "non-authentication Gateway failures never fail the session; one restart is scheduled");
+    check(restarts, "recoverable Gateway failures keep the session; one restart is scheduled");
     check(user_account_coordinator_restart_delay(0) == 2'000 && user_account_coordinator_restart_delay(1) == 4'000 &&
               user_account_coordinator_restart_delay(7) == 256'000 && user_account_coordinator_restart_delay(30) == 300'000,
           "Gateway worker restarts back off from 2 s to a 5 minute cap");
     account.gateway.close_code = 4004;
     check(user_account_coordinator_pump(&account, 6'000).error == UserAccountCoordinatorError::authentication_rejected &&
               !user_account_coordinator_gateway_restart_due(&account, 10'000),
-          "only rejected credentials (4004) end the session, even while a restart is pending");
+          "rejected credentials (4004) invalidate the session and clear a pending restart");
+    check(!account.state.gateway_restart_at_ms,
+          "credential rejection retires the previously scheduled Gateway wake");
+
+    bool terminal_stops = true;
+    constexpr UserAccountCoordinatorPhase active_phases[]{UserAccountCoordinatorPhase::gateway_connecting,
+                                                          UserAccountCoordinatorPhase::running};
+    for (const auto phase : active_phases) {
+        for (u16 close_code = 4010; close_code <= 4014; ++close_code) {
+            SecureZeroMemory(&account, sizeof(account));
+            account.metadata.profile_id = 17;
+            account.state.profile_id = 17;
+            account.state.phase = phase;
+            account.state.gateway_restart_at_ms = 3'000;
+            account.state.gateway_restart_attempt = 2;
+            account.gateway.phase = static_cast<LONG>(GatewayClientPhase::failed);
+            account.gateway.error = static_cast<LONG>(GatewayClientError::session);
+            account.gateway.close_code = close_code;
+            account.gateway.native_error = 123;
+            const auto stopped = user_account_coordinator_pump(&account, 2'000);
+            terminal_stops =
+                terminal_stops && stopped.error == UserAccountCoordinatorError::gateway &&
+                stopped.phase == UserAccountCoordinatorPhase::failed && !stopped.gateway_restart_at_ms &&
+                stopped.gateway_error == GatewayClientError::session && stopped.native_error == 123 &&
+                account.metadata.profile_id == 17 && stopped.profile_id == 17 &&
+                !rest_client_status(&account.rest).authentication_rejected &&
+                !rest_client_status(&account.details).authentication_rejected &&
+                !user_account_coordinator_gateway_restart_due(&account, 100'000) &&
+                user_account_coordinator_pump(&account, 100'000).error ==
+                    UserAccountCoordinatorError::gateway;
+        }
+    }
+    check(terminal_stops,
+          "terminal Gateway configuration closes latch failure without credential rejection or restart");
 
     LoginScene scene{};
     LoginView view{};
@@ -234,6 +267,73 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
         "signed-out outcomes preserve independent QR visibility and promotion through fresh remote phases");
     check(neutral_outcome,
           "signed-out truthful neutral status copy wins over QR progress and network error in both themes");
+    bool rate_controls = true, rate_copy = true;
+    constexpr LoginStatus rate_states[]{LoginStatus::rejected, LoginStatus::mfa_code_rejected,
+                                        LoginStatus::captcha_required};
+    for (const auto status : rate_states) {
+        for (u32 unknown = 0; unknown < 2; ++unknown) {
+            LoginView limited{};
+            limited.visible = true;
+            limited.status = status;
+            limited.auth_rate_limited = true;
+            limited.auth_retry_time_unknown = unknown != 0;
+            if (status == LoginStatus::mfa_code_rejected) {
+                limited.mfa_capabilities = limited.selected_mfa_capability = login_mfa_capability_totp;
+                limited.password_mask = utf8_literal("123456");
+                limited.mfa_code_ready = true;
+            }
+            LoginScene paused{};
+            paused.back_only = login_requires_back(status, limited.remote_status);
+            paused.credential_fields_hidden =
+                login_credential_fields_hidden(status, limited.remote_status, false);
+            paused.mfa_capabilities = limited.mfa_capabilities;
+            paused.selected_mfa_capability = limited.selected_mfa_capability;
+            paused.action_disabled = login_view_action_disabled(limited);
+            paused.submit_disabled = login_view_submit_disabled(limited);
+            paused.auth_retry_resume = login_view_auth_retry_resume(limited);
+            paused.captcha_action = login_view_captcha_action(limited);
+            paused.recovery_disabled = login_view_recovery_disabled(limited);
+            for (float width : widths) {
+                rate_controls = rate_controls && login_scene_layout(&paused, width, 720);
+                limited.focus = paused.focus;
+                const auto submit = login_scene_rectangle(paused, LoginElement::submit);
+                rate_controls =
+                    rate_controls && login_view_valid(limited) && paused.submit_disabled == !unknown &&
+                    !paused.captcha_action && login_view_matches_scene(limited, &paused) &&
+                    login_scene_hit_test(paused, (submit.left + submit.right) * 0.5f,
+                                         (submit.top + submit.bottom) * 0.5f) ==
+                        (unknown ? LoginControl::submit : LoginControl::none);
+                for (const auto* theme : themes) {
+                    bool label = false, explanation = false;
+                    const bool built = login_text_presentation_build(paused, limited, *theme, &text);
+                    for (u32 index = 0; index < text.count; ++index) {
+                        label |=
+                            utf8_equal(text.storage[index].text, unknown ? utf8_literal("Resume sign-in")
+                                                                         : utf8_literal("Please wait"));
+                        explanation |=
+                            utf8_equal(text.storage[index].text,
+                                       unknown ? utf8_literal("No retry time was provided. Resume when ready.")
+                                               : utf8_literal("Too many attempts. Wait before retrying."));
+                    }
+                    rate_copy = rate_copy && built && label && explanation;
+                }
+            }
+            login_scene_release(&paused);
+        }
+    }
+    check(rate_controls,
+          "actor cooldown disables native password MFA and CAPTCHA submission at all widths");
+    check(rate_copy, "actor cooldown and missing retry time have truthful semantic copy in both themes");
+    constexpr LoginStatus busy_states[]{LoginStatus::submitting, LoginStatus::cancelling,
+        LoginStatus::reset_mfa_pending, LoginStatus::browser_exchange_pending};
+    bool busy_paused = true;
+    for (auto status : busy_states) {
+        LoginView busy{};
+        busy.status = status;
+        busy.auth_rate_limited = busy.auth_retry_time_unknown = true;
+        busy_paused = busy_paused && !login_view_auth_retry_resume(busy) && login_view_submit_disabled(busy);
+    }
+    check(busy_paused, "unknown retry Resume is unavailable while authentication or cancellation owns pending work");
     login_scene_release(&scene);
 }
 } // namespace maicord

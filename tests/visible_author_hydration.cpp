@@ -119,9 +119,121 @@ bool contains(ConstSlice<u64> ids, u64 id) noexcept {
             return true;
     return false;
 }
+
+void test_member_rate_limits(void (*check)(bool, const char*) noexcept) noexcept {
+    u32 structural[128]{};
+    GatewayRateLimited decoded{91, 92, 93, 94};
+    const auto decode = [&](Utf8View text) noexcept {
+        return gateway_decode_rate_limited({text, 0, JsonValueKind::object}, {structural, 128}, 16,
+                                           &decoded);
+    };
+    check(decode(utf8_literal(R"({"opcode":8,"retry_after":0.0001,"meta":{"guild_id":"7","nonce":"9"}})"))
+                  .ok() &&
+              decoded.guild_id == 7 && decoded.nonce == 9 && decoded.retry_after_ms == 1 &&
+              decoded.opcode == 8,
+          "member rate: required event metadata and fractional seconds ceil to one millisecond");
+    check(decode(utf8_literal(R"({"opcode":8,"retry_after":1.234e1,"meta":{"guild_id":"7"}})")).ok() &&
+              decoded.retry_after_ms == 12340 && !decoded.nonce &&
+              decode(utf8_literal(
+                         R"({"opcode":8,"retry_after":1e-100,"meta":{"guild_id":"7","nonce":"foreign"}})"))
+                  .ok() &&
+              decoded.retry_after_ms == 1 && !decoded.nonce,
+          "member rate: exponent seconds and absent or foreign nonces preserve the guild floor");
+    const Utf8View invalid[] = {
+        utf8_literal(R"({"opcode":8,"retry_after":-1,"meta":{"guild_id":"7"}})"),
+        utf8_literal(R"({"opcode":8,"retry_after":1e100,"meta":{"guild_id":"7"}})"),
+        utf8_literal(R"({"opcode":8,"retry_after":1,"retry_after":2,"meta":{"guild_id":"7"}})"),
+        utf8_literal(R"({"opcode":8,"retry_after":1,"meta":{"guild_id":"7","guild_id":"8"}})"),
+        utf8_literal(R"({"opcode":8,"retry_after":1,"meta":{"guild_id":"0"}})"),
+        utf8_literal(R"({"opcode":8,"meta":{"guild_id":"7"}})"),
+        utf8_literal(R"({"opcode":8,"retry_after":1,"meta":{"guild_id":"7","nonce":9}})"),
+    };
+    bool atomic = true;
+    for (const auto text : invalid) {
+        decoded = {91, 92, 93, 94};
+        atomic &= !decode(text).ok() && decoded.guild_id == 91 && decoded.retry_after_ms == 92 &&
+                  decoded.nonce == 93 && decoded.opcode == 94;
+    }
+    check(atomic, "member rate: invalid, duplicate, missing and overflowing values leave output unchanged");
+
+    GatewayGuildMemberRequest batch{};
+    batch.guild_id = 7;
+    batch.channel_id = 80;
+    batch.nonce = 9;
+    batch.user_count = 1;
+    batch.user_ids[0] = 20;
+    GatewayMemberRequestOwner owner{};
+    check(gateway_member_request_admit(&owner, batch, 100), "member rate: initial copied request admitted");
+    gateway_member_request_sent(&owner);
+    gateway_member_request_rate_limited(&owner, {7, 250, 9, 8}, 100);
+    gateway_member_request_rate_limited(&owner, {7, 20, 9, 8}, 110);
+    check(owner.occupied && owner.batch_retries == 1 && !gateway_member_request_next(owner, 349) &&
+              gateway_member_request_next(owner, 350) == &owner.pending &&
+              gateway_member_request_deadline(owner, 110) == 350,
+          "member rate: matching sent nonce requeues once and repeated events never shorten the server "
+          "floor");
+    gateway_member_request_sent(&owner, gateway_member_request_next(owner, 350));
+    gateway_member_request_rate_limited(&owner, {7, 10, 9, 8}, 350);
+    gateway_member_request_sent(&owner, gateway_member_request_next(owner, 360));
+    gateway_member_request_rate_limited(&owner, {7, 10, 9, 8}, 360);
+    check(!owner.occupied && owner.batch_retries == 2,
+          "member rate: a rejected request has at most two automatic replays");
+
+    batch.guild_id = 8;
+    batch.channel_id = 81;
+    batch.nonce = 10;
+    check(gateway_member_request_admit(&owner, batch, 360) && gateway_member_request_next(owner, 360),
+          "member rate: another guild is eligible without waiting for the rejected guild");
+    gateway_member_request_sent(&owner, gateway_member_request_next(owner, 360));
+    gateway_member_request_rate_limited(&owner, {8, 100, 0, 8}, 360);
+    gateway_member_request_rate_limited(&owner, {8, 100, 99, 8}, 360);
+    check(!owner.occupied && gateway_member_request_guild_deadline(owner, 8) == 460,
+          "member rate: absent or unknown nonce gates a guild without inventing replay ownership");
+    gateway_member_request_rate_limited(&owner, {8, 900, 10, 9}, 360);
+    check(gateway_member_request_guild_deadline(owner, 8) == 460,
+          "member rate: other Gateway opcodes do not change the member gate");
+
+    GatewayMemberChunkReceipt receipt{};
+    const auto chunk =
+        utf8_literal(R"({"guild_id":"8","nonce":"10","chunk_index":0,"chunk_count":1,"members":[]})");
+    check(gateway_decode_member_chunk_receipt({chunk, 0, JsonValueKind::object}, {structural, 128}, 16,
+                                              &receipt)
+              .ok(),
+          "member rate: final member chunk retains exact guild and nonce metadata");
+    gateway_member_request_complete(&owner, {8, 10, 0, 2});
+    check(owner.batch_current, "member rate: an intermediate chunk retains request completion authority");
+    gateway_member_request_complete(&owner, receipt);
+    gateway_member_request_rate_limited(&owner, {8, 100, 10, 8}, 460);
+    check(!owner.occupied && !owner.batch_current,
+          "member rate: a late rejection cannot revive an exactly completed member request");
+
+    owner = {};
+    for (u64 guild = 1; guild <= 8; ++guild)
+        gateway_member_request_rate_limited(&owner, {guild, 100 + guild, 0, 8}, 100);
+    gateway_member_request_rate_limited(&owner, {9, 200, 0, 8}, 100);
+    gateway_member_request_rate_limited(&owner, {10, 400, 0, 8}, 100);
+    batch.guild_id = 11;
+    check(!gateway_member_request_admit(&owner, batch, 499) && owner.overflow_until_ms == 500,
+          "member rate: full table defers only untracked guilds to the greatest actual overflow deadline");
+    batch.guild_id = 1;
+    check(gateway_member_request_admit(&owner, batch, 210) && gateway_member_request_next(owner, 210),
+          "member rate: tracked guild remains independent of capacity overflow");
+    gateway_member_request_cancel_batch(&owner);
+    batch.guild_id = 11;
+    check(gateway_member_request_admit(&owner, batch, 500) && gateway_member_request_next(owner, 500),
+          "member rate: expired overflow and guild slots are reclaimable without a permanent throttle");
+    gateway_member_request_rate_limited(&owner, {11, 100, batch.nonce, 8}, 500);
+    gateway_member_request_reset_connection(&owner, false);
+    check(!owner.batch_current && gateway_member_request_guild_deadline(owner, 11) == 600,
+          "member rate: resumed session retains server floors and retires old UI request authority");
+    gateway_member_request_reset_connection(&owner, true);
+    check(!owner.overflow_until_ms && !gateway_member_request_guild_deadline(owner, 11),
+          "member rate: fresh identified session discards old session guild floors");
+}
 } // namespace
 
 void test_visible_author_hydration(void (*check)(bool, const char*) noexcept) noexcept {
+    test_member_rate_limits(check);
     GatewayGuildMemberRequest request{};
     request.guild_id = 7;
     request.channel_id = 80;

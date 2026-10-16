@@ -264,6 +264,9 @@ struct LoginRuntime {
     u8 remote_retry_attempt;
     u64 backup_acknowledgement_at_ms;
     u64 remote_restart_at_ms;
+    // Server admission belongs to the login actor, not its replaceable worker.
+    u64 auth_retry_at_ms;
+    bool auth_retry_time_unknown;
     u64 caret_blink_at_ms;
     bool caret_visible;
     bool reset_mode;

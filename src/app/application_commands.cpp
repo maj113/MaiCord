@@ -772,9 +772,11 @@ bool application_commands_response(const RestClientResponse& response, Utf8View 
     } else if (same || c.requested_slot == 1) {
         if (response.transport_ok() &&
             ((response.status_code == 202 && c.attempts[c.requested_slot]++ < 3) ||
-             response.status_code == 429)) {
+             (response.status_code == 429 && response.rate_limited && response.retry_at_ms &&
+              !api_rejection_requires_action(response.rejection)))) {
             c.pending |= 1u << c.requested_slot;
-            c.retry_at = maximum(clock_monotonic_milliseconds() + 5000, response.retry_at_ms);
+            c.retry_at = response.status_code == 429 ? response.retry_at_ms :
+                deadline_after(clock_monotonic_milliseconds(), 5000);
         } else {
             c.pending &= ~(1u << c.requested_slot);
             c.loaded[c.requested_slot] = true;

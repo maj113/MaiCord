@@ -159,6 +159,7 @@ struct LoginScene {
     bool add_account;
     bool account_return;
     bool switching_accounts;
+    bool auth_retry_resume;
 };
 
 inline constexpr u32 kLoginPhoneCodeDigits = 6;

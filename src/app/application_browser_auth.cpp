@@ -20,8 +20,10 @@ bool stop_browser_owner(LoginStatus terminal) noexcept {
     auto& login = g_app.login;
     auto& host = g_app.account;
     login.browser_launch_epoch = 0;
-    if (host.login_instance)
+    if (host.login_instance) {
         account_host_login_stop(&host, kAccountStopTimeoutMs);
+        application_login_retain_auth_retry();
+    }
     if (host.login_instance || host.stop_failed) {
         login.status = LoginStatus::cancelling;
         login.focus = LoginControl::back;
@@ -37,6 +39,8 @@ bool stop_browser_owner(LoginStatus terminal) noexcept {
 bool application_login_begin_browser_auth() noexcept {
     if (logout_blocks_browser_auth())
         return false;
+    if (application_login_auth_cooldown_active())
+        return true;
     auto& login = g_app.login;
     auto& host = g_app.account;
     if (!login.visible || !login_browser_available(login.status, login.remote_status, login.reset_mode))
@@ -66,13 +70,20 @@ bool application_login_begin_browser_auth() noexcept {
     login.password_revealed = false;
     login.status = LoginStatus::browser_starting;
     login.focus = LoginControl::back;
-    if (host.login_instance)
+    if (host.login_instance) {
         account_host_login_stop(&host, kAccountStopTimeoutMs);
+        application_login_retain_auth_retry();
+    }
     if (host.login_instance || host.stop_failed) {
         login.status = LoginStatus::cancelling;
         return application_refresh_login_view();
     }
     application_account_module_release();
+    if (application_login_auth_cooldown_active()) {
+        login.status = LoginStatus::browser_failed;
+        login.focus = LoginControl::back;
+        return application_refresh_login_view();
+    }
     if (host.module) {
         login.status = LoginStatus::cancelling;
         return application_refresh_login_view();
@@ -87,6 +98,7 @@ bool application_login_begin_browser_auth() noexcept {
         return stop_browser_owner(LoginStatus::browser_failed);
     host.login_status =
         host.api.login_start_browser(host.login_instance, login.application_auth_epoch, 120000);
+    application_login_retain_auth_retry();
     if (!host.login_status.ok())
         return stop_browser_owner(LoginStatus::browser_failed);
     // Retain explicit click authorization until the asynchronous listener is
@@ -129,7 +141,8 @@ bool application_browser_auth_pump(bool* handled) noexcept {
         SecureBuffer url{};
         const bool copied = secure_buffer_initialize(&url, 256).ok() &&
                             host.api.login_copy_browser_url(instance, epoch, &url).ok();
-        const bool current = !logout_blocks_browser_auth() && epoch == login.application_auth_epoch &&
+        const bool current = !logout_blocks_browser_auth() && !application_login_auth_cooldown_active() &&
+                             epoch == login.application_auth_epoch &&
                              host.module == module && host.login_instance == instance && login.visible &&
                              login.status != LoginStatus::cancelling;
         const bool opened = copied && current && browser_sign_in_launch(g_app.window, &url);

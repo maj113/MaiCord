@@ -479,6 +479,8 @@ void discard_login_layout(LoginScene* scene) noexcept {
 bool control_input_enabled(const LoginScene& scene, LoginControl control) noexcept {
     if (scene.restoring_session)
         return false;
+    if (scene.auth_retry_resume && control != LoginControl::back)
+        return control == LoginControl::submit && !scene.submit_disabled;
     if (control == LoginControl::browser_sign_in) return scene.browser_available;
     if (control == LoginControl::submit && scene.captcha_action) return !scene.submit_disabled;
     if (scene.back_only)

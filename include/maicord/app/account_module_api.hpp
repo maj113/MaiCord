@@ -70,8 +70,10 @@ namespace maicord {
 // appended; GUILD_BULK_BAN_UPDATE arrives as guild_bulk_ban_update.
 // v126: message events carry the author's member.nick (member_nick_bytes,
 // split from author_name_bytes) after the avatar hash in the payload text.
-inline constexpr u32 kAccountModuleApiVersion = 126;
-inline constexpr u16 kAccountModuleApiOrdinal = 126;
+// v127: independently cancels the guild-member name query, including a
+// server-rejected request retained for replay; author batches are unaffected.
+inline constexpr u32 kAccountModuleApiVersion = 127;
+inline constexpr u16 kAccountModuleApiOrdinal = 127;
 inline constexpr u32 kAccountHistoryResponseBytes = 256 * 1024;
 inline constexpr wchar_t kAccountModuleFileNameWide[] = L"MaiCordAccount.dll";
 
@@ -658,6 +660,9 @@ struct AccountModuleApi {
     // request cancels only this ID (a superseded search).
     RestClientSubmitResult(WINAPI* guild_moderation)(void*, const GuildModerationRequest*,
                                                      u64 request_id) noexcept;
+    // v126: cancels only the member name query, including a retained retry.
+    // Visible-author batches keep their separate cancellation path.
+    void(WINAPI* guild_members_query_cancel)(void*) noexcept;
 };
 
 // This is the only executable/DLL boundary. The module loads the DPAPI profile
@@ -671,7 +676,8 @@ struct AccountModuleApi {
 static_assert(sizeof(AccountModuleStatus) == 72);
 static_assert(sizeof(AccountModuleStartResult) == 88);
 static_assert(sizeof(AccountLoginStatus) == 136);
-static_assert(sizeof(AccountModuleApi) == 1168);
+static_assert(sizeof(AccountModuleApi) == 1176);
+static_assert(offsetof(AccountModuleApi, guild_members_query_cancel) == 1168);
 static_assert(offsetof(AccountModuleApi, guild_moderation) == 1160);
 static_assert(offsetof(AccountModuleApi, decoders) == 960);
 static_assert(offsetof(AccountModuleApi, cdn_urls) == 1032);

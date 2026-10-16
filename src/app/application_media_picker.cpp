@@ -1184,11 +1184,10 @@ bool application_media_picker_response(const RestClientResponse& response, Utf8V
     if (!p->active || !owns_current(*p) || p->generation != generation ||
         p->account_id != g_app.account_ui->chat_state.self_user_id)
         return true;
-    const auto now = clock_monotonic_milliseconds();
-    if (response.transport_ok() && response.status_code == 429 && p->retries++ < 3) {
+    if (response.transport_ok() && response.rate_limited && response.status_code == 429 &&
+        response.retry_at_ms != 0 && p->retries++ < 3) {
         p->wanted = true;
-        p->due_at = maximum(response.retry_at_ms,
-                            deadline_after(now, maximum(response.rate.retry_after_ms, 1000ull)));
+        p->due_at = response.retry_at_ms;
         p->status = utf8_literal("Too many requests. Retrying…");
         return repaint();
     }

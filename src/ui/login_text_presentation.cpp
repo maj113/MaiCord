@@ -40,6 +40,15 @@ bool append_command(const LoginScene& scene, LoginElement element, Utf8View text
                                                              wrapping, UiTextOverflow::clip});
 }
 
+Utf8View auth_cooldown_copy(const LoginView& view) noexcept {
+    return view.auth_retry_time_unknown ? utf8_literal("No retry time was provided. Resume when ready.")
+                                       : utf8_literal("Too many attempts. Wait before retrying.");
+}
+
+Utf8View auth_cooldown_action(const LoginView& view) noexcept {
+    return login_view_auth_retry_resume(view) ? utf8_literal("Resume sign-in") : utf8_literal("Please wait");
+}
+
 Utf8View backup_acknowledgement_action(u8 seconds) noexcept {
     switch (seconds) {
     case 10:
@@ -112,7 +121,8 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
 
     if (scene.browser_mode) {
         const Utf8View status =
-            view.status == LoginStatus::browser_starting
+            view.auth_rate_limited ? auth_cooldown_copy(view)
+            : view.status == LoginStatus::browser_starting
                 ? utf8_literal("Opening your browser…")
             : view.status == LoginStatus::browser_exchange_pending
                 ? utf8_literal("Finishing sign-in…")
@@ -128,7 +138,8 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
                               theme.accent, text_style_subtext, UiTextAlignment::start,
                               UiTextAlignment::center, stream) &&
                append_command(scene, LoginElement::submit,
-                              view.status == LoginStatus::browser_expired ? utf8_literal("Sign-in expired")
+                              view.auth_rate_limited ? auth_cooldown_action(view)
+                              : view.status == LoginStatus::browser_expired ? utf8_literal("Sign-in expired")
                               : view.status == LoginStatus::browser_failed
                                   ? utf8_literal("Sign-in failed")
                                   : utf8_literal("Waiting for your browser"),
@@ -181,6 +192,7 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
         default:
             break;
         }
+        if (view.auth_retry_time_unknown) status = auth_cooldown_copy(view);
         const bool error = view.status == LoginStatus::recovery_phone_input_invalid ||
                            view.status == LoginStatus::recovery_phone_code_rejected ||
                            view.status == LoginStatus::recovery_phone_resend_failed ||
@@ -206,7 +218,8 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
                             scene.phone_resend_disabled ? theme.text_secondary : theme.accent,
                             text_style_subtext, UiTextAlignment::center, UiTextAlignment::center, stream) ||
             !append_command(scene, LoginElement::submit,
-                            view.status == LoginStatus::recovery_phone_captcha_required
+                            view.auth_rate_limited ? auth_cooldown_action(view)
+                            : view.status == LoginStatus::recovery_phone_captcha_required
                                 ? captcha_action_label(view.captcha_status)
                                 : utf8_literal("Verify"),
                             submit_ink, text_style_bold, UiTextAlignment::center, UiTextAlignment::center, stream) ||
@@ -281,7 +294,8 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
                                             : utf8_literal("Password");
     const bool captcha = login_captcha_mode(view.status, view.remote_status);
     const Utf8View action =
-        captcha ? captcha_action_label(view.captcha_status)
+        view.auth_rate_limited ? auth_cooldown_action(view)
+        : captcha ? captcha_action_label(view.captcha_status)
         : view.status == LoginStatus::reset_pending || view.status == LoginStatus::reset_mfa_pending
             ? utf8_literal("Resetting password…")
         : reset && view.status == LoginStatus::submitting ? utf8_literal("Signing in…")
@@ -303,7 +317,10 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
         : reset                                                ? utf8_literal("Reset password")
                                                                : utf8_literal("Log in");
     const Utf8View status =
-        captcha                                              ? captcha_status_copy(view.captcha_status)
+        view.auth_retry_time_unknown ? auth_cooldown_copy(view)
+        : view.auth_rate_limited && !reset && !recovery && !login_phone_mode(view.status)
+            ? utf8_literal("Too many attempts. Wait before retrying.")
+        : captcha                                              ? captcha_status_copy(view.captcha_status)
         : view.status == LoginStatus::signed_out             ? utf8_literal("You've been logged out.")
         : view.status == LoginStatus::signed_out_unconfirmed ? utf8_literal("Logged out of this device.")
         : reset && view.status == LoginStatus::submitting    ? utf8_literal("Signing in…")
@@ -372,7 +389,7 @@ bool login_text_presentation_build(const LoginScene& scene, const LoginView& vie
     constexpr u32 heading_style = text_style_heading_1 | text_style_bold;
     constexpr u32 label_style = text_style_subtext | text_style_bold;
     constexpr u32 secondary_style = text_style_subtext;
-    const bool credential_error = view.status == LoginStatus::session_expired ||
+    const bool credential_error = view.auth_rate_limited || view.status == LoginStatus::session_expired ||
                                   view.status == LoginStatus::connection_failed ||
                                   view.status == LoginStatus::rejected;
     const bool remote_message =

@@ -387,6 +387,41 @@ void test_member_query(Check check) noexcept {
     check(gateway_member_request_next(queue) == &queue.pending, "member query: the batch follows the search");
     gateway_member_request_sent(&queue);
     check(!gateway_member_request_next(queue), "member query: both slots drain");
+
+    gateway_member_request_rate_limited(&queue, {7, 500, request.nonce, 8}, 1000);
+    check(queue.query_pending && queue.query_retries == 1 &&
+              !gateway_member_request_next(queue, 1499),
+          "member query: server rejection requeues the admitted name query behind its guild deadline");
+    gateway_member_request_cancel_query(&queue);
+    gateway_member_request_rate_limited(&queue, {7, 100, request.nonce, 8}, 1100);
+    check(!queue.query_pending && !queue.query_current && queue.batch_current,
+          "member query: typed query cancellation retires rejected replay authority and preserves author interest");
+
+    ++batch.nonce;
+    check(gateway_member_request_admit(&queue, batch, 1200) && queue.occupied &&
+              !gateway_member_request_next(queue, 1499) &&
+              gateway_member_request_next(queue, 1500) == &queue.pending,
+          "member query: cancellation preserves the guild floor for a separately queued author batch");
+    gateway_member_request_sent(&queue, gateway_member_request_next(queue, 1500));
+    ++request.nonce;
+    check(gateway_member_request_admit(&queue, request, 1500),
+          "member query: a new query supersedes cancelled query interest");
+    gateway_member_request_sent(&queue, gateway_member_request_next(queue, 1500));
+    const u64 old_nonce = request.nonce;
+    ++request.nonce;
+    request.query[0] = 'b';
+    check(gateway_member_request_admit(&queue, request, 1500),
+          "member query: a replacement query is admitted independently");
+    gateway_member_request_rate_limited(&queue, {7, 100, old_nonce, 8}, 1500);
+    check(queue.query_pending && queue.query.nonce == request.nonce && !queue.query_retries &&
+              gateway_member_request_next(queue, 1600) == &queue.query,
+          "member query: old rejection holds the shared guild floor without replacing or replaying stale "
+          "query text");
+    gateway_member_request_sent(&queue, gateway_member_request_next(queue, 1600));
+    gateway_member_request_complete(&queue, {7, request.nonce, 0, 1});
+    gateway_member_request_rate_limited(&queue, {7, 100, request.nonce, 8}, 1600);
+    check(!queue.query_pending && !queue.query_current,
+          "member query: completed name lookup cannot be resurrected by a late rejection");
 }
 
 void test_mention_warning(Check check) noexcept {
@@ -394,20 +429,23 @@ void test_mention_warning(Check check) noexcept {
               message_mention_warning_round(999) == 900 && message_mention_warning_round(7) == 7 &&
               message_mention_warning_round(12345) == 10000,
           "composer mentions: warning count rounds down to its leading digit");
-    MessageMentionWarningInput input{utf8_literal("hi @everyone"), 1234, 40, 0,
+    MessageMentionWarningInput input{utf8_literal("hi @everyone"),        1234, 40,  0,
                                      MessageMentionWarningPlace::channel, true, true};
     auto warning = message_mention_warning_evaluate(input);
     char body[kMessageMentionWarningBodyBytes]{};
     u32 bytes = message_mention_warning_body(warning, input.place, {body, sizeof(body)});
     check(warning.required && !warning.here && warning.count == 1000 &&
               view_is({body, bytes},
-                      utf8_literal("By using @everyone, you are about to mention 1,000+ people. Are you sure?")),
+                      utf8_literal(
+                          "By using @everyone, you are about to mention 1,000+ people. Are you sure?")),
           "composer mentions: large @everyone in a guild channel asks with the official copy");
     input.content = utf8_literal("@here first then @everyone");
     warning = message_mention_warning_evaluate(input);
-    check(warning.required && warning.here && warning.count == 40, "composer mentions: @here counts online members");
+    check(warning.required && warning.here && warning.count == 40,
+          "composer mentions: @here counts online members");
     input.online_count = 30;
-    check(!message_mention_warning_evaluate(input).required, "composer mentions: 30 people or fewer send directly");
+    check(!message_mention_warning_evaluate(input).required,
+          "composer mentions: 30 people or fewer send directly");
     input.content = utf8_literal("`@everyone` and ```\n@here\n```");
     check(!message_mention_warning_evaluate(input).required,
           "composer mentions: mentions inside inline and fenced code are ignored");

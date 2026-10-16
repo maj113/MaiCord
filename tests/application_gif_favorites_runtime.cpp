@@ -267,6 +267,168 @@ void load(u64 id, u32 version, bool first = true, bool second = false, bool esca
               application_gif_favorites_view().authoritative,
           "complete bounded snapshot publishes authoritative saved data");
 }
+void hover_interest() noexcept {
+    auto& ui = *g_app.account_ui;
+    const u64 self = ui.chat_state.self_user_id;
+    const bool channels = chat_state_store_initialize(&ui.chat_state, {ui.guild_record_storage, 2},
+        {ui.guild_order_storage, 2}, {ui.channel_record_storage, 4}, {ui.channel_order_storage, 4},
+        {ui.chat_state_name_storage, 4096}) &&
+        chat_state_store_upsert_channel(&ui.chat_state, {70, 0, 0, utf8_literal("hover-dm"), 0, 0, 1}).ok() &&
+        chat_state_store_upsert_channel(&ui.chat_state, {80, 0, 0, utf8_literal("other-dm"), 0, 0, 1}).ok();
+    check(channels, "hover interest: real channel authority initializes in existing account storage");
+    if (!channels) return;
+    ui.chat_state.self_user_id = self;
+    ui.channel_record_storage[0].actions = ui.channel_record_storage[1].actions =
+        channel_action_view | channel_action_read_history;
+    ui.active_channel_id = ui.chat_state.selected_channel_id = 70;
+    ++g_app.plugin_account_scope_serial;
+
+    application_gif_favorites_set_hovered(true);
+    check(g_app.gif_favorites && g_app.gif_favorites->hovered && !g_app.gif_favorites->visible &&
+              application_gif_favorites_submit(300, 1),
+          "hover interest: readable message hover owns a fetch without pretending the picker is visible");
+    if (!g_app.gif_favorites) return;
+    auto limited = response(300, 429);
+    limited.rate_limited = true;
+    limited.retry_at_ms = clock_monotonic_milliseconds() + 60'000;
+    check(complete(limited, {}) && application_gif_favorites_next_wake() == limited.retry_at_ms,
+          "hover interest: authoritative 429 delays hover fetch at the exact server floor");
+    application_gif_favorites_set_hovered(false);
+    const u32 left_submits = submits, left_callbacks = callbacks;
+    const u64 left_revision = application_gif_favorites_view().revision;
+    bool idle = true;
+    for (u32 frame = 0; frame < 64; ++frame) {
+        application_gif_favorites_synchronize();
+        idle = idle && !application_gif_favorites_pending(limited.retry_at_ms) &&
+               !application_gif_favorites_next_wake();
+    }
+    check(idle && !g_app.gif_favorites->hovered && !g_app.gif_favorites->visible &&
+              !g_app.gif_favorites->fetch_wanted && submits == left_submits && callbacks == left_callbacks &&
+              application_gif_favorites_view().revision == left_revision,
+          "hover interest: leaving during delayed 429 retires all retry work and stays unchanged for 64 frames");
+
+    application_gif_favorites_set_hovered(true);
+    check(application_gif_favorites_open() && application_gif_favorites_submit(301, 1),
+          "hover interest: picker and message hover can independently share one broker fetch");
+    limited.request_id = 301;
+    check(complete(limited, {}), "hover interest: shared fetch receives an authoritative retry deadline");
+    application_gif_favorites_set_hovered(false);
+    check(g_app.gif_favorites->visible && !g_app.gif_favorites->hovered &&
+              application_gif_favorites_next_wake() == limited.retry_at_ms &&
+              !application_gif_favorites_pending(limited.retry_at_ms - 1) &&
+              application_gif_favorites_submit(302, limited.retry_at_ms),
+          "hover interest: hover leave preserves the visible picker's interest and complete server floor");
+    const auto authority = proto(80);
+    check(complete(response(302), envelope(authority.view())) && application_gif_favorites_state(saved).confirmed,
+          "hover interest: surviving picker fetch publishes one confirmed snapshot");
+    application_gif_favorites_release();
+
+    check(application_gif_favorites_open(), "hover interest: picker opens a fresh broker");
+    application_gif_favorites_set_hovered(true);
+    check(application_gif_favorites_submit(303, 1), "hover interest: shared in-flight fetch starts");
+    const auto held = application_gif_favorites_response_buffer();
+    const u32 before_close = cancels;
+    application_gif_favorites_set_visible(false);
+    const u32 reused_callbacks = callbacks;
+    const u64 reused_revision = application_gif_favorites_view().revision;
+    for (u32 frame = 0; frame < 64; ++frame) application_gif_favorites_set_hovered(true);
+    check(g_app.gif_favorites->hovered && !g_app.gif_favorites->visible && cancels == before_close &&
+              g_app.gif_favorites->request_id == 303 &&
+              application_gif_favorites_response_buffer().data == held.data &&
+              callbacks == reused_callbacks && application_gif_favorites_view().revision == reused_revision,
+          "hover interest: picker close preserves message hover and 64 repeated source refreshes reuse the exact fetch");
+    application_gif_favorites_set_hovered(false);
+    check(cancels == before_close + 1 && cancelled_id == 303 &&
+              application_gif_favorites_response_buffer().data == held.data,
+          "hover interest: last hover exit cancels only the exact unneeded GET while retaining its take buffer");
+    auto cancelled = response(303);
+    cancelled.error = RestClientError::cancelled;
+    check(complete(cancelled, {}) && is_free(held.data) && !application_gif_favorites_next_wake(),
+          "hover interest: cancelled hover receipt drains without publishing or scheduling another fetch");
+    application_gif_favorites_release();
+
+    application_gif_favorites_set_hovered(true);
+    check(application_gif_favorites_toggle(another, source, 160, 90, GifFavoriteFormat::image) &&
+              application_gif_favorites_submit(305, 1),
+          "hover interest: explicit queued mutation owns its prerequisite authority fetch");
+    limited.request_id = 305;
+    check(complete(limited, {}), "hover interest: mutation authority fetch receives delayed 429");
+    const u32 queued_cancels = cancels;
+    application_gif_favorites_set_hovered(false);
+    check(!g_app.gif_favorites->visible && !g_app.gif_favorites->hovered &&
+              g_app.gif_favorites->queue_count == 1 && cancels == queued_cancels &&
+              application_gif_favorites_next_wake() == limited.retry_at_ms &&
+              !application_gif_favorites_pending(limited.retry_at_ms - 1) &&
+              application_gif_favorites_submit(306, limited.retry_at_ms),
+          "hover interest: leaving preserves queued mutation authority and never shortens its delayed server floor");
+    const auto empty = proto(81, false, false);
+    check(complete(response(306), envelope(empty.view())) && application_gif_favorites_submit(307, 1) &&
+              submitted_operation == AccountGifFavoritesOperation::update &&
+              complete(response(307), reply_patch(82)) && application_gif_favorites_state(another).confirmed &&
+              !application_gif_favorites_next_wake() && !application_gif_favorites_pending(~u64{0}),
+          "hover interest: queued choice confirms through one closed-UI mutation then returns to dormant scheduling");
+    application_gif_favorites_release();
+
+    application_gif_favorites_set_hovered(true);
+    check(application_gif_favorites_submit(308, 1), "hover interest: source scope transition retains an old ticket");
+    const auto old = application_gif_favorites_response_buffer();
+    auto* const reused_owner = g_app.gif_favorites;
+    const u32 scope_cancels = cancels;
+    ++g_app.plugin_account_scope_serial;
+    application_gif_favorites_synchronize();
+    check(!reused_owner->hovered && cancels == scope_cancels + 1 && cancelled_id == 308 &&
+              application_gif_favorites_response_buffer().data == old.data,
+          "hover interest: source scope replacement withdraws stale hover and cancels its exact ticket");
+    application_gif_favorites_set_hovered(true);
+    check(g_app.gif_favorites == reused_owner && reused_owner->hovered &&
+              reused_owner->hover_scope == g_app.plugin_account_scope_serial &&
+              complete(response(308), envelope(authority.view())) &&
+              !application_gif_favorites_view().authoritative && application_gif_favorites_submit(309, 1) &&
+              complete(response(309), envelope(authority.view())),
+          "hover interest: repeated setter rebinds a reused owner to the new source without admitting the stale snapshot");
+    ++g_app.account.status.frecency_settings_revision;
+    application_gif_favorites_synchronize();
+    check(application_gif_favorites_submit(310, 1), "hover interest: profile transition starts with an old-scope take buffer");
+    ++g_app.account.status.profile_id;
+    ++ui.chat_state.self_user_id;
+    application_gif_favorites_synchronize();
+    check(!reused_owner->hovered && !application_gif_favorites_view().records.count,
+          "hover interest: profile replacement clears old source interest and confirmed record borrows");
+    application_gif_favorites_set_hovered(true);
+    check(g_app.gif_favorites == reused_owner && complete(response(310), envelope(authority.view())) &&
+              !application_gif_favorites_view().authoritative &&
+              reused_owner->profile_id == g_app.account.status.profile_id &&
+              application_gif_favorites_submit(311, 1) && complete(response(311), envelope(authority.view())),
+          "hover interest: explicit new-profile hover reuses owner only after draining old receipt and fetching new authority");
+    ui.active_channel_id = ui.chat_state.selected_channel_id = 80;
+    application_gif_favorites_synchronize();
+    check(!reused_owner->hovered, "hover interest: changing containing channel withdraws the old source");
+    application_gif_favorites_set_hovered(true);
+    check(reused_owner->hovered && reused_owner->hover_channel == 80 &&
+              g_app.gif_favorites == reused_owner && !application_gif_favorites_next_wake(),
+          "hover interest: same owner rebinds a fresh readable channel without refetching account-wide authority");
+    ++g_app.load_trace.channel_epoch;
+    application_gif_favorites_synchronize();
+    check(!reused_owner->hovered && !application_gif_favorites_next_wake(),
+          "hover interest: channel ABA retires an old source even when active and selected IDs match again");
+    application_gif_favorites_set_hovered(true);
+    check(g_app.gif_favorites == reused_owner && reused_owner->hovered &&
+              reused_owner->hover_epoch == g_app.load_trace.channel_epoch && !application_gif_favorites_next_wake(),
+          "hover interest: repeated setter admits a fresh channel epoch on the same retained owner");
+    ui.chat_state.selected_channel_id = 70;
+    application_gif_favorites_synchronize();
+    application_gif_favorites_set_hovered(true);
+    check(!reused_owner->hovered && !application_gif_favorites_next_wake(),
+          "hover interest: stale selected-channel mismatch cannot retain or reestablish message interest");
+    ui.chat_state.selected_channel_id = 80;
+    application_gif_favorites_set_hovered(true);
+    ui.channel_record_storage[1].actions = 0;
+    application_gif_favorites_synchronize();
+    application_gif_favorites_set_hovered(true);
+    check(!reused_owner->hovered && !application_gif_favorites_next_wake(),
+          "hover interest: unreadable containing channel cannot retain or reestablish message interest");
+    application_gif_favorites_release();
+}
 void run() noexcept {
     configure();
     if (!g_app.account_ui)
@@ -519,6 +681,19 @@ void run() noexcept {
     check(callbacks == failed_callbacks && !application_gif_favorites_pending(~u64{0}) &&
               !application_gif_favorites_next_wake(),
           "repeated open after failure cannot restart an idle retry loop");
+    for (u32 terminal = 0; terminal < 2; ++terminal) {
+        load(1900 + terminal * 2, 55 + terminal, true, false);
+        check(application_gif_favorites_toggle(third, source, 90, 90, GifFavoriteFormat::image) &&
+                  application_gif_favorites_submit(1901 + terminal * 2, 1),
+              "terminal rate fixture starts one explicit favorite action");
+        auto rejected = response(1901 + terminal * 2, 429);
+        rejected.rate_limited = terminal != 0;
+        rejected.retry_at_ms = terminal ? 0 : clock_monotonic_milliseconds() + 5000;
+        check(complete(rejected, {}) && !application_gif_favorites_pending(~u64{0}) &&
+                  !application_gif_favorites_next_wake() && application_gif_favorites_state(third).failed &&
+                  !application_gif_favorites_state(third).pending,
+              "terminal 429 or missing server deadline retires the action without automatic retry");
+    }
     load(200, 60, false, false);
     static char boundary_urls[4][kMediaCatalogMaximumUrlBytes + 1];
     static char boundary_source[kMediaCatalogMaximumUrlBytes];
@@ -573,6 +748,7 @@ void run() noexcept {
               !application_gif_favorites_pending(~u64{0}) && !application_gif_favorites_next_wake(),
           "closed queued mutation confirms once and returns to dormant scheduling");
     application_gif_favorites_release();
+    hover_interest();
     check(baseline_bytes > sizeof(ApplicationGifFavorites),
           "authoritative cache owns measured record group and index commitment");
     dispose(g_app.account_ui, sizeof(AccountUiRuntime));

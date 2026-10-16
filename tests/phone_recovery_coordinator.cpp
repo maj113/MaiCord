@@ -74,11 +74,25 @@ HANDLE rest_client_notification_handle(const RestClient*) noexcept {
     ++phone_coordinator_test::fixture.notification_reads;
     return reinterpret_cast<HANDLE>(1);
 }
+RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
+                                            RestClientResponse* receipt) noexcept {
+    using namespace phone_coordinator_test;
+    if (receipt) {
+        *receipt = {};
+        if (fixture.ready && fixture.metadata.transport_ok() && fixture.metadata.status_code == 429) {
+            receipt->request_id = fixture.metadata.request_id;
+            receipt->status_code = 429;
+            receipt->retry_at_ms = fixture.metadata.retry_at_ms;
+        }
+    }
+    return rest_client_stop(client, timeout_ms);
+}
 RestClientResult rest_client_stop(RestClient* client, u32) noexcept {
     using namespace phone_coordinator_test;
     RestClientResult result{};
-    result.phase = fixture.fail_stop ? RestClientPhase::draining :
-        fixture.joined_error ? RestClientPhase::failed : RestClientPhase::stopped;
+    result.phase = fixture.fail_stop      ? RestClientPhase::draining
+                   : fixture.joined_error ? RestClientPhase::failed
+                                          : RestClientPhase::stopped;
     result.error = fixture.joined_error ? RestClientError::worker : RestClientError::none;
     if (!fixture.fail_stop) {
         *client = {}; fixture.ready = false;

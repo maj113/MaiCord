@@ -22,6 +22,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/app/gateway_member_request_owner.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "../../src/render/d3d11_renderer_layout.hpp"
 #include "maicord/render/renderer_presentation.hpp"
@@ -64,10 +65,26 @@ struct Fixture {
     u32 picks, manages, gifs, stickers, emojis, history_calls, frame_requests;
     u32 attachment_queue_notices, unexpected_completions;
     u32 timestamp_pixel_proofs, clipped_timestamp_headers;
+    GatewayMemberRequestOwner member_requests;
+    u32 member_calls, member_cancels;
+    bool commands_handled;
     bool ready, context_rows, refresh_ok, token_check;
     float expected_width;
 };
 Fixture* fixture;
+bool WINAPI admit_member_query(void* instance, const GatewayGuildMemberRequest* request) noexcept {
+    if (instance != fixture || !request)
+        return false;
+    ++fixture->member_calls;
+    return gateway_member_request_admit(&fixture->member_requests, *request,
+                                        clock_monotonic_milliseconds());
+}
+void WINAPI cancel_member_query(void* instance) noexcept {
+    if (instance == fixture) {
+        ++fixture->member_cancels;
+        gateway_member_request_cancel_query(&fixture->member_requests);
+    }
+}
 bool require(bool value, u32 stage) noexcept {
     if (!value)
         log_u64(LogLevel::error, "probe", "composer_native_failure_stage", stage);
@@ -996,7 +1013,64 @@ bool spelling_marks() noexcept {
     return painted && marks >= 3;
 }
 
+bool member_query_transitions() noexcept {
+    struct Restore {
+        AccountModuleApi api;
+        bool focused;
+        ~Restore() noexcept {
+            g_app.account.api = api;
+            g_app.message_composer.focused = focused;
+            fixture->commands_handled = false;
+        }
+    } restore{g_app.account.api, g_app.message_composer.focused};
+    g_app.account.api.guild_members_request = admit_member_query;
+    g_app.account.api.guild_members_query_cancel = cancel_member_query;
+    g_app.message_composer.focused = true;
+    const auto replace = [](Utf8View value) noexcept {
+        message_composer_select_all(&g_app.message_composer);
+        return composer_apply_result(message_composer_insert_utf8(&g_app.message_composer, value), true);
+    };
+    if (!require(replace(utf8_literal("@pending")) &&
+                     g_app.composer_autocomplete.member_query_guild_id == kGuild,
+                 350))
+        return false;
+    const u64 due = application_mention_member_query_next_wake();
+    application_mention_member_query_tick(due);
+    auto& owner = fixture->member_requests;
+    gateway_member_request_sent(&owner, &owner.query);
+    gateway_member_request_rate_limited(&owner, {kGuild, 5000, owner.query.nonce, 8}, due);
+    if (!require(due && fixture->member_calls == 1 && owner.query_pending, 351))
+        return false;
+    fixture->commands_handled = true;
+    const u32 cancellations = fixture->member_cancels;
+    if (!require(replace(utf8_literal("/command")) &&
+                     fixture->member_cancels == cancellations + 1 && !owner.query_current &&
+                     !owner.query_pending && !application_mention_member_query_next_wake() &&
+                     !gateway_member_request_next(owner, due + 5000),
+                 352))
+        return false;
+    fixture->commands_handled = false;
+    application_member_query_note(kGuild, kSource, utf8_literal("search"));
+    if (!require(replace(utf8_literal("@new")), 353))
+        return false;
+    const u64 composer_due = application_mention_member_query_next_wake();
+    const u32 before_withdrawal = fixture->member_cancels;
+    application_member_query_cancel();
+    if (!require(composer_due && application_mention_member_query_next_wake() == composer_due &&
+                     fixture->member_cancels == before_withdrawal,
+                 354))
+        return false;
+    application_mention_member_query_tick(composer_due);
+    if (!require(fixture->member_calls == 2 && owner.query_current && replace({}) &&
+                     !owner.query_current && !application_mention_member_query_next_wake(),
+                 355))
+        return false;
+    return message_composer_restore(&g_app.message_composer, kSource, {}, 0, 0) && project();
+}
+
 bool scenarios() noexcept {
+    if (!member_query_transitions())
+        return false;
     if (!require(resize(632, 600, 96, 304) && disabled_send() &&
                      capture(L"composer-default304-dark-placeholder96.bmp"),
                  1))
@@ -1192,7 +1266,7 @@ bool pump_message_history() noexcept {
 }
 bool application_commands_sync(bool* handled) noexcept {
     if (handled)
-        *handled = false;
+        *handled = fixture->commands_handled;
     return true;
 }
 bool application_composer_prepare_send(bool* handled) noexcept {

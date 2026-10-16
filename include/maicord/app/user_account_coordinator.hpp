@@ -37,8 +37,8 @@ struct UserAccountCoordinatorResult {
     UserAccountCoordinatorPhase phase;
     RestClientError rest_error;
     GatewayClientError gateway_error;
-    // A Gateway worker that stopped for any reason other than rejected
-    // credentials is restarted with backoff; the session and UI stay up.
+    // Recoverable Gateway worker failures restart with backoff. Rejected
+    // credentials and terminal configuration close codes never restart.
     // gateway_error keeps the last such failure for diagnostics.
     u64 gateway_restart_at_ms;
     u32 gateway_restarts;
@@ -69,8 +69,9 @@ UserAccountCoordinatorResult user_account_coordinator_start(
     UserAccountCoordinator* coordinator, AccountProfile* profile,
     const GatewayUserClientConfiguration* configuration, const GatewayUserSessionSnapshot* session,
     Utf8View timezone = {}) noexcept;
-// Only rejected credentials (Gateway close 4004 or a REST 401) fail the
-// coordinator. Any other Gateway failure schedules a restart instead.
+// Rejected credentials (Gateway close 4004 or REST 401) and terminal Gateway
+// configuration close codes 4010-4014 fail the coordinator. Configuration
+// failures preserve credentials; recoverable failures schedule a restart.
 UserAccountCoordinatorResult user_account_coordinator_pump(UserAccountCoordinator* coordinator,
                                                            u64 now_ms) noexcept;
 inline UserAccountCoordinatorResult user_account_coordinator_pump(UserAccountCoordinator* coordinator) noexcept {

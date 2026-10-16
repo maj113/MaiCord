@@ -113,6 +113,8 @@ RemoteAuthClientResult client_result(const RemoteAuthClient* client) noexcept {
         InterlockedCompareExchange64(const_cast<volatile LONG64*>(&client->next_wake_at_ms), 0, 0));
     value.ticket_error_code = static_cast<u64>(
         InterlockedCompareExchange64(const_cast<volatile LONG64*>(&client->ticket_error_code), 0, 0));
+    value.retry_at_ms = static_cast<u64>(
+        InterlockedCompareExchange64(const_cast<volatile LONG64*>(&client->retry_at_ms), 0, 0));
     value.native_error = static_cast<u32>(
         InterlockedCompareExchange(const_cast<volatile LONG*>(&client->native_error), 0, 0));
     value.ticket_response_bytes = static_cast<u32>(
@@ -160,6 +162,7 @@ void publish_event(RemoteAuthClient* client, RemoteAuthClientRuntime* runtime,
     RemoteAuthClientEvent event{};
     event.next_wake_at_ms = status.next_wake_at_ms;
     event.ticket_error_code = status.ticket_error_code;
+    event.retry_at_ms = status.retry_at_ms;
     event.native_error = status.native_error;
     event.ticket_response_bytes = status.ticket_response_bytes;
     event.ticket_decode_error_offset = status.ticket_decode_error_offset;
@@ -583,6 +586,7 @@ struct TicketEventContext {
 void publish_ticket_status(RemoteAuthClient* client,
                            const RemoteAuthTicketExchangeResult& status) noexcept {
     InterlockedExchange64(&client->ticket_error_code, static_cast<LONG64>(status.error_code));
+    InterlockedExchange64(&client->retry_at_ms, static_cast<LONG64>(status.retry_at_ms));
     InterlockedExchange(&client->ticket_response_bytes, static_cast<LONG>(status.response_bytes));
     InterlockedExchange(&client->ticket_decode_error_offset, static_cast<LONG>(status.decode_error_offset));
     InterlockedExchange(&client->http_status, status.http_status);
@@ -1123,6 +1127,16 @@ RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 tim
     // complete client owner, handles, and runtime available for a stop retry.
     auto* runtime = static_cast<RemoteAuthClientRuntime*>(client->runtime);
     const auto ticket_stopped = remote_auth_ticket_exchange_stop(&runtime->ticket_exchange, timeout_ms);
+    if (ticket_stopped.http_status == 429) {
+        // A nested worker may publish after the outer thread's cancelled exit.
+        // Merge only the terminal receipt, without replacing prior diagnostics.
+        AcquireSRWLockExclusive(client->snapshot_lock.native());
+        InterlockedExchange(&client->http_status, 429);
+        const u64 previous = static_cast<u64>(InterlockedCompareExchange64(&client->retry_at_ms, 0, 0));
+        InterlockedExchange64(&client->retry_at_ms,
+                              static_cast<LONG64>(maximum(previous, ticket_stopped.retry_at_ms)));
+        ReleaseSRWLockExclusive(client->snapshot_lock.native());
+    }
     if (runtime->ticket_exchange.transport.worker.thread || runtime->ticket_exchange.transport.runtime) {
         publish_phase(client, RemoteAuthClientPhase::stopping);
         RemoteAuthClientResult value = client_result(client);
@@ -1130,6 +1144,9 @@ RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 tim
         value.native_error = ticket_stopped.native_error;
         return value;
     }
+    // The worker may publish a 429 while stop is joining it, after the host's
+    // last poll. Keep only its non-secret rate-limit receipt across teardown.
+    const auto terminal = client_result(client);
     if (!release_runtime(runtime)) {
         publish_phase(client, RemoteAuthClientPhase::stopping);
         RemoteAuthClientResult value = client_result(client);
@@ -1145,6 +1162,10 @@ RemoteAuthClientResult remote_auth_client_stop(RemoteAuthClient* client, u32 tim
     *client = RemoteAuthClient{};
     RemoteAuthClientResult value{};
     value.phase = RemoteAuthClientPhase::stopped;
+    if (terminal.http_status == 429) {
+        value.http_status = terminal.http_status;
+        value.retry_at_ms = terminal.retry_at_ms;
+    }
     return value;
 }
 

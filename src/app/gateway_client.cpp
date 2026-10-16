@@ -179,6 +179,7 @@ struct GatewayClientRuntime {
     u32 active_subscription_revision;
     GatewayClientIdentity identity;
     u64 rate_deadline_ms;
+    u64 member_deadline_ms;
     u64 reconnect_deadline_ms;
     u64 self_user_id;
     GatewayStateRecovery state_recovery;
@@ -683,6 +684,8 @@ u32 next_worker_wait(const GatewayClient* client, const GatewayClientRuntime* ru
     if (runtime->rate_deadline_ms != 0 && (deadline == 0 || runtime->rate_deadline_ms < deadline)) {
         deadline = runtime->rate_deadline_ms;
     }
+    deadline =
+        earliest_deadline(deadline, runtime->member_deadline_ms > now_ms ? runtime->member_deadline_ms : 0);
     deadline = earliest_deadline(
         deadline, gateway_state_recovery_deadline(runtime->state_recovery,
                                                   load_phase(client) == GatewayClientPhase::ready));
@@ -923,7 +926,8 @@ bool begin_resolution(GatewayClient* client, GatewayClientRuntime* runtime, Netw
     gateway_subscription_thread_owner_reset_connection(&runtime->thread_subscription_owner);
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     gateway_self_status_reset_connection(&runtime->self_status);
-    runtime->member_requests = {};
+    gateway_member_request_reset_connection(&runtime->member_requests, !runtime->resume.valid);
+    runtime->member_deadline_ms = 0;
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
     runtime->self_status_deadline_ms = 0;
     runtime->rate_deadline_ms = 0;
@@ -1561,7 +1565,8 @@ OutboundDrive drive_member_requests(GatewayClientRuntime* runtime, u64 now_ms) n
         runtime->identity != GatewayClientIdentity::normal_user)
         return OutboundDrive::idle;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
-    const GatewayGuildMemberRequest* next = gateway_member_request_next(runtime->member_requests);
+    const GatewayGuildMemberRequest* next = gateway_member_request_next(runtime->member_requests, now_ms);
+    runtime->member_deadline_ms = gateway_member_request_deadline(runtime->member_requests, now_ms);
     if (!next) {
         ReleaseSRWLockExclusive(&runtime->subscription_lock);
         return OutboundDrive::idle;
@@ -1577,7 +1582,7 @@ OutboundDrive drive_member_requests(GatewayClientRuntime* runtime, u64 now_ms) n
         gateway_write_guild_member_request(*next, {runtime->gateway_payload, kGatewayUserMaximumCommandBytes});
     const auto result = send_control_command(runtime, command, SendPurpose::guild_members);
     if (result == OutboundDrive::sending)
-        gateway_member_request_sent(&runtime->member_requests);
+        gateway_member_request_sent(&runtime->member_requests, next);
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
     return result;
 }
@@ -2005,9 +2010,24 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             continue;
         }
         if (event.kind == GatewaySessionEventKind::dispatch) {
+            if (json_string_equals_ascii(event.envelope.event_name, utf8_literal("RATE_LIMITED"))) {
+                GatewayRateLimited limited{};
+                u32 rate_structurals[64]{};
+                const auto decoded =
+                    gateway_decode_rate_limited(event.envelope.data, {rate_structurals, 64}, 16, &limited);
+                if (decoded.ok()) {
+                    AcquireSRWLockExclusive(&runtime->subscription_lock);
+                    gateway_member_request_rate_limited(&runtime->member_requests, limited, now_ms);
+                    runtime->member_deadline_ms =
+                        gateway_member_request_deadline(runtime->member_requests, now_ms);
+                    ReleaseSRWLockExclusive(&runtime->subscription_lock);
+                }
+                if (runtime->resume.valid && runtime->session.lifecycle.has_sequence)
+                    publish_resume_sequence(runtime, runtime->session.lifecycle.last_sequence);
+                continue;
+            }
             if (json_string_equals_ascii(event.envelope.event_name,
-                                         utf8_literal("USER_SETTINGS_PROTO_UPDATE")))
-            {
+                                         utf8_literal("USER_SETTINGS_PROTO_UPDATE"))) {
                 self_settings_dispatch(client, runtime, event.envelope.data.source);
                 guild_folders_dispatch(client, runtime, event.envelope, now_ms);
                 user_settings_dispatch(client, runtime, event.envelope, now_ms);
@@ -2230,8 +2250,21 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
             }
             if (dispatch.dispatch_kind == GatewayClientDispatchKind::account_required_action)
                 InterlockedExchange(&client->required_action, static_cast<LONG>(dispatch.required_action));
+            if (dispatch.dispatch_kind == GatewayClientDispatchKind::guild_members_chunk) {
+                GatewayMemberChunkReceipt receipt{};
+                if (gateway_decode_member_chunk_receipt(event.envelope.data, main_index_view(runtime), 64,
+                                                        &receipt)
+                        .ok()) {
+                    AcquireSRWLockExclusive(&runtime->subscription_lock);
+                    gateway_member_request_complete(&runtime->member_requests, receipt);
+                    runtime->member_deadline_ms =
+                        gateway_member_request_deadline(runtime->member_requests, now_ms);
+                    ReleaseSRWLockExclusive(&runtime->subscription_lock);
+                }
+            }
             dispatch.timestamp_ms = now_ms;
-            const bool dispatch_published = publish_event_payload(client, runtime, dispatch, dispatch_payload);
+            const bool dispatch_published =
+                publish_event_payload(client, runtime, dispatch, dispatch_payload);
             settle_large_record(runtime);
             if (!dispatch_published) {
                 return schedule_reconnect(client, runtime, GatewayLifecycleAction::reconnect_resume, now_ms,
@@ -3149,7 +3182,7 @@ bool gateway_client_request_guild_members(GatewayClient* client,
         return false;
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     const auto prior = runtime->member_requests;
-    bool admitted = gateway_member_request_admit(&runtime->member_requests, request);
+    bool admitted = gateway_member_request_admit(&runtime->member_requests, request, GetTickCount64());
     if (admitted && InterlockedCompareExchange(&runtime->subscription_signal.pending, 0, 0) == 0) {
         const auto posted = network_signal_post(&client->worker.loop, &runtime->subscription_signal, 1);
         if (!posted.ok() && InterlockedCompareExchange(&runtime->subscription_signal.pending, 0, 0) == 0) {
@@ -3167,6 +3200,15 @@ void gateway_client_cancel_guild_member_request(GatewayClient* client) noexcept 
     auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
     AcquireSRWLockExclusive(&runtime->subscription_lock);
     gateway_member_request_cancel_batch(&runtime->member_requests);
+    ReleaseSRWLockExclusive(&runtime->subscription_lock);
+}
+
+void gateway_client_cancel_guild_member_query(GatewayClient* client) noexcept {
+    if (!client || !client->runtime)
+        return;
+    auto* runtime = static_cast<GatewayClientRuntime*>(client->runtime);
+    AcquireSRWLockExclusive(&runtime->subscription_lock);
+    gateway_member_request_cancel_query(&runtime->member_requests);
     ReleaseSRWLockExclusive(&runtime->subscription_lock);
 }
 

@@ -42,6 +42,7 @@ void set_failure(UserAccountCoordinator* coordinator, UserAccountCoordinatorErro
     coordinator->state.error = error;
     coordinator->state.native_error = native_error;
     coordinator->state.phase = UserAccountCoordinatorPhase::failed;
+    coordinator->state.gateway_restart_at_ms = 0;
 }
 
 } // namespace
@@ -79,11 +80,11 @@ UserAccountCoordinatorResult user_account_coordinator_start(
         result.error = UserAccountCoordinatorError::credential;
         return result;
     }
-    const RestUserConfiguration rest_configuration{
-        ConstSlice<u8>{super_properties, properties.bytes}, configuration->properties.system_locale,
-        timezone};
-    const RestClientResult rest_started = rest_client_start_user(
-        &coordinator->rest, &rest_credential, &rest_configuration, kUserAccountAuthorizedResponseBytes, &coordinator->rest_shared);
+    const RestUserConfiguration rest_configuration{ConstSlice<u8>{super_properties, properties.bytes},
+                                                   configuration->properties.system_locale, timezone};
+    const RestClientResult rest_started =
+        rest_client_start_user(&coordinator->rest, &rest_credential, &rest_configuration,
+                               kUserAccountAuthorizedResponseBytes, &coordinator->rest_shared);
     if (!rest_started.ok()) {
         SecureZeroMemory(super_properties, sizeof(super_properties));
         cleanup_failed_start(coordinator, &rest_credential);
@@ -96,8 +97,8 @@ UserAccountCoordinatorResult user_account_coordinator_start(
 
     const bool copied = duplicate_credential(profile->credential, &rest_credential);
     const auto details_started =
-        copied ? rest_client_start_user(&coordinator->details, &rest_credential,
-                                        &rest_configuration, kUserAccountAuthorizedResponseBytes, &coordinator->rest_shared)
+        copied ? rest_client_start_user(&coordinator->details, &rest_credential, &rest_configuration,
+                                        kUserAccountAuthorizedResponseBytes, &coordinator->rest_shared)
                : RestClientResult{.error = RestClientError::memory};
     SecureZeroMemory(super_properties, sizeof(super_properties));
     if (!details_started.ok()) {
@@ -145,16 +146,21 @@ UserAccountCoordinatorResult user_account_coordinator_pump(UserAccountCoordinato
         const GatewayClientResult gateway = gateway_client_status(&coordinator->gateway);
         coordinator->state.gateway_error = gateway.error;
         coordinator->state.native_error = gateway.native_error;
-        if (gateway.close_code == 4004 ||
-            rest_client_status(&coordinator->rest).authentication_rejected ||
+        if (gateway.close_code == 4004 || rest_client_status(&coordinator->rest).authentication_rejected ||
             rest_client_status(&coordinator->details).authentication_rejected) {
             // Only rejected credentials end the session (and its saved token).
             set_failure(coordinator, UserAccountCoordinatorError::authentication_rejected, 0);
+        } else if (gateway.close_code >= 4010 && gateway.close_code <= 4014) {
+            // Invalid shard/version/intents configuration cannot recover by
+            // repeating IDENTIFY. Keep the credentials for an explicit restart
+            // after the configuration is corrected.
+            set_failure(coordinator, UserAccountCoordinatorError::gateway, gateway.native_error);
         } else if (!gateway.ok()) {
             // Decode, protocol, transport and worker failures are not a
             // logout: keep the session and UI, restart the worker later.
             if (!coordinator->state.gateway_restart_at_ms) {
-                const u32 delay = user_account_coordinator_restart_delay(coordinator->state.gateway_restart_attempt);
+                const u32 delay =
+                    user_account_coordinator_restart_delay(coordinator->state.gateway_restart_attempt);
                 if (coordinator->state.gateway_restart_attempt < 0xFFFF'FFFFu)
                     ++coordinator->state.gateway_restart_attempt;
                 coordinator->state.gateway_restart_at_ms = now_ms + delay;
@@ -178,7 +184,8 @@ bool user_account_coordinator_gateway_restart_due(const UserAccountCoordinator* 
 UserAccountCoordinatorResult user_account_coordinator_restart_gateway(
     UserAccountCoordinator* coordinator, const GatewayUserClientConfiguration* configuration,
     u64 now_ms) noexcept {
-    if (!coordinator || !configuration || !user_account_coordinator_gateway_restart_due(coordinator, now_ms))
+    if (!coordinator || !configuration ||
+        !user_account_coordinator_gateway_restart_due(coordinator, now_ms))
         return coordinator ? coordinator->state : invalid_result();
     AccountProfile profile{};
     const GatewayClientResult stopped =
@@ -236,9 +243,9 @@ UserAccountCoordinatorResult user_account_coordinator_stop(UserAccountCoordinato
     AccountProfile returned{};
     const GatewayClientResult gateway_stopped =
         gateway_client_stop_return_user_profile(&coordinator->gateway, timeout_ms, &returned);
-    const RestClientResult rest_stopped =
-        coordinator->rest.worker.thread ? rest_client_stop(&coordinator->rest, timeout_ms)
-                                        : RestClientResult{};
+    const RestClientResult rest_stopped = coordinator->rest.worker.thread
+                                              ? rest_client_stop(&coordinator->rest, timeout_ms)
+                                              : RestClientResult{};
     if (coordinator->details.worker.thread)
         rest_client_stop(&coordinator->details, timeout_ms);
     account_profile_release(&returned);
@@ -282,8 +289,7 @@ u32 user_account_coordinator_notification_handles(const UserAccountCoordinator* 
     return count;
 }
 
-RestClient* user_account_coordinator_rest(UserAccountCoordinator* coordinator,
-                                          bool details) noexcept {
+RestClient* user_account_coordinator_rest(UserAccountCoordinator* coordinator, bool details) noexcept {
     return coordinator && coordinator->rest.runtime &&
                    coordinator->state.phase == UserAccountCoordinatorPhase::running
                ? (details ? &coordinator->details : &coordinator->rest)
@@ -291,8 +297,7 @@ RestClient* user_account_coordinator_rest(UserAccountCoordinator* coordinator,
 }
 
 RestClientTakeResult user_account_coordinator_take(UserAccountCoordinator* coordinator,
-                                                   RestClientResponse* response,
-                                                   Slice<u8> body) noexcept {
+                                                   RestClientResponse* response, Slice<u8> body) noexcept {
     auto* rest = user_account_coordinator_rest(coordinator);
     if (!rest)
         return {0, RestClientTakeError::invalid_input};

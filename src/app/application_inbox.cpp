@@ -536,10 +536,10 @@ bool application_inbox_response(const RestClientResponse& response, Utf8View bod
         value.cancelled = false;
         return true;
     }
-    const u64 now = clock_monotonic_milliseconds();
-    if ((response.rate_limited || response.status_code == 429) && value.attempts < 3) {
+    if (response.transport_ok() && response.rate_limited && response.status_code == 429 &&
+        response.retry_at_ms != 0 && value.attempts < 3) {
         value.queued = true;
-        value.retry_at = maximum(response.retry_at_ms, deadline_after(now, response.rate.retry_after_ms));
+        value.retry_at = response.retry_at_ms;
         return true;
     }
     bool ok = response.transport_ok() && response.status_code == 200 && g_app.account_ui;

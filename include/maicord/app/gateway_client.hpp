@@ -1181,6 +1181,8 @@ bool gateway_client_subscribe_guild_members(GatewayClient* client,
                                             const GatewayGuildSubscription& subscription) noexcept;
 bool gateway_client_request_guild_members(GatewayClient*, const GatewayGuildMemberRequest&) noexcept;
 void gateway_client_cancel_guild_member_request(GatewayClient*) noexcept;
+// Retires only name-query interest, including server-rejected replay authority.
+void gateway_client_cancel_guild_member_query(GatewayClient*) noexcept;
 inline constexpr u32 kGatewayVoiceSpeakingUsers = 16;
 struct GatewayClientVoiceSnapshot {
     u64 user_id, guild_id, channel_id, generation;

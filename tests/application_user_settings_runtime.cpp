@@ -297,6 +297,21 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
 
     // Devices: the current session is listed first without a log out action.
     application_account_settings_visible(SettingsPanel::devices);
+    check(application_user_settings_submit(906, now + 1'000'000),
+          "user settings runtime: changed Chat settings enter the response fixture");
+    auto limited = reply(906, 429);
+    limited.rate_limited = true;
+    limited.retry_at_ms = clock_monotonic_milliseconds() + 5000;
+    check(application_user_settings_response(limited, {}) &&
+              !application_user_settings_pending(limited.retry_at_ms - 1) &&
+              application_user_settings_pending(limited.retry_at_ms) &&
+              application_user_settings_submit(907, limited.retry_at_ms),
+          "user settings runtime: server-authorized 429 uses its exact retry deadline");
+    auto terminal = reply(907, 429);
+    check(application_user_settings_response(terminal, {}) && !application_user_settings_pending(~u64{0}) &&
+              project(SettingBinding::user_settings_notice) && p.variant == UiSettingsVariant::critical,
+          "user settings runtime: terminal verification 429 rolls back without automatic retry");
+
     check(application_account_settings_pending(now) && application_account_settings_submit(1000, now) &&
               captured.operation == AccountSettingsOperation::sessions,
           "account settings runtime: opening Devices loads the session list");

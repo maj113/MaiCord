@@ -29,6 +29,30 @@ bool logout_blocks_login() noexcept {
     return application_account_logout_blocked() || application_account_logout_host_owned();
 }
 
+void retain_auth_retry(const AccountLoginStatus& status) noexcept {
+    if (status.http_status == 429) {
+        // Unknown receipts cannot erase a known floor or authorize an invented retry.
+        const u64 due = status.retry_at_ms;
+        if (due && due <= clock_monotonic_milliseconds())
+            return;
+        if (!due) g_app.login.auth_retry_time_unknown = true;
+        g_app.login.auth_retry_at_ms = maximum(g_app.login.auth_retry_at_ms, due);
+        if (g_app.login.remote_restart_at_ms)
+            g_app.login.remote_restart_at_ms =
+                g_app.login.auth_retry_time_unknown
+                    ? 0
+                    : maximum(g_app.login.remote_restart_at_ms, g_app.login.auth_retry_at_ms);
+    }
+}
+
+AccountLoginStatus stop_login_owner() noexcept {
+    retain_auth_retry(g_app.account.login_status);
+    const auto stopped = account_host_login_stop(&g_app.account, kAccountStopTimeoutMs);
+    // Stop joins the worker and can observe a response not yet pumped by UI.
+    retain_auth_retry(stopped);
+    return stopped;
+}
+
 void invalidate_auth() noexcept {
     ++g_app.login.application_auth_epoch;
     g_app.login.webauthn_post_epoch = 0;
@@ -68,6 +92,8 @@ bool login_control_mfa_type(LoginControl control, UserAuthMfaType* type) noexcep
 bool request_sms(bool allow_resend) noexcept {
     if (logout_blocks_login())
         return false;
+    if (application_login_auth_cooldown_active())
+        return true;
     LoginRuntime& login = g_app.login;
     AccountHost& host = g_app.account;
     if (!host.login_instance || (login.mfa_capabilities & user_auth_mfa_capability_sms) == 0) {
@@ -82,6 +108,7 @@ bool request_sms(bool allow_resend) noexcept {
         return application_refresh_login_view();
     }
     host.login_status = host.api.login_send_sms(host.login_instance);
+    retain_auth_retry(host.login_status);
     if (!host.login_status.ok() || host.login_status.phase != mfa_pending_phase()) {
         log_u64(LogLevel::error, "auth", "sms_send_error", static_cast<u64>(host.login_status.error));
         login.sms_sending = false;
@@ -99,6 +126,8 @@ bool request_sms(bool allow_resend) noexcept {
 bool begin_webauthn() noexcept {
     if (logout_blocks_login())
         return false;
+    if (application_login_auth_cooldown_active())
+        return true;
     if (!g_app.account.login_instance || !g_app.account.api.login_copy_webauthn_challenge) {
         g_app.login.status = RendererLoginStatus::webauthn_failed;
         return application_refresh_login_view();
@@ -125,6 +154,28 @@ bool begin_webauthn() noexcept {
 
 } // namespace
 
+bool application_login_auth_cooldown_active() noexcept {
+    return g_app.login.auth_retry_time_unknown ||
+        (g_app.login.auth_retry_at_ms && clock_monotonic_milliseconds() < g_app.login.auth_retry_at_ms);
+}
+
+void application_login_retain_auth_retry() noexcept {
+    retain_auth_retry(g_app.account.login_status);
+}
+
+u64 application_login_auth_deadline() noexcept {
+    return !logout_blocks_login() && g_app.login.visible ? g_app.login.auth_retry_at_ms : 0;
+}
+
+bool application_login_tick_auth_cooldown(u64 now_ms) noexcept {
+    if (logout_blocks_login() || !g_app.login.auth_retry_at_ms ||
+        now_ms < g_app.login.auth_retry_at_ms)
+        return true;
+    g_app.login.auth_retry_at_ms = 0;
+    // Expiry changes presentation only. Credentials and MFA require a fresh action.
+    return !g_app.login.visible || application_refresh_login_view();
+}
+
 void application_login_reset_backup_acknowledgement() noexcept {
     g_app.login.backup_acknowledged = false;
     g_app.login.backup_acknowledgement_seconds = 0;
@@ -144,7 +195,9 @@ void application_login_schedule_remote_restart(LoginRemoteStatus status) noexcep
         ++login.remote_retry_attempt;
     }
     login.remote_status = status;
-    login.remote_restart_at_ms = now_ms + delay;
+    login.remote_restart_at_ms = login.auth_retry_time_unknown
+                                     ? 0
+                                     : maximum(now_ms + delay, login.auth_retry_at_ms);
 }
 
 bool application_login_tick_backup_acknowledgement(u64 now_ms) noexcept {
@@ -170,6 +223,8 @@ bool application_login_tick_backup_acknowledgement(u64 now_ms) noexcept {
 bool application_login_select_mfa(UserAuthMfaType type, bool allow_resend) noexcept {
     if (logout_blocks_login())
         return false;
+    if (application_login_auth_cooldown_active())
+        return true;
     LoginRuntime& login = g_app.login;
     const u8 capability = login_mfa_capability(type);
     if (capability == login_mfa_capability_none || (login.mfa_capabilities & capability) == 0) {
@@ -206,6 +261,8 @@ bool application_login_select_mfa(UserAuthMfaType type, bool allow_resend) noexc
 
 bool application_login_run_webauthn(u64 posted_epoch) noexcept {
     if (logout_blocks_login())
+        return true;
+    if (application_login_auth_cooldown_active())
         return true;
     AccountHost& host = g_app.account;
     if (!g_app.login.visible || !posted_epoch || posted_epoch != g_app.login.webauthn_post_epoch ||
@@ -276,7 +333,7 @@ bool application_login_run_webauthn(u64 posted_epoch) noexcept {
     const WindowsWebAuthnResult asserted =
         windows_webauthn_authenticate(g_app.window, request, &credential);
     SecureZeroMemory(&request, sizeof(request));
-    if (logout_blocks_login() || host.login_instance != owner || host.module != module ||
+    if (logout_blocks_login() || application_login_auth_cooldown_active() || host.login_instance != owner || host.module != module ||
         host.stop_failed || host.login_status.generation != generation ||
         host.login_status.request_id != request_id || host.login_status.phase != phase ||
         g_app.login.application_auth_epoch != epoch || g_app.login.webauthn_post_epoch != posted_epoch ||
@@ -297,6 +354,7 @@ bool application_login_run_webauthn(u64 posted_epoch) noexcept {
     }
     host.login_status =
         host.api.login_submit_mfa(host.login_instance, &credential, UserAuthMfaType::webauthn);
+    retain_auth_retry(host.login_status);
     secure_buffer_release(&credential);
     if (!host.login_status.ok() || host.login_status.phase != mfa_pending_phase()) {
         log_u64(LogLevel::error, "auth", "webauthn_submit_error",
@@ -315,6 +373,8 @@ bool application_login_run_webauthn(u64 posted_epoch) noexcept {
 bool application_login_submit_mfa() noexcept {
     if (logout_blocks_login())
         return false;
+    if (application_login_auth_cooldown_active())
+        return true;
     AccountHost& host = g_app.account;
     if (!host.login_instance) {
         g_app.login.focus = LoginControl::password;
@@ -335,6 +395,7 @@ bool application_login_submit_mfa() noexcept {
     }
     host.login_status =
         host.api.login_submit_mfa(host.login_instance, &g_app.login.mfa.storage, g_app.login.mfa_type);
+    retain_auth_retry(host.login_status);
     if (!host.login_status.ok() || host.login_status.phase != mfa_pending_phase()) {
         g_app.login.status = g_app.login.reset_mode ? RendererLoginStatus::reset_failed : RendererLoginStatus::rejected;
         return application_refresh_login_view();
@@ -380,6 +441,8 @@ bool submit_password() noexcept {
     if (login_requires_back(g_app.login.status, g_app.login.remote_status)) {
         return application_refresh_login_view();
     }
+    if (application_login_auth_cooldown_active())
+        return true;
     if (g_app.login.status == RendererLoginStatus::mfa_required ||
         g_app.login.status == RendererLoginStatus::mfa_input_invalid ||
         g_app.login.status == RendererLoginStatus::mfa_code_rejected ||
@@ -429,7 +492,7 @@ bool submit_password() noexcept {
                 log_u64(LogLevel::warning, "auth", "remote_auth_cancel_error",
                         static_cast<u64>(cancelled.error));
             }
-            const AccountLoginStatus stopped = account_host_login_stop(&host, kAccountStopTimeoutMs);
+            const AccountLoginStatus stopped = stop_login_owner();
             if (host.login_instance || !stopped.ok()) {
                 log_u64(LogLevel::error, "auth", "remote_auth_password_handoff_error",
                         static_cast<u64>(stopped.error));
@@ -446,6 +509,8 @@ bool submit_password() noexcept {
         SecureZeroMemory(g_app.login.remote_user, sizeof(g_app.login.remote_user));
         g_app.login.remote_user_bytes = 0;
     }
+    if (application_login_auth_cooldown_active())
+        return application_refresh_login_view();
     AccountPaths paths{};
     const AccountPathsResult resolved = account_paths_resolve(&paths);
     const AccountPathsResult ensured = resolved.ok()
@@ -473,6 +538,7 @@ bool submit_password() noexcept {
         ? account_host_login_submit_verification(&host, &verification_input.token)
         : host.api.login_submit_password(host.login_instance, &g_app.login.login.storage,
                                         &g_app.login.password.storage);
+    retain_auth_retry(host.login_status);
     secure_buffer_release(&verification_input.token);
     const AccountLoginPhase expected_phase = verification ? AccountLoginPhase::verification_pending
                                                           : AccountLoginPhase::password_pending;
@@ -538,7 +604,7 @@ bool quiesce_recovery_owner() noexcept {
     application_captcha_auth_reset();
     login.password_revealed = false;
     if (g_app.account.login_instance) {
-        const auto stopped = account_host_login_stop(&g_app.account, kAccountStopTimeoutMs);
+        const auto stopped = stop_login_owner();
         if (g_app.account.login_instance) {
             log_u64(LogLevel::warning, "auth", "recovery_owner_stop_error", static_cast<u64>(stopped.error));
             secure_edit_clear(&login.login);
@@ -583,7 +649,7 @@ void restore_identifier_bound() noexcept {
         edit.storage.capacity = kUserAuthMaximumLoginBytes;
     }
 }
-}
+} // namespace
 
 bool application_login_begin_recovery() noexcept {
     if (logout_blocks_login())
@@ -630,6 +696,8 @@ bool application_login_begin_reset() noexcept {
 bool application_login_submit_reset() noexcept {
     if (logout_blocks_login())
         return false;
+    if (application_login_auth_cooldown_active())
+        return true;
     auto& login = g_app.login;
     auto& host = g_app.account;
     if (!login.visible || !login.reset_mode || !login_reset_editable(login.status) || host.stop_failed) return true;
@@ -663,6 +731,7 @@ bool application_login_submit_reset() noexcept {
     }
     host.login_status = account_host_login_submit_reset(&host,
         login.reset_retry ? nullptr : &login.login.storage, &login.password.storage);
+    retain_auth_retry(host.login_status);
     if (!host.login_status.ok() || host.login_status.phase != AccountLoginPhase::reset_pending) {
         login.status = LoginStatus::reset_failed; login.focus = LoginControl::back;
         secure_edit_clear(&login.login); secure_edit_clear(&login.password);
@@ -710,6 +779,8 @@ bool application_login_tick_reset(u64 now_ms) noexcept {
 bool application_login_submit_recovery() noexcept {
     if (logout_blocks_login())
         return false;
+    if (application_login_auth_cooldown_active())
+        return true;
     auto& login = g_app.login;
     auto& host = g_app.account;
     if (!login.visible || !login_recovery_editable(login.status) || host.stop_failed ||
@@ -724,6 +795,8 @@ bool application_login_submit_recovery() noexcept {
     // A failed/previous request owner must finish before a new explicit request.
     // The identifier stays solely in its existing locked edit through handoff.
     if (!quiesce_recovery_owner()) return application_refresh_login_view();
+    if (application_login_auth_cooldown_active())
+        return application_refresh_login_view();
     AccountPaths paths{};
     const auto resolved = account_paths_resolve(&paths);
     const auto ensured = resolved.ok() ? account_paths_ensure_directories(paths) : resolved;
@@ -735,6 +808,7 @@ bool application_login_submit_recovery() noexcept {
         login.status = LoginStatus::recovery_failed; return application_refresh_login_view();
     }
     const auto submitted = account_host_login_submit_recovery(&host, &login.login.storage);
+    retain_auth_retry(submitted);
     if (!submitted.ok() || submitted.phase != AccountLoginPhase::recovery_pending) {
         login.status = LoginStatus::recovery_failed; return application_refresh_login_view();
     }
@@ -746,6 +820,8 @@ bool application_login_submit_recovery() noexcept {
 bool application_login_submit_phone_verify() noexcept {
     if (logout_blocks_login())
         return false;
+    if (application_login_auth_cooldown_active())
+        return true;
     auto& login = g_app.login;
     auto& host = g_app.account;
     if (!login.visible || !login_phone_editable(login.status) || host.stop_failed ||
@@ -761,6 +837,7 @@ bool application_login_submit_phone_verify() noexcept {
     invalidate_auth();
     application_login_end_pointer_selection();
     const auto submitted = account_host_login_submit_phone_verify(&host, &login.mfa.storage);
+    retain_auth_retry(submitted);
     secure_edit_clear(&login.mfa);
     login.sms_sending = false;
     login.status = submitted.ok() && submitted.phase == AccountLoginPhase::phone_verify_pending ?
@@ -772,6 +849,8 @@ bool application_login_submit_phone_verify() noexcept {
 bool application_login_submit_phone_resend() noexcept {
     if (logout_blocks_login())
         return false;
+    if (application_login_auth_cooldown_active())
+        return true;
     auto& login = g_app.login;
     auto& host = g_app.account;
     if (!login.visible || !login_phone_editable(login.status) || host.stop_failed ||
@@ -780,6 +859,7 @@ bool application_login_submit_phone_resend() noexcept {
     invalidate_auth();
     application_login_end_pointer_selection();
     const auto submitted = account_host_login_submit_phone_resend(&host);
+    retain_auth_retry(submitted);
     login.sms_sending = submitted.ok() && submitted.phase == AccountLoginPhase::phone_resend_pending;
     login.status = login.sms_sending ? LoginStatus::recovery_phone_resend_pending : LoginStatus::recovery_phone_failed;
     login.focus = LoginControl::back;
@@ -832,6 +912,9 @@ bool application_login_pump() noexcept {
     host.login_status = account_host_login_pump(&host);
     if (logout_blocks_login())
         return true;
+    if (host.login_status.event != UserAuthCoordinatorEventKind::none ||
+        host.login_status.remote_event != RemoteAuthClientEventKind::none)
+        retain_auth_retry(host.login_status);
     bool browser_handled = false;
     if (!application_browser_auth_pump(&browser_handled)) return false;
     if (logout_blocks_login())
@@ -1021,7 +1104,7 @@ bool application_login_pump() noexcept {
             return true;
         const bool browser_session = host.login_status.browser_generation != 0;
         invalidate_auth();
-        const AccountLoginStatus stopped = account_host_login_stop(&host, kAccountStopTimeoutMs);
+        const AccountLoginStatus stopped = stop_login_owner();
         if (!stopped.ok() || host.login_instance) {
             g_app.login.status = g_app.login.reset_mode || browser_session ? RendererLoginStatus::cancelling : RendererLoginStatus::rejected;
             g_app.login.focus = LoginControl::back;
@@ -1059,6 +1142,8 @@ bool application_login_pump() noexcept {
             return application_refresh_login_view();
         }
         restore_identifier_bound();
+        g_app.login.auth_retry_at_ms = 0;
+        g_app.login.auth_retry_time_unknown = false;
         g_app.login.login.password = false;
         g_app.login.reset_mode = false; g_app.login.reset_retry = false;
         application_request_frame();
@@ -1108,7 +1193,7 @@ bool application_login_pump() noexcept {
         SecureZeroMemory(payload, sizeof(payload));
         if (!displayable) {
             host.api.login_cancel_remote_auth(host.login_instance);
-            account_host_login_stop(&host, kAccountStopTimeoutMs);
+            stop_login_owner();
             application_account_module_release();
             g_app.login.remote_active = false;
             g_app.login.qr_ready = false;
@@ -1142,12 +1227,24 @@ bool application_login_pump() noexcept {
         SecureZeroMemory(g_app.login.remote_user, sizeof(g_app.login.remote_user));
         g_app.login.remote_user_bytes = 0;
         if (host.login_instance) {
-            account_host_login_stop(&host, kAccountStopTimeoutMs);
+            stop_login_owner();
         }
         application_account_module_release();
         application_login_schedule_remote_restart(expired ? LoginRemoteStatus::refreshing
                                                   : declined ? LoginRemoteStatus::cancelled
                                                              : LoginRemoteStatus::failed);
+        return application_refresh_login_view();
+    }
+    if (host.login_status.http_status == 429 &&
+        host.login_status.phase == AccountLoginPhase::mfa_required) {
+        secure_edit_clear(&g_app.login.mfa);
+        g_app.login.sms_sending = false;
+        g_app.login.webauthn_attempted = false;
+        g_app.login.status = g_app.login.mfa_type == UserAuthMfaType::webauthn
+                                 ? RendererLoginStatus::webauthn_failed
+                                 : RendererLoginStatus::mfa_required;
+        g_app.login.focus = g_app.login.mfa_type == UserAuthMfaType::webauthn ? LoginControl::submit
+                                                                              : LoginControl::password;
         return application_refresh_login_view();
     }
     if (host.login_status.event == UserAuthCoordinatorEventKind::sms_code_sent) {
@@ -1207,7 +1304,7 @@ bool application_login_pump() noexcept {
         g_app.login.status = RendererLoginStatus::rejected;
         g_app.login.focus = g_app.login.login.storage.bytes == 0 ? LoginControl::login : LoginControl::password;
         if (host.login_instance) {
-            account_host_login_stop(&host, kAccountStopTimeoutMs);
+            stop_login_owner();
         }
         if (g_app.login.visible) {
             application_login_schedule_remote_restart(LoginRemoteStatus::refreshing);
@@ -1226,6 +1323,10 @@ bool application_login_pump() noexcept {
 bool application_login_begin_remote_auth() noexcept {
     if (logout_blocks_login())
         return false;
+    if (application_login_auth_cooldown_active()) {
+        g_app.login.remote_restart_at_ms = g_app.login.auth_retry_time_unknown ? 0 : application_login_auth_deadline();
+        return true;
+    }
     if (login_browser_mode(g_app.login.status))
         return true;
     if (g_app.login.reset_mode || login_phone_mode(g_app.login.status) || login_recovery_mode(g_app.login.status)) return true;
@@ -1270,13 +1371,14 @@ bool application_login_begin_remote_auth() noexcept {
         }
     }
     host.login_status = host.api.login_start_remote_auth(host.login_instance);
+    retain_auth_retry(host.login_status);
     if (!host.login_status.ok() || (host.login_status.phase != AccountLoginPhase::remote_starting &&
                                     host.login_status.phase != AccountLoginPhase::remote_qr_ready &&
                                     host.login_status.phase != AccountLoginPhase::remote_mobile_pending)) {
         log_u64(LogLevel::error, "auth", "remote_auth_start_error",
                 static_cast<u64>(host.login_status.error));
         application_login_schedule_remote_restart(LoginRemoteStatus::failed);
-        account_host_login_stop(&host, kAccountStopTimeoutMs);
+        stop_login_owner();
         application_account_module_release();
         return application_refresh_login_view();
     }
@@ -1295,7 +1397,7 @@ bool application_login_cancel_blocked() noexcept {
         return true;
     auto& login = g_app.login;
     if (!login.visible || (!login_requires_back(login.status, login.remote_status) && !login_phone_mode(login.status) && !login_recovery_mode(login.status) &&
-        !login.reset_mode && !(login.webauthn_attempted && login.status == LoginStatus::submitting))) return true;
+        !login.reset_mode && !application_login_auth_cooldown_active() && !(login.webauthn_attempted && login.status == LoginStatus::submitting))) return true;
     invalidate_auth();
     login.browser_launch_epoch = 0;
     // Leaving a password-path challenge keeps the typed identifier; the
@@ -1325,7 +1427,7 @@ bool application_login_cancel_blocked() noexcept {
     login.status = RendererLoginStatus::cancelling;
     login.focus = LoginControl::back;
     if (g_app.account.login_instance) {
-        const auto stopped = account_host_login_stop(&g_app.account, kAccountStopTimeoutMs);
+        const auto stopped = stop_login_owner();
         if (g_app.account.login_instance) {
             log_u64(LogLevel::warning, "auth", "login_cancel_stop_error", static_cast<u64>(stopped.error));
             return application_refresh_login_view();
@@ -1353,6 +1455,21 @@ namespace {
 bool activate_login_control(LoginControl control) noexcept {
     if (logout_blocks_login())
         return true;
+    if (control == LoginControl::submit && g_app.login.auth_retry_time_unknown) {
+        LoginView view{};
+        view.status = g_app.login.status;
+        view.captcha_status = g_app.login.captcha_status;
+        view.auth_rate_limited = view.auth_retry_time_unknown = true;
+        if (login_view_auth_retry_resume(view)) {
+            // Retire the paused request before clearing its unknown receipt.
+            // A failed join keeps both the owner and admission restrictions.
+            if (!application_login_cancel_blocked()) return false;
+            if (g_app.account.login_instance || g_app.account.module || g_app.account.stop_failed) return true;
+            g_app.login.auth_retry_time_unknown = false;
+            g_app.login.remote_restart_at_ms = 0;
+            return application_refresh_login_view();
+        }
+    }
     switch (login_control_action(control, g_app.login.status, g_app.login.remote_status,
                                  g_app.login.reset_mode)) {
     case LoginAction::recovery: return application_login_begin_recovery();
@@ -1371,7 +1488,7 @@ bool activate_login_control(LoginControl control) noexcept {
     default: return true;
     }
 }
-}
+} // namespace
 
 bool application_login_handle_click(LPARAM position) noexcept {
     if (logout_blocks_login())
@@ -1413,19 +1530,21 @@ bool application_login_handle_click(LPARAM position) noexcept {
     return true;
 }
 
-bool application_login_handle_key(WPARAM key) noexcept {
+bool application_login_handle_key(WPARAM key, bool repeated) noexcept {
     if (logout_blocks_login())
         return true;
     if (!g_app.login.visible) {
         return false;
     }
+    if (repeated && (key == VK_RETURN || key == VK_SPACE))
+        return true;
     if (g_app.login.status == RendererLoginStatus::restoring_session) return true;
     if (key == VK_CAPITAL) {
         // The Caps Lock hint follows the toggle state while typing a password.
         if (!application_refresh_login_view()) log_write(LogLevel::error, "ui", "login_caps_refresh_failed");
         return false;
     }
-    if (key == VK_ESCAPE && (g_app.login.reset_mode || login_requires_back(g_app.login.status, g_app.login.remote_status) || login_phone_mode(g_app.login.status) || login_recovery_mode(g_app.login.status) ||
+    if (key == VK_ESCAPE && (application_login_auth_cooldown_active() || g_app.login.reset_mode || login_requires_back(g_app.login.status, g_app.login.remote_status) || login_phone_mode(g_app.login.status) || login_recovery_mode(g_app.login.status) ||
         (g_app.login.webauthn_attempted && g_app.login.status == LoginStatus::submitting)))
         return application_login_cancel_blocked();
     const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;

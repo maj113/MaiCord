@@ -542,7 +542,7 @@ bool application_account_menu_key(u32) noexcept {
 bool application_voice_message_input(UiInputKind, u32, bool) noexcept {
     return false;
 }
-bool application_login_handle_key(WPARAM) noexcept {
+bool application_login_handle_key(WPARAM, bool) noexcept {
     return true;
 }
 bool application_login_handle_character(WPARAM) noexcept {

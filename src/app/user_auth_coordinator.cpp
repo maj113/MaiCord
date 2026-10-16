@@ -1504,6 +1504,10 @@ UserAuthCoordinatorResult user_auth_coordinator_stop(UserAuthCoordinator* coordi
     if (!runtime) {
         return fail(coordinator, UserAuthCoordinatorError::invalid_input);
     }
+    // Keep the exact admitted request receipt across a failed join. Stop never
+    // consumes authentication data, even when a successful response races it.
+    const u64 stopping_request_id =
+        runtime->active_request_id ? runtime->active_request_id : coordinator->state.request_id;
     coordinator->state.phase = UserAuthCoordinatorPhase::stopping;
     user_auth_state_cancel(&runtime->flow);
     runtime->active_request_id = 0;
@@ -1511,8 +1515,15 @@ UserAuthCoordinatorResult user_auth_coordinator_stop(UserAuthCoordinator* coordi
     clear_request(runtime);
     clear_retained(runtime);
     if (!runtime->transport_stopped) {
+        RestClientResponse receipt{};
         const RestClientResult stopped =
-            rest_client_stop(&coordinator->transport, timeout_ms);
+            rest_client_stop_user_auth(&coordinator->transport, timeout_ms, &receipt);
+        if (stopping_request_id && receipt.request_id == stopping_request_id && receipt.transport_ok() &&
+            receipt.status_code == 429) {
+            coordinator->state.request_id = stopping_request_id;
+            coordinator->state.http_status = 429;
+            coordinator->state.retry_at_ms = maximum(coordinator->state.retry_at_ms, receipt.retry_at_ms);
+        }
         // stop can report a prior worker error after joining and releasing.
         // Keep ownership only while a transport allocation or thread remains.
         if (coordinator->transport.runtime || coordinator->transport.worker.thread) {
@@ -1529,6 +1540,11 @@ UserAuthCoordinatorResult user_auth_coordinator_stop(UserAuthCoordinator* coordi
     VirtualFree(runtime, 0, MEM_RELEASE);
     UserAuthCoordinatorResult stopped{};
     stopped.phase = UserAuthCoordinatorPhase::stopped;
+    if (coordinator->state.http_status == 429) {
+        stopped.request_id = coordinator->state.request_id;
+        stopped.http_status = 429;
+        stopped.retry_at_ms = coordinator->state.retry_at_ms;
+    }
     *coordinator = UserAuthCoordinator{};
     coordinator->state = stopped;
     return stopped;

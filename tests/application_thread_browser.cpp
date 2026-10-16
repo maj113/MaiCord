@@ -482,6 +482,71 @@ void run() noexcept {
         browser_owner->forum->selected_count == 1,
         "forum: reopening the same forum keeps its tags, cache and filter without refetching metadata");
     application_thread_browser_close();
+    for (u32 kind = 0; kind < 4; ++kind) {
+        application_thread_browser_release();
+        const u32 before = forum_submissions;
+        const u64 id = 1000 + kind;
+        check(application_thread_browser_open(72) && application_thread_browser_submit(id, now) &&
+                  forum_submissions == before + 1,
+              "forum: terminal metadata rate fixture admits exactly one real metadata request");
+        RestClientResponse terminal{};
+        terminal.request_id = id;
+        terminal.status_code = 429;
+        terminal.rate_limited = true;
+        terminal.retry_at_ms = now + 1000;
+        terminal.rate.retry_after_ms = 2000;
+        switch (kind) {
+        case 0:
+            terminal.retry_at_ms = 0;
+            break;
+        case 1:
+            terminal.rate_limited = false;
+            break;
+        case 2:
+            terminal.rejection.captcha = true;
+            break;
+        case 3:
+            terminal.rejection = {40002, true, false};
+            break;
+        }
+        check(application_thread_browser_response(terminal, {}) && !browser_owner->forum->meta_queued &&
+                  !browser_owner->forum->meta_loaded && !browser_owner->forum->meta_flight.active &&
+                  !browser_owner->actor_floor,
+              "forum: unknown deadlines and terminal verification receipts do not invent a metadata retry");
+        bool settled = true;
+        for (u32 pass = 0; pass < 64; ++pass) {
+            application_thread_browser_synchronize();
+            settled = settled && !forum_meta_due(*browser_owner, ~u64{0}) &&
+                      !browser_owner->forum->meta_queued && forum_submissions == before + 1;
+        }
+        check(settled, "forum: unchanged synchronization never recreates a terminal metadata flight");
+    }
+    application_thread_browser_release();
+    const u32 before_rate = forum_submissions;
+    check(application_thread_browser_open(72) && application_thread_browser_submit(1010, now),
+          "forum: authoritative metadata rate fixture admits");
+    bool bounded_rate = true;
+    for (u32 attempt = 0; attempt < 3; ++attempt) {
+        RestClientResponse limited{};
+        limited.request_id = 1010 + attempt;
+        limited.status_code = 429;
+        limited.rate_limited = true;
+        limited.retry_at_ms = now + 1;
+        limited.rate.retry_after_ms = 2000;
+        bounded_rate = bounded_rate && application_thread_browser_response(limited, {}) &&
+                       browser_owner->actor_floor == limited.retry_at_ms;
+        if (attempt < 2) {
+            bounded_rate = bounded_rate && browser_owner->forum->meta_queued &&
+                           !forum_meta_due(*browser_owner, now) &&
+                           forum_meta_due(*browser_owner, limited.retry_at_ms);
+            now = limited.retry_at_ms;
+            bounded_rate = bounded_rate && application_thread_browser_submit(1011 + attempt, now);
+        } else
+            bounded_rate = bounded_rate && !browser_owner->forum->meta_queued;
+    }
+    check(bounded_rate && forum_submissions == before_rate + 3,
+          "forum: genuine metadata rate limits preserve the exact server floor and two-retry budget");
+    application_thread_browser_release();
     g_app.account.api.forum_post = nullptr;
 
     // Scrolling the channel list beside the open browser rebuilds the retained

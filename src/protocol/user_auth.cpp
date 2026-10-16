@@ -701,7 +701,8 @@ Utf8View user_auth_target(UserAuthOperation operation) noexcept {
 
 UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u64 content_length,
                                                  const UserAuthCaptchaHeaders& captcha,
-                                                 Slice<u8> output) noexcept {
+                                                 Slice<u8> output,
+                                                 const RestUserRequestHeaders* user_headers) noexcept {
     const Utf8View target = user_auth_target(operation);
     u32 captcha_bytes = 0;
     const ConstSlice<u8> destination{output.data, output.count};
@@ -717,6 +718,18 @@ UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u6
         if (!byte_range_valid(source) || byte_ranges_overlap(source, destination))
             return {0, UserAuthWriteError::invalid_input};
     }
+    if (user_headers) {
+        const ConstSlice<u8> header_source{reinterpret_cast<const u8*>(user_headers), sizeof(*user_headers)};
+        if (!byte_range_valid(header_source) || byte_ranges_overlap(header_source, destination))
+            return {0, UserAuthWriteError::invalid_input};
+        const ConstSlice<u8> metadata_fields[]{user_headers->super_properties,
+            {reinterpret_cast<const u8*>(user_headers->locale.data), user_headers->locale.bytes},
+            {reinterpret_cast<const u8*>(user_headers->timezone.data), user_headers->timezone.bytes}};
+        for (const auto field : metadata_fields) {
+            if (!byte_range_valid(field) || byte_ranges_overlap(field, destination))
+                return {0, UserAuthWriteError::invalid_input};
+        }
+    }
     const u64 extension_bytes = captcha_bytes;
     if (extension_bytes > output.count) {
         return UserAuthWriteResult{0, UserAuthWriteError::output_too_small};
@@ -728,7 +741,8 @@ UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u6
                         RestMethod::post,
                         RestAuthorization::none,
                         true,
-                        false},
+                        false,
+                        user_headers},
         Slice<u8>{output.data, output.count - static_cast<u32>(extension_bytes)});
     if (!base.ok()) {
         return UserAuthWriteResult{0, base.error == RestRequestError::output_capacity

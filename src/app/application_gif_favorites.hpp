@@ -14,6 +14,8 @@ struct ApplicationGifFavoriteState {
 };
 bool application_gif_favorites_open() noexcept;
 void application_gif_favorites_set_visible(bool) noexcept;
+// Message GIF hover is independent of the picker's visible interest.
+void application_gif_favorites_set_hovered(bool) noexcept;
 // Call after pending responses have been handled or the account worker has joined.
 void application_gif_favorites_release() noexcept;
 ApplicationGifFavoritesView application_gif_favorites_view() noexcept;

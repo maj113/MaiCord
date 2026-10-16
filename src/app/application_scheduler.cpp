@@ -258,6 +258,9 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
     if (g_app.login.remote_restart_at_ms != 0) {
         timeout = minimum(timeout, wait_milliseconds_until(now_ms, g_app.login.remote_restart_at_ms));
     }
+    const u64 auth_wake = application_login_auth_deadline();
+    if (auth_wake)
+        timeout = minimum(timeout, wait_milliseconds_until(now_ms, auth_wake));
     const u64 recovery_wake = application_login_recovery_deadline();
     if (recovery_wake)
         timeout = minimum(timeout, wait_milliseconds_until(now_ms, recovery_wake));

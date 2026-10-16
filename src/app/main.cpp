@@ -655,6 +655,11 @@ int application_run() noexcept {
             exit_code = 6;
             break;
         }
+        if (!application_login_tick_auth_cooldown(restart_now_ms)) {
+            log_write(LogLevel::error, "ui", "auth_cooldown_refresh_failed");
+            exit_code = 6;
+            break;
+        }
         if (!application_login_tick_recovery(restart_now_ms)) {
             log_write(LogLevel::error, "ui", "recovery_cooldown_refresh_failed");
             exit_code = 6;

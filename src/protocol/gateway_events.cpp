@@ -10,6 +10,163 @@ struct HelloContext {
     bool heartbeat_seen;
 };
 
+struct RateLimitedContext {
+    GatewayRateLimited value;
+    JsonValue meta;
+    u32 fields;
+    GatewayEventDecodeError error;
+};
+
+bool rate_seconds(JsonValue value, u64* output) noexcept {
+    if (value.kind != JsonValueKind::number || !value.source.data || !value.source.bytes ||
+        value.source.bytes > 64 || value.source.data[0] == '-')
+        return false;
+    char digits[64]{};
+    u32 count = 0, before_decimal = 0, at = 0;
+    bool decimal = false;
+    while (at < value.source.bytes && value.source.data[at] != 'e' && value.source.data[at] != 'E') {
+        const char byte = value.source.data[at++];
+        if (byte == '.') {
+            decimal = true;
+            continue;
+        }
+        if (byte < '0' || byte > '9')
+            return false;
+        digits[count++] = byte;
+        if (!decimal)
+            ++before_decimal;
+    }
+    i64 exponent = 0;
+    if (at < value.source.bytes) {
+        ++at;
+        bool negative = false;
+        if (at < value.source.bytes && (value.source.data[at] == '+' || value.source.data[at] == '-'))
+            negative = value.source.data[at++] == '-';
+        if (at == value.source.bytes)
+            return false;
+        while (at < value.source.bytes) {
+            const char byte = value.source.data[at++];
+            if (byte < '0' || byte > '9')
+                return false;
+            if (exponent < 10000)
+                exponent = exponent * 10 + byte - '0';
+        }
+        if (negative)
+            exponent = -exponent;
+    }
+    u32 leading = 0;
+    while (leading < count && digits[leading] == '0')
+        ++leading;
+    if (leading == count) {
+        *output = 0;
+        return true;
+    }
+    const i64 integer_digits = static_cast<i64>(before_decimal) - leading + exponent + 3;
+    if (integer_digits > 20)
+        return false;
+    u64 milliseconds = 0;
+    for (i64 index = 0; index < integer_digits; ++index) {
+        const u64 digit =
+            index < static_cast<i64>(count - leading) ? static_cast<u64>(digits[leading + index] - '0') : 0;
+        if (milliseconds > (~u64{0} - digit) / 10)
+            return false;
+        milliseconds = milliseconds * 10 + digit;
+    }
+    bool round_up = false;
+    for (u32 index = integer_digits > 0 ? static_cast<u32>(integer_digits) : 0; index < count - leading;
+         ++index)
+        round_up |= digits[leading + index] != '0';
+    if (round_up && milliseconds == ~u64{0})
+        return false;
+    *output = milliseconds + (round_up ? 1 : 0);
+    return true;
+}
+
+bool rate_field(RateLimitedContext& context, u32 bit) noexcept {
+    if (context.fields & bit) {
+        context.error = GatewayEventDecodeError::duplicate_field;
+        return false;
+    }
+    context.fields |= bit;
+    return true;
+}
+
+bool visit_rate_limited(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& context = *static_cast<RateLimitedContext*>(opaque);
+    if (json_string_equals_ascii(name, utf8_literal("opcode"))) {
+        u64 opcode = 0;
+        if (!rate_field(context, 1))
+            return false;
+        if (!json_value_to_u64(value, &opcode) || opcode > ~u32{0})
+            return false;
+        context.value.opcode = static_cast<u32>(opcode);
+    } else if (json_string_equals_ascii(name, utf8_literal("retry_after"))) {
+        if (!rate_field(context, 2) || !rate_seconds(value, &context.value.retry_after_ms))
+            return false;
+    } else if (json_string_equals_ascii(name, utf8_literal("meta"))) {
+        if (!rate_field(context, 4) || value.kind != JsonValueKind::object)
+            return false;
+        context.meta = value;
+    }
+    return true;
+}
+
+bool visit_rate_meta(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& context = *static_cast<RateLimitedContext*>(opaque);
+    if (json_string_equals_ascii(name, utf8_literal("guild_id"))) {
+        if (!rate_field(context, 8) || !json_value_to_snowflake(value, &context.value.guild_id) ||
+            !context.value.guild_id)
+            return false;
+    } else if (json_string_equals_ascii(name, utf8_literal("nonce"))) {
+        JsonString nonce{};
+        if (!rate_field(context, 16) || !json_value_as_string(value, &nonce))
+            return false;
+        // Non-decimal peer nonces still carry an authoritative guild deadline.
+        if (!json_string_to_u64(nonce, &context.value.nonce))
+            context.value.nonce = 0;
+    }
+    return true;
+}
+
+struct MemberChunkContext {
+    GatewayMemberChunkReceipt value;
+    u32 fields;
+    GatewayEventDecodeError error;
+};
+bool visit_member_chunk_receipt(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& context = *static_cast<MemberChunkContext*>(opaque);
+    const u32 bit = json_string_equals_ascii(name, utf8_literal("guild_id"))      ? 1u
+                    : json_string_equals_ascii(name, utf8_literal("nonce"))       ? 2u
+                    : json_string_equals_ascii(name, utf8_literal("chunk_index")) ? 4u
+                    : json_string_equals_ascii(name, utf8_literal("chunk_count")) ? 8u
+                                                                                  : 0u;
+    if (!bit)
+        return true;
+    if (context.fields & bit) {
+        context.error = GatewayEventDecodeError::duplicate_field;
+        return false;
+    }
+    context.fields |= bit;
+    if (bit == 1)
+        return json_value_to_snowflake(value, &context.value.guild_id) && context.value.guild_id;
+    if (bit == 2) {
+        JsonString nonce{};
+        if (!json_value_as_string(value, &nonce))
+            return false;
+        if (!json_string_to_u64(nonce, &context.value.nonce))
+            context.value.nonce = 0;
+        return true;
+    }
+    u64 number = 0;
+    if (!json_value_to_u64(value, &number) || number > ~u32{0})
+        return false;
+    if (bit == 4)
+        context.value.chunk_index = static_cast<u32>(number);
+    else
+        context.value.chunk_count = static_cast<u32>(number);
+    return true;
+}
+
 struct ReadyContext {
     GatewayReady ready;
     GatewayEventDecodeError error;
@@ -212,6 +369,70 @@ GatewayEventDecodeResult failure(GatewayEventDecodeError error, u32 offset = 0,
 }
 
 } // namespace
+
+GatewayEventDecodeResult gateway_decode_rate_limited(JsonValue data, Slice<u32> structural_scratch,
+                                                     u32 maximum_depth,
+                                                     GatewayRateLimited* output) noexcept {
+    if (!output || !data.source.data || !data.source.bytes || data.source.bytes > 1024 ||
+        !structural_scratch.data || !structural_scratch.count || !maximum_depth)
+        return failure(GatewayEventDecodeError::invalid_input);
+    if (data.kind != JsonValueKind::object)
+        return failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+    auto scan = json_scan_structurals_avx1(data.source, structural_scratch);
+    if (!scan.ok())
+        return failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+    RateLimitedContext context{};
+    auto read = json_visit_value_object(data, {structural_scratch.data, scan.count}, maximum_depth,
+                                        visit_rate_limited, &context);
+    if (!read.ok())
+        return failure(context.error == GatewayEventDecodeError::none
+                           ? GatewayEventDecodeError::invalid_data
+                           : context.error,
+                       read.error_offset, JsonScanError::none, read.error);
+    if ((context.fields & 7) != 7)
+        return failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
+    scan = json_scan_structurals_avx1(context.meta.source, structural_scratch);
+    if (!scan.ok())
+        return failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+    read = json_visit_value_object(context.meta, {structural_scratch.data, scan.count}, maximum_depth,
+                                   visit_rate_meta, &context);
+    if (!read.ok())
+        return failure(context.error == GatewayEventDecodeError::none
+                           ? GatewayEventDecodeError::invalid_data
+                           : context.error,
+                       read.error_offset, JsonScanError::none, read.error);
+    if (!(context.fields & 8))
+        return failure(GatewayEventDecodeError::missing_required_field, context.meta.source_offset);
+    *output = context.value;
+    return failure(GatewayEventDecodeError::none);
+}
+
+GatewayEventDecodeResult gateway_decode_member_chunk_receipt(JsonValue data, Slice<u32> structural_scratch,
+                                                             u32 maximum_depth,
+                                                             GatewayMemberChunkReceipt* output) noexcept {
+    if (!output || !data.source.data || !data.source.bytes || !structural_scratch.data ||
+        !structural_scratch.count || !maximum_depth)
+        return failure(GatewayEventDecodeError::invalid_input);
+    if (data.kind != JsonValueKind::object)
+        return failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+    const auto scan = json_scan_structurals_avx1(data.source, structural_scratch);
+    if (!scan.ok())
+        return failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+    MemberChunkContext context{};
+    const auto read = json_visit_value_object(data, {structural_scratch.data, scan.count}, maximum_depth,
+                                              visit_member_chunk_receipt, &context);
+    if (!read.ok())
+        return failure(context.error == GatewayEventDecodeError::none
+                           ? GatewayEventDecodeError::invalid_data
+                           : context.error,
+                       read.error_offset, JsonScanError::none, read.error);
+    if ((context.fields & 13) != 13)
+        return failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
+    if (!context.value.chunk_count || context.value.chunk_index >= context.value.chunk_count)
+        return failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+    *output = context.value;
+    return failure(GatewayEventDecodeError::none);
+}
 
 GatewayEventDecodeResult gateway_decode_hello(JsonValue data, Slice<u32> structural_scratch,
                                               u32 maximum_depth, GatewayHello* output) noexcept {

@@ -264,8 +264,10 @@ bool application_user_settings_response(const RestClientResponse& response, Utf8
         if (decoded.extracted.ok() && decoded.settings_present && user_settings_store_apply(s, extracted, false)) {
             g_owner.attempts = 0;
         } else {
-            s->refetch = ++g_owner.attempts < 3;
-            g_owner.retry_at_ms = now_ms + 5000;
+            s->refetch = ++g_owner.attempts < 3 &&
+                (response.status_code != 429 || (response.transport_ok() && response.rate_limited &&
+                                                 response.retry_at_ms != 0));
+            g_owner.retry_at_ms = response.status_code == 429 ? response.retry_at_ms : now_ms + 5000;
         }
         application_user_settings_apply_display();
         application_request_frame();
@@ -274,8 +276,8 @@ bool application_user_settings_response(const RestClientResponse& response, Utf8
     UserSettingsOutcome outcome = UserSettingsOutcome::failed;
     if (ok && decoded.extracted.ok() && decoded.settings_present)
         outcome = decoded.out_of_date ? UserSettingsOutcome::out_of_date : UserSettingsOutcome::saved;
-    else if (response.transport_ok() && (response.rate_limited || response.status_code == 429) &&
-             ++g_owner.attempts < 4)
+    else if (response.transport_ok() && response.rate_limited && response.status_code == 429 &&
+             response.retry_at_ms != 0 && ++g_owner.attempts < 4)
         outcome = UserSettingsOutcome::rate_limited;
     else if (response.transport_ok() && response.status_code == 400) {
         u32 structurals[64];
@@ -285,7 +287,7 @@ bool application_user_settings_response(const RestClientResponse& response, Utf8
     const auto completion = user_settings_store_complete(
         s, outcome, outcome == UserSettingsOutcome::saved || outcome == UserSettingsOutcome::out_of_date ? extracted
                                                                                                         : ConstSlice<u8>{},
-        response.retry_at_ms > now_ms ? response.retry_at_ms : now_ms + 2000);
+        response.retry_at_ms);
     if (outcome != UserSettingsOutcome::rate_limited)
         g_owner.attempts = 0;
     if (outcome == UserSettingsOutcome::out_of_date)

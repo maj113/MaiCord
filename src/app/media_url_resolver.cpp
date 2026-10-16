@@ -1,6 +1,7 @@
 #include "maicord/app/media_url_resolver.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/deadline.hpp"
+#include "rest_rate_retry.hpp"
 
 namespace maicord {
 MediaUrlState media_url_resolution_state(const MediaUrlResolver& resolver, Utf8View source) noexcept {
@@ -86,11 +87,14 @@ void media_url_complete(MediaUrlResolver* resolver, const RestClientResponse& re
             return;
         }
     }
+    const bool limited = response.status_code == 429;
+    const u64 rate_deadline = app_detail::rest_rate_retry_deadline(response);
     const bool transient =
-        !response.transport_ok() || response.status_code == 429 || response.status_code >= 500;
+        limited ? rate_deadline != 0 : !response.transport_ok() || response.status_code >= 500;
     if (transient && entry.attempts < 3) {
         entry.state = MediaUrlState::queued;
-        entry.retry_at_ms = maximum(response.retry_at_ms, now_ms + (1000ull << entry.attempts));
+        entry.retry_at_ms =
+            limited ? rate_deadline : maximum(response.retry_at_ms, now_ms + (1000ull << entry.attempts));
     } else {
         entry.state = MediaUrlState::failed;
     }

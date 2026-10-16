@@ -22172,6 +22172,89 @@ void test_user_auth_protocol() noexcept {
                     .error == UserAuthWriteError::invalid_input,
         "user_auth_complete_request_head_contract");
 
+    const auto header_count = [](ConstSlice<u8> head, ConstSlice<u8> field) noexcept {
+        u32 count = 0;
+        for (u32 index = 0; index + field.count <= head.count; ++index)
+            count += maicord::bytes_equal(head.data + index, field.data, field.count) ? 1u : 0u;
+        return count;
+    };
+    const RestUserRequestHeaders metadata{byte_literal("e30="), utf8_literal("sl-SI"),
+                                          utf8_literal("Europe/Ljubljana")};
+    bool metadata_operations = true;
+    for (u32 index = 0; index <= static_cast<u32>(UserAuthOperation::browser_handoff_exchange); ++index) {
+        const auto operation = static_cast<UserAuthOperation>(index);
+        const auto captcha = operation == UserAuthOperation::browser_handoff_exchange
+            ? UserAuthCaptchaHeaders{} : UserAuthCaptchaHeaders{utf8_literal("solution"),
+                utf8_literal("request-token"), utf8_literal("session-7")};
+        const auto head = user_auth_write_request_head(operation, 32, captcha,
+            {output, sizeof(output)}, &metadata);
+        const auto target = user_auth_target(operation);
+        const ConstSlice<u8> bytes{output, head.bytes};
+        metadata_operations = metadata_operations && head.ok() && head.bytes >= target.bytes + 5 &&
+            maicord::bytes_equal(output, "POST ", 5) &&
+            maicord::bytes_equal(output + 5, target.data, target.bytes) &&
+            header_count(bytes, byte_literal("\r\nX-Super-Properties: e30=\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nX-Discord-Locale: sl-SI\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nAccept-Language: sl-SI\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nX-Discord-Timezone: Europe/Ljubljana\r\n")) == 1 &&
+            header_count(bytes, byte_literal("\r\nAuthorization:")) == 0 &&
+            header_count(bytes, byte_literal("\r\nOrigin:")) == 0 &&
+            header_count(bytes, byte_literal("\r\nReferer:")) == 0 &&
+            header_count(bytes, byte_literal("\r\nX-Fingerprint:")) == 0 &&
+            header_count(bytes, byte_literal("\r\nX-Captcha-Key: solution\r\n")) ==
+                (captcha.key.bytes ? 1u : 0u) && head.bytes >= 4 &&
+            maicord::bytes_equal(output + head.bytes - 4, "\r\n\r\n", 4);
+    }
+    expect(metadata_operations, "user_auth_all_operations_attach_metadata_without_authorization_or_browser_headers");
+
+    const auto metadata_head = user_auth_write_request_head(UserAuthOperation::password, 32,
+        {}, {output, sizeof(output)}, &metadata);
+    bool metadata_atomic = metadata_head.ok();
+    // Every insufficient prefix rejects before it touches even one output byte.
+    u8 auth_guarded[2048]{};
+    for (u32 capacity = 0; metadata_atomic && capacity < metadata_head.bytes; ++capacity) {
+        for (u32 n = 0; n < sizeof(auth_guarded); ++n) auth_guarded[n] = 0xA5;
+        metadata_atomic = user_auth_write_request_head(UserAuthOperation::password, 32, {},
+            {auth_guarded, capacity}, &metadata).error == UserAuthWriteError::output_too_small;
+        for (u32 n = 0; n < sizeof(auth_guarded); ++n)
+            metadata_atomic = metadata_atomic && auth_guarded[n] == 0xA5;
+    }
+    const RestUserRequestHeaders invalid_metadata[]{
+        {byte_literal("not-base64"), metadata.locale, metadata.timezone},
+        {metadata.super_properties, utf8_literal("en-US\r\nInjected: value"), metadata.timezone},
+        {metadata.super_properties, metadata.locale, utf8_literal("UTC\r\nInjected: value")},
+        {metadata.super_properties, {}, metadata.timezone},
+        {{nullptr, 4}, metadata.locale, metadata.timezone},
+        {{reinterpret_cast<const u8*>(~usize{0} - 1), 4}, metadata.locale, metadata.timezone},
+        {{auth_guarded, 4}, metadata.locale, metadata.timezone},
+        {metadata.super_properties, {reinterpret_cast<const char*>(auth_guarded), 4}, metadata.timezone},
+        {metadata.super_properties, metadata.locale, {reinterpret_cast<const char*>(auth_guarded), 4}},
+    };
+    for (const auto& invalid_headers : invalid_metadata) {
+        for (u32 n = 0; n < sizeof(auth_guarded); ++n) auth_guarded[n] = 0xA5;
+        metadata_atomic = metadata_atomic &&
+            user_auth_write_request_head(UserAuthOperation::password, 32, {},
+                {auth_guarded, sizeof(auth_guarded)}, &invalid_headers).error == UserAuthWriteError::invalid_input;
+        for (u32 n = 0; n < sizeof(auth_guarded); ++n)
+            metadata_atomic = metadata_atomic && auth_guarded[n] == 0xA5;
+    }
+    RestUserRequestHeaders alias_metadata = metadata;
+    const RestUserRequestHeaders alias_before = alias_metadata;
+    metadata_atomic = metadata_atomic &&
+        user_auth_write_request_head(UserAuthOperation::password, 32, {},
+            {reinterpret_cast<u8*>(&alias_metadata), sizeof(alias_metadata)}, &alias_metadata).error ==
+            UserAuthWriteError::invalid_input &&
+        maicord::bytes_equal(&alias_metadata, &alias_before, sizeof(alias_metadata));
+    expect(metadata_atomic, "user_auth_metadata_capacity_injection_and_alias_rejection_is_atomic");
+    RestUserRequestHeaders no_timezone = metadata;
+    no_timezone.timezone = {};
+    const auto optional_zone = user_auth_write_request_head(UserAuthOperation::recovery, 32, {},
+        {output, sizeof(output)}, &no_timezone);
+    expect(optional_zone.ok() &&
+        header_count({output, optional_zone.bytes}, byte_literal("X-Discord-Timezone:")) == 0 &&
+        header_count({output, optional_zone.bytes}, byte_literal("X-Super-Properties:")) == 1,
+        "user_auth_metadata_omits_unavailable_timezone");
+
     u32 structurals[256]{};
     char token[128]{};
     char ticket[128]{};
@@ -22638,6 +22721,8 @@ void test_captcha_challenge_owner() noexcept {
 }
 
 void test_gateway_commands() noexcept {
+    expect((kGatewayUserCapabilitiesDefault & (1u << 8)) == 0,
+           "gateway_does_not_advertise_unhandled_auth_token_refresh");
     u8 output[2048]{};
     u8 guarded[2048]{};
     for (u32 index = 0; index < static_cast<u32>(sizeof(guarded)); ++index) {
@@ -22661,7 +22746,7 @@ void test_gateway_commands() noexcept {
     const ConstSlice<u8> expected_user_properties = byte_literal(
         R"({"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null})");
     const ConstSlice<u8> expected_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734653,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null},"presence":{"since":null,"activities":[],"status":"online","afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null},"presence":{"since":null,"activities":[],"status":"online","afk":false},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult user_identified =
         gateway_write_user_identify(user_identify, Slice<u8>{output, expected_user_identify.count});
     expect(user_identified.ok() && user_identified.bytes == expected_user_identify.count &&
@@ -22795,7 +22880,7 @@ void test_gateway_commands() noexcept {
     idle_user_identify.has_since = true;
     idle_user_identify.afk = true;
     const ConstSlice<u8> expected_idle_user_identify = byte_literal(
-        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734653,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null},"presence":{"since":987654321,"activities":[],"status":"idle","afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
+        R"({"op":2,"d":{"token":"user\"\n-token","capabilities":1734397,"properties":{"os":"Windows","browser":"Discord Client","release_channel":"stable","client_version":"1.0.9256","os_version":"10.0.19045","os_arch":"x64","app_arch":"x64","system_locale":"en-US","has_client_mods":false,"client_launch_id":"00112233-4455-6677-8899-aabbccddeeff","browser_user_agent":"Agent\\1.0\nNative","browser_version":"42.9.0","os_sdk_version":"19045","client_build_number":603738,"client_event_source":null},"presence":{"since":987654321,"activities":[],"status":"idle","afk":true},"compress":false,"client_state":{"guild_versions":{}}}})");
     const GatewayCommandWriteResult idle_user_identified = gateway_write_user_identify(
         idle_user_identify, Slice<u8>{output, expected_idle_user_identify.count});
     expect(idle_user_identified.ok() && idle_user_identified.bytes == expected_idle_user_identify.count &&
@@ -24116,6 +24201,100 @@ void test_rest() noexcept {
                                  1'007'001)
                        .error == RestRateError::incomplete_bucket_deadline,
            "rest_rate_rejects_exhaustion_without_deadline");
+
+    const RestHeadResult shared_seed = parse_rest_response_head(byte_literal(
+        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-RateLimit-Bucket: alias\r\n"
+        "X-RateLimit-Limit: 4\r\nX-RateLimit-Remaining: 3\r\nX-RateLimit-Reset-After: 0.1\r\n\r\n"));
+    const RestHeadResult exhausted = parse_rest_response_head(byte_literal(
+        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-RateLimit-Bucket: alias\r\n"
+        "X-RateLimit-Limit: 4\r\nX-RateLimit-Remaining: 0\r\nX-RateLimit-Reset-After: 5.0001\r\n\r\n"));
+    const RestHeadResult exhausted_absolute = parse_rest_response_head(byte_literal(
+        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-RateLimit-Bucket: alias\r\n"
+        "X-RateLimit-Limit: 4\r\nX-RateLimit-Remaining: 0\r\nX-RateLimit-Reset: 1005.0001\r\n\r\n"));
+    const RestHeadResult throttled = parse_rest_response_head(byte_literal(
+        "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\nX-RateLimit-Bucket: alias\r\n"
+        "X-RateLimit-Limit: 4\r\nX-RateLimit-Remaining: 0\r\nX-RateLimit-Reset-After: 5.0001\r\n"
+        "Retry-After: 10.0001\r\n\r\n"));
+    const RestHeadResult late_heads[]{
+        parse_rest_response_head(
+            byte_literal("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-RateLimit-Bucket: alias\r\n"
+                         "X-RateLimit-Remaining: 3\r\nX-RateLimit-Reset-After: 0.2501\r\n\r\n")),
+        parse_rest_response_head(
+            byte_literal("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-RateLimit-Bucket: alias\r\n"
+                         "X-RateLimit-Remaining: 3\r\nX-RateLimit-Reset: 1000.0001\r\n\r\n"))};
+    const RestHeadResult fresh_window = parse_rest_response_head(byte_literal(
+        "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-RateLimit-Bucket: alias\r\n"
+        "X-RateLimit-Limit: 4\r\nX-RateLimit-Remaining: 3\r\nX-RateLimit-Reset-After: 0.0011\r\n\r\n"));
+    const RestHeadResult global_floor =
+        parse_rest_response_head(byte_literal("HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n"
+                                              "Retry-After: 3.0001\r\nX-RateLimit-Global: true\r\n\r\n"));
+    const RestRouteKey alias_a{101, 71, RestMethod::get, RestMajorParameter::channel};
+    const RestRouteKey alias_b{102, 71, RestMethod::get, RestMajorParameter::channel};
+    const RestRouteKey other_major{101, 72, RestMethod::get, RestMajorParameter::channel};
+    const RestHeadResult floor_heads[]{exhausted, exhausted_absolute, throttled};
+    for (u32 floor_case = 0; floor_case != 3; ++floor_case) {
+        for (const auto& late_head : late_heads) {
+            RestRateBucket alias_buckets[3]{};
+            RestRateBinding alias_bindings[3]{};
+            RestRateScheduler aliases{};
+            bool seeded = rest_rate_scheduler_initialize(&aliases, {alias_buckets, 3}, {alias_bindings, 3});
+            const RestRouteKey seed_routes[]{alias_a, alias_b, other_major};
+            for (const auto& route : seed_routes) {
+                auto seed = rest_rate_acquire(&aliases, route, 100);
+                seeded =
+                    seeded && seed.acquired_request() &&
+                    rest_rate_observe(&aliases, &seed.lease, shared_seed, nullptr, 100, 1'000'000).ok();
+            }
+            auto first = rest_rate_acquire(&aliases, alias_a, 200);
+            auto second = rest_rate_acquire(&aliases, alias_b, 200);
+            const u64 expected_floor = floor_case == 2 ? 10'211 : 5'211;
+            const auto observed =
+                rest_rate_observe(&aliases, &first.lease, floor_heads[floor_case], nullptr, 210, 1'000'000);
+            const auto late =
+                rest_rate_observe(&aliases, &second.lease, late_head, nullptr, 220, 1'000'000);
+            const auto bucket_index = alias_bindings[first.lease.binding_index].bucket_index;
+            expect(
+                seeded && first.acquired_request() && second.acquired_request() && observed.ok() &&
+                    late.ok() && bucket_index == alias_bindings[second.lease.binding_index].bucket_index &&
+                    alias_buckets[bucket_index].remaining == 0 &&
+                    alias_buckets[bucket_index].reset_at_ms == expected_floor &&
+                    rest_rate_acquire(&aliases, alias_a, expected_floor - 1).wait_until_ms ==
+                        expected_floor &&
+                    rest_rate_acquire(&aliases, alias_b, expected_floor - 1).wait_until_ms ==
+                        expected_floor,
+                "rest_rate_late_relative_or_absolute_alias_response_cannot_shorten_exhausted_or_429_floor");
+            auto independent = rest_rate_acquire(&aliases, other_major, 220);
+            expect(independent.acquired_request() && rest_rate_cancel(&aliases, &independent.lease),
+                   "rest_rate_preserved_alias_cooldown_does_not_block_different_major");
+            auto reopened = rest_rate_acquire(&aliases, alias_a, expected_floor);
+            expect(reopened.acquired_request() &&
+                       rest_rate_observe(&aliases, &reopened.lease, fresh_window, nullptr, expected_floor,
+                                         1'000'000)
+                           .ok() &&
+                       alias_buckets[bucket_index].reset_at_ms == expected_floor + 2,
+                   "rest_rate_expired_floor_accepts_new_short_fractional_window_without_extra_hold");
+            auto available = rest_rate_acquire(&aliases, alias_b, expected_floor);
+            expect(available.acquired_request() && rest_rate_cancel(&aliases, &available.lease),
+                   "rest_rate_positive_new_window_allows_alias_before_its_reset");
+
+            auto global_first = rest_rate_acquire(&aliases, alias_a, expected_floor + 3);
+            auto global_second = rest_rate_acquire(&aliases, alias_b, expected_floor + 3);
+            const auto global_seen = rest_rate_observe(&aliases, &global_first.lease, global_floor, nullptr,
+                                                       expected_floor + 3, 1'000'000);
+            const auto global_late = rest_rate_observe(&aliases, &global_second.lease, late_head, nullptr,
+                                                       expected_floor + 4, 1'000'000);
+            const u64 expected_global = expected_floor + 3'004;
+            expect(global_first.acquired_request() && global_second.acquired_request() &&
+                       global_seen.ok() && global_late.ok() &&
+                       aliases.global_reset_at_ms == expected_global &&
+                       rest_rate_acquire(&aliases, other_major, expected_global - 1).wait_until_ms ==
+                           expected_global,
+                   "rest_rate_late_alias_response_preserves_global_fractional_cooldown_for_every_major");
+            auto global_reopened = rest_rate_acquire(&aliases, other_major, expected_global);
+            expect(global_reopened.acquired_request() && rest_rate_cancel(&aliases, &global_reopened.lease),
+                   "rest_rate_global_floor_expiry_allows_unrelated_major_without_extra_hold");
+        }
+    }
 }
 
 bool test_user_auth_consumer_reject(void*, const RestClientResponse&, ConstSlice<u8>) noexcept {

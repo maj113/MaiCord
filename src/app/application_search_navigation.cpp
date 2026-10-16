@@ -1,4 +1,5 @@
 #include "application_search_navigation.hpp"
+#include "rest_rate_retry.hpp"
 #include "application_state.hpp"
 #include "application_content_input.hpp"
 #include "application_message_mutation_notice.hpp"
@@ -452,8 +453,8 @@ bool application_search_navigation_response(const RestClientResponse& response, 
             finish(utf8_literal("The source message changed. Try the link again."), ApplicationMessageNavigationStage::source_changed);
         navigation.phase = MessageNavigationPhase::idle; return true;
     }
-    if (response.transport_ok() && response.status_code == 429) {
-        navigation.retry_at = maximum(response.retry_at_ms, deadline_after(clock_monotonic_milliseconds(), 50));
+    if (const u64 retry_at = rest_rate_retry_deadline(response)) {
+        navigation.retry_at = retry_at;
         notice(utf8_literal("Too many requests. Retrying…"), ApplicationMessageNavigationStage::rate_limited, 429);
         return true;
     }
@@ -547,9 +548,9 @@ void application_search_navigation_history_response(const RestClientResponse& re
     const bool valid = current();
     navigation.request_id = 0;
     if (!valid) { retire(); return; }
-    if (response.transport_ok() && response.status_code == 429) {
+    if (const u64 retry_at = rest_rate_retry_deadline(response)) {
         navigation.phase = MessageNavigationPhase::history_retry;
-        navigation.retry_at = maximum(response.retry_at_ms, deadline_after(clock_monotonic_milliseconds(), 50));
+        navigation.retry_at = retry_at;
         notice(utf8_literal("Too many requests. Retrying…"), ApplicationMessageNavigationStage::rate_limited, 429);
         application_message_mutation_notice_pending(ApplicationMessageMutationKind::navigate_message,
             navigation.target_channel, navigation.target_message, 429);

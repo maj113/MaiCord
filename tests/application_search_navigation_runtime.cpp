@@ -83,7 +83,92 @@ bool response(u64 id, Utf8View body, u16 status=200) noexcept {
     return application_search_navigation_response(value,body);
 }
 constexpr auto ordinary=utf8_literal(R"({"id":"70","guild_id":"7","type":0,"name":"Target","permission_overwrites":[]})");
+void rate_retry_tests() noexcept {
+    // These are the same server receipts used by navigation and guild-settings
+    // reads. Challenge classification must win even if stale rate fields exist.
+    RestClientResponse eligible{};
+    eligible.status_code = 429;
+    eligible.rate_limited = true;
+    eligible.retry_at_ms = 1;
+    check(rest_rate_retry_deadline(eligible) == 1,
+          "rate retry preserves an exact server deadline without a local minimum");
+    for (u32 kind = 0; kind < 8; ++kind) {
+        auto rejected = eligible;
+        switch (kind) {
+        case 0:
+            rejected.rate_limited = false;
+            break;
+        case 1:
+            rejected.retry_at_ms = 0;
+            break;
+        case 2:
+            rejected.rejection.captcha = true;
+            break;
+        case 3:
+            rejected.rejection = {40002, true, false};
+            break;
+        case 4:
+            rejected.rejection = {40004, true, false};
+            break;
+        case 5:
+            rejected.rejection = {20026, true, false};
+            break;
+        case 6:
+            rejected.error = RestClientError::receive;
+            break;
+        case 7:
+            rejected.status_code = 503;
+            break;
+        }
+        check(!rest_rate_retry_deadline(rejected),
+              "rate retry rejects challenges, missing authority and transport failures");
+        check(reset() && application_search_navigation_begin(accepted_source.ticket) &&
+                  application_search_navigation_submit(501, 1),
+              "terminal metadata rate fixture admits one actual request");
+        rejected.request_id = 501;
+        check(application_search_navigation_response(rejected, {}) &&
+                  navigation.phase == MessageNavigationPhase::idle &&
+                  !application_search_navigation_pending(~u64{0}) &&
+                  !application_search_navigation_next_wake() &&
+                  !application_search_navigation_submit(502, ~u64{0}) && fetches == 1 && !moves,
+              "terminal metadata receipt schedules no wake or automatic readmission");
+
+        check(reset() && application_search_navigation_begin(accepted_source.ticket) &&
+                  application_search_navigation_submit(503, 1) && response(503, ordinary),
+              "terminal history rate fixture admits its destination");
+        application_search_navigation_history_submitted(70, 900, 504);
+        rejected.request_id = 504;
+        MessageHistoryRestResult failed{};
+        failed.error = MessageHistoryRestError::rate_limit;
+        application_search_navigation_history_response(rejected, failed);
+        // The production receipt caller retires its pending jump after delivery.
+        g_app.pending_message_jump_channel_id = g_app.pending_message_jump_message_id = 0;
+        application_search_navigation_synchronize();
+        check(navigation.phase == MessageNavigationPhase::idle &&
+                  !application_search_navigation_next_wake() && !g_app.pending_message_jump_channel_id &&
+                  !g_app.pending_message_jump_message_id &&
+                  application_message_mutation_notice_is_error() && fetches == 1 && moves == 1,
+              "terminal history receipt cannot recreate a pending around-message request");
+    }
+    check(reset() && application_search_navigation_begin(accepted_source.ticket) &&
+              application_search_navigation_submit(505, 1),
+          "exact metadata deadline fixture admits");
+    eligible.request_id = 505;
+    check(application_search_navigation_response(eligible, {}) && navigation.retry_at == 1,
+          "actual metadata owner preserves a server deadline below the old synthetic floor");
+    check(reset() && application_search_navigation_begin(accepted_source.ticket) &&
+              application_search_navigation_submit(506, 1) && response(506, ordinary),
+          "exact history deadline fixture admits");
+    application_search_navigation_history_submitted(70, 900, 507);
+    eligible.request_id = 507;
+    MessageHistoryRestResult failed{};
+    failed.error = MessageHistoryRestError::rate_limit;
+    application_search_navigation_history_response(eligible, failed);
+    check(navigation.phase == MessageNavigationPhase::history_retry && navigation.retry_at == 1,
+          "actual history owner preserves a server deadline below the old synthetic floor");
+}
 void tests() noexcept {
+    rate_retry_tests();
     check(reset() && application_search_navigation_begin(accepted_source.ticket) &&
         application_search_navigation_pending(1) && !moves, "uncached Jump queues metadata and does not report navigation");
     check(application_search_navigation_submit(10,1) && fetched_channel==70 && response(10,ordinary) && moves==1 &&
@@ -193,7 +278,7 @@ void tests() noexcept {
         "superseded shared member serial never selects private target and leaves explicit retry feedback");
 
     check(reset() && application_search_navigation_begin(accepted_source.ticket) && application_search_navigation_submit(70,1),"rate wait fixture admits");
-    RestClientResponse limited{}; limited.request_id=70; limited.status_code=429;
+    RestClientResponse limited{}; limited.request_id=70; limited.status_code=429; limited.rate_limited=true;
     limited.retry_at_ms=deadline_after(clock_monotonic_milliseconds(),10000);
     check(application_search_navigation_response(limited,{}) && !application_search_navigation_pending(1) &&
         application_search_navigation_next_wake()==limited.retry_at_ms && contains(shown,utf8_literal("Too many requests")),

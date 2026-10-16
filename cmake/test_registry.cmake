@@ -491,6 +491,9 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
 maicord_add_tests(MaiCordTests TIMEOUT 2 ENVIRONMENT MAICORD_TEST_TEXT_INPUT=1 TEST maicord_text_input)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
     SOURCES tests/application_commands_ui.cpp src/app/application_commands.cpp src/app/application_state.cpp
+        tests/application_activity_retry.cpp tests/application_custom_status_retry.cpp
+        tests/application_notification_retry.cpp tests/application_community_retry.cpp
+        tests/application_invite_retry.cpp
         src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_text maicord_ui
         maicord_ui_input maicord_model maicord_message_runtime kernel32 user32 ws2_32 secur32 bcrypt crypt32
@@ -641,6 +644,7 @@ maicord_test(MaiCordDrawSubmissionTests ENTRY maicord_draw_submission_entry
     TEST maicord_draw_submission)
 maicord_test(MaiCordTooltipRuntimeTests ENTRY maicord_tooltip_runtime_entry
     SOURCES tests/application_tooltip_runtime.cpp src/app/application_tooltip.cpp src/app/application_state.cpp
+        tests/application_reaction_tooltip_runtime.cpp
         src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_ui
         maicord_message_runtime kernel32 user32
@@ -970,19 +974,21 @@ maicord_test(MaiCordPasswordResetCoordinatorTests ENTRY maicord_password_reset_c
     TEST maicord_password_reset_coordinator)
 maicord_test(MaiCordResetRestStorageTests ENTRY maicord_reset_rest_storage_entry
     SOURCES tests/reset_rest_storage.cpp src/media/png_common.cpp src/app/account_logout.cpp
+        src/app/user_client_configuration.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
         crypt32 ntdll
     TIMEOUT 15
     TEST maicord_reset_rest_storage)
 maicord_test(MaiCordUserSettingsRestStorageTests ENTRY maicord_user_settings_rest_storage_entry
     SOURCES tests/user_settings_rest_storage.cpp src/media/png_common.cpp src/app/account_logout.cpp
+        src/app/user_client_configuration.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
         crypt32 ntdll
     TIMEOUT 15
     TEST maicord_user_settings_rest_storage)
 maicord_test(MaiCordAccountLogoutTransportTests ENTRY maicord_account_logout_transport_test_entry
     SOURCES tests/account_logout_transport.cpp src/app/account_logout.cpp src/app/account_host.cpp
-        src/media/png_common.cpp
+        src/media/png_common.cpp src/app/user_client_configuration.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
         crypt32 ntdll
     USES_CLIENT MaiCordAccount
@@ -991,6 +997,7 @@ maicord_test(MaiCordAccountLogoutTransportTests ENTRY maicord_account_logout_tra
 maicord_test(MaiCordAccountBulkReadTransportTests ENTRY maicord_account_bulk_read_transport_test_entry
     SOURCES tests/account_bulk_read_transport.cpp src/app/account_bulk_message_ack.cpp
         src/app/account_logout.cpp src/app/account_host.cpp src/media/png_common.cpp
+        src/app/user_client_configuration.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
         crypt32 ntdll
     USES_CLIENT MaiCordAccount
@@ -998,6 +1005,7 @@ maicord_test(MaiCordAccountBulkReadTransportTests ENTRY maicord_account_bulk_rea
     TEST maicord_account_bulk_read_transport)
 maicord_test(MaiCordAccountActionCaptchaTransportTests ENTRY maicord_account_action_captcha_transport_test_entry
     SOURCES tests/account_action_captcha_transport.cpp src/app/account_logout.cpp src/media/png_common.cpp
+        src/app/user_client_configuration.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
         crypt32 ntdll
     TIMEOUT 15

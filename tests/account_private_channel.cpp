@@ -131,14 +131,14 @@ void transport() noexcept {
           "private channel: exact cancellation only");
 }
 void dormant_abi() noexcept {
-    static_assert(sizeof(AccountModuleApi) == 1168 && sizeof(AccountHost) == 1416);
+    static_assert(sizeof(AccountModuleApi) == 1176 && sizeof(AccountHost) == 1424);
     static_assert(offsetof(AccountModuleApi, private_channel) == 760);
     AccountHost host{};
     check(account_host_load(&host).ok(), "private channel: current ABI DLL loads without credentials");
     if (!host.module)
         return;
     const auto leave = action(PrivateChannelActionKind::leave);
-    check(host.api.version == 126 && host.api.bytes == 1168 && host.api.private_channel &&
+    check(host.api.version == 127 && host.api.bytes == 1176 && host.api.private_channel &&
               host.api.private_channel(nullptr, &leave, 1).error == RestClientSubmitError::invalid_input &&
               host.api.private_channel(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               !host.instance && !host.login_instance,

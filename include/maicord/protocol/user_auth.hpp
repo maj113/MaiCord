@@ -129,9 +129,12 @@ bool user_auth_browser_handoff_request_valid(Utf8View body, Slice<u32> structura
 // validated before the destination is touched. The native transport does not
 // emit browser Origin, Referer, or device-fingerprint metadata. In particular,
 // the QR fingerprint is not an HTTP client fingerprint.
+// Optional launch metadata adds the same client-properties and locale headers
+// as normal REST, without an Authorization field.
 UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u64 content_length,
                                                  const UserAuthCaptchaHeaders& captcha,
-                                                 Slice<u8> output) noexcept;
+                                                 Slice<u8> output,
+                                                 const RestUserRequestHeaders* user_headers = nullptr) noexcept;
 
 enum class UserAuthResponseKind : u8 {
     none,

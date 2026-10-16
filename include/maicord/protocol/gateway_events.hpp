@@ -9,6 +9,21 @@ struct GatewayHello {
     u32 heartbeat_interval_ms;
 };
 
+struct GatewayRateLimited {
+    u64 guild_id;
+    u64 retry_after_ms;
+    // Zero when the optional nonce is absent or is not our decimal nonce format.
+    u64 nonce;
+    u32 opcode;
+};
+
+struct GatewayMemberChunkReceipt {
+    u64 guild_id;
+    u64 nonce;
+    u32 chunk_index;
+    u32 chunk_count;
+};
+
 struct GatewayReady {
     u64 user_id;
     u32 api_version;
@@ -82,6 +97,15 @@ struct GatewayEventDecodeResult {
 
 GatewayEventDecodeResult gateway_decode_hello(JsonValue data, Slice<u32> structural_scratch,
                                               u32 maximum_depth, GatewayHello* output) noexcept;
+// Bounded, allocation-free decoder. Decimal seconds round up to milliseconds.
+// Unknown fields are ignored; malformed/duplicate fields leave output unchanged.
+GatewayEventDecodeResult gateway_decode_rate_limited(JsonValue data, Slice<u32> structural_scratch,
+                                                     u32 maximum_depth,
+                                                     GatewayRateLimited* output) noexcept;
+// Only completion metadata is copied; member rows retain their existing decoder.
+GatewayEventDecodeResult gateway_decode_member_chunk_receipt(JsonValue data, Slice<u32> structural_scratch,
+                                                             u32 maximum_depth,
+                                                             GatewayMemberChunkReceipt* output) noexcept;
 GatewayEventDecodeResult gateway_decode_ready(JsonValue data, Slice<u32> structural_scratch,
                                               u32 maximum_depth, GatewayReady* output) noexcept;
 GatewayEventDecodeResult gateway_decode_supplemental_private_channels(JsonValue data, Slice<u32> scratch,

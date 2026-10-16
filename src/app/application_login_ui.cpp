@@ -134,6 +134,19 @@ bool application_synchronize_login_view() noexcept {
     if (!application.login.initialized || !application.renderer_ready) {
         return true;
     }
+    if (application_login_auth_cooldown_active()) {
+        LoginView paused{};
+        paused.status = application.login.status;
+        paused.captcha_status = application.login.captcha_status;
+        paused.auth_rate_limited = true;
+        paused.auth_retry_time_unknown = application.login.auth_retry_time_unknown;
+        const bool resume = login_view_auth_retry_resume(paused);
+        const bool back = login_requires_back(paused.status, application.login.remote_status) ||
+            application.login.reset_mode || login_phone_mode(paused.status) || login_recovery_mode(paused.status);
+        if (!(resume && application.login.focus == LoginControl::submit) &&
+            !(back && application.login.focus == LoginControl::back))
+            application.login.focus = resume ? LoginControl::submit : back ? LoginControl::back : LoginControl::none;
+    }
     const bool phone = login_phone_mode(application.login.status);
     if (phone && !application_phone_materialize(&application.login.mfa)) return false;
     if (!phone || !login_phone_editable(application.login.status)) application_phone_tsf_mutation_stamp() = 0;
@@ -215,6 +228,8 @@ bool application_synchronize_login_view() noexcept {
     view.phone_code_ready = phone && login_phone_editable(view.status) && login_phone_code_valid({secret_display, secret_display_bytes});
     view.captcha_status = application.login.captcha_status;
     view.password_revealed = password_revealed;
+    view.auth_rate_limited = application_login_auth_cooldown_active();
+    view.auth_retry_time_unknown = application.login.auth_retry_time_unknown;
     view.caps_lock = focused_edit == &application.login.password && (GetKeyState(VK_CAPITAL) & 1) != 0;
     if (phone) {
         view.login = {}; view.remote_user = {}; view.remote_status = LoginRemoteStatus::idle; view.qr_code = nullptr;
@@ -232,7 +247,8 @@ bool application_synchronize_login_view() noexcept {
     scene.reset_mode = view.reset_mode;
     scene.phone_mode = phone;
     scene.browser_mode = login_browser_mode(view.status);
-    scene.browser_available = login_browser_available(view.status, view.remote_status, view.reset_mode);
+    scene.browser_available = !view.auth_rate_limited &&
+                              login_browser_available(view.status, view.remote_status, view.reset_mode);
     scene.phone_resend_disabled = phone && !login_phone_editable(view.status);
     scene.focus = view.focus;
     scene.mfa_capabilities = view.mfa_capabilities;
@@ -240,6 +256,7 @@ bool application_synchronize_login_view() noexcept {
     scene.credential_fields_hidden = login_credential_fields_hidden(view.status, view.remote_status, view.reset_mode);
     scene.action_disabled = login_view_action_disabled(view);
     scene.submit_disabled = login_view_submit_disabled(view);
+    scene.auth_retry_resume = login_view_auth_retry_resume(view);
     scene.captcha_action = login_view_captcha_action(view);
     scene.password_reveal_available = login_view_password_reveal_available(view);
     scene.password_revealed = scene.password_reveal_available && view.password_revealed;

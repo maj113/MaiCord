@@ -2,11 +2,15 @@
 
 namespace maicord {
 
-// Windows desktop client user agent. Keep the HTTP header
-// and browser_user_agent property on the same value.
+// Windows desktop protocol compatibility profile. Keep the HTTP header and
+// Gateway/REST properties together; these are not MaiCord's binary version or
+// evidence that the native renderer embeds any of these web runtimes.
 inline constexpr char kClientUserAgent[] =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "discord/1.0.9256 Chrome/148.0.7778.280 Electron/42.9.0 Safari/537.36";
+inline constexpr char kClientBrowser[] = "Discord Client";
+// Stable web snapshot supplied for compatibility review (web_assets/module 562708).
+inline constexpr unsigned kClientBuildNumber = 634'304;
 
 // The desktop app and Electron versions the user agent names, reported as the
 // client_version and browser_version properties.

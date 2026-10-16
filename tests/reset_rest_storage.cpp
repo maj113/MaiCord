@@ -14,6 +14,7 @@ RestClient storage_restart_owner_snapshot;
 u8 storage_restart_runtime_snapshot[sizeof(RestClientRuntime) + sizeof(RestLocalRates) +
                                     kHandshakeOutputBytes + 4096];
 u8 storage_restart_secret_snapshot[user_auth_secure_fixed_storage_bytes(kUserAuthResetRequestBodyBytes)];
+u8 storage_metadata_snapshot[kUserClientMetadataBytes];
 
 void storage_check(bool condition, const char* name) noexcept {
     if (condition) return;
@@ -222,8 +223,16 @@ void storage_profile(u32 request_capacity, bool legacy, bool invalid_cases) noex
     const u32 owner_observed = storage_committed(runtime, runtime->allocation_bytes);
     const u32 secure_observed = storage_committed(runtime->secret_storage.data, secure_expected);
     const u32 reported = rest_client_user_auth_capacity_runtime_bytes(response_capacity, request_capacity);
+    const u32 prior_owner_bytes = page_rounded_bytes(
+        static_cast<u64>(sizeof(RestClientRuntime)) + sizeof(RestLocalRates) + kHandshakeOutputBytes);
+    const u32 metadata_owner_bytes = page_rounded_bytes(
+        static_cast<u64>(sizeof(RestClientRuntime)) + sizeof(RestLocalRates) +
+        kUserClientMetadataBytes + kHandshakeOutputBytes);
     storage_check(owner_observed && secure_observed && reported == owner_observed + secure_observed,
         "reported runtime bytes equal actual VirtualQuery committed bytes");
+    storage_check(owner_observed == metadata_owner_bytes && owner_observed >= prior_owner_bytes &&
+        owner_observed - prior_owner_bytes <= 4096,
+        "auth metadata reuses ordinary tail padding with at most one boundary page and no new allocation");
     if (request_capacity == kUserAuthMaximumRequestBodyBytes && !legacy) {
         storage_normal_owner_commit = owner_observed;
         storage_normal_secret_commit = secure_observed;
@@ -249,13 +258,78 @@ void storage_profile(u32 request_capacity, bool legacy, bool invalid_cases) noex
     const usize owner_begin = reinterpret_cast<usize>(runtime);
     const usize handshake_begin = reinterpret_cast<usize>(runtime->handshake_output);
     storage_check(handshake_begin >= owner_begin + sizeof(RestClientRuntime) + sizeof(RestLocalRates) &&
-        handshake_begin + kHandshakeOutputBytes <= owner_begin + owner_observed &&
+        handshake_begin + kHandshakeOutputBytes == owner_begin + owner_observed &&
+        (handshake_begin & 4095u) == 0 &&
         runtime->transport.buffers.encrypted_input.data == runtime->encrypted_storage &&
         runtime->transport.buffers.encrypted_input.count == kUserAuthEncryptedInputBytes &&
         runtime->transport.buffers.record_output.data == runtime->record_output &&
         runtime->transport.buffers.record_output.count == kUserAuthRecordOutputBytes &&
         runtime->transport.buffers.handshake_output.data == runtime->handshake_output,
         "real TLS buffers point to their protected and ordinary partitions");
+    storage_check(runtime->user_super_properties == reinterpret_cast<const u8*>(runtime) +
+            sizeof(RestClientRuntime) + sizeof(RestLocalRates) &&
+        runtime->user_locale == reinterpret_cast<const char*>(runtime->user_super_properties +
+            kRestUserSuperPropertiesMaximumBytes) &&
+        runtime->user_timezone == runtime->user_locale + kRestUserLocaleMaximumBytes &&
+        reinterpret_cast<usize>(runtime->user_timezone + kRestUserTimezoneMaximumBytes) <= handshake_begin &&
+        valid_base64_metadata({runtime->user_super_properties, runtime->user_super_properties_bytes}) &&
+        runtime->user_locale_bytes && runtime->user_timezone_bytes <= kRestUserTimezoneMaximumBytes,
+        "nonsecret metadata fits before aligned final handshake output outside locked credentials");
+    copy_bytes(storage_metadata_snapshot, runtime->user_super_properties, sizeof(storage_metadata_snapshot));
+    UserClientConfigurationStorage launch{};
+    u8 property_scratch[kRestUserSuperPropertiesMaximumBytes]{};
+    u8 expected_properties[kRestUserSuperPropertiesMaximumBytes]{};
+    const bool launch_ready = user_client_configuration_initialize(&launch).ok();
+    const auto projected = write_rest_user_super_properties(launch.configuration.properties,
+        {property_scratch, sizeof(property_scratch)}, {expected_properties, sizeof(expected_properties)});
+    storage_check(launch_ready && projected.ok() && projected.bytes == runtime->user_super_properties_bytes &&
+        bytes_equal(expected_properties, runtime->user_super_properties, projected.bytes) &&
+        utf8_equal(launch.configuration.properties.system_locale,
+            {runtime->user_locale, runtime->user_locale_bytes}) &&
+        utf8_equal({launch.timezone, launch.timezone_bytes}, {runtime->user_timezone, runtime->user_timezone_bytes}),
+        "auth startup caches the same immutable launch properties locale and timezone as normal REST");
+    // A bad cached projection must reject at the actual submit boundary before
+    // queue publication. No valid POST enters this offline worker.
+    const u32 locale_bytes = runtime->user_locale_bytes;
+    runtime->user_locale_bytes = 0;
+    runtime->request_body[0] = '{';
+    runtime->request_body[1] = '}';
+    SecureBuffer tiny_body{runtime->request_body, runtime->secret_storage.capacity, 2, true};
+    const auto metadata_rejected = rest_client_submit_user_auth(&client,
+        {&tiny_body, nullptr, nullptr, nullptr, 98, 0, UserAuthOperation::password});
+    runtime->user_locale_bytes = locale_bytes;
+    storage_check(metadata_rejected.error == RestClientSubmitError::invalid_input &&
+        InterlockedCompareExchange(&client.request_state, 0, 0) == request_state_empty &&
+        InterlockedCompareExchange64(&client.current_request_id, 0, 0) == 0 &&
+        runtime->command.request_id == 0 &&
+        storage_zero(runtime->request_body, runtime->request_body_capacity) &&
+        storage_zero(runtime->request_head, runtime->request_head_capacity),
+        "actual auth submit consumes cached metadata and rejects invalid projection without publication");
+    if (invalid_cases) {
+        char key[kUserAuthMaximumCaptchaKeyBytes];
+        char rqtoken[kUserAuthMaximumCaptchaTokenBytes];
+        char session[kUserAuthMaximumCaptchaSessionBytes];
+        u8 properties[kRestUserSuperPropertiesMaximumBytes];
+        char locale[kRestUserLocaleMaximumBytes];
+        char timezone[kRestUserTimezoneMaximumBytes];
+        storage_fill(reinterpret_cast<u8*>(key), sizeof(key), 'A');
+        storage_fill(reinterpret_cast<u8*>(rqtoken), sizeof(rqtoken), 'B');
+        storage_fill(reinterpret_cast<u8*>(session), sizeof(session), 'C');
+        storage_fill(properties, sizeof(properties), 'A');
+        storage_fill(reinterpret_cast<u8*>(locale), sizeof(locale), 'a');
+        storage_fill(reinterpret_cast<u8*>(timezone), sizeof(timezone), 'b');
+        const RestUserRequestHeaders maximum_metadata{{properties, sizeof(properties)},
+            {locale, sizeof(locale)}, {timezone, sizeof(timezone)}};
+        const UserAuthCaptchaHeaders maximum_captcha{{key, sizeof(key)}, {rqtoken, sizeof(rqtoken)},
+            {session, sizeof(session)}};
+        const auto maximum_head = user_auth_write_request_head(UserAuthOperation::remote_auth_ticket,
+            kUserAuthResetRequestBodyBytes, maximum_captcha,
+            {runtime->request_head, runtime->request_head_capacity}, &maximum_metadata);
+        storage_check(maximum_head.ok() && maximum_head.bytes <= kUserAuthRequestHeadBytes &&
+            runtime->request_head_capacity == 12 * 1024,
+            "maximum metadata and complete CAPTCHA tuple fit the unchanged locked 12 KiB request head");
+        SecureZeroMemory(runtime->request_head, runtime->request_head_capacity);
+    }
     storage_check(storage_offline(client, *runtime), "startup performed no resolve connect TLS or REST request");
     storage_valid_restart(&client, kUserAuthMaximumRequestBodyBytes);
     storage_valid_restart(&client, kUserAuthResetRequestBodyBytes);
@@ -285,10 +359,15 @@ void storage_profile(u32 request_capacity, bool legacy, bool invalid_cases) noex
         }
     }
     storage_erasure(&client, runtime);
+    storage_check(bytes_equal(storage_metadata_snapshot, runtime->user_super_properties,
+        sizeof(storage_metadata_snapshot)), "request erasure preserves immutable nonsecret auth metadata");
     storage_check(storage_offline(client, *runtime), "offline helper cases performed no network requests");
     TraceRecord measured("reset_rest_storage");
     measured.field("request_capacity", request_capacity);
     measured.field("owner_commit", owner_observed);
+    measured.field("owner_before_metadata", prior_owner_bytes);
+    measured.field("metadata_reserved", kUserClientMetadataBytes);
+    measured.field("owner_metadata_growth", owner_observed - prior_owner_bytes);
     measured.field("secure_commit", secure_observed);
     measured.field("runtime_query", reported);
     DWORD written = 0;

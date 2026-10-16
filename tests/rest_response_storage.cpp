@@ -104,9 +104,202 @@ struct RestStorageProbe {
     }
     void consume() noexcept { release_completed_response(&client, runtime, runtime->completed.body_bytes); }
 };
+NetworkWorkerStep publish_stop_rate_receipt(void* context, NetworkLoop*,
+                                            const NetworkWorkerEvent& event) noexcept {
+    if (event.kind != NetworkWorkerEventKind::stop_requested)
+        return {INFINITE, false};
+    auto* probe = static_cast<RestStorageProbe*>(context);
+    // Publication occurs only after the real Stop call has posted its worker
+    // stop signal. No socket or auth decoder participates in this fixture.
+    probe->runtime->completed = {};
+    probe->runtime->completed.request_id = 77;
+    probe->runtime->completed.status_code = 429;
+    probe->runtime->completed.retry_at_ms = 900'000'123;
+    probe->runtime->completed.body_bytes = 64;
+    InterlockedExchange(&probe->client.request_state, request_state_ready);
+    return {INFINITE, true};
 }
+} // namespace
 
 void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexcept {
+    {
+        constexpr auto mfa =
+            utf8_literal(R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"totp"}]}})");
+        constexpr auto invalid = utf8_literal(R"({"code":50014})");
+        // Deterministic gzip encodings of the two synthetic JSON receipts.
+        constexpr u8 mfa_gzip[]{
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xab, 0x56, 0x4a, 0xce, 0x4f,
+            0x49, 0x55, 0xb2, 0x32, 0x33, 0x30, 0x30, 0x30, 0xd6, 0x51, 0xca, 0x4d, 0x4b, 0x54, 0xb2,
+            0xaa, 0x56, 0x2a, 0xc9, 0x4c, 0xce, 0x4e, 0x2d, 0x51, 0xb2, 0x52, 0x2a, 0xae, 0xcc, 0x2b,
+            0xc9, 0x48, 0x05, 0x72, 0x95, 0x80, 0x72, 0xa9, 0x25, 0x19, 0xf9, 0x29, 0xc5, 0x4a, 0x56,
+            0xd1, 0x40, 0x05, 0x95, 0x05, 0x40, 0x4d, 0x4a, 0x25, 0xf9, 0x25, 0x05, 0x4a, 0xb5, 0xb1,
+            0xb5, 0xb5, 0x00, 0xc4, 0xf6, 0x71, 0x61, 0x47, 0x00, 0x00, 0x00};
+        constexpr u8 invalid_gzip[]{0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xab, 0x56,
+                                    0x4a, 0xce, 0x4f, 0x49, 0x55, 0xb2, 0x32, 0x35, 0x30, 0x30, 0x34, 0xa9,
+                                    0x05, 0x00, 0xe9, 0x8b, 0x1c, 0xf7, 0x0e, 0x00, 0x00, 0x00};
+        for (u32 scenario = 0; scenario < 11; ++scenario) {
+            RestSharedState shared{};
+            RestStorageProbe probe;
+            RestClient peer{};
+            peer.shared = &shared;
+            bool valid =
+                rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
+                                               {shared.bindings, kRateBindingCount}) &&
+                probe.initialize(4096, true, &shared) && probe.begin_request(true);
+            if (valid) {
+                const bool gzip = scenario == 1 || scenario == 3 || scenario == 6 || scenario == 8;
+                const bool ordinary = scenario == 2 || scenario == 3;
+                Utf8View body = ordinary         ? invalid
+                                : scenario == 4  ? utf8_literal("{")
+                                : scenario == 5  ? utf8_literal(R"({"code":60003})")
+                                : scenario == 10 ? Utf8View{}
+                                                 : mfa;
+                ConstSlice<u8> wire{reinterpret_cast<const u8*>(body.data), body.bytes};
+                if (gzip)
+                    wire = ordinary ? ConstSlice<u8>{invalid_gzip, sizeof(invalid_gzip)}
+                                    : ConstSlice<u8>{mfa_gzip, sizeof(mfa_gzip)};
+                u8 head[256]{};
+                ProtocolWriter writer{{head, sizeof(head)}, 0};
+                protocol_writer_append_literal(
+                    &writer,
+                    "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nContent-Length: ");
+                protocol_writer_append_u64(&writer, wire.count);
+                if (gzip)
+                    protocol_writer_append_literal(&writer, "\r\nContent-Encoding: gzip");
+                if (scenario == 7)
+                    protocol_writer_append_literal(&writer, "\r\nContent-Encoding: deflate");
+                protocol_writer_append_literal(&writer, "\r\n\r\n");
+                const auto received =
+                    response_plaintext_received(probe.runtime, {head, writer.used}, false);
+                valid = wire.count ? received == TlsStreamReadAction::continue_read &&
+                                         response_plaintext_received(probe.runtime, wire, false) ==
+                                             TlsStreamReadAction::complete
+                                   : received == TlsStreamReadAction::complete;
+                if (scenario == 6)
+                    probe.runtime->response_body[wire.count - 8] ^= 1;
+                if (scenario == 8)
+                    shared.authentication_rejected = 1;
+                if (scenario == 9)
+                    probe.client.authentication_rejected = 1;
+                const bool finished = valid && probe.finish();
+                const bool elevation = scenario == 0 || scenario == 1 || scenario == 8 || scenario == 9;
+                const bool rejected = !elevation || scenario == 8 || scenario == 9;
+                valid =
+                    valid && finished == (scenario != 6 && scenario != 7) &&
+                    rest_client_status(&probe.client).authentication_rejected == rejected &&
+                    rest_client_status(&peer).authentication_rejected == (!elevation || scenario == 8) &&
+                    probe.client.requests == 0 && probe.client.responses == (finished ? 1 : 0);
+                if (finished)
+                    valid = valid && probe.runtime->completed.status_code == 401 &&
+                            probe.runtime->completed.transport_ok() &&
+                            !probe.runtime->completed.rate_limited &&
+                            (scenario == 10 ||
+                             bytes_equal(probe.runtime->response_body, body.data, body.bytes));
+                if (elevation)
+                    valid = valid && probe.runtime->completed.rejection.has_code &&
+                            probe.runtime->completed.rejection.code == 60003;
+            }
+            check(valid, "rest401_mfa_elevation_preserves_session_plain_and_gzip_while_invalid_decode_"
+                         "failures_and_existing_peer_rejections_stay_latched_without_replay");
+        }
+    }
+    {
+        constexpr Utf8View bodies[]{
+            utf8_literal("{"),
+            utf8_literal(
+                R"({"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic"})")};
+        constexpr const char* cases[][3]{
+            {"rest429_auth_malformed_unknown_floor_without_replay",
+             "rest429_auth_malformed_preserves_header_floor_without_replay",
+             "rest429_ordinary_malformed_preserves_header_floor_without_replay"},
+            {"rest429_auth_captcha_unknown_floor_without_replay",
+             "rest429_auth_captcha_preserves_header_floor_without_replay",
+             "rest429_ordinary_captcha_is_terminal_and_preserves_scheduler_floor"}};
+        for (u32 body_index = 0; body_index < 2; ++body_index) {
+            const auto body = bodies[body_index];
+            for (u32 variant = 0; variant < 3; ++variant) {
+                const bool header = variant != 0;
+                const bool auth = variant != 2;
+                const bool action_required = !auth && body_index == 1;
+                RestStorageProbe probe;
+                bool valid = probe.initialize(4096) && probe.begin_request(true);
+                if (valid) {
+                    const RestRouteKey route = probe.runtime->command.route;
+                    probe.runtime->user_auth_mode = auth;
+                    u8 head[256]{};
+                    ProtocolWriter writer{{head, sizeof(head)}, 0};
+                    protocol_writer_append_literal(&writer,
+                                                   "HTTP/1.1 429 Too Many Requests\r\nContent-Type: "
+                                                   "application/json\r\nContent-Length: ");
+                    protocol_writer_append_u64(&writer, body.bytes);
+                    if (header)
+                        protocol_writer_append_literal(&writer, "\r\nRetry-After: 1.25");
+                    protocol_writer_append_literal(&writer, "\r\n\r\n");
+                    valid = response_plaintext_received(probe.runtime, {head, writer.used}, false) ==
+                                TlsStreamReadAction::continue_read &&
+                            response_plaintext_received(
+                                probe.runtime, {reinterpret_cast<const u8*>(body.data), body.bytes},
+                                false) == TlsStreamReadAction::complete &&
+                            probe.finish() && probe.client.request_state == request_state_ready &&
+                            probe.runtime->completed.transport_ok() &&
+                            probe.runtime->completed.status_code == 429 &&
+                            probe.runtime->completed.rate_limited == !action_required &&
+                            probe.runtime->completed.retry_at_ms == (header && !action_required ? 1251 : 0) &&
+                            api_rejection_requires_action(probe.runtime->completed.rejection) ==
+                                action_required &&
+                            ((probe.runtime->completed.rate.fields & rate_limit_field_retry_after) != 0) ==
+                                header &&
+                            (!header || probe.runtime->completed.rate.retry_after_ms == 1250) &&
+                            probe.client.requests == 0 && probe.client.responses == 1;
+                    if (valid && action_required) {
+                        // The response cannot authorize replay of verification,
+                        // while its genuine header still limits a later action.
+                        const auto acquired = rest_rate_acquire(probe.runtime->scheduler, route, 2);
+                        valid = acquired.kind == RestRateAcquireKind::waiting &&
+                                acquired.wait_until_ms == 1251 && probe.client.requests == 0 &&
+                                probe.client.responses == 1;
+                    }
+                }
+                check(valid, cases[body_index][variant]);
+            }
+        }
+    }
+    {
+        RestStorageProbe probe;
+        bool valid = probe.initialize(4096);
+        if (valid) {
+            probe.runtime->user_auth_mode = true;
+            probe.runtime->completed = {};
+            probe.runtime->completed.request_id = 55;
+            probe.runtime->completed.status_code = 429;
+            probe.runtime->completed.retry_at_ms = 123;
+            RestClientResponse receipt{};
+            // In-progress publication is never a safe receipt to inspect.
+            probe.client.request_state = request_state_publishing;
+            capture_user_auth_stop_receipt(&probe.client, &receipt);
+            valid = !receipt.status_code && !receipt.retry_at_ms;
+            probe.client.request_state = request_state_ready;
+            capture_user_auth_stop_receipt(&probe.client, &receipt);
+            valid = valid && receipt.request_id == 55 && receipt.status_code == 429 &&
+                    receipt.retry_at_ms == 123 && !receipt.body_bytes;
+            probe.runtime->completed.status_code = 200;
+            receipt = {};
+            capture_user_auth_stop_receipt(&probe.client, &receipt);
+            valid = valid && !receipt.status_code && !receipt.request_id;
+            probe.client.request_state = request_state_active;
+            valid =
+                valid && network_worker_start(&probe.client.worker, publish_stop_rate_receipt, &probe).ok();
+            if (probe.client.worker.thread) {
+                const auto stopped = rest_client_stop_user_auth(&probe.client, 3000, &receipt);
+                valid = valid && stopped.ok() && !probe.client.runtime && !probe.client.worker.thread &&
+                        receipt.request_id == 77 && receipt.status_code == 429 &&
+                        receipt.retry_at_ms == 900'000'123 && !receipt.body_bytes;
+            }
+        }
+        check(
+            valid,
+            "rest_auth_stop_reads_only_published429_metadata_including_receipt_published_during_real_join");
+    }
     {
         // The shipping Details owner has the same shared rates/body arena as
         // the ordinary account lane. Exercise the largest valid browser target
@@ -116,21 +309,23 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         bool valid = details.initialize(256 * 1024, true, &shared);
         char name[400];
         for (u32 at = 0; at < sizeof(name); at += 4) {
-            name[at] = static_cast<char>(0xF0); name[at + 1] = static_cast<char>(0x9F);
-            name[at + 2] = static_cast<char>(0x98); name[at + 3] = static_cast<char>(0x80);
+            name[at] = static_cast<char>(0xF0);
+            name[at + 1] = static_cast<char>(0x9F);
+            name[at + 2] = static_cast<char>(0x98);
+            name[at + 3] = static_cast<char>(0x80);
         }
-        const ThreadBrowserRequest request{~u64{0}, 10, {name, sizeof(name)}, 0,
-                                           ThreadBrowserMode::search, {}};
+        const ThreadBrowserRequest request{~u64{0}, 10, {name, sizeof(name)}, 0, ThreadBrowserMode::search,
+                                           {}};
         if (valid) {
             auto* r = details.runtime;
             r->encrypted_storage[0] = 0xA5;
             r->request_body[0] = 0x5A;
-            const auto written = thread_browser_write_target(request,
-                {r->request_target, kRestClientMaximumTargetBytes});
+            const auto written =
+                thread_browser_write_target(request, {r->request_target, kRestClientMaximumTargetBytes});
             valid = written.ok() && written.bytes == 1259 && written.bytes > 1024 &&
-                r->request_target[written.bytes - 1] == '0' && r->encrypted_storage[0] == 0xA5 &&
-                r->request_body[0] == 0x5A && r->request_body == r->response_body &&
-                r->scheduler == &shared.scheduler && !r->extended_body;
+                    r->request_target[written.bytes - 1] == '0' && r->encrypted_storage[0] == 0xA5 &&
+                    r->request_body[0] == 0x5A && r->request_body == r->response_body &&
+                    r->scheduler == &shared.scheduler && !r->extended_body;
             details.client.current_request_id = 701;
             details.client.request_state = request_state_pending;
             valid = valid && !rest_client_cancel(&details.client, 700) &&

@@ -479,11 +479,11 @@ bool application_notification_controls_response(const RestClientResponse& respon
     if (!owner.count)
         return true;
     auto& front = owner.queue[0];
-    const u64 now = clock_monotonic_milliseconds();
     const bool ok = response.transport_ok() && response.status_code >= 200 && response.status_code < 300;
-    if (!ok && (response.rate_limited || response.status_code == 429) && front.attempts < 3) {
+    if (!ok && response.transport_ok() && response.status_code == 429 && response.rate_limited &&
+        response.retry_at_ms && !api_rejection_requires_action(response.rejection) && front.attempts < 3) {
         front.submitted = false;
-        owner.retry_at = maximum(response.retry_at_ms, deadline_after(now, response.rate.retry_after_ms));
+        owner.retry_at = response.retry_at_ms;
         return true;
     }
     if (!ok) {

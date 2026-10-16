@@ -290,9 +290,11 @@ bool application_guild_invite_response(const RestClientResponse& response, Utf8V
     const bool accept = g_invite.state == InviteState::accepting;
     g_invite.request_id = 0;
     GuildInvite decoded{};
-    const auto outcome = response.transport_ok()
-                             ? guild_invite_decode_response(response.status_code, body, {g_scratch, 8192}, &decoded)
-                             : GuildInviteOutcome::unavailable;
+    auto outcome = response.transport_ok() ? guild_invite_decode_response(response.status_code, body,
+                                                                          {g_scratch, 8192}, &decoded)
+                                           : GuildInviteOutcome::unavailable;
+    if (response.transport_ok() && response.rejection.captcha)
+        outcome = GuildInviteOutcome::captcha;
     switch (outcome) {
     case GuildInviteOutcome::resolved:
         if (!accept || decoded.guild_id == g_invite.invite.guild_id || !g_invite.invite.guild_id)
@@ -304,16 +306,21 @@ bool application_guild_invite_response(const RestClientResponse& response, Utf8V
         break;
     case GuildInviteOutcome::captcha:
         if (accept)
-            application_action_captcha_capture(ApplicationActionCaptchaKind::guild_invite, invite_subject(), response,
-                                               body);
+            application_action_captcha_capture(ApplicationActionCaptchaKind::guild_invite, invite_subject(),
+                                               response, body);
         publish(InviteState::captcha);
         break;
     case GuildInviteOutcome::banned:
         publish(InviteState::banned);
         break;
     case GuildInviteOutcome::rate_limited:
-        g_invite.retry_at_ms = response.retry_at_ms ? response.retry_at_ms : clock_monotonic_milliseconds() + 2000;
-        publish(accept ? InviteState::accept_queued : InviteState::resolve_queued);
+        if (response.rate_limited && response.retry_at_ms &&
+            !api_rejection_requires_action(response.rejection)) {
+            g_invite.retry_at_ms = response.retry_at_ms;
+            publish(accept ? InviteState::accept_queued : InviteState::resolve_queued);
+        } else {
+            publish(InviteState::failed);
+        }
         break;
     default:
         log_u64(LogLevel::warning, "invite", "response_status", response.status_code);

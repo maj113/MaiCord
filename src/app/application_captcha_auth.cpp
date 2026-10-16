@@ -1,6 +1,7 @@
 #include "application_captcha_auth.hpp"
 #include "application_account_logout.hpp"
 #include "application_login_ui.hpp"
+#include "application_login_auth.hpp"
 #include "application_state.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/platform/browser_sign_in_launcher.hpp"
@@ -47,6 +48,8 @@ void application_captcha_auth_reset() noexcept {
 bool application_login_begin_captcha_bridge() noexcept {
     if (logout_blocks_captcha())
         return false;
+    if (application_login_auth_cooldown_active())
+        return true;
     auto& login = g_app.login;
     auto& host = g_app.account;
     if (!login.visible || !login_captcha_mode(login.status, login.remote_status) || !host.login_instance ||
@@ -64,6 +67,7 @@ bool application_login_begin_captcha_bridge() noexcept {
     const u64 epoch = login.application_auth_epoch;
     const auto instance = host.login_instance;
     host.login_status = host.api.login_start_captcha_bridge(instance, epoch, kCaptchaBridgeDefaultTimeoutMs);
+    application_login_retain_auth_retry();
     const auto bridge = host.api.login_captcha_bridge_status(instance);
     if (!host.login_status.ok() || bridge.generation != epoch || !bridge.ok() ||
         (bridge.phase != CaptchaBridgePhase::starting && bridge.phase != CaptchaBridgePhase::waiting)) {
@@ -127,7 +131,8 @@ bool application_captcha_auth_pump() noexcept {
         const bool copied = secure_buffer_initialize(&url, kCaptchaBridgeMaximumUrlBytes).ok() &&
                             host.api.login_copy_captcha_bridge_url(instance, epoch, &url).ok();
         const auto current = [&]() noexcept {
-            return !logout_blocks_captcha() && epoch == login.captcha_generation && host.module == module &&
+            return !logout_blocks_captcha() && !application_login_auth_cooldown_active() &&
+                   epoch == login.captcha_generation && host.module == module &&
                    host.login_instance == instance && login.visible && login.status != LoginStatus::cancelling;
         };
         const bool opened = copied && current() && captcha_bridge_launch(g_app.window, &url);

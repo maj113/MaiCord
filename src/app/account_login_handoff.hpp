@@ -166,7 +166,7 @@ AccountLoginStatus login_status(AccountLoginRuntime* runtime) noexcept {
     status.coordinator_content_type = coordinator.content_type;
     status.coordinator_content_encoding = coordinator.content_encoding;
     status.coordinator_body_kind = coordinator.body_kind;
-    status.retry_at_ms = coordinator.retry_at_ms;
+    status.retry_at_ms = runtime->remote_mode ? runtime->remote_status.retry_at_ms : coordinator.retry_at_ms;
     status.event = runtime->last_event;
     status.remote_event = runtime->last_remote_event;
     status.remote_error = runtime->remote_status.error;
@@ -516,6 +516,11 @@ AccountLoginStatus WINAPI module_login_stop(void** instance, u32 timeout_ms) noe
     if (runtime->remote_auth.runtime) {
         const RemoteAuthClientResult remote_stopped =
             remote_auth_client_stop(&runtime->remote_auth, timeout_ms);
+        if (remote_stopped.http_status == 429) {
+            runtime->remote_status.http_status = remote_stopped.http_status;
+            runtime->remote_status.retry_at_ms = maximum(runtime->remote_status.retry_at_ms,
+                                                        remote_stopped.retry_at_ms);
+        }
         if (!remote_stopped.ok()) {
             if (!retained) runtime->profile_native_error = remote_stopped.native_error;
             runtime->remote_status = remote_stopped;
@@ -527,8 +532,14 @@ AccountLoginStatus WINAPI module_login_stop(void** instance, u32 timeout_ms) noe
     if (runtime->coordinator_started) {
         const UserAuthCoordinatorResult stopped =
             user_auth_coordinator_stop(&runtime->coordinator, timeout_ms);
+        if (stopped.http_status == 429) {
+            runtime->coordinator.state.http_status = 429;
+            runtime->coordinator.state.retry_at_ms =
+                maximum(runtime->coordinator.state.retry_at_ms, stopped.retry_at_ms);
+        }
         if (!stopped.ok()) {
-            if (!retained) runtime->profile_native_error = stopped.native_error;
+            if (!retained)
+                runtime->profile_native_error = stopped.native_error;
             retained = true;
         } else {
             runtime->coordinator_started = false;
@@ -536,8 +547,13 @@ AccountLoginStatus WINAPI module_login_stop(void** instance, u32 timeout_ms) noe
     }
     // Every independent owner receives stop/secret erasure even if an earlier
     // join failed. Keep the enclosing address while any owner remains.
-    if (retained) return login_status(runtime);
+    if (retained)
+        return login_status(runtime);
     const bool profile_saved = runtime->profile_saved;
+    const bool remote_limited = runtime->remote_status.http_status == 429;
+    const bool ordinary_limited = runtime->coordinator.state.http_status == 429;
+    const u64 retry_at_ms = maximum(remote_limited ? runtime->remote_status.retry_at_ms : 0,
+                                    ordinary_limited ? runtime->coordinator.state.retry_at_ms : 0);
     account_profile_promotion_release(&runtime->promotion);
     SecureZeroMemory(runtime, sizeof(*runtime));
     VirtualFree(runtime, 0, MEM_RELEASE);
@@ -545,6 +561,10 @@ AccountLoginStatus WINAPI module_login_stop(void** instance, u32 timeout_ms) noe
     AccountLoginStatus status{};
     status.phase = AccountLoginPhase::stopped;
     status.profile_saved = profile_saved;
+    if (remote_limited || ordinary_limited) {
+        status.http_status = 429;
+        status.retry_at_ms = retry_at_ms;
+    }
     return status;
 }
 

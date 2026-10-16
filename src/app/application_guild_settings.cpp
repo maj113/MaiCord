@@ -1,4 +1,5 @@
 #include "application_guild_settings_internal.hpp"
+#include "rest_rate_retry.hpp"
 #include "maicord/render/layer_presentation.hpp"
 #include "application_settings.hpp"
 #include "application_account_module.hpp"
@@ -1775,9 +1776,10 @@ bool application_guild_settings_response(const RestClientResponse& response, Utf
         return true;
     }
     if (!ok) {
-        if (response.error == RestClientError::none && response.status_code == 429 && read_op(op)) {
+        const u64 retry_at = rest_rate_retry_deadline(response);
+        if (retry_at && read_op(op)) {
             p.request.queued = true;
-            p.retry_at = response.retry_at_ms ? response.retry_at_ms : deadline_after(clock_monotonic_milliseconds(), 2'000);
+            p.retry_at = retry_at;
             return true;
         }
         p.failed = op != Op::role_counts && op != Op::widget_get && op != Op::profile_get && op != Op::vanity_get;

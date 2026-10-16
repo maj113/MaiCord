@@ -39,7 +39,9 @@ struct Audit {
     AccountLoginStatus browser_response;
     bool scripted_mfa;
     bool logout_blocked, logout_host_owned, logout_on_browser_copy;
-    u32 login_starts, module_loads, path_resolves;
+    u32 login_starts, module_loads, path_resolves, password_submits, remote_starts;
+    u16 stop_http_status;
+    u64 stop_retry_at_ms;
 } audit{};
 u32 failures = 0;
 void check(bool condition, const char* label) noexcept {
@@ -73,6 +75,8 @@ AccountLoginStatus WINAPI stop(void** instance, u32 timeout) noexcept {
     secure_buffer_clear(&audit.challenge);
     *instance = nullptr;
     result.phase = AccountLoginPhase::stopped;
+    result.http_status = audit.stop_http_status;
+    result.retry_at_ms = audit.stop_retry_at_ms;
     if (audit.joined_error) result.error = AccountLoginError::coordinator;
     return result;
 }
@@ -89,7 +93,29 @@ AccountLoginStatus WINAPI pump(void*) noexcept {
 AccountLoginStatus WINAPI start(void** instance, const wchar_t*) noexcept {
     ++audit.login_starts;
     *instance = &audit;
-    AccountLoginStatus result{}; result.phase = AccountLoginPhase::idle; return result;
+    AccountLoginStatus result{}; result.phase = AccountLoginPhase::idle;
+    return result;
+}
+AccountLoginStatus WINAPI password(void* instance, const SecureBuffer* identifier,
+                                   const SecureBuffer* secret) noexcept {
+    AccountLoginStatus result{};
+    if (instance != &audit || !identifier || !identifier->locked || !identifier->bytes || !secret ||
+        !secret->locked || !secret->bytes) {
+        result.error = AccountLoginError::invalid_input;
+        return result;
+    }
+    ++audit.password_submits;
+    result.phase = AccountLoginPhase::password_pending;
+    return result;
+}
+AccountLoginStatus WINAPI remote_start(void* instance) noexcept {
+    AccountLoginStatus result{};
+    if (instance != &audit) {
+        result.error = AccountLoginError::invalid_input;
+        return result;
+    }
+    ++audit.remote_starts;
+    result.phase = AccountLoginPhase::remote_starting; return result;
 }
 AccountLoginStatus WINAPI recovery(void* instance, const SecureBuffer* identifier) noexcept {
     AccountLoginStatus result{};
@@ -124,7 +150,9 @@ SecureBufferResult WINAPI browser_copy(void*, u64 generation, SecureBuffer* outp
     if (audit.logout_on_browser_copy) audit.logout_blocked = true;
     if (generation != audit.browser_response.browser_generation || audit.browser_response.phase != AccountLoginPhase::browser_waiting)
         return {0, 0, SecureBufferError::invalid_input};
-    constexpr auto url = utf8_literal("https://discord.com/login?redirect_to=%2Fhandoff%3Frpc%3D6463%26key%3D00000000-0000-4000-8000-000000000000");
+    constexpr auto url = utf8_literal(
+        "https://discord.com/"
+        "login?redirect_to=%2Fhandoff%3Frpc%3D6463%26key%3D00000000-0000-4000-8000-000000000000");
     return secure_buffer_assign(output, {reinterpret_cast<const u8*>(url.data), url.bytes});
 }
 AccountLoginStatus WINAPI phone_verify(void* instance, const SecureBuffer* code) noexcept {
@@ -207,6 +235,11 @@ bool seed(bool remote) noexcept {
     audit.scripted_mfa = false;
     audit.logout_blocked = audit.logout_host_owned = audit.logout_on_browser_copy = false;
     audit.login_starts = audit.module_loads = audit.path_resolves = 0;
+    audit.password_submits = audit.remote_starts = 0;
+    audit.stop_http_status = 0;
+    audit.stop_retry_at_ms = 0;
+    g_app.login.auth_retry_at_ms = 0;
+    g_app.login.auth_retry_time_unknown = false;
     g_app.login.browser_launch_epoch = 0;
     g_app.login.browser_return_to_qr = false;
     g_app.account = {};
@@ -214,6 +247,8 @@ bool seed(bool remote) noexcept {
     g_app.account.login_instance = &audit;
     g_app.account.api.login_stop = stop;
     g_app.account.api.login_start = start;
+    g_app.account.api.login_submit_password = password;
+    g_app.account.api.login_start_remote_auth = remote_start;
     g_app.account.api.login_start_reset = start;
     g_app.account.api.login_start_browser = browser_start;
     g_app.account.api.login_copy_browser_url = browser_copy;
@@ -291,7 +326,8 @@ void run_phone() noexcept {
         application_login_handle_key(VK_DELETE) && g_app.login.mfa.storage.bytes == 6 &&
         g_app.login.mfa.storage.data[2] == ' ' && g_app.login.mfa.storage.data[3] == '4' &&
         application_login_handle_key(VK_RETURN) && !audit.phone_verify_submits,
-        "phone native: positional Delete preserves later cells and Enter rejects a six-byte document with a hole");
+          "phone native: positional Delete preserves later cells and Enter rejects a six-byte document "
+          "with a hole");
     check(secure_edit_set_codepoint(&g_app.login.mfa, 3, false) != SecureEditResult::invalid_input &&
         application_login_handle_key(VK_BACK) && g_app.login.mfa.storage.data[3] == ' ' &&
         g_app.login.mfa.storage.data[4] == '5', "phone native: occupied-cell Backspace clears that cell without shifting later digits");
@@ -319,6 +355,7 @@ void run_phone() noexcept {
         g_app.login.status == LoginStatus::recovery_phone_resend_pending,
         "phone native: explicit Resend Space uses its dedicated operation");
     audit.recovery_response.phase = AccountLoginPhase::phone_rate_limited;
+    audit.recovery_response.http_status = 429;
     audit.recovery_response.event = UserAuthCoordinatorEventKind::phone_rejected;
     audit.recovery_response.retry_at_ms = clock_monotonic_milliseconds() + 21'600'000;
     check(application_login_pump() && g_app.login.status == LoginStatus::recovery_phone_resend_rate_limited,
@@ -330,7 +367,7 @@ void run_phone() noexcept {
     g_app.account.stop_failed = true;
     check(!application_login_phone_deadline(), "phone native: quarantined owner schedules no cooldown wake");
     g_app.account.stop_failed = false;
-    check(application_login_tick_phone(due) && !application_login_phone_deadline() &&
+    check(application_login_tick_auth_cooldown(due) && application_login_tick_phone(due) && !application_login_phone_deadline() &&
         g_app.login.status == LoginStatus::recovery_phone_required && audit.phone_resend_submits == 1,
         "phone native: exact expiry restores editing once without automatic resend");
     check(application_login_submit_phone_resend() && audit.phone_resend_submits == 2,
@@ -359,7 +396,9 @@ void run_phone() noexcept {
             g_app.login.status == LoginStatus::reset_editing && g_app.login.focus == LoginControl::password &&
             g_app.login.login.password && g_app.login.login.storage.locked && g_app.login.login.storage.bytes == length &&
             g_app.login.login.storage.capacity == kLoginResetMaximumTokenBytes && !audit.attachments &&
-            zeroed(audit.challenge), "phone reset handoff: 513/4096 protected token transfers only after actual owner/module release");
+            zeroed(audit.challenge),
+              "phone reset handoff: 513/4096 protected token transfers only after actual owner/module "
+              "release");
         bool exact = true;
         for (u32 i = 0; i < length; ++i) exact = exact && g_app.login.login.storage.data[i] == 'x';
         for (u32 i = length; i < g_app.login.login.storage.capacity; ++i) exact = exact && !g_app.login.login.storage.data[i];
@@ -393,7 +432,8 @@ void run_phone() noexcept {
     audit.attach_success = true;
     check(application_login_pump() && audit.attachments == 1 && g_app.account.instance && !g_app.login.reset_mode &&
         !g_app.login.login.password && g_app.login.login.storage.capacity == kUserAuthMaximumLoginBytes && editors_clear(),
-        "phone reset completion: actual session admission restores ordinary512 unmasked identifier before returning to login");
+          "phone reset completion: actual session admission restores ordinary512 unmasked identifier "
+          "before returning to login");
     g_app.account.instance = nullptr; g_app.login.visible = true; g_app.login.status = LoginStatus::session_expired;
     check(secure_edit_insert_utf8(&g_app.login.login, utf8_literal("example@example.com")) == SecureEditResult::changed &&
         !g_app.login.login.password && !login_verification_link_candidate(
@@ -411,7 +451,8 @@ void run_phone() noexcept {
         audit.malformed_take = scenario >= 3 ? scenario - 2 : 0;
         check(application_login_pump() && !g_app.login.reset_mode && editors_clear() && !audit.attachments &&
             (g_app.login.status == LoginStatus::cancelling || g_app.login.status == LoginStatus::recovery_phone_failed),
-            "phone reset failure: take/join/module/empty/oversized result cannot publish token or reset owner");
+              "phone reset failure: take/join/module/empty/oversized result cannot publish token or reset "
+              "owner");
         audit.fail_stop = audit.fail_release = false;
         check(application_login_cancel_blocked() && restored(), "phone reset failure: explicit Back retries retained cleanup safely");
     }
@@ -435,12 +476,14 @@ void run_mfa_retry() noexcept {
             g_app.login.focus == LoginControl::password && zeroed(g_app.login.mfa.storage) &&
             g_app.account.login_instance == &audit && g_app.login.mfa_capabilities == login_mfa_capability_all &&
             !audit.stops && !audit.releases && !g_app.login.remote_restart_at_ms,
-            "ordinary MFA controller: reusable invalid answer keeps sole owner and methods while clearing attempted editor");
+              "ordinary MFA controller: reusable invalid answer keeps sole owner and methods while "
+              "clearing attempted editor");
         check(secure_edit_insert_utf8(&g_app.login.mfa, answers[i]) == SecureEditResult::changed &&
             application_login_handle_key(VK_RETURN) && audit.mfa_submits == 1 &&
             g_app.login.status == LoginStatus::submitting && zeroed(g_app.login.mfa.storage) &&
             !audit.stops && !audit.recovery_submits && !audit.reset_submits,
-            "ordinary MFA controller: Enter after invalid code submits a new MFA answer without password reset recovery or stop");
+              "ordinary MFA controller: Enter after invalid code submits a new MFA answer without password "
+              "reset recovery or stop");
         // An unrelated terminal error with the same numeric diagnostic cannot
         // leave the retry editor active once the native owner is discarded.
         audit.recovery_response.phase = AccountLoginPhase::rejected;
@@ -456,11 +499,157 @@ void run_mfa_retry() noexcept {
     check(application_login_pump() && g_app.login.status == LoginStatus::webauthn_failed &&
         !g_app.login.webauthn_attempted && g_app.login.focus == LoginControl::submit &&
         zeroed(g_app.login.mfa.storage) && g_app.account.login_instance == &audit && !audit.stops,
-        "ordinary WebAuthn controller: reusable invalid assertion enables a fresh ceremony while retaining scoped challenge");
+          "ordinary WebAuthn controller: reusable invalid assertion enables a fresh ceremony while "
+          "retaining scoped challenge");
     check(application_login_select_mfa(UserAuthMfaType::totp, false) &&
         g_app.login.status == LoginStatus::mfa_required && g_app.login.mfa_type == UserAuthMfaType::totp &&
         !audit.stops && !audit.provider_calls,
-        "ordinary WebAuthn controller: invalid assertion can switch to advertised code method without restarting password");
+          "ordinary WebAuthn controller: invalid assertion can switch to advertised code method without "
+          "restarting password");
+}
+void run_auth_cooldown() noexcept {
+    check(seed(false), "auth cooldown: actual password rejection fixture seeds");
+    audit.allow_load = audit.scripted_mfa = true;
+    g_app.login.status = LoginStatus::submitting;
+    g_app.login.remote_status = LoginRemoteStatus::idle;
+    audit.recovery_response = {};
+    audit.recovery_response.phase = AccountLoginPhase::rejected;
+    audit.recovery_response.event = UserAuthCoordinatorEventKind::rejected;
+    audit.recovery_response.http_status = 429;
+    const u64 due = clock_monotonic_milliseconds() + 21'600'000;
+    audit.recovery_response.retry_at_ms = due;
+    check(application_login_pump() && !g_app.account.login_instance && audit.stops == 1 &&
+              application_login_auth_deadline() == due && g_app.login.remote_restart_at_ms >= due,
+          "auth cooldown: six-hour server floor survives terminal owner stop and bounds QR restart");
+    const u32 password_bytes = g_app.login.password.storage.bytes;
+    g_app.login.focus = LoginControl::password;
+    bool blocked = true;
+    for (u32 i = 0; i < 64; ++i) {
+        blocked = blocked && application_login_handle_key(VK_RETURN) &&
+                  application_login_begin_remote_auth() && application_login_begin_browser_auth() &&
+                  application_login_submit_mfa() &&
+                  application_login_select_mfa(UserAuthMfaType::sms, true) &&
+                  application_login_tick_auth_cooldown(due - 1);
+    }
+    check(blocked && !audit.password_submits && !audit.remote_starts && !audit.browser_starts &&
+              !audit.mfa_submits && !audit.provider_calls && !audit.module_loads && !audit.path_resolves &&
+              !audit.login_starts && g_app.login.password.storage.bytes == password_bytes &&
+              application_login_auth_deadline() == due,
+          "auth cooldown: 64 password MFA browser and QR attempts preserve secrets and start no owner "
+          "before deadline");
+    check(application_login_handle_key(VK_ESCAPE) && editors_clear() &&
+              g_app.login.status == LoginStatus::idle && !g_app.account.module &&
+              application_login_auth_deadline() == due,
+          "auth cooldown: Escape retires secrets and owner without shortening the server floor");
+    check(secure_edit_insert_utf8(&g_app.login.login, utf8_literal("retry@example.com")) ==
+                  SecureEditResult::changed &&
+              secure_edit_insert_utf8(&g_app.login.password, utf8_literal("fresh-test-password")) ==
+                  SecureEditResult::changed,
+          "auth cooldown: explicit replacement credentials remain in existing locked editors");
+    g_app.login.focus = LoginControl::password;
+    check(application_login_handle_key(VK_RETURN) && !audit.login_starts && !audit.password_submits,
+          "auth cooldown: returning to ordinary login cannot bypass the retained actor floor");
+    const u32 refreshes = audit.refreshes;
+    check(application_login_tick_auth_cooldown(due) && !application_login_auth_deadline() &&
+              audit.refreshes == refreshes + 1 && !audit.password_submits && !audit.login_starts &&
+              application_login_tick_auth_cooldown(due) && audit.refreshes == refreshes + 1,
+          "auth cooldown: exact expiry updates once without automatically replaying credentials");
+    check(application_login_handle_key(VK_RETURN, true) && !audit.password_submits && !audit.login_starts,
+          "auth cooldown: a held Enter repeat after expiry cannot authorize a credential POST");
+    check(application_login_handle_key(VK_RETURN) && audit.password_submits == 1 &&
+              audit.login_starts == 1 && g_app.login.status == LoginStatus::submitting &&
+              zeroed(g_app.login.password.storage),
+          "auth cooldown: only a fresh explicit action after expiry creates an owner and submits the new "
+          "password");
+
+    check(seed(false), "auth cooldown: reusable MFA rate-limit fixture seeds");
+    audit.scripted_mfa = true;
+    g_app.login.status = LoginStatus::submitting;
+    g_app.login.mfa_type = UserAuthMfaType::totp;
+    g_app.login.sms_sending = false;
+    audit.recovery_response = {};
+    audit.recovery_response.phase = AccountLoginPhase::mfa_required;
+    audit.recovery_response.event = UserAuthCoordinatorEventKind::rejected;
+    audit.recovery_response.http_status = 429;
+    audit.recovery_response.retry_at_ms = due;
+    check(application_login_pump() && g_app.account.login_instance == &audit && !audit.stops &&
+              zeroed(g_app.login.mfa.storage) && g_app.login.status == LoginStatus::mfa_required &&
+              g_app.login.mfa_capabilities == login_mfa_capability_all,
+          "auth cooldown: reusable MFA response retains its owner and methods while clearing the attempted "
+          "answer");
+    audit.recovery_response.retry_at_ms = due - 1'000;
+    check(application_login_pump() && application_login_auth_deadline() == due,
+          "auth cooldown: a shorter later response cannot reduce the maximum actor floor");
+    check(secure_edit_insert_utf8(&g_app.login.mfa, utf8_literal("123456")) == SecureEditResult::changed &&
+              application_login_submit_mfa() && !audit.mfa_submits &&
+              application_login_tick_auth_cooldown(due) && !audit.mfa_submits && !audit.provider_calls &&
+              application_login_submit_mfa() && audit.mfa_submits == 1 && !audit.password_submits,
+          "auth cooldown: retained MFA waits, expiry performs no POST, and a fresh action submits only its "
+          "new answer");
+
+    for (u32 unknown = 0; unknown < 2; ++unknown) {
+        check(seed(false), "auth cooldown: unpumped stop response fixture seeds");
+        audit.allow_load = true;
+        audit.stop_http_status = 429;
+        audit.stop_retry_at_ms = unknown ? 0 : due;
+        check(application_login_begin_browser_auth() && !audit.browser_starts && audit.stops == 1 &&
+                  !g_app.account.login_instance && !audit.login_starts &&
+                  g_app.login.auth_retry_at_ms == (unknown ? 0 : due) &&
+                  g_app.login.auth_retry_time_unknown == (unknown != 0),
+              "auth cooldown: method switch retains a joined worker's unpumped 429 before admitting a new "
+              "owner");
+        check(application_login_handle_key(VK_ESCAPE) && editors_clear() &&
+                  g_app.login.auth_retry_at_ms == (unknown ? 0 : due) &&
+                  g_app.login.auth_retry_time_unknown == (unknown != 0),
+              "auth cooldown: Back after raced stop keeps the floor while retiring the old attempt");
+        if (unknown) {
+            const u32 before = audit.refreshes;
+            check(!application_login_auth_deadline() && application_login_auth_cooldown_active() &&
+                      application_login_tick_auth_cooldown(~u64{0}) && audit.refreshes == before &&
+                      application_login_begin_remote_auth() && !g_app.login.remote_restart_at_ms &&
+                      application_login_begin_browser_auth() && !audit.browser_starts &&
+                      !audit.remote_starts,
+                  "auth cooldown: missing retry time waits across owner recreation without "
+                  "wake loops or invented expiry");
+            g_app.login.focus = LoginControl::submit;
+            check(application_login_handle_key(VK_RETURN, true) && g_app.login.auth_retry_time_unknown &&
+                      !audit.password_submits && !audit.remote_starts,
+                  "auth cooldown: held Enter cannot clear an unknown receipt");
+            check(application_login_handle_key(VK_RETURN) && !g_app.login.auth_retry_time_unknown &&
+                      !application_login_auth_deadline() && !g_app.login.remote_restart_at_ms &&
+                      !audit.password_submits && !audit.remote_starts && !audit.browser_starts,
+                  "auth cooldown: explicit Resume retires paused state and refreshes without sending any request");
+            check(secure_edit_insert_utf8(&g_app.login.login, utf8_literal("resume@example.com")) == SecureEditResult::changed &&
+                      secure_edit_insert_utf8(&g_app.login.password, utf8_literal("fresh-resume-password")) == SecureEditResult::changed,
+                  "auth cooldown: resumed login accepts a new explicit credential attempt");
+            g_app.login.focus = LoginControl::password;
+            check(application_login_handle_key(VK_RETURN) && audit.password_submits == 1 && audit.login_starts == 1,
+                  "auth cooldown: only a later fresh action submits after Resume");
+        }
+    }
+    check(seed(false), "auth cooldown: mixed known and unknown receipts seed");
+    g_app.account.login_status.http_status = 429;
+    g_app.account.login_status.retry_at_ms = due;
+    application_login_retain_auth_retry();
+    g_app.account.login_status.retry_at_ms = 0;
+    application_login_retain_auth_retry();
+    g_app.login.focus = LoginControl::submit;
+    audit.fail_stop = true;
+    check(application_login_handle_key(VK_RETURN) && g_app.account.stop_failed &&
+              g_app.login.auth_retry_time_unknown && application_login_auth_deadline() == due,
+          "auth cooldown: failed Resume join preserves unknown restriction and known future floor");
+    audit.fail_stop = false;
+    check(application_login_handle_key(VK_ESCAPE) && !g_app.account.login_instance &&
+              g_app.login.auth_retry_time_unknown && application_login_auth_deadline() == due,
+          "auth cooldown: Back retry safely retires paused owner without clearing either receipt");
+    g_app.login.focus = LoginControl::submit;
+    check(application_login_handle_key(VK_RETURN) && !g_app.login.auth_retry_time_unknown &&
+              application_login_auth_deadline() == due && !g_app.login.remote_restart_at_ms &&
+              !audit.password_submits && !audit.remote_starts && !audit.browser_starts,
+          "auth cooldown: Resume clears only unknown restriction and cannot bypass a known server floor");
+    check(application_login_tick_auth_cooldown(due) && !g_app.login.remote_restart_at_ms &&
+              !audit.password_submits && !audit.remote_starts,
+          "auth cooldown: known expiry after Resume does not automatically restart QR or credentials");
 }
 void run_logout_fences() noexcept {
     // These predicates model the lifecycle owner's two independent fences.
@@ -568,7 +757,8 @@ void run() noexcept {
 
     check(seed(false) && application_login_cancel_blocked() && restored_kept() && audit.stops == 1 &&
         audit.releases == 1 && audit.secrets_cleared_before_stop && zeroed(audit.challenge),
-        "password CAPTCHA Back wipes secrets before stop, destroys challenge and keeps the typed identifier");
+          "password CAPTCHA Back wipes secrets before stop, destroys challenge and keeps the typed "
+          "identifier");
     check(application_login_pump() && !audit.pumps && !audit.attachments,
         "cancelled password owner cannot adopt a queued authenticated result");
 
@@ -592,7 +782,8 @@ void run() noexcept {
     g_app.login.webauthn_attempted = true;
     check(application_login_run_webauthn() && !audit.challenge_copies && !audit.provider_calls &&
         g_app.login.status == LoginStatus::cancelling,
-        "stale posted security-key action cannot overwrite failed cancellation or enter challenge/provider APIs");
+          "stale posted security-key action cannot overwrite failed cancellation or enter "
+          "challenge/provider APIs");
     audit.fail_stop = false;
     check(application_login_handle_key(VK_RETURN) && restored() && audit.stops == 2 && zeroed(audit.challenge),
         "Back Enter retries the retained worker stop and releases its challenge before restoring input");
@@ -622,12 +813,14 @@ void run() noexcept {
         g_app.login.status == LoginStatus::recovery_editing && !g_app.login.remote_active && !g_app.login.qr_ready &&
         !g_app.login.remote_restart_at_ms && zeroed(g_app.login.password.storage) && zeroed(g_app.login.mfa.storage) &&
         g_app.login.login.storage.bytes && !audit.recovery_submits,
-        "native recovery Space quiesces QR before retaining only locked identifier and showing recovery form");
+          "native recovery Space quiesces QR before retaining only locked identifier and showing recovery "
+          "form");
     constexpr auto exact_recovery = utf8_literal("{\"login\":\"synthetic-test-only\"}");
     check(application_login_handle_key(VK_RETURN) && audit.recovery_submits == 1 &&
         g_app.login.status == LoginStatus::recovery_pending && g_app.login.focus == LoginControl::back && editors_clear() &&
         audit.challenge.bytes == exact_recovery.bytes && bytes_equal(audit.challenge.data, exact_recovery.data, exact_recovery.bytes),
-        "native identifier Enter calls only recovery SDK hook synchronously and clears every app secret before pending");
+          "native identifier Enter calls only recovery SDK hook synchronously and clears every app secret "
+          "before pending");
     check(application_login_handle_key(VK_RETURN) && restored() && audit.recovery_submits == 1,
         "pending Back Enter cancels recovery without duplicate request");
     const AccountLoginPhase phases[]{AccountLoginPhase::recovery_sent, AccountLoginPhase::recovery_phone_required,
@@ -644,17 +837,20 @@ void run() noexcept {
             i == 1 ? UserAuthCoordinatorEventKind::recovery_phone_required :
             i == 2 ? UserAuthCoordinatorEventKind::captcha_required : UserAuthCoordinatorEventKind::recovery_rejected;
         audit.recovery_response.retry_at_ms = i == 4 ? clock_monotonic_milliseconds() + 21'600'000 : 0;
+        audit.recovery_response.http_status = i == 4 ? 429 : 0;
         check(application_login_pump() && g_app.login.status == statuses[i] && !audit.attachments,
-            "actual recovery pump maps sent phone CAPTCHA rejection and rate states without Gateway/profile attachment");
+              "actual recovery pump maps sent phone CAPTCHA rejection and rate states without "
+              "Gateway/profile attachment");
         if (i == 4) {
             const auto due = g_app.account.login_status.retry_at_ms;
             check(application_login_recovery_deadline() == due && application_login_tick_recovery(due - 1) &&
                 g_app.login.status == LoginStatus::recovery_rate_limited && audit.recovery_submits == 1,
-                "native cooldown preserves authoritative long deadline before explicit retry becomes eligible");
+                "native cooldown preserves authoritative long deadline before explicit retry becomes "
+                "eligible");
             g_app.account.stop_failed = true;
             check(!application_login_recovery_deadline(), "native cooldown has no wake while owner is quarantined");
             g_app.account.stop_failed = false;
-            check(application_login_tick_recovery(due) && g_app.login.status == LoginStatus::recovery_failed &&
+            check(application_login_tick_auth_cooldown(due) && application_login_tick_recovery(due) && g_app.login.status == LoginStatus::recovery_failed &&
                 !application_login_recovery_deadline() && !g_app.account.login_status.retry_at_ms,
                 "native exact cooldown expiry clears once without a zero-timeout wake loop");
         }
@@ -663,6 +859,7 @@ void run() noexcept {
     check(seed(false), "recovery no-deadline rate-limit fixture seeds owner");
     g_app.login.status = LoginStatus::recovery_pending; audit.recovery_submits = 1;
     audit.recovery_response.phase = AccountLoginPhase::recovery_rate_limited;
+    audit.recovery_response.http_status = 429;
     audit.recovery_response.event = UserAuthCoordinatorEventKind::recovery_rejected;
     check(application_login_pump() && g_app.login.status == LoginStatus::recovery_rate_limited &&
         !application_login_recovery_deadline() && application_login_tick_recovery(~u64{0}) &&
@@ -691,20 +888,24 @@ void run() noexcept {
         bytes_equal(g_app.login.login.storage.data, "reset-test-token", 16) &&
         zeroed(g_app.login.password.storage) && zeroed(g_app.login.mfa.storage) && !g_app.account.login_instance &&
         !g_app.account.module && !g_app.login.remote_active && audit.stops == 1 && !audit.reset_submits,
-        "actual identifier Enter consumes hash-first reset URI, wipes passwords and releases QR owner before editing");
+          "actual identifier Enter consumes hash-first reset URI, wipes passwords and releases QR owner "
+          "before editing");
     check(secure_edit_insert_utf8(&g_app.login.password, utf8_literal("new-test-password")) == SecureEditResult::changed &&
         application_login_handle_key(VK_RETURN) && audit.reset_submits == 1 && editors_clear() &&
         g_app.login.status == LoginStatus::reset_pending && g_app.login.focus == LoginControl::back && !audit.attachments,
-        "native new-password Enter starts reset-specific SDK owner and erases every app secret before pending");
+          "native new-password Enter starts reset-specific SDK owner and erases every app secret before "
+          "pending");
     audit.recovery_response.phase = AccountLoginPhase::reset_rejected;
     audit.recovery_response.event = UserAuthCoordinatorEventKind::rejected;
     audit.recovery_response.http_status = 400;
     check(application_login_pump() && g_app.login.reset_retry && g_app.login.status == LoginStatus::reset_rejected &&
         g_app.account.login_instance == &audit && !audit.attachments,
-        "explicit initial reset rejection preserves owner and enables password retry without app token retention");
+          "explicit initial reset rejection preserves owner and enables password retry without app token "
+          "retention");
     check(secure_edit_insert_utf8(&g_app.login.password, utf8_literal("another-test-password")) == SecureEditResult::changed &&
         application_login_handle_key(VK_RETURN) && audit.reset_submits == 2 && audit.reset_null_retry && editors_clear(),
-        "new-password retry passes null token only after retained initial rejection and wipes password synchronously");
+          "new-password retry passes null token only after retained initial rejection and wipes password "
+          "synchronously");
     audit.recovery_response.phase = AccountLoginPhase::reset_rate_limited;
     audit.recovery_response.event = UserAuthCoordinatorEventKind::rejected;
     audit.recovery_response.retry_at_ms = clock_monotonic_milliseconds() + 10;
@@ -716,9 +917,10 @@ void run() noexcept {
     check(application_login_reset_deadline() == reset_due && application_login_tick_reset(reset_due - 1) &&
         g_app.login.status == LoginStatus::reset_rate_limited && audit.reset_submits == 2,
         "native reset cooldown preserves authoritative deadline without premature request");
-    check(application_login_tick_reset(reset_due) && g_app.login.status == LoginStatus::reset_editing &&
+    check(application_login_tick_auth_cooldown(reset_due) && application_login_tick_reset(reset_due) && g_app.login.status == LoginStatus::reset_editing &&
         g_app.login.reset_retry && !application_login_reset_deadline() && audit.reset_submits == 2,
-        "native reset cooldown expiry reopens password editing without automatic POST and permits retained-token retry");
+          "native reset cooldown expiry reopens password editing without automatic POST and permits "
+          "retained-token retry");
     check(application_login_handle_key(VK_ESCAPE) && restored(), "reset rate-limit Escape securely restores login");
     const UserAuthMfaType rate_methods[]{UserAuthMfaType::totp, UserAuthMfaType::backup,
         UserAuthMfaType::sms, UserAuthMfaType::webauthn, UserAuthMfaType::sms};
@@ -737,16 +939,18 @@ void run() noexcept {
         check(application_login_pump() && g_app.login.status == LoginStatus::reset_rate_limited &&
             application_login_tick_reset(due - 1) && g_app.login.status == LoginStatus::reset_rate_limited,
             "all reset MFA methods and SMS send remain Back-only before authoritative cooldown expires");
-        check(application_login_tick_reset(due) && !g_app.login.reset_retry &&
+        check(application_login_tick_auth_cooldown(due) && application_login_tick_reset(due) && !g_app.login.reset_retry &&
             g_app.login.status == (i == 3 ? LoginStatus::webauthn_failed : LoginStatus::mfa_required) &&
             g_app.login.mfa_type == rate_methods[i] && g_app.login.mfa_capabilities == login_mfa_capability_all &&
             !g_app.login.sms_sending && !g_app.login.webauthn_attempted && !audit.mfa_submits && audit.reset_submits == 1 &&
             (i != 2 || g_app.login.sms_requested) && (i != 4 || (!g_app.login.sms_requested && g_app.login.sms_failed)),
-            "reset MFA cooldown restores exact retained chooser/key/SMS stage without new-password dispatch or automatic POST");
+              "reset MFA cooldown restores exact retained chooser/key/SMS stage without new-password "
+              "dispatch or automatic POST");
         audit.recovery_response.event = UserAuthCoordinatorEventKind::none;
         check(application_login_pump() && g_app.login.status == (i == 3 ? LoginStatus::webauthn_failed : LoginStatus::mfa_required) &&
             !application_login_reset_deadline() && !audit.mfa_submits && audit.reset_submits == 1,
-            "idle coordinator rate snapshot cannot reblock an expired reset MFA cooldown or spin the wake scheduler");
+              "idle coordinator rate snapshot cannot reblock an expired reset MFA cooldown or spin the "
+              "wake scheduler");
         check(application_login_handle_key(VK_ESCAPE) && restored(), "retained reset MFA cooldown Back securely restores login");
     }
     for (u32 i = 0; i < 3; ++i) {
@@ -761,7 +965,8 @@ void run() noexcept {
         check(application_login_pump() && g_app.login.status == LoginStatus::reset_failed &&
             g_app.login.focus == LoginControl::back && !g_app.login.reset_retry && editors_clear() &&
             application_login_submit_reset() && audit.reset_submits == 1 && !audit.mfa_submits && !audit.attachments,
-            "initial401 final non-code400 and no-deadline429 reset rejection remain terminal Back-only without null-token retry");
+              "initial401 final non-code400 and no-deadline429 reset rejection remain terminal Back-only "
+              "without null-token retry");
         check(application_login_handle_key(VK_ESCAPE) && restored(), "terminal reset rejection Back destroys retained owner");
     }
     check(seed(false), "reset failed-stop fixture seeds owner");
@@ -772,7 +977,8 @@ void run() noexcept {
         g_app.login.application_auth_epoch > old_epoch && g_app.login.reset_mode &&
         g_app.login.status == LoginStatus::cancelling && g_app.account.login_instance == &audit &&
         application_login_pump() && !audit.pumps && !audit.attachments,
-        "reset CAPTCHA cancellation invalidates auth epoch and wipes local secrets before live-stop quarantine");
+          "reset CAPTCHA cancellation invalidates auth epoch and wipes local secrets before live-stop "
+          "quarantine");
     audit.fail_stop = false;
     check(application_login_handle_key(VK_SPACE) && restored(), "reset failed-stop Back retries worker and release");
     for (u32 scenario = 1; scenario <= 14; ++scenario) {
@@ -788,16 +994,19 @@ void run() noexcept {
             "stale posted native action is discarded before challenge copy or platform ceremony");
         check(application_login_run_webauthn(posted) && audit.provider_calls == 1 && audit.challenge_copies == 1 &&
             audit.mfa_submits == (scenario == 9 ? 1u : 0u),
-            "post-modal guard submits only unchanged owner module generation request method mode epoch visibility and status");
+              "post-modal guard submits only unchanged owner module generation request method mode epoch "
+              "visibility and status");
         if (scenario == 1) check(restored() && audit.cleared_before_stop,
             "successful nested cancellation stays restored after stale native credential returns");
         if (scenario == 2) check(g_app.login.status == LoginStatus::cancelling && g_app.account.stop_failed && editors_clear(),
-            "failed nested cancellation remains quarantined after platform return without stale UI error mutation");
+                  "failed nested cancellation remains quarantined after platform return without stale UI "
+                  "error mutation");
         if (scenario == 9) check(g_app.login.status == LoginStatus::reset_mfa_pending,
             "admitted native WebAuthn completion uses reset-specific final MFA pending phase");
         if (scenario >= 13) check(g_app.login.status == LoginStatus::reset_mfa_pending &&
             !audit.mfa_submits && audit.provider_calls == 1 && audit.challenge_copies == 1,
-            "logout starting during native ceremony discards its credential without host submission or stale error mutation");
+                  "logout starting during native ceremony discards its credential without host submission "
+                  "or stale error mutation");
     }
     check(seed(false), "reset protected-profile save-only fixture seeds actual login owner");
     g_app.login.reset_mode = true; g_app.login.status = LoginStatus::reset_pending;
@@ -810,7 +1019,8 @@ void run() noexcept {
     check(application_login_pump() && g_app.login.status == LoginStatus::profile_save_failed &&
         g_app.login.focus == LoginControl::submit && editors_clear() && !audit.attachments &&
         audit.challenge.bytes && audit.reset_submits == 1 && !audit.mfa_submits,
-        "actual reset save failure retains admitted protected-session owner without editing credentials or promoting Gateway");
+          "actual reset save failure retains admitted protected-session owner without editing credentials "
+          "or promoting Gateway");
     const auto save_pumps = audit.pumps;
     g_app.login.focus = LoginControl::password;
     check(application_login_handle_key(VK_RETURN) && audit.pumps == save_pumps &&
@@ -820,16 +1030,19 @@ void run() noexcept {
     check(application_login_handle_key(VK_RETURN) && audit.pumps == save_pumps + 1 &&
         g_app.login.status == LoginStatus::profile_save_failed && editors_clear() &&
         audit.reset_submits == 1 && !audit.mfa_submits && !audit.attachments,
-        "actual reset Try again Enter pumps existing protected-session save without repeating reset or MFA submission");
+          "actual reset Try again Enter pumps existing protected-session save without repeating reset or "
+          "MFA submission");
     check(application_login_handle_key(VK_ESCAPE) && restored() && zeroed(audit.challenge),
         "actual reset save-only Back destroys retained protected credential and restores native login");
     run_mfa_retry();
+    run_auth_cooldown();
     run_phone();
     check(seed(true), "browser UI: QR challenge owner seeds"); audit.allow_load = true;
     check(application_login_begin_browser_auth() && audit.browser_starts == 1 && !audit.browser_launches &&
         audit.stops == 1 && audit.cleared_before_stop && !g_app.login.remote_active && !g_app.login.qr_ready &&
         g_app.login.status == LoginStatus::browser_starting && g_app.login.browser_launch_epoch == g_app.login.application_auth_epoch,
-        "browser UI: explicit action clears QR/editors and joins old owner before asynchronously starting listener");
+          "browser UI: explicit action clears QR/editors and joins old owner before asynchronously "
+          "starting listener");
     check(application_login_pump() && !audit.browser_copies && !audit.browser_launches,
         "browser UI: starting listener never launches prematurely");
     audit.browser_response.phase = AccountLoginPhase::browser_waiting;
@@ -900,6 +1113,8 @@ bool application_account_module_load() noexcept {
     if (login_cancel_test::audit.allow_load) {
         g_app.account.module = reinterpret_cast<HMODULE>(1);
         g_app.account.api.login_start = login_cancel_test::start;
+        g_app.account.api.login_submit_password = login_cancel_test::password;
+        g_app.account.api.login_start_remote_auth = login_cancel_test::remote_start;
         g_app.account.api.login_start_reset = login_cancel_test::start;
         g_app.account.api.login_start_browser = login_cancel_test::browser_start;
         g_app.account.api.login_copy_browser_url = login_cancel_test::browser_copy;

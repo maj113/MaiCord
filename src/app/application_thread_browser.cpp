@@ -1,4 +1,5 @@
 #include "application_thread_browser.hpp"
+#include "rest_rate_retry.hpp"
 #include "application_state.hpp"
 #include "application_composer_text_input.hpp"
 #include "application_content_input.hpp"
@@ -534,10 +535,9 @@ bool forum_meta_response(ApplicationThreadBrowser& value, const RestClientRespon
     auto& forum = *value.forum;
     const auto flight = forum.meta_flight;
     forum.meta_flight = {};
-    const u64 now = clock_monotonic_milliseconds();
-    const bool limited = response.rate_limited || response.status_code == 429;
-    if (actor_current(flight.scope) && limited)
-        value.actor_floor = maximum(value.actor_floor, maximum(response.retry_at_ms, deadline_after(now, maximum(response.rate.retry_after_ms, u64{50}))));
+    const u64 retry_at = rest_rate_retry_deadline(response);
+    if (actor_current(flight.scope) && retry_at)
+        value.actor_floor = maximum(value.actor_floor, retry_at);
     const bool same = !flight.retired && current(value) && value.forum_mode && forum.parent == flight.scope.parent &&
         flight.scope.parent == value.scope.parent && flight.scope.generation == value.scope.generation;
     if (!same) {
@@ -549,7 +549,7 @@ bool forum_meta_response(ApplicationThreadBrowser& value, const RestClientRespon
     request.guild_id = flight.scope.guild;
     request.operation = ForumPostOperation::parent_metadata;
     ForumParentSnapshot candidate{};
-    if (limited && forum.meta_busy++ < 2) forum.meta_queued = true;
+    if (retry_at && forum.meta_busy++ < 2) forum.meta_queued = true;
     else if (response.transport_ok() && response.status_code >= 200 && response.status_code < 300 && body.data &&
         body.bytes == response.body_bytes && body.bytes <= kForumPostMaximumResponseBytes &&
         forum_parent_decode(body, request,

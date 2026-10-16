@@ -755,7 +755,8 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
         (request.authorization == RestAuthorization::none && request.token.count != 0) ||
         (request.authorization != RestAuthorization::none &&
          request.authorization != RestAuthorization::bearer && !normal_user) ||
-        (normal_user != (request.user_headers != nullptr)) ||
+        (normal_user && !request.user_headers) ||
+        (request.authorization == RestAuthorization::bearer && request.user_headers) ||
         (request.user_headers && !valid_user_headers(*request.user_headers)) ||
         (!request.token.data && request.token.count != 0) ||
         (!request.json_body && request.content_length != 0) ||
@@ -793,7 +794,7 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
         (request.authorization == RestAuthorization::none ||
          (add_size(&required, literal_bytes(authorization)) && add_size(&required, request.token.count) &&
           add_size(&required, 2))) &&
-        (!normal_user ||
+        (!request.user_headers ||
          (add_size(&required, literal_bytes("X-Super-Properties: ")) &&
           add_size(&required, request.user_headers->super_properties.count) &&
           add_size(&required, literal_bytes("\r\nX-Discord-Locale: ")) &&
@@ -834,7 +835,7 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
          (protocol_writer_append_c_string(&writer, authorization) &&
           protocol_writer_append_bytes(&writer, request.token) &&
           protocol_writer_append_literal(&writer, "\r\n"))) &&
-        (!normal_user ||
+        (!request.user_headers ||
          (protocol_writer_append_literal(&writer, "X-Super-Properties: ") &&
           protocol_writer_append_bytes(&writer, request.user_headers->super_properties) &&
           protocol_writer_append_literal(&writer, "\r\nX-Discord-Locale: ") &&
@@ -1163,11 +1164,13 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler,
             bucket->fields |= rate_limit_field_remaining;
         }
         if ((rate.fields & rate_limit_field_reset_after) != 0) {
-            bucket->reset_at_ms = deadline_after(now_ms, rate.reset_after_ms);
+            // Another alias can complete after an exhausted/429 response.
+            // Preserve its active floor as well as its remaining reservations.
+            bucket->reset_at_ms = maximum(bucket->reset_at_ms, deadline_after(now_ms, rate.reset_after_ms));
             bucket->fields |= rate_limit_field_reset_after;
         } else if ((rate.fields & rate_limit_field_reset) != 0) {
             const u64 delay = rate.reset_epoch_ms > unix_time_ms ? rate.reset_epoch_ms - unix_time_ms : 0;
-            bucket->reset_at_ms = deadline_after(now_ms, delay);
+            bucket->reset_at_ms = maximum(bucket->reset_at_ms, deadline_after(now_ms, delay));
             bucket->fields |= rate_limit_field_reset;
         }
         bucket->last_used_ms = now_ms;

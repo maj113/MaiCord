@@ -81,6 +81,7 @@ void run() noexcept {
     resolver.entries[0].state = MediaUrlState::pending;
     resolver.entries[0].attempts = 1;
     response.status_code = 429;
+    response.rate_limited = true;
     response.retry_at_ms = 9000;
     media_url_complete(&resolver, response, {}, 4001, 100);
     check(received_attachment_open_resume(&intent, identity, source, &resolver, 4002, 100, &ready) ==
@@ -91,20 +92,40 @@ void run() noexcept {
     resolver.entries[0].state = MediaUrlState::pending;
     response.status_code = 403;
     media_url_complete(&resolver, response, {}, 9001, 100);
-    check(received_attachment_open_resume(&intent, identity, source, &resolver, 9002, 100, &ready) ==
-              ReceivedAttachmentOpenResult::failed && !ready.bytes && !intent.pending &&
-              received_attachment_open_resume(&intent, identity, source, &resolver, 9003, 100, &ready) ==
-                  ReceivedAttachmentOpenResult::none,
-          "attachment open: forbidden or deleted refresh fails once without opening stale bytes or spinning");
+    check(
+        received_attachment_open_resume(&intent, identity, source, &resolver, 9002, 100, &ready) ==
+                ReceivedAttachmentOpenResult::failed &&
+            !ready.bytes && !intent.pending &&
+            received_attachment_open_resume(&intent, identity, source, &resolver, 9003, 100, &ready) ==
+                ReceivedAttachmentOpenResult::none,
+        "attachment open: forbidden or deleted refresh fails once without opening stale bytes or spinning");
+    resolver = {};
+    received_attachment_open_begin(&intent, identity, source, &resolver, 9002, 100, &ready);
+    resolver.pending_slot = 1;
+    resolver.entries[0].state = MediaUrlState::pending;
+    response.status_code = 429;
+    response.rejection.captcha = true;
+    media_url_complete(&resolver, response, {}, 9003, 100);
+    check(
+        received_attachment_open_resume(&intent, identity, source, &resolver, 9004, 100, &ready) ==
+                ReceivedAttachmentOpenResult::failed &&
+            !ready.bytes && !intent.pending && resolver.entries[0].state == MediaUrlState::failed &&
+            !resolver.entries[0].retry_at_ms && !media_url_next_wake(resolver) &&
+            !media_url_next(&resolver, 90'000) &&
+            received_attachment_open_resume(&intent, identity, source, &resolver, 90'000, 100, &ready) ==
+                ReceivedAttachmentOpenResult::none,
+        "attachment open: verification429 consumes intent without queued retry, wake or repeated opening");
+    response.rejection = {};
     resolver.entries[1].state = MediaUrlState::failed;
     resolver.entries[1].attempts = 3;
     resolver.entries[1].retry_at_ms = 50000;
     check(received_attachment_open_begin(&intent, identity, source, &resolver, 9004, 100, &ready) ==
-              ReceivedAttachmentOpenResult::pending && !ready.bytes && intent.pending &&
-              resolver.entries[0].state == MediaUrlState::queued && !resolver.entries[0].attempts &&
-              !resolver.entries[0].retry_at_ms && resolver.entries[1].attempts == 3 &&
-              resolver.entries[1].retry_at_ms == 50000,
-          "attachment open: explicit user retry rearms only its exact failed receipt and preserves other source budgets");
+                  ReceivedAttachmentOpenResult::pending &&
+              !ready.bytes && intent.pending && resolver.entries[0].state == MediaUrlState::queued &&
+              !resolver.entries[0].attempts && !resolver.entries[0].retry_at_ms &&
+              resolver.entries[1].attempts == 3 && resolver.entries[1].retry_at_ms == 50000,
+          "attachment open: explicit user retry rearms only its exact failed receipt and preserves other "
+          "source budgets");
     resolver = {};
     for (auto& entry : resolver.entries) entry.state = MediaUrlState::pending;
     check(received_attachment_open_begin(&intent, identity, source, &resolver, 10000, 100, &ready) ==

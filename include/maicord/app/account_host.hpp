@@ -59,7 +59,7 @@ struct AccountHost {
     bool stop_failed;
 };
 
-static_assert(sizeof(AccountHost) == 1416);
+static_assert(sizeof(AccountHost) == 1424);
 
 bool account_host_api_valid(const AccountModuleApi& api) noexcept;
 AccountHostResult account_host_module_path(Slice<wchar_t> output) noexcept;

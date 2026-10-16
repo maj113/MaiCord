@@ -14,6 +14,10 @@ namespace maicord::app_detail {
 void application_login_reset_backup_acknowledgement() noexcept;
 void application_login_schedule_remote_restart(LoginRemoteStatus status) noexcept;
 bool application_login_tick_backup_acknowledgement(u64 now_ms) noexcept;
+bool application_login_auth_cooldown_active() noexcept;
+void application_login_retain_auth_retry() noexcept;
+u64 application_login_auth_deadline() noexcept;
+bool application_login_tick_auth_cooldown(u64 now_ms) noexcept;
 u64 application_login_recovery_deadline() noexcept;
 bool application_login_tick_recovery(u64 now_ms) noexcept;
 bool application_login_begin_recovery() noexcept;
@@ -34,6 +38,6 @@ bool application_login_pump() noexcept;
 bool application_login_begin_remote_auth() noexcept;
 bool application_login_cancel_blocked() noexcept;
 bool application_login_handle_click(LPARAM position) noexcept;
-bool application_login_handle_key(WPARAM key) noexcept;
+bool application_login_handle_key(WPARAM key, bool repeated = false) noexcept;
 
 } // namespace maicord::app_detail

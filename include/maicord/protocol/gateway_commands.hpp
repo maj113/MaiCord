@@ -67,7 +67,9 @@ struct GatewayGuildSubscription {
     u32 channel_count;
 };
 
-inline constexpr u32 kGatewayUserCapabilitiesDefault = 1'734'653;
+// Auth-token refresh (bit 8) stays disabled until a replacement can be adopted
+// atomically by REST, Gateway and encrypted profile storage.
+inline constexpr u32 kGatewayUserCapabilitiesDefault = 1'734'397;
 inline constexpr u32 kGatewayUserMaximumCommandBytes = 4'096;
 
 inline constexpr u32 kGatewayGuildMemberRequestMaximum = 100;
@@ -137,9 +139,9 @@ GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserPropert
                                                         Slice<u8> output) noexcept;
 
 // Normal-user Gateway v9 fresh-session Identify. It has no application intents/shard
-// tuple and claims no cached versions. The properties are the desktop client's,
-// which the API expects from a user session; client_build_number is that
-// client's build number, not a MaiCord version.
+// tuple and claims no cached versions. Use the same client compatibility
+// properties as REST; client_build_number describes that protocol profile,
+// independently of MaiCord's binary version.
 struct GatewayUserIdentify {
     Utf8View token;
     GatewayUserProperties properties;

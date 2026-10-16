@@ -767,6 +767,9 @@ bool warm(u32 sample) noexcept {
 
 namespace maicord::app_detail {
 using namespace logout_native;
+bool application_login_auth_cooldown_active() noexcept {
+    return false;
+}
 bool application_request_frame() noexcept {
     ++fixture->frames;
     return true;

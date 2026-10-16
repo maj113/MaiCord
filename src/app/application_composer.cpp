@@ -26,11 +26,38 @@ namespace {
 // shared with the search bar's people suggestions; only one has focus.
 MentionMemberQueryOwner g_mention_member_query{};
 bool g_mention_member_query_composer = false;
+u64 g_mention_member_interest_key = 0;
+u64 g_mention_member_interest_channel = 0;
+
+void cancel_member_query() noexcept {
+    if (g_mention_member_interest_key && g_app.account.instance &&
+        g_app.account.api.guild_members_query_cancel)
+        g_app.account.api.guild_members_query_cancel(g_app.account.instance);
+    g_mention_member_interest_key = g_mention_member_interest_channel = 0;
+    mention_member_query_cancel(&g_mention_member_query);
+}
+
+void note_member_query(u64 guild_id, u64 channel_id, Utf8View query) noexcept {
+    char folded[kGatewayGuildMemberQueryMaximumBytes]{};
+    u32 bytes = 0;
+    if (!guild_id || !channel_id || !mention_member_query_fold(query, folded, &bytes)) {
+        cancel_member_query();
+        return;
+    }
+    const u64 key = mention_member_query_key(guild_id, {folded, bytes});
+    if (g_mention_member_interest_key != key || g_mention_member_interest_channel != channel_id) {
+        cancel_member_query();
+        g_mention_member_interest_key = key;
+        g_mention_member_interest_channel = channel_id;
+    }
+    mention_member_query_note(&g_mention_member_query, guild_id, channel_id, query,
+                              clock_monotonic_milliseconds());
+}
 
 // The composer drops only a search it asked for itself.
 void cancel_composer_member_query() noexcept {
     if (g_mention_member_query_composer)
-        mention_member_query_cancel(&g_mention_member_query);
+        cancel_member_query();
     g_mention_member_query_composer = false;
 }
 
@@ -48,8 +75,7 @@ void note_mention_member_query() noexcept {
                          autocomplete.token_end - autocomplete.token_begin - 1};
     // The scheduler wakes for the debounce deadline (application_mention_member_query_next_wake).
     g_mention_member_query_composer = true;
-    mention_member_query_note(&g_mention_member_query, autocomplete.member_query_guild_id, composer.channel_id,
-                              query, clock_monotonic_milliseconds());
+    note_member_query(autocomplete.member_query_guild_id, composer.channel_id, query);
 }
 
 bool synchronize_autocomplete() noexcept {
@@ -66,11 +92,15 @@ bool synchronize_autocomplete() noexcept {
     if (!g_app.account_ui || g_app.login.visible || g_app.reaction_viewer.active ||
         !g_app.message_composer.focused ||
         (g_app.popup_scene.active && g_app.popup_owner_kind != PopupOwnerKind::autocomplete && g_app.popup_owner_kind != PopupOwnerKind::commands)) {
+        cancel_composer_member_query();
         return true;
     }
     bool commands_handled = false;
     if (!application_commands_sync(&commands_handled)) return false;
-    if (commands_handled) return true;
+    if (commands_handled) {
+        cancel_composer_member_query();
+        return true;
+    }
     AccountUiRuntime& ui = *g_app.account_ui;
     if (!composer_autocomplete_build(&g_app.composer_autocomplete, g_app.message_composer, ui.member_list,
                                      ui.user_store, ui.navigation_view, ui.chat_state, &ui.guild_member_store,
@@ -183,7 +213,12 @@ u64 application_mention_member_query_next_wake() noexcept {
 
 void application_member_query_note(u64 guild_id, u64 channel_id, Utf8View query) noexcept {
     g_mention_member_query_composer = false;
-    mention_member_query_note(&g_mention_member_query, guild_id, channel_id, query, clock_monotonic_milliseconds());
+    note_member_query(guild_id, channel_id, query);
+}
+
+void application_member_query_cancel() noexcept {
+    if (!g_mention_member_query_composer)
+        cancel_member_query();
 }
 
 void set_popup_owner(PopupOwnerKind owner) noexcept {

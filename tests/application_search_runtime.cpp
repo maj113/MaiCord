@@ -40,6 +40,9 @@ bool settings;
 bool downloads;
 bool composing;
 u32 member_queries;
+u32 member_query_withdrawals;
+bool member_query_active;
+bool composer_query_owned;
 u64 member_query_guild;
 char member_query[32];
 u32 member_query_bytes;
@@ -1026,9 +1029,50 @@ void filter_choices_runtime() noexcept {
                          utf8_literal("0123456789abcdef0123456789abcdef")),
           "search choices: people suggestions query gateway members and carry the member's avatar");
     const u32 queries_after = member_queries;
-    check(choice_draft(utf8_literal("from:")) && g_app.search->choices &&
-              member_queries == queries_after && g_app.search->choices->source.rows.count == 2,
+    check(choice_draft(utf8_literal("from:")) && g_app.search->choices && member_queries == queries_after &&
+              g_app.search->choices->source.rows.count == 2,
           "search choices: an empty people prefix lists cached people without a gateway query");
+    const u32 withdrawals_before = member_query_withdrawals;
+    check(choice_draft(utf8_literal("from:zi")) && member_query_active &&
+              choice_draft(utf8_literal("has:image")) && !member_query_active &&
+              member_query_withdrawals == withdrawals_before + 1,
+          "search choices: replacing a people query with a fixed filter withdraws only Search interest");
+    const u32 fixed_queries = member_queries, fixed_withdrawals = member_query_withdrawals;
+    bool fixed_stable = true;
+    for (u32 i = 0; i < 64; ++i)
+        fixed_stable &= application_search_synchronize();
+    check(fixed_stable && member_queries == fixed_queries && member_query_withdrawals == fixed_withdrawals,
+          "search choices: unchanged non-people suggestions never cancel or reschedule member work");
+    check(choice_draft(utf8_literal("from:zi")) && member_query_active,
+          "search choices: composition cancellation starts from an owned people query");
+    composing = true;
+    check(application_search_synchronize() && !member_query_active &&
+              member_query_withdrawals == fixed_withdrawals + 1,
+          "search choices: beginning composition withdraws the retained member request once");
+    const u32 composing_queries = member_queries, composing_withdrawals = member_query_withdrawals;
+    bool composing_stable = true;
+    for (u32 i = 0; i < 64; ++i)
+        composing_stable &= application_search_synchronize();
+    composing = false;
+    check(composing_stable && member_queries == composing_queries &&
+              member_query_withdrawals == composing_withdrawals && application_search_synchronize() &&
+              member_query_active && member_queries == composing_queries + 1,
+          "search choices: composition is quiet while held and returning to the same query republishes "
+          "interest");
+    check(key(VK_ESCAPE) && !member_query_active && member_query_withdrawals == composing_withdrawals + 1,
+          "search choices: Escape withdraws its current query with the dismissed suggestions");
+    check(choice_draft(utf8_literal("from:zi")) && member_query_active,
+          "search choices: delayed withdrawal starts from a real Search query");
+    composer_query_owned = true;
+    const u32 delayed_withdrawals = member_query_withdrawals;
+    check(application_search_close_panel() && member_query_active &&
+              member_query_withdrawals == delayed_withdrawals + 1 && !g_app.search->member_query_active,
+          "search choices: delayed Search close cannot cancel a newer composer-owned query");
+    composer_query_owned = member_query_active = false;
+    const u32 closed_withdrawals = member_query_withdrawals;
+    check(application_search_close_panel() && member_query_withdrawals == closed_withdrawals &&
+              choice_draft(utf8_literal("from:")) && member_query_withdrawals == closed_withdrawals,
+          "search choices: repeated close and cached-only reopen have no member cancellation side effects");
     auto* bank = g_app.search->choices;
     if (!bank)
         return;
@@ -1235,11 +1279,15 @@ void filter_choices_runtime() noexcept {
     check(choice_draft(utf8_literal("from:")) && modifiers(false, true) && key(VK_TAB) && modifiers() &&
               !g_app.search->focused,
           "search choices: Shift Tab retains ordinary reverse focus instead of accepting a value");
+    check(choice_draft(utf8_literal("from:zi")) && member_query_active,
+          "search choices: scope retirement starts with Search-owned server member interest");
+    const u32 scope_withdrawals = member_query_withdrawals;
     check(chat_state_store_select_channel(&ui.chat_state, 80).ok(),
           "search choices: real Core selection admits private scope");
     ui.active_channel_id = 80;
     check(
-        application_search_synchronize() && !g_app.search->choices && choice_draft(utf8_literal("in:")) &&
+        application_search_synchronize() && !g_app.search->choices && !member_query_active &&
+            member_query_withdrawals == scope_withdrawals + 1 && choice_draft(utf8_literal("in:")) &&
             g_app.search->choices->source.rows.count == 1,
         "search choices: scope replacement releases the prior bank and projects readable private channel");
     auto* private_before = ui.chat_state.private_channels;
@@ -1896,9 +1944,17 @@ bool application_composer_text_input_composing() noexcept {
 }
 void application_member_query_note(u64 guild_id, u64, Utf8View query) noexcept {
     ++search_runtime_test::member_queries;
+    search_runtime_test::member_query_active = true;
+    search_runtime_test::composer_query_owned = false;
     search_runtime_test::member_query_guild = guild_id;
-    search_runtime_test::member_query_bytes = minimum<u32>(query.bytes, sizeof(search_runtime_test::member_query));
+    search_runtime_test::member_query_bytes =
+        minimum<u32>(query.bytes, sizeof(search_runtime_test::member_query));
     copy_bytes(search_runtime_test::member_query, query.data, search_runtime_test::member_query_bytes);
+}
+void application_member_query_cancel() noexcept {
+    ++search_runtime_test::member_query_withdrawals;
+    if (!search_runtime_test::composer_query_owned)
+        search_runtime_test::member_query_active = false;
 }
 void application_composer_text_input_suspend() noexcept {
 }

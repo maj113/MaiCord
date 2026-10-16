@@ -8,6 +8,10 @@
 #include "maicord/ui/pinned_messages_scene.hpp"
 #include "test_output.hpp"
 
+namespace maicord::app_detail {
+void test_reaction_tooltip_owner(void (*)(bool, const char*) noexcept) noexcept;
+}
+
 namespace maicord::tooltip_runtime_test {
 using namespace app_detail;
 u32 failures, text_builds;
@@ -42,6 +46,7 @@ void run() noexcept {
     g_app.account.status.profile_id = 4;
     g_app.plugin_account_scope_serial = 7;
     g_app.account_ui->active_channel_id = 8;
+    test_reaction_tooltip_owner(check);
     UiTextMeasureRecord measurements[4]{};
     check(ui_text_measure_cache_initialize(&g_app.account_ui->text_measure_cache, {measurements, 4},
                                            measure, nullptr) &&
@@ -486,11 +491,6 @@ bool application_plugins_surface_hit(float, float, ApplicationPluginSurfaceHit*)
 Utf8View application_plugins_hover_label(u32) noexcept {
     return {};
 }
-bool application_reaction_tooltip_target(UiPoint, u64, UiTooltipTarget*) noexcept {
-    return false;
-}
-void application_reaction_tooltip_leave() noexcept {}
-void application_reaction_tooltip_pump() noexcept {}
 } // namespace app_detail
 } // namespace maicord
 extern "C" __declspec(noreturn) void WINAPI maicord_tooltip_runtime_entry() noexcept {

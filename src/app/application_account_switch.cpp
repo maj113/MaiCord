@@ -4,6 +4,7 @@
 #include "application_account_module.hpp"
 #include "application_captcha_auth.hpp"
 #include "application_login_ui.hpp"
+#include "application_login_auth.hpp"
 #include "application_plugins.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
@@ -157,7 +158,9 @@ bool attach_selected() noexcept {
     if (host.instance)
         return false;
     if (host.login_instance) {
+        application_login_retain_auth_retry();
         account_host_login_stop(&host, kAccountStopTimeoutMs);
+        application_login_retain_auth_retry();
         if (host.login_instance)
             return false;
     }
