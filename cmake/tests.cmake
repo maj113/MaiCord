@@ -92,7 +92,12 @@ endforeach()
 # under the full 16-job suite. Long matrices run as round-robin shards so no
 # single process forms a late tail; wall-bound tests that mostly wait on peers
 # or deadlines start early because they cost little CPU. The GPU-locked probe
-# chain (COST 50) follows the CPU critical paths.
+# chain (COST 60) starts immediately and overlaps the CPU matrices (COST 59.xx).
+# These independent window/readback probes also need an early start: resize
+# paints 64 native WM_SIZE steps; surface motion reads back multiple alpha
+# frames. Neither belongs to the serialized native_gpu chain.
+set_tests_properties(maicord_resize_stress_probe maicord_surface_motion_ui_probe
+    PROPERTIES COST 61)
 set(maicord_test_rank 99)
 foreach(maicord_long_test
     maicord_native_bidi_emoji maicord_native_bidi_emoji_shard_1
@@ -125,4 +130,12 @@ set_tests_properties(maicord_ui_probe maicord_post_resize_pacing_probe
     maicord_hangul_render_probe maicord_standard_render_probe
     maicord_message_link_ui_probe maicord_composer_ui_probe
     maicord_account_logout_ui_probe maicord_scoped_read_ui_probe
-    PROPERTIES RESOURCE_LOCK native_gpu COST 50)
+    PROPERTIES RESOURCE_LOCK native_gpu COST 60)
+# Keep the complete serialized GPU chain ahead of the CPU matrices,
+# including reference tests and newly registered probes.
+foreach(maicord_registered_test IN LISTS maicord_registered_tests)
+    get_property(maicord_test_locks TEST ${maicord_registered_test} PROPERTY RESOURCE_LOCK)
+    if("native_gpu" IN_LIST maicord_test_locks)
+        set_property(TEST ${maicord_registered_test} PROPERTY COST 60)
+    endif()
+endforeach()

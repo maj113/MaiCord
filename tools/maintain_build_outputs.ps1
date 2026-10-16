@@ -169,6 +169,27 @@ foreach ($pluginManifest in Get-ChildItem -LiteralPath $releaseRoot -File -Filte
     [void]$targets.Add((Assert-ReleasePath $pluginManifest.FullName))
 }
 if ($ConfigureScratch) {
+    # The resource editor's precompiled cache is not a build input or runtime asset.
+    $resourceCache = Assert-ReleasePath (Join-Path $releaseRoot 'notification_sounds.aps')
+    if (Test-Path -LiteralPath $resourceCache -PathType Leaf) { [void]$targets.Add($resourceCache) }
+    # Interrupted atomic configuration writes are disposable only after the
+    # canonical replacement exists and is at least as new. Never scan other
+    # locations or classify arbitrary .tmp files as configure output.
+    foreach ($location in @($releaseRoot, (Join-Path $releaseRoot 'CMakeFiles'))) {
+        $location = Assert-ReleasePath $location
+        if (!(Test-Path -LiteralPath $location -PathType Container)) { continue }
+        foreach ($file in Get-ChildItem -LiteralPath $location -File -Force) {
+            $pattern = if ($location -eq $releaseRoot) {
+                '^(build\.ninja|CMakeCache\.txt)\.tmp[A-Za-z0-9]+$'
+            } else { '^(rules\.ninja)\.tmp[A-Za-z0-9]+$' }
+            if ($file.Name -cnotmatch $pattern) { continue }
+            $canonical = Assert-ReleasePath (Join-Path $location $Matches[1])
+            $temporary = Assert-ReleasePath $file.FullName
+            if (!(Test-Path -LiteralPath $canonical -PathType Leaf)) { continue }
+            if ((Get-Item -LiteralPath $canonical -Force).LastWriteTimeUtc -lt $file.LastWriteTimeUtc) { continue }
+            [void]$targets.Add($temporary)
+        }
+    }
     $log = Assert-ReleasePath (Join-Path $releaseRoot 'CMakeFiles\CMakeConfigureLog.yaml')
     if (Test-Path -LiteralPath $log -PathType Leaf) { [void]$targets.Add($log) }
     foreach ($version in Get-ChildItem -LiteralPath (Join-Path $releaseRoot 'CMakeFiles') -Directory -Force) {
@@ -188,13 +209,52 @@ if ($ConfigureScratch) {
 }
 if ($Apply) {
     $processes = @(Get-CimInstance Win32_Process)
-    if (@($processes | Where-Object { $_.Name -in @('cl.exe', 'link.exe', 'ninja.exe', 'cmake.exe', 'ctest.exe', 'MSBuild.exe') }).Count) {
-        throw 'Build or test processes are still active; temporary outputs were retained.'
-    }
-    foreach ($process in $processes) {
-        if ($process.ExecutablePath -and $targets.Contains([IO.Path]::GetFullPath($process.ExecutablePath))) {
-            throw 'A temporary test executable is still running.'
+    $processHandles = [Collections.Generic.List[Diagnostics.Process]]::new()
+    $exitGrace = [Diagnostics.Stopwatch]::StartNew()
+    try {
+        foreach ($process in $processes) {
+            $builder = $process.Name -in @('cl.exe', 'link.exe', 'ninja.exe', 'cmake.exe', 'ctest.exe', 'MSBuild.exe')
+            $target = $process.ExecutablePath -and $targets.Contains([IO.Path]::GetFullPath($process.ExecutablePath))
+            if (!$builder -and !$target) { continue }
+            # A CIM snapshot can still describe a process that exited before
+            # this guard runs. Only a live, matching process blocks cleanup.
+            try {
+                $live = [Diagnostics.Process]::GetProcessById([int]$process.ProcessId)
+            } catch {
+                if ($_.Exception.GetBaseException() -is [ArgumentException]) { continue }
+                throw
+            }
+            $processHandles.Add($live)
+            # Query/access failures deliberately propagate: an unverified
+            # candidate is not permission to remove its possible outputs.
+            try {
+                $null = $live.Handle
+                if ($live.HasExited) { continue }
+                $started = $live.StartTime.ToUniversalTime()
+            } catch {
+                $queryFailure = $_
+                # Exit can also race handle acquisition or the start-time
+                # query. Ignore it only when exit is positively confirmed.
+                $exited = $false
+                try { $exited = $live.HasExited } catch {}
+                if ($exited) { continue }
+                throw $queryFailure
+            }
+            if (!$process.CreationDate -or
+                [Math]::Abs(($started - $process.CreationDate.ToUniversalTime()).Ticks) -ge 10) {
+                throw "Build or test process identity changed ($($process.Name), PID $($process.ProcessId)); temporary outputs were retained."
+            }
+            # Briefly tolerate a verified process finishing at the snapshot
+            # boundary. All candidates share one second, outside test timing.
+            $remainingGrace = [Math]::Max(0, 1000 - [int]$exitGrace.ElapsedMilliseconds)
+            if ($live.WaitForExit($remainingGrace)) { continue }
+            if ($builder) {
+                throw "Build or test process is still active ($($process.Name), PID $($process.ProcessId)); temporary outputs were retained."
+            }
+            throw "A temporary test executable is still running ($($process.Name), PID $($process.ProcessId))."
         }
+    } finally {
+        foreach ($live in $processHandles) { $live.Dispose() }
     }
 }
 $parents = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)

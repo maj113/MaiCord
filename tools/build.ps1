@@ -83,10 +83,56 @@ function ConvertTo-ProcessArgument([string]$Argument) {
     return '"' + ($Argument -replace '(\\*)"', '$1$1\"' -replace '(\\+)$', '$1$1') + '"'
 }
 function Stop-ProcessTree([Diagnostics.Process]$Process) {
-    # Native stderr becomes a terminating error under 'Stop' in Windows PowerShell 5.1.
-    $killer = Start-Process -FilePath taskkill.exe -ArgumentList '/T', '/F', '/PID', $Process.Id -NoNewWindow -Wait -PassThru
-    if ($killer.ExitCode -ne 0 -and !$Process.HasExited) { try { $Process.Kill() } catch {} }
-    $Process.WaitForExit()
+    # Retain real handles before termination: waiting for CTest alone does not
+    # mean its test processes have finished closing their files.
+    $owned = [Collections.Generic.List[Diagnostics.Process]]::new()
+    $identities = [Collections.Generic.Dictionary[int, datetime]]::new()
+    $identities[$Process.Id] = $Process.StartTime.ToUniversalTime()
+    $snapshot = @(Get-CimInstance Win32_Process)
+    try {
+        do {
+            $added = $false
+            foreach ($entry in $snapshot) {
+                $processId = [int]$entry.ProcessId
+                $parentId = [int]$entry.ParentProcessId
+                if ($identities.ContainsKey($processId) -or !$identities.ContainsKey($parentId)) { continue }
+                $created = $entry.CreationDate.ToUniversalTime()
+                if ($created -lt $identities[$parentId]) { continue }
+                $child = $null
+                try {
+                    $child = [Diagnostics.Process]::GetProcessById($processId)
+                    # Force handle acquisition and reject a reused snapshot PID.
+                    $null = $child.Handle
+                    if ([Math]::Abs(($child.StartTime.ToUniversalTime() - $created).TotalMilliseconds) -ge 1) {
+                        $child.Dispose()
+                        continue
+                    }
+                } catch {
+                    if ($child) { $child.Dispose() }
+                    continue
+                }
+                $identities[$processId] = $created
+                $owned.Add($child)
+                $added = $true
+            }
+        } while ($added)
+        # Kill only retained process identities, never a newly reused PID or
+        # unrelated compiler/client. Stop parents before their captured children.
+        foreach ($member in (@($Process) + @($owned))) {
+            if (!$member.HasExited) { try { $member.Kill() } catch {} }
+        }
+        $shutdown = [Diagnostics.Stopwatch]::StartNew()
+        $survivors = [Collections.Generic.List[int]]::new()
+        foreach ($member in (@($Process) + @($owned))) {
+            $remaining = [Math]::Max(0, 5000 - [int]$shutdown.ElapsedMilliseconds)
+            if (!$member.WaitForExit($remaining)) { $survivors.Add($member.Id) }
+        }
+        if ($survivors.Count) {
+            throw "CTest shutdown did not complete; temporary outputs must be retained (PIDs: $($survivors -join ', '))."
+        }
+    } finally {
+        foreach ($child in $owned) { $child.Dispose() }
+    }
 }
 function Write-AudioPlaybackDiagnostics {
     if (!$AudioPlaybackProbe) { return }
