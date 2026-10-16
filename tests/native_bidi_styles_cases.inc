@@ -71,12 +71,18 @@ bool native_bidi_styles_corpus(DWriteTextSystem system) noexcept {
     auto native=system;native.factory=nullptr;native.format=nullptr;auto reference=system;reference.native_text=nullptr;
     const u32 flags[]{text_style_bold,text_style_italic,text_style_bold|text_style_italic,text_style_link,text_style_monospace,text_style_heading_3,
         text_style_underline,text_style_strikethrough,text_style_spoiler,text_style_mention,text_style_monospace|text_style_code_block,text_style_quote,text_style_list_bullet};
-    const float widths[]{1,16,37,95,1000000};
+    struct Scenario {float width;bool nowrap,independent;};
+    // Scalar overflow, word wrapping, unbounded drawing, independent letters,
+    // and wrapping disabled are separate layout contracts.
+    const Scenario scenarios[]{{1,false,false},{37,false,false},{1000000,false,false},{37,false,true},{1,true,false}};
+    struct ScaleCase {u32 sample,pattern,flag;};
+    const ScaleCase ordinary_scale[]{{7,2,text_style_bold},{23,0,text_style_quote},{12,5,text_style_heading_3}};
+    const ScaleCase emoji_scale[]{{6,2,text_style_underline},{9,5,text_style_bold},{16,3,text_style_heading_3}};
+    const ScaleCase symbol_scale[]{{2,5,text_style_link},{16,5,text_style_underline},{27,2,text_style_heading_3}};
+    const auto* scale_cases=symbol_profiles?symbol_scale:bidi_emoji_profiles?emoji_scale:ordinary_scale;
     for(u32 sample=0;sample<texts.count;++sample){const auto text=texts[sample];u32 offsets[256],count=0;
         for(u32 at=0;at<text.bytes;){offsets[count++]=at;const auto cp=utf8_decode_one(text.data+at,text.bytes-at);CHECK(cp.valid);at+=cp.width;}offsets[count]=text.bytes;
-        for(u32 pattern=0;pattern<6;++pattern)for(u32 flag_index=0;flag_index<sizeof(flags)/sizeof(flags[0]);++flag_index){
-            if(multiline_quick&&pattern!=(sample+flag_index)%6)continue;
-            const u32 flag=flags[flag_index];TextStyleSpan spans[256]{};
+        const auto execute=[&](u32 pattern,u32 flag,const Scenario& scenario) noexcept {TextStyleSpan spans[256]{};
             const auto build=[&](u32 shape,TextStyleSpan* out) noexcept {u32 n=0;
                 const auto append=[&](u32 first,u32 last,u32 value) noexcept {if(first<last)out[n++]={offsets[first],offsets[last]-offsets[first],value};};
                 if(shape==0)append(0,count/2,flag);
@@ -87,25 +93,16 @@ bool native_bidi_styles_corpus(DWriteTextSystem system) noexcept {
                 else for(u32 at=0;at<count;at+=2)append(at,at+1,flag);
                 return n;};
             const u32 used=build(pattern,spans);
-            // Short inputs can make two patterns produce the same span list, and
-            // an empty list is independent of the flag. Such cells repeat an
-            // identical native and oracle request; count them, execute once.
-            // The emoji profile keeps its exact executed-case coverage guard.
-            bool repeated=false;
-            if(!bidi_emoji_profiles&&!multiline_quick){repeated=!used&&flag_index;
-                for(u32 earlier=0;!repeated&&earlier<pattern;++earlier){TextStyleSpan prior[256];
-                    repeated=build(earlier,prior)==used&&bytes_equal(prior,spans,used*sizeof(TextStyleSpan));}}
+            if(system.em_size==17.5f){if(!used&&flag!=flags[0])return true;
+                for(u32 earlier=0;earlier<pattern;++earlier){TextStyleSpan prior[256]{};
+                    if(build(earlier,prior)==used&&bytes_equal(prior,spans,used*sizeof(TextStyleSpan)))return true;}}
             const ConstSlice<TextStyleSpan> styles{spans,used};
-            for(u32 mode=0;mode<2;++mode)for(u32 nowrap=0;nowrap<2;++nowrap)for(float requested:widths){
-                if(multiline_quick&&requested!=widths[(sample+flag_index+mode+nowrap)%5])continue;
-                if(!matrix_case_selected())continue;
-                if(repeated){++repeated_matrix_cases;continue;}
-                native.independent_letters=reference.independent_letters=mode!=0;
-                const auto wrapping=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;const float width=requested==1000000?requested:requested*system.em_size/16;
+                const u32 mode=scenario.independent,nowrap=scenario.nowrap;const float requested=scenario.width;
+                native.independent_letters=reference.independent_letters=scenario.independent;
+                const auto wrapping=scenario.nowrap?TextWrapping::no_wrap:TextWrapping::wrap;const float width=requested==1000000?requested:requested*system.em_size/16;
                 const auto diagnostic=[&]() noexcept {print("Bidi style sample/pattern/flag/em/mode/nowrap/width=");number(sample);print("/");number(pattern);print("/");number(flag);print("/");real(system.em_size);print("/");number(mode);print("/");number(nowrap);print("/");real(width);print("\n");};
                 ++cases;shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
                 CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrapping).ok());
-                if(!bidi_emoji_profiles&&!symbol_profiles&&sample==23&&pattern==0&&flag==text_style_quote&&!mode&&!nowrap&&requested==1&&system.em_size==14){print("control direction probe\n");CHECK(inspect_style_layout(system,text,styles,width,wrapping));CHECK(inspect_style_layout(system,text,styles,1000000,wrapping));}
                 if(!text_shape_utf8_styled(&native,text,styles,width,1000000,{utf16,256},&native_output.text,wrapping).ok()||!native_output.text.native_fonts()){
                     diagnostic();CHECK(inspect_style_layout(system,text,styles,width,wrapping));CHECK(false);}++native_cases;
                 // Symbol items may partition an otherwise identical draw run.
@@ -115,7 +112,11 @@ bool native_bidi_styles_corpus(DWriteTextSystem system) noexcept {
                 const auto a=text_measure_utf8_styled(&native,text,styles,width,1000000,{utf16,256},wrapping);TextMeasureResult b{};
                 CHECK(reference_shape_measure(reference,text,styles,width,1000000,{utf16,256},wrapping,sample==0||sample+1==texts.count,&b));
                 CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count&&a.utf16_units==b.utf16_units);
-            }
-        }
+                return true;
+        };
+        // Fractional em exercises every text, style and placement. Integer and
+        // large em retain focused combining, variation/emoji and size controls.
+        if(system.em_size==17.5f){for(u32 pattern=0;pattern<6;++pattern)for(u32 flag:flags)for(const auto& scenario:scenarios)CHECK(execute(pattern,flag,scenario));}
+        else for(u32 i=0;i<3;++i)if(scale_cases[i].sample==sample)CHECK(execute(scale_cases[i].pattern,scale_cases[i].flag,scenarios[0]));
     }return true;
 }

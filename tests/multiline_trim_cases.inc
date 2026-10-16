@@ -86,7 +86,7 @@ bool native_multiline_trim_corpus(DWriteTextSystem system) noexcept {
         // Keep the full heading grid for the sign-only/newline regression.
         if(multiline_quick&&!(sample==0&&flag==text_style_heading_1)&&
             (wi!=((sample+flag_index+part+2*mode+wrap)&3)||hi!=((sample+2*flag_index+part+mode+2*wrap)&3)))continue;
-        if(!matrix_case_selected())continue;
+        ++matrix_seen;
         const float width=widths[wi],height=heights[hi];
         ++cases;++total;const auto text=texts[sample];native.independent_letters=reference.independent_letters=mode!=0;
         const TextStyleSpan span{part?3u:0u,text.bytes-(part?3u:0u),flag};const ConstSlice<TextStyleSpan> styles{&span,flag?1u:0u};const auto wrapping=wrap?TextWrapping::wrap:TextWrapping::no_wrap;

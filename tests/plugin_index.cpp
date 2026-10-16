@@ -1,3 +1,4 @@
+#include "test_output.hpp"
 // Plugin catalog index: the signature domain, the strict format-1 schema, the
 // shared vectors in tests/fixtures/plugin_index (tools/release/
 // test_plugin_index_tools.py checks the same files), limits, freshness,
@@ -389,3 +390,25 @@ void test_plugin_index(Check check) noexcept {
 }
 
 } // namespace maicord
+
+// Plugin catalog tests: index verifier, policy, records, providers and the check service.
+
+namespace maicord {
+void test_plugin_index_policy(void (*check)(bool, const char*) noexcept) noexcept;
+void test_plugin_manager_records(void (*check)(bool, const char*) noexcept) noexcept;
+void test_plugin_providers(void (*check)(bool, const char*) noexcept) noexcept;
+void test_plugin_index_client(void (*check)(bool, const char*) noexcept) noexcept;
+namespace plugin_index_entry {
+u32 failures;
+void check(bool passed, const char* name) noexcept { test_check(&failures, passed, name); }
+} // namespace
+} // namespace maicord
+
+extern "C" __declspec(noreturn) void WINAPI maicord_plugin_index_tests_entry() noexcept {
+    maicord::test_plugin_index(maicord::plugin_index_entry::check);
+    maicord::test_plugin_index_policy(maicord::plugin_index_entry::check);
+    maicord::test_plugin_manager_records(maicord::plugin_index_entry::check);
+    maicord::test_plugin_providers(maicord::plugin_index_entry::check);
+    maicord::test_plugin_index_client(maicord::plugin_index_entry::check);
+    ExitProcess(maicord::plugin_index_entry::failures ? 1 : 0);
+}

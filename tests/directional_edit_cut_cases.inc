@@ -13,7 +13,11 @@ bool directional_edit_cuts() noexcept {
         for(u32 cut=0;cut<cuts;++cut)for(u32 pattern=0;pattern<2;++pattern)for(u32 flag:flags)for(float width:widths)for(u32 options=0;options<8;++options){
             const TextStyleSpan style{starts[cut],(pattern?ends[cut]:text.bytes)-starts[cut],flag};
             TextEditLayoutInput input{text,text_edit_signature(text),0,0,9.125f,32.25f,width,40,1000000,static_cast<u8>(options),{&style,1}};
-            for(u32 a=0;a<=units;++a)for(u32 p=0;p<=units;++p){input.anchor_utf16=a;input.caret_utf16=p;++cases;
+            u32 cut_first=0,cut_end=0;CHECK(utf8_utf16_position_for_byte_offset(text,starts[cut],&cut_first)&&utf8_utf16_position_for_byte_offset(text,ends[cut],&cut_end));
+            // Raw hit geometry already checks every position and range. This
+            // owner checks empty, forward/reverse and cluster-cut transitions.
+            const u32 selection_cases[][2]{{0,0},{units,units},{0,units},{units,0},{cut_first,cut_end},{cut_end,cut_first}};
+            for(const auto& selection:selection_cases){const u32 a=selection[0],p=selection[1];input.anchor_utf16=a;input.caret_utf16=p;++cases;
                 CHECK(text_edit_layout_measure(layouts,input,candidate)&&text_edit_layout_measure(layouts+1,input,reference));
                 CHECK(layouts[0].geometry&&!layouts[0].layout&&layouts[1].layout);++native_cases;
                 if(!same_edit(layouts[0],layouts[1])){print("retained cluster cut sample/byte/pattern/flag/width/options/anchor/caret=");number(sample);print("/");number(starts[cut]);print("/");number(pattern);print("/");number(flag);print("/");real(width);print("/");number(options);print("/");number(a);print("/");number(p);print("\n");return false;}

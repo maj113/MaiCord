@@ -336,3 +336,17 @@ void test_native_notification_audio_faults(void(*check)(bool,const char*) noexce
     check(read(f->s.post_successes)>0,"audio fault: final status changes can post after queue failure recovers without retaining stopped owner");
 }
 } // namespace maicord
+
+namespace maicord {
+namespace notification_audio_faults_entry {
+u32 failures;
+void check(bool passed,const char* message) noexcept {
+    if(passed)return;++failures;u32 count{};while(message[count])++count;DWORD written{};
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message,count,&written,nullptr);
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),"\r\n",2,&written,nullptr);
+}
+}
+}
+extern "C" __declspec(noreturn) void WINAPI maicord_notification_audio_faults_tests_entry() noexcept {
+    maicord::test_native_notification_audio_faults(maicord::notification_audio_faults_entry::check);ExitProcess(maicord::notification_audio_faults_entry::failures?1:0);
+}

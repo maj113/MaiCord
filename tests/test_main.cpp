@@ -182,7 +182,6 @@ extern "C" void* __cdecl memmove(void* destination, const void* source, unsigned
 namespace maicord {
 void run_catalog_media_tests(void (*check)(bool, const char*) noexcept) noexcept;
 void test_media_parity(void (*check)(bool, const char*) noexcept) noexcept;
-void test_gateway_voice(void (*check)(bool, const char*) noexcept) noexcept;
 void test_message_preparation(void (*check)(bool, const char*) noexcept) noexcept;
 void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept;
 void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept;
@@ -220,7 +219,6 @@ void test_gateway_ready_users(void (*check)(bool,const char*) noexcept) noexcept
 void test_json_string_decode(void (*check)(bool,const char*) noexcept) noexcept;
 void test_resolver_publication(void (*check)(bool,const char*) noexcept) noexcept;
 void test_media_worker_publication(void (*check)(bool, const char*) noexcept) noexcept;
-void test_tls_handshake_output(void (*check)(bool, const char*) noexcept) noexcept;
 void test_png_crc(void (*check)(bool,const char*) noexcept) noexcept;
 void test_history_presence_recovery(void (*check)(bool, const char*) noexcept) noexcept;
 void test_frame_rate(void (*check)(bool, const char*) noexcept) noexcept;
@@ -289,7 +287,7 @@ alignas(64) u8 g_runtime_reference[4096];
 alignas(64) u8 g_runtime_candidate[4096];
 alignas(64) u8 g_runtime_temporary[2048];
 inline constexpr u32 kTlsTokenCapacity = 256 * 1024;
-u8 g_tls_token[kTlsTokenCapacity];
+u8 g_tls_token[kTlsTokenCapacity + 1];
 u8 g_websocket_payload[64 * 1024];
 u8 g_websocket_frame[64 * 1024 + 16];
 MessageRichRecord g_message_rich_records[4];
@@ -26133,23 +26131,33 @@ void test_tls_client_bootstrap() noexcept {
     if (!initialized.ok()) {
         return;
     }
-    expect(client.maximum_token_bytes <= kTlsTokenCapacity, "tls_token_capacity_contract");
-    if (client.maximum_token_bytes <= kTlsTokenCapacity) {
+    const u32 capacity = client.maximum_token_bytes;
+    bool hello_started = false;
+    expect(capacity <= kTlsTokenCapacity, "tls_token_capacity_contract");
+    if (capacity && capacity <= kTlsTokenCapacity) {
+        g_tls_token[capacity] = 0xA5;
         const TlsHandshakeStep too_small = tls_client_handshake(
-            &client, ConstSlice<u8>{nullptr, 0}, Slice<u8>{g_tls_token, client.maximum_token_bytes - 1});
+            &client, ConstSlice<u8>{nullptr, 0}, Slice<u8>{g_tls_token, capacity - 1});
         expect(too_small.error == TlsError::output_too_small && !client.context_valid,
                "tls_handshake_output_bound");
 
         const TlsHandshakeStep hello = tls_client_handshake(&client, ConstSlice<u8>{nullptr, 0},
-                                                            Slice<u8>{g_tls_token, kTlsTokenCapacity});
+                                                            Slice<u8>{g_tls_token, capacity});
+        hello_started = hello.ok();
         expect(hello.ok() && hello.state == TlsHandshakeState::need_send && hello.produced != 0 &&
+                   hello.produced <= capacity && g_tls_token[capacity] == 0xA5 &&
                    client.context_valid && !client.handshake_complete,
                "tls_client_hello_generated");
-
-        const TlsHandshakeStep wait = tls_client_handshake(&client, ConstSlice<u8>{nullptr, 0},
-                                                           Slice<u8>{g_tls_token, kTlsTokenCapacity});
-        expect(wait.ok() && wait.state == TlsHandshakeState::need_receive && wait.produced == 0,
-               "tls_fragment_wait_state");
+        if (hello_started) {
+            const u8 partial[]{22, 3, 3, 0, 80};
+            for (u32 length = 0; length <= sizeof(partial); ++length) {
+                const auto wait = tls_client_handshake(&client, {partial, length}, {g_tls_token, capacity});
+                expect(wait.ok() && wait.state == TlsHandshakeState::need_receive &&
+                           wait.native_status == SEC_E_INCOMPLETE_MESSAGE && wait.produced == 0 &&
+                           wait.consumed == 0 && g_tls_token[capacity] == 0xA5,
+                       "fragmented TLS input never publishes the untouched output capacity");
+            }
+        }
     }
 
     u32 encrypted_bytes = 99;
@@ -26158,6 +26166,14 @@ void test_tls_client_bootstrap() noexcept {
         &client, ConstSlice<u8>{plaintext, 1}, Slice<u8>{g_tls_token, kTlsTokenCapacity}, &encrypted_bytes);
     expect(premature_encrypt.error == TlsError::invalid_argument && encrypted_bytes == 0,
            "tls_encrypt_requires_handshake");
+    if (hello_started) {
+        const u8 malformed[]{0, 0, 0, 0, 0};
+        const auto failed = tls_client_handshake(&client, {malformed, sizeof(malformed)},
+                                                {g_tls_token, capacity});
+        expect(!failed.ok() && failed.state == TlsHandshakeState::failed && failed.produced == 0 &&
+                   g_tls_token[capacity] == 0xA5,
+               "invalid TLS record cannot publish stale output");
+    }
 
     tls_client_release(&client);
     expect(!client.credentials_valid && !client.context_valid && !client.handshake_complete,
@@ -26483,7 +26499,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_tests_entry() noexcept {
     maicord::test_captcha_challenge_owner();
     maicord::test_webauthn_protocol();
     maicord::test_gateway_commands();
-    maicord::test_gateway_voice(maicord::expect);
     maicord::test_gateway_session();
     maicord::test_websocket_frames();
     maicord::test_websocket_handshake();
@@ -26492,7 +26507,6 @@ extern "C" __declspec(noreturn) void WINAPI maicord_tests_entry() noexcept {
     maicord::test_rest_transaction();
     maicord::test_user_auth_coordinator_contract();
     maicord::test_tls_stream_contract();
-    maicord::test_tls_handshake_output(maicord::expect);
     maicord::test_network_resolver();
     maicord::test_network_worker();
     maicord::test_network_worker_cancel_drain();

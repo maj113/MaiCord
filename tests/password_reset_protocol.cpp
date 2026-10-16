@@ -1,3 +1,4 @@
+#include "test_output.hpp"
 #include "maicord/protocol/login_continuations.hpp"
 #include "maicord/app/login_continuations.hpp"
 #include "maicord/core/memory.hpp"
@@ -212,3 +213,21 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
     SecureZeroMemory(challenge, sizeof(challenge)); SecureZeroMemory(body, sizeof(body));
 }
 } // namespace maicord
+
+
+namespace maicord {
+namespace password_reset_protocol_entry {
+u32 failures = 0;
+void check(bool passed, const char* label) noexcept {
+    test_check(&failures, passed, label);
+}
+}
+}
+extern "C" __declspec(noreturn) void WINAPI maicord_password_reset_protocol_entry() noexcept {
+    maicord::test_password_reset_protocol(maicord::password_reset_protocol_entry::check);
+    constexpr char pass[] = "PASS reset protocol\n";
+    constexpr char fail[] = "FAIL reset protocol\n";
+    DWORD written = 0;
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), maicord::password_reset_protocol_entry::failures ? fail : pass, sizeof(pass) - 1, &written, nullptr);
+    ExitProcess(maicord::password_reset_protocol_entry::failures ? 1 : 0);
+}

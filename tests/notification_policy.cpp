@@ -1,3 +1,4 @@
+#include "test_output.hpp"
 #include "maicord/model/message_notifications.hpp"
 namespace maicord {
 namespace {
@@ -154,3 +155,27 @@ void test_notification_policy(void(*check)(bool,const char*)noexcept) noexcept {
         message_read_badge(badge,true)==B::mention,"read badge: direct thread mention survives thread NONE");
 }
 } // namespace maicord
+
+
+namespace maicord {
+void test_notification_settings_wire(void (*)(bool, const char*) noexcept) noexcept;
+void test_desktop_notification_queue(void (*)(bool, const char*) noexcept) noexcept;
+void test_notification_sound_policy(void (*)(bool, const char*) noexcept) noexcept;
+void test_notification_sound_admission(void (*)(bool, const char*) noexcept) noexcept;
+void test_notification_controls(void (*)(bool, const char*) noexcept) noexcept;
+namespace notifications_entry {
+u32 failures;
+void check(bool passed, const char* message) noexcept {
+    test_check(&failures, passed, message);
+}
+}
+}
+extern "C" __declspec(noreturn) void WINAPI maicord_notifications_tests_entry() noexcept {
+    maicord::test_notification_policy(maicord::notifications_entry::check);
+    maicord::test_notification_settings_wire(maicord::notifications_entry::check);
+    maicord::test_desktop_notification_queue(maicord::notifications_entry::check);
+    maicord::test_notification_sound_policy(maicord::notifications_entry::check);
+    maicord::test_notification_sound_admission(maicord::notifications_entry::check);
+    maicord::test_notification_controls(maicord::notifications_entry::check);
+    ExitProcess(maicord::notifications_entry::failures ? 1 : 0);
+}

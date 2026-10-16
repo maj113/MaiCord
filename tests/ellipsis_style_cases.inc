@@ -10,7 +10,7 @@ bool native_ellipsis_style_corpus(DWriteTextSystem system) noexcept {
         text_style_spoiler,text_style_mention,text_style_quote,text_style_code_block|text_style_monospace,text_style_list_bullet};
     const float widths[]{1,8,20,45,95,1000000};
     for(u32 mode=0;mode<2;++mode)for(u32 sample=0;sample<sizeof(samples)/sizeof(samples[0]);++sample)for(u32 flag:flags)for(u32 part=0;part<(flag?2u:1u);++part)for(float width:widths)for(u32 pattern=0;pattern<(ellipsis_hit_profiles?5u:1u);++pattern){
-        if(!matrix_case_selected())continue;
+        ++matrix_seen;
         ++cases;const auto text=samples[sample];native.independent_letters=reference.independent_letters=mode!=0;
         const TextStyleSpan style{part?3u:0u,text.bytes-(part?3u:0u),flag};const ConstSlice<TextStyleSpan> styles{&style,flag?1u:0u};
         const u32 first=pattern==2?3u:pattern==3?text.bytes-1:pattern==4?1u:0u,length=pattern==1||pattern==3?1u:pattern==4?2u:text.bytes-first;

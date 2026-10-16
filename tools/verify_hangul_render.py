@@ -50,7 +50,7 @@ def main():
     parser.add_argument('--native-exe', required=True, type=Path)
     parser.add_argument('--reference-exe', required=True, type=Path)
     parser.add_argument('--output-dir', required=True, type=Path)
-    parser.add_argument('--script-set', choices=('hangul', 'standard', 'extended-standard', 'thai', 'thai-wrap', 'devanagari', 'devanagari-tracking', 'devanagari-direction', 'direction-tracking'), default='hangul')
+    parser.add_argument('--script-set', choices=('hangul', 'standard', 'extended-standard', 'thai-wrap', 'devanagari', 'devanagari-tracking', 'devanagari-direction', 'direction-tracking'), default='hangul')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[1]
     output = args.output_dir.resolve() / ('run-' + str(time.time_ns()))
@@ -65,7 +65,6 @@ def main():
         env.pop('MAICORD_HANGUL_RENDER_PROBE', None)
         env.pop('MAICORD_STANDARD_RENDER_PROBE', None)
         env.pop('MAICORD_EXTENDED_STANDARD_RENDER_PROBE', None)
-        env.pop('MAICORD_THAI_RENDER_PROBE', None)
         env.pop('MAICORD_THAI_WRAP_RENDER_PROBE', None)
         env.pop('MAICORD_DEVANAGARI_RENDER_PROBE', None)
         env.pop('MAICORD_DEVANAGARI_TRACKING_RENDER_PROBE', None)

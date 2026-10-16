@@ -1,3 +1,4 @@
+#include "test_output.hpp"
 // Actual shipping primitive compiled again with test-only renamed exports.
 // The fixture launcher is internal in this TU; production has no path override.
 #define update_handoff_launch fixture_handoff_launch
@@ -9,7 +10,6 @@
 #define update_handoff_child_acknowledge fixture_handoff_child_acknowledge
 #define update_handoff_child_release fixture_handoff_child_release
 #include "maicord/app/update_handoff.hpp"
-#include "test_output.hpp"
 namespace maicord::handoff_fault_test {
 bool fail_close{}, fail_unmap{}, fail_launch{}, fail_signal{};
 BOOL WINAPI close(HANDLE h) noexcept {
@@ -255,3 +255,16 @@ void test_update_handoff(void (*check)(bool, const char*) noexcept) noexcept {
         measure("MEASURE update_handoff_process_handle_delta=", static_cast<u64>(handles_after) - handles_before);
 }
 } // namespace maicord
+
+namespace maicord {
+namespace update_handoff_entry {
+u32 failures;
+void check(bool success, const char* name) noexcept {
+    test_check(&failures, success, name);
+}
+}
+}
+extern "C" __declspec(noreturn) void WINAPI maicord_update_handoff_tests_entry() noexcept {
+    maicord::test_update_handoff(maicord::update_handoff_entry::check);
+    ExitProcess(maicord::update_handoff_entry::failures ? 1 : 0);
+}

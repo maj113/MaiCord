@@ -1,3 +1,4 @@
+#include "test_output.hpp"
 #include "maicord/media/opus_encoder.hpp"
 #include "maicord/media/opus_decoder.hpp"
 #include "fixtures/opus_voice_signal.hpp"
@@ -329,3 +330,16 @@ void test_opus_encoder(Check check) noexcept {
     opus_encoder_release(nullptr);
 }
 } // namespace maicord
+
+namespace maicord {
+namespace opus_encoder_entry {
+u32 failures;
+void check(bool passed, const char* message) noexcept {
+    test_check(&failures, passed, message);
+}
+} // namespace
+} // namespace maicord
+extern "C" __declspec(noreturn) void WINAPI maicord_opus_encoder_tests_entry() noexcept {
+    maicord::test_opus_encoder(maicord::opus_encoder_entry::check);
+    ExitProcess(maicord::opus_encoder_entry::failures ? 1 : 0);
+}

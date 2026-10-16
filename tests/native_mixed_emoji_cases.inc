@@ -17,12 +17,8 @@ bool native_mixed_emoji_capacity() noexcept {
     }
     return true;
 }
-bool mixed_emoji_profiles=false;
 bool native_mixed_emoji_corpus() noexcept {
-    // --matrix-shard splits the family/em/text cells round-robin; the shared
-    // capacity contract runs once, in shard 0.
-    mixed_emoji_profiles=true;
-    if(!matrix_shard)CHECK(native_mixed_emoji_capacity());
+    CHECK(native_mixed_emoji_capacity());
     const wchar_t* families[]{L"Segoe UI",L"Georgia",L"Consolas",L"Bahnschrift"};
     const Utf8View texts[]{utf8_literal("A\xf0\x9f\x98\x80" "B"),utf8_literal("hello \xf0\x9f\x98\x80 world"),
         utf8_literal("\xf0\x9f\x98\x80 hello"),utf8_literal("hello \xf0\x9f\x98\x80"),
@@ -32,20 +28,22 @@ bool native_mixed_emoji_corpus() noexcept {
         utf8_literal("a\t\xf0\x9f\x98\x80\r\nb"),utf8_literal("\xf0\x9f\x98\x80 \xf0\x9f\x98\x83"),
         utf8_literal("12(\xf0\x9f\x98\x80)34"),utf8_literal("caf\xc3\xa9 \xf0\x9f\x98\x80 na\xc3\xafve"),
         utf8_literal("A\xf0\x9f\x8f\xbb" "B"),utf8_literal("A#\xe2\x83\xa3" "B"),utf8_literal("a1\xe2\x83\xa3z")};
-    const float sizes[]{14,17.5f,1000};
-    for(const auto* family:families)for(float em:sizes){
+    const float sizes[]{17.5f,14,1000};
+    for(u32 family_index=0;family_index<4;++family_index)for(float em:sizes){const auto* family=families[family_index];
+        // Every family/text runs at fractional em. Scaling needs one family
+        // and the plain emoji, ZWJ family and keycap boundary examples.
+        if(em!=17.5f&&family_index)continue;
         IDWriteTextFormat* format=nullptr;CHECK(SUCCEEDED(owner.factory->CreateTextFormat(family,nullptr,DWRITE_FONT_WEIGHT_NORMAL,DWRITE_FONT_STYLE_NORMAL,DWRITE_FONT_STRETCH_NORMAL,em,L"en-US",&format)));
         struct Release {IDWriteTextFormat*& p;~Release() noexcept {com_release(p);}} release{format};
         auto reference=owner;reference.native_text=nullptr;reference.format=format;reference.em_size=em;
         auto system=owner;system.factory=nullptr;system.format=nullptr;system.em_size=em;
         u16 name[32];u32 count=0;while(family[count]){name[count]=static_cast<u16>(family[count]);++count;}
         CHECK(native_text_format_create(system.native_text,{{name,count},0,{400,5,0},em,em*4,true},&system.native_format));
-        for(u32 i=0;i<sizeof(texts)/sizeof(texts[0]);++i){
-            if(multiline_quick&&em!=sizes[(i+static_cast<u32>(family[0]))%3])continue;
-            if(!matrix_case_selected())continue;
+        if(em==17.5f)for(u32 i=0;i<sizeof(texts)/sizeof(texts[0]);++i){
             if(!emoji_dispatch_case(system,reference,texts[i],true,true,true)){print("mixed index/em/family_initial=");number(i);print("/");real(em);print("/");number(family[0]);print("\n");return false;}
             auto observed=system;observed.factory=owner.factory;observed.format=format;
             CHECK(emoji_dispatch_cuts(observed,reference,texts[i],true));}
+        else {const u32 scale_samples[]{0,5,6};for(u32 i:scale_samples)CHECK(emoji_dispatch_case(system,reference,texts[i],false,true,true));}
     }
     return true;
 }

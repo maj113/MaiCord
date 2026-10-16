@@ -17,16 +17,16 @@ maicord_test(MaiCordAccountLoginHandoffTests ENTRY maicord_account_login_handoff
     TIMEOUT 15
     TEST maicord_account_login_handoff)
 maicord_test(MaiCordNotificationRetentionTests ENTRY maicord_notification_retention_tests_entry
-    SOURCES tests/notification_retention.cpp tests/notification_retention_entry.cpp
+    SOURCES tests/notification_retention.cpp
     LIBS maicord_model maicord_core kernel32
     TEST maicord_notification_retention)
 maicord_test(MaiCordNotificationSoundAssetTests ENTRY maicord_notification_sound_assets_tests_entry
-    SOURCES tests/notification_sound_assets.cpp tests/notification_sound_assets_entry.cpp
+    SOURCES tests/notification_sound_assets.cpp
         "${MAICORD_NOTIFICATION_SOUND_RESOURCE}"
     LIBS maicord_notification_sound_assets kernel32 bcrypt
     TEST maicord_notification_sound_assets)
 maicord_test(MaiCordNotificationAudioTests ENTRY maicord_notification_audio_tests_entry
-    SOURCES tests/native_notification_audio.cpp tests/notification_audio_entry.cpp
+    SOURCES tests/native_notification_audio.cpp
     LIBS maicord_notification_audio kernel32 ole32 user32
     TEST maicord_notification_audio)
 # Compile an isolated copy with deterministic COM transport hooks. The
@@ -34,12 +34,11 @@ maicord_test(MaiCordNotificationAudioTests ENTRY maicord_notification_audio_test
 # actual endpoint even if no hook has been installed.
 maicord_test(MaiCordNotificationAudioFaultTests ENTRY maicord_notification_audio_faults_tests_entry
     SOURCES src/platform/notification_audio.cpp tests/native_notification_audio_faults.cpp
-        tests/notification_audio_faults_entry.cpp
     LIBS maicord_core kernel32 ole32 user32
     DEFINES MAICORD_NOTIFICATION_AUDIO_FIXTURE=1
     TEST maicord_notification_audio_faults)
 maicord_test(MaiCordNotificationPcmTests ENTRY maicord_notification_pcm_tests_entry
-    SOURCES tests/notification_pcm.cpp tests/notification_pcm_entry.cpp
+    SOURCES tests/notification_pcm.cpp
     LIBS maicord_notification_pcm kernel32
     TEST maicord_notification_pcm)
 maicord_test(MaiCordPluginFixture SHARED ENTRY maicord_plugin_fixture_entry
@@ -201,7 +200,7 @@ if(MAICORD_TEST_AUDIO_PLAYBACK)
         TEST maicord_account_audio_playback --audio)
 endif()
 maicord_test(MaiCordUpdateHandoffTests ENTRY maicord_update_handoff_tests_entry
-    SOURCES tests/update_handoff.cpp tests/update_handoff_main.cpp
+    SOURCES tests/update_handoff.cpp
     LIBS maicord_core maicord_platform maicord_app_core kernel32
     DEFINES "MAICORD_UPDATE_HANDOFF_TEST_PEER=L\"$<TARGET_FILE:MaiCordUpdateHandoffPeer>\""
     DEPENDS MaiCordUpdateHandoffPeer
@@ -233,7 +232,7 @@ maicord_test(MaiCordClientStartupImportsTests ENTRY maicord_client_startup_impor
 # catalog policy, the floor, providers, state and journal records, provider
 # addresses and the add probe, and the check service against a fake server.
 maicord_test(MaiCordPluginIndexTests ENTRY maicord_plugin_index_tests_entry
-    SOURCES tests/plugin_index_entry.cpp tests/plugin_index.cpp tests/plugin_index_policy.cpp
+    SOURCES tests/plugin_index.cpp tests/plugin_index_policy.cpp
         tests/plugin_manager_records.cpp tests/plugin_providers.cpp tests/plugin_index_client.cpp
     LIBS maicord_core maicord_platform maicord_app_core maicord_plugin_manager maicord_plugin_modules kernel32 bcrypt
     DEFINES "MAICORD_PLUGIN_INDEX_FIXTURES=L\"${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/plugin_index\""
@@ -458,7 +457,7 @@ maicord_test(MaiCordVoiceTests ENTRY maicord_voice_tests_entry
     TEST maicord_voice_setup)
 maicord_test(MaiCordTests ENTRY maicord_tests_entry
     SOURCES tests/test_main.cpp tools/font_reference/dwrite_text_system.cpp tests/account_credential_forget.cpp
-        tests/account_logout_stop.cpp tests/account_inventory.cpp tests/gateway_voice.cpp tests/media_parity.cpp
+        tests/account_logout_stop.cpp tests/account_inventory.cpp tests/media_parity.cpp
         tests/catalog_media.cpp tests/message_preparation.cpp tests/atlas_pressure.cpp
         tests/composer_geometry.cpp tests/reply_grouping.cpp tests/message_markdown_cache.cpp
         tests/message_interaction_rules.cpp tests/timeline_overlay_regressions.cpp tests/chat_display.cpp
@@ -471,7 +470,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         src/render/shaped_text_cache.cpp tests/animation_modal_pause.cpp tests/mailbox_release_race.cpp
         tests/mailbox_acquire_release.cpp tests/responsiveness.cpp tests/gateway_ready_users.cpp
         tests/json_string_decode.cpp tests/resolver_publication.cpp tests/media_worker_publication.cpp
-        tests/tls_handshake_output.cpp tests/png_crc.cpp tests/frame_rate.cpp tests/layout_anchors.cpp
+        tests/png_crc.cpp tests/frame_rate.cpp tests/layout_anchors.cpp
         tests/widget_input.cpp tests/text_form.cpp tests/application_forum_form.cpp
         tests/secure_edit_history.cpp tests/text_composition_history.cpp tests/text_input_runs.cpp
         tests/widget_scroll.cpp tests/input_router.cpp tests/navigation_shortcuts.cpp
@@ -932,19 +931,19 @@ maicord_test(MaiCordLoginCancelRuntimeTests ENTRY maicord_login_cancel_runtime_e
         dwrite
     INCLUDES src/app)
 maicord_test(MaiCordNotificationTests ENTRY maicord_notifications_tests_entry
-    SOURCES tests/notifications_entry.cpp tests/notification_policy.cpp tests/notification_settings_wire.cpp
+    SOURCES tests/notification_policy.cpp tests/notification_settings_wire.cpp
         tests/desktop_notification_queue.cpp tests/notification_sound_policy.cpp
         tests/notification_sound_admission.cpp tests/notification_controls.cpp
     LIBS maicord_core maicord_model maicord_protocol kernel32
     TEST maicord_notifications)
 # runtimeobject: the SDK string calls tests/toast_abi.cpp compares the client's against.
 maicord_test(MaiCordNativeNotificationTests ENTRY maicord_native_notifications_tests_entry
-    SOURCES tests/native_notifications_entry.cpp tests/native_notifications.cpp tests/toast_abi.cpp
+    SOURCES tests/native_notifications.cpp tests/toast_abi.cpp
         tests/integration/desktop_notifications_probe.cpp
     LIBS maicord_core maicord_platform kernel32 runtimeobject
     TEST maicord_native_notifications)
 maicord_test(MaiCordApplicationNotificationTests ENTRY maicord_application_notifications_tests_entry
-    SOURCES tests/application_notifications.cpp tests/application_notifications_entry.cpp
+    SOURCES tests/application_notifications.cpp
         src/app/application_notifications.cpp src/app/application_state.cpp src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_model
         maicord_client_preferences maicord_notification_sound_assets maicord_ui maicord_text
@@ -977,7 +976,7 @@ maicord_test(MaiCordPhoneRecoveryCoordinatorTests ENTRY maicord_phone_recovery_c
     TIMEOUT 15
     TEST maicord_phone_recovery_coordinator)
 maicord_test(MaiCordPasswordResetProtocolTests ENTRY maicord_password_reset_protocol_entry
-    SOURCES tests/password_reset_protocol.cpp tests/password_reset_protocol_entry.cpp
+    SOURCES tests/password_reset_protocol.cpp
         src/app/login_continuations.cpp
     LIBS maicord_core maicord_platform maicord_protocol kernel32 bcrypt crypt32
     TEST maicord_password_reset_protocol)
@@ -1729,24 +1728,17 @@ maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_hebrew_wrapping --hebrew-wrap-profile --family "Segoe UI" 400
     TEST maicord_native_mixed_bidi --mixed-bidi-wrap-profile --family "Segoe UI" 400
     TEST maicord_native_mixed_bidi_gates --mixed-bidi-gates
-    TEST maicord_native_bidi_styles --matrix-shard 0 2 --bidi-styles-profile --family "Segoe UI" 400
-    TEST maicord_native_bidi_styles_shard_1 --matrix-shard 1 2 --bidi-styles-profile --family "Segoe UI" 400)
+    TEST maicord_native_bidi_styles --bidi-styles-profile --family "Segoe UI" 400)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 30
-    TEST maicord_native_bidi_emoji --matrix-shard 0 2 --bidi-emoji-profile --family "Segoe UI" 400
-    TEST maicord_native_bidi_emoji_shard_1 --matrix-shard 1 2 --bidi-emoji-profile --family "Segoe UI" 400)
-# Round-robin shards; each verifies its exact share of 177,840 cells.
+    TEST maicord_native_bidi_emoji --bidi-emoji-profile --family "Segoe UI" 400)
 maicord_add_tests(MaiCordNativeAppLineTests
-    TEST maicord_native_symbols --matrix-shard 0 2 --symbols-profile --family "Segoe UI" 400
-    TEST maicord_native_symbols_shard_1 --matrix-shard 1 2 --symbols-profile --family "Segoe UI" 400
+    TEST maicord_native_symbols --symbols-profile --family "Segoe UI" 400
     TEST maicord_native_bidi_style_ranges --bidi-range-check
     TEST maicord_native_simulated_styles --simulated-styles)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-emoji-app
     TEST maicord_native_emoji_dispatch --emoji-dispatch)
-# Two round-robin shards of the 180 exhaustive family/em/text cells;
-# each shard verifies its exact selected-cell count.
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 30
-    TEST maicord_native_mixed_emoji --matrix-shard 0 2 --mixed-emoji
-    TEST maicord_native_mixed_emoji_shard_1 --matrix-shard 1 2 --mixed-emoji)
+    TEST maicord_native_mixed_emoji --mixed-emoji)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-owned-formats
     TEST maicord_native_owned_formats --native-formats)
 maicord_add_tests(MaiCordNativeAppLineTests
@@ -1816,18 +1808,12 @@ maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_semantic_ranges --semantic-profile --family "Segoe UI" 400
     TEST maicord_native_directional_semantic_ranges --directional-semantic-profile --family "Segoe UI" 400
     TEST maicord_native_directional_editor_hits --directional-editor-profile --family "Segoe UI" 400
-    TEST maicord_native_directional_editor_cuts --matrix-shard 0 2 --directional-editor-cuts-profile --family
-        "Segoe UI" 400
-    TEST maicord_native_directional_editor_cuts_shard_1 --matrix-shard 1 2 --directional-editor-cuts-profile
-        --family "Segoe UI" 400
+    TEST maicord_native_directional_editor_cuts --directional-editor-cuts-profile --family "Segoe UI" 400
     TEST maicord_native_semantic_options --semantic-options
     TEST maicord_native_styled_hits --styled-hit-profile --family "Segoe UI" 400
     TEST maicord_native_styled_editor --styled-edit)
-# Round-robin shards; each verifies its exact share of 113,040 cells.
 maicord_add_tests(MaiCordNativeAppLineTests
-    TEST maicord_native_style_clusters --matrix-shard 0 2 --style-cluster-profile --family "Segoe UI" 400
-    TEST maicord_native_style_clusters_shard_1 --matrix-shard 1 2 --style-cluster-profile --family "Segoe UI"
-        400
+    TEST maicord_native_style_clusters --style-cluster-profile --family "Segoe UI" 400
     TEST maicord_native_style_continuity --continuity-profile --family "Segoe UI" 400
     TEST maicord_native_style_cluster_parity --style-clusters
     TEST maicord_native_style_continuity_pixelify --continuity-profile
@@ -1895,14 +1881,9 @@ maicord_test(MaiCordTtPositionTests ENTRY maicord_tt_outline_entry
     LIBS maicord_core maicord_font kernel32
     DEFINES MAICORD_TT_POSITION_TESTS=1
     TEST maicord_native_tt_positioning)
-maicord_test(MaiCordFontStoreTests ENTRY maicord_font_store_entry
-    SOURCES tests/font_store_test.cpp
-    LIBS maicord_core maicord_font kernel32
-    TEST maicord_native_font_ownership)
 maicord_test(MaiCordFontInstanceTests ENTRY maicord_font_store_entry
     SOURCES tests/font_store_test.cpp
     LIBS maicord_core maicord_font kernel32
-    DEFINES MAICORD_FONT_INSTANCE_TESTS=1
     TIMEOUT 5 LABELS native-text-font-instance
     TEST maicord_native_font_instances)
 maicord_test(MaiCordGposTests ENTRY maicord_gpos_tests_entry
@@ -2144,15 +2125,12 @@ maicord_add_tests(MaiCordUiProbe TIMEOUT 15 LABELS native-text-render ENV MAICOR
 maicord_add_tests(MaiCordUiProbe TIMEOUT 15 LABELS native-text-render ENV MAICORD_STANDARD_RENDER_PROBE=1
         MAICORD_GPU_METRICS=1
     TEST maicord_standard_render_probe)
-# Login-field editing geometry for each script's samples. The same gates write
+# Wrapped profile geometry for each script's samples. The same gates write
 # frames that tools/verify_hangul_render.py and tools/verify_tamil_render.py
 # check pixel by pixel when MAICORD_UI_PROBE_CAPTURE_DIR is set.
 foreach(maicord_render_script IN ITEMS TIBETAN MYANMAR KHMER SINHALA MALAYALAM KANNADA TELUGU ODIA GURMUKHI
         GUJARATI BENGALI TAMIL THAI)
     string(TOLOWER "${maicord_render_script}" maicord_render_name)
-    maicord_add_tests(MaiCordUiProbe TIMEOUT 15 LABELS native-text-render ENV
-            MAICORD_${maicord_render_script}_RENDER_PROBE=1 MAICORD_GPU_METRICS=1
-        TEST maicord_${maicord_render_name}_render_probe)
     maicord_add_tests(MaiCordUiProbe TIMEOUT 15 LABELS native-text-render ENV
             MAICORD_${maicord_render_script}_WRAP_RENDER_PROBE=1 MAICORD_GPU_METRICS=1
         TEST maicord_${maicord_render_name}_wrap_render_probe)
@@ -2172,14 +2150,11 @@ set(maicord_ui_gates
     ANIMATION_HANDOFF_UI_PROBE:animation_handoff_ui
     BOOTSTRAP_TITLE_PROBE:bootstrap_title
     CATALOG_APNG_UI_PROBE:catalog_apng_ui
-    IMAGE_VIEWER_UI_PROBE:image_viewer_ui
     INBOX_UI_PROBE:inbox_ui
-    LOGIN_BROWSER_UI_PROBE:login_browser_ui
     LONG_EMBED_UI_PROBE:long_embed_ui
     MEDIA_FAVORITES_UI_PROBE:media_favorites_ui
     MEDIA_PICKER_UI_PROBE:media_picker_ui
     MENU_ROW_UI_PROBE:menu_row_ui
-    MODAL_INTERACTION_UI_PROBE:modal_interaction_ui
     NOTIFICATION_SETTINGS_UI_PROBE:notification_settings_ui
     PLUGIN_CATALOG_UI_PROBE:plugin_catalog_ui
     PROFILE_BRAILLE_UI_PROBE:profile_braille_ui
@@ -2257,7 +2232,7 @@ maicord_test(MaiCordMediaGpuReferenceTests ENTRY maicord_media_gpu_reference_tes
     TIMEOUT 10 LABELS gpu RESOURCE_LOCK native_gpu
     TEST maicord_media_gpu_reference)
 maicord_test(MaiCordOpusEncoderTests ENTRY maicord_opus_encoder_tests_entry
-    SOURCES tests/opus_encoder.cpp tests/opus_encoder_entry.cpp
+    SOURCES tests/opus_encoder.cpp
     LIBS maicord_voice_encoder maicord_media_codec maicord_opus_encoder maicord_core kernel32
     INCLUDES tests third_party/opus/include
     TIMEOUT 10

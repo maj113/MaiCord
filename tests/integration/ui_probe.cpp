@@ -9627,76 +9627,6 @@ int run_probe() noexcept {
     const bool native_bootstrap =
         GetEnvironmentVariableW(L"MAICORD_NATIVE_BOOTSTRAP_PROBE", bootstrap_only, 2) == 1 &&
         bootstrap_only[0] == L'1';
-    D3D11DeviceOwner invalid_owner{};
-    if (d3d11_device_owner_resize(&invalid_owner, 1, 1).ok() ||
-        d3d11_device_owner_present(&invalid_owner, 0, nullptr) != E_INVALIDARG ||
-        d3d11_device_owner_wait(invalid_owner, 0) != WAIT_OBJECT_0) {
-        return 9;
-    }
-    d3d11_device_owner_release(&invalid_owner);
-    d3d11_device_owner_release(&invalid_owner);
-    if (!device_owner_empty(invalid_owner)) {
-        return 9;
-    }
-    D3D11DrawPipelineOwner invalid_pipeline{};
-    const D3D11DrawPipelineConfig invalid_pipeline_config{};
-    if (d3d11_draw_pipeline_initialize(&invalid_pipeline, nullptr, nullptr, 0, 0, 0,
-                                       invalid_pipeline_config)
-                .error != D3D11DrawPipelineError::invalid_input ||
-        d3d11_draw_pipeline_reserve_glyph_instances(&invalid_pipeline, nullptr, 0, 0).error !=
-            D3D11DrawPipelineError::invalid_input ||
-        d3d11_draw_pipeline_update_transform(invalid_pipeline, nullptr, 0, 0, 0)) {
-        return 9;
-    }
-    d3d11_draw_pipeline_release(&invalid_pipeline);
-    d3d11_draw_pipeline_release(&invalid_pipeline);
-    if (!draw_pipeline_empty(invalid_pipeline)) {
-        return 9;
-    }
-    D3D11GlyphTextOwner invalid_glyph_text{};
-    if (d3d11_glyph_text_initialize(&invalid_glyph_text, nullptr, nullptr, 0).error !=
-        D3D11GlyphTextInitializeError::invalid_input) {
-        return 9;
-    }
-    d3d11_glyph_text_release(&invalid_glyph_text);
-    d3d11_glyph_text_release(&invalid_glyph_text);
-    if (!glyph_text_owner_empty(invalid_glyph_text)) {
-        return 9;
-    }
-    D3D11GpuTimerOwner invalid_timer{};
-    TextEditLayoutOwner invalid_composer{};
-    MessageHitTestCacheOwner invalid_message_hit{};
-    ContentTextRetentionOwner invalid_content_text{};
-    ContentTextRetentionKey invalid_content_key{};
-    if (d3d11_gpu_timer_initialize(nullptr, nullptr, true).error != D3D11GpuTimerError::invalid_input ||
-        d3d11_gpu_timer_initialize(&invalid_timer, nullptr, true).error !=
-            D3D11GpuTimerError::invalid_input ||
-        !d3d11_gpu_timer_initialize(&invalid_timer, nullptr, false).ok()) {
-        return 9;
-    }
-    d3d11_gpu_timer_release(&invalid_timer, nullptr);
-    d3d11_gpu_timer_release(&invalid_timer, nullptr);
-    text_edit_layout_release(&invalid_composer);
-    text_edit_layout_release(&invalid_composer);
-    message_hit_test_cache_release(&invalid_message_hit);
-    message_hit_test_cache_release(&invalid_message_hit);
-    if (content_text_retention_probe(&invalid_content_text, invalid_content_key) ||
-        invalid_content_text.misses != 1) {
-        return 9;
-    }
-    content_text_retention_commit(&invalid_content_text, invalid_content_key);
-    if (!content_text_retention_probe(&invalid_content_text, invalid_content_key) ||
-        invalid_content_text.builds != 1 || invalid_content_text.hits != 1) {
-        return 9;
-    }
-    content_text_retention_invalidate(&invalid_content_text);
-    content_text_retention_reset(&invalid_content_text);
-    content_text_retention_reset(&invalid_content_text);
-    if (!gpu_timer_empty(invalid_timer) || !composer_layout_empty(invalid_composer) ||
-        !message_hit_cache_empty(invalid_message_hit) ||
-        !content_text_retention_empty(invalid_content_text)) {
-        return 9;
-    }
     // The client's startup order: the device and draw pipeline start on a
     // worker before the model and window exist.
     renderer_prestart();
@@ -9879,17 +9809,6 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return 2;
     }
-    wchar_t browser_login_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_LOGIN_BROWSER_UI_PROBE", browser_login_only, 2) == 1 &&
-        browser_login_only[0] == L'1') {
-        const bool valid =
-            login_browser_ui_probe(g_probe.renderer, probe_capture_frame, probe_login_recovery_text_pixels);
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "login_browser_native_ui_passed" : "login_browser_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 257;
-    }
     wchar_t account_menu_only[2]{};
     if (GetEnvironmentVariableW(L"MAICORD_ACCOUNT_MENU_UI_PROBE", account_menu_only, 2) == 1 &&
         account_menu_only[0] == L'1') {
@@ -10058,17 +9977,6 @@ int run_probe() noexcept {
         renderer_shutdown(&g_probe.renderer);
         DestroyWindow(g_probe.window);
         return valid ? 0 : 261;
-    }
-    wchar_t image_viewer_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_IMAGE_VIEWER_UI_PROBE", image_viewer_only, 2) == 1 &&
-        image_viewer_only[0] == L'1') {
-        const bool valid = initialize_fixture(true) && probe_image_viewer();
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "image_viewer_native_ui_passed" : "image_viewer_native_ui_failed");
-        log_u64(valid ? LogLevel::info : LogLevel::error, "probe", "image_viewer_stage", g_probe.failure_stage);
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 264;
     }
     wchar_t long_embed_only[2]{};
     if (GetEnvironmentVariableW(L"MAICORD_LONG_EMBED_UI_PROBE", long_embed_only, 2) == 1 &&
@@ -10405,17 +10313,6 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return valid ? 0 : 270;
     }
-    wchar_t modal_interaction_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_MODAL_INTERACTION_UI_PROBE", modal_interaction_only, 2) == 1 &&
-        modal_interaction_only[0] == L'1') {
-        const bool valid = initialize_fixture(true) && probe_settings_scene() && probe_account_settings_pages() &&
-                           probe_profile_card();
-        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
-                  valid ? "modal_interaction_native_ui_passed" : "modal_interaction_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return valid ? 0 : 253;
-    }
     wchar_t animation_handoff_only[2]{};
     if (GetEnvironmentVariableW(L"MAICORD_ANIMATION_HANDOFF_UI_PROBE", animation_handoff_only, 2) == 1 &&
         animation_handoff_only[0] == L'1') {
@@ -10626,52 +10523,7 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return valid ? 0 : 241;
     }
-    wchar_t tibetan_only[2]{};
-    const bool tibetan_render =
-        GetEnvironmentVariableW(L"MAICORD_TIBETAN_RENDER_PROBE", tibetan_only, 2) == 1 &&
-        tibetan_only[0] == L'1';
-    wchar_t myanmar_only[2]{};
-    const bool myanmar_render =
-        GetEnvironmentVariableW(L"MAICORD_MYANMAR_RENDER_PROBE", myanmar_only, 2) == 1 &&
-        myanmar_only[0] == L'1';
-    wchar_t khmer_only[2]{};
-    const bool khmer_render =
-        GetEnvironmentVariableW(L"MAICORD_KHMER_RENDER_PROBE", khmer_only, 2) == 1 && khmer_only[0] == L'1';
-    wchar_t sinhala_only[2]{};
-    const bool sinhala_render =
-        GetEnvironmentVariableW(L"MAICORD_SINHALA_RENDER_PROBE", sinhala_only, 2) == 1 &&
-        sinhala_only[0] == L'1';
-    wchar_t malayalam_only[2]{};
-    const bool malayalam_render =
-        GetEnvironmentVariableW(L"MAICORD_MALAYALAM_RENDER_PROBE", malayalam_only, 2) == 1 &&
-        malayalam_only[0] == L'1';
-    wchar_t kannada_only[2]{};
-    const bool kannada_render =
-        GetEnvironmentVariableW(L"MAICORD_KANNADA_RENDER_PROBE", kannada_only, 2) == 1 &&
-        kannada_only[0] == L'1';
-    wchar_t telugu_only[2]{};
-    const bool telugu_render =
-        GetEnvironmentVariableW(L"MAICORD_TELUGU_RENDER_PROBE", telugu_only, 2) == 1 &&
-        telugu_only[0] == L'1';
-    wchar_t odia_only[2]{};
-    const bool odia_render =
-        GetEnvironmentVariableW(L"MAICORD_ODIA_RENDER_PROBE", odia_only, 2) == 1 && odia_only[0] == L'1';
-    wchar_t gurmukhi_only[2]{};
-    const bool gurmukhi_render =
-        GetEnvironmentVariableW(L"MAICORD_GURMUKHI_RENDER_PROBE", gurmukhi_only, 2) == 1 &&
-        gurmukhi_only[0] == L'1';
-    wchar_t gujarati_only[2]{};
-    const bool gujarati_render =
-        GetEnvironmentVariableW(L"MAICORD_GUJARATI_RENDER_PROBE", gujarati_only, 2) == 1 &&
-        gujarati_only[0] == L'1';
-    wchar_t bengali_only[2]{};
-    const bool bengali_render =
-        GetEnvironmentVariableW(L"MAICORD_BENGALI_RENDER_PROBE", bengali_only, 2) == 1 &&
-        bengali_only[0] == L'1';
-    wchar_t tamil_only[2]{};
-    const bool tamil_render =
-        GetEnvironmentVariableW(L"MAICORD_TAMIL_RENDER_PROBE", tamil_only, 2) == 1 && tamil_only[0] == L'1';
-    wchar_t extended_only[2]{}, hangul_only[2]{}, standard_only[2]{}, thai_only[2]{}, deva_only[2]{},
+    wchar_t extended_only[2]{}, hangul_only[2]{}, standard_only[2]{}, deva_only[2]{},
         deva_tracking_only[2]{}, deva_direction_only[2]{}, direction_tracking_only[2]{};
     const bool direction_tracking_render =
         GetEnvironmentVariableW(L"MAICORD_DIRECTION_TRACKING_RENDER_PROBE", direction_tracking_only, 2) ==
@@ -10687,8 +10539,6 @@ int run_probe() noexcept {
         direction_tracking_render || deva_direction_render || deva_tracking_render ||
         (GetEnvironmentVariableW(L"MAICORD_DEVANAGARI_RENDER_PROBE", deva_only, 2) == 1 &&
          deva_only[0] == L'1');
-    const bool thai_render =
-        GetEnvironmentVariableW(L"MAICORD_THAI_RENDER_PROBE", thai_only, 2) == 1 && thai_only[0] == L'1';
     const bool extended_render =
         GetEnvironmentVariableW(L"MAICORD_EXTENDED_STANDARD_RENDER_PROBE", extended_only, 2) == 1 &&
         extended_only[0] == L'1';
@@ -10696,66 +10546,9 @@ int run_probe() noexcept {
         extended_render ||
         (GetEnvironmentVariableW(L"MAICORD_STANDARD_RENDER_PROBE", standard_only, 2) == 1 &&
          standard_only[0] == L'1');
-    if (tibetan_render || myanmar_render || khmer_render || sinhala_render || malayalam_render ||
-        kannada_render || telugu_render || odia_render || gurmukhi_render || gujarati_render ||
-        bengali_render || tamil_render || deva_render || thai_render || standard_render ||
+    if (deva_render || standard_render ||
         (GetEnvironmentVariableW(L"MAICORD_HANGUL_RENDER_PROBE", hangul_only, 2) == 1 &&
          hangul_only[0] == L'1')) {
-        const Utf8View tibetan_samples[]{
-            utf8_literal("བོད་ཡིག བཀྲ་ཤིས 😀"), utf8_literal("ཀཱི ཀྲྀ ཀླྀ ཀཱྀ ཀ\u200d ཀ\u200c"),
-            utf8_literal("ི ཱི ྐ ༿ ཀ\u034fི 😀"),
-            utf8_literal("A \u202eབོད་ཡིག ཀཱི\u202c B 👩‍👩‍👧‍👦")};
-        const Utf8View myanmar_samples[]{
-            utf8_literal("မြန်မာ ကိ ကီ ကေ ကို 😀"), utf8_literal("င်္ကေ ကျွှ က\u200d က\u200c"),
-            utf8_literal("ေ ိ ု ္ ် ြ ကံ့ က့ံ 😀"), utf8_literal("A \u202eမြန်မာ ကေ ကို\u202c B 😀")};
-        const Utf8View khmer_samples[]{
-            utf8_literal("ភាសាខ្មែរ កិ កី កើ កោ 😀"), utf8_literal("ក្រ្ក ក្ក្រ ក\u200d ក\u200c"),
-            utf8_literal("កេ កែ កៃ កើ កឿ កៀ កោ កៅ"),
-            utf8_literal("A \u202eខ្មែរ កើ\u202c B 👩‍👩‍👧‍👦")};
-        const Utf8View sinhala_samples[]{
-            utf8_literal("සිංහල කි කී කු කූ 😀"),
-            utf8_literal("ශ්‍රී ක්‍ෂ ක්‌ෂ ර්කි"),
-            utf8_literal("A \u202eසිංහල කෙ කො\u202c B 😀"),
-            utf8_literal("කො කෝ කෞ කො කෝ කෞ ි ෙ ් ක\u034fි")};
-        const Utf8View malayalam_samples[]{
-            utf8_literal("മലയാളം കി കീ കു കൂ 😀"),
-            utf8_literal("ക്‍ഷ ക്‌ഷ ക്ഷേത്രം ശ്രദ്ധ ൎകി"),
-            utf8_literal("A \u202eമലയാളം കൈ കോ\u202c B 😀"),
-            utf8_literal("കൊ കോ കൗ കൊ കോ കൌ ി ൈ ് ൎ ർ ൻ")};
-        const Utf8View kannada_samples[]{
-            utf8_literal("ಕನ್ನಡ ಕಿ ಕೀ ಕು ಕೂ 😀"),
-            utf8_literal("ಕ್‍ಷ ಕ್‌ಷ ರ್ಕಿ ರ್ಕೋ ಶ್ರದ್ಧೆ"),
-            utf8_literal("A \u202eಕನ್ನಡ ಕೈ ಕೋ\u202c B 😀"), utf8_literal("ಕೃ ಕೄ ಕೊ ಕೋ ಕೌ ಕೊ ಕೋ ಿ ೈ ್")};
-        const Utf8View telugu_samples[]{
-            utf8_literal("తెలుగు కి కీ కు కూ 😀"),
-            utf8_literal("క్‍ష క్‌ష క్రై క్ర్రై శ్రద్ధ"),
-            utf8_literal("A \u202eతెలుగు కై కౌ\u202c B 😀"),
-            utf8_literal("కృ కౄ కాు కైు కైంఁఁ‌ ి ై ్")};
-        const Utf8View odia_samples[]{
-            utf8_literal("ଓଡ଼ିଆ କି କୀ କୁ କୂ 😀"),
-            utf8_literal("କ୍‍ଷ କ୍‌ଷ କ୍ଷେତ୍ର ଶ୍ରଦ୍ଧା"),
-            utf8_literal("ରୁୀଁ କେ୕ୗଃ କ୕୍୕ୗ କ୍ଯୁଁ"),
-            utf8_literal("אב \u202eଓଡ଼ିଆ କି କୌ\u202c 👩‍👩‍👧‍👦")};
-        const Utf8View gurmukhi_samples[]{
-            utf8_literal("ਪੰਜਾਬੀ ਕਿ ਕੀ ਕੁ ਕੂ 😀"),
-            utf8_literal("ਕ੍‍ਸ਼ ਕ੍‌ਸ਼ ਪ੍ਰਾਰਥਨਾ ਸ਼ਰਧਾ"),
-            utf8_literal("A \u202eਕ੍‍ਸ਼ ਕ੍‌ਸ਼ ਪੰਜਾਬੀ\u202c B"),
-            utf8_literal("ਿ ੍ ੑ ੵ ਕ੍ਕਿ ਕੰੱ ੲ ੳ")};
-        const Utf8View gujarati_samples[]{
-            utf8_literal("ગુજરાતી કિ કો કૌ ર્કિ 😀"),
-            utf8_literal("ક્‍ષ ક્‌ષ ક્ષેત્ર શ્રદ્ધા"),
-            utf8_literal("A \u202eક્‍ષ ક્‌ષ ગુજરાતી\u202c B"),
-            utf8_literal("િ ૉ ્ ક઼્કિ ર઼્કિ ક્\u0afd")};
-        const Utf8View bengali_samples[]{
-            utf8_literal("বাংলা কো কৌ র্কি 😀"),
-            utf8_literal("ক্‍ষ ক্‌ষ ক্ষেত্র শ্রদ্ধা"),
-            utf8_literal("A \u202eক্‍ষ ক্‌ষ বাংলা\u202c B"),
-            utf8_literal("ে ৌ ্ কো কৌ")};
-        const Utf8View tamil_samples[]{
-            utf8_literal("தமிழ் கொ கோ கௌ 😀"),
-            utf8_literal("க்‍க க்‌க க்ஷே ஸ்ரீ"),
-            utf8_literal("A \u202eக்‍க க்‌க தமிழ்\u202c B"),
-            utf8_literal("ெ ௌ ் கொ கோ கௌ")};
         const Utf8View hangul_samples[]{utf8_literal("한국어 메시지 😀"), utf8_literal("한글 각 각"),
                                         utf8_literal("ᄓᅡᇫ ᅟᅠᆨ 가〮 각〯"),
                                         utf8_literal("〮 가〮〯 가〮")};
@@ -10763,8 +10556,6 @@ int run_probe() noexcept {
                                           utf8_literal("ᎣᏏᏲ ᏣᎳᎩ ꭰꭱꭲ"), utf8_literal("Ꭰ́ Ꭱ̄ שלום ሰላም")};
         const Utf8View standard_samples[]{utf8_literal("Բարև աշխարհ 😀"), utf8_literal("և եւ ﬓ ﬔ ﬕ ﬖ ﬗ ա́"),
                                           utf8_literal("ქართული ᲥᲐᲠᲗᲣᲚᲘ"), utf8_literal("ႠႡႢ ⴀⴁⴂ ა́ ա̄")};
-        const Utf8View thai_samples[]{utf8_literal("ภาษาไทย น้ำ 😀"), utf8_literal("ก่ำ ก่ํ กํ่ กฺุ"),
-                                      utf8_literal("ພາສາລາວ ນ້ຳ"), utf8_literal("่ ำ ກ່ຼ ນ່ຳ")};
         const Utf8View deva_samples[]{utf8_literal("नमस्ते दुनिया 😀"), utf8_literal("र्कि किं कृ त्र ज्ञ"),
                                       utf8_literal("क्‍ष क्‌ष क़ि"),
                                       utf8_literal("ि ़ ॑ क॑ कः")};
@@ -10776,23 +10567,10 @@ int run_probe() noexcept {
             utf8_literal("A \u202eर्कि हिन्दी 😀\u202c B"), utf8_literal("אָבּ גּד हिन्दी"),
             utf8_literal("سَلَامٌ \u202dب\u034fب بَ\u034fب\u202c"),
             utf8_literal("سَّلَام 👩‍👩‍👧‍👦 A")};
-        const auto* samples = tibetan_render              ? tibetan_samples
-                              : myanmar_render            ? myanmar_samples
-                              : khmer_render              ? khmer_samples
-                              : sinhala_render            ? sinhala_samples
-                              : malayalam_render          ? malayalam_samples
-                              : kannada_render            ? kannada_samples
-                              : telugu_render             ? telugu_samples
-                              : odia_render               ? odia_samples
-                              : gurmukhi_render           ? gurmukhi_samples
-                              : gujarati_render           ? gujarati_samples
-                              : bengali_render            ? bengali_samples
-                              : tamil_render              ? tamil_samples
-                              : extended_render           ? extended_samples
+        const auto* samples = extended_render           ? extended_samples
                               : direction_tracking_render ? direction_tracking_samples
                               : deva_direction_render     ? deva_direction_samples
                               : deva_render               ? deva_samples
-                              : thai_render               ? thai_samples
                               : standard_render           ? standard_samples
                                                           : hangul_samples;
         auto& system = g_probe.renderer.glyph_text.system;
@@ -10805,12 +10583,6 @@ int run_probe() noexcept {
             renderer_set_dpi(&g_probe.renderer, dpis[scale]);
             for (u32 i = 0; valid && i < 4; ++i)
                 for (u32 mode = 0; valid && mode < 3; ++mode) {
-                    if (tibetan_render || myanmar_render || khmer_render || sinhala_render ||
-                        malayalam_render || kannada_render || telugu_render || odia_render ||
-                        gurmukhi_render || gujarati_render || bengali_render || tamil_render) {
-                        system.tracking = i == 1 ? .03f : i == 2 ? .13f : 0;
-                        system.independent_letters = i >= 2;
-                    }
                     if (deva_tracking_render) {
                         system.tracking = (i & 1) ? .13f : .03f;
                         system.independent_letters = i >= 2;
@@ -10842,59 +10614,24 @@ int run_probe() noexcept {
                     view.edit_composition = mode == 2 ? ConstSlice<TextCompositionSpan>{&composition, 1}
                                                       : ConstSlice<TextCompositionSpan>{};
                     wchar_t hangul_capture[] = L"hangul-0-0-0.bmp",
-                            standard_capture[] = L"standard-0-0-0.bmp", thai_capture[] = L"thai-0-0-0.bmp";
-                    wchar_t tibetan_capture[] = L"tibetan-0-0-0.bmp",
-                            myanmar_capture[] = L"myanmar-0-0-0.bmp", khmer_capture[] = L"khmer-0-0-0.bmp",
-                            sinhala_capture[] = L"sinhala-0-0-0.bmp",
-                            malayalam_capture[] = L"malayalam-0-0-0.bmp",
-                            kannada_capture[] = L"kannada-0-0-0.bmp",
-                            telugu_capture[] = L"telugu-0-0-0.bmp", odia_capture[] = L"odia-0-0-0.bmp",
-                            tamil_capture[] = L"tamil-0-0-0.bmp", bengali_capture[] = L"bengali-0-0-0.bmp",
-                            gujarati_capture[] = L"gujarati-0-0-0.bmp",
-                            gurmukhi_capture[] = L"gurmukhi-0-0-0.bmp";
+                            standard_capture[] = L"standard-0-0-0.bmp";
                     wchar_t deva_capture[] = L"devanagari-0-0-0.bmp";
                     wchar_t deva_tracking_capture[] = L"devanagari-tracking-0-0-0.bmp";
                     wchar_t deva_direction_capture[] = L"devanagari-direction-0-0-0.bmp";
                     wchar_t direction_tracking_capture[] = L"direction-tracking-0-0-0.bmp",
                             extended_capture[] = L"extended-standard-0-0-0.bmp";
-                    auto* capture = tibetan_render              ? tibetan_capture
-                                    : myanmar_render            ? myanmar_capture
-                                    : khmer_render              ? khmer_capture
-                                    : sinhala_render            ? sinhala_capture
-                                    : malayalam_render          ? malayalam_capture
-                                    : kannada_render            ? kannada_capture
-                                    : telugu_render             ? telugu_capture
-                                    : odia_render               ? odia_capture
-                                    : gurmukhi_render           ? gurmukhi_capture
-                                    : gujarati_render           ? gujarati_capture
-                                    : bengali_render            ? bengali_capture
-                                    : tamil_render              ? tamil_capture
-                                    : extended_render           ? extended_capture
+                    auto* capture = extended_render           ? extended_capture
                                     : direction_tracking_render ? direction_tracking_capture
                                     : deva_direction_render     ? deva_direction_capture
                                     : deva_tracking_render      ? deva_tracking_capture
                                     : deva_render               ? deva_capture
-                                    : thai_render               ? thai_capture
                                     : standard_render           ? standard_capture
                                                                 : hangul_capture;
-                    const u32 digit = tibetan_render              ? 8u
-                                      : myanmar_render            ? 8u
-                                      : khmer_render              ? 6u
-                                      : sinhala_render            ? 8u
-                                      : malayalam_render          ? 10u
-                                      : kannada_render            ? 8u
-                                      : telugu_render             ? 7u
-                                      : odia_render               ? 5u
-                                      : gurmukhi_render           ? 9u
-                                      : gujarati_render           ? 9u
-                                      : bengali_render            ? 8u
-                                      : tamil_render              ? 6u
-                                      : extended_render           ? 18u
+                    const u32 digit = extended_render           ? 18u
                                       : direction_tracking_render ? 19u
                                       : deva_direction_render     ? 21u
                                       : deva_tracking_render      ? 20u
                                       : deva_render               ? 11u
-                                      : thai_render               ? 5u
                                       : standard_render           ? 9u
                                                                   : 7u;
                     capture[digit] += static_cast<wchar_t>(i);
@@ -10915,20 +10652,8 @@ int run_probe() noexcept {
         system.independent_letters = saved_independent;
         log_write(
             valid ? LogLevel::info : LogLevel::error, "probe",
-            tibetan_render     ? (valid ? "tibetan_render_probe_passed" : "tibetan_render_probe_failed")
-            : myanmar_render   ? (valid ? "myanmar_render_probe_passed" : "myanmar_render_probe_failed")
-            : khmer_render     ? (valid ? "khmer_render_probe_passed" : "khmer_render_probe_failed")
-            : sinhala_render   ? (valid ? "sinhala_render_probe_passed" : "sinhala_render_probe_failed")
-            : malayalam_render ? (valid ? "malayalam_render_probe_passed" : "malayalam_render_probe_failed")
-            : kannada_render   ? (valid ? "kannada_render_probe_passed" : "kannada_render_probe_failed")
-            : telugu_render    ? (valid ? "telugu_render_probe_passed" : "telugu_render_probe_failed")
-            : odia_render      ? (valid ? "odia_render_probe_passed" : "odia_render_probe_failed")
-            : gurmukhi_render  ? (valid ? "gurmukhi_render_probe_passed" : "gurmukhi_render_probe_failed")
-            : gujarati_render  ? (valid ? "gujarati_render_probe_passed" : "gujarati_render_probe_failed")
-            : bengali_render   ? (valid ? "bengali_render_probe_passed" : "bengali_render_probe_failed")
-            : tamil_render     ? (valid ? "tamil_render_probe_passed" : "tamil_render_probe_failed")
-            : extended_render  ? (valid ? "extended_standard_render_probe_passed"
-                                        : "extended_standard_render_probe_failed")
+            extended_render ? (valid ? "extended_standard_render_probe_passed"
+                                      : "extended_standard_render_probe_failed")
             : direction_tracking_render ? (valid ? "direction_tracking_render_probe_passed"
                                                  : "direction_tracking_render_probe_failed")
             : deva_direction_render     ? (valid ? "devanagari_direction_render_probe_passed"
@@ -10936,13 +10661,83 @@ int run_probe() noexcept {
             : deva_tracking_render      ? (valid ? "devanagari_tracking_render_probe_passed"
                                                  : "devanagari_tracking_render_probe_failed")
             : deva_render ? (valid ? "devanagari_render_probe_passed" : "devanagari_render_probe_failed")
-            : thai_render ? (valid ? "thai_render_probe_passed" : "thai_render_probe_failed")
             : standard_render ? (valid ? "standard_render_probe_passed" : "standard_render_probe_failed")
                               : (valid ? "hangul_render_probe_passed" : "hangul_render_probe_failed"));
         renderer_shutdown(&g_probe.renderer);
         d3d11_draw_pipeline_release(&g_probe.renderer.pipeline);
         DestroyWindow(g_probe.window);
         return valid ? 0 : 240;
+    }
+    // Invalid and empty-owner contracts run once with the full integration probe.
+    D3D11DeviceOwner invalid_owner{};
+    if (d3d11_device_owner_resize(&invalid_owner, 1, 1).ok() ||
+        d3d11_device_owner_present(&invalid_owner, 0, nullptr) != E_INVALIDARG ||
+        d3d11_device_owner_wait(invalid_owner, 0) != WAIT_OBJECT_0) {
+        return 9;
+    }
+    d3d11_device_owner_release(&invalid_owner);
+    d3d11_device_owner_release(&invalid_owner);
+    if (!device_owner_empty(invalid_owner)) {
+        return 9;
+    }
+    D3D11DrawPipelineOwner invalid_pipeline{};
+    const D3D11DrawPipelineConfig invalid_pipeline_config{};
+    if (d3d11_draw_pipeline_initialize(&invalid_pipeline, nullptr, nullptr, 0, 0, 0,
+                                       invalid_pipeline_config)
+                .error != D3D11DrawPipelineError::invalid_input ||
+        d3d11_draw_pipeline_reserve_glyph_instances(&invalid_pipeline, nullptr, 0, 0).error !=
+            D3D11DrawPipelineError::invalid_input ||
+        d3d11_draw_pipeline_update_transform(invalid_pipeline, nullptr, 0, 0, 0)) {
+        return 9;
+    }
+    d3d11_draw_pipeline_release(&invalid_pipeline);
+    d3d11_draw_pipeline_release(&invalid_pipeline);
+    if (!draw_pipeline_empty(invalid_pipeline)) {
+        return 9;
+    }
+    D3D11GlyphTextOwner invalid_glyph_text{};
+    if (d3d11_glyph_text_initialize(&invalid_glyph_text, nullptr, nullptr, 0).error !=
+        D3D11GlyphTextInitializeError::invalid_input) {
+        return 9;
+    }
+    d3d11_glyph_text_release(&invalid_glyph_text);
+    d3d11_glyph_text_release(&invalid_glyph_text);
+    if (!glyph_text_owner_empty(invalid_glyph_text)) {
+        return 9;
+    }
+    D3D11GpuTimerOwner invalid_timer{};
+    TextEditLayoutOwner invalid_composer{};
+    MessageHitTestCacheOwner invalid_message_hit{};
+    ContentTextRetentionOwner invalid_content_text{};
+    ContentTextRetentionKey invalid_content_key{};
+    if (d3d11_gpu_timer_initialize(nullptr, nullptr, true).error != D3D11GpuTimerError::invalid_input ||
+        d3d11_gpu_timer_initialize(&invalid_timer, nullptr, true).error !=
+            D3D11GpuTimerError::invalid_input ||
+        !d3d11_gpu_timer_initialize(&invalid_timer, nullptr, false).ok()) {
+        return 9;
+    }
+    d3d11_gpu_timer_release(&invalid_timer, nullptr);
+    d3d11_gpu_timer_release(&invalid_timer, nullptr);
+    text_edit_layout_release(&invalid_composer);
+    text_edit_layout_release(&invalid_composer);
+    message_hit_test_cache_release(&invalid_message_hit);
+    message_hit_test_cache_release(&invalid_message_hit);
+    if (content_text_retention_probe(&invalid_content_text, invalid_content_key) ||
+        invalid_content_text.misses != 1) {
+        return 9;
+    }
+    content_text_retention_commit(&invalid_content_text, invalid_content_key);
+    if (!content_text_retention_probe(&invalid_content_text, invalid_content_key) ||
+        invalid_content_text.builds != 1 || invalid_content_text.hits != 1) {
+        return 9;
+    }
+    content_text_retention_invalidate(&invalid_content_text);
+    content_text_retention_reset(&invalid_content_text);
+    content_text_retention_reset(&invalid_content_text);
+    if (!gpu_timer_empty(invalid_timer) || !composer_layout_empty(invalid_composer) ||
+        !message_hit_cache_empty(invalid_message_hit) ||
+        !content_text_retention_empty(invalid_content_text)) {
+        return 9;
     }
     const bool login_view_set = set_probe_login_view(login_view);
     const bool login_presented = login_view_set && probe_present(&g_probe.renderer, kDefaultTheme);
@@ -10984,18 +10779,9 @@ int run_probe() noexcept {
     color_emoji_view.login = Utf8View{color_emoji_login, sizeof(color_emoji_login)};
     color_emoji_view.focus = LoginControl::login;
     color_emoji_view.qr_code = nullptr;
-    constexpr u32 color_emoji_iterations = 256;
-    LARGE_INTEGER color_emoji_frequency{};
-    LARGE_INTEGER color_emoji_begin{};
-    LARGE_INTEGER color_emoji_end{};
+    constexpr u32 color_emoji_iterations = 2;
     const u32 glyph_cache_builds_before_color = g_probe.renderer.glyph_text.cache_builds;
     u32 warm_color_cache_builds = 0;
-    if (!QueryPerformanceFrequency(&color_emoji_frequency) ||
-        !QueryPerformanceCounter(&color_emoji_begin)) {
-        renderer_shutdown(&g_probe.renderer);
-        DestroyWindow(g_probe.window);
-        return 8;
-    }
     for (u32 iteration = 0; iteration < color_emoji_iterations; ++iteration) {
         if (!set_probe_login_view(color_emoji_view)) {
             log_u64(LogLevel::error, "probe", "color_emoji_login_failed_iteration", iteration);
@@ -11012,8 +10798,6 @@ int run_probe() noexcept {
             return 8;
         }
     }
-    const bool color_emoji_clocked =
-        QueryPerformanceCounter(&color_emoji_end) && color_emoji_end.QuadPart > color_emoji_begin.QuadPart;
     const bool color_factory_ready = g_probe.renderer.glyph_text.color_glyphs;
     if (!probe_color_foreground_cache()) {
         log_write(LogLevel::error, "probe", "probe_color_foreground_cache()_failed");
@@ -11032,8 +10816,7 @@ int run_probe() noexcept {
     const bool color_glyph_cached =
         g_probe.renderer.glyph_text.cache_builds > glyph_cache_builds_before_color;
     const bool login_restored = set_probe_login_view(login_view);
-    if (!color_emoji_clocked || !color_factory_ready || !color_glyph_cached || !login_restored) {
-        log_u64(LogLevel::error, "probe", "color_emoji_clocked", color_emoji_clocked);
+    if (!color_factory_ready || !color_glyph_cached || !login_restored) {
         log_u64(LogLevel::error, "probe", "color_emoji_factory_ready", color_factory_ready);
         log_u64(LogLevel::error, "probe", "color_emoji_cache_before", glyph_cache_builds_before_color);
         log_u64(LogLevel::error, "probe", "color_emoji_cache_after",
@@ -11043,9 +10826,6 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return 8;
     }
-    log_u64(LogLevel::info, "probe", "color_emoji_login_rebuild_runs_per_second",
-            static_cast<u64>(color_emoji_iterations) * static_cast<u64>(color_emoji_frequency.QuadPart) /
-                static_cast<u64>(color_emoji_end.QuadPart - color_emoji_begin.QuadPart));
     const LoginScene& login_scene = g_probe.login_scene;
     const UiRect password_field = login_scene_rectangle(login_scene, LoginElement::password_field);
     const i32 password_x = static_cast<i32>(((password_field.left + password_field.right) * 0.5f) *

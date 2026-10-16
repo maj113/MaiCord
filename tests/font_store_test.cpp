@@ -1,8 +1,6 @@
 #include "maicord/text/font_store.hpp"
 #include <Windows.h>
-#if defined(MAICORD_FONT_INSTANCE_TESTS)
 #include "maicord/text/font_instance.hpp"
-#endif
 #include "maicord/core/byte_order.hpp"
 namespace maicord {namespace {
 #include "generated/tt_outline_fixture.inc"
@@ -69,9 +67,7 @@ bool outline(const NativeFontFace* face) noexcept {
     FontGeometryScratch scratch{{{points,64},{ends,16},{active,16},0,0,1000000},{},{}};GlyphOutline out{};out.commands=commands;out.capacity=128;
     CHECK(font_geometry_outline(instance,glyph,&scratch,&out)==SfntStatus::ok&&out.count&&out.has_bounds);return true;
 }
-#if defined(MAICORD_FONT_INSTANCE_TESTS)
 #include "font_instance_cases.hpp"
-#endif
 bool run() noexcept {
     const ConstSlice<u8> font{tt_outline_fixture+20,byte_load_le32(tt_outline_fixture+12)};
     CHECK(font.count<16000 && font.count+20<sizeof(tt_outline_fixture));
@@ -128,9 +124,7 @@ bool run() noexcept {
     CHECK(native_font_acquire(&store,L"",0,&b).error==NativeFontError::invalid_input);
     CHECK(native_font_acquire(&store,paths[0],0,nullptr).error==NativeFontError::invalid_input);
     CHECK(!native_font_get(store,{0,1})&&!native_font_get(store,{1,0})&&!native_font_get(store,{4,1}));
-#if defined(MAICORD_FONT_INSTANCE_TESTS)
     CHECK(instance_cases());
-#endif
     CHECK(growth_cases());
     for(auto& f:faces)f.generation=0xffffffffu;
     CHECK(native_font_acquire(&store,paths[0],0,&b).error==NativeFontError::capacity&&!b.slot&&stats(0,0,0));
@@ -139,10 +133,8 @@ bool run() noexcept {
 } }
 extern "C" int maicord_font_store_entry() noexcept {
     using namespace maicord;const bool ok=run();
-#if defined(MAICORD_FONT_INSTANCE_TESTS)
     for(u32 i=0;i<instance_store.slots.count;++i)while(instance_store.slots[i].references)native_font_instance_release(&instance_store,{i+1,instance_store.slots[i].generation});
     print("instance_fonts=",15);number(instance_fonts);print("\ninstance_outlines=",19);number(instance_outlines);print("\ninstance_budgets=",18);number(instance_budgets);print("\ninstance_slot_bytes=",21);number(sizeof(NativeFontInstanceSlot));print("\n",1);
-#endif
     // Always close live test handles before deleting only files we created.
     for(u32 i=0;i<store.faces.count;++i)while(store.faces[i].references)native_font_release(&store,{i+1,store.faces[i].generation});
     bool cleaned=true;for(auto& path:paths)if(path[0]&&!DeleteFileW(path))cleaned=false;
@@ -150,10 +142,6 @@ extern "C" int maicord_font_store_entry() noexcept {
     if(reserved&&!DeleteFileW(reservation))cleaned=false;
     print("checks=",7);number(checks);print("\nhandle_bytes=",14);number(sizeof(NativeFontHandle));print("\nfile_slot_bytes=",17);number(sizeof(NativeFontFileSlot));print("\nface_slot_bytes=",17);number(sizeof(NativeFontFaceSlot));
     const bool passed=ok&&cleaned;
-#if defined(MAICORD_FONT_INSTANCE_TESTS)
     const char* message=passed?"\nPASS native font instances\n":"\nFAIL native font instances\n";
-#else
-    const char* message=passed?"\nPASS native font ownership\n":"\nFAIL native font ownership\n";
-#endif
     print(message,28);return passed?0:1;
 }

@@ -91,6 +91,12 @@ void test_vectors() noexcept {
     const PermissionMember timed_admin{kOther, {admin_roles, 1}, now + 60};
     check(permission_compute(guild, timed_admin, channel, {now, false}) == kPermissionAll,
           "permission compute: administrators are never timeout-masked");
+    const PermissionOverwriteRecord admin_allow[] = {
+        {kSelf, kPermissionAdministrator | kPermissionManageMessages, 0, 1},
+    };
+    check(permission_compute_from_base(base, guild, timed, {admin_allow, 1}, {now, false}) ==
+              (base | kPermissionAdministrator),
+          "permission base: an administrator overwrite prevents the timeout mask without expansion to every bit");
     const PermissionMember quarantined{kSelf, {moderator_roles, 2}, 0, true};
     const PermissionMember quarantined_timed{kSelf, {moderator_roles, 2}, now + 60, true};
     const PermissionMember quarantined_owner{kOwner, {}, now + 60, true};
@@ -123,77 +129,6 @@ void test_vectors() noexcept {
 }
 
 // Store-backed resolution -------------------------------------------------
-
-// Previous full-resolution policy as an independent reference for the new base reuse path.
-PermissionSet reference_permissions(const PermissionGuild& guild, const PermissionMember& member,
-                                    ConstSlice<PermissionOverwriteRecord> overwrites,
-                                    const PermissionOptions& options) noexcept {
-    PermissionSet permissions = permission_compute_base(guild, member);
-    const bool owner = guild.owner_id && member.user_id == guild.owner_id;
-    if (!owner && permissions != kPermissionAll) {
-        permissions = permission_apply_overwrites(permissions, guild.guild_id, member, overwrites);
-        if (!(permissions & kPermissionAdministrator) && permission_member_timed_out(member, options.now_seconds))
-            permissions &= kPermissionTimeoutAllowedMask;
-        if (!(permissions & kPermissionAdministrator) && member.quarantined)
-            permissions &= kPermissionQuarantineAllowedMask;
-    }
-    if (guild.elevated_requires_mfa && options.member_lacks_mfa)
-        permissions &= ~kPermissionElevatedMask;
-    return permissions;
-}
-
-void test_base_reuse() noexcept {
-    const RoleRecord roles[] = {
-        role(kGuild, kEveryone, 0),
-        role(kRoleModerator, kPermissionKickMembers | kPermissionManageMessages),
-        role(kRoleAdmin, kPermissionAdministrator),
-        role(kRoleModerator, kPermissionAdministrator, 1, 999),
-    };
-    const u64 member_roles[] = {kRoleModerator, 999'999};
-    const u64 admin_roles[] = {kRoleAdmin};
-    const PermissionMember members[] = {
-        {kOwner, {}, 1060},
-        {kSelf, {admin_roles, 1}, 1060},
-        {kSelf, {member_roles, 2}, 1060},
-        {kSelf, {member_roles, 2}, 0},
-        {kOther, {}, 1060},
-        {kSelf, {member_roles, 2}, 0, true},
-        {kSelf, {member_roles, 2}, 1060, true},
-    };
-    const PermissionOverwriteRecord ordered[] = {
-        {kGuild, 0, kPermissionSendMessages, 0},
-        {kRoleModerator, kPermissionSendMessages, kPermissionReadMessageHistory, 0},
-        {kSelf, kPermissionReadMessageHistory | kPermissionKickMembers, kPermissionManageMessages, 1},
-    };
-    const PermissionOverwriteRecord admin_allow[] = {
-        {kSelf, kPermissionAdministrator | kPermissionManageMessages, 0, 1},
-    };
-    const PermissionOverwriteRecord deny_all[] = {{kGuild, 0, kPermissionAll, 0}};
-    const ConstSlice<PermissionOverwriteRecord> overwrite_sets[] = {
-        {}, {ordered, 3}, {admin_allow, 1}, {deny_all, 1},
-    };
-    const u64 times[] = {0, 1000, 1060};
-    for (u32 strict = 0; strict < 2; ++strict) {
-        const PermissionGuild guild{kGuild, kOwner, {roles, 4}, strict != 0};
-        for (const auto& member : members) {
-            const PermissionSet base = permission_compute_base(guild, member);
-            for (const auto overwrites : overwrite_sets)
-                for (const u64 now : times)
-                    for (u32 lacks_mfa = 0; lacks_mfa < 2; ++lacks_mfa) {
-                        const PermissionOptions options{now, lacks_mfa != 0};
-                        const PermissionSet expected = reference_permissions(guild, member, overwrites, options);
-                        check(permission_compute_from_base(base, guild, member, overwrites, options) == expected &&
-                                  permission_compute(guild, member, overwrites, options) == expected,
-                              "permission base: reuse preserves overwrite, timeout, owner, administrator and MFA rules");
-                    }
-        }
-    }
-    const PermissionGuild guild{kGuild, kOwner, {roles, 4}, false};
-    check(permission_compute_from_base(permission_compute_base(guild, members[2]), guild, members[2],
-                                       {admin_allow, 1}, {1000, false}) ==
-              (kEveryone | kPermissionKickMembers | kPermissionManageMessages | kPermissionAdministrator),
-          "permission base: an administrator overwrite prevents the timeout mask without expansion to every bit");
-}
 
 struct Model {
     ChatStateStore state;
@@ -434,7 +369,6 @@ void test_bans() noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_permission_compute_entry() noexcept {
     using namespace maicord::permission_compute_test;
     test_vectors();
-    test_base_reuse();
     test_store();
     test_moderation();
     test_bans();

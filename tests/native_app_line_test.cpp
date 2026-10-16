@@ -47,8 +47,7 @@
 #include <emmintrin.h>
 namespace maicord {namespace {
 u32 checks=0,cases=0,native_cases=0,simulated_cases=0;bool print_ok=true;
-u32 matrix_shard=0,matrix_shards=1;u64 matrix_seen=0,matrix_selected=0;bool matrix_sharded=false;
-bool matrix_case_selected() noexcept {const bool selected=matrix_seen++%matrix_shards==matrix_shard;if(selected)++matrix_selected;return selected;}
+u64 matrix_seen=0;
 u32 invisible_offset_differences=0;
 bool benchmark=false,benchmarked=false,paragraph_profiles=false,paragraph_expansion=false,paragraph_bench_fonts=false;
 bool hit_profiles=false;
@@ -527,7 +526,7 @@ bool corpus(IDWriteFontCollection* collection,const wchar_t* family,u32 weight) 
         if(arabic_paragraph_profiles||arabic_editor_profiles){system.em_size=size;system.fixed_weight=collection!=nullptr;CHECK(native_arabic_paragraph_corpus(system,arabic_editor_profiles));continue;}
         if(tracking_profiles){CHECK(native_tracking_corpus(system));continue;}
         if(style_continuity_profiles){CHECK(style_continuity_corpus(system));continue;}
-        if(style_cluster_profiles){u32 family_length=0;while(family[family_length])++family_length;const bool required=!collection&&weight==400&&family_length==8&&bytes_equal(family,L"Segoe UI",16);
+        if(style_cluster_profiles){system.em_size=size;u32 family_length=0;while(family[family_length])++family_length;const bool required=!collection&&weight==400&&family_length==8&&bytes_equal(family,L"Segoe UI",16);
             CHECK(style_cluster_corpus(system,required));continue;}
         if(styled_hit_profiles){u32 family_length=0;while(family[family_length])++family_length;const bool required=!collection&&weight==400&&family_length==8&&bytes_equal(family,L"Segoe UI",16);
             CHECK(styled_hit_corpus(system,required));continue;}
@@ -548,7 +547,7 @@ bool corpus(IDWriteFontCollection* collection,const wchar_t* family,u32 weight) 
                 if(placement==0)spans[0]={3,6,flags[flags_index]};else if(placement==1)spans[0]={0,text.bytes,flags[flags_index]};else if(placement==2){spans[0]={0,1,flags[flags_index]};spans[1]={1,1,text_style_link};count=2;}else if(placement==3)spans[0]={9,text.bytes-9,flags[flags_index]};else if(placement==4)spans[0]={2,1,flags[flags_index]};
                 else if(placement==5){spans[0]={0,3,flags[flags_index]};spans[1]={3,6,flags[flags_index]|text_style_heading_3};spans[2]={9,text.bytes-9,flags[flags_index]|text_style_bold};count=3;}
                 else{spans[0]={0,3,flags[flags_index]};spans[1]={3,text.bytes-3,flags[flags_index]};count=2;}
-                for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap){if(!matrix_case_selected())continue;++cases;const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;auto reference=system;reference.native_text=nullptr;
+                for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap){++matrix_seen;++cases;const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;auto reference=system;reference.native_text=nullptr;
                     shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);
                     const bool native=native_text_candidate_styled(system,text,{spans,count},width,1000000,&native_output.text,nullptr,wrap);CHECK(!require_native||native);if(native){++native_cases;CHECK(draw_source(system,native_output.text));}shaped_text_reset(&native_output.text);
                     CHECK(text_shape_utf8_styled(&system,text,{spans,count},width,1000000,{utf16,256},&native_output.text,wrap).ok());
@@ -660,9 +659,6 @@ bool matrix_batch(const wchar_t* arguments, bool single_profile = false) noexcep
     constexpr const char* profiles[]{"ellipsis_hits", "multiline_hits", "multiline_private_hits", "styled",
                                      "decorations"};
     constexpr u32 expected[]{31320, 18600, 18600, 23040, 48384};
-    matrix_shard = 0;
-    matrix_shards = 1;
-    matrix_sharded = false;
     const u32 first_profile = single_profile ? selected_profile : 0;
     const u32 profile_limit = single_profile ? selected_profile + 1 : 5;
     for (u32 profile = first_profile; profile < profile_limit; ++profile) {
@@ -672,7 +668,7 @@ bool matrix_batch(const wchar_t* arguments, bool single_profile = false) noexcep
         multiline_trim_profiles = multiline_plan_profiles = multiline_hit_profiles = multiline_quick =
             false;
         style_profiles = decoration_profiles = false;
-        matrix_seen = matrix_selected = 0;
+        matrix_seen = 0;
         const u32 first_case = cases, first_native = native_cases, first_checks = checks;
         if (profile == 0)
             ellipsis_hit_profiles = true;
@@ -687,8 +683,6 @@ bool matrix_batch(const wchar_t* arguments, bool single_profile = false) noexcep
         print(profiles[profile]);
         print(" cases=");
         number(cases - first_case);
-        print(" selected=");
-        number(matrix_selected);
         print(" seen=");
         number(matrix_seen);
         print(" native_cases=");
@@ -697,8 +691,7 @@ bool matrix_batch(const wchar_t* arguments, bool single_profile = false) noexcep
         number(checks - first_checks);
         print(ok ? " PASS\n" : " FAIL\n");
         CHECK(ok);
-        CHECK(matrix_seen == expected[profile] && matrix_selected == matrix_seen &&
-              cases - first_case == expected[profile]);
+        CHECK(matrix_seen == expected[profile] && cases - first_case == expected[profile]);
     }
     shaped_text_reset(&native_output.text);
     shaped_text_reset(&reference_output.text);
@@ -936,15 +929,6 @@ bool run() noexcept {
     const wchar_t* p=GetCommandLineW();bool quote=false;while(*p){if(*p=='"')quote=!quote;else if(!quote&&(*p==' '||*p=='\t'))break;++p;}while(*p==' '||*p=='\t')++p;
     const wchar_t recovery_option[]=L"--request-recovery";u32 recovery_match=0;while(recovery_option[recovery_match]&&p[recovery_match]==recovery_option[recovery_match])++recovery_match;
     if(!recovery_option[recovery_match]&&!p[recovery_match])return native_request_recovery();
-    const wchar_t shard_option[]=L"--matrix-shard";u32 shard_match=0;while(shard_option[shard_match]&&p[shard_match]==shard_option[shard_match])++shard_match;
-    if(!shard_option[shard_match]&&p[shard_match]==' '){p+=shard_match;
-        const auto read=[&](u32& value) noexcept {while(*p==' '||*p=='\t')++p;value=0;if(*p<'0'||*p>'9')return false;
-            while(*p>='0'&&*p<='9'){if(value>128)return false;value=value*10+*p++-'0';}if(*p!=' '&&*p!='\t')return false;while(*p==' '||*p=='\t')++p;return true;};
-        CHECK(read(matrix_shard)&&read(matrix_shards)&&matrix_shards&&matrix_shards<=128&&matrix_shard<matrix_shards);
-        const wchar_t* allowed[]{L"--style-profile",L"--decoration-profile",L"--bidi-styles-profile",L"--bidi-emoji-profile",L"--ellipsis-style-profile",L"--ellipsis-hit-profile",L"--quick --multiline-hit-profile",L"--multiline-hit-profile",L"--directional-editor-cuts-profile",L"--symbols-profile",L"--style-cluster-profile"};bool supported=false;
-        for(const auto* option:allowed){u32 n=0;while(option[n]&&p[n]==option[n])++n;supported|=!option[n]&&p[n]==' ';}
-        {const wchar_t mixed[]=L"--mixed-emoji";u32 n=0;while(mixed[n]&&p[n]==mixed[n])++n;supported|=!mixed[n]&&!p[n];}
-        CHECK(supported);matrix_sharded=true;}
     const wchar_t selection_check[]=L"--font-selection-check";u32 selection_match_check=0;while(selection_check[selection_match_check]&&p[selection_match_check]==selection_check[selection_match_check])++selection_match_check;
     if(!selection_check[selection_match_check]&&!p[selection_match_check])return native_font_selection_cases();
     const wchar_t contexts_check[]=L"--font-context-layouts";u32 contexts_match=0;while(contexts_check[contexts_match]&&p[contexts_match]==contexts_check[contexts_match])++contexts_match;
@@ -1239,36 +1223,6 @@ bool run() noexcept {
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_native_app_line_entry() noexcept {
     using namespace maicord;const bool ok=run()&&draw_scratch_ready;
-    bool shard_coverage_ok=true;
-    if(matrix_sharded&&bidi_emoji_profiles&&!multiline_quick){
-        // 35 inputs * 6 patterns * 13 flags * 2 modes * 2 wraps * 5 widths * 3 em sizes.
-        constexpr u64 full_cases=163800;
-        const u64 expected_selected=full_cases/matrix_shards+(matrix_shard<full_cases%matrix_shards?1u:0u);
-        ++checks;shard_coverage_ok=matrix_seen==full_cases&&matrix_selected==expected_selected&&cases==expected_selected&&native_cases==expected_selected;
-        print("bidi_emoji_expected_seen=");number(full_cases);print(" expected_selected=");number(expected_selected);print(shard_coverage_ok?" PASS coverage\n":" FAIL coverage\n");
-    }
-    if(matrix_sharded&&(symbol_profiles||style_cluster_profiles)){
-        // Symbols: 38 inputs * 6 patterns * 13 flags * 2 modes * 2 wraps * 5 widths * 3 em sizes.
-        // Style clusters: 157 style cuts * 10 flags * 4 modes * 3 widths * 2 wraps * 3 em sizes.
-        const u64 full_cases=symbol_profiles?177840u:113040u;
-        const u64 expected_selected=full_cases/matrix_shards+(matrix_shard<full_cases%matrix_shards?1u:0u);
-        ++checks;shard_coverage_ok=matrix_seen==full_cases&&matrix_selected==expected_selected;
-        print(symbol_profiles?"symbols_expected_seen=":"style_clusters_expected_seen=");number(full_cases);print(" seen=");number(matrix_seen);print(" expected_selected=");number(expected_selected);print(shard_coverage_ok?" PASS coverage\n":" FAIL coverage\n");
-    }
-    if(matrix_sharded&&mixed_emoji_profiles){
-        // 4 families * 3 em sizes * 15 mixed inputs, each cell exhaustive.
-        constexpr u64 full_cells=180;
-        const u64 expected_selected=full_cells/matrix_shards+(matrix_shard<full_cells%matrix_shards?1u:0u);
-        ++checks;shard_coverage_ok=matrix_seen==full_cells&&matrix_selected==expected_selected;
-        print("mixed_emoji_expected_cells=");number(full_cells);print(" expected_selected=");number(expected_selected);print(shard_coverage_ok?" PASS coverage\n":" FAIL coverage\n");
-    }
-    if(matrix_sharded&&directional_editor_cuts_profiles){
-        // 26 inputs * (2 * scalars) cut patterns * 13 flags * 2 wraps * 4 widths * 3 em sizes.
-        constexpr u64 full_cases=112944;
-        const u64 expected_selected=full_cases/matrix_shards+(matrix_shard<full_cases%matrix_shards?1u:0u);
-        ++checks;shard_coverage_ok=matrix_seen==full_cases&&matrix_selected==expected_selected;
-        print("directional_editor_cuts_expected_seen=");number(full_cases);print(" expected_selected=");number(expected_selected);print(shard_coverage_ok?" PASS coverage\n":" FAIL coverage\n");
-    }
     shaped_text_reset(&native_output.text);shaped_text_reset(&reference_output.text);reference_edit_queries_release();draw_bound_release();oracle_faces_release();const bool draw_retained_ok=draw_retained_release();text_system_release(&owner);arena_release(&draw_scratch);
     if(invisible_offset_differences){print("zero_advance_empty_space_offset_diagnostics=");number(invisible_offset_differences);print("\n");}
     if(hit_point_requests){print("hit_point_requests=");number(hit_point_requests);print(" hit_point_reused=");number(hit_point_reused);print(" repeated_caret_boxes=");number(repeated_hit_boxes);print("\n");}
@@ -1277,6 +1231,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_native_app_line_entry() noex
     if(repeated_matrix_cases){print("repeated_matrix_cases=");number(repeated_matrix_cases);print(" (identical native/oracle requests counted, executed once)\n");}
     if(reference_measure_controls||reference_measure_reuses){print("reference_measure_controls=");number(reference_measure_controls);print(" reference_measure_shape_reuses=");number(reference_measure_reuses);print("\n");}
     if(draw_scratch_uses){print("draw_scratch_uses=");number(draw_scratch_uses);print(" draw_scratch_reservations=");number(draw_scratch_reservations);print(" leases_released=");number(draw_scratch_ready);print(" retained_instance_reuses=");number(draw_retained_reuses);print(" bind_controls=");number(draw_bind_controls);print(" bind_reuses=");number(draw_bind_reuses);print("\n");}
-    if(matrix_sharded){print("{\"kind\":\"matrix_shard\",\"index\":");number(matrix_shard);print(",\"count\":");number(matrix_shards);print(",\"seen\":");number(matrix_seen);print(",\"selected\":");number(matrix_selected);print("}\n");}
-    print("cases=");number(cases);print(" native_cases=");number(native_cases);print(" simulated_cases=");number(simulated_cases);print(" checks=");number(checks);print(ok&&shard_coverage_ok?" PASS native app lines\n":" FAIL native app lines\n");ExitProcess(ok&&shard_coverage_ok&&draw_retained_ok&&print_ok?0:1);
+    print("cases=");number(cases);print(" native_cases=");number(native_cases);print(" simulated_cases=");number(simulated_cases);print(" checks=");number(checks);print(ok?" PASS native app lines\n":" FAIL native app lines\n");ExitProcess(ok&&draw_retained_ok&&print_ok?0:1);
 }

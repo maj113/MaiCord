@@ -89,8 +89,7 @@ foreach(maicord_registered_test IN LISTS maicord_registered_tests)
 endforeach()
 
 # Longest-first start order (CTest COST, descending), from durations measured
-# under the full 16-job suite. Long matrices run as round-robin shards so no
-# single process forms a late tail; wall-bound tests that mostly wait on peers
+# under the full 16-job suite. Tests that mostly wait on peers
 # or deadlines start early because they cost little CPU. The GPU-locked probe
 # chain (COST 60) starts immediately and overlaps the CPU matrices (COST 59.xx).
 # These independent window/readback probes also need an early start: resize
@@ -105,14 +104,14 @@ foreach(maicord_long_test
     maicord_native_extensions
     maicord_native_extensions_shard_1 maicord_native_extensions_shard_2
     maicord_native_extensions_shard_3
-    maicord_native_bidi_emoji maicord_native_bidi_emoji_shard_1
-    maicord_native_directional_editor_cuts maicord_native_directional_editor_cuts_shard_1
+    maicord_native_bidi_emoji
+    maicord_native_directional_editor_cuts
     maicord_update_handoff maicord_account_logout_runtime
-    maicord_native_bidi_styles maicord_native_bidi_styles_shard_1
-    maicord_native_mixed_emoji maicord_native_mixed_emoji_shard_1
-    maicord_native_style_clusters maicord_native_style_clusters_shard_1
+    maicord_native_bidi_styles
+    maicord_native_mixed_emoji
+    maicord_native_style_clusters
     maicord_native_matrix_decorations
-    maicord_native_symbols maicord_native_symbols_shard_1
+    maicord_native_symbols
     maicord_native_directional_edit_cuts
     maicord_notification_audio_faults maicord_native_simulated_styles
     maicord_native_directional_semantic_ranges maicord_core

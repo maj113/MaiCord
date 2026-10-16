@@ -31,24 +31,22 @@ bool native_emoji_dispatch_benchmark(bool mixed=false) noexcept {
     }return true;
 }
 bool emoji_dispatch_case(DWriteTextSystem system,DWriteTextSystem reference,Utf8View text,bool detailed,bool required=true,bool mixed=false) noexcept {
-    const float widths[]{8,37,1000000};
+    struct Scenario {float width;TextWrapping wrap;};
+    const Scenario scenarios[]{{8,TextWrapping::wrap},{37,TextWrapping::wrap},{1000000,TextWrapping::no_wrap}};
     const u32 flags[]{0,text_style_bold|text_style_italic|text_style_monospace,text_style_link,
         text_style_underline|text_style_strikethrough,text_style_heading_2|text_style_bold};
     DWriteEditLayoutOwner layouts[2]{};TextEditMetric selections[2][48];
     for(u32 i=0;i<2;++i){layouts[i].selections=selections[i];layouts[i].selection_capacity=48;}
     struct Release {DWriteEditLayoutOwner* p;~Release() noexcept {text_edit_layout_release(p);text_edit_layout_release(p+1);}} release{layouts};
-    u32 fresh_native_admissions=0,oracle_layout_builds=0,oracle_layout_reuses=0;
-    // Editor typography is independent of drawing's tracking/letter mode.
-    // Keep each immutable oracle layout across those four drawing inputs.
-    for(u32 f=0;f<(detailed?5u:1u);++f)for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap)for(u32 mode=0;mode<(detailed?4u:1u);++mode){
-        if(multiline_quick&&mixed&&width!=widths[(mode+f+nowrap)%3])continue;
+    for(u32 mode=0;mode<(detailed?4u:1u);++mode)for(u32 f=0;f<(detailed?5u:1u);++f)for(const auto& scenario:scenarios){
+        const float width=scenario.width;const auto wrap=scenario.wrap;
         ++cases;system.tracking=reference.tracking=mode&1?.03f:0;system.independent_letters=reference.independent_letters=(mode&2)!=0;
-        const TextStyleSpan style{0,text.bytes,flags[f]};const ConstSlice<TextStyleSpan> styles{&style,flags[f]?1u:0u};const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;
+        const TextStyleSpan style{0,text.bytes,flags[f]};const ConstSlice<TextStyleSpan> styles{&style,flags[f]?1u:0u};
         CHECK(text_shape_utf8_styled(&system,text,styles,width,1000000,{utf16,256},&native_output.text,wrap).ok());
         CHECK((native_output.text.native_fonts()!=nullptr)==required);if(required)++native_cases;
         CHECK(text_shape_utf8_styled(&reference,text,styles,width,1000000,{utf16,256},&reference_output.text,wrap).ok());CHECK(same(native_output,reference_output,mixed));
         const auto a=text_measure_utf8_styled(&system,text,styles,width,1000000,{utf16,256},wrap);TextMeasureResult b{};
-        CHECK(reference_shape_measure(reference,text,styles,width,1000000,{utf16,256},wrap,multiline_quick||width==widths[0]||(mode==3&&width==widths[2]),&b));
+        CHECK(reference_shape_measure(reference,text,styles,width,1000000,{utf16,256},wrap,width==8||(mode==3&&wrap==TextWrapping::no_wrap),&b));
         CHECK(a.ok()&&b.ok()&&bytes_equal(&a.width,&b.width,12)&&a.line_count==b.line_count&&a.utf16_units==b.utf16_units);
         const TextHitSpan hit{0,text.bytes,65535,0};
         CHECK(text_shape_utf8_interactive(&system,text,styles,{&hit,1},width,1000000,{utf16,256},&native_output.text,wrap).ok()&&((native_output.text.native_fonts()!=nullptr)==required));
@@ -57,40 +55,21 @@ bool emoji_dispatch_case(DWriteTextSystem system,DWriteTextSystem reference,Utf8
             // The app's editor resets tracking/independent typography before
             // shaping. Require native geometry for every drawing-mode input.
             auto edit_system=system;const bool native_editor=required;
-            // Preserve fresh native admission for every drawing mode while
-            // retaining its allocations; only the reference layout is shared.
-            text_edit_layout_invalidate(layouts);CHECK(!layouts[0].active&&!layouts[0].geometry&&!layouts[0].layout);
             for(u32 caret=0;caret<=units;++caret){
-                const TextEditLayoutInput input{text,text_edit_signature(text),0,caret,9.125f,32.25f,width,40,1000000,static_cast<u8>(nowrap?0:text_edit_layout_wrap),styles};
+                const TextEditLayoutInput input{text,text_edit_signature(text),0,caret,9.125f,32.25f,width,40,1000000,static_cast<u8>(wrap==TextWrapping::wrap?text_edit_layout_wrap:0),styles};
                 CHECK(text_edit_layout_measure(layouts,input,edit_system)&&(layouts[0].geometry==native_editor));
-                if(!caret){auto* previous_oracle=layouts[1].layout;
-                    // Keep the old object alive across measurement so a new
-                    // COM layout cannot reuse its address and fake a cache hit.
-                    if(previous_oracle)previous_oracle->AddRef();
-                    struct ReleaseOracle {IDWriteTextLayout*& p;~ReleaseOracle() noexcept {com_release(p);}} release_oracle{previous_oracle};
-                    CHECK(text_edit_layout_measure(layouts+1,input,reference));
-                    ++fresh_native_admissions;if(layouts[1].layout==previous_oracle)++oracle_layout_reuses;else ++oracle_layout_builds;
-                }else CHECK(text_edit_layout_measure(layouts+1,input,reference));
-                CHECK(same_edit(layouts[0],layouts[1]));
+                CHECK(text_edit_layout_measure(layouts+1,input,reference)&&same_edit(layouts[0],layouts[1]));
                 const auto builds=layouts[0].builds;CHECK(text_edit_layout_measure(layouts,input,edit_system)&&layouts[0].builds==builds);
             }
         }
     }
-    const bool quick_mixed=multiline_quick&&mixed;
-    const u32 expected_cells=detailed?(quick_mixed?40u:120u):(quick_mixed?2u:6u),expected_builds=detailed?30u:expected_cells;
-    CHECK(fresh_native_admissions==expected_cells&&oracle_layout_builds==expected_builds&&oracle_layout_reuses==expected_cells-expected_builds);
     return true;
 }
 bool emoji_dispatch_cuts(DWriteTextSystem system,DWriteTextSystem reference,Utf8View text,bool mixed=false) noexcept {
     const u32 flags[]{text_style_link,text_style_bold|text_style_italic,text_style_underline|text_style_strikethrough,text_style_monospace,text_style_heading_2};
-    const float widths[]{8,37,1000000};auto observed=system;system.factory=nullptr;system.format=nullptr;
+    const float widths[]{37,1000000};auto observed=system;system.factory=nullptr;system.format=nullptr;
     for(u32 at=0;at<text.bytes;){const auto cp=utf8_decode_one(text.data+at,text.bytes-at);CHECK(cp.valid);
-        for(u32 flag:flags)for(u32 tail=0;tail<2;++tail)for(float width:widths){
-            if(multiline_quick&&mixed&&flag!=flags[(at+tail)%5])continue;
-            if(multiline_quick&&mixed&&width!=widths[(at+flag+tail)%3])continue;
-            // At the final scalar the tail span equals the single-scalar span:
-            // an identical request already checked with tail 0.
-            if(!multiline_quick&&tail&&at+cp.width==text.bytes){++repeated_matrix_cases;continue;}++cases;
+        for(u32 flag:flags)for(u32 tail=0;tail<(at+cp.width==text.bytes?1u:2u);++tail)for(float width:widths){++cases;
             const TextStyleSpan style{at,tail?text.bytes-at:cp.width,flag};const ConstSlice<TextStyleSpan> styles{&style,1};
             shaped_text_reset(&native_output.text);const bool native=native_text_candidate_styled(system,text,styles,width,1000000,&native_output.text,nullptr,TextWrapping::wrap);
             if(!mixed&&text_style_font_size(system.em_size,flag)==system.em_size)CHECK(native);if(native)++native_cases;

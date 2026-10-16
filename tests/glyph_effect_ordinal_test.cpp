@@ -1,6 +1,6 @@
 #include "../src/render/glyph_effect_ordinals.hpp"
 namespace maicord {namespace {
-u32 checks=0;u64 color_calls=0;volatile u64 result_sink=0;
+u32 checks=0;u64 color_calls=0;
 void print(const char* p) noexcept {u32 n=0;while(p[n])++n;DWORD wrote=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),p,n,&wrote,nullptr);}
 void number(u64 n) noexcept {char text[32];u32 count=0;do{text[count++]=static_cast<char>('0'+n%10);n/=10;}while(n);while(count){const char c=text[--count];DWORD wrote=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),&c,1,&wrote,nullptr);}}
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line ");number(__LINE__);print("\n");return false;}}while(0)
@@ -38,16 +38,13 @@ bool run() noexcept {
     const auto monochrome=+[](void*,u32) noexcept {return false;};CHECK(glyph_effect_prepare(maximum,{source,65533},monochrome,nullptr));CHECK(large[65532].reserved==65532&&large[65533].reserved==65532);
     maximum.cluster_count=65534;large[0].reserved=123;CHECK(!glyph_effect_prepare(maximum,{source,65534},monochrome,nullptr)&&large[0].reserved==123);
     CHECK(glyph_effect_ordinal(maximum,{source,65534},65533,monochrome,nullptr)==65533);
-    // Paired operation cost includes preparation and every resulting ordinal.
-    LARGE_INTEGER frequency{};CHECK(QueryPerformanceFrequency(&frequency));print("{\"kind\":\"glyph_effect_cost\",\"frequency\":");number(frequency.QuadPart);print(",\"batches\":[");
-    maximum.cluster_count=maximum.glyph_count=512;for(u32 b=0;b<6;++b){u64 ticks[2]{},cycles[2]{},calls[2]{},sums[2]{};
-        for(u32 order=0;order<2;++order){const u32 side=order^(b&1);LARGE_INTEGER first{},last{};ULONG64 c0=0,c1=0;color_calls=0;CHECK(QueryThreadCycleTime(GetCurrentThread(),&c0)&&QueryPerformanceCounter(&first));
-            u64 sum=0;for(u32 repeat=0;repeat<4;++repeat){if(side){CHECK(glyph_effect_prepare(maximum,{source,512},colored,nullptr));for(u32 g=0;g<512;++g)sum+=large[g].reserved;}
-                else for(u32 g=0;g<512;++g)sum+=reference(maximum,{source,512},g);}
-            CHECK(QueryPerformanceCounter(&last)&&QueryThreadCycleTime(GetCurrentThread(),&c1));result_sink=sum;sums[side]=sum;ticks[side]=last.QuadPart-first.QuadPart;cycles[side]=c1-c0;calls[side]=color_calls;}
-        CHECK(sums[0]==sums[1]&&calls[1]==2048);
-        if(b)print(",");print("[");number(ticks[0]);print(",");number(ticks[1]);print(",");number(cycles[0]);print(",");number(cycles[1]);print(",");number(calls[0]);print(",");number(calls[1]);print("]");}
-    print("]}\nchecks=");number(checks);print("\nPASS glyph effect ordinals\n");return true;
+    // One deterministic pass checks the preparation work and every resulting ordinal.
+    maximum.cluster_count=maximum.glyph_count=512;color_calls=0;
+    CHECK(glyph_effect_prepare(maximum,{source,512},colored,nullptr));
+    CHECK(color_calls==512);
+    for(u32 glyph=0;glyph<512;++glyph)
+        CHECK(large[glyph].reserved==reference(maximum,{source,512},glyph));
+    print("checks=");number(checks);print("\nPASS glyph effect ordinals\n");return true;
 }
 }}
 extern "C" void maicord_glyph_effect_entry(){ExitProcess(maicord::run()?0:1);}

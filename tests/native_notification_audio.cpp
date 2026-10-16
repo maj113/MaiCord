@@ -229,3 +229,15 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
     // than close a handle under a live callback; test harness must fail/exit.
 }
 } // namespace maicord
+
+namespace maicord {
+namespace notification_audio_entry {u32 failures;
+void check(bool passed,const char* message) noexcept {
+    if(passed)return;++failures;u32 n=0;while(message[n])++n;DWORD written{};
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message,n,&written,nullptr);
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),"\r\n",2,&written,nullptr);
+}
+}}
+extern "C" __declspec(noreturn) void WINAPI maicord_notification_audio_tests_entry() noexcept {
+    maicord::test_native_notification_audio(maicord::notification_audio_entry::check);ExitProcess(maicord::notification_audio_entry::failures?1:0);
+}

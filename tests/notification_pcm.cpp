@@ -44,3 +44,15 @@ void test_notification_pcm(void(*check)(bool,const char*)noexcept) noexcept {
         "PCM: appended data is rejected by exact sealed stream admission");
 }
 }
+
+namespace maicord {
+namespace notification_pcm_entry {u32 failures;
+void check(bool passed,const char* message) noexcept {
+    if(passed)return;++failures;u32 n=0;while(message[n])++n;DWORD written{};
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),message,n,&written,nullptr);
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),"\r\n",2,&written,nullptr);
+}
+}}
+extern "C" __declspec(noreturn) void WINAPI maicord_notification_pcm_tests_entry() noexcept {
+    maicord::test_notification_pcm(maicord::notification_pcm_entry::check);ExitProcess(maicord::notification_pcm_entry::failures?1:0);
+}

@@ -1,3 +1,4 @@
+#include "test_output.hpp"
 #include "maicord/core/time.hpp"
 #include "../src/app/application_notifications.hpp"
 #include "../src/app/application_state.hpp"
@@ -1109,4 +1110,17 @@ bool application_navigate_notification(u64, u64) noexcept {
     ++notification_application_probe::fixture.navigation_calls;
     return false;
 }
+}
+
+namespace maicord {
+namespace application_notifications_entry {
+u32 failures;
+void check(bool passed, const char* message) noexcept {
+    test_check(&failures, passed, message);
+}
+}
+}
+extern "C" __declspec(noreturn) void WINAPI maicord_application_notifications_tests_entry() noexcept {
+    maicord::test_application_notifications(maicord::application_notifications_entry::check);
+    ExitProcess(maicord::application_notifications_entry::failures ? 1 : 0);
 }

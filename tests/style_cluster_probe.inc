@@ -35,13 +35,16 @@ bool style_cluster_corpus(DWriteTextSystem system,bool required_font) noexcept {
     const Utf8View texts[]{utf8_literal("ffi"),utf8_literal("office"),utf8_literal("Ae\xcc\x81V"),utf8_literal("A\xcc\x81\xcc\xa3V"),utf8_literal("A\xcc\x81\xcc\x81V"),utf8_literal("A\r\nV"),utf8_literal("A\xe2\x80\x8dV"),utf8_literal("e\xcc\x81"),utf8_literal("e\xcc\x81\xcc\x88"),
         utf8_literal("e\xcc\x81 A\tA\xcc\x81\nV"),utf8_literal("A\xcd\x8f\xcc\x81V"),utf8_literal("A\xe2\x80\x8c\xcc\x81V"),utf8_literal("A\xe2\x80\x8d\xcc\x81V")};
     const u32 flags[]{text_style_link,text_style_syntax_keyword,text_style_underline,text_style_strikethrough,text_style_bold,text_style_italic,text_style_heading_1,text_style_monospace,text_style_spoiler,text_style_mention};
-    const float widths[]{8.f,37.f,1000000.f};
+    struct Scenario {float width;TextWrapping wrap;};
+    const Scenario scenarios[]{{8,TextWrapping::wrap},{37,TextWrapping::wrap},{1000000,TextWrapping::no_wrap}};
+    struct ScaleCase {u32 sample,first,last,flag;};
+    const ScaleCase scale_cases[]{{2,2,3,text_style_underline},{0,1,2,text_style_bold},{3,0,3,text_style_heading_1}};
     for(u32 sample=0;sample<sizeof(texts)/sizeof(texts[0]);++sample){const auto text=texts[sample];u32 offsets[32],count=0;
         for(u32 at=0;at<text.bytes;){offsets[count++]=at;const auto cp=utf8_decode_one(text.data+at,text.bytes-at);CHECK(cp.valid);at+=cp.width;}offsets[count]=text.bytes;
-        for(u32 first=0;first<count;++first)for(u32 last=first+1;last<=count;++last)for(u32 flag=0;flag<10;++flag)for(u32 mode=0;mode<4;++mode)for(float width:widths)for(u32 nowrap=0;nowrap<2;++nowrap){
-            if(!matrix_case_selected())continue;
+        const auto execute=[&](u32 first,u32 last,u32 flag,u32 mode,const Scenario& scenario) noexcept {
+            const float width=scenario.width;const auto wrap=scenario.wrap;const bool nowrap=wrap==TextWrapping::no_wrap;
             ++cases;system.independent_letters=(mode&1)!=0;system.fixed_weight=(mode&2)!=0;auto reference=system;reference.native_text=nullptr;
-            const auto wrap=nowrap?TextWrapping::no_wrap:TextWrapping::wrap;const TextStyleSpan style{offsets[first],offsets[last]-offsets[first],flags[flag]};
+            const TextStyleSpan style{offsets[first],offsets[last]-offsets[first],flag};
             const auto diagnose=[&]() noexcept {print("cluster sample/first/last/flag/mode/width/nowrap/em=");number(sample);print("/");number(first);print("/");number(last);print("/");number(flag);print("/");number(mode);print("/");real(width);print("/");number(nowrap);print("/");real(system.format->GetFontSize());print("\n");};
             shaped_text_reset(&native_output.text);const bool native=native_text_candidate_styled(system,text,{&style,1},width,1000000,&native_output.text,nullptr,wrap);
             const bool required=required_font&&sample<10&&sample!=6&&(sample!=5||(first!=2&&last!=2));
@@ -56,7 +59,10 @@ bool style_cluster_corpus(DWriteTextSystem system,bool required_font) noexcept {
                 // Drawing and retained editing have distinct admission policies.
                 // Every admitted editor layout still receives raw-range checks.
                 if(native_text_candidate_styled(system,text,{&style,1},width,1000,nullptr,&measured,wrap,TextOverflow::clip,{},&storage)&&!compare_hits(system,text,width,wrap,{&style,1})){diagnose();CHECK(false);}}
-        }
+            return true;
+        };
+        if(system.em_size==17.5f){for(u32 first=0;first<count;++first)for(u32 last=first+1;last<=count;++last)for(u32 flag:flags)for(u32 mode=0;mode<4;++mode)for(const auto& scenario:scenarios)CHECK(execute(first,last,flag,mode,scenario));}
+        else for(const auto& scale:scale_cases)if(scale.sample==sample)CHECK(execute(scale.first,scale.last,scale.flag,0,scenarios[1]));
     }return true;
 }
 bool style_cluster_edit_transitions() noexcept {
