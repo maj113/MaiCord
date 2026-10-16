@@ -521,10 +521,10 @@ struct D3D11Renderer {
     u32 idle_begin_frame_presents;
     u64 partial_present_pixels;
     u32 media_overlay_paint_first_batch;
-    u32 profile_foreground_first_batch;
+    u32 profile_foreground_first_batch, profile_controls_first_batch;
     u32 profile_paint_first_batch, profile_paint_end_batch;
     u32 profile_text_first_batch, profile_text_end_batch;
-    u32 profile_media_first_batch, profile_media_end_batch;
+    u32 profile_media_first_batch, profile_effect_media_first_batch, profile_media_end_batch;
     u32 popup_media_first_batch;
     u32 menu_paint_first_batch;
     u32 menu_media_first_batch;
@@ -566,7 +566,9 @@ struct D3D11Renderer {
     const UiProfileDialogScene* settings_profile_dialog;
     u32 settings_preview_paint_first_batch, settings_preview_foreground_first_batch,
         settings_preview_paint_end_batch;
-    u32 settings_preview_media_first_batch, settings_preview_media_end_batch;
+    u32 settings_preview_media_first_batch, settings_preview_effect_media_first_batch,
+        settings_preview_media_end_batch;
+    u32 settings_preview_controls_first_batch;
     u32 settings_preview_text_first_batch, settings_preview_text_end_batch;
     u32 settings_dialog_paint_first_batch, settings_dialog_foreground_first_batch,
         settings_dialog_paint_end_batch;

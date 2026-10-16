@@ -426,7 +426,8 @@ float media_orientation(u16 rotation) noexcept {
 // come from the preview atlas and are masked to their visible region. The
 // banner and effects are masked with the card's own rounded shape, so neither
 // shows past its corners (the modal's card included).
-bool queue_profile_media(D3D11Renderer* renderer, const ProfileScene& profile, const Theme& theme) noexcept {
+bool queue_profile_media(D3D11Renderer* renderer, const ProfileScene& profile, const Theme& theme,
+                         u32* effect_first_batch) noexcept {
     bool first = true;
     const ProfileCardMask card = profile_scene_card_mask(profile, theme);
     for (u32 i = 0; i < profile.part_count; ++i) {
@@ -463,6 +464,9 @@ bool queue_profile_media(D3D11Renderer* renderer, const ProfileScene& profile, c
             reveal_media_underlay(*renderer, media_before, profile.banner, fallback);
         }
     }
+    // Effects composite above card glyphs, separately from banner/avatar media.
+    *effect_first_batch = renderer->media_batch_count;
+    first = true;
     const u64 effect_now_ms = profile.effect && profile.effect_started_ms ? GetTickCount64() : 0;
     for (u32 i = 0; profile.effect && (profile.reduced_motion || profile.effect_started_ms) &&
                     i < maximum<u8>(1, profile.effect->count);
@@ -491,14 +495,22 @@ bool queue_profile_media(D3D11Renderer* renderer, const ProfileScene& profile, c
 // above the page and its popup, below text forms.
 bool queue_settings_profile_overlays(D3D11Renderer* renderer, const Theme& theme, bool dialog) noexcept {
     auto& paint = renderer->paint_stream;
-    u32& paint_first = dialog ? renderer->settings_dialog_paint_first_batch : renderer->settings_preview_paint_first_batch;
+    u32& paint_first =
+        dialog ? renderer->settings_dialog_paint_first_batch : renderer->settings_preview_paint_first_batch;
     u32& foreground = dialog ? renderer->settings_dialog_foreground_first_batch
                              : renderer->settings_preview_foreground_first_batch;
-    u32& paint_end = dialog ? renderer->settings_dialog_paint_end_batch : renderer->settings_preview_paint_end_batch;
-    u32& media_first = dialog ? renderer->settings_dialog_media_first_batch : renderer->settings_preview_media_first_batch;
-    u32& media_end = dialog ? renderer->settings_dialog_media_end_batch : renderer->settings_preview_media_end_batch;
+    u32& paint_end =
+        dialog ? renderer->settings_dialog_paint_end_batch : renderer->settings_preview_paint_end_batch;
+    u32& media_first =
+        dialog ? renderer->settings_dialog_media_first_batch : renderer->settings_preview_media_first_batch;
+    u32& media_end =
+        dialog ? renderer->settings_dialog_media_end_batch : renderer->settings_preview_media_end_batch;
     paint_first = foreground = paint_end = paint.batch_count;
     media_first = media_end = renderer->media_batch_count;
+    if (!dialog) {
+        renderer->settings_preview_effect_media_first_batch = media_end;
+        renderer->settings_preview_controls_first_batch = paint_end;
+    }
     const auto* preview = renderer->settings_profile_preview;
     const auto* scene = renderer->settings_profile_dialog;
     if (dialog ? !(scene && scene->active) : !(preview && preview->active))
@@ -535,13 +547,15 @@ bool queue_settings_profile_overlays(D3D11Renderer* renderer, const Theme& theme
                 return false;
             first = first && renderer->media_quad_count == before;
         }
-    } else if (!queue_profile_media(renderer, *preview, theme))
+    } else if (!queue_profile_media(renderer, *preview, theme,
+                                    &renderer->settings_preview_effect_media_first_batch))
         return false;
     media_end = renderer->media_batch_count;
     foreground = paint.batch_count;
     if (!section([&]() noexcept {
             return dialog ? ui_profile_dialog_foreground(*scene, theme, &paint)
-                          : profile_scene_foreground(*preview, theme, &paint, nullptr, renderer->dpi);
+                          : profile_scene_foreground(*preview, theme, &paint, nullptr, renderer->dpi,
+                                                     &renderer->settings_preview_controls_first_batch);
         }))
         return false;
     paint_end = paint.batch_count;
@@ -2197,16 +2211,19 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         !profile_scene_paint(*renderer->profile_scene, theme, &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     renderer->profile_foreground_first_batch = ~0u;
+    renderer->profile_controls_first_batch = ~0u;
     renderer->popup_media_first_batch = renderer->media_batch_count;
     renderer->profile_media_first_batch = renderer->media_batch_count;
+    renderer->profile_effect_media_first_batch = renderer->media_batch_count;
     if (!settings_active && renderer->profile_scene && renderer->profile_scene->active &&
-        !queue_profile_media(renderer, *renderer->profile_scene, theme))
+        !queue_profile_media(renderer, *renderer->profile_scene, theme,
+                             &renderer->profile_effect_media_first_batch))
         return layout_step_failed(__LINE__);
     if (renderer->profile_scene && renderer->profile_scene->active) {
         renderer->profile_foreground_first_batch = paint_stream_seal(&renderer->paint_stream);
         const auto edit = d3d11_renderer_profile_edit_geometry(*renderer);
         if (!profile_scene_foreground(*renderer->profile_scene, theme, &renderer->paint_stream, &edit,
-                                      renderer->dpi))
+                                      renderer->dpi, &renderer->profile_controls_first_batch))
             return layout_step_failed(__LINE__);
     }
     renderer->profile_paint_end_batch = paint_stream_seal(&renderer->paint_stream);

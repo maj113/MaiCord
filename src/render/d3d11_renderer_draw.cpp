@@ -890,6 +890,11 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         renderer->profile_scene && renderer->profile_scene->active
             ? minimum(renderer->profile_foreground_first_batch, paint_batch_count)
             : paint_batch_count;
+    const u32 profile_controls =
+        renderer->profile_scene && renderer->profile_scene->active
+            ? maximum(profile_foreground,
+                      minimum(renderer->profile_controls_first_batch, paint_batch_count))
+            : paint_batch_count;
     const u32 media_overlay_begin =
         renderer->content_text && renderer->media_overlay_paint_first_batch <= base_paint_end
             ? renderer->media_overlay_paint_first_batch
@@ -946,6 +951,8 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     const u32 menu_paint = maximum(base_paint_end, minimum(renderer->menu_paint_first_batch, form_paint));
     const u32 menu_media =
         maximum(popup_media_first, minimum(renderer->menu_media_first_batch, ordinary_media_end));
+    const u32 profile_effect_media =
+        maximum(popup_media_first, minimum(renderer->profile_effect_media_first_batch, menu_media));
     const u32 menu_text = maximum(base_text_end, minimum(renderer->menu_text_first_batch, form_text));
     const u32 gallery_paint_first =
         maximum(requests_paint_end,
@@ -1146,36 +1153,57 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
     if (settings_active) {
         // The profile editor's preview card follows the page's own media; its
         // dialog follows the page's choice popup. Each draws paint, media,
-        // foreground, then text, like the profile popout.
+        // foreground, text, effect, then controls, like the profile popout.
         const auto clamp_paint = [&](u32 batch) noexcept { return minimum(batch, paint_batch_count); };
         const auto clamp_text = [&](u32 batch) noexcept { return minimum(batch, visible_text_end); };
         const u32 preview_paint = clamp_paint(renderer->settings_preview_paint_first_batch);
-        const u32 preview_foreground = maximum(preview_paint, clamp_paint(renderer->settings_preview_foreground_first_batch));
-        const u32 preview_end = maximum(preview_foreground, clamp_paint(renderer->settings_preview_paint_end_batch));
-        const u32 page_paint_end = minimum(preview_paint, clamp_paint(renderer->settings_choice_paint_first_batch));
-        const u32 choice_paint_end = maximum(preview_end, clamp_paint(renderer->settings_choice_paint_end_batch));
-        const u32 dialog_paint = maximum(choice_paint_end, clamp_paint(renderer->settings_dialog_paint_first_batch));
-        const u32 dialog_foreground = maximum(dialog_paint, clamp_paint(renderer->settings_dialog_foreground_first_batch));
-        const u32 dialog_end = maximum(dialog_foreground, clamp_paint(renderer->settings_dialog_paint_end_batch));
+        const u32 preview_foreground =
+            maximum(preview_paint, clamp_paint(renderer->settings_preview_foreground_first_batch));
+        const u32 preview_end =
+            maximum(preview_foreground, clamp_paint(renderer->settings_preview_paint_end_batch));
+        const u32 preview_controls =
+            maximum(preview_foreground,
+                    minimum(clamp_paint(renderer->settings_preview_controls_first_batch), preview_end));
+        const u32 preview_effect = maximum(renderer->settings_preview_media_first_batch,
+                                           minimum(renderer->settings_preview_effect_media_first_batch,
+                                                   renderer->settings_preview_media_end_batch));
+        const u32 page_paint_end =
+            minimum(preview_paint, clamp_paint(renderer->settings_choice_paint_first_batch));
+        const u32 choice_paint_end =
+            maximum(preview_end, clamp_paint(renderer->settings_choice_paint_end_batch));
+        const u32 dialog_paint =
+            maximum(choice_paint_end, clamp_paint(renderer->settings_dialog_paint_first_batch));
+        const u32 dialog_foreground =
+            maximum(dialog_paint, clamp_paint(renderer->settings_dialog_foreground_first_batch));
+        const u32 dialog_end =
+            maximum(dialog_foreground, clamp_paint(renderer->settings_dialog_paint_end_batch));
         const u32 preview_text = clamp_text(renderer->settings_preview_text_first_batch);
-        const u32 preview_text_end = maximum(preview_text, clamp_text(renderer->settings_preview_text_end_batch));
-        const u32 page_text_end = minimum(preview_text, clamp_text(renderer->settings_choice_text_first_batch));
-        const u32 choice_text_end = maximum(preview_text_end, clamp_text(renderer->settings_choice_text_end_batch));
-        const u32 dialog_text = maximum(choice_text_end, clamp_text(renderer->settings_dialog_text_first_batch));
-        const u32 dialog_text_end = maximum(dialog_text, clamp_text(renderer->settings_dialog_text_end_batch));
+        const u32 preview_text_end =
+            maximum(preview_text, clamp_text(renderer->settings_preview_text_end_batch));
+        const u32 page_text_end =
+            minimum(preview_text, clamp_text(renderer->settings_choice_text_first_batch));
+        const u32 choice_text_end =
+            maximum(preview_text_end, clamp_text(renderer->settings_choice_text_end_batch));
+        const u32 dialog_text =
+            maximum(choice_text_end, clamp_text(renderer->settings_dialog_text_first_batch));
+        const u32 dialog_text_end =
+            maximum(dialog_text, clamp_text(renderer->settings_dialog_text_end_batch));
         if (!draw_settings_backdrop(renderer, &submission, theme, damage))
             goto draw_failed;
         if (!media(0, 0, upload_media) || !paint(0, page_paint_end) ||
             !inline_media(RendererInlineMediaLayer::base) ||
             !inline_media(RendererInlineMediaLayer::settings_page) || !text(0, page_text_end, true) ||
-            !media(renderer->settings_page_media_first_batch, renderer->settings_page_media_end_batch, false) ||
+            !media(renderer->settings_page_media_first_batch, renderer->settings_page_media_end_batch,
+                   false) ||
             !paint(preview_paint, preview_foreground) ||
-            !media(renderer->settings_preview_media_first_batch, renderer->settings_preview_media_end_batch, false) ||
-            !paint(preview_foreground, preview_end) || !text(preview_text, preview_text_end, false) ||
-            !paint(preview_end, choice_paint_end) ||
+            !media(renderer->settings_preview_media_first_batch, preview_effect, false) ||
+            !paint(preview_foreground, preview_controls) || !text(preview_text, preview_text_end, false) ||
+            !media(preview_effect, renderer->settings_preview_media_end_batch, false) ||
+            !paint(preview_controls, preview_end) || !paint(preview_end, choice_paint_end) ||
             !inline_media(RendererInlineMediaLayer::settings_choice) ||
             !text(preview_text_end, choice_text_end, false) || !paint(dialog_paint, dialog_foreground) ||
-            !media(renderer->settings_dialog_media_first_batch, renderer->settings_dialog_media_end_batch, false) ||
+            !media(renderer->settings_dialog_media_first_batch, renderer->settings_dialog_media_end_batch,
+                   false) ||
             !paint(dialog_foreground, dialog_end) || !text(dialog_text, dialog_text_end, false) ||
             !forms(dialog_end, dialog_text_end, false))
             goto draw_failed;
@@ -1197,10 +1225,12 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                (gallery_current && !text(gallery_text_first, gallery_text_end, gallery_text_first == 0)) ||
                !paint(gallery_paint_end, minimum(profile_foreground, menu_paint)) ||
                !media(gallery_media_end, popup_media_first, false) ||
-               !media(popup_media_first, menu_media, false) ||
-               !paint(minimum(profile_foreground, menu_paint), menu_paint) ||
+               !media(popup_media_first, profile_effect_media, false) ||
+               !paint(minimum(profile_foreground, menu_paint), minimum(profile_controls, menu_paint)) ||
                !inline_media(RendererInlineMediaLayer::profile) ||
                !text(gallery_text_end, menu_text, gallery_text_end == 0) ||
+               !media(profile_effect_media, menu_media, false) ||
+               !paint(minimum(profile_controls, menu_paint), menu_paint) ||
                !paint(menu_paint, card_paint) || !media(menu_media, card_media, false) ||
                !paint(card_paint, editor_paint_first) || !media(card_media, ordinary_media_end, false) ||
                !inline_media(RendererInlineMediaLayer::popup) ||

@@ -2058,8 +2058,10 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
                                  theme));
     return paint_stream_pop_clip(paint) && ok;
 }
-bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintStream* paint, const UiEditGeometry* edit,
-                              u32 dpi) noexcept {
+bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintStream* paint,
+                              const UiEditGeometry* edit, u32 dpi, u32* controls_first_batch) noexcept {
+    if (controls_first_batch)
+        *controls_first_batch = paint->batch_count;
     if (!s.active)
         return true;
     const auto c = palette(s, theme);
@@ -2103,46 +2105,54 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
                                            s.status.bottom + ring, c.surface, extent * .5f + ring);
         ok = ok && ui_presence_paint(paint, s.status, s.presence, c.surface, theme, s.presence_mobile);
     }
-    for (u32 i = 0; ok && i < s.part_count; ++i) {
-        const auto& p = s.parts[i];
-        const bool control = p.look == ProfileLook::header_button || p.look == ProfileLook::icon ||
-                             ((p.look == ProfileLook::pill) && p.icon != kProfileNoIcon);
-        if (!control || p.icon == kProfileNoIcon)
-            continue;
-        const auto* n = ui_widget_manager_layout_node(s.widgets, p.widget);
-        if (!n)
-            return false;
-        const auto r = n->rectangle;
-        const auto visible = ui_rect_intersection(n->clip_rectangle, s.rectangle);
-        if (!ui_rect_has_area(ui_rect_intersection(r, visible)))
-            continue;
-        const bool hot = hovered(s, p);
-        // The note button shows only while the card is hovered or focused.
-        if (p.action == ProfileAction::open_note && !s.hovered && !same(s.widgets.focused, p.widget))
-            continue;
-        ok = paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom);
-        Color glyph = tone_color(c, theme, p);
-        float size = 16;
-        if (p.look == ProfileLook::header_button) {
-            const float half = ui_rect_width(r) * .5f;
-            ok = ok && paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom, c.control,
-                                                        c.control_border, half, 1);
-            glyph = c.control_icon;
-            size = p.action == ProfileAction::close ? 20.f : 16.f;
-        } else if (p.action != ProfileAction::none)
-            glyph = hot ? c.strong : c.subtle;
-        if (p.source == 12)
-            size = 12;
-        if (ui_rect_width(r) < size)
-            size = ui_rect_width(r);
-        const float cx = (r.left + r.right) * .5f, cy = (r.top + r.bottom) * .5f;
-        ok = ok && ui_icon_paint(paint, static_cast<UiIcon>(p.icon),
-                                 {cx - size * .5f, cy - size * .5f, cx + size * .5f, cy + size * .5f}, glyph);
-        ok = paint_stream_pop_clip(paint) && ok;
-    }
     if (ok && s.edit.active)
-        ok = ui_edit_field_paint(paint, s.edit_rectangle, s.edit_content, s.edit, edit, Color{}, card_theme(theme, c),
-                                 dpi, theme.scale.radius_md);
+        ok = ui_edit_field_paint(paint, s.edit_rectangle, s.edit_content, s.edit, edit, Color{},
+                                 card_theme(theme, c), dpi, theme.scale.radius_md);
+    // Ordinary card icons share the content's layer. Only header controls
+    // and the focus indicator sit above the profile effect.
+    for (u32 header = 0; ok && header < 2; ++header) {
+        if (header && controls_first_batch)
+            *controls_first_batch = paint_stream_seal(paint);
+        for (u32 i = 0; ok && i < s.part_count; ++i) {
+            const auto& p = s.parts[i];
+            const bool control = p.look == ProfileLook::header_button || p.look == ProfileLook::icon ||
+                                 ((p.look == ProfileLook::pill) && p.icon != kProfileNoIcon);
+            if (!control || p.icon == kProfileNoIcon ||
+                (p.look == ProfileLook::header_button) != (header != 0))
+                continue;
+            const auto* n = ui_widget_manager_layout_node(s.widgets, p.widget);
+            if (!n)
+                return false;
+            const auto r = n->rectangle;
+            const auto visible = ui_rect_intersection(n->clip_rectangle, s.rectangle);
+            if (!ui_rect_has_area(ui_rect_intersection(r, visible)))
+                continue;
+            const bool hot = hovered(s, p);
+            // The note button shows only while the card is hovered or focused.
+            if (p.action == ProfileAction::open_note && !s.hovered && !same(s.widgets.focused, p.widget))
+                continue;
+            ok = paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom);
+            Color glyph = tone_color(c, theme, p);
+            float size = 16;
+            if (p.look == ProfileLook::header_button) {
+                const float half = ui_rect_width(r) * .5f;
+                ok = ok && paint_stream_push_rounded_border(paint, r.left, r.top, r.right, r.bottom,
+                                                            c.control, c.control_border, half, 1);
+                glyph = c.control_icon;
+                size = p.action == ProfileAction::close ? 20.f : 16.f;
+            } else if (p.action != ProfileAction::none)
+                glyph = hot ? c.strong : c.subtle;
+            if (p.source == 12)
+                size = 12;
+            if (ui_rect_width(r) < size)
+                size = ui_rect_width(r);
+            const float cx = (r.left + r.right) * .5f, cy = (r.top + r.bottom) * .5f;
+            ok = ok &&
+                 ui_icon_paint(paint, static_cast<UiIcon>(p.icon),
+                               {cx - size * .5f, cy - size * .5f, cx + size * .5f, cy + size * .5f}, glyph);
+            ok = paint_stream_pop_clip(paint) && ok;
+        }
+    }
     ok = paint_stream_pop_clip(paint) && ok;
     return ok && (!s.focus_visible || paint_stream_push_focus(paint, s.widgets, theme.tokens.border.focus));
 }

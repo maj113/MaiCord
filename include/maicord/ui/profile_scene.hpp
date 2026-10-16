@@ -271,8 +271,11 @@ struct ProfileCardMask {
     float radius;
 };
 ProfileCardMask profile_scene_card_mask(const ProfileScene& scene, const Theme& theme) noexcept;
+// Optionally seals the boundary before controls/focus, which remain above the
+// profile effect. Earlier foreground geometry and card text go below it.
 bool profile_scene_foreground(const ProfileScene& scene, const Theme& theme, PaintStream* paint,
-                              const UiEditGeometry* edit = nullptr, u32 dpi = 96) noexcept;
+                              const UiEditGeometry* edit = nullptr, u32 dpi = 96,
+                              u32* controls_first_batch = nullptr) noexcept;
 bool profile_scene_text(const ProfileScene& scene, const Theme& theme, UiTextCommandStream* text,
                         const UiEditGeometry* edit = nullptr) noexcept;
 ProfileAction profile_scene_action(const ProfileScene& scene, UiWidgetHandle widget) noexcept;

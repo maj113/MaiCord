@@ -7616,6 +7616,128 @@ bool probe_braille_profile() noexcept {
         probe_capture_frame(L"braille-profile-closed.bmp");
     return valid;
 }
+bool probe_profile_effect_layers(ProfileScene& scene) noexcept {
+    // Original solid artwork makes every glyph leaking over the effect
+    // observable in a native render-target readback, without saved captures.
+    ProfileEffect effect{};
+    effect.sku = 987654;
+    effect.count = 1;
+    effect.layers[0].loop = true;
+    effect.layers[0].duration_ms = 60000;
+    const auto source = utf8_literal("https://example.invalid/native-profile-effect.png");
+    copy_bytes(effect.layers[0].source.data, source.data, source.bytes);
+    effect.layers[0].source.bytes = static_cast<u16>(source.bytes);
+    const auto* saved_effect = scene.effect;
+    const u64 saved_started = scene.effect_started_ms;
+    const u64 saved_hover_changed = scene.hover_changed_ms;
+    const bool saved_hovered = scene.hovered;
+    const auto saved_presentation = scene.presentation;
+    scene.effect = &effect;
+    scene.effect_started_ms = GetTickCount64();
+    scene.hovered = false;
+    scene.hover_changed_ms = 0;
+    ProfileMedia media{};
+    u8 pixels[2 * 8 * 4];
+    for (u32 i = 0; i < sizeof(pixels); i += 4) {
+        pixels[i] = pixels[i + 2] = pixels[i + 3] = 255;
+        pixels[i + 1] = 0;
+    }
+    bool valid =
+        profile_effect_media_resolve(scene, 0, scene.effect_started_ms, &media) &&
+        renderer_upload_media_rgba8(&g_probe.renderer, media.key, 2, 8, 8, {pixels, sizeof(pixels)}).ok();
+    for (u32 mode = 0; valid && mode < 2; ++mode) {
+        scene.presentation = mode ? ProfilePresentation::modal : ProfilePresentation::popout;
+        scene.effect = nullptr;
+        valid = profile_scene_layout(&scene, scene.viewport, true) && rebuild_probe_content_text() &&
+                probe_present(&g_probe.renderer, kDefaultTheme);
+        const auto* name = ui_widget_manager_layout_node(scene.widgets, scene.name_widget);
+        const auto r = name ? ui_rect_intersection(name->rectangle, name->clip_rectangle) : UiRect{};
+        const auto mask = profile_scene_card_mask(scene, kDefaultTheme);
+        const UiPoint corners[]{{mask.rectangle.left + .5f, mask.rectangle.top + .5f},
+                                {mask.rectangle.left - 1, mask.rectangle.top + mask.radius}};
+        u8 below[2][4]{}, above[2][4]{};
+        valid = valid && ui_rect_has_area(r) && probe_text_pixels({&r, 1}) &&
+                probe_read_pixels(kDefaultTheme, {corners, 2}, below);
+        scene.effect = &effect;
+        ++scene.revision;
+        valid = valid && probe_present(&g_probe.renderer, kDefaultTheme) &&
+                probe_read_pixels(kDefaultTheme, {corners, 2}, above) &&
+                bytes_equal(below, above, sizeof(below));
+        ProbePixelSample samples[32 * 12];
+        for (u32 y = 0; y < 12; ++y)
+            for (u32 x = 0; x < 32; ++x)
+                samples[y * 32 + x] = {{r.left + (x + .5f) * ui_rect_width(r) / 32,
+                                        r.top + (y + .5f) * ui_rect_height(r) / 12},
+                                       {1, 0, 1, 1},
+                                       2};
+        valid =
+            valid && ui_rect_has_area(r) &&
+            g_probe.renderer.profile_effect_media_first_batch >
+                g_probe.renderer.profile_media_first_batch &&
+            g_probe.renderer.profile_effect_media_first_batch < g_probe.renderer.profile_media_end_batch &&
+            g_probe.renderer.profile_controls_first_batch >
+                g_probe.renderer.profile_foreground_first_batch &&
+            probe_exact_pixels({samples, 32 * 12});
+        // The top controls must survive the effect, while avatar media stays below.
+        const auto avatar = scene.avatar;
+        const ProbePixelSample avatar_sample{
+            {(avatar.left + avatar.right) * .5f, (avatar.top + avatar.bottom) * .5f}, {1, 0, 1, 1}, 2};
+        valid = valid && probe_exact_pixels({&avatar_sample, 1});
+        bool control_visible = false;
+        for (u32 i = 0; valid && i < scene.part_count; ++i) {
+            const auto& p = scene.parts[i];
+            if (p.look != ProfileLook::header_button)
+                continue;
+            const auto* node = ui_widget_manager_layout_node(scene.widgets, p.widget);
+            if (!node)
+                continue;
+            const UiPoint point{(node->rectangle.left + node->rectangle.right) * .5f,
+                                (node->rectangle.top + node->rectangle.bottom) * .5f};
+            u8 color[1][4]{};
+            valid = probe_read_pixels(kDefaultTheme, {&point, 1}, color);
+            control_visible |= color[0][1] > 2 || color[0][0] < 253 || color[0][2] < 253;
+        }
+        valid = valid && control_visible;
+    }
+    // A later modal must cover even an opaque profile effect.
+    TextFormScene form{};
+    TextFormSurface surface{};
+    TextFormContent content{};
+    content.title = utf8_literal("Profile overlay");
+    content.context = utf8_literal("This form appears above the profile effect.");
+    content.cancel = utf8_literal("Close");
+    content.accept = utf8_literal("Done");
+    content.confirmation_only = true;
+    auto* saved_form = g_probe.renderer.text_form;
+    valid = valid && text_form_update(&form, content, scene.viewport, &g_probe.text_measure_cache);
+    surface.scene = &form;
+    renderer_bind_text_form(&g_probe.renderer, &surface);
+    valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme);
+    const auto* panel = text_form_node(form, TextFormElement::panel);
+    const auto overlap = panel
+                             ? ui_rect_intersection(panel->rectangle,
+                                                    profile_scene_card_mask(scene, kDefaultTheme).rectangle)
+                             : UiRect{};
+    const UiPoint covered{(overlap.left + overlap.right) * .5f, (overlap.top + overlap.bottom) * .5f};
+    u8 covered_pixel[1][4]{};
+    valid = valid && ui_rect_width(overlap) > kDefaultTheme.scale.radius_md * 2 &&
+            ui_rect_height(overlap) > kDefaultTheme.scale.radius_md * 2 &&
+            probe_read_pixels(kDefaultTheme, {&covered, 1}, covered_pixel) &&
+            (covered_pixel[0][1] > 2 || covered_pixel[0][0] < 253 || covered_pixel[0][2] < 253);
+    renderer_bind_text_form(&g_probe.renderer, saved_form);
+    text_form_surface_release(&surface);
+    text_form_release(&form);
+    scene.effect = saved_effect;
+    scene.effect_started_ms = saved_started;
+    scene.hover_changed_ms = saved_hover_changed;
+    scene.hovered = saved_hovered;
+    scene.presentation = saved_presentation;
+    const bool restored = profile_scene_layout(&scene, scene.viewport, true) &&
+                          rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme);
+    if (valid && restored)
+        log_write(LogLevel::info, "probe", "profile_effect_above_glyphs_avatar_below_controls_passed");
+    return valid && restored;
+}
 bool probe_profile_card() noexcept {
     g_probe.failure_stage = 151;
     auto* data = static_cast<UserProfile*>(
@@ -7704,6 +7826,7 @@ bool probe_profile_card() noexcept {
     g_probe.renderer.profile_scene = &scene;
     valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
             probe_capture_frame(L"member-profile-card.bmp");
+    valid = valid && probe_profile_effect_layers(scene);
     const wchar_t* const profile_motion_captures[]{L"profile-motion-zero.bmp", L"profile-motion-half.bmp", L"profile-motion-full.bmp"};
     const auto profile_motion_rectangle = scene.rectangle;
     const auto motion_saved_user_name = data->user_appearance.name;

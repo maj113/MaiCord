@@ -441,23 +441,45 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
     check(profile_scene_layout(&scene, {0, 0, 1600, 900}, true) &&
               scene.rectangle.left - previous.left == 600 && scene.rectangle.right + 8 == scene.anchor.left,
           "profile_popout_inverts_left_when_the_right_side_does_not_fit");
+    const bool saved_note_visible = scene.note_visible, saved_hovered = scene.hovered;
+    scene.note_visible = scene.hovered = true;
+    check(profile_scene_layout(&scene, scene.viewport, true), "profile_icon_layer_fixture");
+    UiRect note{};
     UiWidgetHandle more{};
-    for (u32 i = 0; i < scene.part_count; ++i)
+    for (u32 i = 0; i < scene.part_count; ++i) {
         if (scene.parts[i].action == ProfileAction::more)
             more = scene.parts[i].widget;
+        if (scene.parts[i].action == ProfileAction::open_note)
+            if (const auto* node = ui_widget_manager_layout_node(scene.widgets, scene.parts[i].widget))
+                note = node->rectangle;
+    }
     const auto* button = ui_widget_manager_layout_node(scene.widgets, more);
     PaintStream paint{};
     bool layers = button && paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1600, 900) &&
                   profile_scene_paint(scene, kDefaultTheme, &paint);
     const u32 below_effect = paint.count;
-    layers = layers && profile_scene_foreground(scene, kDefaultTheme, &paint) && paint.count > below_effect;
+    u32 controls_first = 0;
+    layers = layers &&
+             profile_scene_foreground(scene, kDefaultTheme, &paint, nullptr, 96, &controls_first) &&
+             paint.count > below_effect && controls_first > 0 && controls_first < paint.batch_count;
     bool more_above = false;
+    bool note_below = false, note_above = false;
+    const u32 controls_quad =
+        controls_first < paint.batch_count ? paint.batches[controls_first].first_quad : paint.count;
     for (u32 i = below_effect; button && i < paint.count; ++i) {
         const auto& q = paint.quads[i];
         more_above |= ui_rect_equal({q.left, q.top, q.right, q.bottom}, button->rectangle) &&
-                      q.fill.alpha == kDefaultTheme.tokens.profile.control.alpha;
+                      q.fill.alpha == kDefaultTheme.tokens.profile.control.alpha && i >= controls_quad;
+        if (q.left >= note.left && q.top >= note.top && q.right <= note.right && q.bottom <= note.bottom) {
+            note_below |= i < controls_quad;
+            note_above |= i >= controls_quad;
+        }
     }
     check(layers && more_above, "profile_header_buttons_paint_after_effect_media");
+    check(ui_rect_has_area(note) && note_below && !note_above,
+          "profile_content_icons_paint_before_effect_media");
+    scene.note_visible = saved_note_visible;
+    scene.hovered = saved_hovered;
     // Unthemed cards: the profile surface token; themed: P, the P->S blend and
     // the 60% overlay of the profile's own theme.
     bool surface = false;
