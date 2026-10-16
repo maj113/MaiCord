@@ -642,7 +642,7 @@ bool visit_state_member(void* opaque, JsonString name, JsonValue value) noexcept
     }
     if (json_name_is(name, utf8_literal("nicks"))) {
         if (context->nicks_seen ||
-            (value.kind != JsonValueKind::object && value.kind != JsonValueKind::null_value)) {
+            (value.kind != JsonValueKind::array && value.kind != JsonValueKind::null_value)) {
             context->error = context->nicks_seen ? GatewayEventDecodeError::duplicate_field
                                                  : GatewayEventDecodeError::invalid_data;
             return false;
@@ -720,19 +720,53 @@ struct RecipientContext {
 };
 struct NicknameContext {
     PayloadWriter* writer;
+    const JsonIndexedDocument* document;
+    u32 depth;
     u32 count;
     GatewayClientDispatchRouteResult result;
     u64 seen[256];
     u32 seen_count;
 };
-bool append_nickname(void* opaque, JsonString key, JsonValue value) noexcept {
+struct NicknameFields {
+    u64 id;
+    JsonString name;
+    GatewayEventDecodeError error;
+    bool id_seen, name_seen;
+};
+bool nickname_member(void* opaque, JsonString key, JsonValue value) noexcept {
+    auto& fields = *static_cast<NicknameFields*>(opaque);
+    if (json_name_is(key, utf8_literal("id"))) {
+        if (fields.id_seen || !json_value_to_snowflake(value, &fields.id) || !fields.id) {
+            fields.error = fields.id_seen ? GatewayEventDecodeError::duplicate_field
+                                         : GatewayEventDecodeError::invalid_data;
+            return false;
+        }
+        fields.id_seen = true;
+    } else if (json_name_is(key, utf8_literal("nick"))) {
+        if (fields.name_seen || !json_value_as_string(value, &fields.name)) {
+            fields.error = fields.name_seen ? GatewayEventDecodeError::duplicate_field
+                                           : GatewayEventDecodeError::invalid_data;
+            return false;
+        }
+        fields.name_seen = true;
+    }
+    return true;
+}
+bool append_nickname(void* opaque, u32, JsonValue value) noexcept {
     auto& context = *static_cast<NicknameContext*>(opaque);
-    u64 id = 0;
-    JsonString encoded{};
-    if (!json_string_to_u64(key, &id) || !id ||
-        (value.kind != JsonValueKind::null_value && !json_value_as_string(value, &encoded))) {
+    if (value.kind != JsonValueKind::object) {
         context.result =
             route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
+        return false;
+    }
+    NicknameFields fields{};
+    const auto read = json_visit_indexed_object(*context.document, value, context.depth,
+                                               nickname_member, &fields);
+    if (!read.ok() || !fields.id_seen || !fields.name_seen) {
+        const auto error = fields.error != GatewayEventDecodeError::none ? fields.error
+            : (!read.ok() ? GatewayEventDecodeError::invalid_json
+                          : GatewayEventDecodeError::missing_required_field);
+        context.result = route_error(GatewayClientDispatchRouteError::decode, error);
         return false;
     }
     if (context.seen_count == 256) {
@@ -740,16 +774,14 @@ bool append_nickname(void* opaque, JsonString key, JsonValue value) noexcept {
         return false;
     }
     for (u32 i = 0; i < context.seen_count; ++i)
-        if (context.seen[i] == id) {
+        if (context.seen[i] == fields.id) {
             context.result = route_error(GatewayClientDispatchRouteError::decode,
                                          GatewayEventDecodeError::duplicate_field);
             return false;
         }
-    context.seen[context.seen_count++] = id;
-    if (value.kind == JsonValueKind::null_value)
-        return true;
+    context.seen[context.seen_count++] = fields.id;
     char name[128];
-    const auto decoded = json_string_decode_utf8(encoded, {name, 128});
+    const auto decoded = json_string_decode_utf8(fields.name, {name, 128});
     if (!decoded.ok() || context.count == 256) {
         context.result =
             route_error(GatewayClientDispatchRouteError::decode, GatewayEventDecodeError::invalid_data);
@@ -757,7 +789,7 @@ bool append_nickname(void* opaque, JsonString key, JsonValue value) noexcept {
     }
     if (!decoded.bytes)
         return true;
-    const GatewayClientUserMutation item{id, static_cast<u16>(decoded.bytes), 0, 1, 0};
+    const GatewayClientUserMutation item{fields.id, static_cast<u16>(decoded.bytes), 0, 1, 0};
     if (!gateway_payload_append(context.writer, &item, sizeof(item)) ||
         !gateway_payload_append(context.writer, name, decoded.bytes)) {
         context.result = route_error(GatewayClientDispatchRouteError::payload_capacity);
@@ -1896,15 +1928,17 @@ GatewayClientDispatchRouteResult route_channel_object(const StateObjectContext& 
             event->state.recipients_known = true;
         }
         if (object.nicks_seen) {
-            NicknameContext context{&writer, 0, {}};
-            if (object.nicks.kind == JsonValueKind::object) {
+            NicknameContext context{&writer, nullptr, maximum_depth, 0, {}};
+            if (object.nicks.kind == JsonValueKind::array) {
                 const auto scan = json_scan_structurals_avx1(object.nicks.source, structural_scratch);
                 if (!scan.ok())
                     return route_error(GatewayClientDispatchRouteError::decode,
                                        GatewayEventDecodeError::scan_failed);
-                const auto read =
-                    json_visit_value_object(object.nicks, {structural_scratch.data, scan.count},
-                                           maximum_depth, append_nickname, &context);
+                const JsonIndexedDocument document{object.nicks.source,
+                                                    {structural_scratch.data, scan.count}};
+                context.document = &document;
+                const auto read = json_visit_indexed_array(document, object.nicks, maximum_depth,
+                                                           append_nickname, &context);
                 if (!context.result.ok())
                     return context.result;
                 if (!read.ok())

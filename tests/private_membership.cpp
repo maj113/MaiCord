@@ -30,7 +30,7 @@ void test_private_membership(void (*check)(bool, const char*) noexcept) noexcept
             gateway_client_route_dispatch(envelope, {scratch, 4096}, 64, {packet, 8192}, {ids, 256}, 1, &event, &payload).ok() &&
             chat_state_apply_gateway_event(&state, event, payload, {ids, 2}, &users).ok();
     };
-    check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_CREATE","s":1,"d":{"id":"10","type":3,"owner_id":"2","recipients":[{"id":"3","username":"C"},{"id":"2","username":"B"}],"nicks":{"2":"Bee"}}})")),
+    check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_CREATE","s":1,"d":{"id":"10","type":3,"owner_id":"2","recipients":[{"id":"3","username":"C"},{"id":"2","username":"B"}],"nicks":[{"id":"2","nick":"Bee"}]}})")),
         "initial private snapshot retains channel-local nicknames");
     char title[128];
     const auto title_equals = [&](Utf8View expected) noexcept {
@@ -60,15 +60,44 @@ void test_private_membership(void (*check)(bool, const char*) noexcept) noexcept
         title_equals(utf8_literal("Bee, Dé")), "removing and readding a peer preserves its retained nickname");
     check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_RECIPIENT_ADD","s":8,"d":{"channel_id":"10","user":{"id":"4"},"nick":""}})")) &&
         title_equals(utf8_literal("Bee, Dee")), "explicit empty nickname removes only its local override");
-    check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":9,"d":{"id":"10","type":3,"nicks":{}}})")) &&
+    check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":9,"d":{"id":"10","type":3,"nicks":[]}})")) &&
         title_equals(utf8_literal("B, Dee")), "complete empty nickname snapshot clears prior overrides");
     check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_RECIPIENT_ADD","s":10,"d":{"channel_id":"999","user":{"id":"5","username":"Unknown channel peer"}}})")) &&
         state.channel_count == 1 && user_store_find(users, 5), "unknown private-channel membership does not invent a channel");
     const u32 before_invalid = state.channel_mutations;
     check(!apply(utf8_literal(R"({"op":0,"t":"CHANNEL_RECIPIENT_ADD","s":11,"d":{"channel_id":"10","user":{"id":"4"},"nick":9}})")) &&
         !apply(utf8_literal(R"({"op":0,"t":"CHANNEL_RECIPIENT_ADD","s":11,"d":{"channel_id":"10","channel_id":"11","user":{"id":"4"}}})")) &&
-        !apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":{"2":"one","2":"two"}}})")) &&
+        !apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[{"id":"2","nick":"one"},{"id":"2","nick":"two"}]}})")) &&
         state.channel_mutations == before_invalid, "malformed membership and duplicate nickname snapshots reject without mutation");
+
+    check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[ {"extra":{"nested":[1,true]},"nick":"B\u00e9e","id":"2"}, {"id":"4","nick":""} ]}})")) &&
+        title_equals(utf8_literal("Bée, Dee")), "wire nickname objects decode escapes and ignore unknown members");
+    check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"last_message_id":"90"}})")) &&
+        title_equals(utf8_literal("Bée, Dee")),
+        "sparse channel updates preserve the nickname snapshot");
+    const u32 nickname_revision = metadata.revision;
+    const Utf8View malformed_nicknames[]{
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":{}}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[null]}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[{"id":"2"}]}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[{"nick":"one"}]}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[{"id":"0","nick":"one"}]}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[{"id":2,"nick":"one"}]}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[{"id":"18446744073709551616","nick":"one"}]}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[{"id":"2","id":"3","nick":"one"}]}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[{"id":"2","nick":"one","nick":"two"}]}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[{"id":"2","nick":null}]}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[{"id":"2","nick":7}]}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[{"id":"2","nick":"one"},{"id":"02","nick":"two"}]}})"),
+        utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":[],"nicks":null}})"),
+    };
+    const u32 before_nickname_errors = state.channel_mutations;
+    for (auto malformed : malformed_nicknames)
+        check(!apply(malformed) && state.channel_mutations == before_nickname_errors &&
+            metadata.revision == nickname_revision && title_equals(utf8_literal("Bée, Dee")),
+            "malformed wire nickname records leave the prior snapshot intact");
+    check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":11,"d":{"id":"10","type":3,"nicks":null}})")) &&
+        title_equals(utf8_literal("B, Dee")), "null nickname snapshot explicitly clears overrides");
 
     const auto supplemental = [&](Utf8View json, JsonValue* array) noexcept {
         GatewayEnvelope envelope{};
@@ -102,7 +131,7 @@ void test_private_membership(void (*check)(bool, const char*) noexcept) noexcept
         !supplemental(utf8_literal(R"({"op":0,"t":"READY_SUPPLEMENTAL","s":13,"d":{"lazy_private_channels":{}}})"), &array) &&
         !supplemental(utf8_literal(R"({"op":0,"t":"READY_SUPPLEMENTAL","s":13,"d":{"lazy_private_channels":[],"lazy_private_channels":[]}})"), &array),
         "supplemental optional null arrays and malformed duplicates follow bounded schema rules");
-    check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":14,"d":{"id":"10","type":3,"nicks":{"2":"Bee"}}})")),
+    check(apply(utf8_literal(R"({"op":0,"t":"CHANNEL_UPDATE","s":14,"d":{"id":"10","type":3,"nicks":[{"id":"2","nick":"Bee"}]}})")),
         "nickname snapshot can refill cleared backing");
     check(metadata.nickname_count == 1, "nickname backing contains the replacement record");
     MessageTimeline timeline{};

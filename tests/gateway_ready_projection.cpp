@@ -525,6 +525,61 @@ __declspec(noinline) void poison_stack(u8 pattern) noexcept {
     volatile u8 bytes[64 * 1024];
     for (u32 i = 0; i < sizeof(bytes); ++i) bytes[i] = pattern;
 }
+void channel_nickname_projection(void (*check)(bool, const char*) noexcept) noexcept {
+    GatewayClientEvent event{};
+    ConstSlice<u8> output{};
+    const auto route = [&](Utf8View text, u32 capacity = sizeof(payload)) noexcept {
+        event = {};
+        output = {};
+        return gateway_client_route_channel_create({text, 0, JsonValueKind::object}, {records, 16384},
+            64, {payload, capacity}, 1, &event, &output);
+    };
+    const auto text = utf8_literal(R"({"id":"20","type":3,"nicks":[{"id":"2","nick":"Fr\u00e9nd"},{"id":"3","nick":""}]})");
+    u32 cursor = 0;
+    GatewayClientUserMutation nickname{};
+    Utf8View name{}, avatar{};
+    check(route(text).ok() && event.state.private_nicknames_known && event.state.record_count == 1 &&
+        gateway_client_user_record(output, &cursor, &nickname, &name, &avatar) && nickname.id == 2 &&
+        utf8_equal(name, utf8_literal("Frénd")) && !avatar.bytes && cursor == output.count,
+        "REST channel normalization converts wire nick objects to the existing nickname payload");
+    check(route(utf8_literal(R"({"id":"20","type":3})")).ok() && !event.state.private_nicknames_known &&
+        !event.state.record_count && !output.count &&
+        route(utf8_literal(R"({"id":"20","type":3,"nicks":[]})")).ok() && event.state.private_nicknames_known &&
+        !event.state.record_count && !output.count &&
+        route(utf8_literal(R"({"id":"20","type":3,"nicks":null})")).ok() && event.state.private_nicknames_known &&
+        !event.state.record_count && !output.count,
+        "REST nickname normalization distinguishes an absent snapshot from empty and null snapshots");
+    check(route(text, 1).error == GatewayClientDispatchRouteError::payload_capacity && !output.count,
+        "nickname payload capacity failures publish no partial normalized output");
+    for (u32 mode = 0; mode < 2; ++mode) {
+        ProtocolWriter writer{{source, sizeof(source)}, 0};
+        bool built = protocol_writer_append_literal(&writer, "{\"id\":\"20\",\"type\":3,\"nicks\":[");
+        const u32 count = 256 + mode;
+        for (u32 i = 0; i < count; ++i) {
+            if (i) built = protocol_writer_append_byte(&writer, ',') && built;
+            built = protocol_writer_append_literal(&writer, "{\"id\":\"") && built;
+            built = protocol_writer_append_u64(&writer, 1000 + i) && built;
+            built = protocol_writer_append_literal(&writer, "\",\"nick\":\"") && built;
+            if (!mode) built = protocol_writer_append_byte(&writer, 'n') && built;
+            built = protocol_writer_append_literal(&writer, "\"}") && built;
+        }
+        built = protocol_writer_append_literal(&writer, "]}") && built;
+        const auto result = route({reinterpret_cast<const char*>(source), writer.used});
+        check(built && (mode ? result.error == GatewayClientDispatchRouteError::payload_capacity && !output.count :
+            result.ok() && event.state.record_count == 256 && event.state.private_nicknames_known),
+            "nickname arrays accept 256 records and bound even empty nicknames at 257 entries");
+    }
+    for (u32 length = 128; length <= 129; ++length) {
+        ProtocolWriter writer{{source, sizeof(source)}, 0};
+        bool built = protocol_writer_append_literal(&writer, "{\"id\":\"20\",\"type\":3,\"nicks\":[{\"id\":\"2\",\"nick\":\"");
+        for (u32 i = 0; i < length; ++i) built = protocol_writer_append_byte(&writer, 'n') && built;
+        built = protocol_writer_append_literal(&writer, "\"}]}") && built;
+        const auto result = route({reinterpret_cast<const char*>(source), writer.used});
+        check(built && (length == 128 ? result.ok() && event.state.record_count == 1 :
+            result.error == GatewayClientDispatchRouteError::decode && !output.count),
+            "wire nickname decoding enforces the model's 128-byte UTF-8 storage bound");
+    }
+}
 void channel_create_projection(void (*check)(bool, const char*) noexcept) noexcept {
     constexpr Utf8View cases[] = {
         utf8_literal(R"({"id":"20","guild_id":"8","type":0,"name":"A\u00e9","position":3,"flags":16,"last_message_id":"99","rate_limit_per_user":5,"nsfw":true,"permission_overwrites":[{"id":"8","type":0,"allow":"1024","deny":"0"},{"id":"1","type":1,"allow":"0","deny":"2048"}]})"),
@@ -535,7 +590,7 @@ void channel_create_projection(void (*check)(bool, const char*) noexcept) noexce
         utf8_literal(R"({"id":"20","guild_id":"8","parent_id":"10","type":11,"member":{"id":false}})"),
         utf8_literal(R"({"id":"20","guild_id":"8","type":0,"member":{"id":"20","user_id":"1","flags":0}})"),
         utf8_literal(R"({"id":"20","type":1,"name":null,"recipients":[{"id":"2","username":"other"}]})"),
-        utf8_literal(R"({"id":"20","type":3,"name":"group","recipient_ids":["2","3"],"nicks":{"2":"friend"},"is_message_request":true})"),
+        utf8_literal(R"({"id":"20","type":3,"name":"group","recipient_ids":["2","3"],"nicks":[{"id":"2","nick":"friend"}],"is_message_request":true})"),
         utf8_literal(R"({"id":"20","guild_id":"8","type":0,"name":"channel","permission_overwrites":[{"id":"8","type":0,"allow":"0","deny":"1"},{"id":"8","type":0,"allow":"0","deny":"2"}]})"),
         utf8_literal(R"({"guild_id":"8","type":0})"),
         utf8_literal(R"({"id":"20","guild_id":"8"})"),
@@ -632,6 +687,7 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
     indexed_channel_records(check);
     huge_community_guild(check);
     tolerant_guild_records(check);
+    channel_nickname_projection(check);
     channel_create_projection(check);
     const auto input = fixture(129);
     const u64 immutable = hash(input);

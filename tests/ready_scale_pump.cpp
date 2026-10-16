@@ -185,7 +185,7 @@ void private_channel(Json& j, u32 p) noexcept {
     j.id(user_id(p % kUsers)).s(",\"last_message_id\":").id(private_id(p) * 10).s(",\"recipient_ids\":[");
     for (u32 r = 0; r < 4; ++r)
         j.comma(r).id(user_id((p + r) % kUsers));
-    j.s("],\"nicks\":{\"").n(user_id(p % kUsers)).s("\":\"Nick \\u00e9\"}}");
+    j.s("],\"nicks\":[{\"id\":").id(user_id(p % kUsers)).s(",\"nick\":\"Nick \\u00e9\"}]}");
 }
 
 Utf8View build_ready() noexcept {
@@ -460,6 +460,10 @@ void scale() noexcept {
     check(request && (request->request_flags & private_request_pending) &&
               (request->request_flags & private_request_spam) && warned && warned->safety_warning_id == 700'006,
           "private: message request and safety warning trailers apply");
+    const auto nickname = private_channel_store_nickname(stores.private_channels, private_id(kDirect),
+                                                         user_id(kDirect % kUsers));
+    check(utf8_equal(nickname, utf8_literal("Nick é")),
+          "private: READY wire nickname arrays reach the channel-local store");
     check(stores.voice_states.count == (kGuilds / 4) * 3, "voice: READY voice states apply");
 }
 
