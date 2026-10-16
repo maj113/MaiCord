@@ -13,6 +13,25 @@ $repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).Pro
 $releaseRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
 if (!(Test-Path -LiteralPath $releaseRoot)) { Write-Output 'No Release build exists.'; return }
 
+function Enter-ReleaseCleanupLock([string]$Name = 'Local\MaiCordReleaseBuild') {
+    $mutex = [Threading.Mutex]::new($false, $Name)
+    try {
+        try { $locked = $mutex.WaitOne(0) }
+        catch [Threading.AbandonedMutexException] { $locked = $true }
+        if (!$locked) { throw 'Another MaiCord Release build, test or cleanup invocation is active; temporary outputs were retained.' }
+        return $mutex
+    } catch {
+        $mutex.Dispose()
+        throw
+    }
+}
+$cleanupMutex = $null
+try {
+    # The supported wrapper holds this same mutex through build/test/cleanup.
+    # Its synchronous script calls acquire it reentrantly; standalone cleanup
+    # cannot classify or remove outputs while another wrapper owns the cache.
+    if ($Apply) { $cleanupMutex = Enter-ReleaseCleanupLock }
+
 $validatedAncestors = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 function Assert-ReleasePath([string]$Path) {
     $absolute = [IO.Path]::GetFullPath($Path)
@@ -291,59 +310,24 @@ if ($ConfigureScratch) {
     }
 }
 if ($Apply) {
-    function Test-ExplicitOtherBuild($ProcessRecord) {
-        $separator = '(?:=|\s+)'
-        $option = if ($ProcessRecord.Name -eq 'ctest.exe') { '--test-dir' }
-            elseif ($ProcessRecord.Name -eq 'cmake.exe') { '--build' }
-            elseif ($ProcessRecord.Name -eq 'ninja.exe') {
-                if ([regex]::Matches($ProcessRecord.CommandLine, '(?:^|\s)"?-C').Count -ne 1) { return $false }
-                $separator = '\s+'
-                '(?:"-C"|-C)'
-            } else { return $false }
-        $prefix = if ($ProcessRecord.Name -eq 'cmake.exe') {
-            '^\s*(?:"[^"]+"|[^\s"]+)\s+'
-        } else { '(?:^|\s)' }
-        $match = [regex]::Match($ProcessRecord.CommandLine,
-            $prefix + $option + $separator + '(?:"(?<path>[A-Za-z]:[\\/][^"]+)"|(?<path>[A-Za-z]:[\\/][^\s"]+))(?=\s|$)')
-        if (!$match.Success) { return $false }
-        $other = [IO.Path]::GetFullPath($match.Groups['path'].Value)
-        foreach ($protected in @($repository, $releaseRoot)) {
-            $otherPrefix = $other.TrimEnd('\') + '\'
-            $protectedPrefix = $protected.TrimEnd('\') + '\'
-            if ($otherPrefix.Equals($protectedPrefix, [StringComparison]::OrdinalIgnoreCase) -or
-                $other.StartsWith($protectedPrefix, [StringComparison]::OrdinalIgnoreCase) -or
-                $protected.StartsWith($otherPrefix, [StringComparison]::OrdinalIgnoreCase)) { return $false }
-        }
-        if (!(Test-Path -LiteralPath $other -PathType Container)) { return $false }
-        # An explicit outside path is proof only if no ancestor redirects it.
-        $ancestor = $other
-        while ($ancestor) {
-            if ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { return $false }
-            $ancestor = [IO.Path]::GetDirectoryName($ancestor)
-        }
-        return $true
-    }
-    function Test-CMakeLinkHelper($ProcessRecord) {
-        if ($ProcessRecord.Name -ne 'cmake.exe') { return $false }
-        # Ninja invokes CMake as a linker wrapper. Only these modes, with an
-        # actual link.exe command, inherit the owning build's outside proof.
-        $match = [regex]::Match($ProcessRecord.CommandLine,
-            '^\s*(?:"[^"]+"|[^\s"]+)\s+-E\s+vs_link_(?:exe|dll)\s+(?:[^\r\n]*?\s+)?--\s+(?:"(?<tool>[^"]+)"|(?<tool>[^\s"]+))(?=\s|$)')
-        return $match.Success -and
-            [IO.Path]::GetFileName($match.Groups['tool'].Value).Equals('link.exe', [StringComparison]::OrdinalIgnoreCase)
-    }
-    function Test-OtherBuildDescendant($ProcessRecord, $SnapshotById) {
-        # Only these tools inherit build ownership. A nested CMake/CTest or
-        # MSBuild invocation must supply its own proof instead of borrowing it.
-        if ($ProcessRecord.Name -notin @('cl.exe', 'link.exe', 'ninja.exe') -and
-            !(Test-CMakeLinkHelper $ProcessRecord)) { return $false }
-        if ($ProcessRecord.Name -eq 'ninja.exe' -and
-            [regex]::IsMatch($ProcessRecord.CommandLine, '(?:^|\s)"?-C')) {
-            return (Test-ExplicitOtherBuild $ProcessRecord)
-        }
+    function Test-ProtectedBuildProcess($ProcessRecord, $SnapshotById) {
+        # Unknown processes in other projects do not own this fixed workspace.
+        # Explicit MaiCord paths also catch surviving producers after a wrapper
+        # exits; their children inherit ownership only through valid identities.
         $visited = [Collections.Generic.HashSet[int]]::new()
         $child = $ProcessRecord
         while ($child) {
+            $command = ([string]$child.CommandLine).Replace('/', '\')
+            foreach ($protected in @($repository, $releaseRoot)) {
+                $path = $protected.TrimEnd('\')
+                if ([regex]::IsMatch($command, [regex]::Escape($path) + '(?=[\\\s"]|$)',
+                        [Text.RegularExpressions.RegexOptions]::IgnoreCase)) { return $true }
+                if ($child.ExecutablePath) {
+                    $executable = [IO.Path]::GetFullPath($child.ExecutablePath)
+                    if ($executable.Equals($path, [StringComparison]::OrdinalIgnoreCase) -or
+                        $executable.StartsWith($path + '\', [StringComparison]::OrdinalIgnoreCase)) { return $true }
+                }
+            }
             if (!$child.CreationDate -or !$visited.Add([int]$child.ProcessId)) { return $false }
             $parentId = [int]$child.ParentProcessId
             if (!$SnapshotById.ContainsKey($parentId)) { return $false }
@@ -352,17 +336,6 @@ if ($Apply) {
             # that started after this child, including through shell wrappers.
             if (!$parent.CreationDate -or
                 $parent.CreationDate.ToUniversalTime() -gt $child.CreationDate.ToUniversalTime()) { return $false }
-            if ($parent.ExecutablePath -and
-                $targets.Contains([IO.Path]::GetFullPath($parent.ExecutablePath))) { return $false }
-            if ($parent.Name -in @('cmake.exe', 'ctest.exe')) {
-                if (Test-ExplicitOtherBuild $parent) { return $true }
-                if (!(Test-CMakeLinkHelper $parent)) { return $false }
-            }
-            if ($parent.Name -eq 'MSBuild.exe') { return $false }
-            if ($parent.Name -eq 'ninja.exe' -and
-                [regex]::IsMatch($parent.CommandLine, '(?:^|\s)"?-C')) {
-                return (Test-ExplicitOtherBuild $parent)
-            }
             $child = $parent
         }
         return $false
@@ -379,7 +352,7 @@ if ($Apply) {
             # Exact cleanup-target executables still block regardless of name.
             $builder = $process.Name -in @('cl.exe', 'link.exe', 'ninja.exe', 'cmake.exe', 'ctest.exe')
             $target = $process.ExecutablePath -and $targets.Contains([IO.Path]::GetFullPath($process.ExecutablePath))
-            if (!$builder -and !$target) { continue }
+            if (!$target -and !($builder -and (Test-ProtectedBuildProcess $process $snapshotById))) { continue }
             # A CIM snapshot can still describe a process that exited before
             # this guard runs. Only a live, matching process blocks cleanup.
             try {
@@ -408,8 +381,6 @@ if ($Apply) {
                 [Math]::Abs(($started - $process.CreationDate.ToUniversalTime()).Ticks) -ge 10) {
                 throw "Build or test process identity changed ($($process.Name), PID $($process.ProcessId)); temporary outputs were retained."
             }
-            if ($builder -and !$target -and
-                ((Test-ExplicitOtherBuild $process) -or (Test-OtherBuildDescendant $process $snapshotById))) { continue }
             # Briefly tolerate a verified process finishing at the snapshot
             # boundary. All candidates share one second, outside test timing.
             $remainingGrace = [Math]::Max(0, 1000 - [int]$exitGrace.ElapsedMilliseconds)
@@ -487,3 +458,9 @@ if ($RuntimeOnly) {
 }
 $bytes = [long]((Get-ChildItem -LiteralPath $releaseRoot -File -Recurse -Force | Measure-Object Length -Sum).Sum)
 [pscustomobject]@{ ReleaseDirectory = $releaseRoot; Bytes = $bytes; TemporaryFiles = $targets.Count; TemporaryBytes = $removedBytes; RemovedDirectories = $removedDirectories; Removed = [bool]$Apply }
+} finally {
+    if ($cleanupMutex) {
+        try { $cleanupMutex.ReleaseMutex() }
+        finally { $cleanupMutex.Dispose() }
+    }
+}
