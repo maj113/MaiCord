@@ -48,10 +48,18 @@ u32 slowmode_seconds(u64 channel_id) noexcept {
 
 u64 slowmode_remaining(u64 channel_id, u64 now_ms) noexcept {
     feedback_bind_account();
-    if (channel_id && channel_id == feedback.slowmode_channel_id && !slowmode_seconds(channel_id)) {
-        // This deadline predicts channel slowmode; server rate limits belong
-        // to the send controller and REST scheduler and remain authoritative.
-        feedback.slowmode_channel_id = feedback.slowmode_until_ms = 0;
+    if (channel_id && channel_id == feedback.slowmode_channel_id) {
+        const u64 duration_ms = u64{slowmode_seconds(channel_id)} * 1000;
+        if (!duration_ms) {
+            // This deadline predicts channel slowmode; server rate limits belong
+            // to the send controller and REST scheduler and remain authoritative.
+            feedback.slowmode_channel_id = feedback.slowmode_until_ms = 0;
+        } else if (now_ms < feedback.slowmode_until_ms &&
+                   feedback.slowmode_until_ms - now_ms > duration_ms) {
+            // A shorter policy caps the remaining wait. Never extend a running
+            // prediction; this sum is strictly before its existing deadline.
+            feedback.slowmode_until_ms = now_ms + duration_ms;
+        }
     }
     return channel_id && channel_id == feedback.slowmode_channel_id && now_ms < feedback.slowmode_until_ms
                ? feedback.slowmode_until_ms - now_ms
@@ -255,6 +263,8 @@ void application_message_interaction_tick(u64 now_ms) noexcept {
     bool composer_changed = connection_notice_tick(&feedback.connection, now_ms) || feedback.refresh_pending;
     feedback.refresh_pending = false;
     if (feedback.slowmode_label_bytes || feedback.slowmode_until_ms) {
+        // Apply policy changes even while another channel owns the composer.
+        slowmode_remaining(feedback.slowmode_channel_id, now_ms);
         composer_changed = slowmode_label_refresh(now_ms) || composer_changed;
         if (now_ms >= feedback.slowmode_until_ms)
             feedback.slowmode_channel_id = feedback.slowmode_until_ms = 0;

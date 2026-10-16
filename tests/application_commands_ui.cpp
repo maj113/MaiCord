@@ -228,6 +228,35 @@ void composer_slowmode_cases() noexcept {
             "slowmode revoking a grant does not resurrect the retired prediction or consume the draft");
         application_composer_note_sent(channel_id);
         check(application_composer_slowmode_active(channel_id), "slowmode ordinary send rearms the prediction");
+        const u64 policy_now = clock_monotonic_milliseconds();
+        channels[0].slowmode_code = slowmode_encode(60);
+        application_message_interaction_tick(policy_now);
+        check(application_message_interaction_next_wake(policy_now + 59'999) == policy_now + 60'000,
+            "slowmode nonzero policy decrease caps the running prediction to the new duration");
+        channels[0].slowmode_code = slowmode_encode(21'600);
+        application_message_interaction_tick(policy_now + 1000);
+        check(application_message_interaction_next_wake(policy_now + 59'999) == policy_now + 60'000,
+            "slowmode policy increase preserves the earlier predicted deadline");
+        ui.active_channel_id = 0;
+        channels[0].slowmode_code = slowmode_encode(30);
+        application_message_interaction_tick(policy_now + 2000);
+        check(!application_message_interaction_next_wake(policy_now + 2000),
+            "slowmode offscreen policy change leaves no composer countdown wake");
+        ui.active_channel_id = channel_id;
+        application_message_interaction_tick(policy_now + 3000);
+        check(application_message_interaction_next_wake(policy_now + 31'999) == policy_now + 32'000,
+            "slowmode returning to a channel preserves the deadline reduced while offscreen");
+        channels[0].slowmode_code = slowmode_encode(20);
+        application_message_interaction_tick(policy_now + 31'000);
+        check(application_message_interaction_next_wake(policy_now + 31'999) == policy_now + 32'000,
+            "slowmode decrease longer than remaining wait cannot extend the prediction");
+        application_message_interaction_tick(policy_now + 32'000);
+        check(!application_message_interaction_next_wake(policy_now + 32'000) &&
+            !application_composer_status_notice().bytes && !application_composer_slowmode_active(channel_id) &&
+            utf8_equal(message_composer_text(g_app.message_composer), draft),
+            "slowmode reduced deadline expires exactly and preserves the unsent draft");
+        channels[0].slowmode_code = slowmode_encode(21'600);
+        application_composer_note_sent(channel_id);
         channels[0].slowmode_code = 0;
         check(!application_composer_status_notice().bytes && !application_composer_slowmode_active(channel_id),
             "slowmode disabled channel immediately removes its predicted notice and block");
