@@ -488,6 +488,10 @@ struct Scratch {
 };
 constexpr u32 kScratchJsonBytes = 1024 * 1024;
 constexpr u32 kScratchStructurals = 256 * 1024;
+// The synthetic READY is fixed in size and well under 1M structurals. A local
+// bound keeps the harness's committed memory, which counts in the measured
+// process, independent of the Gateway's 8M-offset limit.
+constexpr u32 kReadyStructurals = 1024 * 1024;
 
 struct Module {
     SRWLOCK lock;
@@ -598,13 +602,13 @@ DWORD WINAPI ready_thread(void* context) noexcept {
         return 1;
     GatewayReady ready{};
     if (!gateway_decode_ready({{m.ready_json, bytes}, 0, JsonValueKind::object},
-                              {m.ready_structurals, kGatewaySessionMaximumStructuralCount}, 64, &ready)
+                              {m.ready_structurals, kReadyStructurals}, 64, &ready)
              .ok())
         return 2;
     const u64 before = m.counters.gateway_events;
     const auto projected = gateway_ready_project(
         ready,
-        {{m.ready_structurals, kGatewaySessionMaximumStructuralCount},
+        {{m.ready_structurals, kReadyStructurals},
          {m.records, 512 * 1024},
          {m.projection_payload, kGatewayClientDispatchPayloadCapacity},
          {m.header, 4096}},
@@ -1060,7 +1064,7 @@ AccountModuleStartResult WINAPI module_start(const wchar_t*, const wchar_t*, u64
     m->work = static_cast<Work*>(region_take(sizeof(Work) * u64{kWorkCapacity}));
     m->media_pixels = static_cast<u8*>(region_take(u64{kMediaSlotBytes} * kMediaSlots));
     m->ready_json = static_cast<char*>(region_take(16ull * 1024 * 1024));
-    m->ready_structurals = static_cast<u32*>(region_take(sizeof(u32) * u64{kGatewaySessionMaximumStructuralCount}));
+    m->ready_structurals = static_cast<u32*>(region_take(sizeof(u32) * u64{kReadyStructurals}));
     m->records = static_cast<u32*>(region_take(sizeof(u32) * 512ull * 1024));
     m->projection_payload = static_cast<char*>(region_take(kGatewayClientDispatchPayloadCapacity));
     m->header = static_cast<char*>(region_take(8192));

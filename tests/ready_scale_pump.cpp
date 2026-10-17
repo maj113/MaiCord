@@ -386,7 +386,10 @@ DrainTotals drain_all(Queue* q) noexcept {
     return totals;
 }
 
-u32 arrays[kGatewaySessionMaximumStructuralCount];
+// The synthetic READY fits well within 1M structurals; a local bound keeps
+// this array from growing with the Gateway's 8M-offset limit.
+constexpr u32 kReadyStructurals = 1024 * 1024;
+u32 arrays[kReadyStructurals];
 u32 records[256 * 1024];
 char projection_payload[kGatewayClientDispatchPayloadCapacity];
 char header[4096];
@@ -395,12 +398,12 @@ void scale() noexcept {
     const Utf8View source = build_ready();
     check(source.bytes > 1024 * 1024, "fixture: READY is larger than 1 MiB");
     GatewayReady ready{};
-    check(gateway_decode_ready({source, 0, JsonValueKind::object}, {arrays, kGatewaySessionMaximumStructuralCount}, 64,
+    check(gateway_decode_ready({source, 0, JsonValueKind::object}, {arrays, kReadyStructurals}, 64,
                                &ready)
               .ok(),
           "fixture: READY decodes");
     const auto projected = gateway_ready_project(
-        ready, {{arrays, kGatewaySessionMaximumStructuralCount}, {records, 256 * 1024},
+        ready, {{arrays, kReadyStructurals}, {records, 256 * 1024},
                 {projection_payload, sizeof(projection_payload)}, {header, sizeof(header)}},
         40, 1'759'900'000'000ull, enqueue, nullptr, &mailbox);
     check(projected.ok() && !mailbox.overflow, "projection: a large account READY projects completely");

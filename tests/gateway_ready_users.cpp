@@ -531,12 +531,13 @@ void decoded_storage(void (*check)(bool, const char*) noexcept) noexcept {
             ConstSlice<u8>{kGatewayGrowthExactIndex, sizeof(kGatewayGrowthExactIndex)};
         check(compressed_packet(bytes), "Gateway compressed structural boundary frame accepted within wire bound");
         received = gateway_session_next(&runtime.session, 0, GetTickCount64());
-        check(runtime.structural_scratch.capacity == kStructuralCount &&
-            runtime.structural_scratch.arena.committed == 4 * 1024 * 1024 && !growth_user.inflater.failed &&
-            (excess ? received.kind == GatewaySessionEventKind::error && received.gateway_error == GatewayDecodeError::scan_failed &&
-                      runtime.session.lifecycle.last_sequence == 7 :
-                      received.kind == GatewaySessionEventKind::dispatch && runtime.session.lifecycle.last_sequence == 99),
-            "Gateway exact 1M offsets dispatches while maximum plus one fails without checkpoint mutation or inflate replay");
+        // Past 1M offsets the index doubles once more instead of failing: a
+        // large account's READY reaches this well within the 8 MiB message bound.
+        const u32 capacity = excess ? 2 * 1024 * 1024 : 1024 * 1024;
+        check(runtime.structural_scratch.capacity == capacity &&
+            runtime.structural_scratch.arena.committed == capacity * sizeof(u32) && !growth_user.inflater.failed &&
+            received.kind == GatewaySessionEventKind::dispatch && runtime.session.lifecycle.last_sequence == 99,
+            "Gateway 1M and 1M+1 offset frames both dispatch, committing only the index each needs");
     }
     clear_user_transport(&runtime);
     bool wiped = true;
@@ -572,7 +573,7 @@ void allocation_cleanup(void (*check)(bool, const char*) noexcept) noexcept {
         index_info.State == MEM_COMMIT && message_info.State == MEM_COMMIT && message_info.RegionSize == kInitialDecodedMessageBytes &&
         record_info.State == MEM_COMMIT && record_info.RegionSize == 4096 &&
         storage->decoded_message.arena.reserved == kGatewaySessionMaximumDecodedMessageBytes &&
-        storage->ready_record_index.arena.reserved == 4 * 1024 * 1024,
+        storage->ready_record_index.arena.reserved == kStructuralCount * sizeof(u32),
         "Gateway user owner and three one-page message/outer/record prefixes commit without eager maximum backing");
     release_runtime_allocation(&owned);
     check(initialized && VirtualQuery(owned.runtime, &owner_info, sizeof(owner_info)) &&
@@ -624,7 +625,7 @@ void allocation_cleanup(void (*check)(bool, const char*) noexcept) noexcept {
 void index_storage(void (*check)(bool, const char*) noexcept) noexcept {
     check(runtime.structural_scratch.capacity == 1024 && runtime.structural_scratch.arena.committed == 4096 &&
         runtime.structural_scratch.arena.reserved == kGatewaySessionMaximumStructuralCount * sizeof(u32),
-        "Gateway main index reserves bounded 1M offsets with one initial committed page");
+        "Gateway main index reserves one offset per decoded message byte with one initial committed page");
     u32 bytes = dense_packet(4096, false, false);
     check(bytes && index_session(), "Gateway grow/rescan fixture initializes");
     const auto* base = main_index_view(&runtime).data;

@@ -44,8 +44,13 @@ enum class GatewaySessionError : u8 {
 
 // The optional growth callback extends only the committed part of the structural
 // index. It must keep the base address and the message bytes unchanged.
-inline constexpr u32 kGatewaySessionMaximumStructuralCount = 1024 * 1024;
 inline constexpr u32 kGatewaySessionMaximumDecodedMessageBytes = 8 * 1024 * 1024;
+// A JSON byte is at most one structural, so an index as long as the largest
+// message never overflows. Large accounts' READY payloads pass 1M structurals
+// well within 8 MiB; the index commits only what each payload needs.
+inline constexpr u32 kGatewaySessionMaximumStructuralCount = kGatewaySessionMaximumDecodedMessageBytes;
+static_assert(kGatewaySessionMaximumStructuralCount >= kGatewaySessionMaximumDecodedMessageBytes,
+              "every admissible message must fit the structural index");
 using GatewaySessionGrowIndex = bool (*)(void*, u32, Slice<u32>*) noexcept;
 // Compressed spill: storage of at least `required` bytes at a base that stays
 // fixed while one payload grows (the session copies its bytes over once).
