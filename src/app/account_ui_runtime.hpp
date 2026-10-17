@@ -25,12 +25,18 @@
 namespace maicord::app_detail {
 
 inline constexpr u32 kChatStateGuildCapacity = 256;
-inline constexpr u32 kChatStateChannelCapacity = 4'096;
-inline constexpr u32 kChatStateRoleCapacity = 8'192;
-inline constexpr u32 kChatStateOverwriteCapacity = 32'768;
+// Channels, roles and overwrites are bounded by their 16-bit indexes; their
+// storage is committed only as accounts use it (see the demand tail below).
+inline constexpr u32 kChatStateChannelCapacity = 65'535;
+inline constexpr u32 kChatStateRoleCapacity = 65'535;
+inline constexpr u32 kChatStateOverwriteCapacity = 65'535;
 inline constexpr u32 kChatStateEmojiCapacity = 4'096;
 inline constexpr u32 kChatStateEmojiRoleCapacity = 16'384;
-inline constexpr u32 kChatStateNameBytes = 256 * 1024;
+// Two banks of guild, channel and role names, committed as they fill.
+inline constexpr u32 kChatStateNameBytes = 16 * 1024 * 1024;
+// The channel list shows one server (or the conversation list) at a time.
+inline constexpr u32 kNavigationChannelRows = 4'096;
+inline constexpr u32 kPrivateChannelCapacity = 16'384;
 // Descriptions and vanity codes of every guild plus the feature names of
 // those the account manages.
 inline constexpr u32 kGuildDetailTextBytes = 64 * 1024;
@@ -97,11 +103,17 @@ static_assert(kAccountUiEventScratchBytes >= kGatewayClientDispatchPayloadCapaci
 
 struct AccountProjectionScratch {
     u32 member_list[kGuildMemberCapacity];
-    u16 navigation_channels[kChatStateChannelCapacity];
-    u8 navigation_visibility[kChatStateChannelCapacity];
+    u16 navigation_channels[kNavigationChannelRows];
 };
 
-static_assert(sizeof(AccountProjectionScratch) == 14'336);
+// How much of the demand tail of AccountUiRuntime is committed.
+struct AccountDemandCommit {
+    u32 channel_slots;
+    u32 name_bytes[2];
+    u32 unused;
+};
+
+static_assert(sizeof(AccountProjectionScratch) == 10'240);
 
 struct AccountTextShapeScratch {
     wchar_t utf16[kRendererContentTextUnitCapacity];
@@ -170,6 +182,7 @@ struct AccountUiRuntime {
     StableStorage read_state_bank;
     StableStorage role_storage;
     StableStorage overwrite_storage;
+    AccountDemandCommit demand_commit;
     PrivateChannelStore private_channel_store;
     UserStore user_store;
     GuildMemberStore guild_member_store;
@@ -198,7 +211,6 @@ struct AccountUiRuntime {
     GuildRecord guild_record_storage[kChatStateGuildCapacity];
     GuildDetailRecord guild_detail_records[kChatStateGuildCapacity];
     char guild_detail_text[kGuildDetailTextBytes];
-    ChannelRecord channel_record_storage[kChatStateChannelCapacity];
     CustomEmojiRecord emoji_record_storage[kChatStateEmojiCapacity];
     u64 emoji_role_storage[kChatStateEmojiRoleCapacity];
     UserRecord user_record_storage[kUserCapacity];
@@ -206,7 +218,6 @@ struct AccountUiRuntime {
     TypingRecord typing_record_storage[kTypingRecordCapacity];
     VoiceState voice_state_records[kVoiceStateCapacity];
     u16 guild_order_storage[kChatStateGuildCapacity];
-    u16 channel_order_storage[kChatStateChannelCapacity];
     u32 user_order_storage[kUserCapacity];
     u32 guild_member_order_storage[kGuildMemberCapacity];
     MemberListRow member_list_rows[kMemberListViewCapacity];
@@ -214,7 +225,7 @@ struct AccountUiRuntime {
     MemberMediaCache member_media_cache;
     // Folder headers share the rail with guilds, at most one per guild.
     GuildViewRow navigation_guild_rows[kChatStateGuildCapacity * 2];
-    ChannelViewRow navigation_channel_rows[kChatStateChannelCapacity];
+    ChannelViewRow navigation_channel_rows[kNavigationChannelRows];
     GlyphQuad renderer_text_quads[kRendererContentGlyphCapacity];
     GlyphDrawBatch renderer_text_batches[kRendererContentBatchCapacity];
     MessageTextCommand message_text_commands[kMaximumMessageTextCommands];
@@ -226,7 +237,6 @@ struct AccountUiRuntime {
     MessageTextSpoilerReveal message_text_spoiler_reveals[kMaximumMessageTextSpoilerReveals];
     MessageTextSemantic renderer_content_semantics[kRendererContentSemanticCapacity];
     TextHitRegion renderer_content_hit_regions[kRendererContentHitRegionCapacity];
-    u8 chat_state_name_storage[kChatStateNameBytes];
     u8 user_name_storage[kUserNameBytes];
     alignas(8) u8 event_payload_scratch[kAccountUiEventScratchBytes];
     // READY guild IDs and bulk-delete IDs are alternative event payloads.
@@ -240,7 +250,7 @@ struct AccountUiRuntime {
     // UI-thread-only transaction scratch. Navigation keys are rebuilt before
     // use; history parsing and profile commits finish before presentation.
     union {
-        ChannelSortKey navigation_sort_keys[kChatStateChannelCapacity];
+        ChannelSortKey navigation_sort_keys[kNavigationChannelRows];
         u32 message_history_page_structurals[kMessageHistoryPageStructuralCount];
         AccountProfileDecodeScratch profile_decode;
     };
@@ -287,6 +297,14 @@ struct AccountUiRuntime {
     MessageMarkdownCache message_markdown_cache;
     MessageMarkdownCacheEntry message_markdown_cache_entries[kMessageMarkdownCacheSlots];
     alignas(8) u8 message_markdown_cache_arena[kMessageMarkdownCacheArenaBytes];
+    // Demand tail: the host reserves it and commits ranges as the stores grow
+    // (application_ui_runtime.cpp), so an account pays only for what it uses.
+    // Fully committed allocations, such as test owners, may use it directly.
+    ChannelRecord channel_record_storage[kChatStateChannelCapacity];
+    u16 channel_order_storage[kChatStateChannelCapacity];
+    // Indexed by channel slot; committed with the channel records.
+    u8 navigation_visibility[kChatStateChannelCapacity];
+    u8 chat_state_name_storage[kChatStateNameBytes];
 };
 
 // Includes fixed-capacity identity, member, message, glyph and media stores.
@@ -297,12 +315,12 @@ inline constexpr u32 kAccountUiMemberPagingBytes =
     kMemberListViewCapacity * (sizeof(MemberListRow) - 32);
 inline constexpr u32 kAccountUiThreadMemberBytes =
     sizeof(ThreadMemberStore) + 2 * sizeof(StableStorage);
-// Known-channel read metadata shares the existing channel records. Only late
-// channel identities use separately demand-committed pending storage.
+// Known-channel read metadata shares the channel records (sizeof(ChannelRecord)
+// - 96 bytes each, committed with them in the demand tail). Only late channel
+// identities use separately demand-committed pending storage.
 inline constexpr u32 kAccountUiReadStateBytes =
-    kChatStateChannelCapacity * (sizeof(ChannelRecord) - 96) + sizeof(ReadStateStore*) +
-    sizeof(ReadStateStore) + sizeof(StableStorage);
-static_assert(kAccountUiReadStateBytes == 32'920);
+    sizeof(ReadStateStore*) + sizeof(ReadStateStore) + sizeof(StableStorage);
+static_assert(kAccountUiReadStateBytes == 152);
 // The current reply reuses the composer's channel; its remaining snapshot
 // fields occupy 16 bytes, plus eight added bytes in each retained draft record.
 inline constexpr u32 kAccountUiReplyDraftBytes = kMessageDraftCapacity * (sizeof(MessageDraftRecord) - 40) +
@@ -314,9 +332,13 @@ static_assert(kAccountUiReplyDraftBytes == 528);
 inline constexpr u32 kAccountUiMarkdownCacheBytes = 16 + sizeof(MessageMarkdownCache) +
                                                     kMessageMarkdownCacheSlots * sizeof(MessageMarkdownCacheEntry) +
                                                     kMessageMarkdownCacheArenaBytes;
+// The committed owner ends where the demand tail begins.
+inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel_record_storage);
 // Measurements were 808 bytes and guild records 120 when the base was taken;
 // the appearance and activity stores were then two StableStorage + 16 each.
-static_assert(sizeof(AccountUiRuntime) ==
+// The base held 4,096 channel records and orders and a 256 KiB name bank,
+// which moved to the demand tail, and a 288-byte chat state store.
+static_assert(kAccountUiFixedBytes ==
               4'261'240 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   sizeof(MemberMediaCache) +
                   kMaximumMessageTextMeasurements * (sizeof(MessageTextMeasurement) - 808) +
@@ -324,7 +346,9 @@ static_assert(sizeof(AccountUiRuntime) ==
                   (sizeof(UserAppearanceStore) - 2 * sizeof(StableStorage) - 16) +
                   (sizeof(UserActivityStore) - 2 * sizeof(StableStorage) - 16) +
                   sizeof(MemberListPositionTable) + sizeof(GuildDetailStore) +
-                  kChatStateGuildCapacity * sizeof(GuildDetailRecord) + kGuildDetailTextBytes);
+                  kChatStateGuildCapacity * sizeof(GuildDetailRecord) + kGuildDetailTextBytes -
+                  4'096 * (sizeof(ChannelRecord) + sizeof(u16)) - 256 * 1024 + sizeof(AccountDemandCommit) +
+                  (sizeof(ChatStateStore) - 288));
 
 inline bool application_history_decode_storage_initialize(AccountUiRuntime& ui) noexcept {
     return stable_storage_initialize(&ui.history_decode_storage,

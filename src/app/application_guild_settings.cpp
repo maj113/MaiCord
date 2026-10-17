@@ -892,7 +892,8 @@ void open_channel_menu(Menu menu, u32 types, u64 current, Utf8View none, Permiss
     p.menu_channel[count++] = 0;
     const auto& s = state();
     const u32 first = count;
-    for (u32 i = 0; i < s.channel_capacity && count < kPopupCapacity; ++i) {
+    const u32 slots = chat_state_store_channel_slot_bound(s);
+    for (u32 i = 0; i < slots && count < kPopupCapacity; ++i) {
         const auto& channel = s.channels[i];
         if (!channel.occupied || channel.guild_id != p.guild_id || channel.type >= 32 ||
             !(types & (1u << channel.type)))

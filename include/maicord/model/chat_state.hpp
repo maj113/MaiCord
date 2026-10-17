@@ -396,6 +396,15 @@ enum class SelfMfaState : u8 {
 using PermissionReserve = bool (*)(void* context, u32 required_roles,
                                           u32 required_overwrites) noexcept;
 
+enum class ChatStateBacking : u8 { channels, names };
+// Commits storage before the store first touches it. channels: the first
+// `required` slots of both the channel records and the channel order. names:
+// the first `required` bytes of name bank `bank` (bank n starts at
+// n * name_bank_bytes). Requests only grow; success leaves the range writable
+// and zeroed.
+using ChatStateBackingReserve = bool (*)(void* context, ChatStateBacking backing, u32 bank,
+                                         u32 required) noexcept;
+
 struct ChatStateStore {
     ReadStateStore* read_state;
     PrivateChannelStore* private_channels;
@@ -417,6 +426,12 @@ struct ChatStateStore {
     void* permission_reserve_context;
     u32 role_backed_count;
     u32 overwrite_backed_count;
+    // Without a backing reserve every channel slot and name byte is backed.
+    // Backing is not model state, so const admission checks may extend it.
+    ChatStateBackingReserve backing_reserve;
+    void* backing_context;
+    mutable u32 channel_backed_count;
+    mutable u32 name_backed_bytes[2];
     u32 emoji_capacity;
     u32 emoji_role_capacity;
     u32 guild_count;
@@ -456,7 +471,7 @@ struct ChatStateStore {
     u16 guild_free_hint;
     u16 channel_free_hint;
 };
-static_assert(sizeof(ChatStateStore) == 288);
+static_assert(sizeof(ChatStateStore) == 320);
 
 enum class ChatStateStoreError : u8 {
     none,
@@ -518,6 +533,14 @@ bool chat_state_store_bind_permissions_reserved(ChatStateStore* store, Slice<Rol
                                                    Slice<PermissionOverwriteRecord> overwrites,
                                                    PermissionReserve reserve,
                                                    void* context) noexcept;
+// Moves channel records, channel order and name banks to on-demand backing:
+// nothing is backed until `reserve` commits it, so the slices passed to
+// initialization may be reserved address space. Call on an empty store.
+bool chat_state_store_bind_backing(ChatStateStore* store, ChatStateBackingReserve reserve,
+                                   void* context) noexcept;
+// Channel slots at or above this are unbacked and never occupied: scans over
+// every slot stop here instead of at channel_capacity.
+u32 chat_state_store_channel_slot_bound(const ChatStateStore& store) noexcept;
 bool chat_state_store_prepare_permissions(ChatStateStore* store, u32 required_roles,
                                              u32 required_overwrites) noexcept;
 // Requires an empty emoji model and leaves both array contents unchanged.

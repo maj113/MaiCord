@@ -120,6 +120,7 @@ void test_guild_role_replacement(void (*check)(bool, const char*) noexcept) noex
 void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept;
 void test_guild_channel_validation(void (*check)(bool, const char*) noexcept) noexcept;
 void test_channel_name_preflight(void (*check)(bool, const char*) noexcept) noexcept;
+void test_chat_state_backing(void (*check)(bool, const char*) noexcept) noexcept;
 u32 test_member_viewport_ranges_and_sparse_scene() noexcept;
 u32 test_member_visible_avatar_requests() noexcept;
 u32 test_member_media_cache_scroll() noexcept;
@@ -259,7 +260,11 @@ constexpr ExtensionFixture extension_fixtures[]{
     test_guild_role_replacement,
     test_permission_prefix,
     test_guild_channel_validation,
-    test_channel_name_preflight,
+    // Name admission and the demand backing it relies on share a fixture slot.
+    [](ExtensionCheck verify) noexcept {
+        test_channel_name_preflight(verify);
+        test_chat_state_backing(verify);
+    },
     [](ExtensionCheck verify) noexcept {
         verify(test_member_viewport_ranges_and_sparse_scene() == 0, "member viewport planner and sparse scene regressions");
     },

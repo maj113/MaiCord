@@ -73,6 +73,7 @@ struct ChannelSortKey {
     u8 group_rank;
     u8 row_rank;
     u8 depth;
+    u16 slot;  // the channel's store slot; keys are indexed by projection position
 };
 
 struct NavigationView {

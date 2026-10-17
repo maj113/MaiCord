@@ -77,8 +77,34 @@ u32 empty_guild_slot(const ChatStateStore& store) noexcept {
     return store.guild_capacity;
 }
 
+// Backs the first `required` channel slots (records and order) before use.
+bool back_channels(const ChatStateStore& store, u32 required) noexcept {
+    if (required <= store.channel_backed_count)
+        return true;
+    if (required > store.channel_capacity || !store.backing_reserve ||
+        !store.backing_reserve(store.backing_context, ChatStateBacking::channels, 0, required))
+        return false;
+    store.channel_backed_count = required;
+    return true;
+}
+
+// Backs the first `bytes` of name bank `bank` before use.
+bool back_names(const ChatStateStore& store, u32 bank, u32 bytes) noexcept {
+    if (bytes <= store.name_backed_bytes[bank])
+        return true;
+    if (bytes > store.name_bank_bytes || !store.backing_reserve ||
+        !store.backing_reserve(store.backing_context, ChatStateBacking::names, bank, bytes))
+        return false;
+    store.name_backed_bytes[bank] = bytes;
+    return true;
+}
+
+// With channel_count slots occupied, slot channel_count or an earlier one is
+// free, so the search reads only slots up to channel_count. Callers back
+// channel_count + 1 slots first.
 u32 empty_channel_slot(const ChatStateStore& store) noexcept {
-    for (u32 slot = store.channel_free_hint; slot < store.channel_capacity; ++slot) {
+    const u32 limit = minimum(store.channel_capacity, store.channel_count + 1);
+    for (u32 slot = store.channel_free_hint; slot < limit; ++slot) {
         if (!store.channels[slot].occupied) {
             return slot;
         }
@@ -93,6 +119,16 @@ u32 active_name_base(const ChatStateStore& store) noexcept {
 bool compact_names(ChatStateStore* store) noexcept {
     const u8 target_bank = store->active_name_bank == 0 ? 1 : 0;
     const u32 target_base = static_cast<u32>(target_bank) * store->name_bank_bytes;
+    // Back the target bank for every live name before moving any of them.
+    u64 live = 0;
+    for (u32 order = 0; order < store->guild_count; ++order)
+        live += store->guilds[store->guild_order[order]].name_bytes;
+    for (u32 order = 0; order < store->channel_count; ++order)
+        live += store->channels[store->channel_order[order]].name_bytes;
+    for (u32 index = 0; index < store->role_count; ++index)
+        live += store->roles[index].name_bytes;
+    if (live > store->name_bank_bytes || !back_names(*store, target_bank, static_cast<u32>(live)))
+        return false;
     u32 used = 0;
     for (u32 order = 0; order < store->guild_count; ++order) {
         GuildRecord& record = store->guilds[store->guild_order[order]];
@@ -149,6 +185,8 @@ bool allocate_name(ChatStateStore* store, Utf8View name, u32* offset) noexcept {
         (!compact_names(store) || name.bytes > store->name_bank_bytes - store->name_used)) {
         return false;
     }
+    if (!back_names(*store, store->active_name_bank, store->name_used + name.bytes))
+        return false;
     *offset = active_name_base(*store) + store->name_used;
     copy_bytes(store->names + *offset, reinterpret_cast<const u8*>(name.data), name.bytes);
     store->name_used += name.bytes;
@@ -171,6 +209,10 @@ Utf8View stored_name(const ChatStateStore& store, bool present, u32 offset, u32 
 struct NamePreflight {
     u32 used;
     u32 live;
+    // The furthest a write reaches in either bank, and whether the batch
+    // compacts into the other bank on the way.
+    u32 peak;
+    bool compacts;
 };
 
 bool preflight_live_name(const ChatStateStore& store, NamePreflight* budget, u32 offset,
@@ -200,7 +242,7 @@ bool preflight_header(const ChatStateStore& store) noexcept {
 bool preflight_names(const ChatStateStore& store, NamePreflight* budget) noexcept {
     if (!preflight_header(store))
         return false;
-    *budget = NamePreflight{store.name_used, 0};
+    *budget = NamePreflight{store.name_used, 0, store.name_used, false};
     for (u32 order = 0; order < store.guild_count; ++order) {
         if (store.guild_order[order] >= store.guild_capacity)
             return false;
@@ -251,7 +293,7 @@ ChatStateStoreError preflight_channel_slot(const ChatStateStore& store, u64 id, 
             return ChatStateStoreError::none;
         }
     }
-    if (store.channel_count >= store.channel_capacity)
+    if (store.channel_count >= store.channel_capacity || !back_channels(store, store.channel_count + 1))
         return ChatStateStoreError::channel_capacity;
     *slot = empty_channel_slot(store);
     return *slot < store.channel_capacity ? ChatStateStoreError::none
@@ -265,13 +307,27 @@ bool preflight_replace_name(const ChatStateStore& store, NamePreflight* budget, 
     if (old_bytes > budget->live)
         return false;
     // Allocation precedes retiring the old name, as allocate_name does.
-    if (name.bytes > store.name_bank_bytes - budget->used)
+    if (name.bytes > store.name_bank_bytes - budget->used) {
         budget->used = budget->live;
+        budget->compacts = true;
+    }
     if (name.bytes > store.name_bank_bytes - budget->used)
         return false;
     budget->used += name.bytes;
+    budget->peak = maximum(budget->peak, budget->used);
     budget->live = budget->live - old_bytes + name.bytes;
     return true;
+}
+
+// Backs every name byte an admitted batch writes, so applying it cannot fail
+// for backing: the active bank up to the peak, and the other bank too when the
+// batch compacts (each compaction writes at most the then-live bytes, which
+// the peak bounds).
+ChatStateStoreError back_name_budget(const ChatStateStore& store, const NamePreflight& budget) noexcept {
+    const u32 active = store.active_name_bank;
+    const bool backed = back_names(store, active, budget.peak) &&
+                        (!budget.compacts || back_names(store, active ^ 1u, budget.peak));
+    return backed ? ChatStateStoreError::none : ChatStateStoreError::name_capacity;
 }
 
 ChatStateStoreResult state_error(ChatStateStore* store, ChatStateStoreError error) noexcept {
@@ -442,6 +498,8 @@ bool initialize_store(ChatStateStore* store, Slice<GuildRecord> guilds, Slice<u1
     store->guild_capacity = guilds.count;
     store->channel_capacity = channels.count;
     store->name_bank_bytes = double_buffered_names.count / 2;
+    store->channel_backed_count = channels.count;
+    store->name_backed_bytes[0] = store->name_backed_bytes[1] = store->name_bank_bytes;
     if (zeroed)
         return true;
     for (u32 index = 0; index < guilds.count; ++index) {
@@ -469,6 +527,22 @@ bool chat_state_store_initialize_sparse(ChatStateStore* store, Slice<GuildRecord
                                         Slice<u8> double_buffered_names) noexcept {
     return initialize_store(store, guilds, guild_order, channels, channel_order, double_buffered_names,
                             true);
+}
+
+bool chat_state_store_bind_backing(ChatStateStore* store, ChatStateBackingReserve reserve,
+                                   void* context) noexcept {
+    if (!store || !store->channels || !store->names || !reserve || store->backing_reserve ||
+        store->guild_count || store->channel_count || store->name_used)
+        return false;
+    store->backing_reserve = reserve;
+    store->backing_context = context;
+    store->channel_backed_count = 0;
+    store->name_backed_bytes[0] = store->name_backed_bytes[1] = 0;
+    return true;
+}
+
+u32 chat_state_store_channel_slot_bound(const ChatStateStore& store) noexcept {
+    return minimum(store.channel_backed_count, store.channel_capacity);
 }
 
 static bool merge_guild_settings(GuildSettings* out, const GuildSettings& in) noexcept {
@@ -668,7 +742,7 @@ ChatStateStoreError chat_state_store_preflight_guild_role_update(const ChatState
                                     old ? old->name_bytes : u16{0}, input.name))
             return ChatStateStoreError::name_capacity;
     }
-    return ChatStateStoreError::none;
+    return back_name_budget(store, budget);
 }
 
 ChatStateStoreError chat_state_store_preflight_guild_create(
@@ -709,7 +783,9 @@ ChatStateStoreError chat_state_store_preflight_guild_create(
     }
     if (store.roles && role_count > store.role_capacity - (store.role_count - old_roles))
         return ChatStateStoreError::role_capacity;
-    if (channel_count > store.channel_capacity - (store.channel_count - old_channels))
+    // Old channels go before new ones arrive, so the count peaks at its final value.
+    if (channel_count > store.channel_capacity - (store.channel_count - old_channels) ||
+        !back_channels(store, store.channel_count - old_channels + channel_count))
         return ChatStateStoreError::channel_capacity;
     for (u32 index = 0; index < role_count; ++index) {
         RoleInput input{};
@@ -730,7 +806,7 @@ ChatStateStoreError chat_state_store_preflight_guild_create(
         if (!preflight_replace_name(store, &budget, 0, 0, input.name))
             return ChatStateStoreError::name_capacity;
     }
-    return ChatStateStoreError::none;
+    return back_name_budget(store, budget);
 }
 
 ChatStateStoreError chat_state_store_preflight_channel(const ChatStateStore& store,
@@ -799,7 +875,9 @@ ChatStateStoreError chat_state_store_preflight_channel_batch(const ChatStateStor
                                     old ? old->name_bytes : u16{0}, input.name))
             return ChatStateStoreError::name_capacity;
     }
-    return ChatStateStoreError::none;
+    if (!back_channels(store, store.channel_count + new_channels))
+        return ChatStateStoreError::channel_capacity;
+    return back_name_budget(store, budget);
 }
 
 ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
@@ -816,8 +894,11 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
     }
     bool found = false;
     const u32 order_index = find_channel_order(*store, input.id, &found);
+    if (!found && (store->channel_count >= store->channel_capacity ||
+                   !back_channels(*store, store->channel_count + 1)))
+        return state_error(store, ChatStateStoreError::channel_capacity);
     u32 slot = found ? store->channel_order[order_index] : empty_channel_slot(*store);
-    if (!found && (store->channel_count >= store->channel_capacity || slot >= store->channel_capacity)) {
+    if (!found && slot >= store->channel_capacity) {
         return state_error(store, ChatStateStoreError::channel_capacity);
     }
     ChannelRecord& record = store->channels[slot];

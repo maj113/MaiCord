@@ -128,7 +128,8 @@ ReadScopePlanResult read_scope_plan_size(const ChatStateStore& state, ReadScopeK
         return {};
     const u64 cursor = clock_cursor(action_time_ms);
     u32 occupied = 0;
-    for (u32 i = 0; i < state.channel_capacity; ++i) {
+    const u32 slots = chat_state_store_channel_slot_bound(state);
+    for (u32 i = 0; i < slots; ++i) {
         const auto& channel = state.channels[i];
         if (!channel.occupied)
             continue;

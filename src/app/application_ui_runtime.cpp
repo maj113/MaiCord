@@ -57,6 +57,52 @@
 #include <Windows.h>
 
 namespace maicord::app_detail {
+namespace {
+// The demand tail commits in steps, so growth costs a system call only every
+// few hundred channels or 64 KiB of names.
+constexpr u32 kChannelCommitStep = 256;
+constexpr u32 kNameCommitStep = 64 * 1024;
+
+u32 commit_step(u32 required, u32 step, u32 limit) noexcept {
+    return minimum(limit, (required + step - 1) / step * step);
+}
+
+bool commit_bytes(void* base, usize from, usize to) noexcept {
+    return to <= from || VirtualAlloc(static_cast<u8*>(base) + from, to - from, MEM_COMMIT, PAGE_READWRITE);
+}
+
+bool commit_chat_state_backing(void* context, ChatStateBacking backing, u32 bank, u32 required) noexcept {
+    auto& ui = *static_cast<AccountUiRuntime*>(context);
+    auto& committed = ui.demand_commit;
+    if (backing == ChatStateBacking::channels) {
+        if (required <= committed.channel_slots)
+            return true;
+        if (required > kChatStateChannelCapacity)
+            return false;
+        const u32 from = committed.channel_slots;
+        const u32 slots = commit_step(required, kChannelCommitStep, kChatStateChannelCapacity);
+        if (!commit_bytes(ui.channel_record_storage, usize{from} * sizeof(ChannelRecord),
+                          usize{slots} * sizeof(ChannelRecord)) ||
+            !commit_bytes(ui.channel_order_storage, usize{from} * sizeof(u16),
+                          usize{slots} * sizeof(u16)) ||
+            !commit_bytes(ui.navigation_visibility, from, slots))
+            return false;
+        committed.channel_slots = slots;
+        return true;
+    }
+    constexpr u32 bank_bytes = kChatStateNameBytes / 2;
+    if (bank > 1 || required > bank_bytes)
+        return false;
+    if (required <= committed.name_bytes[bank])
+        return true;
+    const u32 bytes = commit_step(required, kNameCommitStep, bank_bytes);
+    u8* const bank_base = ui.chat_state_name_storage + usize{bank} * bank_bytes;
+    if (!commit_bytes(bank_base, committed.name_bytes[bank], bytes))
+        return false;
+    committed.name_bytes[bank] = bytes;
+    return true;
+}
+} // namespace
 
 bool application_initialize_shell_scenes(Application& application) noexcept {
     if (!ui_virtual_row_storage_initialize(&application.guild_rail_rows, kGuildRailRowCapacity,
@@ -328,9 +374,14 @@ bool application_initialize_account_ui(Application& application) noexcept {
             application.renderer.message_measure_cache = &application.account_ui->text_measure_cache;
         return true;
     }
+    // Reserve the demand tail; commit only the fixed owner up front.
     auto* runtime = static_cast<AccountUiRuntime*>(
-        VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
+        VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE, PAGE_READWRITE));
     if (!runtime) {
+        return false;
+    }
+    if (!VirtualAlloc(runtime, kAccountUiFixedBytes, MEM_COMMIT, PAGE_READWRITE)) {
+        VirtualFree(runtime, 0, MEM_RELEASE);
         return false;
     }
     if (!application_history_decode_storage_initialize(*runtime) ||
@@ -341,6 +392,7 @@ bool application_initialize_account_ui(Application& application) noexcept {
             Slice<ChannelRecord>{runtime->channel_record_storage, kChatStateChannelCapacity},
             Slice<u16>{runtime->channel_order_storage, kChatStateChannelCapacity},
             Slice<u8>{runtime->chat_state_name_storage, kChatStateNameBytes}) ||
+        !chat_state_store_bind_backing(&runtime->chat_state, commit_chat_state_backing, runtime) ||
         !stable_storage_initialize(&runtime->read_state_bank, kChatStateChannelCapacity, 0,
                                    sizeof(ReadStateEntry), alignof(ReadStateEntry)) ||
         !read_state_initialize(
@@ -365,8 +417,8 @@ bool application_initialize_account_ui(Application& application) noexcept {
             Slice<u32>{runtime->user_order_storage, kUserCapacity},
             Slice<u8>{runtime->user_name_storage, kUserNameBytes}) ||
         !private_channel_store_initialize_owned(&runtime->private_channel_store,
-                                                kChatStateChannelCapacity,
-                                                kChatStateChannelCapacity * 16) ||
+                                                kPrivateChannelCapacity,
+                                                kPrivateChannelCapacity * 16) ||
         !guild_member_store_initialize(
             &runtime->guild_member_store,
             Slice<GuildMemberRecord>{runtime->guild_member_record_storage, kGuildMemberCapacity},
@@ -425,10 +477,10 @@ bool application_initialize_account_ui(Application& application) noexcept {
         !navigation_view_initialize_sparse(
             &runtime->navigation_view,
             Slice<GuildViewRow>{runtime->navigation_guild_rows, kChatStateGuildCapacity * 2},
-            Slice<ChannelViewRow>{runtime->navigation_channel_rows, kChatStateChannelCapacity},
-            Slice<u16>{runtime->projection_scratch.navigation_channels, kChatStateChannelCapacity},
-            Slice<u8>{runtime->projection_scratch.navigation_visibility, kChatStateChannelCapacity},
-            Slice<ChannelSortKey>{runtime->navigation_sort_keys, kChatStateChannelCapacity}) ||
+            Slice<ChannelViewRow>{runtime->navigation_channel_rows, kNavigationChannelRows},
+            Slice<u16>{runtime->projection_scratch.navigation_channels, kNavigationChannelRows},
+            Slice<u8>{runtime->navigation_visibility, kChatStateChannelCapacity},
+            Slice<ChannelSortKey>{runtime->navigation_sort_keys, kNavigationChannelRows}) ||
         !message_event_pump_initialize(
             &application.message_pump, &application.message_view.timeline,
             Slice<u8>{runtime->event_payload_scratch, kGatewayClientDispatchPayloadCapacity},

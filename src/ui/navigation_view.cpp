@@ -313,13 +313,15 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
     if (!view || !view->guild_rows || !view->channel_rows || !view->channel_scratch ||
         !view->channel_visibility_scratch || !view->channel_sort_keys || !state.guilds || !state.channels ||
         !state.guild_order || !state.channel_order || state.guild_count > view->guild_capacity ||
-        state.channel_capacity > view->channel_visibility_capacity) {
+        chat_state_store_channel_slot_bound(state) > view->channel_visibility_capacity) {
         return view_error(view, state.guild_count > (view ? view->guild_capacity : 0)
                                     ? NavigationViewError::guild_capacity
                                     : NavigationViewError::invalid_input);
     }
 
-    for (u32 index = 0; index < state.channel_capacity; ++index) {
+    // Slots at or above the bound are never occupied, so are never marked.
+    const u32 slots = chat_state_store_channel_slot_bound(state);
+    for (u32 index = 0; index < slots; ++index) {
         view->channel_visibility_scratch[index] = 0;
     }
     for (u32 order = 0; order < state.channel_count; ++order) {
@@ -390,8 +392,10 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
         if (!visual_key(state, state.channels[slot], &key)) {
             return view_error(view, NavigationViewError::invalid_hierarchy);
         }
-        view->channel_scratch[channel_count] = slot;
-        view->channel_sort_keys[slot] = key;
+        // Rows and keys are sized for one projection, not every store slot.
+        key.slot = slot;
+        view->channel_scratch[channel_count] = static_cast<u16>(channel_count);
+        view->channel_sort_keys[channel_count] = key;
         ++channel_count;
     }
     heap_sort(view->channel_scratch, channel_count,
@@ -449,9 +453,8 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
         view->channel_rows[0] = row;
     }
     for (u32 order = 0; order < channel_count; ++order) {
-        const u16 slot = view->channel_scratch[order];
-        const ChannelRecord& channel = state.channels[slot];
-        const ChannelSortKey& key = view->channel_sort_keys[slot];
+        const ChannelSortKey& key = view->channel_sort_keys[view->channel_scratch[order]];
+        const ChannelRecord& channel = state.channels[key.slot];
         const ChannelViewRow row{
             channel.id,
             channel.parent_id,

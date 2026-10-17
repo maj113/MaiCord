@@ -223,7 +223,8 @@ void collect_choices(const Resolved& message, u16 index) noexcept {
     }
     const u64 guild = message.channel ? message.channel->guild_id : 0;
     if (component.type == gateway_component_channel_select) {
-        for (u32 i = 0; i < state.channel_capacity && owner->choice_count < kSelectMaximumChoices; ++i) {
+        const u32 slots = chat_state_store_channel_slot_bound(state);
+        for (u32 i = 0; i < slots && owner->choice_count < kSelectMaximumChoices; ++i) {
             const ChannelRecord& channel = state.channels[i];
             if (!channel.occupied || channel.guild_id != guild || !guild || !channel_is_message_capable(channel.type))
                 continue;
