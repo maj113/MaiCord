@@ -21,14 +21,13 @@
 
 namespace maicord::quick_switcher_runtime_test {
 using namespace app_detail;
-u32 failures, underlying_input, repaints, suspends, synchronizations, private_requests, channel_routes,
-    guild_routes, scoped_shortcuts;
-u64 private_user, routed_channel, routed_guild;
+u32 failures, underlying_input, suspends, synchronizations, private_requests, channel_routes, scoped_shortcuts;
+u64 private_user, routed_channel;
 u32 group_creates, group_adds;
 u64 group_channel, group_people[9];
 u32 group_count;
 PrivateConversationOperation private_operation{};
-bool navigation_allowed = true, private_allowed = true, settings, theme_editor;
+bool private_allowed = true, settings, theme_editor;
 bool scoped_shortcut_allowed = true;
 bool pending_message_link;
 u32 link_cancellations;
@@ -440,7 +439,6 @@ void run() noexcept {
 
 namespace maicord {
 bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept {
-    ++quick_switcher_runtime_test::repaints;
     return true;
 }
 bool text_edit_layout_hit_test(const TextEditLayoutOwner&, float, float, u32* position) noexcept {
@@ -467,7 +465,6 @@ bool handle_thread_header_key(u32, bool, bool) noexcept {
     return false;
 }
 bool refresh_account_text(bool) noexcept {
-    ++quick_switcher_runtime_test::repaints;
     return true;
 }
 UiRect application_viewport_dips() noexcept {
@@ -544,8 +541,6 @@ bool queue_private_conversation(PrivateConversationOperation operation, u64 id) 
 bool application_navigate_notification(u64 channel_id, u64) noexcept {
     ++quick_switcher_runtime_test::channel_routes;
     quick_switcher_runtime_test::routed_channel = channel_id;
-    if (!quick_switcher_runtime_test::navigation_allowed)
-        return false;
     auto& state = g_app.account_ui->chat_state;
     const auto* c = chat_state_store_find_channel(state, channel_id);
     if (!c)
@@ -556,10 +551,8 @@ bool application_navigate_notification(u64 channel_id, u64) noexcept {
     application_quick_switcher_note_channel(channel_id);
     return true;
 }
-bool select_content_guild(u64 id) noexcept {
-    ++quick_switcher_runtime_test::guild_routes;
-    quick_switcher_runtime_test::routed_guild = id;
-    return quick_switcher_runtime_test::navigation_allowed;
+bool select_content_guild(u64) noexcept {
+    return true;
 }
 bool application_forum_form_input(UiInputKind, u32, bool) noexcept {
     return false;

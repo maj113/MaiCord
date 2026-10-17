@@ -7,9 +7,9 @@
 
 namespace maicord::image_viewer_runtime_test {
 using namespace app_detail;
-u32 failures, saves, suspends, rebuilds;
+u32 failures, saves, suspends;
 u32 publication = 1000;
-bool panel = true, allowed = true, close_on_save;
+bool panel = true, close_on_save;
 u8 account_marker;
 MessageStore bank;
 MessageRichStore rich;
@@ -393,7 +393,7 @@ void run() noexcept {
         !g_app.image_viewer.held_key && saves == before_embed,
         "Search viewer cancelled Space press consumes closing text and key tails without activating Save");
     for (u32 fence = 0; fence < 5; ++fence) {
-        panel = allowed = true;
+        panel = true;
         check(application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 0, false, preview),
             "Search viewer scope fence fixture opens");
         switch (fence) {
@@ -417,7 +417,7 @@ void run() noexcept {
         }
     }
     application_image_viewer_close();
-    panel = allowed = true;
+    panel = true;
     ++publication; ticket.publication_revision = publication;
     check(seed_gifv() && application_image_viewer_open_search(ticket, MessageSceneRichItemKind::embed, 0, false, preview) &&
         g_app.image_viewer.item_count == 1 && !g_app.image_viewer.items[0].video &&
@@ -435,7 +435,7 @@ void run() noexcept {
 } // namespace maicord::image_viewer_runtime_test
 
 namespace maicord {
-bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept { ++image_viewer_runtime_test::rebuilds; return true; }
+bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept { return true; }
 bool renderer_read_media_rgba(D3D11Renderer*, MediaAssetKey, Slice<u8>, u32*, u32*) noexcept { return false; }
 namespace app_detail {
 UiSearchScene* application_search_scene() noexcept { return &image_viewer_runtime_test::search_scene; }
@@ -474,7 +474,7 @@ bool application_downloads_begin_embed(u64, u32, bool) noexcept {
 bool application_search_source_resolve(const ApplicationSearchSourceTicket& ticket, bool snapshot, ApplicationSearchSourceView* out) noexcept {
     using namespace image_viewer_runtime_test;
     if (!out) return false; *out = {};
-    if (!panel || !allowed || ticket.message_id != 800 || ticket.index != 0 || ticket.publication_revision != publication ||
+    if (!panel || ticket.message_id != 800 || ticket.index != 0 || ticket.publication_revision != publication ||
         g_app.account.instance != &account_marker || g_app.plugin_account_scope_serial != 7 || g_app.account.status.profile_id != 4 ||
         !g_app.account_ui || g_app.account_ui->chat_state.self_user_id != 3) return false;
     const auto found = message_store_find(bank, ticket.message_id);

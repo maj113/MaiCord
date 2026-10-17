@@ -1,6 +1,23 @@
 // Actual loopback bridge worker driven by a synthetic native client. No
 // browser is launched and nothing leaves 127.0.0.1.
+#include <WinSock2.h>
+#include "maicord/app/captcha_bridge.hpp"
+#include "maicord/core/byte_range.hpp"
+#include "maicord/core/deadline.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_process.hpp"
+#include "maicord/platform/random.hpp"
+namespace maicord::captcha_bridge_clock {
+// The bridge's monotonic clock runs ahead of the real one by this offset, so
+// the deadline test advances time instead of sleeping through it.
+volatile LONG64 offset_ms{};
+u64 now() noexcept {
+    return GetTickCount64() + static_cast<u64>(ReadAcquire64(&offset_ms));
+}
+} // namespace maicord::captcha_bridge_clock
+#define GetTickCount64 maicord::captcha_bridge_clock::now
 #include "../src/app/captcha_bridge.cpp"
+#undef GetTickCount64
 #include "maicord/app/account_action_captcha.hpp"
 #include "maicord/platform/browser_sign_in_launcher.hpp"
 
@@ -207,11 +224,16 @@ void lifecycle(Check check) noexcept {
               port_released(port),
           "bridge lifecycle: stop joins the worker and closes the listener");
 
-    // Timeout: the worker expires the state and erases secrets itself.
+    // Timeout: the worker expires the state and erases secrets itself. Jump the
+    // bridge clock past the deadline; a loopback connection wakes the worker.
     check(captcha_bridge_start(&bridge, 21, 1000, {kTestSitekey, {}, CaptchaProvider::turnstile, false}).ok() &&
-              wait_phase(&bridge, CaptchaBridgePhase::waiting) && target(&bridge, 21, &port, state) &&
-              wait_phase(&bridge, CaptchaBridgePhase::expired, 4000) && secrets_erased(bridge),
+              wait_phase(&bridge, CaptchaBridgePhase::waiting) && target(&bridge, 21, &port, state),
+          "bridge lifecycle: deadline fixture starts");
+    InterlockedAdd64(&captcha_bridge_clock::offset_ms, 1000);
+    const SOCKET wake = connect_to(port);
+    check(wake != INVALID_SOCKET && wait_phase(&bridge, CaptchaBridgePhase::expired) && secrets_erased(bridge),
           "bridge lifecycle: the bounded deadline expires the state and wipes it");
+    if (wake != INVALID_SOCKET) closesocket(wake);
     check(port_released_within(port, 2000), "bridge lifecycle: an expired state closes its listener");
     captcha_bridge_stop(&bridge, 5000);
 

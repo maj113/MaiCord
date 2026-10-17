@@ -5,9 +5,7 @@
 namespace maicord {
 namespace {
 bool equal(const u8* bytes, u32 count, Utf8View text) noexcept {
-    if (count != text.bytes) return false;
-    for (u32 i = 0; i < count; ++i) if (bytes[i] != static_cast<u8>(text.data[i])) return false;
-    return true;
+    return utf8_equal({reinterpret_cast<const char*>(bytes), count}, text);
 }
 bool contains(const u8* bytes, u32 count, Utf8View text) noexcept {
     for (u32 i = 0; i <= count && text.bytes <= count - i; ++i)

@@ -173,12 +173,41 @@ template<class Predicate> bool await(Fixture& f,Predicate predicate) noexcept {
     for(;;){const auto status=notification_audio_status(&f.owner);if(predicate(status))return true;const u64 now=GetTickCount64();if(now>=end)return false;
         if(WaitForSingleObject(f.s.changed,static_cast<DWORD>(end-now))!=WAIT_OBJECT_0)return false;}
 }
+// System process information layout (x64): each process record is followed
+// by its thread records; only the IDs and the scheduler state are read.
+struct SpiProcess {ULONG next,threads;u8 skip[72];HANDLE process_id;u8 rest[168];};
+struct SpiThread {u8 skip[40];HANDLE process_id,thread_id;LONG priority,base_priority;ULONG context_switches,state,wait_reason;};
+static_assert(sizeof(SpiProcess)==256&&sizeof(SpiThread)==80);
+u8* spi{};ULONG spi_bytes{};
+bool parked(DWORD thread) noexcept {
+    using Query=LONG(NTAPI*)(ULONG,PVOID,ULONG,PULONG);
+    constexpr LONG length_mismatch=static_cast<LONG>(0xC0000004u);
+    const auto query=reinterpret_cast<Query>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"),"NtQuerySystemInformation"));
+    if(!query)return false;
+    for(;;){
+        ULONG needed{};const LONG status=spi?query(5,spi,spi_bytes,&needed):length_mismatch;
+        if(status>=0)break;if(status!=length_mismatch)return false;
+        if(spi)VirtualFree(spi,0,MEM_RELEASE);spi_bytes=needed+256*1024;
+        spi=static_cast<u8*>(VirtualAlloc(nullptr,spi_bytes,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!spi)return false;
+    }
+    const HANDLE process_id=reinterpret_cast<HANDLE>(static_cast<usize>(GetCurrentProcessId()));
+    const HANDLE thread_id=reinterpret_cast<HANDLE>(static_cast<usize>(thread));
+    for(const u8* at=spi;;at+=reinterpret_cast<const SpiProcess*>(at)->next){
+        const auto* process=reinterpret_cast<const SpiProcess*>(at);
+        if(process->process_id==process_id){const auto* threads=reinterpret_cast<const SpiThread*>(process+1);
+            // Waiting (5) for UserRequest (6) or WrUserRequest (13).
+            for(ULONG i=0;i<process->threads;++i)if(threads[i].thread_id==thread_id)return threads[i].state==5&&(threads[i].wait_reason==6||threads[i].wait_reason==13);
+            return false;}
+        if(!process->next)return false;
+    }
+}
 bool quiet(Fixture& f) noexcept {
-    // Drain only actual publication acknowledgments. A spinning worker cannot
-    // obtain a quiet100ms window within the bounded2s observation.
+    // Quiet means parked: the worker is blocked in its idle wait. A blocked wait
+    // has no signaled handle, so no further iteration is pending; a spinning
+    // worker never parks within the bound.
     const u64 end=GetTickCount64()+2000;
-    while(GetTickCount64()<end){const LONG before=read(f.s.waits);const DWORD w=WaitForSingleObject(f.s.changed,100);
-        if(w==WAIT_TIMEOUT)return read(f.s.waits)==before;if(w!=WAIT_OBJECT_0)return false;}return false;
+    do{if(parked(f.s.worker_thread))return true;SwitchToThread();}while(GetTickCount64()<end);
+    return false;
 }
 IMMNotificationClient* callback(Fixture& f) noexcept {
     AcquireSRWLockShared(&f.s.callbacks_lock);auto* c=f.s.registered[0];if(c)c->AddRef();ReleaseSRWLockShared(&f.s.callbacks_lock);return c;

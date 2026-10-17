@@ -10,7 +10,6 @@
 #include "maicord/ui/unread_divider.hpp"
 
 namespace maicord {
-bool probe_resize_surface(u32 width,u32 height) noexcept;
 namespace unread_boundary_probe_detail {
 inline constexpr u32 kRows = 4;
 struct Fixture {

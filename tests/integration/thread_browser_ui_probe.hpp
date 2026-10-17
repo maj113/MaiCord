@@ -7,7 +7,6 @@
 #include "maicord/protocol/writer.hpp"
 
 namespace maicord {
-bool probe_resize_surface(u32, u32) noexcept;
 inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure, HWND window,
     bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept {
     using namespace app_detail;

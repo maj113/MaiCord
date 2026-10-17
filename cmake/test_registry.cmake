@@ -775,19 +775,13 @@ maicord_test(MaiCordAccountForumPostTests ENTRY maicord_account_forum_post_test_
     USES_CLIENT MaiCordAccount
     TIMEOUT 15
     TEST maicord_account_forum_post)
-maicord_test(MaiCordApplicationForumPostTests ENTRY maicord_application_forum_post_entry
-    SOURCES tests/application_forum_post.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_ui
-        maicord_ui_input maicord_message_runtime maicord_text kernel32 user32
-    INCLUDES src/app
-    TIMEOUT 15
-    TEST maicord_application_forum_post)
 maicord_test(MaiCordApplicationForumAttachmentsTests ENTRY maicord_application_forum_attachments_entry
     SOURCES tests/application_forum_attachments.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_ui
         maicord_ui_input maicord_message_runtime maicord_text kernel32 user32 shell32
     INCLUDES src/app
     TIMEOUT 20
+    TEST maicord_application_forum_post --forum-post
     TEST maicord_application_forum_attachments)
 maicord_test(MaiCordApplicationForumPreviewTests ENTRY maicord_application_forum_preview_entry
     SOURCES tests/application_forum_preview.cpp
@@ -997,44 +991,20 @@ maicord_test(MaiCordPasswordResetCoordinatorTests ENTRY maicord_password_reset_c
         src/app/file_persistence.cpp src/app/captcha_challenge.cpp
     LIBS maicord_core maicord_platform maicord_protocol kernel32 ws2_32 secur32 bcrypt crypt32
     TEST maicord_password_reset_coordinator)
-maicord_test(MaiCordResetRestStorageTests ENTRY maicord_reset_rest_storage_entry
-    SOURCES tests/reset_rest_storage.cpp src/media/png_common.cpp src/app/account_logout.cpp
-        src/app/user_client_configuration.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
-        crypt32 ntdll
-    TIMEOUT 15
-    TEST maicord_reset_rest_storage)
-maicord_test(MaiCordUserSettingsRestStorageTests ENTRY maicord_user_settings_rest_storage_entry
-    SOURCES tests/user_settings_rest_storage.cpp src/media/png_common.cpp src/app/account_logout.cpp
-        src/app/user_client_configuration.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
-        crypt32 ntdll
-    TIMEOUT 15
-    TEST maicord_user_settings_rest_storage)
-maicord_test(MaiCordAccountLogoutTransportTests ENTRY maicord_account_logout_transport_test_entry
-    SOURCES tests/account_logout_transport.cpp src/app/account_logout.cpp src/app/account_host.cpp
-        src/media/png_common.cpp src/app/user_client_configuration.cpp
+# Offline fixtures over the shipping REST owner share one translation unit, so
+# the owner implementation they include compiles once; each case runs one.
+maicord_test(MaiCordRestClientFixtureTests ENTRY maicord_rest_client_fixtures_entry
+    SOURCES tests/rest_client_fixtures.cpp src/app/account_bulk_message_ack.cpp src/app/account_logout.cpp
+        src/app/account_host.cpp src/media/png_common.cpp src/app/user_client_configuration.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
         crypt32 ntdll
     USES_CLIENT MaiCordAccount
     TIMEOUT 15
-    TEST maicord_account_logout_transport)
-maicord_test(MaiCordAccountBulkReadTransportTests ENTRY maicord_account_bulk_read_transport_test_entry
-    SOURCES tests/account_bulk_read_transport.cpp src/app/account_bulk_message_ack.cpp
-        src/app/account_logout.cpp src/app/account_host.cpp src/media/png_common.cpp
-        src/app/user_client_configuration.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
-        crypt32 ntdll
-    USES_CLIENT MaiCordAccount
-    TIMEOUT 15
-    TEST maicord_account_bulk_read_transport)
-maicord_test(MaiCordAccountActionCaptchaTransportTests ENTRY maicord_account_action_captcha_transport_test_entry
-    SOURCES tests/account_action_captcha_transport.cpp src/app/account_logout.cpp src/media/png_common.cpp
-        src/app/user_client_configuration.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_compression kernel32 ws2_32 secur32 bcrypt
-        crypt32 ntdll
-    TIMEOUT 15
-    TEST maicord_account_action_captcha_transport)
+    TEST maicord_reset_rest_storage reset-storage
+    TEST maicord_user_settings_rest_storage user-settings-storage
+    TEST maicord_account_logout_transport logout-transport
+    TEST maicord_account_bulk_read_transport bulk-read-transport
+    TEST maicord_account_action_captcha_transport action-captcha-transport)
 maicord_test(MaiCordAccountLogoutRuntimeTests ENTRY maicord_application_account_logout_runtime_entry
     SOURCES tests/application_account_logout_runtime.cpp src/app/account_logout_stop.cpp
         src/app/account_credential_forget.cpp src/app/account_paths.cpp src/app/file_persistence.cpp
@@ -1066,14 +1036,6 @@ maicord_test(MaiCordPluginCatalogFailureTests ENTRY maicord_plugin_catalog_failu
     LIBS maicord_core maicord_plugin_host maicord_plugin_modules maicord_ui kernel32 bcrypt
     TIMEOUT 15
     TEST maicord_plugin_catalog_failures)
-maicord_test(MaiCordReadStateRuntimeTests ENTRY maicord_read_state_runtime_entry
-    SOURCES tests/application_read_state_runtime.cpp src/app/application_read_state.cpp
-        src/app/application_scoped_read.cpp src/app/application_message_mutation_notice.cpp
-        src/app/application_state.cpp src/core/log.cpp
-    LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_ui maicord_model
-        maicord_message_runtime kernel32 user32
-    INCLUDES src/app
-    TEST maicord_read_state_runtime)
 maicord_test(MaiCordScopedReadRuntimeTests ENTRY maicord_scoped_read_runtime_entry
     SOURCES tests/application_scoped_read_runtime.cpp src/app/application_read_state.cpp
         src/app/application_scoped_read.cpp src/app/application_message_mutation_notice.cpp
@@ -1082,6 +1044,7 @@ maicord_test(MaiCordScopedReadRuntimeTests ENTRY maicord_scoped_read_runtime_ent
         maicord_message_runtime kernel32 user32
     INCLUDES src/app
     TIMEOUT 20
+    TEST maicord_read_state_runtime --read-state
     TEST maicord_scoped_read_runtime)
 maicord_test(MaiCordMp4Tests ENTRY maicord_mp4_tests_entry
     SOURCES tests/mp4_demux_test.cpp
@@ -1130,61 +1093,37 @@ maicord_test(MaiCordShaderBytecodeProbe ENTRY maicord_shader_bytecode_probe_entr
 maicord_shader(MAICORD_GLYPH_LIST_VERTEX_HEADER maicord_glyph_list_vs.hpp vs_4_0 glyph_vertex
         g_maicord_glyph_list_vertex_shader src/render/shaders/glyph_draw.hlsl
         MAICORD_GLYPH_TRIANGLE_LIST_REFERENCE=1)
-maicord_test(MaiCordGlyphTopologyProbe ENTRY maicord_glyph_topology_entry
-    SOURCES tests/integration/glyph_topology_probe.cpp "${MAICORD_GLYPH_LIST_VERTEX_HEADER}"
-    LIBS maicord_renderer maicord_core d3d11 kernel32
-    INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
-    TIMEOUT 5 LABELS native-text-renderer gpu
-    TEST maicord_glyph_topology)
 maicord_shader(MAICORD_GLYPH_EASING_VERTEX_HEADER maicord_glyph_easing_reference_vs.hpp vs_4_0 glyph_vertex
         g_maicord_glyph_easing_reference_vertex_shader tests/shaders/glyph_easing_reference.hlsl)
 maicord_shader(MAICORD_GLYPH_EASING_PIXEL_HEADER maicord_glyph_easing_reference_ps.hpp ps_4_0 glyph_pixel
         g_maicord_glyph_easing_reference_pixel_shader tests/shaders/glyph_easing_reference.hlsl)
-maicord_test(MaiCordGlyphEasingProbe ENTRY maicord_glyph_topology_entry
-    SOURCES tests/integration/glyph_topology_probe.cpp "${MAICORD_GLYPH_EASING_VERTEX_HEADER}"
-        "${MAICORD_GLYPH_EASING_PIXEL_HEADER}"
-    LIBS maicord_renderer maicord_core d3d11 kernel32
-    INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
-    DEFINES MAICORD_GLYPH_EASING_PROBE=1
-    TIMEOUT 5 LABELS native-text-renderer gpu
-    TEST maicord_glyph_easing)
-maicord_shader(maicord_glyph_stage_reference_vs maicord_glyph_stage_reference_vs.hpp vs_4_0 glyph_vertex
+maicord_shader(MAICORD_GLYPH_STAGE_VERTEX_HEADER maicord_glyph_stage_reference_vs.hpp vs_4_0 glyph_vertex
         g_maicord_glyph_stage_reference_vertex_shader tests/shaders/glyph_stage_reference.hlsl)
-maicord_shader(maicord_glyph_stage_reference_ps maicord_glyph_stage_reference_ps.hpp ps_4_0 glyph_pixel
+maicord_shader(MAICORD_GLYPH_STAGE_PIXEL_HEADER maicord_glyph_stage_reference_ps.hpp ps_4_0 glyph_pixel
         g_maicord_glyph_stage_reference_pixel_shader tests/shaders/glyph_stage_reference.hlsl)
-maicord_test(MaiCordGlyphStageProbe ENTRY maicord_glyph_topology_entry
-    SOURCES tests/integration/glyph_topology_probe.cpp
-        "${MAICORD_GENERATED_DIRECTORY}/maicord_glyph_stage_reference_vs.hpp"
-        "${MAICORD_GENERATED_DIRECTORY}/maicord_glyph_stage_reference_ps.hpp"
-    LIBS maicord_renderer maicord_core d3d11 kernel32
-    INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
-    DEFINES MAICORD_GLYPH_EASING_PROBE=1 MAICORD_GLYPH_STAGE_PROBE=1
-    TIMEOUT 5 LABELS native-text-renderer gpu
-    TEST maicord_glyph_stage)
 maicord_shader(MAICORD_GLYPH_COLOR_PIXEL_HEADER maicord_glyph_color_reference_ps.hpp ps_4_0 glyph_pixel
         g_maicord_glyph_color_reference_pixel_shader tests/shaders/glyph_color_reference.hlsl)
-maicord_test(MaiCordGlyphColorProbe ENTRY maicord_glyph_topology_entry
-    SOURCES tests/integration/glyph_topology_probe.cpp "${MAICORD_GLYPH_COLOR_PIXEL_HEADER}"
-        "${MAICORD_GLYPH_VERTEX_HEADER}"
+# One executable, four reference comparisons selected by MAICORD_GLYPH_PROBE.
+# Stage and color controls 1 and 2 rerun them with recolored, re-sampled instances.
+maicord_test(MaiCordGlyphTopologyProbe ENTRY maicord_glyph_topology_entry
+    SOURCES tests/integration/glyph_topology_probe.cpp "${MAICORD_GLYPH_LIST_VERTEX_HEADER}"
+        "${MAICORD_GLYPH_EASING_VERTEX_HEADER}" "${MAICORD_GLYPH_EASING_PIXEL_HEADER}"
+        "${MAICORD_GLYPH_STAGE_VERTEX_HEADER}" "${MAICORD_GLYPH_STAGE_PIXEL_HEADER}"
+        "${MAICORD_GLYPH_COLOR_PIXEL_HEADER}" "${MAICORD_GLYPH_VERTEX_HEADER}"
     LIBS maicord_renderer maicord_core d3d11 kernel32
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
-    DEFINES MAICORD_GLYPH_EASING_PROBE=1 MAICORD_GLYPH_STAGE_PROBE=1 MAICORD_GLYPH_COLOR_PROBE=1
     TIMEOUT 5 LABELS native-text-renderer gpu
-    TEST maicord_glyph_color)
-# Controls 1 and 2 rerun the comparisons with every path segment forced to a
-# line or a cubic (distance) and with recolored, re-sampled instances (stage,
-# color). MAICORD_GLYPH_RASTER_REFERENCE and MAICORD_GLYPH_DISTANCE_VARIANT
-# stay manual (external shader reference, seed sweeps).
-foreach(maicord_glyph_control IN ITEMS 1 2)
-    maicord_add_tests(MaiCordGlyphDistanceProbe TIMEOUT 5 LABELS native-text-renderer gpu ENVIRONMENT
-            MAICORD_GLYPH_DISTANCE_CONTROL=${maicord_glyph_control}
-        TEST maicord_glyph_distance_control_${maicord_glyph_control})
-    maicord_add_tests(MaiCordGlyphStageProbe TIMEOUT 5 LABELS native-text-renderer gpu ENVIRONMENT
-            MAICORD_GLYPH_STAGE_CONTROL=${maicord_glyph_control}
-        TEST maicord_glyph_stage_control_${maicord_glyph_control})
-    maicord_add_tests(MaiCordGlyphColorProbe TIMEOUT 5 LABELS native-text-renderer gpu ENVIRONMENT
-            MAICORD_GLYPH_STAGE_CONTROL=${maicord_glyph_control}
-        TEST maicord_glyph_color_control_${maicord_glyph_control})
+    TEST maicord_glyph_topology)
+maicord_add_tests(MaiCordGlyphTopologyProbe TIMEOUT 5 LABELS native-text-renderer gpu
+    ENVIRONMENT MAICORD_GLYPH_PROBE=easing TEST maicord_glyph_easing)
+foreach(maicord_glyph_probe IN ITEMS stage color)
+    maicord_add_tests(MaiCordGlyphTopologyProbe TIMEOUT 5 LABELS native-text-renderer gpu
+        ENVIRONMENT MAICORD_GLYPH_PROBE=${maicord_glyph_probe} TEST maicord_glyph_${maicord_glyph_probe})
+    foreach(maicord_glyph_control IN ITEMS 1 2)
+        maicord_add_tests(MaiCordGlyphTopologyProbe TIMEOUT 5 LABELS native-text-renderer gpu ENVIRONMENT
+                MAICORD_GLYPH_PROBE=${maicord_glyph_probe} MAICORD_GLYPH_STAGE_CONTROL=${maicord_glyph_control}
+            TEST maicord_glyph_${maicord_glyph_probe}_control_${maicord_glyph_control})
+    endforeach()
 endforeach()
 maicord_test(MaiCordUnicodeTests ENTRY maicord_unicode_tests_entry
     SOURCES tests/unicode_test.cpp tests/grapheme_test.cpp
@@ -1928,10 +1867,6 @@ maicord_shader(maicord_vp8_reference_filter_header vp8_reference_filter.hpp cs_5
         g_vp8_reference_filter tests/fixtures/vp8_filter_reference.hlsl)
 maicord_shader(maicord_video_frame_reference_header video_frame_reference.hpp cs_5_0 cs_main
         g_video_frame_reference tests/fixtures/video_frame_reference.hlsl)
-maicord_shader(maicord_jpeg_idct_reference jpeg_idct_reference.hpp cs_5_0 jpeg_idct g_jpeg_idct_reference
-        tests/fixtures/jpeg_idct_reference.hlsl)
-maicord_shader(maicord_jpeg_idct_candidate jpeg_idct_candidate.hpp cs_5_0 jpeg_idct g_jpeg_idct_candidate
-        src/render/shaders/jpeg.hlsl)
 # A third-party style mc.fx@1 effect the background probe draws as a plugin.
 set(MAICORD_FX_PLUGIN_REFERENCE_HEADER "${MAICORD_GENERATED_DIRECTORY}/maicord_fx_plugin_reference_ps.hpp")
 add_custom_command(OUTPUT "${MAICORD_FX_PLUGIN_REFERENCE_HEADER}"
@@ -1941,7 +1876,7 @@ add_custom_command(OUTPUT "${MAICORD_FX_PLUGIN_REFERENCE_HEADER}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/shaders/background_fx_plugin_reference.hlsl"
     DEPENDS tests/shaders/background_fx_plugin_reference.hlsl VERBATIM)
 maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
-    SOURCES "${MAICORD_GLYPH_DISTANCE_REFERENCE_HEADER}" "${MAICORD_FX_PLUGIN_REFERENCE_HEADER}"
+    SOURCES "${MAICORD_FX_PLUGIN_REFERENCE_HEADER}"
         config/maicord.manifest tests/integration/ui_probe.cpp tools/font_reference/dwrite_text_system.cpp
         tests/integration/poll_scene_ui_probe.cpp tests/integration/profile_editor_ui_probe.cpp
         tests/integration/navigation_gaps_ui_probe.cpp tests/integration/reaction_intent_ui_adapter.cpp
@@ -1981,14 +1916,12 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         src/app/application_media_requests.cpp tests/integration/menu_row_ui_probe.cpp
         tests/integration/animation_preview_probe.cpp tests/integration/png_preview_probe.cpp
         tests/integration/gif_scroll_probe.cpp tests/integration/media_memory_probe.cpp
-        tests/integration/webp_gpu_probe.cpp tests/integration/vp8_tiled_probe.cpp
-        tests/integration/jpeg_gpu_probe.cpp "${MAICORD_GENERATED_DIRECTORY}/jpeg_idct_reference.hpp"
-        "${MAICORD_GENERATED_DIRECTORY}/jpeg_idct_candidate.hpp"
+        tests/integration/vp8_tiled_probe.cpp
         "${MAICORD_GENERATED_DIRECTORY}/vp8_reference_reconstruct.hpp"
         "${MAICORD_GENERATED_DIRECTORY}/vp8_reference_idct.hpp"
         "${MAICORD_GENERATED_DIRECTORY}/vp8_reference_filter.hpp"
         tests/integration/video_frame_reference_probe.cpp
-        "${MAICORD_GENERATED_DIRECTORY}/video_frame_reference.hpp" tests/integration/webp_scroll_probe.cpp
+        "${MAICORD_GENERATED_DIRECTORY}/video_frame_reference.hpp"
         tests/media_fixture.cpp src/core/log.cpp
     LIBS maicord_core maicord_text maicord_ui maicord_ui_input maicord_model maicord_plugin_host
         maicord_plugin_modules maicord_plugin_manager maicord_message_runtime maicord_render_core maicord_media_codec

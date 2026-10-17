@@ -35,9 +35,8 @@ bool write(void* opaque, Utf8View text) noexcept {
     if (clipboard.fail_write || text.bytes > sizeof(clipboard.text)) return false;
     copy_bytes(clipboard.text, text.data, text.bytes); clipboard.bytes = text.bytes; return true;
 }
-bool equal(Utf8View a, Utf8View b) noexcept { return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes); }
 ComposerSpellVerdict spell_check(void*, Utf8View word) noexcept {
-    return equal(word, utf8_literal("helo")) ? ComposerSpellVerdict::misspelled : ComposerSpellVerdict::correct;
+    return utf8_equal(word, utf8_literal("helo")) ? ComposerSpellVerdict::misspelled : ComposerSpellVerdict::correct;
 }
 u32 spell_suggest(void*, Utf8View, Slice<char> storage, Slice<Utf8View> output) noexcept {
     if (storage.count < 5 || !output.count) return 0;
@@ -56,7 +55,7 @@ void test_composer_ansi_paste(void (*check)(bool, const char*) noexcept, Message
     message_composer_enable_history(&composer);
     set_clipboard(clipboard, utf8_literal("```ansi\r\n\x1b[31mRed\x1b[0m\tx\r\n```"));
     check(application_composer_edit_command(TextEditCommand::paste, &provider) &&
-        equal(message_composer_text(composer), expected) && composer.caret == expected.bytes &&
+        utf8_equal(message_composer_text(composer), expected) && composer.caret == expected.bytes &&
         message_composer_codepoints(composer) == 26,
         "composer Paste keeps ANSI escapes and tabs while normalizing CRLF");
     message_composer_set_selection(&composer, 8, 8);
@@ -66,9 +65,9 @@ void test_composer_ansi_paste(void (*check)(bool, const char*) noexcept, Message
         MessageComposerResult::changed && composer.anchor == 9 && composer.caret == 8;
     message_composer_set_selection(&composer, 17, 17);
     const bool erased = message_composer_backspace(&composer) == MessageComposerResult::changed &&
-        equal(message_composer_text(composer), utf8_literal("```ansi\n\x1b[31mRed[0m\tx\n```")) && composer.caret == 16;
+        utf8_equal(message_composer_text(composer), utf8_literal("```ansi\n\x1b[31mRed[0m\tx\n```")) && composer.caret == 16;
     const bool restored = message_composer_undo(&composer) == MessageComposerResult::changed &&
-        equal(message_composer_text(composer), expected);
+        utf8_equal(message_composer_text(composer), expected);
     check(forward && back && erased && restored, "composer caret, selection and Backspace treat ESC as one character");
     const auto revision = composer.text_revision;
     message_composer_set_selection(&composer, 0, 0);
@@ -84,7 +83,7 @@ void test_composer_ansi_paste(void (*check)(bool, const char*) noexcept, Message
     TextInputChange change{};
     check(text_input_replace(message_composer_input_target(&composer), 0, 0, {ime, 4}, &change) == TextInputResult::changed &&
         composer.bytes == expected.bytes + 4 && bytes_equal(composer.text, "\x1b[1m```", 7) &&
-        message_composer_undo(&composer) == MessageComposerResult::changed && equal(message_composer_text(composer), expected),
+        message_composer_undo(&composer) == MessageComposerResult::changed && utf8_equal(message_composer_text(composer), expected),
         "composer text input target accepts ESC from native text services");
     MessageDraftRecord records[4]{}; u8 storage[128]{}; MessageDraftStore drafts{};
     MessageDraftSnapshot snapshot{};
@@ -93,7 +92,7 @@ void test_composer_ansi_paste(void (*check)(bool, const char*) noexcept, Message
         message_composer_restore(&composer, 7, utf8_literal(""), 0, 0) &&
         message_draft_store_snapshot(drafts, 7, &snapshot) &&
         message_composer_restore(&composer, 7, snapshot.text, snapshot.anchor, snapshot.caret) &&
-        equal(message_composer_text(composer), expected) && composer.caret == 9;
+        utf8_equal(message_composer_text(composer), expected) && composer.caret == 9;
     check(drafted, "composer draft round-trip preserves ANSI escapes and the caret after one");
     u8 body[256]{};
     const auto created = write_message_create_body(message_composer_text(composer), 99, Slice<u8>{body, sizeof(body)});
@@ -143,13 +142,13 @@ void test_composer_edit_menu(void (*check)(bool, const char*) noexcept) noexcept
         check(application_composer_edit_command(TextEditCommand::cut, &provider) && composer.bytes == 6 &&
             composer.anchor == 5 && composer.caret == 1, "failed clipboard write cannot delete a Cut selection");
         clipboard.fail_write = false;
-        check(application_composer_edit_command(TextEditCommand::cut, &provider) && equal(message_composer_text(composer), utf8_literal("az")) &&
+        check(application_composer_edit_command(TextEditCommand::cut, &provider) && utf8_equal(message_composer_text(composer), utf8_literal("az")) &&
             application_composer_edit_command(TextEditCommand::undo, &provider) && composer.bytes == 6 && composer.anchor == 5 && composer.caret == 1,
             "composer Cut is reversible with its original selection");
         const char pasted[] = "x\r\ny\rz";
         copy_bytes(clipboard.text, pasted, sizeof(pasted) - 1); clipboard.bytes = sizeof(pasted) - 1;
         check(application_composer_edit_command(TextEditCommand::paste, &provider) &&
-            equal(message_composer_text(composer), utf8_literal("ax\ny\nzz")), "composer Paste normalizes CRLF and CR through the shared command path");
+            utf8_equal(message_composer_text(composer), utf8_literal("ax\ny\nzz")), "composer Paste normalizes CRLF and CR through the shared command path");
         const auto revision = composer.revision; clipboard.fail_read = true;
         check(application_composer_edit_command(TextEditCommand::paste, &provider) && composer.revision == revision,
             "clipboard read failure preserves the draft");
@@ -171,7 +170,7 @@ void test_composer_edit_menu(void (*check)(bool, const char*) noexcept) noexcept
             "edit menu shortcut and label columns have separate bounded text geometry");
         message_composer_restore(&composer, 7, utf8_literal("replacement"), 0, 11);
         check(application_composer_edit_menu_action(static_cast<u32>(TextEditCommand::erase)) &&
-            equal(message_composer_text(composer), utf8_literal("replacement")) && !g_app.popup_scene.active,
+            utf8_equal(message_composer_text(composer), utf8_literal("replacement")) && !g_app.popup_scene.active,
             "stale context-menu action cannot alter a replacement document");
         message_composer_scene_update(&g_app.message_composer_scene, &composer, {0, 0, 600, 80}, true);
         check(application_composer_edit_menu_open({10, 20, 11, 21}) &&
@@ -198,9 +197,9 @@ void test_composer_edit_menu(void (*check)(bool, const char*) noexcept) noexcept
             g_app.popup_scene.items[0].action == kComposerSpellcheckActionBase &&
             (g_app.popup_scene.items[3].flags & popup_item_separator_before), "composer menu leads with spelling suggestions");
         check(application_composer_edit_menu_action(kComposerSpellcheckActionBase) && !g_app.popup_scene.active &&
-            equal(message_composer_text(composer), utf8_literal("say hello")), "spelling suggestion replaces the flagged word");
+            utf8_equal(message_composer_text(composer), utf8_literal("say hello")), "spelling suggestion replaces the flagged word");
         check(application_composer_edit_command(TextEditCommand::undo) &&
-            equal(message_composer_text(composer), utf8_literal("say helo")), "spelling replacement undoes as one edit");
+            utf8_equal(message_composer_text(composer), utf8_literal("say helo")), "spelling replacement undoes as one edit");
         spell = {};
         test_composer_ansi_paste(check, composer, clipboard, provider);
     }

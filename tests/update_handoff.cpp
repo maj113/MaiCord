@@ -139,22 +139,28 @@ void test_update_handoff(void (*check)(bool, const char*) noexcept) noexcept {
     handles_before = control_second;
     // Real controlled peer processes. No MaiCord/account module, UI, credential,
     // shell, downloader or shipped helper is used for these native proofs.
-    for (u8 scenario = 1; scenario <= 7; ++scenario) {
-        DWORD round_before = 0; GetProcessHandleCount(GetCurrentProcess(), &round_before);
+    // Each round's unique named inheritable sentinel also releases its peer once
+    // the parent has classified the handoff wait, so no fixed peer delay exists.
+    const auto round_identity = [&](u8 scenario, u8 round, HANDLE* outsider) noexcept {
         auto id = fixture_identity(scenario);
         // Fixture namespace nonce only: PID is never used as a process wait or
         // trust capability. Root's SYNCHRONIZE owner remains the parent identity.
         const DWORD fixture_process = GetCurrentProcessId(); const u64 nonce = GetTickCount64();
         copy_bytes(id.installation.bytes, &fixture_process, sizeof(fixture_process));
-        copy_bytes(id.installation.bytes + 4, &nonce, sizeof(nonce)); id.installation.bytes[12] = scenario;
+        copy_bytes(id.installation.bytes + 4, &nonce, sizeof(nonce)); id.installation.bytes[12] = round;
         wchar_t event_name[80]{}; fixture_event_name(id, event_name);
         SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
-        HANDLE outsider = CreateEventW(&security, TRUE, FALSE, event_name);
-        check(outsider != nullptr && GetLastError() != ERROR_ALREADY_EXISTS,
+        *outsider = CreateEventW(&security, TRUE, FALSE, event_name);
+        check(*outsider != nullptr && GetLastError() != ERROR_ALREADY_EXISTS,
             "handoff: unique test-only named inheritable sentinel created for object-identity exclusion proof");
-        UpdateHandoff owner{};
-        const u64 outsider_value = reinterpret_cast<u64>(outsider);
+        const u64 outsider_value = reinterpret_cast<u64>(*outsider);
         copy_bytes(id.document_sha256 + 24, &outsider_value, sizeof(outsider_value));
+        return id;
+    };
+    for (u8 scenario = 1; scenario <= 7; ++scenario) {
+        DWORD round_before = 0; GetProcessHandleCount(GetCurrentProcess(), &round_before);
+        HANDLE outsider = nullptr; const auto id = round_identity(scenario, scenario, &outsider);
+        UpdateHandoff owner{};
         const auto launched = launch_native(peer, fixture_length(peer), id, &owner);
         check(launched.ok() && owner.launched && owner.process && owner.thread && owner.parent && owner.view,
             "handoff: known fixture launches hidden with three explicit inherited capabilities");
@@ -177,7 +183,8 @@ void test_update_handoff(void (*check)(bool, const char*) noexcept) noexcept {
             "handoff: exact ack, stale transaction/digest/installation, cancellation, exit and empty event classified");
         check(fixture_handoff_wait(&owner, 1).error == UpdateHandoffError::invalid_input,
             "handoff: one-shot wait never turns a late event into installation success");
-        check(finish_peer(&owner, scenario), "handoff: controlled peer exits within bounded native process wait");
+        check(outsider && SetEvent(outsider) && finish_peer(&owner, scenario),
+            "handoff: released controlled peer exits within bounded native process wait");
         if (outsider) check(CloseHandle(outsider) != FALSE, "handoff: excluded unrelated inheritable sentinel closes in parent");
         if (scenario == 4) {
             UpdateHandoffChild retained_process{};
@@ -211,13 +218,15 @@ void test_update_handoff(void (*check)(bool, const char*) noexcept) noexcept {
         }
         check(round_after == round_before, "handoff: every real peer round restores its exact initialized handle baseline");
     }
-    UpdateHandoff deadline{};
-    check(launch_native(peer, fixture_length(peer), fixture_identity(3), &deadline).ok(), "handoff: deadline peer launches");
+    UpdateHandoff deadline{}; HANDLE deadline_release = nullptr;
+    check(launch_native(peer, fixture_length(peer), round_identity(3, 8, &deadline_release), &deadline).ok(), "handoff: deadline peer launches");
     if (deadline.launched) {
         const auto result = fixture_handoff_wait(&deadline, 1);
         check(result.ok() && result.outcome == UpdateHandoffOutcome::deadline, "handoff: absent startup acknowledgement reaches bounded deadline");
-        check(finish_peer(&deadline, 3) && fixture_handoff_release(&deadline).ok(), "handoff: deadline never abandons launched process owners");
+        check(deadline_release && SetEvent(deadline_release) && finish_peer(&deadline, 3) && fixture_handoff_release(&deadline).ok(),
+            "handoff: deadline never abandons launched process owners");
     } else fixture_handoff_release(&deadline);
+    if (deadline_release) check(CloseHandle(deadline_release) != FALSE, "handoff: deadline release sentinel closes in parent");
     UpdateHandoff failed{}; handoff_fault_test::fail_launch = true;
     check(launch_native(peer, fixture_length(peer), identity, &failed).error == UpdateHandoffError::launch &&
         !failed.launched && failed.parent && failed.mapping && failed.view,

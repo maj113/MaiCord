@@ -7,8 +7,8 @@
 
 namespace maicord::content_navigation_test {
 using namespace app_detail;
-u32 failures, history_calls, refreshes, selections, stops, frames;
-bool navigation_ok = true, selection_ok = true, text_ok = true, history_ok = true, resident_jump;
+u32 failures, history_calls, selections, stops;
+bool text_ok = true, history_ok = true, resident_jump;
 bool wrong_active, wrong_selected;
 MessageTextHit native_hit{};
 // The inline Save button as the downloads owner reports it; tests move it to
@@ -36,12 +36,12 @@ void check(bool valid, const char* label) noexcept {
 }
 bool reset() noexcept {
     SecureZeroMemory(&g_app, sizeof(g_app));
-    history_calls = refreshes = selections = stops = frames = 0;
+    history_calls = selections = stops = 0;
     native_hit = {};
     typed_links = captured_sources = 0;
     captured_source = {};
     captured_target = {};
-    navigation_ok = selection_ok = text_ok = history_ok = true;
+    text_ok = history_ok = true;
     resident_jump = wrong_active = wrong_selected = false;
     g_app.account_ui = ui;
     g_app.account.instance = ui;
@@ -388,13 +388,11 @@ void application_thread_browser_close() noexcept {
 void application_read_state_activity() noexcept {
 }
 bool synchronize_navigation_view() noexcept {
-    return content_navigation_test::navigation_ok;
+    return true;
 }
 bool synchronize_selected_channel() noexcept {
     using namespace content_navigation_test;
     ++selections;
-    if (!selection_ok)
-        return false;
     ui->active_channel_id = wrong_active ? 21 : ui->chat_state.selected_channel_id;
     if (wrong_selected)
         chat_state_store_select_channel(&ui->chat_state, 21);
@@ -404,7 +402,6 @@ bool synchronize_shell_layout() noexcept {
     return true;
 }
 bool refresh_account_text(bool) noexcept {
-    ++content_navigation_test::refreshes;
     return content_navigation_test::text_ok;
 }
 bool application_stop_account() noexcept {
@@ -426,7 +423,6 @@ bool animate_guild_rail_scroll_from(float) noexcept {
     return true;
 }
 bool application_request_frame() noexcept {
-    ++content_navigation_test::frames;
     return true;
 }
 bool application_guild_invite_open_url(Utf8View) noexcept {

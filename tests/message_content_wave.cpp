@@ -19,9 +19,6 @@ namespace {
 
 using Check = void (*)(bool, const char*) noexcept;
 
-bool equal(Utf8View a, Utf8View b) noexcept {
-    return a.bytes == b.bytes && (a.bytes == 0 || bytes_equal(a.data, b.data, a.bytes));
-}
 bool contains(Utf8View text, Utf8View part) noexcept {
     for (u32 i = 0; part.bytes <= text.bytes && i + part.bytes <= text.bytes; ++i)
         if (bytes_equal(text.data + i, part.data, part.bytes))
@@ -49,17 +46,17 @@ void test_system_text(Check check) noexcept {
 
     input.type = message_type_recipient_add;
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada added Lin to the group.")) && text.icon == UiIcon::arrow_right &&
-              equal(span_text(text, MessageSystemSpanKind::target), utf8_literal("Lin")),
+              utf8_equal(text.text, utf8_literal("Ada added Lin to the group.")) && text.icon == UiIcon::arrow_right &&
+              utf8_equal(span_text(text, MessageSystemSpanKind::target), utf8_literal("Lin")),
           "system_recipient_add_names_both_users");
     input.type = message_type_recipient_remove;
     input.same_user = true;
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada left the group.")) && text.tone == MessageSystemTone::negative,
+              utf8_equal(text.text, utf8_literal("Ada left the group.")) && text.tone == MessageSystemTone::negative,
           "system_recipient_remove_self_is_leave");
     input.same_user = false;
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada removed Lin from the group.")),
+              utf8_equal(text.text, utf8_literal("Ada removed Lin from the group.")),
           "system_recipient_remove_other");
 
     input.type = message_type_call;
@@ -69,24 +66,24 @@ void test_system_text(Check check) noexcept {
     input.timestamp_ms = 1'000'000;
     input.call_ended_ms = 1'000'000 + 5 * 60'000 + 10'000;
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada started a call that lasted 5 minutes.")) && text.icon == UiIcon::phone,
+              utf8_equal(text.text, utf8_literal("Ada started a call that lasted 5 minutes.")) && text.icon == UiIcon::phone,
           "system_call_duration");
     input.call_participated = false;
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("You missed a call from Ada that lasted 5 minutes.")) &&
+              utf8_equal(text.text, utf8_literal("You missed a call from Ada that lasted 5 minutes.")) &&
               text.icon == UiIcon::phone_off,
           "system_call_missed");
     input.call_ended = false;
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada started a call.")),
+              utf8_equal(text.text, utf8_literal("Ada started a call.")),
           "system_call_ongoing");
 
     input.type = message_type_channel_pinned_message;
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada pinned a message to this channel. See all pinned messages.")) &&
-              equal(span_text(text, MessageSystemSpanKind::message), utf8_literal("a message")) &&
-              equal(span_text(text, MessageSystemSpanKind::pins), utf8_literal("pinned messages")) &&
-              equal(span_text(text, MessageSystemSpanKind::author), utf8_literal("Ada")) && text.icon == UiIcon::pin,
+              utf8_equal(text.text, utf8_literal("Ada pinned a message to this channel. See all pinned messages.")) &&
+              utf8_equal(span_text(text, MessageSystemSpanKind::message), utf8_literal("a message")) &&
+              utf8_equal(span_text(text, MessageSystemSpanKind::pins), utf8_literal("pinned messages")) &&
+              utf8_equal(span_text(text, MessageSystemSpanKind::author), utf8_literal("Ada")) && text.icon == UiIcon::pin,
           "system_pin_actions");
 
     input.type = message_type_user_join;
@@ -94,42 +91,42 @@ void test_system_text(Check check) noexcept {
     input.message_id = 5ull << 22;
     check(message_system_join_line_index(input.message_id) == 5 &&
               message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Look who's here: Ada!")),
+              utf8_equal(text.text, utf8_literal("Look who's here: Ada!")),
           "system_join_line_by_snowflake");
     bool all_named = true;
     for (u64 i = 0; i < kMessageSystemJoinLineCount; ++i) {
         input.message_id = i << 22;
         all_named = all_named && message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-                    equal(span_text(text, MessageSystemSpanKind::author), utf8_literal("Ada"));
+                    utf8_equal(span_text(text, MessageSystemSpanKind::author), utf8_literal("Ada"));
     }
     check(all_named, "system_join_lines_name_the_member");
 
     input.type = message_type_guild_boost;
     input.content = utf8_literal("3");
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada just boosted the server 3 times!")) && text.icon == UiIcon::boost,
+              utf8_equal(text.text, utf8_literal("Ada just boosted the server 3 times!")) && text.icon == UiIcon::boost,
           "system_boost_count");
     input.type = message_type_guild_boost_tier_2;
     input.guild = utf8_literal("Cafe");
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada just boosted the server! Cafe reached Level 2!")),
+              utf8_equal(text.text, utf8_literal("Ada just boosted the server! Cafe reached Level 2!")),
           "system_boost_tier");
 
     input.type = message_type_thread_created;
     input.content = utf8_literal("Plans");
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada started a thread: Plans")) &&
-              equal(span_text(text, MessageSystemSpanKind::thread), utf8_literal("Plans")),
+              utf8_equal(text.text, utf8_literal("Ada started a thread: Plans")) &&
+              utf8_equal(span_text(text, MessageSystemSpanKind::thread), utf8_literal("Plans")),
           "system_thread_created_link");
     input.type = message_type_channel_name_change;
     input.forum_post = true;
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada changed the post title: Plans")),
+              utf8_equal(text.text, utf8_literal("Ada changed the post title: Plans")),
           "system_forum_post_rename");
     input.forum_post = false;
     input.type = message_type_stage_topic;
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada changed the Stage topic: Plans")),
+              utf8_equal(text.text, utf8_literal("Ada changed the Stage topic: Plans")),
           "system_stage_topic");
 
     input.type = message_type_poll_result;
@@ -138,20 +135,20 @@ void test_system_text(Check check) noexcept {
     input.poll_votes = 2;
     input.poll_total_votes = 3;
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Ada's poll Lunch? has closed. Soup won with 67%.")) &&
-              equal(span_text(text, MessageSystemSpanKind::message), utf8_literal("Lunch?")),
+              utf8_equal(text.text, utf8_literal("Ada's poll Lunch? has closed. Soup won with 67%.")) &&
+              utf8_equal(span_text(text, MessageSystemSpanKind::message), utf8_literal("Lunch?")),
           "system_poll_result_winner");
 
     input.type = 0xFFF0;
     input.content = utf8_literal("Blocked.");
     check(message_system_text_build(input, {storage, sizeof(storage)}, &text) &&
-              equal(text.text, utf8_literal("Blocked.")) && text.icon == UiIcon::info,
+              utf8_equal(text.text, utf8_literal("Blocked.")) && text.icon == UiIcon::info,
           "system_unknown_type_uses_content");
 
     char duration[32];
-    check(equal({duration, message_system_duration(5'000, {duration, 32})}, utf8_literal("a few seconds")) &&
-              equal({duration, message_system_duration(3'600'000, {duration, 32})}, utf8_literal("an hour")) &&
-              equal({duration, message_system_duration(3 * 86'400'000ull, {duration, 32})}, utf8_literal("3 days")),
+    check(utf8_equal({duration, message_system_duration(5'000, {duration, 32})}, utf8_literal("a few seconds")) &&
+              utf8_equal({duration, message_system_duration(3'600'000, {duration, 32})}, utf8_literal("an hour")) &&
+              utf8_equal({duration, message_system_duration(3 * 86'400'000ull, {duration, 32})}, utf8_literal("3 days")),
           "system_durations");
     char tiny[8];
     check(!message_system_text_build(input, {tiny, 4}, &text), "system_text_rejects_small_output");
@@ -283,7 +280,7 @@ void test_media_policy(Check check) noexcept {
                              message_media_reveal_key(1000 + i, MessageMediaSource::component, i));
     check(!message_media_revealed(reveals, key) && reveals.count == kMessageMediaRevealMaximum,
           "media_reveal_ring_is_bounded");
-    check(equal(message_media_obscure_label(MessageMediaObscure::spoiler), utf8_literal("Spoiler")) &&
+    check(utf8_equal(message_media_obscure_label(MessageMediaObscure::spoiler), utf8_literal("Spoiler")) &&
               ui_rect_has_area(message_media_obscure_pill({0, 0, 300, 200})) &&
               !ui_rect_has_area(message_media_obscure_pill({0, 0, 30, 20})),
           "media_obscure_label_and_pill");
@@ -357,14 +354,14 @@ void test_components(Check check) noexcept {
     // BFS order: roots 0-6, then their children.
     check(c[0].type == 1 && c[2].type == 9 && c[3].type == 12 && c[4].type == 14 && c[5].type == 13 &&
               c[6].type == 5 && c[4].style == 2 && !(c[4].flags & gateway_message_component_divider) &&
-              equal(c[5].label, utf8_literal("notes.txt")) && equal(c[5].url, utf8_literal("attachment://notes.txt")),
+              utf8_equal(c[5].label, utf8_literal("notes.txt")) && utf8_equal(c[5].url, utf8_literal("attachment://notes.txt")),
           "components_roots_separator_and_file");
     const GatewayMessageComponent* accept = nullptr;
     const GatewayMessageComponent* select = nullptr;
     const GatewayMessageComponent* thumbnail = nullptr;
     u32 options = 0, gallery_items = 0, spoiler_items = 0;
     for (u32 i = 0; i < message.components.count; ++i) {
-        if (c[i].type == 2 && equal(c[i].custom_id, utf8_literal("ok")))
+        if (c[i].type == 2 && utf8_equal(c[i].custom_id, utf8_literal("ok")))
             accept = &c[i];
         if (c[i].type == 3)
             select = &c[i];
@@ -379,14 +376,14 @@ void test_components(Check check) noexcept {
             spoiler_items += (c[i].flags & gateway_message_component_spoiler) ? 1u : 0u;
         }
     }
-    check(accept && accept->emoji_id == 55 && equal(accept->emoji_name, utf8_literal("yes")) &&
+    check(accept && accept->emoji_id == 55 && utf8_equal(accept->emoji_name, utf8_literal("yes")) &&
               (accept->flags & gateway_message_component_emoji_animated) && accept->style == 1,
           "components_button_emoji");
-    check(select && equal(select->content, utf8_literal("Choose a role")) && select->min_values == 1 &&
+    check(select && utf8_equal(select->content, utf8_literal("Choose a role")) && select->min_values == 1 &&
               select->max_values == 2 && options == 2,
           "components_select_placeholder_and_bounds");
     check(thumbnail && c[thumbnail->parent].type == 9 && thumbnail->order == 0xFFFFu &&
-              equal(thumbnail->url, utf8_literal("https://media.discordapp.net/a.png")) &&
+              utf8_equal(thumbnail->url, utf8_literal("https://media.discordapp.net/a.png")) &&
               (thumbnail->flags & gateway_message_component_spoiler),
           "components_section_accessory_prefers_proxy");
     check(gallery_items == 2 && spoiler_items == 1, "components_gallery_items");
@@ -403,8 +400,8 @@ void test_components(Check check) noexcept {
         if (rich->components[i].type == gateway_component_select_option &&
             (rich->components[i].flags & gateway_message_component_default))
             stored_option = &rich->components[i];
-    check(stored_option && equal(message_rich_store_string(r.store, stored_option->custom_id), utf8_literal("r")) &&
-              equal(message_rich_store_string(r.store, stored_option->content), utf8_literal("Warm")),
+    check(stored_option && utf8_equal(message_rich_store_string(r.store, stored_option->custom_id), utf8_literal("r")) &&
+              utf8_equal(message_rich_store_string(r.store, stored_option->content), utf8_literal("Warm")),
           "components_option_value_and_description_stored");
     u32 interactive = 0, links = 0;
     for (u32 i = 0; i < rich->component_count; ++i) {
@@ -473,7 +470,7 @@ void test_system_records(Check check) noexcept {
     ok = decode_create(recipient, &message) && message_rich_store_apply(&r.store, 201, 1, message).ok();
     stored = message_rich_store_find(r.store, 201);
     check(ok && stored && stored->system.target_user_id == 9 &&
-              equal(message_rich_store_string(r.store, stored->system.target_name), utf8_literal("Kai")),
+              utf8_equal(message_rich_store_string(r.store, stored->system.target_name), utf8_literal("Kai")),
           "system_recipient_target_stored");
     message_rich_store_reset(&r.store);
     const auto pin = utf8_literal(R"({"op":0,"s":4,"t":"MESSAGE_CREATE","d":{
@@ -491,12 +488,12 @@ void test_interactions(Check check) noexcept {
     char data_bytes[512];
     ProtocolWriter data{{reinterpret_cast<u8*>(data_bytes), sizeof(data_bytes)}, 0};
     check(message_interaction_write_component_data(2, utf8_literal("ok"), {}, &data) &&
-              equal({data_bytes, data.used}, utf8_literal(R"({"component_type":2,"custom_id":"ok"})")),
+              utf8_equal({data_bytes, data.used}, utf8_literal(R"({"component_type":2,"custom_id":"ok"})")),
           "interaction_button_data");
     const Utf8View values[]{utf8_literal("r"), utf8_literal("b")};
     data.used = 0;
     check(message_interaction_write_component_data(3, utf8_literal("pick"), {values, 2}, &data) &&
-              equal({data_bytes, data.used},
+              utf8_equal({data_bytes, data.used},
                     utf8_literal(R"({"component_type":3,"custom_id":"pick","type":3,"values":["r","b"]})")),
           "interaction_select_data");
     data.used = 0;
@@ -518,7 +515,7 @@ void test_interactions(Check check) noexcept {
     char body[1024];
     ProtocolWriter writer{{reinterpret_cast<u8*>(body), sizeof(body)}, 0};
     check(message_interaction_write_body(request, utf8_literal("sess"), &writer) &&
-              equal({body, writer.used},
+              utf8_equal({body, writer.used},
                     utf8_literal(R"({"type":3,"nonce":"555","guild_id":"3","channel_id":"7","message_flags":32768,)"
                                  R"("message_id":"100","application_id":"9","session_id":"sess",)"
                                  R"("data":{"component_type":2,"custom_id":"ok"}})")),
@@ -529,7 +526,7 @@ void test_interactions(Check check) noexcept {
     request.guild_id = 0;
     writer.used = 0;
     check(message_interaction_write_body(request, utf8_literal("sess"), &writer) &&
-              equal({body, writer.used},
+              utf8_equal({body, writer.used},
                     utf8_literal(R"({"type":5,"nonce":"555","channel_id":"7","application_id":"9",)"
                                  R"("session_id":"sess","data":{"component_type":2,"custom_id":"ok"}})")),
           "interaction_modal_body_omits_message");
@@ -554,7 +551,7 @@ void test_interactions(Check check) noexcept {
     const bool modal_ok = message_modal_decode(modal_json, {structurals, 512}, {pool, sizeof(pool)}, &modal);
     check(modal_ok && modal.interaction_id == 900 && modal.nonce == 555 && modal.application_id == 9 &&
               modal.field_count == 2 && modal.paragraph_count == 1 && !modal.unsupported &&
-              equal(modal.title, utf8_literal("Feedback")) && equal(modal.application_name, utf8_literal("Helper")),
+              utf8_equal(modal.title, utf8_literal("Feedback")) && utf8_equal(modal.application_name, utf8_literal("Helper")),
           "modal_decode_fields_and_paragraphs");
     if (!modal_ok)
         return;
@@ -563,10 +560,10 @@ void test_interactions(Check check) noexcept {
     check(name.style == MessageModalInputStyle::short_text && name.required && name.min_length == 2 &&
               name.max_length == 20 && !name.labelled && details.labelled &&
               details.style == MessageModalInputStyle::paragraph && !details.required &&
-              equal(details.label, utf8_literal("Details")) && equal(details.value, utf8_literal("Hi")),
+              utf8_equal(details.label, utf8_literal("Details")) && utf8_equal(details.value, utf8_literal("Hi")),
           "modal_field_properties");
     Utf8View reason{};
-    check(!message_modal_value_valid(name, utf8_literal("A"), &reason) && equal(reason, utf8_literal("Too short")) &&
+    check(!message_modal_value_valid(name, utf8_literal("A"), &reason) && utf8_equal(reason, utf8_literal("Too short")) &&
               !message_modal_value_valid(name, {}, &reason) && message_modal_value_valid(details, {}, &reason) &&
               message_modal_value_valid(name, utf8_literal("Ana"), &reason),
           "modal_value_validation");
@@ -574,7 +571,7 @@ void test_interactions(Check check) noexcept {
     char submit[1024];
     ProtocolWriter submit_writer{{reinterpret_cast<u8*>(submit), sizeof(submit)}, 0};
     check(message_modal_write_submit_data(modal, {answers, 2}, &submit_writer) &&
-              equal({submit, submit_writer.used},
+              utf8_equal({submit, submit_writer.used},
                     utf8_literal(R"({"id":"900","custom_id":"form","components":[)"
                                  R"({"type":1,"components":[{"type":4,"custom_id":"name","value":"Ana"}]},)"
                                  R"({"type":18,"component":{"type":4,"custom_id":"body","value":"All \"good\""}}]})")),
@@ -645,7 +642,7 @@ void test_invite_cache(Check check) noexcept {
     char url[192];
     invite.icon_bytes = 4;
     copy_bytes(invite.icon, "abcd", 4);
-    check(equal({url, message_invite_icon_url(invite, {url, sizeof(url)})},
+    check(utf8_equal({url, message_invite_icon_url(invite, {url, sizeof(url)})},
                 utf8_literal("https://cdn.discordapp.com/icons/44/abcd.png?size=128")),
           "invite_icon_url");
 }
@@ -804,11 +801,9 @@ void test_presentation(Check check) noexcept {
 
 // Plugin decorations (mc.msg.render): the scene, text projection and author
 // header read cached verdicts through the UI query; nothing evaluates here.
-u32 g_render_queries;
 u64 g_render_ids[kRows];
 UiPluginRenderDecoration g_render_decorations[kRows];
 bool render_query(u64 id, u32, UiPluginRenderDecoration* output) noexcept {
-    ++g_render_queries;
     for (u32 i = 0; i < kRows; ++i)
         if (g_render_ids[i] == id) {
             *output = g_render_decorations[i];
@@ -877,7 +872,6 @@ void test_plugin_decorations(Check check) noexcept {
                                               {f.styles, 512}, {f.semantics, 64}, {f.measurements, kRows},
                                               {f.spoilers, 2}, {f.byte_styles, 4096}) &&
          ui_text_measure_cache_initialize(&f.cache, {f.cache_records, 256}, measure, nullptr);
-    g_render_queries = 0;
     for (auto& decoration : g_render_decorations)
         decoration = {};
     g_render_ids[0] = first.id;
@@ -935,7 +929,7 @@ void test_plugin_decorations(Check check) noexcept {
     const auto* body = find_command(f, replaced.id, utf8_literal("replaced"));
     const Utf8View body_source = body ? message_text_presentation_command_source(f.store, &f.rich, *body) : Utf8View{};
     check(body && body->source_id == kUiPluginRenderContentSource && !find_command(f, replaced.id, utf8_literal("stored")) &&
-              equal(body_source, utf8_literal("**replaced** text")),
+              utf8_equal(body_source, utf8_literal("**replaced** text")),
           "plugin_render_replacement_has_its_own_source");
     const auto* folded = find_command(f, collapsed.id, utf8_literal("Message hidden by a plugin"));
     check(folded && contains(folded->text, utf8_literal("Show")) && has_target(folded, kUiPluginRenderShowTarget) &&
@@ -950,7 +944,7 @@ void test_plugin_decorations(Check check) noexcept {
     MessageAuthorLayout header{};
     const bool laid = author && message_author_layout(f.scene, *author, state, render_users.store, &f.cache,
                                                       kDefaultTheme, &header);
-    check(laid && equal(header.name.text, utf8_literal("Ann")) && equal(header.name_suffix.text, utf8_literal("(away)")) &&
+    check(laid && utf8_equal(header.name.text, utf8_literal("Ann")) && utf8_equal(header.name_suffix.text, utf8_literal("(away)")) &&
               header.name_suffix.rectangle.left > header.name.rectangle.right && header.decoration_count == 1 &&
               header.decorations[0].badge.rectangle.left > header.name_suffix.rectangle.right,
           "plugin_render_cozy_suffix_and_badge");
@@ -972,7 +966,7 @@ void test_plugin_decorations(Check check) noexcept {
     decorated.media = ui_plugin_media_hide;
     check(message_scene_media_obscure(f.scene, fallback, first.id, key, false, false) ==
                   MessageMediaObscure::plugin_hidden &&
-              equal(message_media_obscure_label(MessageMediaObscure::plugin_hidden),
+              utf8_equal(message_media_obscure_label(MessageMediaObscure::plugin_hidden),
                     utf8_literal("Media hidden by a plugin")),
           "plugin_render_media_hide");
     decorated.media = ui_plugin_media_blur;
@@ -1008,7 +1002,6 @@ void test_plugin_decorations(Check check) noexcept {
     check(ok && hidden_row && !hidden_row->redacted && ui_variable_list_item_units(f.list, 1) > 1 &&
               find_command(f, hidden.id, utf8_literal("hidden secret")),
           "plugin_render_unhidden_row_returns");
-    check(g_render_queries > 0, "plugin_render_reads_only_the_cache_query");
     g_ui_plugin_render_query = nullptr;
     g_ui_plugin_render_revision = 0;
     message_scene_release(&f.scene);

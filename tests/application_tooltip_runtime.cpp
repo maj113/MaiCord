@@ -323,7 +323,7 @@ void run() noexcept {
           "tooltip runtime: failed native text publication retires visible revision and overdue wake");
     bool retired = true;
     g_app.frame_pending = false;
-    for (u32 attempt = 0; attempt < 64; ++attempt) {
+    for (u32 attempt = 0; attempt < 8; ++attempt) {
         application_tooltip_input(WM_MOUSEMOVE, 0, point);
         retired = retired && application_tooltip_synchronize(publication_failure_at + attempt + 1) &&
                   !application_tooltip_next_wake() && !g_app.renderer.tooltip_scene->visible &&

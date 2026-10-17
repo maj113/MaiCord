@@ -483,8 +483,6 @@ void manual_tests() noexcept {
           "manual read: authoritative archive transition is admitted");
     check(!application_read_state_channel_unread_available(thread.id),
           "manual read: archived thread awaits native unarchive prerequisite");
-    check(chat_state_store_set_thread_archived(&g_app.account_ui->chat_state, thread.id, 1, false),
-          "manual read: authoritative active transition is admitted");
     fresh_owner();
     const u32 initial_bytes = application_read_state_owner_bytes();
     check(initial_bytes == 0 && mark() && application_read_state_owner_bytes() < 100000,

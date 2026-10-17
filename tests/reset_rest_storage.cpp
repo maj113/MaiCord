@@ -1,7 +1,7 @@
-// Offline allocation fixture. This includes the actual REST owner implementation
-// to inspect its private allocation/layout and exercise its real erasure helpers.
-// Do not also compile/link rest_client.cpp into this executable.
-#include "../src/app/rest_client.cpp"
+// Offline allocation fixture. It inspects the actual REST owner implementation
+// (included by rest_client_probe.hpp) for its private allocation/layout and
+// exercises its real erasure helpers. Part of rest_client_fixtures.cpp.
+#include "rest_client_probe.hpp"
 #include <psapi.h>
 #include <WS2tcpip.h>
 
@@ -413,7 +413,3 @@ u32 reset_rest_storage_fixture() noexcept {
     return storage_failures;
 }
 } // namespace maicord
-
-extern "C" void maicord_reset_rest_storage_entry() noexcept {
-    ExitProcess(maicord::reset_rest_storage_fixture() == 0 ? 0u : 1u);
-}

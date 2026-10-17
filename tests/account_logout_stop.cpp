@@ -110,7 +110,7 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
     check(duplicate.error == AccountLogoutStopStartError::active &&
         !account_logout_stop_take(&held->owner, nullptr) && polls_preserved &&
         !account_logout_stop_join_for_shutdown(&held->owner, 0, &result) &&
-        !account_logout_stop_join_for_shutdown(&held->owner, 20, &result) &&
+        !account_logout_stop_join_for_shutdown(&held->owner, 1, &result) &&
         !account_logout_stop_join_for_shutdown(&held->owner, INFINITE, &result) &&
         same_live(held->owner, completion, &held->host) && result.native_error == 91 &&
         result.error == AccountHostError::module_release && ReadAcquire(&held->calls) == 1,

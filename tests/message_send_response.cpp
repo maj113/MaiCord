@@ -1,12 +1,8 @@
 #include "maicord/app/message_send_response.hpp"
 #include "maicord/app/message_history_sync.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
 void test_message_send_response(void (*check)(bool, const char*) noexcept) noexcept {
-    const auto utf8_view_equal = [](Utf8View a, Utf8View b) noexcept {
-        return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-    };
     MessageRecord records[4]{}; u32 order[4]{}, heights[4]{}; u64 fenwick[4]{};
     u8 text[512]{}, draft_text[128]{}, request_text[kMessageComposerMaximumBytes]{}, rich_text[4096]{};
     char composer_text[128]{}, content[2048]{};
@@ -52,7 +48,7 @@ void test_message_send_response(void (*check)(bool, const char*) noexcept) noexc
     const auto* detail = message_rich_store_find(rich, 900);
     check(nonce && accepted.http.ok() && accepted.body_decoded && accepted.message.ok() && accepted.message.changed &&
         record && record->delivery == MessageDeliveryState::authoritative && store.count == 1 &&
-        !message_store_find(store, nonce).ok() && utf8_view_equal(message_store_content(store, found.handle), utf8_literal("server")) &&
+        !message_store_find(store, nonce).ok() && utf8_equal(message_store_content(store, found.handle), utf8_literal("server")) &&
         detail && detail->attachment_count == 1 && detail->attachments[0].size == 64 && detail->attachments[0].width == 32 &&
         message_rich_store_string(rich, detail->attachments[0].url).bytes &&
         message_composer_controller_take_completion(&controller, &completion) && completion.response_observed &&
@@ -60,7 +56,7 @@ void test_message_send_response(void (*check)(bool, const char*) noexcept) noexc
         !controller.request_count && !controller.inflight_nonce,
         "successful POST installs authoritative text and attachments and confirms delivery without Gateway or nonce echo");
     for (auto& byte : content) byte = 'x';
-    check(utf8_view_equal(message_store_content(store, found.handle), utf8_literal("server")) && detail &&
+    check(utf8_equal(message_store_content(store, found.handle), utf8_literal("server")) && detail &&
         message_rich_store_string(rich, detail->attachments[0].url).data[0] == 'h',
         "authoritative response text and attachment URL are owned after all decode text is overwritten");
 
@@ -73,13 +69,13 @@ void test_message_send_response(void (*check)(bool, const char*) noexcept) noexc
         messages[0].snapshot.present && messages[0].attachments.count == 1 && messages[0].snapshot.attachments.count == 1 &&
         messages[0].snapshot.attachments.data == snapshot_attachments && messages[0].snapshot.mention_users.data == snapshot_users &&
         !messages[0].mentions_current_user && messages[0].snapshot.mention_users.count == 1 &&
-        utf8_view_equal(messages[0].snapshot.content, utf8_literal("child body <@11>")) &&
+        utf8_equal(messages[0].snapshot.content, utf8_literal("child body <@11>")) &&
         forwarded_child && forwarded_child->attachment_count == 1 &&
         message_composer_controller_take_completion(&controller, &completion) && completion.response_observed,
         "send confirmation forwards independent child scratch and installs snapshot without child notification pings");
     for (auto& byte : content) byte = 'x';
-    check(forwarded_child && utf8_view_equal(message_rich_store_string(rich, forwarded_child->snapshot.content), utf8_literal("child body <@11>")) &&
-        utf8_view_equal(message_rich_store_string(rich, forwarded_child->attachments[0].filename), utf8_literal("child.png")),
+    check(forwarded_child && utf8_equal(message_rich_store_string(rich, forwarded_child->snapshot.content), utf8_literal("child body <@11>")) &&
+        utf8_equal(message_rich_store_string(rich, forwarded_child->attachments[0].filename), utf8_literal("child.png")),
         "forwarded send response child text and media survive retirement of decode scratch");
     response.body_bytes = body.bytes;
 
@@ -152,7 +148,7 @@ void test_message_send_response(void (*check)(bool, const char*) noexcept) noexc
         accepted = message_send_accept_response(&controller, response, body, scratch, 7, 11, 110);
         const auto resident = message_store_find(store, 900);
         check(accepted.http.ok() && accepted.message.ok() && !accepted.message.changed &&
-            (deleted ? !store.count : resident.ok() && utf8_view_equal(message_store_content(store, resident.handle), utf8_literal("newer edit"))) &&
+            (deleted ? !store.count : resident.ok() && utf8_equal(message_store_content(store, resident.handle), utf8_literal("newer edit"))) &&
             message_composer_controller_take_completion(&controller, &completion) && completion.gateway_observed && !completion.response_observed,
             "late POST body cannot overwrite a Gateway edit or resurrect a deleted message");
     }
@@ -188,7 +184,7 @@ void test_message_send_response(void (*check)(bool, const char*) noexcept) noexc
         accepted = message_send_accept_response(&controller, response, {}, scratch, 7, 11, 110);
         const auto local = message_store_find(store, nonce);
         check(nonce && accepted.http.ok() && !accepted.body_expected && !controller.inflight_nonce &&
-            controller.request_count == 1 && local.ok() && utf8_view_equal(message_store_content(store, local.handle), utf8_literal("local")) &&
+            controller.request_count == 1 && local.ok() && utf8_equal(message_store_content(store, local.handle), utf8_literal("local")) &&
             message_composer_controller_prepare_submit(&controller, 500000, &submit).error == MessageComposerControllerError::not_found,
             "verification or restricted-action response preserves the failed message without automatic replay");
     }

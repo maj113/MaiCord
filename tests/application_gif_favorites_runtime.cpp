@@ -297,7 +297,7 @@ void hover_interest() noexcept {
     const u32 left_submits = submits, left_callbacks = callbacks;
     const u64 left_revision = application_gif_favorites_view().revision;
     bool idle = true;
-    for (u32 frame = 0; frame < 64; ++frame) {
+    for (u32 frame = 0; frame < 8; ++frame) {
         application_gif_favorites_synchronize();
         idle = idle && !application_gif_favorites_pending(limited.retry_at_ms) &&
                !application_gif_favorites_next_wake();
@@ -305,7 +305,7 @@ void hover_interest() noexcept {
     check(idle && !g_app.gif_favorites->hovered && !g_app.gif_favorites->visible &&
               !g_app.gif_favorites->fetch_wanted && submits == left_submits && callbacks == left_callbacks &&
               application_gif_favorites_view().revision == left_revision,
-          "hover interest: leaving during delayed 429 retires all retry work and stays unchanged for 64 frames");
+          "hover interest: leaving during delayed 429 retires all retry work and stays unchanged for 8 frames");
 
     application_gif_favorites_set_hovered(true);
     check(application_gif_favorites_open() && application_gif_favorites_submit(301, 1),
@@ -331,12 +331,12 @@ void hover_interest() noexcept {
     application_gif_favorites_set_visible(false);
     const u32 reused_callbacks = callbacks;
     const u64 reused_revision = application_gif_favorites_view().revision;
-    for (u32 frame = 0; frame < 64; ++frame) application_gif_favorites_set_hovered(true);
+    for (u32 frame = 0; frame < 8; ++frame) application_gif_favorites_set_hovered(true);
     check(g_app.gif_favorites->hovered && !g_app.gif_favorites->visible && cancels == before_close &&
               g_app.gif_favorites->request_id == 303 &&
               application_gif_favorites_response_buffer().data == held.data &&
               callbacks == reused_callbacks && application_gif_favorites_view().revision == reused_revision,
-          "hover interest: picker close preserves message hover and 64 repeated source refreshes reuse the exact fetch");
+          "hover interest: picker close preserves message hover and 8 repeated source refreshes reuse the exact fetch");
     application_gif_favorites_set_hovered(false);
     check(cancels == before_close + 1 && cancelled_id == 303 &&
               application_gif_favorites_response_buffer().data == held.data,

@@ -1,3 +1,5 @@
+// One executable for both read runtimes: the read-state suite is compiled in
+// here and runs when the command line carries --read-state.
 #define maicord_read_state_runtime_entry maicord_scoped_read_runtime_reused_entry
 #include "application_read_state_runtime.cpp"
 #undef maicord_read_state_runtime_entry
@@ -54,6 +56,13 @@ void fresh() noexcept {
     channel(3).last_message_id = 0;
     g_app.account_ui->chat_state.channel_mutations++;
 }
+void fresh_category() noexcept {
+    fresh();
+    channel(0).parent_id = 73;
+    channel(2).type = 0;
+    channel(2).parent_id = 73;
+    channel(2).last_message_id = 0;
+}
 bool scope_reply(u16 status, u64 now, u64 retry_at = 0,
                  RestClientError error = RestClientError::none) noexcept {
     RestClientResponse r{};
@@ -93,7 +102,7 @@ void run() noexcept {
           "scoped runtime: later messages do not widen admitted boundary or clear later mentions");
     const auto metrics = application_scoped_read_metrics();
     const auto broker = application_read_state_metrics();
-    for (u32 warm = 0; warm < 64; ++warm) {
+    for (u32 warm = 0; warm < 8; ++warm) {
         application_scoped_read_synchronize();
         check(!application_scoped_read_next_wake() &&
                   application_scoped_read_view(ReadScopeKind::guild, 7).completed == 3,
@@ -105,7 +114,7 @@ void run() noexcept {
               metrics.plan_builds == warmed.plan_builds && metrics.target_checks == warmed.target_checks &&
               metrics.encodings == warmed.encodings && metrics.commits == warmed.commits &&
               broker.commits == broker_warm.commits && broker.action_serial == broker_warm.action_serial,
-          "scoped runtime: 64 warm polls do no planning target scanning encoding backing or authority "
+          "scoped runtime: 8 warm polls do no planning target scanning encoding backing or authority "
           "mutation");
     check(metrics.owner_committed_bytes >= metrics.owner_bytes && metrics.candidate_reserved_bytes &&
               broker.owner_committed_bytes >= broker.owner_bytes && broker.echoes_committed_bytes &&
@@ -163,11 +172,7 @@ void run() noexcept {
           "scoped runtime: same actor late 429 constrains new READY work before stale receipt checks");
     g_app.account_ui->read_state_store.generation = old_generation;
 
-    fresh();
-    channel(0).parent_id = 73;
-    channel(2).parent_id = 73;
-    channel(2).type = 0;
-    channel(2).last_message_id = 0;
+    fresh_category();
     check(application_scoped_read_capture(ReadScopeKind::category, 73, &ticket) &&
               application_scoped_read_begin(ticket),
           "scoped runtime: forced category plan admits real individual queue plus null local target");
@@ -190,11 +195,7 @@ void run() noexcept {
           "null targets");
 
     // Scope changes share the same per-channel serial ledger.
-    fresh();
-    channel(0).parent_id = 73;
-    channel(2).type = 0;
-    channel(2).parent_id = 73;
-    channel(2).last_message_id = 0;
+    fresh_category();
     check(application_scoped_read_capture(ReadScopeKind::guild, 7, &ticket) &&
               application_scoped_read_begin(ticket),
           "scoped runtime: guild-to-category overlap first queues real bulk targets");
@@ -206,11 +207,7 @@ void run() noexcept {
               !application_scoped_read_submit(10100, 1) && bulk.calls == 0 && admit() &&
               seen.message_id == 1100 && reply(204) && admit() && seen.message_id == 1101 && reply(204),
           "scoped runtime: newer category cancels old bulk serials and sends only new individual cursors");
-    fresh();
-    channel(0).parent_id = 73;
-    channel(2).type = 0;
-    channel(2).parent_id = 73;
-    channel(2).last_message_id = 0;
+    fresh_category();
     check(application_scoped_read_capture(ReadScopeKind::category, 73, &category_ticket) &&
               application_scoped_read_begin(category_ticket),
           "scoped runtime: category-to-guild overlap first queues real individual targets");
@@ -223,11 +220,7 @@ void run() noexcept {
               scope_reply(204, 10),
           "scoped runtime: newer guild cancels individual old serials and sends only captured new bulk "
           "cursors");
-    fresh();
-    channel(0).parent_id = 73;
-    channel(2).type = 0;
-    channel(2).parent_id = 73;
-    channel(2).last_message_id = 0;
+    fresh_category();
     check(application_scoped_read_capture(ReadScopeKind::category, 73, &category_ticket) &&
               application_scoped_read_begin(category_ticket),
           "scoped runtime: category reparent invalidation captures child and joined thread");
@@ -237,11 +230,7 @@ void run() noexcept {
     check(!application_read_state_next_wake() && !admit() &&
               application_scoped_read_view(ReadScopeKind::category, 73).pending == 0,
           "scoped runtime: parent movement cancels exact individual child and thread intents before wire");
-    fresh();
-    channel(0).parent_id = 73;
-    channel(2).type = 0;
-    channel(2).parent_id = 73;
-    channel(2).last_message_id = 0;
+    fresh_category();
     check(application_scoped_read_capture(ReadScopeKind::category, 73, &category_ticket) &&
               application_scoped_read_begin(category_ticket),
           "scoped runtime: category permission invalidation captures individual intents");
@@ -310,7 +299,7 @@ void run() noexcept {
           "scoped runtime: full shared echo ledger fails exact pending batch visibly without POST or "
           "immediate wake");
     const auto capacity_metrics = application_scoped_read_metrics();
-    for (u32 warm = 0; warm < 64; ++warm) {
+    for (u32 warm = 0; warm < 8; ++warm) {
         application_scoped_read_synchronize();
         check(!application_scoped_read_next_wake(),
               "scoped runtime: capacity failure has no past-due polling wake");
@@ -320,13 +309,21 @@ void run() noexcept {
               capacity_metrics.encodings == capacity_warm.encodings &&
               capacity_metrics.commits == capacity_warm.commits &&
               capacity_metrics.target_checks == capacity_warm.target_checks,
-          "scoped runtime: capacity failure remains stable across 64 polls without frames encoding scans "
+          "scoped runtime: capacity failure remains stable across 8 polls without frames encoding scans "
           "or commits");
     application_scoped_read_release();
     release();
 }
 } // namespace maicord::scoped_read_runtime_test
 extern "C" __declspec(noreturn) void WINAPI maicord_scoped_read_runtime_entry() noexcept {
+    constexpr wchar_t mode[] = L"--read-state";
+    for (const wchar_t* line = GetCommandLineW(); *line; ++line) {
+        maicord::u32 matched = 0;
+        while (mode[matched] && line[matched] == mode[matched])
+            ++matched;
+        if (!mode[matched])
+            maicord_scoped_read_runtime_reused_entry();
+    }
     maicord::scoped_read_runtime_test::run();
     const bool failed = maicord::read_state_runtime_test::seen.failures != 0;
     constexpr char pass[] = "PASS scoped read runtime\n", fail[] = "FAIL scoped read runtime\n";

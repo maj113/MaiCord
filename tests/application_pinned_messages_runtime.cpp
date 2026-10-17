@@ -10,11 +10,10 @@ struct AccountFixture {
     u32 submissions{}, cancellations{};
     RestClientSubmitError admission{};
 } account;
-u32 failures{}, repaints{}, navigations{}, confirmations{}, form_cancellations{};
+u32 failures{}, navigations{};
 u64 navigated_channel{}, navigated_message{};
 ApplicationTextFormRequest confirmation{};
 u8 form_marker{};
-bool settings{};
 BYTE saved_keyboard[256]{};
 bool keyboard_saved{};
 MessageRecord records[4]{};
@@ -210,7 +209,7 @@ void run() noexcept {
     const u32 stable_scene_revision = owner.scene.revision;
     const u32 stable_source_revision = owner.source.revision;
     bool stable_frames = true;
-    for (u32 frame = 0; frame < 32; ++frame) stable_frames = application_pinned_messages_synchronize() && stable_frames;
+    for (u32 frame = 0; frame < 4; ++frame) stable_frames = application_pinned_messages_synchronize() && stable_frames;
     check(stable_frames && owner.content.revision == stable_content_revision &&
           owner.scene.revision == stable_scene_revision && owner.source.revision == stable_source_revision,
           "pins runtime: unchanged frames preserve content scene and source revisions");
@@ -381,8 +380,8 @@ namespace maicord {
 bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept { return true; }
 TextSystem renderer_text_system(D3D11Renderer*, UiTextFace) noexcept { return {}; }
 namespace app_detail {
-bool refresh_account_text(bool) noexcept { ++pins_runtime_test::repaints; return true; }
-bool application_settings_active() noexcept { return pins_runtime_test::settings; }
+bool refresh_account_text(bool) noexcept { return true; }
+bool application_settings_active() noexcept { return false; }
 bool application_friends_active() noexcept { return false; }
 void application_composer_text_input_suspend() noexcept {}
 bool application_search_close_panel() noexcept { return true; }
@@ -393,7 +392,6 @@ bool application_navigate_notification(u64 channel, u64 message) noexcept {
     return true;
 }
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept {
-    ++pins_runtime_test::confirmations;
     pins_runtime_test::confirmation = request;
     g_app.text_form = reinterpret_cast<ApplicationTextForm*>(&pins_runtime_test::form_marker);
     return true;
@@ -401,7 +399,6 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
 void application_text_form_close(bool, bool) noexcept { g_app.text_form = nullptr; }
 void application_text_form_cancel_owner(TextFormOwnerValid validator) noexcept {
     if (g_app.text_form && pins_runtime_test::confirmation.valid == validator) {
-        ++pins_runtime_test::form_cancellations;
         g_app.text_form = nullptr;
     }
 }

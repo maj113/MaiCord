@@ -6,15 +6,10 @@
 // Manual modes, deliberately not in the suite:
 //   MAICORD_UI_PROBE_CAPTURE_DIR / _CAPTURE_PREFIX  write BMP frames that
 //     tools/verify_hangul_render.py, verify_tamil_render.py and
-//     verify_native_cjk_pixels.py check; MAICORD_CJK_PIXEL_*, MAICORD_CJK_LONG_BIO
-//     select their text.
+//     verify_native_cjk_pixels.py check; MAICORD_CJK_PIXEL_* select their text.
 //   MAICORD_GLYPH_CACHE_METRICS, MAICORD_SCENE_MEMORY, MAICORD_SCENE_FONT_RESIDENCY,
 //     MAICORD_EMOJI_PAGE_CONTROL  measurement runs (tools/measure_*.py).
-//   MAICORD_SCROLL_BENCHMARK, MAICORD_PANE_RESIZE_BENCHMARK  benchmarks
-//     (tools/benchmark_scroll.ps1).
-//   MAICORD_LOTTIE_FIXTURE=<file>, MAICORD_LOTTIE_*, MAICORD_WEBP_PROBE=<file>,
-//     MAICORD_WEBP_EXPECTED_YUV_HASH, MAICORD_JPEG_CORPUS=<dir>  offline runs over
-//     external files.
+//   MAICORD_SCROLL_BENCHMARK  benchmark (tools/benchmark_scroll.ps1).
 //   MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY (with MAICORD_REGIONAL_FLAG_SURFACES_PROBE)
 //     the pinned external flag corpus; registered only when the CMake option names it.
 #include "../application_downloads_inactive.hpp"
@@ -36,7 +31,6 @@
 #include "scene_memory_measurement.hpp"
 #include "colr_binding_probe.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
-#include "maicord/render/lottie_program.hpp"
 #include "../../src/app/account_ui_runtime.hpp"
 #include "../../src/app/application_state.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
@@ -146,8 +140,7 @@ bool text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache) noexcep
 bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache, HWND window) noexcept;
 bool application_media_animation_ui_probe(D3D11Renderer& renderer,
                                           bool (*capture)(const wchar_t*) noexcept) noexcept;
-bool webp_gpu_probe(D3D11Renderer& renderer) noexcept;
-bool jpeg_gpu_probe(D3D11Renderer& renderer) noexcept;
+bool vp8_tiled_probe(D3D11Renderer& renderer) noexcept;
 bool video_frame_reference_probe(D3D11Renderer& renderer) noexcept;
 bool plugin_ui_probe(D3D11Renderer& renderer, PopupScene& popup,
                      bool (*capture)(const wchar_t*) noexcept) noexcept;
@@ -679,40 +672,6 @@ bool rebuild_probe_content_text() noexcept {
 }
 bool probe_sync_shell_and_text() noexcept {
     return synchronize_probe_shell_layout() && rebuild_probe_content_text();
-}
-
-bool pane_resize_benchmark() noexcept {
-    wchar_t enabled[2]{};
-    if (!GetEnvironmentVariableW(L"MAICORD_PANE_RESIZE_BENCHMARK", enabled, 2))
-        return true;
-    const u32 old_width = g_probe.renderer.width, old_height = g_probe.renderer.height;
-    if (!renderer_resize(&g_probe.renderer, 2400, 1200))
-        return false;
-    const auto clock = clock_initialize();
-    constexpr u32 samples = 960, burst = 8;
-    for (u32 pane = 0; pane < 2; ++pane) {
-        u64 elapsed[2]{};
-        for (u32 mode = 0; mode < 2; ++mode) {
-            if (!synchronize_probe_shell_layout() || !rebuild_probe_content_text())
-                return false;
-            const i64 begin = clock_now();
-            for (u32 sample = 0; sample < samples; ++sample) {
-                const float width = 180.0f + static_cast<float>(sample % 40);
-                if (mode && (sample + 1) % burst)
-                    continue;
-                if (!synchronize_probe_shell_layout({}, {}, pane == 0 ? width : 0, pane == 1 ? width : 0) ||
-                    !rebuild_probe_content_text())
-                    return false;
-            }
-            elapsed[mode] = clock_microseconds(clock, begin, clock_now());
-        }
-        log_u64(LogLevel::info, "probe",
-                pane ? "member_resize_960_reflows_us" : "channel_resize_960_reflows_us", elapsed[0]);
-        log_u64(LogLevel::info, "probe",
-                pane ? "member_resize_120_reflows_us" : "channel_resize_120_reflows_us", elapsed[1]);
-    }
-    return renderer_resize(&g_probe.renderer, old_width, old_height) && synchronize_probe_shell_layout() &&
-           rebuild_probe_content_text();
 }
 bool set_probe_login_view(RendererLoginView view) noexcept {
     LoginScene& scene = g_probe.login_scene;
@@ -7550,8 +7509,6 @@ bool probe_profile_hover(ProfileScene& scene) noexcept {
 
 #include "thai_wrapped_probe.inc"
 #include "catalog_apng_probe.inc"
-#include "lottie_animation_probe.inc"
-#include "lottie_probe.inc"
 bool probe_transparent_guild_icon() noexcept {
     g_probe.failure_stage = 271;
     if (!chat_state_store_upsert_guild(&g_probe.chat_state,
@@ -8109,18 +8066,6 @@ bool probe_profile_card() noexcept {
         utf8_literal("\x2a\x2a\xe3\x82\xab\xe2\x80\x8d\xe3\x82\x99\x20\xe3\x82\xab\xe2\x80\x8c\xe3\x82\x99"
                      "\x20\xe3\x82\xab\xcd\x8f\xe3\x82\x99\x2a\x2a\x20\xef\xbd\xb6\xef\xbe\x9e"),
         utf8_literal("\x2a\x2a\xe4\xb8\xad\xe6\x96\x87\x2a\x2a")};
-    wchar_t long_bio_option[2]{};
-    const bool long_cjk_bio = GetEnvironmentVariableW(L"MAICORD_CJK_LONG_BIO", long_bio_option, 2) == 1 &&
-                              long_bio_option[0] == '1';
-    const Utf8View long_cjk_bios[]{
-        utf8_literal(
-            "\x2a\x2a\xe4\xb8\xad\xe6\x96\x87\xe6\xb6\x88\xe6\x81\xaf\xe6\xb5\x8b\xe8\xaf\x95\x2a\x2a\x20"
-            "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\xe3\x81\xae\xe3\x83\xa1\xe3\x83\x83\xe3\x82\xbb\xe3\x83"
-            "\xbc\xe3\x82\xb8\x0a\xe3\x81\x8b\xe3\x82\x99\x20\xe3\x81\xaf\xe3\x82\x9a\x20\xe3\x82\xab\xe3"
-            "\x82\x99\x20\xe3\x83\x8f\xe3\x82\x9a\x20\xef\xbd\xb6\xef\xbe\x9e\x20\xef\xbe\x8a\xef\xbe\x9f"),
-        utf8_literal("\x2a\x2a\xe4\xb8\xad\xe6\x96\x87\xf0\xa0\x80\x80\xe4\xb8\xad\xe6\x96\x87\x2a\x2a\x20"
-                     "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\x0a\xe3\x82\xab\xe3\x83\x8a\x20\xf0\x9f\x98\x80"
-                     "\x20\xe4\xb8\xad\xe6\x96\x87")};
     const wchar_t* script_captures[]{L"arabic-bracket-styles-profile.bmp",
                                      L"arabic-bracket-mono-profile.bmp",
                                      L"cjk-styles-profile.bmp",
@@ -8128,7 +8073,7 @@ bool probe_profile_card() noexcept {
                                      L"cjk-controls-profile.bmp",
                                      L"height-overflow-profile.bmp"};
     for (u32 i = 0; valid && i < sizeof(script_bios) / sizeof(script_bios[0]); ++i) {
-        const auto text = long_cjk_bio && i >= 2 && i <= 3 ? long_cjk_bios[i - 2] : script_bios[i];
+        const auto text = script_bios[i];
         data->bio.bytes = 0;
         for (u32 repeat = 0; repeat < (i == 5 ? 8u : 2u); ++repeat) {
             if (repeat)
@@ -10502,13 +10447,6 @@ int run_probe() noexcept {
         renderer_shutdown(&g_probe.renderer);DestroyWindow(g_probe.window);return valid?0:273;
     }
     wchar_t transparent_guild_only[2]{};
-    if (GetEnvironmentVariableW(L"MAICORD_LOTTIE_FIXTURE", nullptr, 0)) {
-        const bool valid=initialize_fixture(true) && probe_lottie_gallery();
-        log_write(valid ? LogLevel::info : LogLevel::error,"probe",
-            valid ? "lottie_gallery_native_ui_passed" : "lottie_gallery_native_ui_failed");
-        renderer_shutdown(&g_probe.renderer);DestroyWindow(g_probe.window);
-        return valid ? 0 : 272;
-    }
     if (GetEnvironmentVariableW(L"MAICORD_TRANSPARENT_GUILD_UI_PROBE", transparent_guild_only, 2) == 1 &&
         transparent_guild_only[0] == L'1') {
         const bool valid = initialize_fixture(true) && probe_transparent_guild_icon();
@@ -11709,8 +11647,6 @@ int run_probe() noexcept {
                 return 14;
             }
         }
-        if (!pane_resize_benchmark())
-            return 15;
         bool scroll_measured = false;
         if (!scroll_benchmark(&scroll_measured))
             return 17;
@@ -11722,9 +11658,7 @@ int run_probe() noexcept {
         }
         if (!shaped_text_cache_equivalence())
             return 18;
-        if (!jpeg_gpu_probe(g_probe.renderer))
-            return 16;
-        if (!webp_gpu_probe(g_probe.renderer))
+        if (!vp8_tiled_probe(g_probe.renderer))
             return 1;
         if (!video_frame_reference_probe(g_probe.renderer))
             return 1;

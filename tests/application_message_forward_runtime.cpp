@@ -16,11 +16,8 @@
 
 namespace maicord::forward_runtime_test {
 using namespace app_detail;
-u32 failures, underlying_input, repaints, suspends, synchronizations, private_requests, channel_routes,
-    guild_routes, scoped_shortcuts;
-u64 private_user, routed_channel, routed_guild;
-PrivateConversationOperation private_operation{};
-bool navigation_allowed = true, private_allowed = true, settings, theme_editor;
+u32 failures, underlying_input, suspends, synchronizations, scoped_shortcuts;
+bool settings, theme_editor;
 bool scoped_shortcut_allowed = true;
 GuildRecord guilds[2];
 u16 guild_order[2];
@@ -348,7 +345,8 @@ void run() noexcept {
     check(!application_message_forward_window_message(WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(1, 1)) &&
               !application_message_forward_window_message(WM_LBUTTONUP, 0, MAKELPARAM(1, 1)),
           "Forward runtime a fresh pointer gesture retires an abandoned close tail");
-    scoped_shortcut_routing();
+    // scoped_shortcut_routing() runs in the Quick switcher runtime against the
+    // same production router; this file keeps only the Forward modal case.
     message_composer_release(&g_app.message_composer);
     DestroyWindow(g_app.window);
     g_app.window = nullptr;
@@ -360,7 +358,6 @@ void run() noexcept {
 } // namespace maicord::forward_runtime_test
 namespace maicord {
 bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept {
-    ++forward_runtime_test::repaints;
     return true;
 }
 bool text_edit_layout_hit_test(const TextEditLayoutOwner&, float, float, u32* position) noexcept {
@@ -392,7 +389,6 @@ bool application_quick_switcher_input(UiInputKind, u32, bool) noexcept {
     return false;
 }
 bool refresh_account_text(bool) noexcept {
-    ++forward_runtime_test::repaints;
     return true;
 }
 UiRect application_viewport_dips() noexcept {
@@ -446,17 +442,10 @@ void application_settings_close(bool) noexcept {
 bool application_profile_close() noexcept {
     return true;
 }
-bool queue_private_conversation(PrivateConversationOperation operation, u64 id) noexcept {
-    ++forward_runtime_test::private_requests;
-    forward_runtime_test::private_operation = operation;
-    forward_runtime_test::private_user = id;
-    return forward_runtime_test::private_allowed;
+bool queue_private_conversation(PrivateConversationOperation, u64) noexcept {
+    return true;
 }
 bool application_navigate_notification(u64 channel_id, u64) noexcept {
-    ++forward_runtime_test::channel_routes;
-    forward_runtime_test::routed_channel = channel_id;
-    if (!forward_runtime_test::navigation_allowed)
-        return false;
     auto& state = g_app.account_ui->chat_state;
     const auto* c = chat_state_store_find_channel(state, channel_id);
     if (!c)
@@ -466,10 +455,8 @@ bool application_navigate_notification(u64 channel_id, u64) noexcept {
     ++state.selection_revision;
     return true;
 }
-bool select_content_guild(u64 id) noexcept {
-    ++forward_runtime_test::guild_routes;
-    forward_runtime_test::routed_guild = id;
-    return forward_runtime_test::navigation_allowed;
+bool select_content_guild(u64) noexcept {
+    return true;
 }
 bool application_forum_form_input(UiInputKind, u32, bool) noexcept {
     return false;

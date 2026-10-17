@@ -1,5 +1,6 @@
-// Arabic joining plans. No argument runs the built-in corpora (the registry builds this file
-// three ways). Manual: `<font file> [--original-order | --arabic-script | --bench-arabic]`
+// Arabic joining plans. No argument runs the built-in corpora with the test's own prepared
+// programs; --run first shapes them through the owned plan store and native_arabic_run.
+// Manual: `[--run] <font file> [--original-order | --arabic-script | --bench-arabic]`
 // shapes a whole font file for external comparison; --bench-arabic times it.
 #include "gsub_program_fixture.hpp"
 #include "maicord/text/shape_run.hpp"
@@ -8,13 +9,9 @@
 #include "maicord/text/grapheme.hpp"
 #include "maicord/text/unicode.hpp"
 #include <Windows.h>
-#if defined(MAICORD_ARABIC_OWNED)
 #include "maicord/text/arabic_run_plan.hpp"
-#if defined(MAICORD_ARABIC_RUN)
 #include "maicord/text/arabic_run.hpp"
 #include "maicord/core/utf.hpp"
-#endif
-#endif
 #include "maicord/core/byte_order.hpp"
 
 namespace maicord {namespace {
@@ -25,9 +22,7 @@ namespace maicord {namespace {
 #include "generated/arabic_ltr_fixture.inc"
 #include "generated/arabic_ltr_cgj_fixture.inc"
 #include "generated/arabic_ltr_cgj_position_fixture.inc"
-#if defined(MAICORD_ARABIC_RUN)
 #include "generated/arabic_generic_fixture.inc"
-#endif
 struct Reader {ConstSlice<u8> bytes;u32 at=0;
     bool word(u32* out) noexcept {if(at>bytes.count || bytes.count-at<4)return false;*out=byte_load_le32(bytes.data+at);at+=4;return true;}
     bool take(u32 count,ConstSlice<u8>* out) noexcept {if(at>bytes.count || count>bytes.count-at)return false;*out={bytes.data+at,count};at+=count;return true;}
@@ -41,15 +36,10 @@ SfntGsubExecutionFrame gs_frames[16];u32 gs_positions[512],gs_rebased[512],gs_co
 SfntGposExecutionFrame gp_frames[16];u32 gp_positions[512];SfntCursiveChainNode chains[256];
 ConstSlice<u8> fonts[512];
 u64 runs=0,glyph_checks=0,cluster_checks=0,float_checks=0,budget_checks=0;
-#if defined(MAICORD_ARABIC_RUN)
 u64 utf8_calls=0;
-#endif
-#if defined(MAICORD_ARABIC_OWNED)
+bool run_mode=false;
 #include "arabic_owned_units.inc"
-#if defined(MAICORD_ARABIC_RUN)
 #include "arabic_run_units.inc"
-#endif
-#endif
 bool dotted_storage_checks(const SfntShapePlan& plan,const SfntCmap& cmap,SfntShapeStorage storage) noexcept {
     const u32 scalars[]{0x64e,0x651,0x628},sources[]{0,4,8},boundaries[]{0,8};SfntClusterGlyph input[3];
     for(u32 i=0;i<3;++i){u16 glyph=0;if(sfnt_cmap_glyph(cmap,scalars[i],0,&glyph)!=SfntStatus::ok)return false;input[i]={{glyph,sfnt_gdef_glyph_class(plan.gdef,glyph),0},sources[i]};}
@@ -89,7 +79,6 @@ bool control_storage_checks(const SfntShapePlan& plan,const SfntCmap& cmap,SfntS
     const u32 repeated[]{0,0};if(shape(storage,{repeated,2},&result)!=SfntStatus::invalid_input || result.glyph_count)return false;
     return shape(storage,{boundaries,2},&result)==SfntStatus::ok;
 }
-#if !defined(MAICORD_ARABIC_OWNED)
 // Fixed component transactions run once in the base plan variant.
 bool component_transactions() noexcept {
     SfntComponentGlyph initial[3]{{{2,SfntGlyphClass::base,8},0,0,0},{{2,SfntGlyphClass::base,4},1,0,0},{{2,SfntGlyphClass::base,2},2,0,0}};
@@ -129,7 +118,6 @@ bool component_transactions() noexcept {
     }
     return true;
 }
-#endif
 #include "arabic_cgj_units.inc"
 bool plan_checks(const SfntLayout& layout,bool independent,u8* scratch,const SfntLookupPlanResult& full,ConstSlice<SfntLookupStep> expected,bool budgets) noexcept {
     SfntLookupStep output[768];SfntLookupPlanResult result{};
@@ -149,9 +137,7 @@ bool plan_checks(const SfntLayout& layout,bool independent,u8* scratch,const Sfn
     return true;
 }
 bool corpus(ConstSlice<u8> corpus_bytes,bool diagnostic=false,bool reorder=true,bool force_arabic=false,bool benchmark=false) noexcept {
-#if defined(MAICORD_ARABIC_OWNED)
-    if(!owned_close())return false;
-#endif
+    if(run_mode && !owned_close())return false;
     if(corpus_bytes.count<16 || !bytes_equal(corpus_bytes.data,"MCARPL",6) || corpus_bytes.data[6]<'1' || corpus_bytes.data[6]>'3' || corpus_bytes.data[7])return false;
     const bool sized=corpus_bytes.data[6]>='2',directed=corpus_bytes.data[6]>='3';Reader r{corpus_bytes,8};u32 font_count=0,cases=0;
     if(!r.word(&font_count)||font_count>512||!r.word(&cases))return false;
@@ -186,44 +172,30 @@ bool corpus(ConstSlice<u8> corpus_bytes,bool diagnostic=false,bool reorder=true,
         // Inherited marks. Resolve that distinction from native Unicode data,
         // never from a reference script ID or expected output.
         for(u32 i=0;i<n;++i)if(unicode_properties(scalars[i])->script()==UnicodeScript::arab)arabic=true;
-#if defined(MAICORD_ARABIC_RUN)
-        char utf8[512];u32 utf8_count=0;for(u32 i=0;i<n;++i){const u8 encoded=utf8_encode(scalars[i],utf8+utf8_count);if(!encoded || utf8_count+encoded>sizeof(utf8))return fail(c,18);utf8_count+=encoded;}
-#endif
+        char utf8[512];u32 utf8_count=0;
+        if(run_mode)for(u32 i=0;i<n;++i){const u8 encoded=utf8_encode(scalars[i],utf8+utf8_count);if(!encoded || utf8_count+encoded>sizeof(utf8))return fail(c,18);utf8_count+=encoded;}
         if(arabic_joining_forms({scalars,n},{&input[0].glyph.reserved,sizeof(input)-3},sizeof(input[0]))!=ArabicJoiningStatus::ok)return fail(c,9);
         SfntShapePlan plan{};plan.substitutions=&gs;plan.positioning=&gp;plan.positioning_roots={gp_roots,gp_count};plan.gdef=gdef;plan.units_per_em=metrics.units_per_em;
         plan.metric_context=&metrics;plan.advance=+[](void* context,u16 glyph,double* value) noexcept {SfntGlyphMetrics m{};const auto s=sfnt_horizontal_metrics(*static_cast<SfntHorizontalMetrics*>(context),glyph,&m);*value=m.advance;return s;};
         ConstSlice<SfntLookupStep> scheduled{steps,gs_count};
-#if defined(MAICORD_ARABIC_OWNED)
-        NativeArabicPlanView owned{};if(!owned_select(fonts[f],f,independent!=0,&owned))return fail(c,16);
-        if(owned.generic!=generic)return fail(c,17);
-        if(generic){if(owned.steps.count)return fail(c,17);}
-        else if(owned.steps.count!=gs_count || !bytes_equal(owned.steps.data,steps,gs_count*sizeof(SfntLookupStep)) || owned.shape->positioning_roots.count!=gp_count || !bytes_equal(owned.shape->positioning_roots.data,gp_roots,gp_count*2))return fail(c,17);
-        plan=*owned.shape;scheduled=owned.steps;cmap=*owned.cmap;
-#endif
+        if(run_mode){NativeArabicPlanView owned{};if(!owned_select(fonts[f],f,independent!=0,&owned))return fail(c,16);
+            if(owned.generic!=generic)return fail(c,17);
+            if(generic){if(owned.steps.count)return fail(c,17);}
+            else if(owned.steps.count!=gs_count || !bytes_equal(owned.steps.data,steps,gs_count*sizeof(SfntLookupStep)) || owned.shape->positioning_roots.count!=gp_count || !bytes_equal(owned.shape->positioning_roots.data,gp_roots,gp_count*2))return fail(c,17);
+            plan=*owned.shape;scheduled=owned.steps;cmap=*owned.cmap;}
         u64 bitmap[8],chain_bits[4];u32 character_map[256],targets[256];SfntMarkAssociation associations[256];u8 flags[256];double advances[256],prefix[256];SfntPosition positions[256];SfntPlacement placements[256];float em=0;copy_bytes(&em,&em_bits,4);
         SfntShapeStorage storage{{glyphs,256},{nodes,128},{bitmap,8},{character_map,256},{targets,256},{associations,256},{advances,256},{flags,256},{positions,256},{placements,256},
             {{gs_frames,16},{gs_positions,512},{gs_rebased,512},{gs_consumed,128},{reinterpret_cast<u8*>(replacements),sizeof(replacements)},{journal,4096}},
             {{gp_frames,16},{gp_positions,512},{chain_bits,4},{prefix,256},{chains,256}}};
-        for(u32 gate=
-#if defined(MAICORD_ARABIC_OWNED)
-            1;
-#else
-            0;
-#endif
-            gate<2;++gate) {
+        for(u32 gate=run_mode?1u:0u;gate<2;++gate) {
             for(u32 i=0;i<gs.lookups.count;++i)gs_lookups[i].bounds.ready=static_cast<u16>(gate);
             for(u32 i=0;i<gp.lookups.count;++i)gp_lookups[i].bounds.ready=static_cast<u16>(gate);
             SfntShapeRunResult result{};
-#if defined(MAICORD_ARABIC_RUN)
-            if(reorder&&arabic)++utf8_calls;
-            const auto s=reorder&&arabic?
-                native_arabic_run(owned_store,owned_handle,{utf8,utf8_count},independent!=0,rtl!=0,em,storage,&result):
-                sfnt_shape_run(plan,{input,n},n,{starts,start_count},rtl!=0,em,storage,&result,{},scheduled);
-#else
-            const auto s=reorder&&arabic?
-                sfnt_arabic_shape_run(plan,cmap,{input,n},{scalars,n},n,{starts,start_count},rtl!=0,em,storage,&result,scheduled):
-                sfnt_shape_run(plan,{input,n},n,{starts,start_count},rtl!=0,em,storage,&result,{}, scheduled);
-#endif
+            if(run_mode&&reorder&&arabic)++utf8_calls;
+            const auto s=!(reorder&&arabic)?
+                sfnt_shape_run(plan,{input,n},n,{starts,start_count},rtl!=0,em,storage,&result,{},scheduled):
+                run_mode?native_arabic_run(owned_store,owned_handle,{utf8,utf8_count},independent!=0,rtl!=0,em,storage,&result):
+                sfnt_arabic_shape_run(plan,cmap,{input,n},{scalars,n},n,{starts,start_count},rtl!=0,em,storage,&result,scheduled);
             if(diagnostic) {
                 print(utf8_literal("{\"case\":"));number(c);print(utf8_literal(",\"gate\":"));number(gate);print(utf8_literal(",\"status\":"));number(static_cast<u32>(s));
                 print(utf8_literal(",\"glyphs\":["));for(u32 i=0;i<result.glyph_count;++i){if(i)print(utf8_literal(","));number(glyphs[i].glyph.glyph);}
@@ -235,11 +207,8 @@ bool corpus(ConstSlice<u8> corpus_bytes,bool diagnostic=false,bool reorder=true,
                     LARGE_INTEGER frequency{},begin{},end{};u64 cycle_begin=0,cycle_end=0;constexpr u32 iterations=256;
                     if(!QueryPerformanceFrequency(&frequency)||!QueryThreadCycleTime(GetCurrentThread(),&cycle_begin)||!QueryPerformanceCounter(&begin))return fail(c,20);
                     for(u32 iteration=0;iteration<iterations;++iteration){
-#if defined(MAICORD_ARABIC_RUN)
-                        const auto repeated=native_arabic_run(owned_store,owned_handle,{utf8,utf8_count},independent!=0,rtl!=0,em,storage,&result);
-#else
-                        const auto repeated=sfnt_arabic_shape_run(plan,cmap,{input,n},{scalars,n},n,{starts,start_count},rtl!=0,em,storage,&result,scheduled);
-#endif
+                        const auto repeated=run_mode?native_arabic_run(owned_store,owned_handle,{utf8,utf8_count},independent!=0,rtl!=0,em,storage,&result):
+                            sfnt_arabic_shape_run(plan,cmap,{input,n},{scalars,n},n,{starts,start_count},rtl!=0,em,storage,&result,scheduled);
                         if(repeated!=SfntStatus::ok||result.glyph_count!=expected_count)return fail(c,20);
                     }
                     if(!QueryPerformanceCounter(&end)||!QueryThreadCycleTime(GetCurrentThread(),&cycle_end))return fail(c,20);
@@ -255,43 +224,29 @@ bool corpus(ConstSlice<u8> corpus_bytes,bool diagnostic=false,bool reorder=true,
             for(u32 i=0;i<expected_count*3;++i){++float_checks;if(byte_load_le32(reinterpret_cast<const u8*>(placements)+i*4)!=byte_load_le32(floats.data+i*4))return fail(c,13,i);}
             ++runs;
             if(gs_count && c%17==0 && result.lookup_operations){const u64 budget=result.lookup_operations-1;
-                const auto limited=reorder&&arabic?
-#if defined(MAICORD_ARABIC_RUN)
-                    native_arabic_run(owned_store,owned_handle,{utf8,utf8_count},independent!=0,rtl!=0,em,storage,&result,{budget,100000,1000000}):
-#else
-                    sfnt_arabic_shape_run(plan,cmap,{input,n},{scalars,n},n,{starts,start_count},rtl!=0,em,storage,&result,scheduled,{budget,100000,1000000}):
-#endif
-                    sfnt_shape_run(plan,{input,n},n,{starts,start_count},rtl!=0,em,storage,&result,{budget,100000,1000000},scheduled);
+                const auto limited=!(reorder&&arabic)?
+                    sfnt_shape_run(plan,{input,n},n,{starts,start_count},rtl!=0,em,storage,&result,{budget,100000,1000000},scheduled):
+                    run_mode?native_arabic_run(owned_store,owned_handle,{utf8,utf8_count},independent!=0,rtl!=0,em,storage,&result,{budget,100000,1000000}):
+                    sfnt_arabic_shape_run(plan,cmap,{input,n},{scalars,n},n,{starts,start_count},rtl!=0,em,storage,&result,scheduled,{budget,100000,1000000});
                 if(limited!=SfntStatus::resource_limit || result.glyph_count || result.lookup_operations>budget)return fail(c,14);}
         }
         if(!diagnostic && directed && !c && (!control_storage_checks(plan,cmap,storage) || !dotted_storage_checks(plan,cmap,storage) || !cgj_storage_checks(plan,cmap,storage)))return fail(c,15);
-#if defined(MAICORD_ARABIC_RUN)
-        if(!diagnostic && !c && !utf8_run_units(storage))return fail(c,19);
-#endif
+        if(run_mode && !diagnostic && !c && !utf8_run_units(storage))return fail(c,19);
     }
     print(utf8_literal("cases="));number(cases);print(utf8_literal(" runs="));number(runs);print(utf8_literal(" glyph_checks="));number(glyph_checks);print(utf8_literal(" cluster_checks="));number(cluster_checks);print(utf8_literal(" float_checks="));number(float_checks);print(utf8_literal(" budget_checks="));number(budget_checks);print(utf8_literal("\n"));
-#if defined(MAICORD_ARABIC_OWNED)
-    if(!owned_close())return false;
-#endif
+    if(run_mode && !owned_close())return false;
     return r.at==r.bytes.count;
 }
 int run() noexcept {
-#if !defined(MAICORD_ARABIC_OWNED)
-    if(!component_transactions())return 2;
-#endif
-#if defined(MAICORD_ARABIC_OWNED)
-    if(!owned_start())return 3;
-#endif
     const wchar_t* command=GetCommandLineW();bool quote=false;while(*command){if(*command=='"')quote=!quote;else if(!quote && (*command==' ' || *command=='\t'))break;++command;}while(*command==' ' || *command=='\t')++command;
+    {constexpr wchar_t flag[]=L"--run";u32 i=0;while(flag[i]&&command[i]==flag[i])++i;
+        if(!flag[i]&&(!command[i]||command[i]==' '||command[i]=='\t')){run_mode=true;command+=i;while(*command==' ' || *command=='\t')++command;}}
+    if(!run_mode && !component_transactions())return 2;
+    if(run_mode && !owned_start())return 3;
     const bool diagnostic=*command!=0;bool ok=false;if(!diagnostic)ok=
-#if !defined(MAICORD_ARABIC_OWNED)
-        corpus({arabic_plan_fixture,sizeof(arabic_plan_fixture)}) &&
-#endif
+        (run_mode || corpus({arabic_plan_fixture,sizeof(arabic_plan_fixture)})) &&
         corpus({arabic_control_fixture,sizeof(arabic_control_fixture)}) && corpus({arabic_dotted_fixture,sizeof(arabic_dotted_fixture)}) && corpus({arabic_cgj_fixture,sizeof(arabic_cgj_fixture)}) && corpus({arabic_ltr_fixture,sizeof(arabic_ltr_fixture)},false,true,true) && corpus({arabic_ltr_cgj_fixture,sizeof(arabic_ltr_cgj_fixture)},false,true,true) && corpus({arabic_ltr_cgj_position_fixture,sizeof(arabic_ltr_cgj_position_fixture)},false,true,true)
-#if defined(MAICORD_ARABIC_RUN)
-        && corpus({arabic_generic_fixture,sizeof(arabic_generic_fixture)},false,true,true)
-#endif
-        ;
+        && (!run_mode || corpus({arabic_generic_fixture,sizeof(arabic_generic_fixture)},false,true,true));
     else {
         wchar_t path[32768];u32 n=0;quote=*command=='"';if(quote)++command;while(*command && !(quote?*command=='"':(*command==' ' || *command=='\t'))){if(n+1>=32768)return 3;path[n++]=*command++;}if(quote){if(*command!='"')return 3;++command;}while(*command==' ' || *command=='\t')++command;if(!n)return 3;path[n]=0;
         bool reorder=true,force_arabic=false,benchmark=false;if(*command){constexpr wchar_t flag[]=L"--original-order",arabic[]=L"--arabic-script",bench[]=L"--bench-arabic";u32 i=0;while(flag[i]&&command[i]==flag[i])++i;
@@ -302,14 +257,12 @@ int run() noexcept {
         HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);const auto* bytes=mapping?static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0)):nullptr;
         if(bytes)ok=corpus({bytes,static_cast<u32>(size.QuadPart)},true,reorder,force_arabic,benchmark);if(bytes)UnmapViewOfFile(bytes);if(mapping)CloseHandle(mapping);CloseHandle(file);
     }
-#if defined(MAICORD_ARABIC_OWNED)
-    if(!diagnostic && !owned_gate_checks(fonts[0]))ok=false;
-    if(!owned_close())ok=false;arena_release(&owned_scratch);if(!DeleteFileW(owned_path))ok=false;
-    print(utf8_literal("owned_preparations="));number(owned_preparations);print(utf8_literal(" owned_hits="));number(owned_hits);print(utf8_literal(" committed_sum="));number(owned_committed);print(utf8_literal(" used_sum="));number(owned_used);print(utf8_literal("\n"));
-#if defined(MAICORD_ARABIC_RUN)
-    print(utf8_literal("utf8_calls="));number(utf8_calls);print(utf8_literal("\n"));
-#endif
-#endif
+    if(run_mode){
+        if(!diagnostic && !owned_gate_checks(fonts[0]))ok=false;
+        if(!owned_close())ok=false;arena_release(&owned_scratch);if(!DeleteFileW(owned_path))ok=false;
+        print(utf8_literal("owned_preparations="));number(owned_preparations);print(utf8_literal(" owned_hits="));number(owned_hits);print(utf8_literal(" committed_sum="));number(owned_committed);print(utf8_literal(" used_sum="));number(owned_used);print(utf8_literal("\n"));
+        print(utf8_literal("utf8_calls="));number(utf8_calls);print(utf8_literal("\n"));
+    }
     if(!ok)return 1;print(!diagnostic?utf8_literal("PASS native Arabic schedule and coordinated shaping\n"):utf8_literal("Captured native Arabic shaping diagnostics; parity requires comparison\n"));return 0;
 }
 }}

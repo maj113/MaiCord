@@ -6,7 +6,6 @@
 #include "maicord/core/log.hpp"
 
 namespace maicord {
-bool probe_resize_surface(u32, u32) noexcept;
 namespace reply_draft_probe_detail {
 struct NativeMessages {
     MessageScene scene{};

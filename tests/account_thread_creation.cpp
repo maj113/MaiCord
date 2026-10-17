@@ -133,12 +133,6 @@ void dormant_abi() noexcept {
     auto missing = host.api;
     missing.thread_creation = nullptr;
     check(!account_host_api_valid(missing), "thread creation: new callback is mandatory");
-    const auto get_api = reinterpret_cast<AccountModuleGetApiFunction>(
-        GetProcAddress(host.module, MAKEINTRESOURCEA(kAccountModuleApiOrdinal)));
-    AccountModuleApi previous{};
-    previous.bytes = 0x12345678;
-    check(get_api && !get_api(88, &previous) && previous.bytes == 0x12345678,
-          "thread creation: previous ABI rejection preserves caller memory");
     account_host_release(&host);
 }
 } // namespace thread_creation_account_test

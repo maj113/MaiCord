@@ -1,11 +1,11 @@
 // Offline fixture over the shipping REST owner. IOCP and its mailbox are real;
 // plaintext responses are supplied at the existing transport callback boundary.
 // No credential, worker thread, socket, DNS lookup or live HTTP is created.
-#include "../src/app/rest_client.cpp"
+// Part of rest_client_fixtures.cpp.
+#include "rest_client_probe.hpp"
 #include "maicord/app/account_host.hpp"
 #include "maicord/app/account_bulk_message_ack.hpp"
 #include <stddef.h>
-#include "rest_client_probe.hpp"
 #include "test_output.hpp"
 
 namespace maicord {
@@ -193,12 +193,12 @@ void abi() noexcept {
           "bulk transport: previous ABI rejects without touching caller output");
     account_host_release(&host);
 }
+u32 run() noexcept {
+    admission();
+    receipts();
+    maximum();
+    abi();
+    return failures;
+}
 } // namespace bulk_read_transport
 } // namespace maicord
-extern "C" void WINAPI maicord_account_bulk_read_transport_test_entry() noexcept {
-    maicord::bulk_read_transport::admission();
-    maicord::bulk_read_transport::receipts();
-    maicord::bulk_read_transport::maximum();
-    maicord::bulk_read_transport::abi();
-    ExitProcess(maicord::bulk_read_transport::failures ? 1u : 0u);
-}

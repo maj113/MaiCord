@@ -10,6 +10,13 @@ void pump_picker_messages() noexcept {
         TranslateMessage(&message); DispatchMessageW(&message);
     }
 }
+// Pumps the owner's messages until the dialog STA exits, so Shell can still reach the owner window.
+void reap_picker(NativeFilePicker* picker) noexcept {
+    while (!native_file_picker_release(picker)) {
+        MsgWaitForMultipleObjectsEx(1, &picker->thread, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+        pump_picker_messages();
+    }
+}
 }
 void test_file_picker(void (*check)(bool, const char*) noexcept) noexcept {
     check(native_file_picker_valid_path(path(L"C:\\folder\\a.txt")) &&
@@ -47,14 +54,9 @@ void test_file_picker(void (*check)(bool, const char*) noexcept) noexcept {
     check(completed.phase == NativeFilePickerPhase::complete && completed.error == NativeFilePickerError::cancelled &&
         !completed.count && !native_file_picker_path(&picker, 0).count,
         "cancelled picker publishes no file paths and keeps apartment teardown off caller thread");
-    bool released = native_file_picker_release(&picker);
-    while (!released && GetTickCount64() < deadline) {
-        pump_picker_messages(); Sleep(1); released = native_file_picker_release(&picker);
-    }
-    check(released && !picker.thread && !picker.notification && !picker.runtime,
+    reap_picker(&picker);
+    check(!picker.thread && !picker.notification && !picker.runtime,
         "picker nonblocking reap clears every caller-owned handle after thread exit");
-    // Keep the owner alive while any Shell call could still send it messages.
-    while (!released) { pump_picker_messages(); Sleep(10); released = native_file_picker_release(&picker); }
     NativeFileSaveSelection saved{};
     check(!native_file_picker_save_selection(&picker, &saved) &&
         native_file_picker_save_start(&picker, owner, utf8_literal("../bad.exe")) == NativeFilePickerError::invalid_input &&
@@ -70,10 +72,8 @@ void test_file_picker(void (*check)(bool, const char*) noexcept) noexcept {
     check(native_file_picker_status(&picker).error == NativeFilePickerError::cancelled &&
         !native_file_picker_save_selection(&picker, &saved) && !saved.path.count && !saved.overwrite_authorized,
         "cancelled Save publishes no destination or overwrite consent");
-    released = native_file_picker_release(&picker);
-    while (!released && GetTickCount64() < save_deadline) { pump_picker_messages(); Sleep(1); released = native_file_picker_release(&picker); }
-    check(released && !picker.runtime && !picker.thread && !picker.notification, "Save picker reaps its owned STA before releasing borrowed paths");
-    while (!released) { pump_picker_messages(); Sleep(10); released = native_file_picker_release(&picker); }
+    reap_picker(&picker);
+    check(!picker.runtime && !picker.thread && !picker.notification, "Save picker reaps its owned STA before releasing borrowed paths");
     DestroyWindow(owner);
 }
 }

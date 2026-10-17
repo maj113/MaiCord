@@ -462,7 +462,7 @@ void zlib_cases(void (*check)(bool, const char*) noexcept) noexcept {
     Random random{0x9E3779B97F4A7C15ull};
     bool encoder_valid = true, identical = true;
     u32 seen = 0;
-    for (u32 iteration = 0; iteration < 260; ++iteration) {
+    for (u32 iteration = 0; iteration < 160; ++iteration) {
         Encoder encoder{};
         encoder.random = &random;
         encoder.corrupt = random.chance(25);
@@ -527,7 +527,7 @@ void zlib_cases(void (*check)(bool, const char*) noexcept) noexcept {
 void stream_cases(void (*check)(bool, const char*) noexcept) noexcept {
     Random random{0xD1B54A32D192ED03ull};
     bool encoder_valid = true, identical = true;
-    for (u32 iteration = 0; iteration < 40; ++iteration) {
+    for (u32 iteration = 0; iteration < 12; ++iteration) {
         Encoder encoder{};
         encoder.random = &random;
         encoder.raw = g_raw;

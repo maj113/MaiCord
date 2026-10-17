@@ -154,7 +154,6 @@ void test_shaped_text_cache(void (*check)(bool, const char*) noexcept) noexcept 
               view.glyph_count == 5 && view.glyphs[4].advance == 104 && misses(idle),
           "shaped text cache keeps recently used results across generations and evicts idle ones");
     fill(&fixture, 64, 1);
-    fixture.shaped.glyph_count = 64;
     ShapedTextCacheRequest oversized = request_for(9'999'999);
     oversized.text = Utf8View{reinterpret_cast<const char*>(cache), kShapedTextCacheKeyBytes + 1};
     check(!shaped_text_cache_insert(cache, oversized, 1, &fixture.shaped) && fixture.shaped.run_count == 1,

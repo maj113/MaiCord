@@ -11,6 +11,8 @@ namespace {
 // distinguish retaining the medium from copying the attachment into app memory.
 struct Provider final : IDataObject {
     volatile LONG refs = 1;
+    // Signaled whenever only the test's own reference remains.
+    const HANDLE unreferenced = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     HGLOBAL metadata = nullptr, payload = nullptr;
     CLIPFORMAT descriptor = static_cast<CLIPFORMAT>(RegisterClipboardFormatW(CFSTR_FILEDESCRIPTORW));
     CLIPFORMAT contents = static_cast<CLIPFORMAT>(RegisterClipboardFormatW(CFSTR_FILECONTENTS));
@@ -31,7 +33,14 @@ struct Provider final : IDataObject {
         *out = this; AddRef(); return S_OK;
     }
     ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&refs); }
-    ULONG STDMETHODCALLTYPE Release() override { return InterlockedDecrement(&refs); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        const LONG left = InterlockedDecrement(&refs);
+        if (left == 1) SetEvent(unreferenced);
+        return left;
+    }
+    void await_unreferenced() noexcept {
+        while (InterlockedCompareExchange(&refs, 1, 1) != 1) WaitForSingleObject(unreferenced, INFINITE);
+    }
     HRESULT STDMETHODCALLTYPE GetData(FORMATETC* request, STGMEDIUM* out) override {
         if (QueryGetData(request) != S_OK) return DV_E_FORMATETC;
         if (request->cfFormat == contents) ++content_reads;
@@ -106,7 +115,7 @@ bool paste(Provider& provider, NativeFilePicker* picker) noexcept {
 }
 void settle(Provider& provider, NativeFilePicker* picker) noexcept {
     file_drop_fixture::reap(picker);
-    while (InterlockedCompareExchange(&provider.refs, 1, 1) != 1) Sleep(1);
+    provider.await_unreferenced();
 }
 void test_clipboard_images(Check check, Provider& provider) noexcept {
     ClipboardPasteKind plan[kClipboardPastePlanCapacity]{};
@@ -203,29 +212,31 @@ void test_clipboard_images(Check check, Provider& provider) noexcept {
     check(clipboard_paste_png(ClipboardPasteKind::dib, {work, offset + 3}, 1u << 20, &png) == ERROR_INVALID_DATA &&
               (work[14] = 2, clipboard_paste_png(ClipboardPasteKind::dib, {work, offset + 4}, 1u << 20, &png) == ERROR_INVALID_DATA),
           "truncated or unsupported DIBs are rejected");
-    // A screenshot-like 320x200 image compresses and round-trips; noise falls back safely.
-    offset = dib_header(work, 40, 320, 200, 32, BI_RGB, nullptr, nullptr, 0, nullptr, 0);
+    // A screenshot-like image compresses and round-trips; noise falls back safely. 160x140 keeps the
+    // filtered stream (140 * 481 bytes) above one 65535-byte stored block, so the fallback still splits.
+    constexpr u32 kWide = 160, kTall = 140;
+    offset = dib_header(work, 40, kWide, kTall, 32, BI_RGB, nullptr, nullptr, 0, nullptr, 0);
     u32 seed = 1;
     for (u32 pass = 0; pass < 2; ++pass) {
-        for (u32 i = 0; i < 320 * 200; ++i) {
+        for (u32 i = 0; i < kWide * kTall; ++i) {
             u8* p = work + offset + i * 4;
-            const u32 x = i % 320, y = i / 320;
+            const u32 x = i % kWide, y = i / kWide;
             seed = seed * 1103515245u + 12345u;
-            const u8 v = pass ? static_cast<u8>(seed >> 16) : static_cast<u8>(x < 160 ? 40 : x + y);
+            const u8 v = pass ? static_cast<u8>(seed >> 16) : static_cast<u8>(x < kWide / 2 ? 40 : x + y);
             p[0] = v; p[1] = static_cast<u8>(pass ? seed >> 8 : y); p[2] = static_cast<u8>(pass ? seed >> 24 : 90); p[3] = 0;
         }
-        decoded = clipboard_paste_png(ClipboardPasteKind::dib, {work, offset + 320 * 200 * 4}, 1u << 20, &png) == ERROR_SUCCESS
+        decoded = clipboard_paste_png(ClipboardPasteKind::dib, {work, offset + kWide * kTall * 4}, 1u << 20, &png) == ERROR_SUCCESS
                       ? decode(png, scan, scan_capacity) : Decoded{};
-        bool same = decoded.ok && decoded.image.width == 320 && decoded.image.height == 200;
-        for (u32 i = 0; same && i < 320 * 200; ++i) {
+        bool same = decoded.ok && decoded.image.width == kWide && decoded.image.height == kTall;
+        for (u32 i = 0; same && i < kWide * kTall; ++i) {
             const u8* p = work + offset + i * 4;
-            same = pixel_is(decoded, i % 320, 199 - i / 320, p[2], p[1], p[0], 255);
+            same = pixel_is(decoded, i % kWide, kTall - 1 - i / kWide, p[2], p[1], p[0], 255);
         }
-        check(same && (pass || png.bytes < 320 * 200 * 3 / 8),
+        check(same && (pass || png.bytes < kWide * kTall * 3 / 8),
               pass ? "incompressible DIB still produces an exact PNG" : "DIB conversion deflates and round-trips exactly");
         clipboard_png_release(&png);
     }
-    check(clipboard_paste_png(ClipboardPasteKind::dib, {work, offset + 320 * 200 * 4}, 4096, &png) == ERROR_FILE_TOO_LARGE && !png.data,
+    check(clipboard_paste_png(ClipboardPasteKind::dib, {work, offset + kWide * kTall * 4}, 4096, &png) == ERROR_FILE_TOO_LARGE && !png.data,
           "converted image over the allowance reports too large");
 
     // End to end through OLE and the picker worker.
@@ -344,14 +355,14 @@ void test_clipboard_attachment(void (*check)(bool, const char*) noexcept) noexce
     const auto retained = draft && draft->content.ops ? draft->content.ops->read(draft->content.context, 2, {scratch, 3}) : ConstSlice<u8>{};
     check(retained.data == payload + 2 && retained.count == 3, "draft retains original bytes after preparation worker closes");
     message_attachment_drafts_release(&drafts);
-    while (InterlockedCompareExchange(&provider.refs, 1, 1) != 1) Sleep(1);
+    provider.await_unreferenced();
     provider.content_reads = 0;
     check(SUCCEEDED(CoMarshalInterThreadInterfaceInStream(__uuidof(IDataObject), &provider, &input.object)) &&
         native_file_picker_take_clipboard(&picker, &input, 10, 7) == NativeFilePickerError::none && await(&picker) &&
         native_file_picker_status(&picker).native_error == ERROR_FILE_TOO_LARGE && provider.content_reads == 0,
         "account allowance rejects oversized named file before requesting its contents");
     reap(&picker); clipboard_attachment_release(&input);
-    while (InterlockedCompareExchange(&provider.refs, 1, 1) != 1) Sleep(1);
+    provider.await_unreferenced();
 
     ULONG written = 0;
     check(SUCCEEDED(CreateStreamOnHGlobal(nullptr, TRUE, &provider.stream)) &&
@@ -372,13 +383,13 @@ void test_clipboard_attachment(void (*check)(bool, const char*) noexcept) noexce
     check(streamed.data == scratch && streamed.count == 5 && bytes_equal(streamed.data, "bytes", 5),
         "retained clipboard stream seeks directly into the existing upload scratch buffer");
     upload_source_release(source);
-    while (InterlockedCompareExchange(&provider.refs, 1, 1) != 1) Sleep(1);
+    provider.await_unreferenced();
     if (provider.stream) { provider.stream->Release(); provider.stream = nullptr; }
 
     GlobalUnlock(provider.payload); GlobalFree(provider.payload); provider.payload = nullptr;
     test_clipboard_images(check, provider);
     GlobalUnlock(provider.metadata); GlobalFree(provider.metadata);
-    CoUninitialize();
+    CoUninitialize(); CloseHandle(provider.unreferenced);
 
     UploadPolicy policy{};
     check(upload_allowance_bytes(0, 0, policy) == 10u * kUploadMiB &&

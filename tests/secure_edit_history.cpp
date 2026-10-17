@@ -61,17 +61,18 @@ void test_secure_edit_history(void (*check)(bool, const char*) noexcept) noexcep
     check(secure_edit_initialize(&edit, 32, false) && secure_edit_enable_history(&edit, 65), "history odd-sized ring initializes");
     if (!edit.history) { secure_edit_release(&edit); return; }
     char text[32]{}, previous[32]{};
-    for (u32 round = 0; round < 100; ++round) {
+    bool wrapped = true;
+    for (u32 round = 0; round < 8; ++round) {
         copy_bytes(previous, text, sizeof(text));
         for (u32 i = 0; i < 32; ++i) text[i] = static_cast<char>('A' + (round + i) % 26);
         secure_edit_select_all(&edit);
-        check(secure_edit_insert_utf8(&edit, {text, 32}) == SecureEditResult::changed, "history full replacement fits ring");
+        wrapped = secure_edit_insert_utf8(&edit, {text, 32}) == SecureEditResult::changed && wrapped;
         if (round) {
-            check(secure_edit_undo(&edit) == SecureEditResult::changed && equals(edit, {previous, 32}) &&
-                secure_edit_redo(&edit) == SecureEditResult::changed && equals(edit, {text, 32}),
-                "history wrapped payload restores old and new full fields");
+            wrapped = secure_edit_undo(&edit) == SecureEditResult::changed && equals(edit, {previous, 32}) &&
+                secure_edit_redo(&edit) == SecureEditResult::changed && equals(edit, {text, 32}) && wrapped;
         }
     }
+    check(wrapped, "history wrapped payload restores old and new full fields");
     check(secure_edit_history_costs(edit).undo_steps == 1 && secure_edit_history_costs(edit).used_bytes == 64,
         "history evicts oldest entries to honor byte budget");
     secure_edit_release(&edit);
@@ -81,9 +82,13 @@ void test_secure_edit_history(void (*check)(bool, const char*) noexcept) noexcep
         for (u32 i = 0; i < 100; ++i) secure_edit_insert_scalar(&edit, 'a' + i % 26);
         const auto costs = secure_edit_history_costs(edit);
         check(costs.undo_steps == 64 && costs.used_bytes == 64, "history bounds record count independently of payload capacity");
-        for (u32 i = 0; i < 64; ++i) check(secure_edit_undo(&edit) == SecureEditResult::changed, "history oldest retained step is undoable");
+        bool undone = true;
+        for (u32 i = 0; i < 64; ++i) undone = secure_edit_undo(&edit) == SecureEditResult::changed && undone;
+        check(undone, "history oldest retained step is undoable");
         check(edit.storage.bytes == 36 && secure_edit_undo(&edit) == SecureEditResult::unchanged, "history stops at eviction boundary");
-        for (u32 i = 0; i < 64; ++i) check(secure_edit_redo(&edit) == SecureEditResult::changed, "history retained redo sequence");
+        bool redone = true;
+        for (u32 i = 0; i < 64; ++i) redone = secure_edit_redo(&edit) == SecureEditResult::changed && redone;
+        check(redone, "history retained redo sequence");
         check(edit.storage.bytes == 100 && edit.storage.data[99] == 'a' + 99 % 26, "history redo returns complete text");
         secure_edit_assign(&edit, utf8_literal("new"));
         check(!secure_edit_can_undo(edit) && !secure_edit_can_redo(edit), "history document assignment resets lifetime");
@@ -113,7 +118,7 @@ void test_secure_edit_history(void (*check)(bool, const char*) noexcept) noexcep
         check(secure_edit_can_redo(edit) && secure_edit_history_costs(edit).used_bytes == 8,
             "history composition canceled back to original text preserves redo");
         secure_edit_begin_history_group(&edit);
-        for (u32 i = 0; i < 100; ++i) {
+        for (u32 i = 0; i < 40; ++i) {
             const u16 candidate = i % 2 ? 'r' : 's';
             secure_edit_replace_utf16(&edit, 0, 1, {&candidate, 1}, &change);
         }

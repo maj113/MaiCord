@@ -15,14 +15,14 @@
 
 namespace maicord::reaction_history_test {
 using namespace app_detail;
-u32 failures, reaction_admissions, reaction_attempts, response_calls, sync_calls;
+u32 failures, reaction_admissions, response_calls, sync_calls;
 u32 send_admissions, history_admissions;
 u32 scoped_attempts, scoped_admissions, scoped_responses, scoped_response_bytes;
 u64 scoped_flight, scoped_response_id;
 u16 scoped_response_status;
 bool scoped_ready, scoped_busy;
 RestClientError scoped_response_error;
-u64 reaction_flight, sent_nonce, last_send_id, last_history_id, last_response_id;
+u64 reaction_flight, last_send_id, last_history_id, last_response_id;
 u32 queued_reactions;
 bool busy_reaction, retired;
 u16 details_ready;
@@ -75,7 +75,6 @@ RestClientSubmitResult WINAPI send(void*, u64 channel, Utf8View content, u64 non
     check(channel == 7 && content.bytes == 5 && nonce && id,
           "lower send passes immutable composer request and exact ID");
     ++send_admissions;
-    sent_nonce = nonce;
     last_send_id = id;
     return {};
 }
@@ -654,8 +653,6 @@ bool application_message_reaction_pending(u64) noexcept {
            reaction_history_test::queued_reactions;
 }
 bool application_message_reaction_submit(u64 id, u64) noexcept {
-    auto& t = reaction_history_test::reaction_attempts;
-    ++t;
     if (reaction_history_test::busy_reaction || !application_message_reaction_pending(0))
         return false;
     reaction_history_test::reaction_flight = id;

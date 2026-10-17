@@ -1,6 +1,8 @@
 #include "maicord/app/local_draft_preview.hpp"
 #include "maicord/app/local_preview_thumbnail.hpp"
 #include "maicord/app/local_video_poster.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/deflate.hpp"
 #include "maicord/media/gpu_video_frame.hpp"
@@ -19,34 +21,13 @@ namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
 
-void put32be(u8* p, u32 v) noexcept {
-    p[0] = static_cast<u8>(v >> 24);
-    p[1] = static_cast<u8>(v >> 16);
-    p[2] = static_cast<u8>(v >> 8);
-    p[3] = static_cast<u8>(v);
-}
-void put32le(u8* p, u32 v) noexcept {
-    p[0] = static_cast<u8>(v);
-    p[1] = static_cast<u8>(v >> 8);
-    p[2] = static_cast<u8>(v >> 16);
-    p[3] = static_cast<u8>(v >> 24);
-}
-u32 adler(const u8* data, u32 count) noexcept {
-    u32 a = 1, b = 0;
-    for (u32 i = 0; i < count; ++i) {
-        a = (a + data[i]) % 65521u;
-        b = (b + a) % 65521u;
-    }
-    return b << 16 | a;
-}
-
 // ---- Virtual MP4: a 48 MiB non-faststart movie whose payload is generated --
 struct Box {
     u8* bytes;
     u32 count;
     void u8v(u8 v) noexcept { bytes[count++] = v; }
     void u16v(u16 v) noexcept { u8v(static_cast<u8>(v >> 8)); u8v(static_cast<u8>(v)); }
-    void u32v(u32 v) noexcept { put32be(bytes + count, v); count += 4; }
+    void u32v(u32 v) noexcept { byte_store_be32(bytes + count, v); count += 4; }
     void zero(u32 n) noexcept { for (u32 i = 0; i < n; ++i) u8v(0); }
     u32 begin(const char* type) noexcept {
         const u32 at = count;
@@ -54,7 +35,7 @@ struct Box {
         for (u32 i = 0; i < 4; ++i) u8v(static_cast<u8>(type[i]));
         return at;
     }
-    void end(u32 at) noexcept { put32be(bytes + at, count - at); }
+    void end(u32 at) noexcept { byte_store_be32(bytes + at, count - at); }
 };
 struct VirtualMovie {
     u8 head[64];
@@ -226,7 +207,7 @@ void test_video_posters(Check check) noexcept {
     const bool huge_rejected = !local_draft_preview_request_valid(request);
     check(media_asset_key_valid(poster) &&
               !media_asset_key_valid(media_asset_local_draft_preview(5, 3, MediaAttachmentFormat::mp4)) &&
-              large_ok && huge_rejected && sizeof(AccountMediaLocalPreviewRequest) == 120,
+              large_ok && huge_rejected,
           "only composer thumbnails admit MP4 posters, up to the sparse-source limit, without reading the file");
     check(gpu_video_frame_reduction(1920, 1080, kGpuVideoPosterExtent) == 5 &&
               gpu_video_frame_reduced(1920, 5) == 384 && gpu_video_frame_reduced(1080, 5) == 216 &&
@@ -311,8 +292,8 @@ u32 build_matches_stream(u8* expected, u32 total, u8* zlib, u32 capacity) noexce
     }
     w.symbol(256);
     w.flush();
-    const u32 checksum = adler(expected, pos);
-    put32be(zlib + 2 + w.count, checksum);
+    const u32 checksum = png_fixture_adler32({expected, pos});
+    byte_store_be32(zlib + 2 + w.count, checksum);
     return 2 + w.count + 4;
 }
 struct Collect {
@@ -394,10 +375,10 @@ u32 rechunk_idat(const u8* png, u32 bytes, u32 piece, u8* out, u32 capacity) noe
                     const u32 n = minimum(piece, idat_bytes - at);
                     if (used + 12 + n > capacity)
                         return 0;
-                    put32be(out + used, n);
+                    byte_store_be32(out + used, n);
                     copy_bytes(out + used + 4, "IDAT", 4);
                     copy_bytes(out + used + 8, idat + at, n);
-                    put32be(out + used + 8 + n, png_crc32(out + used + 4, n + 4));
+                    byte_store_be32(out + used + 8 + n, png_crc32(out + used + 4, n + 4));
                     used += 12 + n;
                 }
                 written = true;
@@ -467,8 +448,8 @@ void test_png_streaming(Check check) noexcept {
                         static_cast<u32>(bad_filter[at + 2]) << 8 | bad_filter[at + 3]);
         const u32 length = static_cast<u32>(bad_filter[at + 2]) << 8 | bad_filter[at + 3];
         bad_filter[at + 8 + 7] = 9;
-        put32be(bad_filter + at + 8 + length - 4, adler(bad_filter + at + 8 + 7, length - 11));
-        put32be(bad_filter + at + 8 + length, png_crc32(bad_filter + at + 4, length + 4));
+        byte_store_be32(bad_filter + at + 8 + length - 4, png_fixture_adler32({bad_filter + at + 8 + 7, length - 11}));
+        byte_store_be32(bad_filter + at + 8 + length, png_crc32(bad_filter + at + 4, length + 4));
         LocalThumbnailSink bad_sink{};
         filter_rejected = !decode({bad_filter, fixture.encoded_bytes}, &bad_sink);
     }
@@ -491,8 +472,7 @@ struct WebpCollect {
 };
 bool webp_row(void* context, u32 y, const u8* rgba) noexcept {
     auto& c = *static_cast<WebpCollect*>(context);
-    for (u32 i = 0; i < c.width * 4u; ++i)
-        c.hash = (c.hash ^ rgba[i]) * 1'099'511'628'211ull;
+    c.hash = hash64_bytes(c.hash, rgba, c.width * 4u);
     if (y == 0)
         c.first = rgba_at(rgba, c.width, 0, 0);
     if (y == 8)
@@ -513,7 +493,7 @@ u32 build_zero_webp(u8* out, u32 width, u32 height, bool alpha, u8 alpha_filter,
     copy_bytes(out + 8, "WEBP", 4);
     if (alpha) {
         copy_bytes(out + at, "VP8X", 4);
-        put32le(out + at + 4, 10);
+        byte_store_le32(out + at + 4, 10);
         clear_bytes(out + at + 8, 10);
         out[at + 8] = 0x10;
         const u32 w = width - 1, h = height - 1;
@@ -522,13 +502,13 @@ u32 build_zero_webp(u8* out, u32 width, u32 height, bool alpha, u8 alpha_filter,
         at += 18;
         const u32 alpha_bytes = 1 + width * height;
         copy_bytes(out + at, "ALPH", 4);
-        put32le(out + at + 4, alpha_bytes);
+        byte_store_le32(out + at + 4, alpha_bytes);
         out[at + 8] = static_cast<u8>(alpha_filter << 2);
         copy_bytes(out + at + 9, alpha_plane, width * height);
         at += 8 + alpha_bytes + (alpha_bytes & 1u);
     }
     copy_bytes(out + at, "VP8 ", 4);
-    put32le(out + at + 4, vp8_bytes);
+    byte_store_le32(out + at + 4, vp8_bytes);
     u8* frame = out + at + 8;
     const u32 tag = 0u | (0u << 1) | (1u << 4) | (first_partition << 5);
     frame[0] = static_cast<u8>(tag);
@@ -539,7 +519,7 @@ u32 build_zero_webp(u8* out, u32 width, u32 height, bool alpha, u8 alpha_filter,
     frame[8] = static_cast<u8>(height); frame[9] = static_cast<u8>(height >> 8);
     clear_bytes(frame + 10, first_partition + tokens);
     at += 8 + vp8_bytes;
-    put32le(out + 4, at - 8);
+    byte_store_le32(out + 4, at - 8);
     return at;
 }
 

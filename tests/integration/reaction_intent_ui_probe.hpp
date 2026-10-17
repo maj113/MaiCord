@@ -7,7 +7,6 @@
 #include "reaction_intent_ui_adapter.hpp"
 
 namespace maicord {
-bool probe_resize_surface(u32 width, u32 height) noexcept;
 namespace reaction_intent_probe_detail {
 inline constexpr u32 kRows = 4;
 // Only the native projection lives here. The shipping App adapter owns the

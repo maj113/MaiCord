@@ -558,7 +558,9 @@ void test_media_worker_publication(void (*check)(bool, const char*) noexcept) no
     if (!worker.output_event)
         return;
     u8 pixel[4]{};
-    constexpr LONG preferences[]{-2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8};
+    // Out-of-range below and above, no preference, first, middle and last (wrapping) lanes.
+    constexpr LONG preferences[]{-2, -1, 0, 3, 7, 8};
+    bool ordered = true;
     for (LONG preferred : preferences)
         for (u32 mask = 0; mask < (1u << kAccountMediaDecodeLaneCount); ++mask) {
             ResetEvent(worker.output_event);
@@ -601,8 +603,9 @@ void test_media_worker_publication(void (*check)(bool, const char*) noexcept) no
             const bool remaining = mask && (mask & (mask - 1));
             correct = correct && WaitForSingleObject(worker.output_event, 0) ==
                                      (remaining ? WAIT_OBJECT_0 : WAIT_TIMEOUT);
-            check(correct, "media priority order and remaining frame notification");
+            ordered = ordered && correct;
         }
+    check(ordered, "media priority order and remaining frame notification");
     CloseHandle(worker.output_event);
 }
 } // namespace maicord

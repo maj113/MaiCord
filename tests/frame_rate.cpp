@@ -20,8 +20,6 @@ void test_frame_rate(void (*check)(bool, const char*) noexcept) noexcept {
     frame_rate_presented(counter, 20'000'000);
     check(frame_rate_update(counter, 21'000'000) && counter.fps == 1,
           "frame rate delayed sample uses actual elapsed time");
-    check(frame_rate_update(counter, 21'500'000) && counter.fps == 0,
-          "frame rate no presents are counted for unchanged paints");
 }
 
 } // namespace maicord

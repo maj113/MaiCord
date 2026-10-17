@@ -13,7 +13,7 @@
 
 namespace maicord::account_menu_runtime_test {
 using namespace app_detail;
-u32 failures, refreshes, views, edits, copies;
+u32 failures, views, edits, copies;
 GatewayClientSelfStatusSnapshot self_status;
 u32 status_requests;
 GatewayUserStatus requested_status;
@@ -21,7 +21,7 @@ bool settings;
 bool logout_available, logout_blocked;
 u32 logout_opens;
 bool switch_available;
-u32 switch_panels, switch_actions, switch_action;
+u32 switch_actions, switch_action;
 UiAccountSwitcherPanel switch_panel;
 u64 viewed_user, edited_user;
 char copied[20];
@@ -303,7 +303,6 @@ bool application_account_switch_panel(UiAccountSwitcherModel* model, u64 owner,
     const UiAccountSwitcherAccount accounts[2]{
         {~u64{0}, utf8_literal("Native Account"), utf8_literal("native.user"), 0, false, true, false},
         {42, utf8_literal("Second"), utf8_literal("second.user"), 1, false, false, false}};
-    ++account_menu_runtime_test::switch_panels;
     return ui_account_switcher_build(model, owner, panel, {accounts, 2}, true);
 }
 bool application_account_switch_action(UiAccountSwitcherPanel panel, u32 action) noexcept {
@@ -342,7 +341,6 @@ UiRect application_viewport_dips() noexcept {
     return {0, 0, 1000, 700};
 }
 bool refresh_account_frame(bool) noexcept {
-    ++account_menu_runtime_test::refreshes;
     return true;
 }
 void application_tooltip_clear() noexcept {

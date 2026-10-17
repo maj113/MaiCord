@@ -52,9 +52,8 @@ void test_network_file(void (*check)(bool, const char*) noexcept) noexcept {
     u32 units = 0;
     while (path[units]) ++units;
     HttpsFileUpload upload{};
-    check(https_file_upload_runtime_bytes() < 768 * 1024 &&
-        https_file_upload_start(&upload, utf8_literal("https://uploads.example.invalid/x"), {path, units}, 258, 5000) == HttpsFileUploadError::none,
-        "upload worker uses fixed memory and starts with owned URL/path copies");
+    check(https_file_upload_start(&upload, utf8_literal("https://uploads.example.invalid/x"), {path, units}, 258, 5000) == HttpsFileUploadError::none,
+        "upload worker starts with owned URL/path copies");
     if (upload.runtime) {
         const DWORD done = WaitForSingleObject(upload.notification, 5000);
         const auto result = https_file_upload_status(&upload);

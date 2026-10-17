@@ -11,7 +11,7 @@ namespace maicord { static u64 creation_fixture_now() noexcept { return creation
 
 namespace maicord::creation_test {
 using namespace app_detail;
-u32 failures{}, submissions{}, cancellations{}, navigations{}, frames{};
+u32 failures{}, submissions{}, navigations{};
 u64 accepted{}, cancelled{}, navigated{};
 u8 actor{}, replacement_actor{};
 RestClientSubmitError admission{};
@@ -57,7 +57,7 @@ void permit(u64 bits = kPermissionViewChannel | kPermissionReadMessageHistory |
 }
 RestClientSubmitResult WINAPI submit(void* instance, const ThreadCreationRequest* request, u64 id) noexcept {
     if (instance != &actor || !id) return {RestClientSubmitError::invalid_input};
-    if (!request) { ++cancellations; cancelled = id; return {}; }
+    if (!request) { cancelled = id; return {}; }
     ++submissions;
     if (admission != RestClientSubmitError::none) return {admission};
     if (accepted) return {RestClientSubmitError::busy};
@@ -319,7 +319,7 @@ void run() noexcept {
 }
 namespace maicord::app_detail {
 Application g_app{};
-bool application_request_frame() noexcept { ++creation_test::frames; return true; }
+bool application_request_frame() noexcept { return true; }
 bool application_settings_active() noexcept { return false; }
 bool application_friends_active() noexcept { return false; }
 bool application_thread_browser_active() noexcept { return false; }

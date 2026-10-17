@@ -8,9 +8,8 @@
 
 namespace maicord::channel_overview_runtime_test {
 using namespace app_detail;
-u32 failures, submissions, text_rebuilds, suspends, discard_prompts, form_closes;
+u32 failures, submissions, discard_prompts;
 ApplicationTextFormRequest discard_request;
-bool form_restore, form_redraw;
 u64 form_marker;
 RestClientSubmitError admission{};
 u64 submitted_id;
@@ -418,7 +417,6 @@ void run() noexcept {
 
 namespace maicord {
 bool renderer_rebuild_content_text(D3D11Renderer* renderer, const Theme&) noexcept {
-    ++channel_overview_runtime_test::text_rebuilds;
     renderer->interaction_text_settings_revision =
         renderer->settings_scene ? renderer->settings_scene->revision : 0;
     return true;
@@ -722,7 +720,6 @@ bool application_profile_close() noexcept {
     return true;
 }
 void application_composer_text_input_suspend() noexcept {
-    ++channel_overview_runtime_test::suspends;
 }
 void application_sync_attachment_drop_target() noexcept {
 }
@@ -745,10 +742,7 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
     g_app.text_form = reinterpret_cast<ApplicationTextForm*>(&channel_overview_runtime_test::form_marker);
     return true;
 }
-void application_text_form_close(bool restore, bool redraw) noexcept {
-    ++channel_overview_runtime_test::form_closes;
-    channel_overview_runtime_test::form_restore = restore;
-    channel_overview_runtime_test::form_redraw = redraw;
+void application_text_form_close(bool restore, bool) noexcept {
     g_app.text_form = nullptr;
     if (restore)
         g_app.context_focus = nullptr;

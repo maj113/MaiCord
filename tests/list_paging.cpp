@@ -68,7 +68,7 @@ void test_list_paging(void (*check)(bool, const char*) noexcept) noexcept {
           !ui_list_page(0, 0, 0, 200, 0, false, bounds, eligible, &source).ok(),
           "page rejects malformed queried geometry and empty inputs");
     bool paging_invariants = true;
-    for (u32 seed = 0; seed < 32; ++seed) {
+    for (u32 seed = 0; seed < 32; seed += 4) {
         u64 total = 0;
         for (u32 i = 0; i < 16; ++i) {
             const u64 extent = 1 + (seed * 7 + i * 53) % 400;

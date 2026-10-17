@@ -1,14 +1,14 @@
 // Offline fixture over the shipping REST owner. IOCP and its mailbox are real;
 // plaintext responses are supplied at the existing transport callback boundary.
 // No credential, worker thread, socket, DNS lookup or live HTTP is created.
-#include "../src/app/rest_client.cpp"
+// Part of rest_client_fixtures.cpp.
+#include "rest_client_probe.hpp"
 #include "maicord/app/account_host.hpp"
 #include <stddef.h>
-#include "rest_client_probe.hpp"
 #include "test_output.hpp"
 
 namespace maicord {
-namespace {
+namespace logout_transport {
 u32 failures;
 void check(bool pass, const char* label) noexcept {
     test_check(&failures, pass, label);
@@ -286,13 +286,12 @@ void abi() noexcept {
           "logout: previous ABI rejects before touching caller bank");
     account_host_release(&host);
 }
-} // namespace
-} // namespace maicord
-
-extern "C" void WINAPI maicord_account_logout_transport_test_entry() noexcept {
-    maicord::admission();
-    maicord::receipts();
-    maicord::preemption();
-    maicord::abi();
-    ExitProcess(maicord::failures ? 1u : 0u);
+u32 run() noexcept {
+    admission();
+    receipts();
+    preemption();
+    abi();
+    return failures;
 }
+} // namespace logout_transport
+} // namespace maicord

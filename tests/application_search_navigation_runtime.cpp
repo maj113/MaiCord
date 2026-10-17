@@ -122,34 +122,38 @@ void rate_retry_tests() noexcept {
         }
         check(!rest_rate_retry_deadline(rejected),
               "rate retry rejects challenges, missing authority and transport failures");
-        check(reset() && application_search_navigation_begin(accepted_source.ticket) &&
-                  application_search_navigation_submit(501, 1),
-              "terminal metadata rate fixture admits one actual request");
-        rejected.request_id = 501;
-        check(application_search_navigation_response(rejected, {}) &&
-                  navigation.phase == MessageNavigationPhase::idle &&
-                  !application_search_navigation_pending(~u64{0}) &&
-                  !application_search_navigation_next_wake() &&
-                  !application_search_navigation_submit(502, ~u64{0}) && fetches == 1 && !moves,
-              "terminal metadata receipt schedules no wake or automatic readmission");
-
-        check(reset() && application_search_navigation_begin(accepted_source.ticket) &&
-                  application_search_navigation_submit(503, 1) && response(503, ordinary),
-              "terminal history rate fixture admits its destination");
-        application_search_navigation_history_submitted(70, 900, 504);
-        rejected.request_id = 504;
-        MessageHistoryRestResult failed{};
-        failed.error = MessageHistoryRestError::rate_limit;
-        application_search_navigation_history_response(rejected, failed);
-        // The production receipt caller retires its pending jump after delivery.
-        g_app.pending_message_jump_channel_id = g_app.pending_message_jump_message_id = 0;
-        application_search_navigation_synchronize();
-        check(navigation.phase == MessageNavigationPhase::idle &&
-                  !application_search_navigation_next_wake() && !g_app.pending_message_jump_channel_id &&
-                  !g_app.pending_message_jump_message_id &&
-                  application_message_mutation_notice_is_error() && fetches == 1 && moves == 1,
-              "terminal history receipt cannot recreate a pending around-message request");
     }
+    // Every rejected receipt reaches the same terminal owner branch; one
+    // challenge with stale rate fields stands in for the whole class.
+    auto rejected = eligible;
+    rejected.rejection.captcha = true;
+    check(reset() && application_search_navigation_begin(accepted_source.ticket) &&
+              application_search_navigation_submit(501, 1),
+          "terminal metadata rate fixture admits one actual request");
+    rejected.request_id = 501;
+    check(application_search_navigation_response(rejected, {}) &&
+              navigation.phase == MessageNavigationPhase::idle &&
+              !application_search_navigation_pending(~u64{0}) &&
+              !application_search_navigation_next_wake() &&
+              !application_search_navigation_submit(502, ~u64{0}) && fetches == 1 && !moves,
+          "terminal metadata receipt schedules no wake or automatic readmission");
+
+    check(reset() && application_search_navigation_begin(accepted_source.ticket) &&
+              application_search_navigation_submit(503, 1) && response(503, ordinary),
+          "terminal history rate fixture admits its destination");
+    application_search_navigation_history_submitted(70, 900, 504);
+    rejected.request_id = 504;
+    MessageHistoryRestResult failed{};
+    failed.error = MessageHistoryRestError::rate_limit;
+    application_search_navigation_history_response(rejected, failed);
+    // The production receipt caller retires its pending jump after delivery.
+    g_app.pending_message_jump_channel_id = g_app.pending_message_jump_message_id = 0;
+    application_search_navigation_synchronize();
+    check(navigation.phase == MessageNavigationPhase::idle &&
+              !application_search_navigation_next_wake() && !g_app.pending_message_jump_channel_id &&
+              !g_app.pending_message_jump_message_id &&
+              application_message_mutation_notice_is_error() && fetches == 1 && moves == 1,
+          "terminal history receipt cannot recreate a pending around-message request");
     check(reset() && application_search_navigation_begin(accepted_source.ticket) &&
               application_search_navigation_submit(505, 1),
           "exact metadata deadline fixture admits");
@@ -161,8 +165,6 @@ void rate_retry_tests() noexcept {
           "exact history deadline fixture admits");
     application_search_navigation_history_submitted(70, 900, 507);
     eligible.request_id = 507;
-    MessageHistoryRestResult failed{};
-    failed.error = MessageHistoryRestError::rate_limit;
     application_search_navigation_history_response(eligible, failed);
     check(navigation.phase == MessageNavigationPhase::history_retry && navigation.retry_at == 1,
           "actual history owner preserves a server deadline below the old synthetic floor");

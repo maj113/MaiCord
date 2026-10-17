@@ -38,12 +38,9 @@ inline bool await(NativeFilePicker* picker) noexcept {
     return picker->notification && WaitForSingleObject(picker->notification, 10000) == WAIT_OBJECT_0;
 }
 inline bool reap(NativeFilePicker* picker) noexcept {
-    const u64 deadline = GetTickCount64() + 10000;
-    bool released = native_file_picker_release(picker, 0);
-    while (!released && GetTickCount64() < deadline) { Sleep(1); released = native_file_picker_release(picker, 0); }
-    const bool bounded = released;
-    // Preserve worker storage even if a slow provider causes the timing check to fail.
-    while (!released) released = native_file_picker_release(picker, 100);
-    return bounded;
+    // Release joins the worker thread; a failed bounded join still preserves worker storage.
+    const bool released = native_file_picker_release(picker, 10000);
+    if (!released) native_file_picker_release(picker, INFINITE);
+    return released;
 }
 }

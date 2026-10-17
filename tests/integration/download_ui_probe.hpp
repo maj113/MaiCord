@@ -5,7 +5,6 @@
 #include "maicord/core/log.hpp"
 
 namespace maicord {
-bool probe_resize_surface(u32 width,u32 height) noexcept;
 namespace download_probe_detail {
 struct Source { UiDownloadRow rows[kUiDownloadMaximumRows]{}; u32 calls{}; bool current{true}; };
 inline bool current(void* context) noexcept { return static_cast<Source*>(context)->current; }

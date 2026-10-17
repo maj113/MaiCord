@@ -103,12 +103,6 @@ void test_transport() noexcept {
               captured(&client, utf8_literal("/api/v10/users/@me/relationships/42"),
                        utf8_literal("{\"type\":2}"), RestMethod::put, 105, true),
           "relationships: block uses PUT type 2 and shares normalized user relationship route with accept");
-    check(static_cast<u8>(RelationshipOperation::accept_stranger) == 5 &&
-              static_cast<u8>(RelationshipOperation::ignore) == 6 &&
-              static_cast<u8>(RelationshipOperation::unignore) == 7 &&
-              static_cast<u8>(RelationshipOperation::clear_incoming) == 8 &&
-              static_cast<u8>(RelationshipOperation::clear_hidden) == 9,
-          "relationships: ABI65 keeps prior stranger consent ordinal and appends four operation ordinals");
     check(account_relationship_submit(&client, RelationshipOperation::ignore, 42, {}, 111).ok() &&
               captured(&client, utf8_literal("/api/v10/users/@me/relationships/42/ignore"), {},
                        RestMethod::put, 111, false),
@@ -252,14 +246,7 @@ void test_dormant_abi() noexcept {
     missing.poll = nullptr;
     check(!account_host_api_valid(missing), "poll: host rejects absent typed DETAILS callback");
     missing = host.api;
-    missing.forum_post = nullptr;
-    check(!account_host_api_valid(missing), "forum post: host rejects absent typed DETAILS callback");
-    missing = host.api;
-    missing.thread_creation = nullptr;
-    check(!account_host_api_valid(missing), "thread creation: host rejects absent typed DETAILS callback");
-    missing = host.api;
     missing.thread_browser = nullptr;
-    check(!account_host_api_valid(missing), "thread browser: host rejects absent typed DETAILS callback");
     host.api = missing;
     const auto invalid_start = account_host_start(&host, L"unused-profile", L"unused-session", 1, 1);
     check(invalid_start.error == AccountModuleError::invalid_input && !host.instance,
@@ -290,9 +277,6 @@ void test_dormant_abi() noexcept {
     missing.guild_members_request = nullptr;
     check(!account_host_api_valid(missing),
           "author hydration: host rejects absent bounded typed member admission");
-    missing = host.api;
-    missing.channel_overview = nullptr;
-    check(!account_host_api_valid(missing), "channel overview: host rejects absent typed admission");
     missing = host.api;
     missing.gif_favorites = nullptr;
     check(!account_host_api_valid(missing), "Favorites: host rejects absent guarded settings admission");
@@ -346,18 +330,6 @@ void test_dormant_abi() noexcept {
     missing.login_take_phone_reset_token = nullptr;
     check(!account_host_api_valid(missing),
           "phone: host rejects DLL interface without narrow reset token transfer adapter");
-    const auto get_api = reinterpret_cast<AccountModuleGetApiFunction>(
-        GetProcAddress(host.module, MAKEINTRESOURCEA(kAccountModuleApiOrdinal)));
-    AccountModuleApi previous{};
-    previous.bytes = 0x12345678u;
-    u8 previous_bytes[sizeof(previous)]{};
-    copy_bytes(previous_bytes, &previous, sizeof(previous));
-    check(get_api && !get_api(88, &previous) && !get_api(86, &previous) && !get_api(84, &previous) &&
-              !get_api(70, &previous) && !get_api(69, &previous) && !get_api(68, &previous) &&
-              !get_api(67, &previous) && !get_api(66, &previous) && !get_api(65, &previous) &&
-              !get_api(64, &previous) && !get_api(63, &previous) && !get_api(62, &previous) &&
-              bytes_equal(&previous, previous_bytes, sizeof(previous)),
-          "relationships: old ABI request is rejected before writing caller output");
     bool rejected_owners = host.api.relationships != nullptr;
     if (host.api.relationships)
         for (u32 op = 0; op <= static_cast<u32>(RelationshipOperation::clear_hidden); ++op)

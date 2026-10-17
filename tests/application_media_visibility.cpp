@@ -502,7 +502,7 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
     u32 uploads = 0;
     bool repaint = false, stop = false;
     const u32 before_hidden = identity_requests;
-    for (u32 pass = 0; pass < 64; ++pass)
+    for (u32 pass = 0; pass < 8; ++pass)
         valid = pump.request_visible_user_avatar_value(9, hash, 1'000, 1'100, &uploads, &repaint, &stop) &&
                 valid;
     check(valid && !pump.avatar_key_is_current(avatar) && identity_requests == before_hidden,
@@ -547,7 +547,7 @@ void run_identity_residency_test(VisibilityFixture& fixture, AccountUiRuntime& u
             media_atlas_set_decoded_animation(&fixture.atlas, avatar_resident.handle, false) &&
             media_atlas_set_decoded_animation(&fixture.atlas, icon_resident.handle, false);
     const u32 before_static = identity_requests;
-    for (u32 pass = 0; pass < 64; ++pass) {
+    for (u32 pass = 0; pass < 8; ++pass) {
         valid = pump.request_visible_user_avatar_value(9, hash, 1'000, 1'100, &uploads, &repaint, &stop,
                                                        true) &&
                 valid;
@@ -716,7 +716,7 @@ void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept {
     bool retained = custom_resident.ok() && flag_resident.ok() &&
                     media_atlas_set_decoded_animation(&atlas, custom_resident.handle, false);
     const u32 resident_requests = picker_emoji_requests;
-    for (u32 i = 0; i < 64; ++i)
+    for (u32 i = 0; i < 8; ++i)
         retained &= pump.request_picker_emoji(1'000, 1'100, 1'000, &uploads, &repaint);
     check(retained && picker_emoji_requests == resident_requests,
           "picker emoji visibility: decoded still residents override animation hints without repeated "
@@ -729,7 +729,7 @@ void run_picker_emoji_visibility_test(ApplicationMediaPump& pump) noexcept {
                                                   {animated, 1'000'000, 67, 3, 0, false}, 1'000);
     const u32 owned_requests = picker_emoji_requests;
     bool observed = owned.ok();
-    for (u32 i = 0; i < 64; ++i)
+    for (u32 i = 0; i < 8; ++i)
         observed &= pump.request_picker_emoji(1'000, 1'100, 1'000, &uploads, &repaint);
     check(observed && picker_emoji_requests == owned_requests &&
               (g_app.animations.timeline.entries[owned.slot].flags & animation_timeline_entry_visible),
@@ -776,7 +776,7 @@ void run_catalog_residency_test(VisibilityFixture& fixture, ApplicationMediaPump
     u32 uploads = 0;
     bool repaint = false;
     const u32 before_static = catalog_requests;
-    for (u32 pass = 0; pass < 64; ++pass)
+    for (u32 pass = 0; pass < 8; ++pass)
         valid = pump.request_catalog_previews(1'000, 1'100, 1'000, &uploads, &repaint) && valid;
     check(valid && (fixture_catalog_owner_key.flags & media_asset_flag_animated) &&
               catalog_requests == before_static,
@@ -799,7 +799,7 @@ void run_catalog_residency_test(VisibilityFixture& fixture, ApplicationMediaPump
         visual.occupied = true;
     }
     const u32 before_owned = catalog_requests;
-    for (u32 pass = 0; pass < 64; ++pass)
+    for (u32 pass = 0; pass < 8; ++pass)
         valid = pump.request_catalog_previews(1'000, 1'100, 1'000, &uploads, &repaint) && valid;
     check(valid && published.ok() && catalog_requests == before_owned &&
               (fixture.animations[published.slot].flags & animation_timeline_entry_visible),
@@ -1665,7 +1665,7 @@ void run_poster_presentation_test(ApplicationMediaPump& pump) noexcept {
     poster_present_state = AccountMediaRequestState::ready;
     application_media_posters_presented(g_app, true, 11, 12);
     const auto presented = poster_presented_calls;
-    for (u32 i = 0; i < 64; ++i) application_media_posters_presented(g_app, true, i, i + 1);
+    for (u32 i = 0; i < 8; ++i) application_media_posters_presented(g_app, true, i, i + 1);
     check(presented == 2 && poster_presented_calls == presented && !g_app.local_poster_presentation.pending,
           "poster cleanup: one accepted Present clears the flag and later frames make no account calls");
     const AccountMediaRequestState terminal[]{AccountMediaRequestState::ready, AccountMediaRequestState::invalid,

@@ -14,15 +14,6 @@ u8 encoded[4 * 1024 * 1024];
 u8 scratch[4 * 1024 * 1024];
 MediaUrlResolver resolver;
 
-bool equal(Utf8View a, Utf8View b) noexcept {
-    if (a.bytes != b.bytes)
-        return false;
-    for (u32 i = 0; i < a.bytes; ++i)
-        if (a.data[i] != b.data[i])
-            return false;
-    return true;
-}
-
 void exercise_animation(Check check, MediaAssetKey key, u32 bytes, bool gif,
                         u32 minimum_frames = 2) noexcept {
     AccountMedia media{};
@@ -197,9 +188,9 @@ void test_media_parity(Check check) noexcept {
           "attachment_refresh_external_urls_excluded");
     u8 body[4096]{};
     const u32 request_bytes = attachment_refresh_body(original, {body, sizeof(body)});
-    check(equal({reinterpret_cast<const char*>(body), request_bytes},
-                utf8_literal(
-                    "{\"attachment_urls\":[\"https://cdn.discordapp.com/attachments/7/9876/test.gif\"]}")),
+    check(utf8_equal({reinterpret_cast<const char*>(body), request_bytes},
+                     utf8_literal("{\"attachment_urls\":[\"https://cdn.discordapp.com/attachments/7/9876/"
+                                  "test.gif\"]}")),
           "attachment_refresh_installed_client_contract");
     ProtocolWriter writer{{body, sizeof(body)}, 0};
     protocol_writer_append_literal(&writer, "{\"refreshed_urls\":[{\"original\":");
@@ -211,7 +202,7 @@ void test_media_parity(Check check) noexcept {
     char refreshed[2048]{};
     check(attachment_refresh_response(response, original, 100, {refreshed, sizeof(refreshed)}) ==
                   fresh.bytes &&
-              equal({refreshed, fresh.bytes}, fresh),
+              utf8_equal({refreshed, fresh.bytes}, fresh),
           "attachment_refresh_response_validated");
     check(attachment_refresh_response(
               response, utf8_literal("https://cdn.discordapp.com/attachments/7/9999/test.gif"), 100,
@@ -232,7 +223,7 @@ void test_media_parity(Check check) noexcept {
     RestClientResponse ok{};
     ok.status_code = 200;
     media_url_complete(&resolver, ok, response, 1002, 100);
-    check(equal(media_url_resolve(&resolver, original, 1003, 100), fresh) &&
+    check(utf8_equal(media_url_resolve(&resolver, original, 1003, 100), fresh) &&
               !media_url_next(&resolver, 1003),
           "attachment_refresh_ready_cache_no_repeat_requests");
     resolver = {};
@@ -337,7 +328,7 @@ void test_media_parity(Check check) noexcept {
     check(applied.ok() && message_rich_embed_media_select(store, applied.record->embeds[0], &selected) &&
               selected.animated && selected.format == MediaAttachmentFormat::webp &&
               selected.resource == MediaEmbedResource::thumbnail &&
-              equal(selected.source, source.thumbnail.proxy_url) &&
+              utf8_equal(selected.source, source.thumbnail.proxy_url) &&
               message_rich_embed_media_only(applied.record->embeds[0]) &&
               message_rich_embed_suppresses_content(store, *applied.record, source.url),
           "embed_image_flag_proxy_animation_inline_policy");
@@ -353,8 +344,8 @@ void test_media_parity(Check check) noexcept {
         CdnHost::images_ext_1, 512, 288, CdnMediaFormat::webp, {target, sizeof(target)}, true);
     check(
         transformed.ok() &&
-            equal({reinterpret_cast<const char*>(target), transformed.bytes},
-                  utf8_literal("/external/animation.webp?width=512&height=288&format=webp&animated=true")),
+            utf8_equal({reinterpret_cast<const char*>(target), transformed.bytes},
+                       utf8_literal("/external/animation.webp?width=512&height=288&format=webp&animated=true")),
         "animated_proxy_request_replaces_freeze_hint");
     const auto gif_target = utf8_literal("/attachments/7/8/test.gif?ex=ffff&is=1&hm=abc&format=webp");
     const auto resized_gif = write_media_proxy_target(
@@ -362,9 +353,9 @@ void test_media_parity(Check check) noexcept {
         CdnMediaFormat::source, {target, sizeof(target)}, true);
     check(
         resized_gif.ok() &&
-            equal({reinterpret_cast<const char*>(target), resized_gif.bytes},
-                  utf8_literal(
-                      "/attachments/7/8/test.gif?ex=ffff&is=1&hm=abc&width=512&height=482&animated=true")),
+            utf8_equal({reinterpret_cast<const char*>(target), resized_gif.bytes},
+                       utf8_literal(
+                           "/attachments/7/8/test.gif?ex=ffff&is=1&hm=abc&width=512&height=482&animated=true")),
         "gif_proxy_resize_preserves_encoding_and_signature");
 
     CdnClient client{};

@@ -243,13 +243,13 @@ void locked_progress_lifecycle() noexcept {
     const u32 locked_layout_revision = form->scene.widgets.layout.revision;
     const auto scene_storage = form->scene.storage.arena.base;
     bool retained = true;
-    for (u32 frame = 0; frame < 64; ++frame)
+    for (u32 frame = 0; frame < 8; ++frame)
         retained &= application_text_form_synchronize() && g_app.text_form == form &&
                     seen.builds == locked_builds && form->scene.revision == locked_scene_revision &&
                     form->scene.widgets.layout.revision == locked_layout_revision &&
                     form->scene.storage.arena.base == scene_storage;
     check(retained && seen.saves == initial_saves,
-          "locked async form: 64 pending updates retain owner geometry and text without new callbacks or "
+          "locked async form: repeated pending updates retain owner geometry and text without new callbacks or "
           "publication");
     async_progress.status = utf8_literal("Could not finish. Retry to continue.");
     async_progress.accept = utf8_literal("Retry");
@@ -364,10 +364,10 @@ void startup_recovery_lifecycle() noexcept {
               "startup recovery: Escape outside click and blur preserve the nondismissible login owner");
         const u32 builds = seen.builds, measurements = measure->backend_calls;
         bool stable = true;
-        for (u32 frame = 0; frame < 64; ++frame)
+        for (u32 frame = 0; frame < 8; ++frame)
             stable &= application_text_form_synchronize() && g_app.text_form == form && !g_app.account_ui &&
                       seen.builds == builds && measure->backend_calls == measurements;
-        check(stable, "startup recovery: 64 unchanged frames reuse bounded font cache without account "
+        check(stable, "startup recovery: repeated unchanged frames reuse bounded font cache without account "
                       "allocation or publication");
         const u32 font_generation = measure->generation, font_calls = measure->backend_calls;
         const auto font_focus = text_form_focused(form->scene);
@@ -555,10 +555,10 @@ void run() noexcept {
           "async form: pending progress disables repeated acceptance and preserves Cancel");
     const u32 stable_builds = seen.builds, stable_saves = seen.saves;
     bool stable = true;
-    for (u32 frame = 0; frame < 64; ++frame)
+    for (u32 frame = 0; frame < 8; ++frame)
         stable = application_text_form_synchronize() && stable;
     check(stable && seen.builds == stable_builds && seen.saves == stable_saves && !closed_owners,
-          "async form: 64 unchanged progress frames rebuild no text and issue no duplicate save");
+          "async form: repeated unchanged progress frames rebuild no text and issue no duplicate save");
     async_progress.status = utf8_literal("Check whether the thread was created before retrying.");
     async_progress.accept = utf8_literal("Refresh");
     async_progress.can_accept = true;

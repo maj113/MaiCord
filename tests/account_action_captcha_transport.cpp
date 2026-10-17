@@ -2,11 +2,11 @@
 // armed X-Captcha-* headers ride exactly one matching submission, and the
 // invite accept adds its session body and X-Context-Properties header.
 // No worker thread, socket, DNS lookup or live HTTP is created.
-#include "../src/app/rest_client.cpp"
+// Part of rest_client_fixtures.cpp.
+#include "rest_client_probe.hpp"
 #include "maicord/app/account_guild_invite.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/guild_invite.hpp"
-#include "rest_client_probe.hpp"
 #include "test_output.hpp"
 
 namespace maicord {
@@ -135,11 +135,10 @@ void invite() noexcept {
     check(!guild_invite_write_context_header(request, {header, sizeof(header)}),
           "invite resolve: no context header");
 }
+u32 run() noexcept {
+    retry();
+    invite();
+    return failures;
+}
 } // namespace action_captcha_transport
 } // namespace maicord
-
-extern "C" void WINAPI maicord_account_action_captcha_transport_test_entry() noexcept {
-    maicord::action_captcha_transport::retry();
-    maicord::action_captcha_transport::invite();
-    ExitProcess(maicord::action_captcha_transport::failures ? 1u : 0u);
-}

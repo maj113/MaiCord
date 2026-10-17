@@ -1,9 +1,9 @@
 #include "maicord/render/shader_bytecode.hpp"
+#include "../test_output.hpp"
 
 #include <d3d11_1.h>
 namespace maicord { namespace {
-void print(const char* p) noexcept {u32 n=0;while(p[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),p,n,&written,nullptr);}
-#define CHECK(x) do{if(!(x)){print("FAIL: " #x "\n");return false;}}while(0)
+#define CHECK(x) do{if(!(x)){test_write_text("FAIL: " #x "\n");return false;}}while(0)
 // Input layouts mirror d3d11_draw_pipeline.cpp; CreateInputLayout validates
 // them against each vertex shader's packed input signature.
 constexpr D3D11_INPUT_ELEMENT_DESC kUiElements[]={
@@ -74,10 +74,10 @@ bool run() noexcept {
     if(failed!=static_cast<u32>(ShaderId::count)){
         char line[]="FAIL: packed shader id 00 could not be created\n";
         line[23]=static_cast<char>('0'+failed/10);line[24]=static_cast<char>('0'+failed%10);
-        print(line);return false;
+        test_write_text(line);return false;
     }
     CHECK(rejected);
-    print("PASS packed shaders inflate and create\n");
+    test_write_text("PASS packed shaders inflate and create\n");
     return true;
 }
 }}

@@ -5,7 +5,6 @@
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
 
 namespace maicord {
-bool probe_resize_surface(u32 width, u32 height) noexcept;
 namespace {
 struct SearchProbeSource {
     u32 calls;

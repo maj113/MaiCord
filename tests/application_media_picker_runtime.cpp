@@ -28,7 +28,7 @@ struct AccountFixture {
     u64 request_id, cancelled_id;
     RestClientSubmitError admission;
 } account;
-u32 failures, repaints, composer_refreshes, history_pumps, text_builds;
+u32 failures, text_builds;
 u32 preference_saves;
 u32 member_activations, launcher_activations;
 bool settings;
@@ -37,7 +37,7 @@ u32 favorite_toggles;
 Utf8View toggled_url, toggled_src;
 GifFavoriteFormat toggled_format;
 u32 reaction_calls;
-u64 reaction_messages[4], reaction_emoji[4];
+u64 reaction_messages[4];
 Utf8View reaction_names[4];
 app_detail::ApplicationMessageReactionEnqueueResult reaction_next;
 Utf8View reaction_status;
@@ -386,10 +386,6 @@ void run() noexcept {
         return;
     }
     record_measurements();
-    g_app.renderer.dpi = 144;
-    check(client_dip_x(MAKELPARAM(96, -48)) == 64.f && client_dip_y(MAKELPARAM(96, -48)) == -32.f,
-          "button host: coordinate bridge preserves signed pixels and real DPI scaling");
-    g_app.renderer.dpi = 96;
     owner_measurements("picker_dormant");
     check(!g_app.media_picker && !g_app.renderer.media_picker_scene &&
               !application_media_picker_next_wake(),
@@ -450,7 +446,7 @@ void run() noexcept {
     check(
         !application_media_picker_pending(due - 1) && application_media_picker_pending(due) &&
             application_media_picker_next_wake() == due && application_media_picker_submit(102, due) &&
-            account.query.limit == 50 && kMediaCatalogMinimumGifPageItems == 20 &&
+            account.query.limit == 50 &&
             same({reinterpret_cast<const char*>(account.target), account.target_bytes},
                  utf8_literal(
                      "/api/v10/gifs/search?locale=en-US&q=hello%20%26%2B&media_format=tinywebp&limit=50")),
@@ -960,7 +956,7 @@ void run() noexcept {
         const auto burst_scrollbar = ui_media_picker_scene_scrollbar(p.scene);
         const float burst_y = (burst_scrollbar.thumb.top + burst_scrollbar.thumb.bottom) * .5f;
         bool burst = application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON, point(x, burst_y));
-        for (u32 i = 0; i < 64; ++i)
+        for (u32 i = 0; i < 8; ++i)
             burst &= application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON,
                                                              point(x, burst_y + (i % 17) + 1));
         burst &= application_media_picker_window_message(WM_LBUTTONUP, 0, point(x, burst_y + 13));
@@ -1123,7 +1119,7 @@ void run() noexcept {
     observe_motion(5016);
     const u32 opened_starts = animation_starts;
     bool scrolled = true;
-    for (u32 i = 0; i < 24; ++i) {
+    for (u32 i = 0; i < 4; ++i) {
         scrolled = scrolled && ui_media_picker_scene_scroll(&p.scene, i & 1 ? -40.f : 90.f) &&
                    application_media_picker_synchronize();
         observe_motion(5032 + i * 16);
@@ -1356,12 +1352,11 @@ bool handle_composer_click(LPARAM point) noexcept {
 }
 void application_surface_motion_retire(RendererLayerSurface) noexcept {
 }
-ApplicationMessageReactionEnqueueResult application_queue_message_reaction_emoji(u64 message_id, u64 emoji_id,
+ApplicationMessageReactionEnqueueResult application_queue_message_reaction_emoji(u64 message_id, u64,
                                                                              Utf8View name, bool) noexcept {
     using namespace media_picker_runtime_test;
     if (reaction_calls < 4) {
         reaction_messages[reaction_calls] = message_id;
-        reaction_emoji[reaction_calls] = emoji_id;
         reaction_names[reaction_calls] = name;
     }
     ++reaction_calls;
@@ -1406,11 +1401,9 @@ bool application_gif_favorites_toggle(Utf8View url, Utf8View src, u32, u32, GifF
     return true;
 }
 bool refresh_account_text(bool) noexcept {
-    ++media_picker_runtime_test::repaints;
     return true;
 }
 bool refresh_message_composer_ui() noexcept {
-    ++media_picker_runtime_test::composer_refreshes;
     return true;
 }
 bool composer_apply_result(MessageComposerResult result, bool) noexcept {
@@ -1421,7 +1414,6 @@ bool composer_apply_result(MessageComposerResult result, bool) noexcept {
            refresh_message_composer_ui();
 }
 bool pump_message_history() noexcept {
-    ++media_picker_runtime_test::history_pumps;
     return true;
 }
 bool application_settings_active() noexcept {

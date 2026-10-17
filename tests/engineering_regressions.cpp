@@ -1,7 +1,6 @@
 #include "maicord/core/spsc_mailbox.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/render/raster_clip.hpp"
-#include "maicord/media/deflate.hpp"
 
 namespace maicord {
 namespace {

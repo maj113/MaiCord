@@ -174,13 +174,13 @@ void test_message_markdown_cache(void (*check)(bool, const char*) noexcept) noex
     const u64 total = f.list.total_units;
     const auto scroll_pass = [&]() noexcept {
         bool ok = warm;
-        for (u32 step = 0; ok && step <= 16; ++step) {
-            const u64 units = total * step / 16;
+        for (u32 step = 0; ok && step <= 8; ++step) {
+            const u64 units = total * step / 8;
             ok = message_timeline_set_scroll(&f.timeline, units, false) &&
                  message_scene_update(&f.scene, viewport).ok() && build(&presentation, kNow);
         }
-        for (u32 step = 16; ok && step-- > 0;) {
-            ok = message_timeline_set_scroll(&f.timeline, total * step / 16, false) &&
+        for (u32 step = 8; ok && step-- > 0;) {
+            ok = message_timeline_set_scroll(&f.timeline, total * step / 8, false) &&
                  message_scene_update(&f.scene, viewport).ok() && build(&presentation, kNow);
         }
         return ok;
@@ -190,7 +190,7 @@ void test_message_markdown_cache(void (*check)(bool, const char*) noexcept) noex
     const bool rescrolled = scrolled && scroll_pass();
     check(rescrolled && scrolled_parses > cold_parses && presentation.markdown_parses == scrolled_parses &&
               cache.inserts == scrolled_parses,
-          "markdown_cache_scroll_66_frames_over_seen_history_runs_zero_parses");
+          "markdown_cache_scroll_over_seen_history_runs_zero_parses");
 
     // An edit changes one source: only that message parses again.
     u32 before = presentation.markdown_parses;

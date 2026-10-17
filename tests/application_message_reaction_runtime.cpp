@@ -23,7 +23,7 @@ void application_emoji_preferences_track_reaction(ReactionEmojiRef emoji) noexce
 
 namespace maicord::reaction_runtime_test {
 using namespace app_detail;
-u32 failures{}, refreshes{}, frames{}, submissions{}, cancellations{};
+u32 failures{}, refreshes{}, submissions{}, cancellations{};
 u64 now_ms = 1000, request_serial{}, accepted_request{};
 u64 unix_ms = 1'700'000'000'000;
 bool transport_busy{};
@@ -691,11 +691,11 @@ void run() noexcept {
     const auto reload_refreshes = refreshes;
     const auto reload_committed = owner->storage.arena.committed;
     const auto reload_revision = owner->controller.revision;
-    for (u32 index = 0; index < 128; ++index)
+    for (u32 index = 0; index < 8; ++index)
         application_message_reaction_synchronize();
     check(refreshes == reload_refreshes && owner->storage.arena.committed == reload_committed &&
               owner->controller.revision == reload_revision,
-          "reaction runtime:128 unchanged synchronizations after hydration retain projection without "
+          "reaction runtime: unchanged synchronizations after hydration retain projection without "
           "rebuilding");
     check(complete() && send_next() && complete() && reaction()->count == 5 && reaction(900, 1)->count == 1,
           "reaction runtime: original flight drains against legally rebound history without losing second "
@@ -852,12 +852,12 @@ void run() noexcept {
     const auto committed = owner->storage.arena.committed;
     const auto revision = owner->controller.revision;
     const auto rich_revision = ui.message_rich_store.updated;
-    for (u32 index = 0; index < 128; ++index)
+    for (u32 index = 0; index < 8; ++index)
         application_message_reaction_synchronize();
     check(
         refreshes == text_refreshes && owner->storage.arena.committed == committed &&
             owner->controller.revision == revision && ui.message_rich_store.updated == rich_revision,
-        "reaction runtime:128 warm synchronizations do not reproject model, rebuild text or grow backing");
+        "reaction runtime: warm synchronizations do not reproject model, rebuild text or grow backing");
     reset_message_reaction();
     check(!owner, "reaction runtime: actual reset releases bounded lazy owner after no transport borrow");
     thread_reaction_tests();

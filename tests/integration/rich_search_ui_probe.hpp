@@ -9,7 +9,6 @@
 #include "maicord/media/presentation_policy.hpp"
 
 namespace maicord {
-bool probe_resize_surface(u32 width,u32 height) noexcept;
 namespace rich_search_probe_detail {
 inline constexpr u32 kRows = 4;
 // The bootstrap main timeline uses this same ID and initial revision. Search

@@ -1,10 +1,12 @@
-// Offline harness over the shipping REST owner. Include after
-// "../src/app/rest_client.cpp", whose private storage and transport
-// helpers it drives. IOCP and its mailbox are real; plaintext responses are
-// supplied at the existing transport callback boundary. No credential, worker
-// thread, socket, DNS lookup or live HTTP is created.
+// Offline harness over the shipping REST owner. This header includes
+// "../src/app/rest_client.cpp" once per translation unit, so fixtures that
+// share one unit compile the owner once; it drives the owner's private storage
+// and transport helpers. IOCP and its mailbox are real; plaintext responses
+// are supplied at the existing transport callback boundary. No credential,
+// worker thread, socket, DNS lookup or live HTTP is created.
 #pragma once
 
+#include "../src/app/rest_client.cpp"
 #include "maicord/protocol/writer.hpp"
 
 namespace maicord {

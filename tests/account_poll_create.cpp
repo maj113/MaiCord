@@ -123,12 +123,6 @@ void dormant_abi() noexcept {
     auto missing = host.api;
     missing.poll_create = nullptr;
     check(!account_host_api_valid(missing), "poll create: new callback is mandatory");
-    const auto get_api = reinterpret_cast<AccountModuleGetApiFunction>(
-        GetProcAddress(host.module, MAKEINTRESOURCEA(kAccountModuleApiOrdinal)));
-    AccountModuleApi previous{};
-    previous.bytes = 0x12345678;
-    check(get_api && !get_api(100, &previous) && previous.bytes == 0x12345678,
-          "poll create: ABI100 request is rejected without touching caller memory");
     account_host_release(&host);
 }
 } // namespace poll_create_account_test

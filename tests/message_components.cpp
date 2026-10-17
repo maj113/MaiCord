@@ -21,11 +21,6 @@ struct Fixture {
     PaintStream paint;
 };
 Fixture fixture;
-bool utf8_view_equal(Utf8View a, Utf8View b) noexcept {
-    if (a.bytes != b.bytes) return false;
-    for (u32 i = 0; i < a.bytes; ++i) if (a.data[i] != b.data[i]) return false;
-    return true;
-}
 
 bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* output) noexcept {
     const float width = minimum(request.constraint.width, static_cast<float>(request.text.bytes) * 7);
@@ -62,8 +57,8 @@ void test_message_components(void (*check)(bool, const char*) noexcept) noexcept
             {ids, 100}, &routed, &packed).ok() &&
         gateway_client_event_as_message(routed, packed, scratch, &message);
     check(ok && message.interaction.user_id == 11 && message.interaction.id == 20 &&
-        utf8_view_equal(message.interaction.command_name, utf8_literal("vote localized")) &&
-        utf8_view_equal(message.interaction.user_name, utf8_literal("Display")) &&
+        utf8_equal(message.interaction.command_name, utf8_literal("vote localized")) &&
+        utf8_equal(message.interaction.user_name, utf8_literal("Display")) &&
         message.components.count == 5 && components[0].accent_color == 16724838 &&
         components[0].has_accent_color && components[3].parent == 2 && components[4].parent == 2,
         "interaction_and_container_roundtrip_preserves_attribution_rgb_and_parentage");
@@ -102,7 +97,7 @@ void test_message_components(void (*check)(bool, const char*) noexcept) noexcept
         bool header = false;
         for (u32 i = 0; i < f.presentation.command_count; ++i)
             if (f.commands[i].measurement_kind == MessageTextMeasurementKind::reply)
-                header = utf8_view_equal(f.commands[i].text, utf8_literal("Display used /vote localized")) &&
+                header = utf8_equal(f.commands[i].text, utf8_literal("Display used /vote localized")) &&
                     f.commands[i].styles.count == 2 && f.commands[i].wrapping == UiTextWrapping::no_wrap;
         check(ok && header && row && !row->grouped && row->measured_reply_height > 0,
               "interaction_header_is_retained_single_line_styled_and_measured");

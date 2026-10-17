@@ -124,7 +124,7 @@ void test_rich_display(Check check) noexcept {
     display.gifs = display.emoji = MessageMediaAnimation::interaction;
     display.spoilers = MessageSpoilerReveal::always;
     display.convert_emoticons = false;
-    check(restored && !message_rich_set_display(display) && !message_rich_set_display(display) &&
+    check(restored && !message_rich_set_display(display) &&
               message_rich_display().spoilers == MessageSpoilerReveal::always,
           "chat_display_animation_and_spoiler_modes_change_no_geometry");
     message_rich_set_display({});

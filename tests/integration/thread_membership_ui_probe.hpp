@@ -93,8 +93,6 @@ inline bool blended_ink(const surface_motion_probe_detail::Readback& readback, U
 }
 } // namespace thread_membership_probe_detail
 
-bool probe_resize_surface(u32 width, u32 height) noexcept;
-
 inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure, HWND window,
     bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept {
     using namespace thread_membership_probe_detail;

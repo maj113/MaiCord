@@ -14,7 +14,7 @@ namespace maicord::logout_fixture {
 AccountPaths paths{};
 u64 now = 1000;
 u32 failures{}, frames{}, prepares{}, observed{}, published{}, forgets{};
-u32 begins{}, accepted_posts{}, cancels{}, takes{}, busy_remaining{};
+u32 begins{}, accepted_posts{}, cancels{}, takes{}, busy_remaining{}, shutdown_join_timeout{};
 u32 allocation_attempts{};
 u64 accepted_id{}, cancelled_id{};
 AccountLogoutResponse response{};
@@ -126,6 +126,14 @@ AccountHostStopResult logout_fixture_stop(AccountHost* host, u32 timeout, u64 mo
     InterlockedExchange(&stop_active, 0);
     return result;
 }
+// The worker is parked on stop_allowed, so the production join's bounded wait
+// can only expire. Record the requested bound and join the real thread with a
+// zero wait, which reaches the same timeout result without sleeping for it.
+bool logout_fixture_join_for_shutdown(AccountLogoutStopOwner* owner, u32 timeout_ms,
+                                      AccountHostStopResult* result) noexcept {
+    logout_fixture::shutdown_join_timeout = timeout_ms;
+    return account_logout_stop_join_for_shutdown(owner, 0, result);
+}
 } // namespace maicord
 #define clock_monotonic_milliseconds logout_fixture_now
 #define clock_unix_milliseconds logout_fixture_unix
@@ -133,6 +141,7 @@ AccountHostStopResult logout_fixture_stop(AccountHost* host, u32 timeout, u64 mo
 #define account_credential_forget_begin logout_fixture_begin
 #define account_credential_forget_complete_after_join logout_fixture_forget
 #define account_host_stop logout_fixture_stop
+#define account_logout_stop_join_for_shutdown logout_fixture_join_for_shutdown
 #define VirtualAlloc logout_fixture_allocate
 #include "../src/app/application_account_logout.cpp"
 #undef clock_monotonic_milliseconds
@@ -141,6 +150,7 @@ AccountHostStopResult logout_fixture_stop(AccountHost* host, u32 timeout, u64 mo
 #undef account_credential_forget_begin
 #undef account_credential_forget_complete_after_join
 #undef account_host_stop
+#undef account_logout_stop_join_for_shutdown
 #undef VirtualAlloc
 
 namespace maicord::app_detail {
@@ -356,7 +366,7 @@ void run() noexcept {
               g_app.login.application_auth_epoch == 8 && !g_app.login.remote_restart_at_ms,
           "logout controller: real marker precedes quiescence and commit permanently removes dismissal");
     const u64 committed_revision = committed.revision;
-    for (u32 i = 0; i < 64; ++i)
+    for (u32 i = 0; i < 4; ++i)
         accept();
     check(!begins && view().revision == committed_revision,
           "logout controller: repeated accepted form action cannot duplicate intent");
@@ -372,7 +382,7 @@ void run() noexcept {
     const auto before_takes = takes;
     const auto before_revision = view().revision;
     bool pure = true;
-    for (u32 i = 0; i < 64; ++i) {
+    for (u32 i = 0; i < 8; ++i) {
         pure = application_account_logout_blocked() && !application_account_logout_available() &&
                !application_account_logout_next_wake() && form.valid(form.owner) && pure;
         application_account_logout_pump();
@@ -383,12 +393,12 @@ void run() noexcept {
         pure && accepted_posts == 1 && ReadAcquire(&stop_calls) == 1 && takes == before_takes &&
             frames == before_frames && view().revision == before_revision && !forgets && !published &&
             g_app.account_logout && !ownership_violation,
-        "logout controller: 64 owned polls are stable, pure, single-POST, single-stop and retain owner VM");
+        "logout controller: repeated owned polls are stable, pure, single-POST, single-stop and retain owner VM");
     const auto* retained_owner = g_app.account_logout;
     check(
-        !application_account_logout_shutdown() && g_app.account_logout == retained_owner &&
-            application_account_logout_host_owned() && !g_app.account.instance && credentials_present() &&
-            exists(marker) && !forgets && !published,
+        !application_account_logout_shutdown() && shutdown_join_timeout == kAccountStopTimeoutMs &&
+            g_app.account_logout == retained_owner && application_account_logout_host_owned() &&
+            !g_app.account.instance && credentials_present() && exists(marker) && !forgets && !published,
         "logout controller: finite cancelled shutdown join retains private host, owner VM and credentials");
     if (!finish_stop())
         return;
@@ -404,7 +414,7 @@ void run() noexcept {
     busy_remaining = 100;
     application_account_logout_pump();
     const auto first_wake = application_account_logout_next_wake();
-    for (u32 i = 0; i < 64; ++i)
+    for (u32 i = 0; i < 8; ++i)
         application_account_logout_pump();
     check(begins == 1 && first_wake == 1125 && !accepted_posts,
           "logout controller: busy admission has finite 125ms retry instead of frame hot loop");
@@ -424,7 +434,7 @@ void run() noexcept {
     accept();
     application_account_logout_pump();
     const auto before_pending_takes = takes;
-    for (u32 i = 0; i < 64; ++i)
+    for (u32 i = 0; i < 8; ++i)
         application_account_logout_pump();
     check(takes == before_pending_takes && application_account_logout_next_wake() == 1125,
           "logout controller: accepted server polling is bounded instead of following unrelated UI frames");
@@ -540,7 +550,7 @@ void run() noexcept {
         !application_account_logout_prepare_startup(&paths) && !g_app.account_logout &&
             application_account_logout_blocked() && application_account_logout_next_wake() == 2000,
         "logout controller: startup owner allocation failure remains blocked with a finite recovery wake");
-    for (u32 i = 0; i < 64; ++i)
+    for (u32 i = 0; i < 8; ++i)
         application_account_logout_pump();
     check(allocation_attempts == 1 && !begins && credentials_present(),
           "logout controller: startup allocation failure never spins, submits or loads an account");

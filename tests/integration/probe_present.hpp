@@ -12,4 +12,7 @@ inline bool probe_present(D3D11Renderer* renderer, const Theme& theme) noexcept 
     renderer->live_resize = live_resize;
     return result;
 }
+// Defined by ui_probe.cpp: resizes the probe swap chain and resynchronizes the
+// shell layout.
+bool probe_resize_surface(u32 width, u32 height) noexcept;
 } // namespace maicord

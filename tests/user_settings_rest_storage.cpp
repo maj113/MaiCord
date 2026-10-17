@@ -1,14 +1,14 @@
 // Offline controlled completion fixture over the shipping owner implementation.
 // IOCP is real; HTTP plaintext/commit callbacks are driven explicitly. There
 // are no credentials, worker threads, sockets, DNS queries or live requests.
-#include "../src/app/rest_client.cpp"
+// Part of rest_client_fixtures.cpp.
+#include "rest_client_probe.hpp"
 #include "fixtures/rest_gzip_fixtures.hpp"
 #include "maicord/protocol/writer.hpp"
-#include "rest_client_probe.hpp"
 #include "test_output.hpp"
 
 namespace maicord {
-namespace {
+namespace user_settings_storage {
 u32 failures;
 void check(bool pass, const char* label) noexcept {
     test_check(&failures, pass, label);
@@ -76,8 +76,6 @@ struct Probe : RestClientProbe {
             finalize_response(&client, runtime, runtime->response_step, 1);
     }
 };
-}
-
 u32 user_settings_rest_storage_fixture() noexcept {
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
     static u8 payload[1017200], output[sizeof(payload)];
@@ -274,8 +272,5 @@ u32 user_settings_rest_storage_fixture() noexcept {
     check(!probe.client.runtime && freed(destroy_bank), "joined storage teardown releases pending extended bank");
     return failures;
 }
-}
-
-extern "C" void maicord_user_settings_rest_storage_entry() noexcept {
-    ExitProcess(maicord::user_settings_rest_storage_fixture() ? 1u : 0u);
-}
+} // namespace user_settings_storage
+} // namespace maicord

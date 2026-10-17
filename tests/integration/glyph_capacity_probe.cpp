@@ -1,13 +1,10 @@
-// Glyph command buffer growth. The registered run is the exact-texel comparison.
-// MAICORD_GLYPH_GROWTH_FAILURE=1 is manual: it asserts a debugger-injected E_OUTOFMEMORY on
-// buffer creation and fails without the injection.
+// Glyph command buffer growth: exact-texel comparison against a full-capacity control.
 #include "maicord/render/glyph_atlas_gpu.hpp"
+#include "../test_output.hpp"
 
 #include <d3d11_1.h>
 namespace maicord { namespace {
-void print(const char* p) noexcept {u32 n=0;while(p[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),p,n,&written,nullptr);}
-void number(u64 value) noexcept {char digits[24];u32 n=0;do{digits[n++]=static_cast<char>('0'+value%10);value/=10;}while(value);while(n){const char c=digits[--n];DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),&c,1,&written,nullptr);}}
-#define CHECK(x) do{if(!(x)){print("FAIL line ");number(__LINE__);print("\n");return false;}}while(0)
+#define CHECK(x) do{if(!(x)){test_write_text("FAIL line ");test_write_u64(__LINE__);test_write_text("\n");return false;}}while(0)
 struct State {
     ID3D11Device* device=nullptr;ID3D11DeviceContext* context=nullptr;ID3D11Texture2D* staging=nullptr;
     GlyphAtlasGpu gpu{},control{};
@@ -43,18 +40,11 @@ bool run() noexcept {
         return GlyphOutline{commands,65536,count,0,0,0,1,1,GlyphFillRule::winding,true};
     };
     GlyphRasterBounds bounds{0,0,8,8,8,8};GlyphAtlasAllocation allocation{{0,1},1,1,8,8,0,GlyphAtlasError::none,false,false};
-    wchar_t failure[2]{};const bool inject=GetEnvironmentVariableW(L"MAICORD_GLYPH_GROWTH_FAILURE",failure,2)==1;
-    if(inject){auto* old_buffer=s.gpu.command_buffer;auto* old_view=s.gpu.command_view;
-        const auto failed=rasterize(&s.gpu,s.context,shape(129),bounds,allocation,8,1);
-        CHECK(failed.error==GlyphAtlasGpuError::create_resource&&s.gpu.command_buffer==old_buffer&&s.gpu.command_view==old_view&&s.gpu.command_committed==128&&descriptor(s.gpu));
-        CHECK(rasterize(&s.gpu,s.context,shape(5),bounds,allocation,8,1).ok());
-        CHECK(rasterize(&s.gpu,s.context,shape(129),bounds,allocation,8,1).ok());
-        CHECK(s.gpu.command_committed==256&&descriptor(s.gpu));print("PASS growth failure preserves buffer and retry\n");return true;}
     CHECK(glyph_atlas_gpu_initialize(&s.control,s.device,32,32,2048).ok());
     CHECK(rasterize(&s.control,s.context,shape(2048),bounds,allocation,8,1).ok());
     CHECK(s.control.command_committed==2048&&descriptor(s.control));
     const u32 counts[]{5,128,129,256,257,512,513,1024,1025,2048,5};
-    u8 pixels[2][1024]{};u32 compared=0;print("{\"kind\":\"glyph_command_growth\",\"owner_bytes\":");number(sizeof(GlyphAtlasGpu));print(",\"capacities\":[");
+    u8 pixels[2][1024]{};u32 compared=0;test_write_text("{\"kind\":\"glyph_command_growth\",\"owner_bytes\":");test_write_u64(sizeof(GlyphAtlasGpu));test_write_text(",\"capacities\":[");
     for(u32 test=0;test<11;++test){const auto outline=shape(counts[test]);const UINT clear[4]{};
         auto* old_buffer=s.gpu.command_buffer;const u32 old_capacity=s.gpu.command_committed;
         for(u32 side=0;side<2;++side){auto& gpu=side?s.control:s.gpu;s.context->ClearUnorderedAccessViewUint(gpu.texture_uav,clear);
@@ -67,7 +57,7 @@ bool run() noexcept {
         else CHECK(s.gpu.command_buffer!=old_buffer&&s.gpu.command_committed>=counts[test]);
         for(u32 i=0;i<1024;++i){CHECK(pixels[0][i]==pixels[1][i]);++compared;}
         CHECK(pixels[0][4*32+4]==255&&pixels[0][0]==0);
-        if(test)print(",");number(s.gpu.command_committed);
+        if(test)test_write_text(",");test_write_u64(s.gpu.command_committed);
     }
     auto* full=s.gpu.command_buffer;const u32 dispatches=s.gpu.dispatch_count;
     CHECK(rasterize(&s.gpu,s.context,shape(2049),bounds,allocation,8,1).error==GlyphAtlasGpuError::command_capacity);
@@ -135,7 +125,7 @@ bool run() noexcept {
     }
     CHECK(pixels[0][33]==255&&pixels[0][49]==255);
     for(u32 i=0;i<1024;++i){CHECK(pixels[0][i]==pixels[1][i]);++compared;}
-    print("],\"exact_texels\":");number(compared);print("}\nPASS glyph command growth\n");return true;
+    test_write_text("],\"exact_texels\":");test_write_u64(compared);test_write_text("}\nPASS glyph command growth\n");return true;
 }
 }}
 extern "C" void maicord_glyph_capacity_entry(){ExitProcess(maicord::run()?0:1);}

@@ -1,7 +1,10 @@
 // Actual forum host and separate media owner, driven through the same typed
 // DETAILS and single upload lease boundaries as the shipping application.
+// The forum post suite is compiled in and runs alone under --forum-post; with
+// no attachment owner the actual media module gives the post host the same
+// answers as that suite's own stubs.
 #define MAICORD_FORUM_ACTUAL_ATTACHMENTS
-#define maicord_application_forum_post_entry maicord_forum_text_fixture_unused_entry
+#define maicord_application_forum_post_entry maicord_forum_post_mode_entry
 #include "application_forum_post.cpp"
 #undef maicord_application_forum_post_entry
 #include "file_drop_fixture.hpp"
@@ -266,5 +269,13 @@ void run() noexcept {
 }
 }
 extern "C" __declspec(noreturn) void WINAPI maicord_application_forum_attachments_entry() noexcept {
+    constexpr wchar_t mode[] = L"--forum-post";
+    for (const wchar_t* line = GetCommandLineW(); *line; ++line) {
+        maicord::u32 matched = 0;
+        while (mode[matched] && line[matched] == mode[matched])
+            ++matched;
+        if (!mode[matched])
+            maicord_forum_post_mode_entry();
+    }
     maicord::forum_media_test::run(); ExitProcess(maicord::forum_test::failures ? 1 : 0);
 }

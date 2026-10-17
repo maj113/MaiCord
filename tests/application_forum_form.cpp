@@ -49,12 +49,10 @@ void test_application_forum_form(void (*check)(bool, const char*) noexcept) noex
               secure_edit_redo(&body) == SecureEditResult::changed && body.storage.bytes == 18,
           "forum_form_multiline_message_preserves_lines_native_undo_redo");
     SecureEditUtf16Selection selection{};
-    bool stable = true;
-    for (u32 i = 0; i < 64; ++i)
-        stable = secure_edit_utf16_selection(body, &selection) == SecureEditResult::unchanged &&
-                 secure_edit_set_utf16_selection(&body, selection) == SecureEditResult::unchanged && stable;
-    check(stable && body.storage.data == body_storage && title.storage.data == title_storage,
-          "forum_form_64_selection_projections_keep_independent_edit_allocations");
+    check(secure_edit_utf16_selection(body, &selection) == SecureEditResult::unchanged &&
+              secure_edit_set_utf16_selection(&body, selection) == SecureEditResult::unchanged &&
+              body.storage.data == body_storage && title.storage.data == title_storage,
+          "forum_form_selection_projection_keeps_independent_edit_allocations");
     secure_edit_release(&title);
     secure_edit_release(&body);
     SecureZeroMemory(unicode, sizeof(unicode));

@@ -259,12 +259,6 @@ void oversized_record(void (*check)(bool, const char*) noexcept) noexcept {
     Slice<u32> index{};
     runtime.mailbox_deadline_ms = 0;
     const bool indexed = grow_main_index(&runtime, 1u << 18, &index);
-    TraceRecord memory("gateway_oversized_guild_memory");
-    memory.field("runtime_bytes", sizeof(GatewayClientRuntime));
-    memory.field("mailbox_ring_bytes", sizeof(runtime.events.payload));
-    memory.field("dispatch_scratch_bytes", scratch.count);
-    memory.field("large_reserved_bytes", runtime.large_record.reserved);
-    memory.field("large_idle_committed_bytes", runtime.large_record.committed);
     GatewayClientEvent event{};
     ConstSlice<u8> payload{};
     runtime.mailbox_deadline_ms = GetTickCount64() + kPhaseTimeoutMs;
@@ -272,8 +266,6 @@ void oversized_record(void (*check)(bool, const char*) noexcept) noexcept {
                                                                       {acquire_large_record, &runtime}, &event, &payload)
                                 : GatewayClientDispatchRouteResult{};
     const u32 record_bytes = static_cast<u32>(payload.count);
-    memory.field("record_bytes", record_bytes);
-    memory.field("large_loading_committed_bytes", runtime.large_record.committed);
     check(reserved && indexed && source.bytes && routed.ok() && event.state.record_count == fixture::kChannels &&
               record_bytes > kGatewayClientDispatchPayloadCapacity &&
               payload.data == runtime.large_record.base && runtime.large_record.committed == 256 * 1024 &&
@@ -318,8 +310,6 @@ void oversized_record(void (*check)(bool, const char*) noexcept) noexcept {
                                             &event, &payload)
             .ok() &&
         publish_event_payload(&client, &runtime, event, payload) && gateway_client_pop_event(&client, &popped_event);
-    memory.field("large_peak_committed_bytes", runtime.large_record.peak);
-    memory.field("large_after_committed_bytes", runtime.large_record.committed);
     check(discarded && !runtime.large_record_lease && !runtime.large_record.committed,
           "oversized guild: discarding the record decommits the worker storage");
     // The ordinary scratch reports the overflow instead of dropping parts.
@@ -329,9 +319,6 @@ void oversized_record(void (*check)(bool, const char*) noexcept) noexcept {
     check(!old.ok() && old.payload_overflow && old.error == GatewayClientDispatchRouteError::payload_capacity,
           "oversized guild: the ordinary scratch reports an overflow the caller can retry");
     runtime.mailbox_deadline_ms = 0;
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), memory.text, memory.used, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
     reserved_bytes_release(&runtime.large_record);
     runtime.owner = nullptr;
     client.runtime = nullptr;
@@ -517,15 +504,6 @@ void decoded_storage(void (*check)(bool, const char*) noexcept) noexcept {
     check(received.kind == GatewaySessionEventKind::dispatch && received.envelope.sequence == 12 &&
         runtime.decoded_message.arena.committed == committed && !growth_user.inflater.failed,
         "Gateway dictionary continuation preserves flush history and message backing high-water mark");
-    TraceRecord memory("gateway_decoded_high_water");
-    memory.field("message_reserved_bytes", runtime.decoded_message.arena.reserved);
-    memory.field("message_committed_bytes", runtime.decoded_message.arena.committed);
-    memory.field("message_commit_count", runtime.decoded_message.arena.commit_count);
-    memory.field("index_reserved_bytes", runtime.structural_scratch.arena.reserved);
-    memory.field("index_committed_bytes", runtime.structural_scratch.arena.committed);
-    DWORD written = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), memory.text, memory.used, &written, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
     for (u32 mode = 0; mode < 3; ++mode) {
         check(growing_session(mode == 2 ? 4096 : kGatewaySessionMaximumDecodedMessageBytes), "Gateway failed growth owner initializes");
         runtime.session.opened = true;
@@ -596,20 +574,6 @@ void allocation_cleanup(void (*check)(bool, const char*) noexcept) noexcept {
         storage->decoded_message.arena.reserved == kGatewaySessionMaximumDecodedMessageBytes &&
         storage->ready_record_index.arena.reserved == 4 * 1024 * 1024,
         "Gateway user owner and three one-page message/outer/record prefixes commit without eager maximum backing");
-    if (measured_owner && measured_index) {
-        SYSTEM_INFO system{}; GetSystemInfo(&system);
-        TraceRecord memory("gateway_native_memory");
-        memory.field("page_bytes", system.dwPageSize);
-        memory.field("user_owner_committed_bytes", owner_info.RegionSize);
-        memory.field("index_initial_region_bytes", index_info.RegionSize);
-        memory.field("message_initial_region_bytes", message_info.RegionSize);
-        memory.field("record_initial_region_bytes", record_info.RegionSize);
-        memory.field("record_reserved_bytes", storage->ready_record_index.arena.reserved);
-        memory.field("total_initial_committed_bytes", owner_info.RegionSize + index_info.RegionSize + message_info.RegionSize + record_info.RegionSize);
-        DWORD written = 0;
-        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), memory.text, memory.used, &written, nullptr);
-        WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
-    }
     release_runtime_allocation(&owned);
     check(initialized && VirtualQuery(owned.runtime, &owner_info, sizeof(owner_info)) &&
         owner_info.State == MEM_FREE && VirtualQuery(reserved, &index_info, sizeof(index_info)) &&
@@ -746,34 +710,12 @@ void index_storage(void (*check)(bool, const char*) noexcept) noexcept {
         gateway_session_next(&runtime.session, 0, GetTickCount64()).kind == GatewaySessionEventKind::need_input,
         "Gateway index growth rescans immutable inflated bytes without replaying the persistent flush");
     zlib_stream_clear(&inflater);
-    TraceRecord memory("gateway_index_high_water");
-    memory.field("capacity", runtime.structural_scratch.capacity);
-    memory.field("committed_bytes", runtime.structural_scratch.arena.committed);
-    memory.field("commit_count", runtime.structural_scratch.arena.commit_count);
-    DWORD measured = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), memory.text, memory.used, &measured, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &measured, nullptr);
     check(fresh_index(), "Gateway demand index fixture returns to one-page baseline");
 }
 }
 void test_gateway_ready_users(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace ready_probe;
-    TraceRecord memory("gateway_runtime_memory");
-    memory.field("runtime_bytes", gateway_client_runtime_bytes());
-    memory.field("user_runtime_bytes", gateway_client_user_runtime_bytes());
-    memory.field("session_bytes", sizeof(GatewaySession));
-    memory.field("arena_bytes", sizeof(Arena));
-    memory.field("stable_storage_bytes", sizeof(StableStorage));
-    memory.field("index_adapter_bytes", sizeof(GatewaySessionGrowIndex) + sizeof(void*));
-    memory.field("main_index_fields_bytes", sizeof(runtime.structural_scratch));
-    memory.field("shared_plain_record_bytes", sizeof(runtime.plain_output));
     if (!initialize()) { check(false, "ready user probe event"); return; }
-    memory.field("main_index_reserved_bytes", runtime.structural_scratch.arena.reserved);
-    memory.field("main_index_committed_bytes", runtime.structural_scratch.arena.committed);
-    memory.field("main_index_capacity", runtime.structural_scratch.capacity);
-    DWORD measured = 0;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), memory.text, memory.used, &measured, nullptr);
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &measured, nullptr);
     index_storage(check);
     decoded_storage(check);
     allocation_cleanup(check);

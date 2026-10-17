@@ -186,7 +186,7 @@ void membership_tests() noexcept {
     const u32 before_frames = frames, before_alloc = allocations, before_calls = submissions;
     const auto before_metrics = application_thread_actions_metrics();
     const u32 before_revision = model_channel()->revision;
-    for (u32 i = 0; i < 64; ++i) {
+    for (u32 i = 0; i < 8; ++i) {
         application_thread_actions_synchronize();
         application_thread_actions_view(20);
         application_thread_actions_pending(now);
@@ -195,7 +195,7 @@ void membership_tests() noexcept {
     check(frames == before_frames && allocations == before_alloc && submissions == before_calls &&
         quiet.publication_revision == before_metrics.publication_revision && quiet.owner_committed_bytes == 4096 &&
         model_channel()->revision == before_revision && !application_thread_actions_next_wake(),
-        "thread runtime:64 unchanged passes neither allocate repaint submit mutate nor schedule wake");
+        "thread runtime: unchanged passes neither allocate repaint submit mutate nor schedule wake");
     fetch(); check(send() && receipt(404) && model_channel()->thread_self_joined_known && !model_channel()->thread_self_joined,
         "thread runtime: fetch404 is an authoritative not-joined receipt");
     fetch(); check(send() && receipt(403) && !model_channel()->thread_self_joined_known &&

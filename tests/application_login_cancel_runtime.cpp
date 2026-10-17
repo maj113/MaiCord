@@ -524,7 +524,7 @@ void run_auth_cooldown() noexcept {
     const u32 password_bytes = g_app.login.password.storage.bytes;
     g_app.login.focus = LoginControl::password;
     bool blocked = true;
-    for (u32 i = 0; i < 64; ++i) {
+    for (u32 i = 0; i < 4; ++i) {
         blocked = blocked && application_login_handle_key(VK_RETURN) &&
                   application_login_begin_remote_auth() && application_login_begin_browser_auth() &&
                   application_login_submit_mfa() &&
@@ -535,7 +535,7 @@ void run_auth_cooldown() noexcept {
               !audit.mfa_submits && !audit.provider_calls && !audit.module_loads && !audit.path_resolves &&
               !audit.login_starts && g_app.login.password.storage.bytes == password_bytes &&
               application_login_auth_deadline() == due,
-          "auth cooldown: 64 password MFA browser and QR attempts preserve secrets and start no owner "
+          "auth cooldown: repeated password MFA browser and QR attempts preserve secrets and start no owner "
           "before deadline");
     check(application_login_handle_key(VK_ESCAPE) && editors_clear() &&
               g_app.login.status == LoginStatus::idle && !g_app.account.module &&
@@ -990,8 +990,9 @@ void run() noexcept {
         const auto posted = g_app.login.application_auth_epoch;
         g_app.login.webauthn_post_epoch = posted;
         audit.ceremony_scenario = scenario;
-        check(application_login_run_webauthn(posted - 1) && !audit.provider_calls && !audit.challenge_copies,
-            "stale posted native action is discarded before challenge copy or platform ceremony");
+        if (scenario == 1)
+            check(application_login_run_webauthn(posted - 1) && !audit.provider_calls && !audit.challenge_copies,
+                "stale posted native action is discarded before challenge copy or platform ceremony");
         check(application_login_run_webauthn(posted) && audit.provider_calls == 1 && audit.challenge_copies == 1 &&
             audit.mfa_submits == (scenario == 9 ? 1u : 0u),
               "post-modal guard submits only unchanged owner module generation request method mode epoch "

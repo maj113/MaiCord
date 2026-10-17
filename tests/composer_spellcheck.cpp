@@ -30,12 +30,6 @@ struct FakeChecker {
     u32 learned_adds, learned_ignores;
     bool unavailable;
 };
-bool equal(Utf8View word, const char* literal) noexcept {
-    u32 length = 0;
-    while (literal[length])
-        ++length;
-    return word.bytes == length && bytes_equal(word.data, literal, length);
-}
 // Misspelled: any word starting with 'x' plus "helo".
 ComposerSpellVerdict fake_check(void* context, Utf8View word) noexcept {
     auto& fake = *static_cast<FakeChecker*>(context);
@@ -47,7 +41,8 @@ ComposerSpellVerdict fake_check(void* context, Utf8View word) noexcept {
         fake.seen[fake.calls][bytes] = 0;
     }
     ++fake.calls;
-    return word.data[0] == 'x' || equal(word, "helo") ? ComposerSpellVerdict::misspelled : ComposerSpellVerdict::correct;
+    return word.data[0] == 'x' || utf8_equal(word, utf8_literal("helo")) ? ComposerSpellVerdict::misspelled
+                                                                         : ComposerSpellVerdict::correct;
 }
 u32 fake_suggest(void*, Utf8View, Slice<char> storage, Slice<Utf8View> output) noexcept {
     const char* values[] = {"hello", "help", "hell", "held", "helot", "heal", "hero"};
@@ -148,7 +143,7 @@ void test_cache(Check check) noexcept {
     composer_spellcheck_tick(&spell, document(text, 22, 3, 22), true, 2400);
     text[21] = ' ';
     composer_spellcheck_tick(&spell, document(text, 22, 3, 22), true, 2400 + kComposerSpellcheckDebounceMs);
-    check(fake.calls == calls + 1 && equal({fake.seen[calls], 3}, "xqa") && spell.span_count == 2 &&
+    check(fake.calls == calls + 1 && utf8_equal({fake.seen[calls], 3}, utf8_literal("xqa")) && spell.span_count == 2 &&
               spell.spans[1].start == 18 && spell.spans[1].end == 21,
           "spellcheck queries only the finished new word");
 
@@ -265,11 +260,11 @@ void test_menu(Check check) noexcept {
     check(!composer_spellcheck_menu_build(&spell, view, 3, 1, {items, kComposerSpellcheckMenuItems}),
           "spelling menu is empty over a correct word");
     const u32 count = composer_spellcheck_menu_build(&spell, view, 3, 8, {items, kComposerSpellcheckMenuItems});
-    check(count == kComposerSpellcheckSuggestions + 2 && equal(items[0].label, "hello") &&
+    check(count == kComposerSpellcheckSuggestions + 2 && utf8_equal(items[0].label, utf8_literal("hello")) &&
               items[0].action == kComposerSpellcheckActionBase && (items[0].flags & popup_item_enabled) &&
-              equal(items[5].label, "Add to dictionary") && (items[5].flags & popup_item_separator_before) &&
-              items[5].action == kComposerSpellcheckActionAdd && equal(items[6].label, "Ignore") &&
-              items[6].action == kComposerSpellcheckActionIgnore,
+              utf8_equal(items[5].label, utf8_literal("Add to dictionary")) &&
+              (items[5].flags & popup_item_separator_before) && items[5].action == kComposerSpellcheckActionAdd &&
+              utf8_equal(items[6].label, utf8_literal("Ignore")) && items[6].action == kComposerSpellcheckActionIgnore,
           "spelling menu lists five suggestions then dictionary actions");
     check(!composer_spellcheck_menu_action(static_cast<u32>(7)) &&
               composer_spellcheck_menu_action(kComposerSpellcheckActionIgnore),
@@ -280,7 +275,7 @@ void test_menu(Check check) noexcept {
     composer_spellcheck_menu_build(&spell, view, 3, 4, {items, kComposerSpellcheckMenuItems});
     const auto replace = composer_spellcheck_menu_activate(&spell, view, 3, kComposerSpellcheckActionBase + 1);
     check(replace.effect == ComposerSpellcheckEffect::replace && replace.first == 4 && replace.last == 8 &&
-              equal(replace.replacement, "help"),
+              utf8_equal(replace.replacement, utf8_literal("help")),
           "spelling suggestion activation reports the word range and replacement");
     composer_spellcheck_menu_build(&spell, view, 3, 6, {items, kComposerSpellcheckMenuItems});
     const auto ignored = composer_spellcheck_menu_activate(&spell, view, 3, kComposerSpellcheckActionIgnore);
@@ -297,7 +292,7 @@ void test_menu(Check check) noexcept {
     bare.backend = {&quiet, fake_check, nullptr, fake_learn};
     composer_spellcheck_tick(&bare, document(text, 12, 1, 12, 8), true, 1);
     check(composer_spellcheck_menu_build(&bare, view, 1, 5, {items, kComposerSpellcheckMenuItems}) == 3 &&
-              equal(items[0].label, "No suggestions") && !(items[0].flags & popup_item_enabled),
+              utf8_equal(items[0].label, utf8_literal("No suggestions")) && !(items[0].flags & popup_item_enabled),
           "spelling menu shows a disabled No suggestions row");
     composer_spellcheck_menu_activate(&bare, view, 1, kComposerSpellcheckActionAdd);
     check(quiet.learned_adds == 1, "Add to dictionary reaches the backend");

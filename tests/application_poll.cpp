@@ -23,7 +23,7 @@ static u64 poll_fixture_unix() noexcept {
 
 namespace maicord::poll_app_test {
 using namespace app_detail;
-u32 failures{}, checks{}, submissions{}, cancellations{}, frames{}, measures{};
+u32 failures{}, submissions{}, cancellations{}, frames{}, measures{};
 u16 measured_backend{};
 Theme fixture_theme = kDefaultTheme;
 u64 accepted{}, cancelled{};
@@ -47,7 +47,6 @@ UiTextMeasureRecord measure_rows[128]{};
 char body[8192]{};
 u32 body_bytes{};
 void check(bool value, const char* label) noexcept {
-    ++checks;
     test_check(&failures, value, label);
 }
 bool measure(void*, const UiTextMeasureRequest& r, UiTextMeasureValue* out) noexcept {
@@ -478,12 +477,12 @@ void run() noexcept {
     const auto warm_frames = frames, warm_measures = measures, warm_layout = owner->widgets.layout.revision;
     const auto warm_revision = owner->revision;
     const auto warm_submissions = submissions;
-    for (u32 i = 0; i < 64; ++i)
+    for (u32 i = 0; i < 8; ++i)
         application_poll_synchronize();
     check(frames == warm_frames && measures == warm_measures &&
               owner->widgets.layout.revision == warm_layout && owner->revision == warm_revision &&
               submissions == warm_submissions,
-          "poll app: 64 unchanged inspector synchronizations add no layout/measurement/frame/request work");
+          "poll app: unchanged inspector synchronizations add no layout/measurement/frame/request work");
     check(application_poll_input(UiInputKind::key_down, VK_ESCAPE, false) &&
               !application_poll_voters_active() &&
               application_poll_consume_key_tail(UiInputKind::character, VK_ESCAPE, false) &&

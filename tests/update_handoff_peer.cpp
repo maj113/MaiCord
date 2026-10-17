@@ -128,6 +128,9 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_handoff_peer_entry() 
     // The synthetic fixture digest embeds a numeric unrelated inheritable handle
     // solely to test exclusion; it is never a production digest or trust token.
     u64 outsider = 0; copy_bytes(&outsider, expected.document_sha256 + 24, sizeof(outsider));
+    // The parent signals the same named sentinel once its handoff wait has
+    // classified this peer, so the peer stays alive exactly that long.
+    HANDLE release = nullptr;
     if (outsider && scenario != 0xe1) {
         // Test-only API resolution from the already mapped OS module. The SDK
         // need not supply Kernelbase.lib; absence is an explicit fixture failure.
@@ -140,11 +143,16 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_handoff_peer_entry() 
         HANDLE suspect = nullptr;
         DuplicateHandle(GetCurrentProcess(), reinterpret_cast<HANDLE>(outsider), GetCurrentProcess(), &suspect, 0, FALSE, DUPLICATE_SAME_ACCESS);
         wchar_t name[80]{}; fixture_event_name(expected, name);
-        HANDLE actual = OpenEventW(SYNCHRONIZE, FALSE, name);
-        if (!actual || (suspect && compare(suspect, actual))) code = 29;
+        release = OpenEventW(SYNCHRONIZE, FALSE, name);
+        if (!release || (suspect && compare(suspect, release))) code = 29;
         if (suspect && !CloseHandle(suspect)) code = 31;
-        if (actual && !CloseHandle(actual)) code = 32;
     }
+    // Live parent: the release event fires first. A parent exit, wait failure
+    // or an unusable SYNCHRONIZE parent owner fails the scenario.
+    const auto held = [&]() noexcept {
+        HANDLE handles[2]{release, child.parent};
+        return release && WaitForMultipleObjects(2, handles, FALSE, 10000) == WAIT_OBJECT_0;
+    };
     DWORD exit = 0;
     if (GetExitCodeProcess(child.parent, &exit) || GetLastError() != ERROR_ACCESS_DENIED) code = 30;
     if (scenario == 0xe1) {
@@ -165,13 +173,14 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_handoff_peer_entry() 
         if (scenario == 6) child.identity.document_sha256[0] ^= 0x80;
         if (scenario == 7) child.identity.installation.bytes[0] ^= 0x80;
         if (!update_handoff_child_acknowledge(&child, true).ok()) code = 23;
-        if (WaitForSingleObject(child.parent, 750) != WAIT_TIMEOUT) code = 24;
+        if (!held()) code = 24;
     } else if (scenario == 3) {
-        if (WaitForSingleObject(child.parent, 750) != WAIT_TIMEOUT) code = 25;
+        if (!held()) code = 25;
     } else if (scenario == 5) {
         if (!SetEvent(child.event)) code = 26;
-        WaitForSingleObject(child.parent, 750);
+        if (!held()) code = 26;
     } else if (scenario != 4) code = 27;
+    if (release && !CloseHandle(release)) code = 32;
     if (!update_handoff_child_release(&child).ok()) code = 28;
     if (!signed_validation.release()) code = 38;
     ExitProcess(code);

@@ -173,85 +173,6 @@ bool fixture_open(const app_detail::ApplicationTextFormRequest& request) noexcep
     const bool restored = SetKeyboardState(original) != FALSE;
     return opened && restored;
 }
-bool capture_form(D3D11Renderer& renderer) noexcept {
-    wchar_t path[1024]{};
-    const DWORD length = GetEnvironmentVariableW(L"MAICORD_TEXT_FORM_CAPTURE_PATH", path, 1024);
-    if (!length)
-        return true;
-    if (length >= 1024)
-        return false;
-    // Populate both flip buffers with the same synthetic form before readback.
-    renderer.retained_presentation.valid = false;
-    if (!probe_present(&renderer, kDefaultTheme))
-        return false;
-    ID3D11Texture2D* source = nullptr;
-    if (FAILED(renderer.graphics.swap_chain->GetBuffer(0, __uuidof(ID3D11Texture2D),
-                                                       reinterpret_cast<void**>(&source))))
-        return false;
-    D3D11_TEXTURE2D_DESC description{};
-    source->GetDesc(&description);
-    const bool bgra = description.Format == DXGI_FORMAT_B8G8R8A8_UNORM;
-    const u64 bytes = static_cast<u64>(description.Width) * description.Height * 4;
-    if ((!bgra && description.Format != DXGI_FORMAT_R8G8B8A8_UNORM) || bytes > 0xFFFFFF00 ||
-        description.SampleDesc.Count != 1) {
-        source->Release();
-        return false;
-    }
-    description.Usage = D3D11_USAGE_STAGING;
-    description.BindFlags = 0;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    description.MiscFlags = 0;
-    ID3D11Texture2D* staging = nullptr;
-    if (FAILED(renderer.graphics.device->CreateTexture2D(&description, nullptr, &staging))) {
-        source->Release();
-        return false;
-    }
-    renderer.graphics.context->CopyResource(staging, source);
-    source->Release();
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(renderer.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped))) {
-        staging->Release();
-        return false;
-    }
-    HANDLE file =
-        CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    auto* row = static_cast<u8*>(
-        VirtualAlloc(nullptr, description.Width * 4, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-    bool valid = file != INVALID_HANDLE_VALUE && row;
-    BITMAPFILEHEADER header{};
-    header.bfType = 0x4D42;
-    header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
-    header.bfSize = header.bfOffBits + static_cast<DWORD>(bytes);
-    BITMAPINFOHEADER info{};
-    info.biSize = sizeof(info);
-    info.biWidth = static_cast<LONG>(description.Width);
-    info.biHeight = -static_cast<LONG>(description.Height);
-    info.biPlanes = 1;
-    info.biBitCount = 32;
-    info.biSizeImage = static_cast<DWORD>(bytes);
-    const auto write = [file](const void* data, DWORD size) noexcept {
-        DWORD written = 0;
-        return WriteFile(file, data, size, &written, nullptr) && written == size;
-    };
-    valid = valid && write(&header, sizeof(header)) && write(&info, sizeof(info));
-    for (u32 y = 0; valid && y < description.Height; ++y) {
-        const auto* input = static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch;
-        for (u32 x = 0; x < description.Width; ++x) {
-            row[x * 4] = input[x * 4 + (bgra ? 0 : 2)];
-            row[x * 4 + 1] = input[x * 4 + 1];
-            row[x * 4 + 2] = input[x * 4 + (bgra ? 2 : 0)];
-            row[x * 4 + 3] = 255;
-        }
-        valid = write(row, description.Width * 4);
-    }
-    if (file != INVALID_HANDLE_VALUE)
-        CloseHandle(file);
-    if (row)
-        VirtualFree(row, 0, MEM_RELEASE);
-    renderer.graphics.context->Unmap(staging, 0);
-    staging->Release();
-    return valid;
-}
 } // namespace
 bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache, HWND window) noexcept {
     using namespace app_detail;
@@ -323,7 +244,6 @@ bool application_text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& ca
             g_app.text_form->edit.storage.bytes == 8 && history_key('Y') &&
             g_app.text_form->edit.storage.bytes == 12 && history_key('Z') && history_key('Z', true) &&
             g_app.text_form->edit.storage.bytes == 12 && local.saves == 0;
-    valid = valid && capture_form(g_app.renderer);
     if (!valid) {
         log_write(LogLevel::error, "probe", "application_text_form_unicode_history_failed");
         if (g_app.text_form) {

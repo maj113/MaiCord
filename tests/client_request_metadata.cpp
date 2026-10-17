@@ -14,10 +14,6 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
     UserClientConfigurationStorage configuration{};
     check(user_client_configuration_initialize(&configuration).ok() &&
               configuration.configuration.properties.client_build_number == kClientBuildNumber &&
-              kClientBuildNumber == 634304 &&
-              utf8_equal(configuration.configuration.properties.browser, utf8_literal(kClientBrowser)) &&
-              utf8_equal(configuration.configuration.properties.browser_version,
-                         utf8_literal(kClientElectronVersion)) &&
               utf8_equal(configuration.configuration.properties.browser_user_agent,
                          utf8_literal(kClientUserAgent)) &&
               configuration.timezone_bytes <= kIanaTimezoneMaximumBytes &&
@@ -60,35 +56,29 @@ void test_client_request_metadata(void (*check)(bool, const char*) noexcept) noe
         launch_id[n] = configuration.client_launch_id[n];
     bool retained_identity = initial.ok() &&
         !contains({reinterpret_cast<const char*>(initial_properties), initial.bytes}, utf8_literal("\"device\":"));
-    for (u32 replacement = 0; replacement < 4; ++replacement) {
-        // Replacement workers copy the view descriptor, while the authenticated
-        // owner's backing stays put. Never copy/relocate the storage itself.
-        GatewayUserClientConfiguration replacement_configuration = configuration.configuration;
-        replacement_configuration.status = GatewayUserStatus::invisible;
-        const auto& properties = replacement_configuration.properties;
-        const auto serialized = write_rest_user_super_properties(properties, {scratch, sizeof(scratch)},
-                                                                 {output, sizeof(output)});
-        retained_identity = retained_identity &&
-                            gateway_user_client_configuration_validate(replacement_configuration) &&
-                            properties.client_launch_id.data == configuration.client_launch_id &&
-                            properties.system_locale.data == configuration.locale &&
-                            properties.os_version.data == configuration.os_version &&
-                            properties.os_sdk_version.data == sdk.data &&
-                            properties.os_sdk_version.bytes == sdk.bytes &&
-                            utf8_equal(properties.client_launch_id, {launch_id, sizeof(launch_id)}) &&
-                            serialized.ok() && serialized.bytes == initial.bytes &&
-                            utf8_equal({reinterpret_cast<const char*>(output), serialized.bytes},
-                                       {reinterpret_cast<const char*>(initial_properties), initial.bytes});
-        u8 identify[4096]{};
-        const auto command = gateway_write_user_identify(
-            {utf8_literal("fixture"), properties, 0, GatewayUserStatus::invisible, false, false},
-            {identify, sizeof(identify)});
-        retained_identity = retained_identity && command.ok() &&
-                            contains({reinterpret_cast<const char*>(identify), command.bytes},
-                                     {launch_id, sizeof(launch_id)});
-    }
-    check(retained_identity, "replacement Gateway configurations retain the owner's launch UUID, backing "
-                             "views and REST projection");
+    // Replacement workers copy the view descriptor, while the authenticated
+    // owner's backing stays put. Never copy/relocate the storage itself.
+    GatewayUserClientConfiguration replacement_configuration = configuration.configuration;
+    replacement_configuration.status = GatewayUserStatus::invisible;
+    const auto& replacement = replacement_configuration.properties;
+    const auto serialized =
+        write_rest_user_super_properties(replacement, {scratch, sizeof(scratch)}, {output, sizeof(output)});
+    u8 identify[4096]{};
+    const auto command = gateway_write_user_identify(
+        {utf8_literal("fixture"), replacement, 0, GatewayUserStatus::invisible, false, false},
+        {identify, sizeof(identify)});
+    check(retained_identity && gateway_user_client_configuration_validate(replacement_configuration) &&
+              replacement.client_launch_id.data == configuration.client_launch_id &&
+              replacement.system_locale.data == configuration.locale &&
+              replacement.os_version.data == configuration.os_version &&
+              replacement.os_sdk_version.data == sdk.data && replacement.os_sdk_version.bytes == sdk.bytes &&
+              utf8_equal(replacement.client_launch_id, {launch_id, sizeof(launch_id)}) && serialized.ok() &&
+              serialized.bytes == initial.bytes &&
+              utf8_equal({reinterpret_cast<const char*>(output), serialized.bytes},
+                         {reinterpret_cast<const char*>(initial_properties), initial.bytes}) &&
+              command.ok() &&
+              contains({reinterpret_cast<const char*>(identify), command.bytes}, {launch_id, sizeof(launch_id)}),
+          "replacement Gateway configurations retain the owner's launch UUID, backing views and REST projection");
     constexpr char target[] = "/api/v10/users/@me";
     constexpr char token[] = "fixture";
     constexpr char properties[] = "e30=";

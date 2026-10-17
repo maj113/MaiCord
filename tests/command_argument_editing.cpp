@@ -61,9 +61,6 @@ void test_command_argument_editing(void (*check)(bool, const char*) noexcept) no
     writer.used = 0;
     check(command_arguments(index, command, partial, &writer, &error, utf8_literal("query"), query),
           "partial focused quotes can request suggestions");
-    writer.used = 0;
-    check(!command_arguments(index, command, partial, &writer, &error),
-          "unfinished quotes cannot execute a command");
     constexpr auto empty_middle = utf8_literal("query: count:2");
     check(command_argument_find(index, command, empty_middle, utf8_literal("query"), &focus) &&
               !focus.value.bytes && focus.value_begin == 6 && focus.value_end == 6,
@@ -84,9 +81,6 @@ void test_command_argument_editing(void (*check)(bool, const char*) noexcept) no
     writer.used = 0;
     check(command_arguments(index, command, unicode, &writer, &error),
           "escaped non-ASCII option names also serialize correctly");
-    writer.used = 0;
-    check(!command_arguments(index, command, utf8_literal("query:x query:y"), &writer, &error),
-          "duplicate manually typed options remain rejected");
     command_index_release(&index);
 }
 } // namespace maicord

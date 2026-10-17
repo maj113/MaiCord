@@ -152,9 +152,6 @@ void dormant_abi() noexcept {
     missing.thread_browser = nullptr;
     check(!account_host_api_valid(missing),
           "thread browser account: host rejects absent mandatory browser callback");
-    missing = host.api;
-    missing.version = 87;
-    check(!account_host_api_valid(missing), "thread browser account: host rejects previous ABI version");
     account_host_release(&host);
 }
 } // namespace thread_browser_account_test

@@ -6,7 +6,6 @@
 #include "maicord/core/log.hpp"
 
 namespace maicord {
-bool probe_resize_surface(u32 width, u32 height) noexcept;
 namespace forwarded_messages_probe_detail {
 struct Fixture {
     MessageRecord records[2]{};

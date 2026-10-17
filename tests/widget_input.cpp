@@ -128,11 +128,13 @@ void test_widget_input(void (*check)(bool, const char*) noexcept) noexcept {
           login.focus == LoginControl::none && !login.widgets.focused.generation &&
           !login.widgets.captured.generation && !login_scene_focus(&login, LoginControl::password),
           "cached login update cancels disabled credential focus and capture");
+    bool credentials_skipped = true;
     for (u32 i = 0; i < 8; ++i) {
         const auto control = login_scene_move_focus(&login, (i & 1) != 0);
-        check(control != LoginControl::login && control != LoginControl::password &&
-              control != LoginControl::submit, "disabled credentials excluded from keyboard traversal");
+        credentials_skipped = control != LoginControl::login && control != LoginControl::password &&
+                              control != LoginControl::submit && credentials_skipped;
     }
+    check(credentials_skipped, "disabled credentials excluded from keyboard traversal");
     login.action_disabled = false;
     login.submit_disabled = true;
     check(login_scene_layout(&login, 1000, 800) && login_scene_focus(&login, LoginControl::login) &&

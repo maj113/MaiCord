@@ -798,14 +798,18 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         }
         check(valid, "rest_storage_page_aligned_scratch_nonoverlapping_at_capacity_boundaries");
     }
-    for (const auto& fixture : rest_gzip_fixtures) for (u32 sharing = 0; sharing < 2; ++sharing) {
+    // Empty, small, exactly-handshake-sized (262144) and larger-than-handshake outputs cover both scratch owners.
+    constexpr u32 storage_fixtures[]{0, 1, 4, 5};
+    for (const u32 fixture_index : storage_fixtures) for (u32 sharing = 0; sharing < 2; ++sharing) {
+        const auto& fixture = rest_gzip_fixtures[fixture_index];
         RestSharedState shared{};
         rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, 32}, {shared.bindings, 64});
         RestStorageProbe probe;
         const u32 capacity = maximum(kHandshakeOutputBytes, fixture.decoded_bytes);
         bool valid = probe.initialize(capacity, true, sharing ? &shared : nullptr);
         const u64 before = valid ? probe.committed() : 0;
-        for (u32 cycle = 0; valid && cycle < 4; ++cycle) {
+        // Keep-alive, close, then keep-alive again after the reconnect.
+        for (u32 cycle = 0; valid && cycle < 3; ++cycle) {
             // Simulate handshake-output reuse before another response/reconnect.
             probe.runtime->handshake_output[0] = 0xA5;
             valid = probe.prepare(fixture, (cycle & 1) == 0, false,

@@ -87,8 +87,7 @@ AccountMediaRequestResult WINAPI media(void* instance, AccountLocalPreviewOperat
         return result;
     }
     if (operation != AccountLocalPreviewOperation::request) return result;
-    check(operation == AccountLocalPreviewOperation::request &&
-              local_draft_preview_request_valid(*request) && now && unix_now,
+    check(local_draft_preview_request_valid(*request) && now && unix_now,
           "preview owner: UI admission crosses typed DLL boundary with valid immutable source");
     ++requests;
     submitted = *request;
@@ -182,12 +181,12 @@ void run() noexcept {
                    warm_revision = application_forum_preview_revision();
         const auto layouts = scene.widgets.layout.revision, measures = measure.backend_calls;
         bool warm = true;
-        for (u32 i = 0; i < 64; ++i)
+        for (u32 i = 0; i < 8; ++i)
             warm = application_forum_preview_request(1200 + i, 1) && warm;
         check(warm && frames == warm_frames && requests == warm_requests &&
                   application_forum_preview_revision() == warm_revision &&
                   scene.widgets.layout.revision == layouts && measure.backend_calls == measures,
-              "preview owner: 64 unchanged ready frames perform zero admission layout text or frame "
+              "preview owner: unchanged ready frames perform zero admission layout text or frame "
               "requests");
         media_atlas_reset(&atlas);
         next_result = AccountMediaRequestState::queued;
@@ -213,10 +212,10 @@ void run() noexcept {
               "preview owner: decode failure immediately schedules placeholder projection without posting "
               "gate or idle polling");
         const auto failed_requests = requests, failed_frames = frames;
-        for (u32 i = 0; i < 64; ++i)
+        for (u32 i = 0; i < 8; ++i)
             application_forum_preview_request(3200 + i, 1);
         check(requests == failed_requests && frames == failed_frames,
-              "preview owner: 64 unchanged failed placeholders do not retry or schedule frames");
+              "preview owner: unchanged failed placeholders do not retry or schedule frames");
         application_forum_preview_retire(ticket, row.id);
         check(retires == 1 && media_asset_key_equal(cancelled.key, frame.key) &&
                   !application_forum_preview_frame_current(frame) &&

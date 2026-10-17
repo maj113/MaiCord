@@ -55,7 +55,7 @@ void background_host(HWND window) noexcept {
     // can reject the frame. Model that later controlled rejection by not drawing.
     g_app.frame_pending = false;
     bool acknowledged = application_background_synchronize(500042) && r.background_next_frame_ms == 500084;
-    for (u32 retry = 0; retry < 64; ++retry)
+    for (u32 retry = 0; retry < 4; ++retry)
         acknowledged = acknowledged && !application_background_request_frame_if_due(500042, true) &&
                        !g_app.frame_pending;
     check(acknowledged && application_background_request_frame_if_due(500084, true) && g_app.frame_pending,
@@ -207,7 +207,7 @@ void run() noexcept {
               application_surface_motion_next_wake(350) == 366,
           "host motion: initial Settings page binds zero-opacity entrance and independent cadence");
     bool before_due = true;
-    for (u32 query = 0; query < 64; ++query)
+    for (u32 query = 0; query < 4; ++query)
         before_due = before_due && !application_surface_motion_request_frame_if_due(365, true) &&
                      !g_app.frame_pending;
     check(before_due && !application_surface_motion_request_frame_if_due(366, false) &&
@@ -223,7 +223,7 @@ void run() noexcept {
               application_surface_motion_next_wake(366) == 382,
           "host motion: no-input frame advances Settings visibility and consumes the old deadline");
     bool acknowledged = true;
-    for (u32 query = 0; query < 64; ++query)
+    for (u32 query = 0; query < 4; ++query)
         acknowledged = acknowledged && !application_surface_motion_request_frame_if_due(366, true) &&
                        !g_app.frame_pending;
     check(

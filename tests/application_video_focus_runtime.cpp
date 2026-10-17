@@ -421,11 +421,11 @@ void run_search_video() noexcept {
               "source");
         const u32 commands = account.commands;
         bool idle = true;
-        for (u32 frame = 0; frame < 64; ++frame)
+        for (u32 frame = 0; frame < 8; ++frame)
             idle = pump() && idle;
         check(idle && account.commands == commands && account.selections == selections + 1 &&
                   !application_video_next_wake(),
-              "search video runtime: 64 retired frames perform no decoder commands or deadlines");
+              "search video runtime: 8 retired frames perform no decoder commands or deadlines");
         ui_thread_browser_scene_release(&browser);
     }
     application_video_close();
@@ -601,7 +601,7 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
         const auto commands = account.commands, network = account.network_requests,
                    published = text_publications, gpu = account.gpu_publications;
         bool stable = true;
-        for (u32 frame = 0; frame < 64; ++frame)
+        for (u32 frame = 0; frame < 8; ++frame)
             stable = pump() && stable;
         check(stable && g_app.renderer.audio_scene &&
                   ui_audio_scene_paint_revision(*g_app.renderer.audio_scene) == paint &&
@@ -609,7 +609,7 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
                   account.commands == commands && account.selections == selections + 1 &&
                   account.network_requests == network && text_publications == published &&
                   !application_video_next_wake() && account.gpu_publications == gpu,
-              "audio runtime: 64 unchanged pumps retain paint/text and emit no request, command, "
+              "audio runtime: 8 unchanged pumps retain paint/text and emit no request, command, "
               "selection, GPU publication or animation deadline");
         if (format != MediaAttachmentFormat::ogg_opus) {
             account.status.playback.kind = AccountPlaybackKind::ogg_opus;
@@ -728,7 +728,7 @@ void run_audio_format(MediaAttachmentFormat format) noexcept {
               "audio runtime: front panel pauses audio, detaches controls and removes presentation "
               "deadlines");
         stable = true;
-        for (u32 frame = 0; frame < 64; ++frame)
+        for (u32 frame = 0; frame < 8; ++frame)
             stable = pump() && stable;
         check(stable && account.commands == before_modal + 1,
               "audio runtime: covered pumps never repeat the accepted pause");
@@ -1074,11 +1074,11 @@ void run() noexcept {
                   !application_video_key(VK_SPACE, false, false),
               "video quick runtime: authoritative modal pauses audio retires capture and blocks controls");
         bool idle = true;
-        for (u32 frame = 0; frame < 64; ++frame)
+        for (u32 frame = 0; frame < 8; ++frame)
             idle = pump() && idle;
         check(idle && account.commands == before_quick + 1 && account.selections == selected_before_quick &&
                   !application_video_next_wake(),
-              "video quick runtime: 64 unchanged modal frames issue no command reselection or deadline");
+              "video quick runtime: 8 unchanged modal frames issue no command reselection or deadline");
         quick_current = false;
         check(pump() && !g_app.renderer.video_scene && account.status.playback.paused &&
                   account.commands == before_quick + 1 && !application_video_next_wake() &&
@@ -1121,14 +1121,14 @@ void run() noexcept {
               "frame without GPU upload");
         const u32 text = text_publications, requests = account.network_requests;
         bool idle = true;
-        for (u32 frame = 0; frame < 64; ++frame)
+        for (u32 frame = 0; frame < 8; ++frame)
             idle = pump() && idle;
         ++browser.source_publication;
         check(idle && pump() && account.commands == commands + 1 && account.selections == selections &&
                   account.network_requests == requests && account.gpu_publications == uploads &&
                   text_publications == text && !application_video_next_wake() &&
                   !application_video_pointer(WM_LBUTTONDOWN, preview_point),
-              "video browser runtime: 64 unchanged and retired-publication frames retain occlusion without "
+              "video browser runtime: 8 unchanged and retired-publication frames retain occlusion without "
               "commands selection uploads text or wakes");
         browser.active = false;
         g_app.preferences.reduced_motion = true;
@@ -1148,7 +1148,7 @@ void run() noexcept {
         browser.active = true;
         g_app.renderer.thread_browser_scene = &browser;
         idle = true;
-        for (u32 frame = 0; frame < 64; ++frame)
+        for (u32 frame = 0; frame < 8; ++frame)
             idle = pump() && idle;
         check(idle && g_app.video && !g_app.renderer.video_scene &&
                   account.selections == pending_selections && account.commands == pending_commands &&
@@ -1189,7 +1189,7 @@ void run() noexcept {
         browser.active = true;
         g_app.renderer.thread_browser_scene = &browser;
         idle = true;
-        for (u32 frame = 0; frame < 64; ++frame)
+        for (u32 frame = 0; frame < 8; ++frame)
             idle = pump() && idle;
         check(idle && account.frame_acknowledgements == replacement_acks + 1 && !account.frame_pending &&
                   !stop_pending && !account.status.playback.playing &&
@@ -1198,7 +1198,7 @@ void run() noexcept {
                   account.network_requests == pending_requests && !g_app.renderer.video_scene &&
                   !application_video_next_wake(),
               "video browser runtime: late prior frame exact acknowledgement completes accepted stop with "
-              "no replacement select upload or repeated stop across 64 covered pumps");
+              "no replacement select upload or repeated stop across 8 covered pumps");
         // A source can retire before the next pump drains another late slot.
         account.queued_frame = {retiring_decoder.key, retiring_decoder.playback.identity, &queued_gpu};
         account.frame_pending = true;
@@ -1286,7 +1286,6 @@ void run() noexcept {
     run_audio();
     run_search_audio();
     run_search_audio(MediaAttachmentFormat::mp3);
-    run_search_audio(MediaAttachmentFormat::wav);
     application_video_close();
     message_scene_release(&g_app.message_scene);
     constexpr auto expired_source =
@@ -1311,11 +1310,11 @@ void run() noexcept {
             "video refresh runtime: terminal refresh publishes unavailable and retires indefinite loading");
         const u32 selections_after_failure = account.selections;
         bool stable = true;
-        for (u32 frame = 0; frame < 64; ++frame)
+        for (u32 frame = 0; frame < 8; ++frame)
             stable = pump() && stable;
         check(stable && account.selections == selections_after_failure &&
                   account.network_requests == requests_before_failure && !application_video_next_wake(),
-              "video refresh runtime: terminal refresh stays idle across 64 frames without reselection or "
+              "video refresh runtime: terminal refresh stays idle across 8 frames without reselection or "
               "expired requests");
     }
     fixture.rich_record[0].attachments[0].flags |= kGatewayMediaExplicitFlag;

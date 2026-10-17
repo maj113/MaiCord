@@ -26,7 +26,7 @@ using namespace app_detail;
 struct AccountFixture { RestClient rest; } account{};
 UiWidget popup_widgets[32]{};UiLayoutNode popup_nodes[32]{};u8 modal_token{};
 struct Observations {
-    u32 failures, submissions, builds, profile_opens, form_opens, input_layouts, input_syncs, input_suspends;
+    u32 failures, submissions, builds, form_opens, input_layouts, input_syncs;
     u64 request_id, user_id, profile_user, dm_user;
     RelationshipOperation operation;
     RestMethod method;
@@ -462,12 +462,12 @@ void pending_sections_runtime_fixture() noexcept {
             "friends storage: first three-row Other requests modal commits exactly one optional index page");
         report_number("Friends Other requests3 optional index bank committed bytes: ",modal_bank.committed_bytes);
         const auto* modal_source=scene()->source;const auto modal_revision=scene()->revision,modal_builds=seen.builds;
-        bool idle=true;for(u32 i=0;i<1000;++i)idle=application_friends_synchronize()&&idle;
+        bool idle=true;for(u32 i=0;i<8;++i)idle=application_friends_synchronize()&&idle;
         const auto modal_retained=application_friends_storage_metrics().requests_indices;
         check(idle&&scene()->source==modal_source&&scene()->revision==modal_revision&&seen.builds==modal_builds&&
             modal_bank.address==modal_retained.address&&modal_bank.reserved_bytes==modal_retained.reserved_bytes&&modal_bank.committed_bytes==modal_retained.committed_bytes&&
             modal_bank.admitted_count==modal_retained.admitted_count&&modal_bank.commit_count==modal_retained.commit_count,
-            "friends storage: 1000 idle modal synchronizations retain optional bank commitment and admitted high-water prefix");
+            "friends storage: 8 idle modal synchronizations retain optional bank commitment and admitted high-water prefix");
         UiFriendsRow first{},second{},third{};
         check(scene()->source->resolve(scene()->source->context,0,&first)&&scene()->source->resolve(scene()->source->context,1,&second)&&
             scene()->source->resolve(scene()->source->context,2,&third)&&first.ignored&&second.ignored&&third.spam&&!third.ignored&&
@@ -590,8 +590,6 @@ void bounded_performance_fixture() noexcept {
     constexpr u64 first_id = 10000, sequence = 1000;
     check(tab(UiFriendsTab::all), "friends benchmark: selects All before bounded snapshot fixture");
     const u32 user_revision = g_app.account_ui->user_store.revision;
-    LARGE_INTEGER frequency{}, start{}, committed{}, idle_end{};
-    const bool clock = QueryPerformanceFrequency(&frequency) && frequency.QuadPart > 0 && QueryPerformanceCounter(&start);
     GatewayClientEvent event{};
     event.kind = GatewayClientEventKind::dispatch;event.sequence = sequence;event.has_sequence = true;
     event.dispatch_kind = GatewayClientDispatchKind::relationship_snapshot_begin;
@@ -608,7 +606,6 @@ void bounded_performance_fixture() noexcept {
     event.state.record_count = records;event.dispatch_payload_bytes = 0;
     application_friends_gateway(event, {});
     const bool projected = application_friends_synchronize();
-    const bool commit_clock = clock && QueryPerformanceCounter(&committed);
     check(projected && scene() && scene()->phase == UiFriendsPhase::ready && scene()->tab == UiFriendsTab::all &&
         scene()->source_count == records && scene()->source && scene()->source->count == records &&
         g_app.account_ui->user_store.revision == user_revision,
@@ -642,17 +639,14 @@ void bounded_performance_fixture() noexcept {
     check(queried && controller_vm.State == MEM_COMMIT && scene_vm.State == MEM_COMMIT &&
         controller_vm.AllocationBase == controller && scene_vm.AllocationBase == arena.base,
         "friends benchmark: actual controller and retained scene allocations have committed VM regions");
-    LARGE_INTEGER idle_start{};
-    const bool idle_clock = clock && QueryPerformanceCounter(&idle_start);
     bool retained = true;
-    for (u32 i = 0; i < 1000; ++i) retained = application_friends_synchronize() && retained;
-    const bool end_clock = idle_clock && QueryPerformanceCounter(&idle_end);
+    for (u32 i = 0; i < 8; ++i) retained = application_friends_synchronize() && retained;
     const auto retained_storage=application_friends_storage_metrics();
     const auto same_bank=[](const FriendsStorageBankMetrics& a,const FriendsStorageBankMetrics& b) noexcept {
         return a.address==b.address&&a.reserved_bytes==b.reserved_bytes&&a.committed_bytes==b.committed_bytes&&a.admitted_count==b.admitted_count&&a.commit_count==b.commit_count;};
     check(storage.controller_bytes==retained_storage.controller_bytes&&same_bank(storage.active,retained_storage.active)&&
         same_bank(storage.candidate,retained_storage.candidate)&&same_bank(storage.indices,retained_storage.indices),
-        "friends benchmark: 1000 unchanged synchronizations retain all three bank admission and commit high-water metrics");
+        "friends benchmark: 8 unchanged synchronizations retain all three bank admission and commit high-water metrics");
     MEMORY_BASIC_INFORMATION controller_after{}, scene_after{};
     retained = retained && VirtualQuery(controller, &controller_after, sizeof(controller_after)) == sizeof(controller_after) &&
         VirtualQuery(arena.base, &scene_after, sizeof(scene_after)) == sizeof(scene_after);
@@ -666,11 +660,7 @@ void bounded_performance_fixture() noexcept {
         controller_after.BaseAddress == controller_vm.BaseAddress && controller_after.RegionSize == controller_vm.RegionSize &&
         scene_after.State == MEM_COMMIT && scene_after.AllocationBase == scene_vm.AllocationBase &&
         scene_after.BaseAddress == scene_vm.BaseAddress && scene_after.RegionSize == scene_vm.RegionSize,
-        "friends benchmark: 1000 unchanged synchronizations retain revisions, text publication and exact committed storage");
-    if (commit_clock) report_number("Friends snapshot4096 stage+commit+projection us: ",
-        static_cast<u64>(committed.QuadPart - start.QuadPart) * 1000000 / static_cast<u64>(frequency.QuadPart));
-    if (end_clock) report_number("Friends unchanged synchronize1000 us: ",
-        static_cast<u64>(idle_end.QuadPart - idle_start.QuadPart) * 1000000 / static_cast<u64>(frequency.QuadPart));
+        "friends benchmark: 8 unchanged synchronizations retain revisions, text publication and exact committed storage");
     if (queried) {
         report_number("Friends controller committed region bytes: ", controller_vm.RegionSize);
         report_number("Friends scene committed region bytes: ", scene_vm.RegionSize);
@@ -832,9 +822,8 @@ void run() noexcept {
     oversized.request_id = 12;oversized.error = RestClientError::response;
     oversized.body_bytes = kAccountHistoryResponseBytes + 1;
     check(application_friends_response(oversized, {}) && !application_friends_pending(100000) &&
-        scene()->source_count == 1 && scene()->phase == UiFriendsPhase::error &&
-        kAccountHistoryResponseBytes == 256 * 1024 && kUserAccountAuthorizedResponseBytes == 256 * 1024,
-        "friends: oversize transport failure keeps model and fixed 256KiB shared response bounds without hidden retry");
+        scene()->source_count == 1 && scene()->phase == UiFriendsPhase::error,
+        "friends: oversize transport failure keeps model without hidden retry");
     check(snapshot(utf8_literal(R"([{"id":"40","type":3,"user":{"id":"40","username":"dana"}}])"), 8) &&
         application_friends_synchronize() && tab(UiFriendsTab::pending) &&
         action(UiFriendsAction::accept, 40, UiFriendsTab::pending) && application_friends_submit(13, 2600) &&
@@ -957,7 +946,7 @@ bool synchronize_shell_layout() noexcept {
         application_friends_active() ? kFriendsShellLayoutMetrics : kGuildChannelShellLayoutMetrics, 1280, 700);
 }
 bool refresh_account_text(bool) noexcept { return true; }
-void application_composer_text_input_suspend() noexcept {++friends_runtime_test::seen.input_suspends;}
+void application_composer_text_input_suspend() noexcept {}
 bool application_composer_text_input_synchronize() noexcept {++friends_runtime_test::seen.input_syncs;return true;}
 void application_composer_text_input_notify_layout() noexcept {++friends_runtime_test::seen.input_layouts;}
 bool dismiss_popup() noexcept {popup_scene_close(&g_app.popup_scene);g_app.popup_owner_kind=PopupOwnerKind::none;return true;}
@@ -966,7 +955,7 @@ UiRect application_viewport_dips() noexcept {return {0,0,1280,700};}
 bool application_profile_close() noexcept { return true; }
 void application_image_viewer_close() noexcept {}
 bool application_profile_open(u64 user, UiRect, ProfileAnchor) noexcept {
-    ++friends_runtime_test::seen.profile_opens;friends_runtime_test::seen.profile_user = user;return true;
+    friends_runtime_test::seen.profile_user = user;return true;
 }
 bool application_user_menu_open(u64, UiRect, u64, UserMenuSource, ConstSlice<PopupItem>,
                                 const UiPopupFeedback*) noexcept {

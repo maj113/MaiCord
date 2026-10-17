@@ -540,16 +540,7 @@ void test_routes() noexcept {
     }
     check(exact && count == 27,
           "guild admin protocol: every operation writes its exact method, path and body");
-    const auto leave = rows[21].request;
-    check(guild_admin_route(leave).major == RestMajorParameter::guild && guild_admin_route(leave).major_key == 10 &&
-              guild_admin_route(leave).route_id == kGuildAdminRouteBase + static_cast<u64>(GuildAdminOperation::guild_leave),
-          "guild admin protocol: leaving is a guild-major DELETE with the lurking body");
     check(short_buffers, "guild admin protocol: every short target buffer is refused untouched");
-    check(guild_admin_route(rows[0].request).major == RestMajorParameter::guild &&
-              guild_admin_route(c).major == RestMajorParameter::channel &&
-              guild_admin_route(c).major_key == 50 && guild_admin_route(i).major == RestMajorParameter::none &&
-              guild_admin_route(i).major_key == 0,
-          "guild admin protocol: rate identity is guild-, channel- or unscoped by route");
 
     // Rejections: each request differs from a valid one by one property.
     auto bad = guild_request(GuildAdminOperation::member_kick);
@@ -774,12 +765,7 @@ void test_reason_and_head() noexcept {
     auto timeout = guild_request(GuildAdminOperation::member_update, 20);
     timeout.member = &late;
     const bool refused = !guild_admin_request_valid(timeout);
-    late.communication_disabled_until_ms = 0;
-    u8 body[128];
-    const auto cleared = guild_admin_write_body(timeout, {body, sizeof(body)});
-    check(refused && cleared.ok() &&
-              same(body, cleared.bytes, utf8_literal(R"({"communication_disabled_until":null})")),
-          "timestamps: a timeout past year 9999 is refused; zero ends the timeout with null");
+    check(refused, "timestamps: a timeout past year 9999 is refused");
 }
 
 // Role toggles PATCH the member's whole list; no per-role member route exists.

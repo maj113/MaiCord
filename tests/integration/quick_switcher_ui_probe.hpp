@@ -4,7 +4,6 @@
 #include "maicord/core/log.hpp"
 
 namespace maicord {
-bool probe_resize_surface(u32 width, u32 height) noexcept;
 namespace quick_switcher_probe_detail {
 struct Source { u32 calls{}; bool current{true}, mixed{true}, people{}; };
 inline bool current(void* opaque) noexcept { return static_cast<Source*>(opaque)->current; }

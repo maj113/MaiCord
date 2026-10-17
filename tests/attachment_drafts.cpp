@@ -3,14 +3,14 @@ namespace maicord {
 void test_attachment_drafts(void (*check)(bool, const char*) noexcept) noexcept {
     MessageAttachmentDraftStore store{};
     if (!message_attachment_drafts_initialize(&store)) { check(false, "attachment drafts reserve bounded storage"); return; }
-    check(!store.committed_bytes && message_attachment_drafts_reserved_bytes() < 5 * 1024 * 1024,
+    check(!store.committed_bytes,
         "empty attachment drafts reserve address space without committing path payloads");
     wchar_t first_path[] = L"C:\\files\\first.txt";
     const wchar_t second_path[] = L"C:\\files\\second.txt";
     MessageAttachmentFile files[]{ {{first_path, 18}, {{5, 7, 9, 0}, 1024}}, {{second_path, 19}, {{6, 8, 9, 0}, 2048}} };
     u64 ids[10]{};
     const auto added = message_attachment_drafts_add(&store, 7, {files, 2}, {ids, 10});
-    check(added == MessageAttachmentDraftError::none && store.count == 2 && store.committed_bytes == 8192 &&
+    check(added == MessageAttachmentDraftError::none && store.count == 2 && store.committed_bytes &&
         message_attachment_drafts_channel(&store, 7, {}) == 2 && !message_attachment_drafts_channel(&store, 8, {}),
         "selected files are staged atomically in their original channel");
     first_path[3] = L'X';

@@ -113,9 +113,10 @@ void test_embed_convergence(void (*check)(bool, const char*) noexcept) noexcept 
     }
     ChatStateStore state{};
     NavigationView navigation{};
-    // Real DirectWrite word wrapping: the old width feedback failed at 547.
+    // Real DirectWrite word wrapping: the old width feedback failed at 547, so
+    // 545..556 is swept pixel by pixel and the rest of 320..898 every 9 px.
     bool converged = true, steady = true;
-    for (u32 width = 320; width < 900 && converged; ++width) {
+    for (u32 width = 320; width < 900 && converged; width += width >= 540 && width < 556 ? 1u : 9u) {
         converged = message_scene_update(&f.scene, {0, 0, float(width), 1000}).ok();
         const MessageTextCoordinatorRequest request{
             &f.scene,       &f.presentation, &f.cache, &state, nullptr, &navigation,
@@ -133,7 +134,7 @@ void test_embed_convergence(void (*check)(bool, const char*) noexcept) noexcept 
                      row->rich_item_layout.embed_widths[0] == chosen && f.heights[0] == height;
         }
     }
-    check(converged, "thumbnail_inline_embed_converges_across_580_pane_widths");
+    check(converged, "thumbnail_inline_embed_converges_across_pane_widths");
     check(steady, "embed_width_and_height_are_stable_after_wrapping");
     const MessageTextCoordinatorRequest request{
         &f.scene,       &f.presentation, &f.cache, &state, nullptr, &navigation,

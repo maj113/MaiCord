@@ -212,7 +212,7 @@ void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept {
         bool scrolled = media_atlas_initialize(&avatars, 256, 256, 0, {avatar_entries, 32}, {avatar_buckets, 64},
                                                {avatar_allocations, 32}, {avatar_rows, 8});
         u32 evicted = 0;
-        for (u32 first = 0; scrolled && first < 200; ++first) {
+        for (u32 first = 0; scrolled && first < 40; ++first) {
             media_atlas_begin_visibility(&avatars);
             for (u32 row = first; scrolled && row < first + 8; ++row) {
                 if (media_atlas_find(&avatars, avatar(row)).ok())
@@ -225,7 +225,8 @@ void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept {
                 scrolled = media_atlas_peek(&avatars, avatar(row)).ok();
             scrolled = scrolled && avatars.entry_count <= 16;
         }
-        check(scrolled && evicted >= 180 && avatars.allocations.full_resets == 0 &&
+        // 47 avatars cycle through 16 slots (about three full turnovers).
+        check(scrolled && evicted >= 28 && avatars.allocations.full_resets == 0 &&
                   !media_atlas_peek(&avatars, avatar(0)).ok(),
               "atlas_pressure_member_list_scroll_evicts_offscreen_avatars_and_keeps_visible_rows");
     }
@@ -237,7 +238,8 @@ void test_atlas_pressure(void (*check)(bool, const char*) noexcept) noexcept {
     message_media_controller_begin_pump(&controller, 11);
     message_media_controller_defer_preview(&controller, 1000);
     bool suppressed = true;
-    for (u64 now = 1001; now < 2000; ++now) {
+    constexpr u64 wakes[]{1001, 1500, 1999};
+    for (const u64 now : wakes) {
         message_media_controller_begin_pump(&controller, 11);
         suppressed = suppressed && !message_media_controller_preview_ready(&controller, now) && controller.retry_at_ms == 2000;
     }

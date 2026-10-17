@@ -64,6 +64,11 @@ Utf8View response_body(u32 id, Slice<u8> buffer) noexcept {
     protocol_writer_append_literal(&writer, "\",\"upload_url\":\"https://upload.example.com/file?signature=fixture\",\"upload_filename\":\"fixture/a.txt\"}]}");
     return {reinterpret_cast<char*>(buffer.data), writer.used};
 }
+// Joins the drop worker instead of polling the nonblocking release.
+void release_attachments() noexcept {
+    using namespace app_detail;
+    while (!application_release_attachments()) WaitForSingleObject(g_app.attachments->picker.thread, INFINITE);
+}
 }
 void test_application_attachments(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace app_detail;
@@ -360,7 +365,7 @@ void test_application_attachments(void (*check)(bool, const char*) noexcept) noe
             check(staged == 1 && source && source->source.bytes == 8 && file_identity_equal(source->source.identity, dropped_snapshot.identity) &&
                 !application_attachment_input().label.bytes,
                 "real dropped file stages on original channel with captured identity");
-            while (!application_release_attachments()) Sleep(1);
+            release_attachments();
         }
         g_app.account_ui->active_channel_id = 7;
         dropped = file_drop_fixture::make({&dropped_file, 1});
@@ -372,18 +377,19 @@ void test_application_attachments(void (*check)(bool, const char*) noexcept) noe
             check(file_drop_fixture::await(&g_app.attachments->picker) && application_pump_attachments() &&
                 !g_app.attachments->drafts.count,
                 "user cancellation rejects a completed drop batch before application consumption");
-            while (!application_release_attachments()) Sleep(1);
+            release_attachments();
         }
         dropped = file_drop_fixture::make({&dropped_file, 1});
         check(application_drop_attachments(dropped) && g_app.attachments, "drop starts before account changes");
         check(application_manage_attachments() && g_app.popup_scene.active, "attachment menu opens during preparation");
         const u32 starts = fake.starts;
         g_app.account.status.profile_id = 78;
-        const u64 deadline = GetTickCount64() + 10000;
-        while (g_app.attachments && GetTickCount64() < deadline) { application_pump_attachments(); Sleep(1); }
+        application_pump_attachments();
+        if (g_app.attachments && WaitForSingleObject(g_app.attachments->picker.thread, 10000) == WAIT_OBJECT_0)
+            application_pump_attachments();
         check(!g_app.attachments && fake.starts == starts && !g_app.popup_scene.active,
             "drop finishing after account change is drained without staging or uploading");
-        while (!application_release_attachments()) Sleep(1);
+        release_attachments();
         g_app.account.status.profile_id = 77;
         check((GetWindowLongW(g_app.window, GWL_EXSTYLE) & WS_EX_ACCEPTFILES) == 0,
             "attachment cancellation unregisters the window drop target");

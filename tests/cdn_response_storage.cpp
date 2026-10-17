@@ -1,5 +1,4 @@
 // Exercise the shipping private response owner without a network or test-only API.
-#include "maicord/core/log.hpp"
 #include "../src/app/cdn_client.cpp"
 
 namespace maicord {
@@ -18,8 +17,10 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
                   {reinterpret_cast<const u8*>(audio_head), sizeof(audio_head)-1},
                   kCdnMaximumEncodedBodyBytes+1, 1).error == CdnHttpError::body_too_large,
           "cdn_audio_typed_ogg_mime_and_body_bounds_leave_video_policy_distinct");
-    constexpr u32 body_sizes[]{5u * 1024u * 1024u, 18'632'225u};
-    constexpr char small_head[] = "HTTP/1.1 200 OK\r\nContent-Length: 5242880\r\n\r\n";
+    // The image body only needs to exceed the 64 KiB reusable tail; the video body must exceed the 16 MiB
+    // image limit to prove the larger reservation streams.
+    constexpr u32 body_sizes[]{256u * 1024u, 18'632'225u};
+    constexpr char small_head[] = "HTTP/1.1 200 OK\r\nContent-Length: 262144\r\n\r\n";
     constexpr char video_head[] =
         "HTTP/1.1 200 OK\r\nContent-Length: 18632225\r\nContent-Type: video/mp4\r\n\r\n";
     constexpr char oversized_head[] =
@@ -66,7 +67,7 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
     u8 chunk[16 * 1024];
     for (auto& byte : chunk)
         byte = 0xA5;
-    u64 peak = 0, retained = 0;
+    u64 retained = 0;
     for (u32 round = 0; valid && round < 2; ++round) {
         u32 body_bytes = body_sizes[round];
         valid = http_response_decoder_initialize(
@@ -88,7 +89,6 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
             valid = action == (offset + part == body_bytes ? TlsStreamReadAction::complete
                                                            : TlsStreamReadAction::continue_read);
         }
-        peak = maximum<u64>(peak, runtime->storage_committed_bytes);
         runtime->completed.body_bytes = body_bytes;
         client.request_state = request_state_ready;
         const auto rejected = cdn_client_consume_response(
@@ -113,9 +113,6 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
                 runtime->response_capacity == kMediaMaximumEncodedVideoBytes;
     }
     check(valid, "cdn_response_owner_releases_large_body_and_recommits_next_response_exactly");
-    log_u64(LogLevel::info, "cdn_storage_probe", "peak_committed_bytes", peak);
-    log_u64(LogLevel::info, "cdn_storage_probe", "retained_committed_bytes", retained);
-    log_u64(LogLevel::info, "cdn_storage_probe", "maximum_reserved_bytes", runtime->allocation_bytes);
     if (client.response_event)
         CloseHandle(client.response_event);
     VirtualFree(runtime, 0, MEM_RELEASE);

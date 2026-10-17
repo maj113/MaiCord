@@ -11,7 +11,7 @@ namespace maicord { static u64 browser_fixture_now() noexcept { return thread_br
 
 namespace maicord::thread_browser_test {
 using namespace app_detail;
-u32 failures{}, submissions{}, cancellations{}, repaints{}, navigations{}, text_rebuilds{};
+u32 failures{}, submissions{}, text_rebuilds{};
 u64 accepted{}, cancelled{}, navigated{};
 u8 actor{};
 RestClientSubmitError admission{};
@@ -29,7 +29,7 @@ void check(bool ok, const char* label) noexcept {
 }
 RestClientSubmitResult WINAPI submit(void* instance, const ThreadBrowserRequest* request, u64 id) noexcept {
     if (instance != &actor || !id) return {RestClientSubmitError::invalid_input};
-    if (!request) { ++cancellations; cancelled = id; return {}; }
+    if (!request) { cancelled = id; return {}; }
     ++submissions;
     if (admission != RestClientSubmitError::none) return {admission};
     if (accepted) return {RestClientSubmitError::busy};
@@ -113,7 +113,7 @@ u32 forum_submissions{};
 ForumPostRequest forum_request{};
 RestClientSubmitResult WINAPI forum_submit(void* instance, const ForumPostRequest* request, u64 id) noexcept {
     if (instance != &actor || !id) return {RestClientSubmitError::invalid_input};
-    if (!request) { ++cancellations; cancelled = id; return {}; }
+    if (!request) { cancelled = id; return {}; }
     ++forum_submissions;
     forum_request = *request;
     return {};
@@ -620,7 +620,7 @@ void run() noexcept {
                   !browser_owner->actor_floor,
               "forum: unknown deadlines and terminal verification receipts do not invent a metadata retry");
         bool settled = true;
-        for (u32 pass = 0; pass < 64; ++pass) {
+        for (u32 pass = 0; pass < 8; ++pass) {
             application_thread_browser_synchronize();
             settled = settled && !forum_meta_due(*browser_owner, ~u64{0}) &&
                       !browser_owner->forum->meta_queued && forum_submissions == before + 1;
@@ -686,7 +686,7 @@ bool application_forum_post_available(u64) noexcept { return false; }
 bool application_forum_post_open(u64) noexcept { return false; }
 Application g_app{};
 const Theme& application_theme() noexcept { static Theme theme{}; return theme; }
-bool application_request_frame() noexcept { ++thread_browser_test::repaints; return true; }
+bool application_request_frame() noexcept { return true; }
 bool refresh_account_text(bool) noexcept { return true; }
 bool application_settings_active() noexcept { return false; }
 bool application_friends_active() noexcept { return false; }
@@ -696,7 +696,7 @@ void application_composer_text_input_suspend() noexcept {}
 void end_message_composer_pointer_selection() noexcept {}
 void end_message_text_selection() noexcept {}
 bool application_navigate_known_message(u64 id, u64) noexcept {
-    ++thread_browser_test::navigations; thread_browser_test::navigated = id; return true;
+    thread_browser_test::navigated = id; return true;
 }
 }
 }

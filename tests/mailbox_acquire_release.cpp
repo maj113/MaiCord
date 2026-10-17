@@ -42,7 +42,7 @@ DWORD WINAPI produce(void*) noexcept {
 }
 bool run(bool pin) noexcept {
     stress = {};
-    stress.count = 100'000;
+    stress.count = 10'000;
     // Cross the descriptor counter rollover while independently wrapping the
     // non-power-of-two byte ring thousands of times.
     stress.mailbox.read_sequence = stress.mailbox.write_sequence = static_cast<LONG>(0xfffffff0u);

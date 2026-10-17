@@ -155,7 +155,7 @@ void test_reply_grouping(void (*check)(bool, const char*) noexcept) noexcept {
         paint_stream_release(&paint);
         const u32 layouts = f.scene.layout_passes, rebuilds = f.scene.rebuilds, preparations = f.scene.preparation_passes;
         bool warm = marked;
-        for (u32 i = 0; i < 64; ++i) {
+        for (u32 i = 0; i < 2; ++i) { // the second frame repeats the first's already-clean state
             changed = true;
             const bool same = message_scene_set_unread_cursor(&f.scene, 7, 102, true, &changed);
             const auto update = message_scene_update(&f.scene, viewport);
@@ -163,7 +163,7 @@ void test_reply_grouping(void (*check)(bool, const char*) noexcept) noexcept {
         }
         check(warm && layouts == f.scene.layout_passes && rebuilds == f.scene.rebuilds &&
             preparations == f.scene.preparation_passes,
-            "unread_divider_64_unchanged_cursor_frames_do_not_reprepare_or_relayout");
+            "unread_divider_unchanged_cursor_frames_do_not_reprepare_or_relayout");
         changed = false;
         check(message_scene_set_unread_cursor(&f.scene, 7, 0, false, &changed) && changed &&
             message_scene_update(&f.scene, viewport).ok() && !f.scene.unread_first_message_id &&

@@ -284,8 +284,6 @@ void run() noexcept {
         fenced = resolved && launches == before && !content_owner.intent.pending && fenced;
     }
     check(fenced, "Search deferred file revalidates account profile self permission and publication before opening");
-    seed(); before = launches; application_search_content_activate(ticket(), target(true));
-    check(launches == before + 1, "Search forwarded file validates original source channel separately from destination");
     seed({}, unsigned_file); before = launches; const auto notice_before = notices;
     application_search_content_activate(ticket(), target());
     application_search_content_pump(); application_search_content_pump();

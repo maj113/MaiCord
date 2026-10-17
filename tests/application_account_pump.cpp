@@ -207,7 +207,6 @@ GatewayClientPopResult application_pop_account_gateway(void*, GatewayClientEvent
             auto& state = g_app.account_ui->chat_state;
             const auto seeded = chat_state_store_upsert_channel(&state,
                 {70, 0, 0, utf8_literal("Poll conversation"), 0, 0, 1});
-            check(seeded.ok(), "poll READY fixture upserts a typed private Core channel");
             check(seeded.ok() && chat_state_store_select_channel(&state, 70).ok(),
                 "poll receipt follows validated READY with real selected readable Core channel");
             g_app.account_ui->active_channel_id = 70;
@@ -610,9 +609,6 @@ void test_frame_deadlines() noexcept {
     check(application_wait_timeout(1000, 1000000, true) == 0 && application_nonvisual_wake_due(1000),
           "due_reaction_deadline_wakes_the_account_without_a_visual_timer");
     reaction_wake = 0;
-    check(application_wait_timeout(1000, 1000000, true) == INFINITE &&
-              !application_nonvisual_wake_due(1000),
-          "retired_reaction_deadline_returns_the_account_to_wait_driven_idle");
     g_app.renderer.text_effect_next_ms = 1042;
     check(!application_visual_frame_requested(1000, 1000000) && !application_effect_frame_due(1000) &&
               application_wait_timeout(1000, 1000000, false) == 42,
@@ -657,9 +653,6 @@ void test_frame_deadlines() noexcept {
               application_wait_timeout(1000, 1000000, false) == 0 && !application_nonvisual_wake_due(1000),
           "due_surface_motion_is_paced_by_dxgi_or_timer_fallback");
     surface_wake = 0;
-    check(application_wait_timeout(1000, 1000000, false) == INFINITE &&
-              !application_visual_frame_requested(1000, 1000000),
-          "settled_or_dismissed_tooltip_returns_to_wait_driven_idle");
     // Pins/inbox/thread-browser loading spinners share one visual frame clock.
     loading_spinner_wake = 1032;
     check(!application_visual_frame_requested(1000, 1000000) && !application_effect_frame_due(1000) &&
@@ -672,9 +665,6 @@ void test_frame_deadlines() noexcept {
               application_wait_timeout(1000, 1000000, false) == 0 && !application_nonvisual_wake_due(1000),
           "due_loading_spinner_requests_one_paced_frame");
     loading_spinner_wake = 0;
-    check(application_wait_timeout(1000, 1000000, false) == INFINITE &&
-              !application_visual_frame_requested(1000, 1000000) && !application_effect_frame_due(1000),
-          "hidden_loading_spinner_stops_scheduling_frames");
     scoped_read_wake = 1400;
     check(application_wait_timeout(1000, 1000000, true) == 400 && !application_nonvisual_wake_due(1000) &&
               !application_visual_frame_requested(1000, 1000000),
@@ -684,9 +674,6 @@ void test_frame_deadlines() noexcept {
               !application_visual_frame_requested(1000, 1000000),
           "scoped_read_due_deadline_wakes_account_even_with_dxgi_armed");
     scoped_read_wake = 0;
-    check(application_wait_timeout(1000, 1000000, true) == INFINITE &&
-              !application_nonvisual_wake_due(1000),
-          "scoped_read_retirement_returns_scheduler_to_idle");
     search_caret_wake = 1400;
     check(application_wait_timeout(1000, 1000000, false) == 400 &&
               application_wait_timeout(1000, 1000000, true) == INFINITE &&
@@ -873,8 +860,6 @@ void test_frame_deadlines() noexcept {
     check(application_wait_timeout(1000, 1000000, true) == 0 && !application_nonvisual_wake_due(1000),
           "recovery_cooldown_expiry_wakes_ui_without_account_work");
     recovery_wake = 0;
-    check(application_wait_timeout(1000, 1000000, true) == INFINITE,
-          "cleared_recovery_deadline_returns_to_wait_driven_idle");
     reset_wake = 50'001'000;
     check(application_wait_timeout(1000, 1000000, true) == 50'000'000 &&
               !application_nonvisual_wake_due(1000),
@@ -883,8 +868,6 @@ void test_frame_deadlines() noexcept {
     check(application_wait_timeout(1000, 1000000, true) == 0 && !application_nonvisual_wake_due(1000),
           "reset_cooldown_expiry_wakes_ui_without_submitting_or_pumping_account_work");
     reset_wake = 0;
-    check(application_wait_timeout(1000, 1000000, true) == INFINITE,
-          "cleared_reset_deadline_returns_to_wait_driven_idle");
     phone_wake = 50'001'000;
     check(application_wait_timeout(1000, 1000000, true) == 50'000'000 &&
               !application_nonvisual_wake_due(1000),

@@ -5,7 +5,6 @@
 #include "maicord/core/log.hpp"
 
 namespace maicord {
-bool probe_resize_surface(u32 width, u32 height) noexcept;
 namespace message_forward_probe_detail {
 struct Source { u32 calls{}; bool current{true}; };
 inline bool current(void* opaque) noexcept { return static_cast<Source*>(opaque)->current; }

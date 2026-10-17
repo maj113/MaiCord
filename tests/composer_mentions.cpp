@@ -15,10 +15,6 @@ namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;
 
-bool view_is(Utf8View value, Utf8View expected) noexcept {
-    return value.bytes == expected.bytes && (!value.bytes || bytes_equal(value.data, expected.data, value.bytes));
-}
-
 bool contains(Utf8View text, Utf8View expected) noexcept {
     for (u32 i = 0; i + expected.bytes <= text.bytes; ++i)
         if (bytes_equal(text.data + i, expected.data, expected.bytes))
@@ -98,9 +94,9 @@ void test_autocomplete_roles(Check check) noexcept {
     const auto& s = f.autocomplete.suggestions;
     check(f.build(7, utf8_literal("@")) && f.autocomplete.kind == ComposerAutocompleteKind::member &&
               f.autocomplete.count == 2 && s[1].item_kind == ComposerAutocompleteKind::role && s[1].role_id == 501 &&
-              view_is(s[1].label, utf8_literal("@Mods")) && s[1].role_color == 0xE91E63 &&
-              view_is(insertion(s[1]), utf8_literal("<@&501> ")) &&
-              view_is(s[1].description,
+              utf8_equal(s[1].label, utf8_literal("@Mods")) && s[1].role_color == 0xE91E63 &&
+              utf8_equal(insertion(s[1]), utf8_literal("<@&501> ")) &&
+              utf8_equal(s[1].description,
                       utf8_literal("Notify users with this role who have permission to view this channel.")) &&
               s[0].role_id == 503 && !s[0].role_color,
           "composer mentions: without MENTION_EVERYONE only mentionable roles list, by name like match-sorter, "
@@ -108,15 +104,15 @@ void test_autocomplete_roles(Check check) noexcept {
     f.channels[0].actions = channel_action_mention_everyone;
     check(f.build(7, utf8_literal("@")) && f.autocomplete.count == 5 &&
               s[0].item_kind == ComposerAutocompleteKind::global_mention &&
-              view_is(insertion(s[0]), utf8_literal("@everyone ")) &&
-              view_is(s[0].description, utf8_literal("Notify everyone who has permission to view this channel.")) &&
-              view_is(insertion(s[1]), utf8_literal("@here ")) &&
-              view_is(s[1].description,
+              utf8_equal(insertion(s[0]), utf8_literal("@everyone ")) &&
+              utf8_equal(s[0].description, utf8_literal("Notify everyone who has permission to view this channel.")) &&
+              utf8_equal(insertion(s[1]), utf8_literal("@here ")) &&
+              utf8_equal(s[1].description,
                       utf8_literal("Notify everyone online who has permission to view this channel.")) &&
               s[2].role_id == 502 && s[3].role_id == 503 && s[4].role_id == 501,
           "composer mentions: MENTION_EVERYONE adds the globals and every role except @everyone's own");
     check(f.build(7, utf8_literal("@her")) && f.autocomplete.count == 1 &&
-              view_is(s[0].label, utf8_literal("@here")),
+              utf8_equal(s[0].label, utf8_literal("@here")),
           "composer mentions: globals match their names like roles");
     check(f.build(7, utf8_literal("@mem")) && f.autocomplete.count == 1 && s[0].role_id == 503 &&
               f.build(7, utf8_literal("@ds")) && f.autocomplete.count == 2 && s[0].role_id == 501 &&
@@ -269,11 +265,11 @@ void test_autocomplete_members(Check check) noexcept {
     check(f.initialize(), "composer mentions: member fixture initializes");
     const auto& s = f.autocomplete.suggestions;
     check(f.build(7, utf8_literal("@ali")) && f.autocomplete.count == 1 && f.user_at(0) == 1 &&
-              view_is(s[0].label, utf8_literal("Alice")) && view_is(s[0].username, utf8_literal("alice")) &&
-              view_is(insertion(s[0]), utf8_literal("<@1> ")) && f.autocomplete.member_query_guild_id == 99,
+              utf8_equal(s[0].label, utf8_literal("Alice")) && utf8_equal(s[0].username, utf8_literal("alice")) &&
+              utf8_equal(insertion(s[0]), utf8_literal("<@1> ")) && f.autocomplete.member_query_guild_id == 99,
           "composer mentions: cached guild members match with the member list closed and ask the gateway");
     check(f.build(7, utf8_literal("@alc")) && f.autocomplete.count == 3 && f.user_at(0) == 4 &&
-              view_is(s[0].label, utf8_literal("Alcove")) && f.user_at(1) == 7 && f.user_at(2) == 1,
+              utf8_equal(s[0].label, utf8_literal("Alcove")) && f.user_at(1) == 7 && f.user_at(2) == 1,
           "composer mentions: a nickname prefix outranks in-order letter matches (list order breaks ties)");
     check(f.build(7, utf8_literal("@alm")) && f.autocomplete.count == 1 && f.user_at(0) == 7 &&
               f.autocomplete.member_query_guild_id == 99,
@@ -299,7 +295,7 @@ void test_autocomplete_members(Check check) noexcept {
               f.user_at(0) == 7 && f.user_at(1) == 2 && f.autocomplete.member_query_guild_id == 99,
           "composer mentions: without recent authors an empty query lists cached members and asks the gateway");
     check(f.build(8, utf8_literal("@")) && f.autocomplete.count == 3 && f.user_at(0) == 3 && f.user_at(1) == 5 &&
-              view_is(s[1].label, utf8_literal("Davey")) && f.user_at(2) == 1 &&
+              utf8_equal(s[1].label, utf8_literal("Davey")) && f.user_at(2) == 1 &&
               !f.autocomplete.member_query_guild_id,
           "composer mentions: private channels list their recipients (with channel nicknames), then you");
     check(f.build(8, utf8_literal("@dav")) && f.autocomplete.count == 1 && f.user_at(0) == 5 &&
@@ -323,7 +319,7 @@ void test_member_query(Check check) noexcept {
           "member query: one trailing 200 ms timer restarts for a new query, not for the same one");
     const bool due = mention_member_query_due(owner, 1350, &request);
     check(due && request.guild_id == 99 && request.channel_id == 7 && request.user_count == 0 &&
-              request.limit == 10 && view_is({request.query, request.query_bytes}, utf8_literal("ali")) &&
+              request.limit == 10 && utf8_equal({request.query, request.query_bytes}, utf8_literal("ali")) &&
               (request.nonce & kMentionMemberQueryNonceTag) == kMentionMemberQueryNonceTag &&
               gateway_guild_member_request_is_query(request) && gateway_guild_member_request_valid(request),
           "member query: the due request carries the lower-cased query and limit 10");
@@ -360,7 +356,7 @@ void test_member_query(Check check) noexcept {
     const auto empty_expected =
         utf8_literal(R"({"op":8,"d":{"guild_id":"7","query":"","limit":10,"presences":false,"nonce":"12"}})");
     check(written.ok() && fitted.ok() && !short_output.ok() && empty.ok() &&
-              view_is({reinterpret_cast<const char*>(wire), empty.bytes}, empty_expected) &&
+              utf8_equal({reinterpret_cast<const char*>(wire), empty.bytes}, empty_expected) &&
               expected.bytes == written.bytes,
           "member query: opcode 8 sends guild_id, query, limit, presences false and the nonce");
     request.limit = 101;
@@ -435,7 +431,7 @@ void test_mention_warning(Check check) noexcept {
     char body[kMessageMentionWarningBodyBytes]{};
     u32 bytes = message_mention_warning_body(warning, input.place, {body, sizeof(body)});
     check(warning.required && !warning.here && warning.count == 1000 &&
-              view_is({body, bytes},
+              utf8_equal({body, bytes},
                       utf8_literal(
                           "By using @everyone, you are about to mention 1,000+ people. Are you sure?")),
           "composer mentions: large @everyone in a guild channel asks with the official copy");
@@ -462,7 +458,7 @@ void test_mention_warning(Check check) noexcept {
     warning = message_mention_warning_evaluate(input);
     bytes = message_mention_warning_body(warning, input.place, {body, sizeof(body)});
     check(warning.required && warning.count == 50 &&
-              view_is({body, bytes}, utf8_literal(
+              utf8_equal({body, bytes}, utf8_literal(
                   "By using @everyone, you are about to mention 50+ people in this thread. Are you sure?")),
           "composer mentions: threads count thread members");
 }
@@ -470,7 +466,7 @@ void test_mention_warning(Check check) noexcept {
 void test_silent_send(Check check) noexcept {
     Utf8View rest{};
     check(message_silent_prefix(utf8_literal("@silent  hello \n"), &rest) &&
-              view_is(rest, utf8_literal("hello")) && message_silent_prefix(utf8_literal("@silent"), &rest) &&
+              utf8_equal(rest, utf8_literal("hello")) && message_silent_prefix(utf8_literal("@silent"), &rest) &&
               !rest.bytes && !message_silent_prefix(utf8_literal("@silently"), &rest) &&
               !message_silent_prefix(utf8_literal(" @silent hi"), &rest),
           "composer mentions: @silent prefix needs a following space or the end and trims the rest");
@@ -519,8 +515,8 @@ void test_silent_send(Check check) noexcept {
     MessageComposerSubmit submit{};
     const auto found = message_store_find(store, queued.nonce);
     check(queued.ok() && message_composer_controller_prepare_submit(&controller, 12, &submit).ok() &&
-              submit.suppress_notifications && view_is(submit.content, utf8_literal("quiet please")) && found.ok() &&
-              view_is(message_store_content(store, found.handle), utf8_literal("quiet please")),
+              submit.suppress_notifications && utf8_equal(submit.content, utf8_literal("quiet please")) && found.ok() &&
+              utf8_equal(message_store_content(store, found.handle), utf8_literal("quiet please")),
           "composer mentions: @silent strips the prefix for the request and the local echo and marks the flag");
 }
 
@@ -533,7 +529,7 @@ void test_command_mentions(Check check) noexcept {
     constexpr Utf8View source = utf8_literal("try </ban user temp:42> or </ping:7>");
     auto result = message_markdown_parse(source, {output, sizeof(output)}, {styles, sizeof(styles) / 4},
                                          {spans, 32}, options, {semantics, 8});
-    check(result.ok() && view_is(result.text, utf8_literal("try /ban user temp or /ping")) &&
+    check(result.ok() && utf8_equal(result.text, utf8_literal("try /ban user temp or /ping")) &&
               result.semantic_count == 2 && semantics[0].kind == MessageMarkdownSemanticKind::command_mention &&
               semantics[0].target == 42 && semantics[0].byte_offset == 4 && semantics[0].byte_count == 14 &&
               semantics[0].source_offset == 4 && semantics[0].source_bytes == 19 && semantics[1].target == 7 &&
@@ -550,7 +546,7 @@ void test_command_mentions(Check check) noexcept {
     options.preserve_entities = true;
     result = message_markdown_parse(source, {output, sizeof(output)}, {styles, sizeof(styles) / 4}, {spans, 32},
                                     options, {semantics, 8});
-    check(result.ok() && view_is(result.text, source) && result.semantic_count == 0 &&
+    check(result.ok() && utf8_equal(result.text, source) && result.semantic_count == 0 &&
               (styles[4] & text_style_mention) && (styles[22] & text_style_mention),
           "composer mentions: editors keep command mention source intact");
     options = {};
@@ -560,7 +556,7 @@ void test_command_mentions(Check check) noexcept {
     options.profile_bio = true;
     result = message_markdown_parse(utf8_literal("</ping:7>"), {output, sizeof(output)}, {styles, sizeof(styles) / 4},
                                     {spans, 32}, options, {semantics, 8});
-    check(result.ok() && view_is(result.text, utf8_literal("/ping")) && result.semantic_count == 0 &&
+    check(result.ok() && utf8_equal(result.text, utf8_literal("/ping")) && result.semantic_count == 0 &&
               !(styles[0] & text_style_mention),
           "composer mentions: profile bios show plain command names");
 }

@@ -5,9 +5,6 @@
 
 namespace maicord {
 namespace {
-bool utf8_view_equal(Utf8View left, Utf8View right) noexcept {
-    return left.bytes == right.bytes && bytes_equal(left.data, right.data, left.bytes);
-}
 struct LiveFixture {
     MessageRecord records[12];
     u32 order[12], heights[12];
@@ -60,25 +57,25 @@ void test_message_live_updates(void (*check)(bool, const char*) noexcept) noexce
     };
     auto parsed = parse(utf8_literal("Thanks, see you there :heart: :+1: :laughing: :100:"));
     check(parsed.ok() &&
-              utf8_view_equal(parsed.text,
-                              utf8_literal("Thanks, see you there \342\235\244\357\270\217 "
-                                           "\360\237\221\215 \360\237\230\206 \360\237\222\257")),
+              utf8_equal(parsed.text,
+                         utf8_literal("Thanks, see you there \342\235\244\357\270\217 "
+                                      "\360\237\221\215 \360\237\230\206 \360\237\222\257")),
           "live_emoji_aliases_heart_plus_one_laughing_100");
     parsed = parse(utf8_literal("**:heart:** `:heart:` \\:heart: :unknownemoji:"));
     check(parsed.ok() &&
-              utf8_view_equal(parsed.text,
-                              utf8_literal("\342\235\244\357\270\217 :heart: :heart: :unknownemoji:")) &&
+              utf8_equal(parsed.text,
+                         utf8_literal("\342\235\244\357\270\217 :heart: :heart: :unknownemoji:")) &&
               (styles[0] & text_style_bold),
           "live_emoji_aliases_respect_markdown_code_escape_and_unknown");
     parsed = parse(utf8_literal(":v:"));
     check(parsed.ok() && parsed.text.bytes == 6 && (styles[0] & text_style_jumbo_emoji),
           "live_emoji_alias_expansion_and_jumbo");
     parsed = parse(utf8_literal(":thumbsup::skin-tone-2:"));
-    check(parsed.ok() && utf8_view_equal(parsed.text, utf8_literal("\360\237\221\215\360\237\217\274")),
+    check(parsed.ok() && utf8_equal(parsed.text, utf8_literal("\360\237\221\215\360\237\217\274")),
           "live_emoji_diversity_alias");
     parsed = parse(utf8_literal(":wave_tone3: :grinning_face_with_smiling_eyes: :smile::skin-tone-2:"));
-    check(parsed.ok() && utf8_view_equal(parsed.text, utf8_literal("\360\237\221\213\360\237\217\275 "
-                                                                   "\360\237\230\204 \360\237\230\204:skin-tone-2:")),
+    check(parsed.ok() && utf8_equal(parsed.text, utf8_literal("\360\237\221\213\360\237\217\275 "
+                                                              "\360\237\230\204 \360\237\230\204:skin-tone-2:")),
           "live_emoji_tone_suffix_catalog_name_and_untoned_base");
     parsed = parse(utf8_literal(":flag_si:"));
     check(parsed.ok() && parsed.semantic_count == 1 &&
@@ -86,13 +83,13 @@ void test_message_live_updates(void (*check)(bool, const char*) noexcept) noexce
           "live_emoji_flag_alias_uses_flag_media_semantic");
     parsed = parse(utf8_literal("https://example.test/:heart: [:heart:](https://example.test/:heart:)"));
     check(parsed.ok() &&
-              utf8_view_equal(parsed.text,
-                              utf8_literal("https://example.test/:heart: \342\235\244\357\270\217")),
+              utf8_equal(parsed.text,
+                         utf8_literal("https://example.test/:heart: \342\235\244\357\270\217")),
           "live_emoji_aliases_preserve_url_targets_and_transform_link_labels");
     MessageMarkdownOptions source_options{};
     source_options.preserve_entities = true;
     parsed = parse(utf8_literal(":heart:"), source_options);
-    check(parsed.ok() && utf8_view_equal(parsed.text, utf8_literal(":heart:")),
+    check(parsed.ok() && utf8_equal(parsed.text, utf8_literal(":heart:")),
           "live_emoji_editor_preserves_shortcode_source");
 
     auto& f = fixture;
@@ -113,8 +110,8 @@ void test_message_live_updates(void (*check)(bool, const char*) noexcept) noexce
     const auto* rich = message_rich_store_find(f.rich, 106);
     check(applied.ok() && rich && rich->reference.state == GatewayMessageReferenceState::available &&
               rich->reference.author_id == 9 &&
-              utf8_view_equal(message_rich_store_string(f.rich, rich->reference.content),
-                              utf8_literal("hello team")),
+              utf8_equal(message_rich_store_string(f.rich, rich->reference.content),
+                         utf8_literal("hello team")),
           "live_reply_omitted_snapshot_resolves_resident_target_immediately");
     check(f.timeline.follow_bottom && message_timeline_is_at_bottom(f.timeline, 0),
           "live_reply_insert_follows_new_bottom");
@@ -215,11 +212,11 @@ void test_message_live_updates(void (*check)(bool, const char*) noexcept) noexce
     accepted = message_history_reply_accept_rest(&refresh, &f.timeline, nullptr, response, body, scratch);
     rich = message_rich_store_find(f.rich, 109);
     check(accepted.accepted() && rich && rich->reference.state == GatewayMessageReferenceState::available &&
-              utf8_view_equal(message_rich_store_string(f.rich, rich->reference.author_name),
-                              utf8_literal("Wren042")) &&
+              utf8_equal(message_rich_store_string(f.rich, rich->reference.author_name),
+                         utf8_literal("Wren042")) &&
               f.timeline.scroll_units == before_refresh &&
-              utf8_view_equal(message_store_content(f.store, message_store_find(f.store, 109).handle),
-                              utf8_literal("hello team")),
+              utf8_equal(message_store_content(f.store, message_store_find(f.store, 109).handle),
+                         utf8_literal("hello team")),
           "live_reply_refresh_updates_only_quote_without_scrolling_or_replacing_message");
     check(message_history_reply_queue(&refresh, f.timeline, 7, 300) &&
               refresh.state == AttachmentRefreshState::idle,
@@ -278,9 +275,9 @@ void test_message_live_updates(void (*check)(bool, const char*) noexcept) noexce
             message_rich_record_voice(*message_rich_store_snapshot(f.rich, 110)) &&
             f.rich.text_used == text_used &&
             message_rich_store_find(f.rich, 110)->attachments[0].duration_ms == 3000 &&
-            utf8_view_equal(message_rich_store_string(
-                                f.rich, message_rich_store_find(f.rich, 110)->attachments[0].waveform),
-                            utf8_literal("AP+A")),
+            utf8_equal(message_rich_store_string(
+                           f.rich, message_rich_store_find(f.rich, 110)->attachments[0].waveform),
+                       utf8_literal("AP+A")),
         "live_voice_flags_only_timeline_update_clears_outer_authority_preserves_child_and_audio_metadata");
     flag_update.flags = kGatewayMessageVoiceFlag;
     check(

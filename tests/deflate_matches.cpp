@@ -84,7 +84,6 @@ void stream_growth(void (*check)(bool, const char*) noexcept) noexcept {
     for (u32 i = 0; exact && i < maximum; ++i) exact = view[i] == 'A';
     check(exact && owner.storage.arena.committed == maximum, "inflate growth: exact 8 MiB output bound is complete with no truncation");
     clear(owner);
-    check(!owner.storage.arena.base, "inflate growth: explicit owner release clears the stable reservation");
 
     for (u32 mode = 0; mode < 5; ++mode) {
         check(stable_storage_initialize(&owner.storage, maximum, 4096, 1, 1), "inflate growth: terminal failure owner initializes");

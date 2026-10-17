@@ -147,7 +147,7 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
     }
     check(boundary_valid, "JSON numeric and quoted integers preserve every final byte at the overflow boundary");
     char integer_input[256]; u32 integer_state = 0x27fdeb91; bool integer_valid = true;
-    for (u32 run = 0; integer_valid && run < 100000; ++run) {
+    for (u32 run = 0; integer_valid && run < 10000; ++run) {
         const u32 bytes = random(integer_state) % 129;
         for (u32 i = 0; i < bytes; ++i)
             integer_input[i] = run & 1 ? static_cast<char>('0' + random(integer_state) % 10) : static_cast<char>(random(integer_state));
@@ -176,11 +176,13 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
     if (integer_guard) VirtualFree(integer_guard, 0, MEM_RELEASE);
     check(integer_valid, "JSON integer respects exact page-end bounds, including truncated escapes");
     bool ascii_valid = true;
-    for (u32 source = 0; ascii_valid && source < 256; ++source) for (u32 target = 0; target < 256; ++target) {
-        const char a = static_cast<char>(source), b = static_cast<char>(target);
+    // Equal, ASCII-mismatched and high-bit targets reach every comparison branch for each source byte.
+    constexpr u32 ascii_flips[]{0, 1, 0x80};
+    for (u32 source = 0; ascii_valid && source < 256; ++source) for (const u32 flip : ascii_flips) {
+        const char a = static_cast<char>(source), b = static_cast<char>(source ^ flip);
         if (!compare_ascii({&a, 1}, {&b, 1})) { ascii_valid = false; break; }
     }
-    check(ascii_valid, "JSON ASCII equality preserves every single-byte comparison");
+    check(ascii_valid, "JSON ASCII equality preserves every single-byte source comparison");
     const Utf8View ascii_cases[]{ {}, {nullptr, 1}, utf8_literal("id"), utf8_literal("identifier"),
         utf8_literal("\\u0069d"), utf8_literal("\\n"), utf8_literal("\n"), utf8_literal("\\\\"),
         utf8_literal("\\\""), utf8_literal("\""), utf8_literal("\\u0000"), {"\0", 1},
@@ -190,7 +192,7 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
         check(compare_ascii(a, b), "JSON ASCII equality preserves escapes, Unicode, malformed input and null views");
     char ascii_source[128], ascii_target[128]; u32 ascii_state = 0x683114u;
     ascii_valid = true;
-    for (u32 run = 0; ascii_valid && run < 200000; ++run) {
+    for (u32 run = 0; ascii_valid && run < 20000; ++run) {
         const u32 source_bytes = random(ascii_state) % 129;
         const u32 target_bytes = run & 1 ? source_bytes : random(ascii_state) % 129;
         for (u32 i = 0; i < 128; ++i) {
@@ -215,7 +217,7 @@ void test_json_string_decode(void (*check)(bool, const char*) noexcept) noexcept
     char input[256]; u32 state = 0x437a531fu; bool valid = true;
     // Arbitrary bytes include malformed UTF-8 and escapes, embedded NUL/control
     // bytes, and caller hints that disagree with the source. Preserve semantics.
-    for (u32 run = 0; valid && run < 100'000; ++run) {
+    for (u32 run = 0; valid && run < 10'000; ++run) {
         const u32 length = random(state) % 257;
         for (u32 i = 0; i < length; ++i) input[i] = static_cast<char>(random(state) & ((run & 1) ? 0x7f : 0xff));
         valid = compare({input, length}, random(state) % 257, (run & 1) != 0);

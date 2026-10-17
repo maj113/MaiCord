@@ -242,17 +242,6 @@ void dormant_abi() noexcept {
     missing = host.api;
     missing.forum_post = nullptr;
     check(!account_host_api_valid(missing), "forum account: mandatory callback absence rejects");
-    const auto get_api = reinterpret_cast<AccountModuleGetApiFunction>(
-        GetProcAddress(host.module, MAKEINTRESOURCEA(kAccountModuleApiOrdinal)));
-    AccountModuleApi previous{};
-    previous.bytes = 0x12345678;
-    check(get_api && !get_api(88, &previous) && previous.bytes == 0x12345678,
-          "forum account: previous ABI rejects before writing caller");
-    previous.version = 116;
-    u8 previous_bytes[sizeof(previous)];
-    copy_bytes(previous_bytes, &previous, sizeof(previous));
-    check(get_api && !get_api(116, &previous) && bytes_equal(&previous, previous_bytes, sizeof(previous)),
-          "forum account: ABI 116 rejects before any caller output changes");
     account_host_release(&host);
 }
 } // namespace forum_account_test

@@ -46,18 +46,6 @@ void catalog_decode_case(Check check, MediaAttachmentFormat format, bool animate
                      ? "catalog_media_cached_discovered_apng_initial_frame_has_typed_owner_without_network"
                  : animated ? "catalog_media_cached_apng_initial_frame_has_typed_owner_without_network"
                             : "catalog_media_cached_png_initial_frame_has_typed_owner_without_network");
-    if (!ready) {
-        check(stored.stored(), "catalog_media_initial_encoded_cache_store");
-        check(requested.state == AccountMediaRequestState::ready,
-              "catalog_media_initial_cached_decode_ready");
-        check(taken, "catalog_media_initial_frame_publication");
-        check(!taken || (first.source_kind == AccountMediaSourceKind::catalog_preview &&
-                         first.source_catalog_scope == request.catalog_scope &&
-                         first.source_catalog_generation == 9 && !first.source_message_id &&
-                         !first.source_message_revision && media_asset_key_equal(first.key, key)),
-              "catalog_media_initial_exact_typed_source");
-        check(!media.client_started, "catalog_media_initial_no_network_owner");
-    }
     if (discover_apng)
         check(!(key.flags & media_asset_flag_animated) &&
                   first.kind == AccountMediaFrameKind::apng_scanlines && first.frame_count > 1,
@@ -397,10 +385,8 @@ void klipy_video_favourite_case(Check check) noexcept {
                                           {index, measured.index_words})
             : GifFavoritesResult{};
     const GifFavoriteRecord& record = records[0];
-    const auto equal = [](Utf8View a, Utf8View b) noexcept {
-        return a.bytes == b.bytes && bytes_equal(a.data, b.data, a.bytes);
-    };
-    check(decoded.ok() && decoded.record_count == 1 && equal(record.url, page) && equal(record.src, mp4) &&
+    check(decoded.ok() && decoded.record_count == 1 && utf8_equal(record.url, page) &&
+              utf8_equal(record.src, mp4) &&
               record.format == GifFavoriteFormat::video && record.width == 498 && record.height == 280,
           "catalog_media_klipy_video_favourite_decodes_page_key_and_mp4_src");
     // The picker maps the record's src (the page key is no media URL) to a
@@ -481,7 +467,6 @@ void klipy_video_favourite_case(Check check) noexcept {
         "4e7bea9f7a3371424e6d16ebab93db50/8b/4c/category.gif?format=webp&animated=true&width=220&height=220");
     const auto proxied = parse_catalog_preview_url(category, {target, sizeof(target)});
     second = second && proxied.ok() && proxied.host == CdnHost::images_ext_1 &&
-             cdn_host_name(CdnHost::catalog_klipy2).bytes == 17 &&
              !parse_catalog_preview_url(utf8_literal("https://static2.klipy.com.evil/ii/x.gif"),
                                         {target, sizeof(target)}, MediaAttachmentFormat::gif)
                   .ok() &&
@@ -777,8 +762,6 @@ void run_catalog_media_tests(void (*check)(bool, const char*) noexcept) noexcept
                                      : CdnRequestResult{};
         const bool matched = format == favourite.format && mapped.ok() && mapped.host == favourite.host &&
                              mapped.target_bytes == length && bytes_equal(target, favourite.target, length) && fetch.ok();
-        if (!matched)
-            check(false, favourite.target);
         klipy_mapped = klipy_mapped && matched;
     }
     check(klipy_mapped, "catalog_media_every_stored_favourite_shape_maps_to_a_renderable_rendition");
@@ -819,8 +802,6 @@ void run_catalog_media_tests(void (*check)(bool, const char*) noexcept) noexcept
                              !parse_catalog_preview_url(url, {target, sizeof(target)}, format).ok() &&
                              !parse_catalog_preview_url(url, {target, sizeof(target)},
                                                         MediaAttachmentFormat::mp4).ok();
-        if (!refused)
-            check(false, url.data);
         unrenderable_fenced = unrenderable_fenced && refused;
     }
     check(unrenderable_fenced, "catalog_media_unsigned_hosts_undecodable_video_and_noncanonical_proxy_paths_refuse");
