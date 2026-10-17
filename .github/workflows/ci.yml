@@ -7,9 +7,6 @@ on:
     paths-ignore: &docs
       - "**/*.md"
       - LICENSE
-      - site/**
-      - tools/release/assemble_pages.ps1
-      - .github/workflows/site.yml
       - .github/ISSUE_TEMPLATE/**
       - .github/assets/**
       - .github/labeler.yml

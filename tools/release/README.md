@@ -105,17 +105,12 @@ gh attestation verify MaiCord-0.2.0-windows-x64.zip -R maj113/MaiCord
 - **Pages**: Settings > Pages > Source: **GitHub Actions**. No custom domain:
   the client accepts only `<owner>.github.io`, and a custom domain would
   redirect the manifests away from it, stopping updates for every installed
-  client. The same goes for a custom domain on the `<owner>.github.io` user
-  site, which project sites inherit. In Settings > Environments >
+  client. The same goes for a custom domain on a `<owner>.github.io` user
+  site, which project sites inherit. The website lives in its own repository,
+  [maj113/maicord-site](https://github.com/maj113/maicord-site), which may
+  have one. In Settings > Environments >
   `github-pages`, allow the tag pattern `v*` to deploy, because `release.yml`
   runs on tags.
-- **Website**: Pages also serves the website in `site/`. Every deploy
-  replaces the whole Pages site, so `release.yml`, `manifest-refresh.yml` and
-  `site.yml` (which runs when `site/` changes) all deploy the output of
-  `assemble_pages.ps1`: `site/` plus `updates/` from the update-channels
-  branch. All three share the `update-channels` concurrency group. GitHub
-  keeps one pending run per group, so a release still waiting for another run
-  is cancelled by a newer pending run; re-run it from the Actions tab.
 - **Immutable releases**: Settings > General > Releases. Neither workflow
   modifies a published release, so this can be enabled. It applies to releases
   published afterwards. The retired `update-preview` prerelease can be deleted.
