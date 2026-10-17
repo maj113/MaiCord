@@ -15,8 +15,9 @@ inline constexpr u32 kCaptchaBridgeMinimumTokenBytes = 16;
 inline constexpr u32 kCaptchaBridgeMaximumTokenBytes = 4096;
 inline constexpr u32 kCaptchaBridgeMaximumSitekeyBytes = 128;
 inline constexpr u32 kCaptchaBridgeMaximumRqdataBytes = 4096;
+inline constexpr u32 kCaptchaBridgeMaximumUserFlowBytes = 128;
 inline constexpr u32 kCaptchaBridgeMaximumUrlBytes = 64;
-// Fits the page, a maximal escaped rqdata and every response header.
+// Fits the page, maximal challenge data, escaped user flow and response headers.
 inline constexpr u32 kCaptchaBridgeMaximumResponseBytes = 24 * 1024;
 
 enum class CaptchaBridgeProvider : u8 { unknown, hcaptcha, recaptcha, recaptcha_enterprise, turnstile };
@@ -52,10 +53,12 @@ struct CaptchaBridgePage {
     u16 port;
     CaptchaBridgeProvider provider;
     bool invisible;
+    Utf8View user_flow; // optional bounded UTF-8 enterprise action; empty omits it
 };
 
 bool captcha_bridge_sitekey_valid(Utf8View sitekey) noexcept;
 bool captcha_bridge_rqdata_valid(Utf8View rqdata) noexcept;
+bool captcha_bridge_user_flow_valid(Utf8View user_flow) noexcept;
 bool captcha_bridge_token_valid(Utf8View token) noexcept;
 bool captcha_bridge_hex_valid(Utf8View value, u32 bytes) noexcept;
 

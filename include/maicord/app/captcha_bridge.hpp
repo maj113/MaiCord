@@ -28,6 +28,7 @@ struct CaptchaBridgeChallenge {
     Utf8View rqdata;
     CaptchaProvider provider;
     bool invisible;
+    Utf8View user_flow; // optional bounded UTF-8 enterprise action; empty omits it
 };
 
 inline constexpr u32 kCaptchaBridgeDefaultTimeoutMs = 5 * 60 * 1000;

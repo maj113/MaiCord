@@ -73,19 +73,37 @@ AccountLoginStatus WINAPI module_login_start_captcha_bridge(void* instance, u64 
         status.error = AccountLoginError::invalid_input;
         return status;
     }
-    SecureBuffer sitekey{}, rqdata{};
-    const bool copied = secure_buffer_initialize(&sitekey, kCaptchaChallengeSitekeyBytes).ok() &&
-                        secure_buffer_initialize(&rqdata, kCaptchaChallengeRqdataBytes).ok() &&
-                        module_login_copy_captcha_secret(runtime, CaptchaChallengeSecretKind::sitekey, &sitekey).ok();
-    // rqdata is optional; absence leaves the locked buffer empty.
-    if (copied && !module_login_copy_captcha_secret(runtime, CaptchaChallengeSecretKind::rqdata, &rqdata).ok())
+    SecureBuffer sitekey{}, rqdata{}, user_flow{};
+    const bool copied =
+        secure_buffer_initialize(&sitekey, kCaptchaChallengeSitekeyBytes + kCaptchaChallengeUserFlowBytes)
+            .ok() &&
+        secure_buffer_initialize(&rqdata, kCaptchaChallengeRqdataBytes).ok() &&
+        module_login_copy_captcha_secret(runtime, CaptchaChallengeSecretKind::sitekey, &sitekey).ok();
+    // user_flow borrows the locked tail; only sitekey owns/releases the arena.
+    if (sitekey.data)
+        user_flow = {sitekey.data + kCaptchaChallengeSitekeyBytes, kCaptchaChallengeUserFlowBytes, 0,
+                     sitekey.locked};
+    // Optional values stay empty when absent, including an omitted action.
+    if (copied &&
+        !module_login_copy_captcha_secret(runtime, CaptchaChallengeSecretKind::rqdata, &rqdata).ok())
         secure_buffer_clear(&rqdata);
-    runtime->captcha_status = copied
-        ? captcha_bridge_start(&runtime->captcha_bridge, generation, timeout_ms,
-              {{reinterpret_cast<const char*>(sitekey.data), sitekey.bytes},
-               {reinterpret_cast<const char*>(rqdata.data), rqdata.bytes}, current.captcha_provider,
-               current.captcha_invisible})
-        : CaptchaBridgeStatus{generation, 0, ERROR_INVALID_DATA, 0, CaptchaBridgePhase::failed, CaptchaBridgeError::invalid_input, false};
+    if (copied &&
+        !module_login_copy_captcha_secret(runtime, CaptchaChallengeSecretKind::user_flow, &user_flow).ok())
+        secure_buffer_clear(&user_flow);
+    runtime->captcha_status =
+        copied ? captcha_bridge_start(&runtime->captcha_bridge, generation, timeout_ms,
+                                      {{reinterpret_cast<const char*>(sitekey.data), sitekey.bytes},
+                                       {reinterpret_cast<const char*>(rqdata.data), rqdata.bytes},
+                                       current.captcha_provider,
+                                       current.captcha_invisible,
+                                       {reinterpret_cast<const char*>(user_flow.data), user_flow.bytes}})
+               : CaptchaBridgeStatus{generation,
+                                     0,
+                                     ERROR_INVALID_DATA,
+                                     0,
+                                     CaptchaBridgePhase::failed,
+                                     CaptchaBridgeError::invalid_input,
+                                     false};
     if (!runtime->captcha_status.ok()) {
         runtime->captcha_status.generation = generation;
         runtime->captcha_status.phase = CaptchaBridgePhase::failed;

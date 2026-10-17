@@ -219,6 +219,9 @@ struct UserAuthDecodeResult {
 // The decoder does not keep credentials. Secret response strings are copied only
 // after every destination has been validated, so a capacity failure leaves all
 // caller-provided storage untouched.
+// CAPTCHA decoding resolves null/omitted reCAPTCHA site keys to the documented
+// provider default. Explicit strings (including empty) remain unchanged; other
+// providers receive no guessed key. The output count describes the effective key.
 // The classifier reads the same schema but never copies any string field. It is
 // meant for coarse diagnostics on rejected responses.
 UserAuthDecodeResult user_auth_classify_response(u16 status_code, Utf8View body,

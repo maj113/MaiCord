@@ -14,10 +14,12 @@ constexpr u32 kResponseBytes = kCaptchaBridgeMaximumResponseBytes;
 constexpr u32 kTokenOffset = kResponseOffset + kResponseBytes;
 constexpr u32 kSitekeyOffset = kTokenOffset + kCaptchaBridgeMaximumTokenBytes;
 constexpr u32 kRqdataOffset = kSitekeyOffset + kCaptchaBridgeMaximumSitekeyBytes;
-constexpr u32 kStateOffset = kRqdataOffset + kCaptchaBridgeMaximumRqdataBytes;
+constexpr u32 kUserFlowOffset = kRqdataOffset + kCaptchaBridgeMaximumRqdataBytes;
+constexpr u32 kStateOffset = kUserFlowOffset + kCaptchaBridgeMaximumUserFlowBytes;
 constexpr u32 kNonceOffset = kStateOffset + kCaptchaBridgeStateBytes;
 constexpr u32 kStorageBytes = kNonceOffset + kCaptchaBridgeNonceBytes;
 constexpr u32 kClientTimeoutMs = 5000;
+static_assert(kCaptchaBridgeMaximumUserFlowBytes == kCaptchaChallengeUserFlowBytes);
 
 struct Runtime {
     SRWLOCK lock;
@@ -27,7 +29,8 @@ struct Runtime {
     WSAEVENT listener_event, client_event;
     SOCKET listener, client;
     u64 client_deadline;
-    u32 wire_bytes, response_bytes, response_sent, token_bytes, sitekey_bytes, rqdata_bytes;
+    u32 wire_bytes, response_bytes, response_sent, token_bytes, sitekey_bytes, rqdata_bytes,
+        user_flow_bytes;
     CaptchaBridgeProvider provider;
     bool invisible, spent;
 };
@@ -46,7 +49,7 @@ bool live(CaptchaBridgePhase phase) noexcept {
 // Called with the exclusive lock held.
 void erase_secrets(Runtime* runtime) noexcept {
     SecureZeroMemory(at(runtime, kTokenOffset), kStorageBytes - kTokenOffset);
-    runtime->token_bytes = runtime->sitekey_bytes = runtime->rqdata_bytes = 0;
+    runtime->token_bytes = runtime->sitekey_bytes = runtime->rqdata_bytes = runtime->user_flow_bytes = 0;
 }
 void notify(Runtime* runtime) noexcept { SetEvent(runtime->notification); }
 CaptchaBridgeStatus snapshot(Runtime* runtime) noexcept {
@@ -190,10 +193,14 @@ bool respond(Runtime* runtime, const CaptchaBridgeParseResult& parsed) noexcept 
                 captcha_bridge_write_hex({random, sizeof(random)}, {at(runtime, kNonceOffset), kCaptchaBridgeNonceBytes}).ok();
             SecureZeroMemory(random, sizeof(random));
             if (nonce) {
-                written = captcha_bridge_write_page({view(runtime, kSitekeyOffset, runtime->sitekey_bytes),
-                    view(runtime, kRqdataOffset, runtime->rqdata_bytes), view(runtime, kStateOffset, kCaptchaBridgeStateBytes),
-                    view(runtime, kNonceOffset, kCaptchaBridgeNonceBytes), runtime->status.port, runtime->provider,
-                    runtime->invisible}, response);
+                written =
+                    captcha_bridge_write_page({view(runtime, kSitekeyOffset, runtime->sitekey_bytes),
+                                               view(runtime, kRqdataOffset, runtime->rqdata_bytes),
+                                               view(runtime, kStateOffset, kCaptchaBridgeStateBytes),
+                                               view(runtime, kNonceOffset, kCaptchaBridgeNonceBytes),
+                                               runtime->status.port, runtime->provider, runtime->invisible,
+                                               view(runtime, kUserFlowOffset, runtime->user_flow_bytes)},
+                                              response);
                 runtime->status.page_served = written.ok();
             }
             SecureZeroMemory(at(runtime, kNonceOffset), kCaptchaBridgeNonceBytes);
@@ -310,9 +317,11 @@ SecureBufferResult output_error(SecureBufferError error = SecureBufferError::inv
 CaptchaBridgeStatus captcha_bridge_start(CaptchaBridge* bridge, u64 generation, u32 timeout_ms,
                                          const CaptchaBridgeChallenge& challenge) noexcept {
     const CaptchaBridgeProvider provider = protocol_provider(challenge.provider);
-    if (!bridge || bridge->runtime || !generation || timeout_ms < 1000 || timeout_ms > kCaptchaBridgeDefaultTimeoutMs ||
-        provider == CaptchaBridgeProvider::unknown || !captcha_bridge_sitekey_valid(challenge.sitekey) ||
-        !captcha_bridge_rqdata_valid(challenge.rqdata))
+    if (!bridge || bridge->runtime || !generation || timeout_ms < 1000 ||
+        timeout_ms > kCaptchaBridgeDefaultTimeoutMs || provider == CaptchaBridgeProvider::unknown ||
+        !captcha_bridge_sitekey_valid(challenge.sitekey) ||
+        !captcha_bridge_rqdata_valid(challenge.rqdata) ||
+        !captcha_bridge_user_flow_valid(challenge.user_flow))
         return invalid();
     auto* runtime = static_cast<Runtime*>(VirtualAlloc(nullptr, owner_bytes(), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     if (!runtime) return invalid(CaptchaBridgeError::memory, thread_last_error());
@@ -330,6 +339,9 @@ CaptchaBridgeStatus captcha_bridge_start(CaptchaBridge* bridge, u64 generation, 
     runtime->sitekey_bytes = challenge.sitekey.bytes;
     if (challenge.rqdata.bytes) copy_bytes(at(runtime, kRqdataOffset), challenge.rqdata.data, challenge.rqdata.bytes);
     runtime->rqdata_bytes = challenge.rqdata.bytes;
+    if (challenge.user_flow.bytes)
+        copy_bytes(at(runtime, kUserFlowOffset), challenge.user_flow.data, challenge.user_flow.bytes);
+    runtime->user_flow_bytes = challenge.user_flow.bytes;
     u8 random[16];
     const bool state = secure_random_fill({random, sizeof(random)}).ok() &&
         captcha_bridge_write_hex({random, sizeof(random)}, {at(runtime, kStateOffset), kCaptchaBridgeStateBytes}).ok();

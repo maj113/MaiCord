@@ -33,6 +33,12 @@ bool headers_contain(Utf8View value) noexcept {
         if (bytes_equal(fixture.headers.data + i, value.data, value.bytes)) return true;
     return false;
 }
+bool contains(Utf8View text, Utf8View value) noexcept {
+    for (u32 i = 0; i + value.bytes <= text.bytes; ++i)
+        if (bytes_equal(text.data + i, value.data, value.bytes))
+            return true;
+    return false;
+}
 } // namespace maicord::captcha_login_test
 
 namespace maicord {
@@ -79,6 +85,9 @@ RestClientTakeResult rest_client_consume_user_auth_response(
 }
 HANDLE rest_client_notification_handle(const RestClient*) noexcept { return reinterpret_cast<HANDLE>(1); }
 bool rest_client_cancel(RestClient*, u64) noexcept { return true; }
+bool rest_client_arm_headers(RestClient*, u64 request_id, ConstSlice<u8> headers) noexcept {
+    return !request_id && !headers.count;
+}
 RestClientResult rest_client_stop_user_auth(RestClient* client, u32 timeout_ms,
                                             RestClientResponse* receipt) noexcept {
     using namespace captcha_login_test;
@@ -131,6 +140,9 @@ constexpr auto kChallenge = utf8_literal(
     R"({"captcha_key":["captcha-required"],"captcha_sitekey":"10000000-ffff-ffff-ffff-000000000001",)"
     R"("captcha_service":"hcaptcha","captcha_rqdata":"synthetic_rqdata","captcha_rqtoken":"synthetic.rqtoken",)"
     R"("captcha_session_id":"session-1"})");
+constexpr auto kEnterpriseChallenge = utf8_literal(
+    R"({"captcha_key":["captcha-required"],"captcha_sitekey":null,"captcha_service":"recaptcha_enterprise",)"
+    R"("captcha_rqtoken":"synthetic.rqtoken","captcha_session_id":"session-1","user_flow":"login/password"})");
 
 AccountLoginRuntime* new_owner() noexcept {
     auto* owner = static_cast<AccountLoginRuntime*>(
@@ -151,7 +163,8 @@ bool wait_bridge(AccountLoginRuntime* owner, CaptchaBridgePhase phase) noexcept 
     return true;
 }
 // Plays the browser: fetches the page, then posts the solution.
-bool solve(AccountLoginRuntime* owner, u64 generation, Utf8View solution, u16* used_port = nullptr) noexcept {
+bool solve(AccountLoginRuntime* owner, u64 generation, Utf8View solution, u16* used_port = nullptr,
+           bool enterprise = false) noexcept {
     SecureBuffer url{};
     if (!secure_buffer_initialize(&url, kCaptchaBridgeMaximumUrlBytes).ok()) return false;
     bool okay = module_login_copy_captcha_bridge_url(owner, generation, &url).ok() && captcha_bridge_url_valid(&url);
@@ -195,6 +208,15 @@ bool solve(AccountLoginRuntime* owner, u64 generation, Utf8View solution, u16* u
         int received = 0, total = 0;
         while (okay && (received = recv(handle, answer + total, static_cast<int>(sizeof(answer)) - total, 0)) > 0) total += received;
         okay = okay && total > 12 && answer[9] == (round ? '2' : '2') && answer[10] == '0' && answer[11] == (round ? '4' : '0');
+        if (okay && !round && enterprise) {
+            const Utf8View page{answer, static_cast<u32>(total)};
+            okay = contains(page, utf8_literal("\"k\":\"6LeYqFcqAAAAAD6iZesmNgVulsO4PkpBdr6NVG6M\"")) &&
+                   contains(page, utf8_literal("enterprise.js?render=")) &&
+                   contains(page, utf8_literal("encodeURIComponent(c.k)")) &&
+                   contains(page, utf8_literal("\"a\":\"login/password\"")) &&
+                   !contains(page, utf8_literal("render=explicit")) &&
+                   !contains(page, utf8_literal("a.render("));
+        }
         SecureZeroMemory(wire, sizeof(wire)); SecureZeroMemory(answer, sizeof(answer)); SecureZeroMemory(body, sizeof(body));
         closesocket(handle);
     }
@@ -208,14 +230,18 @@ void password_flow() noexcept {
     if (!owner || !credential.data) return;
     constexpr auto login = utf8_literal("native@example.com");
     secure_buffer_assign(&credential, {reinterpret_cast<const u8*>(login.data), login.bytes});
-    check(user_auth_coordinator_submit_password(&owner->coordinator, {&credential, &credential, nullptr, false}).ok() &&
-              body(kChallenge), "captcha login: password request admitted");
+    check(user_auth_coordinator_submit_password(&owner->coordinator,
+                                                {&credential, &credential, nullptr, false})
+                  .ok() &&
+              body(kEnterpriseChallenge),
+          "captcha login: password request admitted");
     SecureBuffer original{};
     secure_buffer_initialize(&original, kUserAuthCoordinatorRequestBytes);
     secure_buffer_assign(&original, secure_buffer_view(fixture.request));
     response(400);
     auto status = module_login_pump_with_captcha(owner);
-    check(status.phase == AccountLoginPhase::captcha_required && status.captcha_provider == CaptchaProvider::hcaptcha &&
+    check(status.phase == AccountLoginPhase::captcha_required &&
+              status.captcha_provider == CaptchaProvider::recaptcha_enterprise &&
               !module_login_copy_captcha_bridge_url(owner, 5, &credential).ok(),
           "captcha login: password challenge waits for an explicit bridge start");
     check(module_login_start_captcha_bridge(owner, 0, 60000).error == AccountLoginError::invalid_input &&
@@ -227,7 +253,9 @@ void password_flow() noexcept {
     constexpr auto solution = utf8_literal("P1_synthetic.solution-0001");
     u16 first_port = 0;
     const u32 submissions = fixture.submissions;
-    check(solve(owner, 5, solution, &first_port), "captcha login: synthetic browser solves through the loopback page");
+    check(
+        solve(owner, 5, solution, &first_port, true),
+        "captcha login: nullable enterprise key resolves and action reaches the score page before replay");
     status = module_login_pump_with_captcha(owner);
     check(status.phase == AccountLoginPhase::password_pending && fixture.submissions == submissions + 1 &&
               fixture.operation == UserAuthOperation::password && fixture.request.bytes == original.bytes &&

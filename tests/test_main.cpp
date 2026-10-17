@@ -22356,6 +22356,91 @@ void test_user_auth_protocol() noexcept {
                            byte_literal("site-key")),
            "user_auth_decode_captcha_contract");
 
+    constexpr auto standard_sitekey = utf8_literal("6Lef5iQTAAAAAKeIvIY-DeexoO3gj7ryl9rLMEnn");
+    constexpr auto enterprise_sitekey = utf8_literal("6LeYqFcqAAAAAD6iZesmNgVulsO4PkpBdr6NVG6M");
+    const struct {
+        Utf8View body, sitekey;
+        UserAuthResponseKind kind = UserAuthResponseKind::captcha_required;
+    } sitekeys[]{
+        {utf8_literal(
+             R"({"captcha_key":["required"],"captcha_service":"ReCAPTCHA","captcha_sitekey":null})"),
+         standard_sitekey},
+        {utf8_literal(
+             R"({"captcha_key":["required"],"captcha_service":"recaptcha_enterprise","captcha_sitekey":null})"),
+         enterprise_sitekey},
+        {utf8_literal(
+             R"({"captcha_key":["required"],"captcha_service":"recaptcha_enterprise","captcha_sitekey":""})"),
+         {}},
+        {utf8_literal(
+             R"({"captcha_key":["required"],"captcha_service":"recaptcha_enterprise","captcha_sitekey":"custom-enterprise-key"})"),
+         utf8_literal("custom-enterprise-key")},
+        {utf8_literal(
+             R"({"captcha_key":["required"],"captcha_service":"recaptcha_enterprise","captcha_sitekey":"bad\"key"})"),
+         utf8_literal("bad\"key")},
+        {utf8_literal(
+             R"({"captcha_key":["required"],"captcha_service":"recaptcha\u002denterprise","captcha_sitekey":null})"),
+         enterprise_sitekey},
+        {utf8_literal(R"({"code":50001,"captcha_service":"recaptcha_enterprise","captcha_sitekey":null})"),
+         {},
+         UserAuthResponseKind::rejected}};
+    for (const auto& item : sitekeys) {
+        decoded = user_auth_decode_response(400, item.body, {structurals, 256}, 16, storage, &response);
+        expect(
+            decoded.ok() && response.kind == item.kind &&
+                response.captcha_sitekey_bytes == item.sitekey.bytes &&
+                (!item.sitekey.bytes ||
+                 maicord::bytes_equal(captcha_sitekey, item.sitekey.data, item.sitekey.bytes)),
+            "user_auth_captcha_defaults_only_nullable_known_provider_keys_and_preserves_explicit_values");
+    }
+    const Utf8View invalid_sitekeys[]{
+        utf8_literal(
+            R"({"captcha_key":["required"],"captcha_service":"recaptcha_enterprise","captcha_sitekey":17})"),
+        utf8_literal(
+            R"({"captcha_key":["required"],"captcha_service":"recaptcha_enterprise","captcha_sitekey":null,"captcha_sitekey":"custom"})")};
+    for (u32 i = 0; i < 2; ++i) {
+        decoded =
+            user_auth_decode_response(400, invalid_sitekeys[i], {structurals, 256}, 16, storage, &response);
+        expect(decoded.error ==
+                       (i ? UserAuthDecodeError::duplicate_field : UserAuthDecodeError::invalid_field) &&
+                   response.kind == UserAuthResponseKind::none && !response.captcha_sitekey_bytes,
+               "user_auth_captcha_default_does_not_hide_wrong_types_or_duplicate_keys");
+    }
+    {
+        char fallback_output[128]{};
+        UserAuthResponseStorage bounded{};
+        bounded.captcha_service = {fallback_output, 24};
+        bounded.captcha_sitekey = {fallback_output + 24, enterprise_sitekey.bytes};
+        bounded.captcha_rqdata = {fallback_output + 64, 16};
+        bounded.captcha_rqtoken = {fallback_output + 80, 16};
+        bounded.captcha_session_id = {fallback_output + 96, 16};
+        bounded.captcha_user_flow = {fallback_output + 112, 16};
+        constexpr auto complete_challenge = utf8_literal(
+            R"({"captcha_key":["required"],"captcha_service":"recaptcha_enterprise","captcha_sitekey":null,"captcha_rqdata":"data","captcha_rqtoken":"rqtoken","captcha_session_id":"session","user_flow":"login"})");
+        for (u32 i = 0; i < 3; ++i) {
+            memset(fallback_output, 'Q', sizeof(fallback_output));
+            auto short_storage = bounded;
+            if (i == 0)
+                --short_storage.captcha_sitekey.count;
+            else if (i == 1)
+                short_storage.captcha_sitekey.data = nullptr;
+            else
+                short_storage.captcha_rqdata.count = 1;
+            response.kind = UserAuthResponseKind::rejected;
+            response.captcha_service_bytes = 19;
+            response.captcha_sitekey_bytes = 17;
+            response.captcha_rqtoken_bytes = 23;
+            decoded = user_auth_decode_response(400, complete_challenge, {structurals, 256}, 16,
+                                                short_storage, &response);
+            bool fallback_untouched = true;
+            for (const char value : fallback_output)
+                fallback_untouched = fallback_untouched && value == 'Q';
+            expect(decoded.error == UserAuthDecodeError::output_too_small && fallback_untouched &&
+                       response.kind == UserAuthResponseKind::none && !response.captcha_service_bytes &&
+                       !response.captcha_sitekey_bytes && !response.captcha_rqtoken_bytes,
+                   "user_auth_captcha_default_and_later_field_capacity_failures_are_atomic");
+        }
+    }
+
     UserAuthResponse classified{};
     decoded = user_auth_classify_response(
         400, captcha,
@@ -22589,7 +22674,7 @@ void test_captcha_challenge_owner() noexcept {
     SecureBuffer service{};
     SecureBuffer rqtoken{};
     SecureBuffer session{};
-    const SecureBufferResult service_initialized = secure_buffer_initialize(&service, 32);
+    const SecureBufferResult service_initialized = secure_buffer_initialize(&service, 64);
     const SecureBufferResult token_initialized =
         secure_buffer_initialize(&rqtoken, kCaptchaChallengeRqtokenBytes);
     const SecureBufferResult session_initialized =
@@ -22689,24 +22774,49 @@ void test_captcha_challenge_owner() noexcept {
            "captcha_challenge_observed_507_byte_structural_bound");
 
     const Utf8View provider_bodies[]{
-        utf8_literal(R"({"captcha_key":["required"],"captcha_service":"HCAPTCHA","should_serve_invisible":true})"),
-        utf8_literal(R"({"captcha_key":["required"],"captcha_service":"recaptcha","should_serve_invisible":false})"),
+        utf8_literal(
+            R"({"captcha_key":["required"],"captcha_service":"HCAPTCHA","captcha_sitekey":null,"should_serve_invisible":true})"),
+        utf8_literal(
+            R"({"captcha_key":["required"],"captcha_service":"recaptcha","should_serve_invisible":false})"),
         utf8_literal(R"({"captcha_key":["required"],"captcha_service":"ReCAPTCHA_ENTERPRISE"})"),
-        utf8_literal(R"({"captcha_key":["required"],"captcha_service":"recaptcha-enterprise","should_serve_invisible":null})"),
-        utf8_literal(R"({"captcha_key":["required"],"captcha_service":"Turnstile","should_serve_invisible":true})"),
-        utf8_literal(R"({"captcha_key":["required"],"captcha_service":"future-provider","should_serve_invisible":true})"),
+        utf8_literal(
+            R"({"captcha_key":["required"],"captcha_service":"recaptcha-enterprise","captcha_sitekey":null,"should_serve_invisible":null})"),
+        utf8_literal(
+            R"({"captcha_key":["required"],"captcha_service":"Turnstile","captcha_sitekey":null,"should_serve_invisible":true})"),
+        utf8_literal(
+            R"({"captcha_key":["required"],"captcha_service":"future-provider","captcha_sitekey":null,"should_serve_invisible":true})"),
         utf8_literal(R"({"captcha_key":["required"]})")};
-    const CaptchaProvider providers[]{CaptchaProvider::hcaptcha, CaptchaProvider::recaptcha,
-        CaptchaProvider::recaptcha_enterprise, CaptchaProvider::recaptcha_enterprise,
-        CaptchaProvider::turnstile, CaptchaProvider::unknown, CaptchaProvider::unknown};
+    const CaptchaProvider providers[]{CaptchaProvider::hcaptcha,
+                                      CaptchaProvider::recaptcha,
+                                      CaptchaProvider::recaptcha_enterprise,
+                                      CaptchaProvider::recaptcha_enterprise,
+                                      CaptchaProvider::turnstile,
+                                      CaptchaProvider::unknown,
+                                      CaptchaProvider::unknown};
+    const Utf8View sitekeys[]{{},
+                              utf8_literal("6Lef5iQTAAAAAKeIvIY-DeexoO3gj7ryl9rLMEnn"),
+                              utf8_literal("6LeYqFcqAAAAAD6iZesmNgVulsO4PkpBdr6NVG6M"),
+                              utf8_literal("6LeYqFcqAAAAAD6iZesmNgVulsO4PkpBdr6NVG6M"),
+                              {},
+                              {},
+                              {}};
     for (u32 index = 0; index < 7; ++index) {
-        const auto replaced = captcha_challenge_decode(&challenge, 400, provider_bodies[index],
+        const auto replaced = captcha_challenge_decode(
+            &challenge, 400, provider_bodies[index],
             {structurals, static_cast<u32>(sizeof(structurals) / sizeof(structurals[0]))}, 16, &response);
         const auto current = captcha_challenge_snapshot(&challenge);
+        const auto copied =
+            captcha_challenge_copy_secret(&challenge, CaptchaChallengeSecretKind::sitekey, &service);
+        const bool exact_key =
+            sitekeys[index].bytes
+                ? copied.ok() && service.bytes == sitekeys[index].bytes &&
+                      maicord::bytes_equal(service.data, sitekeys[index].data, sitekeys[index].bytes)
+                : copied.error == SecureBufferError::invalid_input;
         expect(replaced.ok() && current.active && current.provider == providers[index] &&
                    current.invisible == (index == 0 || index == 4 || index == 5) &&
-                   !current.sitekey_bytes && !current.rqtoken_bytes && !current.session_id_bytes,
-               "captcha_challenge_replacement_classifies_provider_and_defaults_optional_hint_without_stale_metadata");
+                   current.sitekey_bytes == sitekeys[index].bytes && exact_key && !current.rqtoken_bytes &&
+                   !current.session_id_bytes,
+               "captcha_challenge_replacement_copies_only_known_provider_defaults_without_stale_metadata");
     }
     const auto invalid_replacement = captcha_challenge_decode(&challenge, 400,
         utf8_literal(R"({"captcha_key":["required"],"captcha_service":"hcaptcha","should_serve_invisible":true,"should_serve_invisible":false})"),

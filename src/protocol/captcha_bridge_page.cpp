@@ -92,8 +92,7 @@ ProviderSources provider_sources(CaptchaBridgeProvider provider) noexcept {
                 "https://www.google.com/recaptcha/api.js?render=explicit&amp;onload=mcReady", 'r'};
     case CaptchaBridgeProvider::recaptcha_enterprise:
         return {"https://www.google.com/recaptcha/ https://www.gstatic.com/recaptcha/",
-                "https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/",
-                "https://www.google.com/recaptcha/enterprise.js?render=explicit&amp;onload=mcReady", 'e'};
+                "https://www.google.com/recaptcha/ https://recaptcha.google.com/recaptcha/", nullptr, 'e'};
     case CaptchaBridgeProvider::turnstile:
         return {"https://challenges.cloudflare.com", "https://challenges.cloudflare.com",
                 "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit&amp;onload=mcReady", 't'};
@@ -111,15 +110,20 @@ constexpr char kPageHead[] =
     "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
     "<meta name=\"referrer\" content=\"no-referrer\"><title>MaiCord verification</title><style>"
     ":root{color-scheme:light dark;--bg:#f3f4f6;--card:#fff;--ink:#1c1e22;--muted:#5d6470;--line:#dfe2e7}"
-    "@media (prefers-color-scheme:dark){:root{--bg:#141619;--card:#1e2126;--ink:#e9ebef;--muted:#9ba2ad;--line:#2d3138}}"
-    "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;"
-    "padding:16px;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,\"Segoe UI\",sans-serif}"
+    "@media "
+    "(prefers-color-scheme:dark){:root{--bg:#141619;--card:#1e2126;--ink:#e9ebef;--muted:#9ba2ad;--line:#"
+    "2d3138}}"
+    "*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-"
+    "content:center;"
+    "padding:16px;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,\"Segoe "
+    "UI\",sans-serif}"
     "main{width:100%;max-width:400px;padding:28px 24px;border:1px solid var(--line);border-radius:12px;"
     "background:var(--card);text-align:center}h1{margin:0 0 6px;font-size:20px;font-weight:600}"
     "p{margin:0;color:var(--muted)}#w{display:flex;justify-content:center;min-height:78px;margin:20px 0 0}"
     ".done p{color:var(--ink);font-weight:600}.done #w{display:none}"
-    "</style></head><body><main><h1>Verify it&#39;s you</h1>"
-    "<p id=\"s\">Complete the check below to continue in MaiCord.</p><div id=\"w\"></div>"
+    "</style></head><body><main><h1>Verify it&#39;s you</h1><p id=\"s\">";
+constexpr char kPageContent[] =
+    "</p><div id=\"w\"></div>"
     "<noscript><p>Turn on JavaScript to complete the check.</p></noscript></main>"
     "<script type=\"application/json\" id=\"c\">";
 // The widget callback posts only the solution token to the same origin.
@@ -129,20 +133,33 @@ constexpr char kPageScript[] =
     "function say(t,d){s.textContent=t;if(d)document.body.className=\"done\"}"
     "function api(){var g=window.grecaptcha;return c.p==\"h\"?window.hcaptcha:c.p==\"t\"?window.turnstile:"
     "c.p==\"e\"?g&&g.enterprise:g}"
-    "function done(t){if(sent||typeof t!=\"string\")return;sent=true;say(\"Sending the result to MaiCord\\u2026\");"
-    "fetch(c.s,{method:\"POST\",headers:{\"Content-Type\":\"application/json\"},body:JSON.stringify({token:t}),"
+    "function done(t){if(sent||typeof t!=\"string\")return;sent=true;say(\"Sending the result to "
+    "MaiCord\\u2026\");"
+    "fetch(c.s,{method:\"POST\",headers:{\"Content-Type\":\"application/"
+    "json\"},body:JSON.stringify({token:t}),"
     "credentials:\"omit\",cache:\"no-store\",redirect:\"error\",referrerPolicy:\"no-referrer\"})"
     ".then(function(r){say(r.ok?\"Done. You can return to MaiCord.\":"
     "\"This check expired. Return to MaiCord and try again.\",r.ok)})"
     ".catch(function(){say(\"Couldn\\u2019t reach MaiCord. Return to MaiCord and try again.\")})}"
     "function expired(){if(!sent)say(\"The check expired. Complete it again.\")}"
-    "function failed(){if(!sent)say(\"The check couldn\\u2019t load. Return to MaiCord and try again.\")}"
+    "function failed(){if(!sent)say(\"The check couldn\\u2019t load. Return to MaiCord and try again.\")}";
+constexpr char kWidgetScript[] =
     "window.mcReady=function(){var a=api();if(!a){failed();return}"
     "var o={sitekey:c.k,callback:done,\"expired-callback\":expired,\"error-callback\":failed,"
     "theme:matchMedia(\"(prefers-color-scheme: dark)\").matches?\"dark\":\"light\"};"
     "if(c.i&&c.p!=\"t\")o.size=\"invisible\";"
     "try{var id=a.render(w,o);if(c.p==\"h\"&&c.r)a.setData(id,{rqdata:c.r});"
     "if(c.i&&c.p!=\"t\")a.execute(id)}catch(e){failed()}}})();";
+// Score keys execute against the sitekey rather than a rendered widget ID.
+constexpr char kEnterpriseScript[] =
+    "w.remove();say(\"Checking your browser\\u2026\");"
+    "var l=document.createElement(\"script\");l.nonce=document.currentScript.nonce;"
+    "l.async=true;l.defer=true;"
+    "l.onload=function(){var a=api();if(!a){failed();return}"
+    "try{a.ready(function(){try{a.execute(c.k,c.a==null?undefined:{action:c.a}).then(done,failed)}"
+    "catch(e){failed()}})}catch(e){failed()}};l.onerror=failed;"
+    "l.src=\"https://www.google.com/recaptcha/enterprise.js?render=\"+encodeURIComponent(c.k);"
+    "try{document.head.appendChild(l)}catch(e){failed()}})();";
 
 void write_csp(Writer& out, const ProviderSources& sources, Utf8View nonce) noexcept {
     out.literal("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; "
@@ -156,16 +173,34 @@ void write_csp(Writer& out, const ProviderSources& sources, Utf8View nonce) noex
 }
 void write_body(Writer& out, const CaptchaBridgePage& page, const ProviderSources& sources) noexcept {
     out.literal(kPageHead);
+    if (page.provider == CaptchaBridgeProvider::recaptcha_enterprise)
+        out.literal("Checking your browser&#8230;");
+    else
+        out.literal("Complete the check below to continue in MaiCord.");
+    out.literal(kPageContent);
     const char code[2]{sources.code, 0};
     out.literal("{\"p\":"); out.json({code, 1});
     out.literal(",\"k\":"); out.json(page.sitekey);
     out.literal(",\"r\":"); out.json(page.rqdata);
+    if (page.provider == CaptchaBridgeProvider::recaptcha_enterprise && page.user_flow.bytes) {
+        out.literal(",\"a\":");
+        out.json(page.user_flow);
+    }
     if (page.invisible) out.literal(",\"i\":true");
     else out.literal(",\"i\":false");
     out.literal(",\"s\":\"/s/"); out.text(page.state); out.literal("\"}</script><script nonce=\"");
     out.text(page.nonce); out.literal("\">"); out.literal(kPageScript);
-    out.literal("</script><script nonce=\""); out.text(page.nonce); out.literal("\" src=\"");
-    out.text(cstring(sources.loader)); out.literal("\" async defer></script></body></html>");
+    if (page.provider == CaptchaBridgeProvider::recaptcha_enterprise) {
+        out.literal(kEnterpriseScript);
+        out.literal("</script></body></html>");
+    } else {
+        out.literal(kWidgetScript);
+        out.literal("</script><script nonce=\"");
+        out.text(page.nonce);
+        out.literal("\" src=\"");
+        out.text(cstring(sources.loader));
+        out.literal("\" async defer></script></body></html>");
+    }
 }
 
 } // namespace
@@ -190,6 +225,9 @@ bool captcha_bridge_rqdata_valid(Utf8View rqdata) noexcept {
         if (!alnum(c) && c != '-' && c != '_' && c != '+' && c != '/' && c != '=' && c != '.') return false;
     }
     return true;
+}
+bool captcha_bridge_user_flow_valid(Utf8View user_flow) noexcept {
+    return user_flow.bytes <= kCaptchaBridgeMaximumUserFlowBytes && utf8_validate(user_flow).valid;
 }
 bool captcha_bridge_token_valid(Utf8View token) noexcept {
     if (!token.data || token.bytes < kCaptchaBridgeMinimumTokenBytes || token.bytes > kCaptchaBridgeMaximumTokenBytes)
@@ -344,12 +382,13 @@ CaptchaBridgeWriteResult captcha_bridge_write_url(u16 port, Utf8View state, Slic
 CaptchaBridgeWriteResult captcha_bridge_write_page(const CaptchaBridgePage& page, Slice<u8> output) noexcept {
     const ProviderSources sources = provider_sources(page.provider);
     if (!sources.code || !port_valid(page.port) || !captcha_bridge_sitekey_valid(page.sitekey) ||
-        !captcha_bridge_rqdata_valid(page.rqdata) || !captcha_bridge_hex_valid(page.state, kCaptchaBridgeStateBytes) ||
+        !captcha_bridge_rqdata_valid(page.rqdata) || !captcha_bridge_user_flow_valid(page.user_flow) ||
+        !captcha_bridge_hex_valid(page.state, kCaptchaBridgeStateBytes) ||
         !captcha_bridge_hex_valid(page.nonce, kCaptchaBridgeNonceBytes) || !output.data ||
         !byte_range_valid({output.data, output.count}))
         return {0, CaptchaBridgeProtocolError::invalid_input};
     const ConstSlice<u8> destination{output.data, output.count};
-    const Utf8View sources_in[]{page.sitekey, page.rqdata, page.state, page.nonce};
+    const Utf8View sources_in[]{page.sitekey, page.rqdata, page.state, page.nonce, page.user_flow};
     for (const Utf8View source : sources_in)
         if (byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(source.data), source.bytes}))
             return {0, CaptchaBridgeProtocolError::invalid_input};

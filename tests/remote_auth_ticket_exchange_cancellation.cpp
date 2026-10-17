@@ -63,9 +63,21 @@ void event(void* context, const RemoteAuthTicketExchangeEvent& value) noexcept {
         ++fixture.challenges;
         SecureBuffer solution{};
         constexpr auto text = utf8_literal("synthetic-provider-solution");
-        const bool ready = secure_buffer_initialize(&solution, 128).ok() &&
-            secure_buffer_assign(&solution, {reinterpret_cast<const u8*>(text.data), text.bytes}).ok();
-        check(ready && remote_auth_ticket_exchange_submit_captcha(exchange, &solution, fixture.captcha).ok(),
+        bool ready = secure_buffer_initialize(&solution, 128).ok();
+        if (fixture.mode == Mode::captcha_success) {
+            constexpr auto expected = utf8_literal("6LeYqFcqAAAAAD6iZesmNgVulsO4PkpBdr6NVG6M");
+            const auto copied = remote_auth_ticket_exchange_copy_captcha_secret(
+                exchange, CaptchaChallengeSecretKind::sitekey, &solution);
+            check(ready && value.status.captcha_provider == CaptchaProvider::recaptcha_enterprise &&
+                      copied.ok() && solution.locked && solution.bytes == expected.bytes &&
+                      bytes_equal(solution.data, expected.data, expected.bytes),
+                  "remote auth: actual QR exchange decodes nullable enterprise sitekey into its protected "
+                  "owner");
+        }
+        ready = ready &&
+                secure_buffer_assign(&solution, {reinterpret_cast<const u8*>(text.data), text.bytes}).ok();
+        check(ready &&
+                  remote_auth_ticket_exchange_submit_captcha(exchange, &solution, fixture.captcha).ok(),
               "remote auth: protected synthetic CAPTCHA solution admits");
         secure_buffer_release(&solution);
         if (fixture.mode == Mode::captcha_cancel) SetEvent(fixture.cancel);
@@ -126,12 +138,20 @@ RestClientTakeResult rest_client_consume_user_auth_response(
     response->status_code = limited ? 429 : challenge_mode() ? 400 : 200;
     response->rate_limited = limited;
     response->retry_at_ms = limited ? kServerRetryAt : 0;
-    constexpr auto challenge = utf8_literal("{\"captcha_key\":[\"challenge\"],\"captcha_service\":\"hcaptcha\",\"captcha_sitekey\":\"synthetic-sitekey\",\"captcha_rqtoken\":\"synthetic-rqtoken\",\"captcha_session_id\":\"synthetic-session-id\"}");
+    constexpr auto challenge =
+        utf8_literal("{\"captcha_key\":[\"challenge\"],\"captcha_service\":\"hcaptcha\",\"captcha_"
+                     "sitekey\":\"synthetic-sitekey\",\"captcha_rqtoken\":\"synthetic-rqtoken\",\"captcha_"
+                     "session_id\":\"synthetic-session-id\"}");
+    constexpr auto enterprise = utf8_literal(
+        R"({"captcha_key":["challenge"],"captcha_service":"recaptcha_enterprise","captcha_sitekey":null,"captcha_rqtoken":"synthetic-rqtoken","captcha_session_id":"synthetic-session-id"})");
+    const auto challenge_body = fixture.mode == Mode::captcha_success ? enterprise : challenge;
     constexpr auto malformed = utf8_literal("{not-json");
-    const ConstSlice<u8> body = fixture.mode == Mode::limited_malformed
-        ? ConstSlice<u8>{reinterpret_cast<const u8*>(malformed.data), malformed.bytes} : challenge_mode()
-        ? ConstSlice<u8>{reinterpret_cast<const u8*>(challenge.data), challenge.bytes}
-        : secure_buffer_view(fixture.response);
+    const ConstSlice<u8> body =
+        fixture.mode == Mode::limited_malformed
+            ? ConstSlice<u8>{reinterpret_cast<const u8*>(malformed.data), malformed.bytes}
+        : challenge_mode()
+            ? ConstSlice<u8>{reinterpret_cast<const u8*>(challenge_body.data), challenge_body.bytes}
+            : secure_buffer_view(fixture.response);
     response->body_bytes = body.count;
     const bool accepted = consume(context, *response, body);
     // The callback is the production decode/decrypt boundary. Signaling here

@@ -189,6 +189,48 @@ void page(Check check) noexcept {
         for (offset += 16; offset < head && output[offset] >= '0' && output[offset] <= '9'; ++offset) declared = declared * 10 + output[offset] - '0';
         check(declared == written.bytes - head - 4, "bridge page: Content-Length frames the complete document");
     }
+    CaptchaBridgePage enterprise{utf8_literal("enterprise_sitekey"),          {},   kState, kNonce, kPort,
+                                 CaptchaBridgeProvider::recaptcha_enterprise, false};
+    auto enterprise_written = captcha_bridge_write_page(enterprise, {output, sizeof(output)});
+    ConstSlice<u8> enterprise_response{output, enterprise_written.bytes};
+    check(
+        enterprise_written.ok() && contains(enterprise_response, utf8_literal("enterprise.js?render=")) &&
+            contains(enterprise_response, utf8_literal("encodeURIComponent(c.k)")) &&
+            contains(enterprise_response, utf8_literal("l.nonce=document.currentScript.nonce")) &&
+            contains(enterprise_response, utf8_literal("l.async=true;l.defer=true")) &&
+            contains(enterprise_response, utf8_literal("a.ready(function()")) &&
+            contains(enterprise_response, utf8_literal("execute(c.k,c.a==null?undefined:{action:c.a})")) &&
+            contains(enterprise_response, utf8_literal(".then(done,failed)")) &&
+            contains(enterprise_response, utf8_literal("l.onerror=failed")) &&
+            contains(enterprise_response, utf8_literal("Checking your browser&#8230;")) &&
+            !contains(enterprise_response, utf8_literal("\"a\":")) &&
+            !contains(enterprise_response, utf8_literal("a.render(")) &&
+            !contains(enterprise_response, utf8_literal("execute(id)")) &&
+            !contains(enterprise_response, utf8_literal("https://js.hcaptcha.com")) &&
+            !contains(enterprise_response, utf8_literal("https://challenges.cloudflare.com")),
+        "bridge enterprise: score loader executes the sitekey with no invented action or widget path");
+    enterprise.user_flow = utf8_literal("flow/\"<>&'\\\n\xe2\x80\xa8\xe2\x80\xa9");
+    enterprise_written = captcha_bridge_write_page(enterprise, {output, sizeof(output)});
+    enterprise_response = {output, enterprise_written.bytes};
+    check(enterprise_written.ok() &&
+              contains(
+                  enterprise_response,
+                  utf8_literal(
+                      "\"a\":\"flow/\\u0022\\u003c\\u003e\\u0026\\u0027\\u005c\\u000a\\u2028\\u2029\"")) &&
+              !contains(enterprise_response, enterprise.user_flow),
+          "bridge enterprise: server action is JSON escaped without executable markup or line separators");
+    char oversized_flow[129];
+    for (char& c : oversized_flow)
+        c = 'a';
+    const char malformed_flow[]{static_cast<char>(0xc0), static_cast<char>(0xaf)};
+    const Utf8View invalid_flows[]{
+        {nullptr, 1}, {oversized_flow, sizeof(oversized_flow)}, {malformed_flow, sizeof(malformed_flow)}};
+    for (const Utf8View flow : invalid_flows) {
+        enterprise.user_flow = flow;
+        check(captcha_bridge_write_page(enterprise, {output, sizeof(output)}).error ==
+                  CaptchaBridgeProtocolError::invalid_input,
+              "bridge enterprise: malformed, oversized and invalid action views are rejected");
+    }
     check(!captcha_bridge_write_page({utf8_literal("bad\"key"), {}, kState, kNonce, kPort, CaptchaBridgeProvider::hcaptcha, false},
                                      {output, sizeof(output)}).ok() &&
               !captcha_bridge_write_page({utf8_literal("key"), utf8_literal("<script>"), kState, kNonce, kPort, CaptchaBridgeProvider::hcaptcha, false},

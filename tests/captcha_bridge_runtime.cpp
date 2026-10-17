@@ -1,6 +1,7 @@
 // Actual loopback bridge worker driven by a synthetic native client. No
 // browser is launched and nothing leaves 127.0.0.1.
 #include "../src/app/captcha_bridge.cpp"
+#include "maicord/app/account_action_captcha.hpp"
 #include "maicord/platform/browser_sign_in_launcher.hpp"
 
 namespace maicord::captcha_bridge_test {
@@ -106,7 +107,8 @@ bool wait_phase(CaptchaBridge* bridge, CaptchaBridgePhase phase, u32 timeout = 3
 }
 bool secrets_erased(const CaptchaBridge& bridge) noexcept {
     const auto* runtime = static_cast<const Runtime*>(bridge.runtime);
-    if (!runtime || runtime->token_bytes || runtime->sitekey_bytes || runtime->rqdata_bytes) return false;
+    if (!runtime || runtime->token_bytes || runtime->sitekey_bytes || runtime->rqdata_bytes || runtime->user_flow_bytes)
+        return false;
     for (u32 i = kTokenOffset; i < kStorageBytes; ++i) if (runtime->storage.data[i]) return false;
     return true;
 }
@@ -222,9 +224,13 @@ void lifecycle(Check check) noexcept {
           "bridge lifecycle: cancel invalidates the state and joins the listener");
 
     // A malformed POST with the right state spends it and reports rejection.
-    check(captcha_bridge_start(&bridge, 41, 10000, {kTestSitekey, {}, CaptchaProvider::recaptcha_enterprise, false}).ok() &&
-              wait_phase(&bridge, CaptchaBridgePhase::waiting) && target(&bridge, 41, &port, state),
-          "bridge lifecycle: malformed-solution fixture starts");
+    check(
+        captcha_bridge_start(
+            &bridge, 41, 10000,
+            {kTestSitekey, {}, CaptchaProvider::recaptcha_enterprise, false, utf8_literal("message/send")})
+                .ok() &&
+            wait_phase(&bridge, CaptchaBridgePhase::waiting) && target(&bridge, 41, &port, state),
+        "bridge lifecycle: malformed-solution fixture starts");
     build(false, port, state_view, utf8_literal("{\"token\":\"<script>alert(1)</script>\"}"));
     const bool exchanged = exchange(port);
     const auto rejected = captcha_bridge_status(&bridge);
@@ -233,6 +239,36 @@ void lifecycle(Check check) noexcept {
           "bridge lifecycle: the first POST invalidates the state even when its token is refused");
     captcha_bridge_stop(&bridge, 5000);
     check(captcha_bridge_runtime_bytes() <= 72 * 1024, "bridge lifecycle: one bounded locked arena");
+
+    AccountActionCaptcha action{};
+    AccountActionCaptchaRequest action_request{};
+    action_request.body = utf8_literal(
+        R"({"captcha_key":["captcha-required"],"captcha_service":"recaptcha_enterprise","user_flow":"friend/request"})");
+    action_request.generation = 51;
+    action_request.timeout_ms = 10000;
+    action_request.status_code = 400;
+    action_request.operation = AccountActionCaptchaOperation::start;
+    check(account_action_captcha(&action, nullptr, nullptr, action_request).ok() &&
+              wait_phase(&action.bridge, CaptchaBridgePhase::waiting) &&
+              target(&action.bridge, 51, &port, state),
+          "action captcha: omitted enterprise key starts the existing bridge owner");
+    action_request.operation = AccountActionCaptchaOperation::copy_url;
+    action_request.url = &other;
+    const bool copied = account_action_captcha(&action, nullptr, nullptr, action_request).ok() &&
+                        captcha_bridge_url_valid(&other);
+    build(true, port, state_view);
+    check(copied && exchange(port) && status_code() == 200 &&
+              reply_contains(utf8_literal("6LeYqFcqAAAAAD6iZesmNgVulsO4PkpBdr6NVG6M")) &&
+              reply_contains(utf8_literal("\"a\":\"friend/request\"")) &&
+              reply_contains(utf8_literal("enterprise.js?render=")) &&
+              !reply_contains(utf8_literal("a.render(")),
+          "action captcha: resolved enterprise key and action reach the score page");
+    action_request.operation = AccountActionCaptchaOperation::cancel;
+    check(account_action_captcha(&action, nullptr, nullptr, action_request).ok() &&
+              !action.bridge.runtime && !action.challenge_ready && !action.token.data &&
+              port_released(port),
+          "action captcha: cancelling joins the listener and erases the action challenge");
+    account_action_captcha_release(&action, nullptr, nullptr);
     secure_buffer_release(&token);
     secure_buffer_release(&other);
     WSACleanup();

@@ -423,6 +423,20 @@ void decode_field(const DecodedField& field, Slice<char> destination) noexcept {
     }
 }
 
+Utf8View captcha_default_sitekey(const DecodedField& service) noexcept {
+    char name[20];
+    if (!service.present || service.bytes > sizeof(name) ||
+        !json_string_decode_utf8(service.value, {name, sizeof(name)}).ok())
+        return {};
+    const Utf8View decoded{name, service.bytes};
+    if (ascii_equal_ignore_case(decoded, utf8_literal("recaptcha")))
+        return utf8_literal("6Lef5iQTAAAAAKeIvIY-DeexoO3gj7ryl9rLMEnn");
+    if (ascii_equal_ignore_case(decoded, utf8_literal("recaptcha_enterprise")) ||
+        ascii_equal_ignore_case(decoded, utf8_literal("recaptcha-enterprise")))
+        return utf8_literal("6LeYqFcqAAAAAD6iZesmNgVulsO4PkpBdr6NVG6M");
+    return {};
+}
+
 void copy_raw(const RawField& field, Slice<char> destination) noexcept {
     if (!field.present) {
         return;
@@ -823,11 +837,20 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
             storage_error = UserAuthDecodeError::output_too_small;
         }
     }
+    Utf8View default_sitekey{};
     if (storage_error == UserAuthDecodeError::none) {
         storage_error = preflight_field(&context.captcha_service, storage.captcha_service, false);
+        // Only null or omitted keys use a known provider default. An explicit
+        // empty string remains empty and cannot silently select another key.
+        if (storage_error == UserAuthDecodeError::none &&
+            parsed.kind == UserAuthResponseKind::captcha_required && !context.captcha_sitekey.present)
+            default_sitekey = captcha_default_sitekey(context.captcha_service);
     }
     if (storage_error == UserAuthDecodeError::none) {
         storage_error = preflight_field(&context.captcha_sitekey, storage.captcha_sitekey, false);
+        if (storage_error == UserAuthDecodeError::none && default_sitekey.bytes &&
+            (default_sitekey.bytes > storage.captcha_sitekey.count || !storage.captcha_sitekey.data))
+            storage_error = UserAuthDecodeError::output_too_small;
     }
     if (storage_error == UserAuthDecodeError::none) {
         storage_error = preflight_field(&context.captcha_rqdata, storage.captcha_rqdata, false);
@@ -854,6 +877,8 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
     copy_raw(context.webauthn_challenge, storage.webauthn_challenge);
     decode_field(context.captcha_service, storage.captcha_service);
     decode_field(context.captcha_sitekey, storage.captcha_sitekey);
+    if (default_sitekey.bytes)
+        copy_bytes(storage.captcha_sitekey.data, default_sitekey.data, default_sitekey.bytes);
     decode_field(context.captcha_rqdata, storage.captcha_rqdata);
     decode_field(context.captcha_rqtoken, storage.captcha_rqtoken);
     decode_field(context.captcha_session, storage.captcha_session_id);
@@ -867,7 +892,8 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
     parsed.login_instance_id_bytes = context.login_instance.bytes;
     parsed.webauthn_challenge_bytes = context.webauthn_challenge.bytes;
     parsed.captcha_service_bytes = context.captcha_service.bytes;
-    parsed.captcha_sitekey_bytes = context.captcha_sitekey.bytes;
+    parsed.captcha_sitekey_bytes =
+        default_sitekey.bytes ? default_sitekey.bytes : context.captcha_sitekey.bytes;
     parsed.captcha_rqdata_bytes = context.captcha_rqdata.bytes;
     parsed.captcha_rqtoken_bytes = context.captcha_rqtoken.bytes;
     parsed.captcha_session_id_bytes = context.captcha_session.bytes;
