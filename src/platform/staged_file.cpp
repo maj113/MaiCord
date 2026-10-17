@@ -23,13 +23,6 @@ StagedFileResult fence(const volatile LONG* cancellation, u64 deadline) noexcept
     if (GetTickCount64() >= deadline) return {WAIT_TIMEOUT, StagedFileError::timeout};
     return {};
 }
-// Antivirus and search indexing open a file as soon as it is closed, and a
-// rename fails with one of these until they let go of it.
-bool held_briefly(u32 native) noexcept {
-    return native == ERROR_SHARING_VIOLATION || native == ERROR_ACCESS_DENIED ||
-           native == ERROR_LOCK_VIOLATION;
-}
-constexpr u64 kHeldRenameBudgetMs = 5000;
 } // namespace
 StagedFileResult staged_file_begin(StagedFile* owner, NetworkLoop* loop, const wchar_t* destination_path,
     const wchar_t* stage_path, u64 expected_bytes, bool destination_exists, bool overwrite_authorized, FileSnapshot destination) noexcept {
@@ -53,33 +46,10 @@ StagedFileResult staged_file_commit(StagedFile* owner, u64 acknowledged_bytes, c
         return {native, StagedFileError::size_mismatch};
     if (!FlushFileBuffers(owner->file.handle)) return {GetLastError(), StagedFileError::flush};
     network_file_close(&owner->file);
-    return staged_file_rename(owner, cancellation, deadline);
-}
-StagedFileResult staged_file_rename(StagedFile* owner, const volatile LONG* cancellation,
-                                    u64 deadline) noexcept {
-    if (!owner || !owner->stage_owned || owner->file.handle)
-        return {ERROR_INVALID_PARAMETER, StagedFileError::invalid_input};
-    auto allowed = fence(cancellation, deadline);
-    if (!allowed.ok())
-        return allowed;
+    if (!current(owner, &native)) return {native, StagedFileError::destination_changed};
+    allowed = fence(cancellation, deadline); if (!allowed.ok()) return allowed;
     const DWORD flags = MOVEFILE_WRITE_THROUGH | (owner->destination_exists ? MOVEFILE_REPLACE_EXISTING : 0);
-    // A held stage is retried until the budget or deadline, which then reports
-    // the rename's own error.
-    const u64 give_up = minimum(deadline, GetTickCount64() + kHeldRenameBudgetMs);
-    u32 native = 0;
-    for (u32 wait_ms = 10;; wait_ms = minimum(wait_ms * 2, 200u)) {
-        if (!current(owner, &native))
-            return {native, StagedFileError::destination_changed};
-        if (MoveFileExW(owner->stage_path, owner->destination_path, flags))
-            break;
-        native = GetLastError();
-        if (!held_briefly(native) || GetTickCount64() + wait_ms >= give_up)
-            return {native, StagedFileError::commit};
-        Sleep(wait_ms);
-        allowed = fence(cancellation, ~u64{0});
-        if (!allowed.ok())
-            return allowed;
-    }
+    if (!MoveFileExW(owner->stage_path, owner->destination_path, flags)) return {GetLastError(), StagedFileError::commit};
     owner->stage_owned = false; return {};
 }
 StagedFileResult staged_file_discard(StagedFile* owner) noexcept {

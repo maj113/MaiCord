@@ -17,32 +17,6 @@ bool target_equals(const wchar_t* path, ConstSlice<u8> expected) noexcept {
     for (u32 i = 0; ok && i < expected.count; ++i) ok &= bytes[i] == expected[i];
     CloseHandle(file); return ok;
 }
-// A closed stage, as commit leaves it before the rename.
-bool closed_stage(const wchar_t* stage_path, const wchar_t* target, StagedFile* out) noexcept {
-    const HANDLE file =
-        CreateFileW(stage_path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE)
-        return false;
-    const u8 value[3]{9, 8, 7};
-    DWORD bytes = 0;
-    const bool ok = WriteFile(file, value, sizeof(value), &bytes, nullptr) && bytes == sizeof(value);
-    CloseHandle(file);
-    *out = {};
-    out->destination_path = target;
-    out->stage_path = stage_path;
-    out->expected_bytes = 3;
-    out->stage_owned = ok;
-    return ok;
-}
-// Holds the stage the way antivirus does: reading without delete sharing.
-HANDLE hold(const wchar_t* path) noexcept {
-    return CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
-}
-DWORD WINAPI release_soon(void* holder) noexcept {
-    Sleep(30);
-    CloseHandle(static_cast<HANDLE>(holder));
-    return 0;
-}
 bool write_stage(NetworkLoop* loop, StagedFile* stage, ConstSlice<u8> data) noexcept {
     if (!network_file_write(&stage->file, 0, data).ok()) return false;
     const auto done = network_loop_poll(loop, 5000);
@@ -121,31 +95,6 @@ void test_staged_file(void (*check)(bool, const char*) noexcept) noexcept {
     check(drained.state == NetworkPollState::completion && drained.completion.file == &stage.file && !stage.file.pending &&
         staged_file_discard(&stage).ok() && !stage.stage_owned && target_equals(target, {original, sizeof(original)}),
         "cancel drain releases staging ownership while preserving prior destination bytes");
-    DeleteFileW(target);
-    stage = {};
-    HANDLE holder = closed_stage(temporary, target, &stage) ? hold(temporary) : INVALID_HANDLE_VALUE;
-    const auto held = staged_file_rename(&stage, nullptr, GetTickCount64() + 100);
-    check(holder != INVALID_HANDLE_VALUE && held.error == StagedFileError::commit &&
-              (held.native_error == ERROR_SHARING_VIOLATION || held.native_error == ERROR_ACCESS_DENIED) &&
-              stage.stage_owned && GetFileAttributesW(target) == INVALID_FILE_ATTRIBUTES,
-          "a stage held past the deadline reports the rename's sharing error and stays owned");
-    if (holder != INVALID_HANDLE_VALUE)
-        CloseHandle(holder);
-    staged_file_discard(&stage);
-    stage = {};
-    holder = closed_stage(temporary, target, &stage) ? hold(temporary) : INVALID_HANDLE_VALUE;
-    const HANDLE releaser = holder != INVALID_HANDLE_VALUE
-                                ? CreateThread(nullptr, 0, release_soon, holder, 0, nullptr)
-                                : nullptr;
-    check(releaser && staged_file_rename(&stage).ok() && !stage.stage_owned &&
-              target_equals(target, {downloaded, sizeof(downloaded)}) &&
-              GetFileAttributesW(temporary) == INVALID_FILE_ATTRIBUTES,
-          "a stage held briefly after closing is renamed once the holder lets go");
-    if (releaser) {
-        WaitForSingleObject(releaser, INFINITE);
-        CloseHandle(releaser);
-    } else if (holder != INVALID_HANDLE_VALUE)
-        CloseHandle(holder);
     network_loop_release(&loop); DeleteFileW(temporary); DeleteFileW(target);
 }
 }
