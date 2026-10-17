@@ -65,9 +65,9 @@ bool client_preferences_equal(const ClientPreferences& a, const ClientPreference
            a.developer_mode == b.developer_mode && a.taskbar_flash == b.taskbar_flash &&
            a.unread_badge == b.unread_badge && a.minimize_to_tray == b.minimize_to_tray &&
            a.start_minimized == b.start_minimized && a.spellcheck == b.spellcheck &&
-           a.game_detection == b.game_detection &&
-           a.message_group_spacing == b.message_group_spacing &&
+           a.game_detection == b.game_detection && a.message_group_spacing == b.message_group_spacing &&
            a.channel_pane_width == b.channel_pane_width && a.member_pane_width == b.member_pane_width &&
+           a.expression_picker_width == b.expression_picker_width &&
            background_theme_equal(a.gradient, b.gradient);
 }
 
@@ -105,10 +105,12 @@ ClientPreferencesResult client_preferences_encode(const ClientPreferences& prefe
         record.data[49 + i * 3] = preferences.effect_profiles[i].strength;
         record.data[50 + i * 3] = preferences.effect_profiles[i].density;
     }
-    record.data[66] = static_cast<u8>((preferences.taskbar_flash ? 0u : 1u) | (preferences.unread_badge ? 0u : 2u) |
-                                      (preferences.minimize_to_tray ? 0u : 4u) |
-                                      (preferences.start_minimized ? 8u : 0u) | (preferences.spellcheck ? 0u : 16u) |
-                                      (preferences.game_detection ? 32u : 0u));
+    record.data[58] = static_cast<u8>(preferences.expression_picker_width);
+    record.data[59] = static_cast<u8>(preferences.expression_picker_width >> 8);
+    record.data[66] =
+        static_cast<u8>((preferences.taskbar_flash ? 0u : 1u) | (preferences.unread_badge ? 0u : 2u) |
+                        (preferences.minimize_to_tray ? 0u : 4u) | (preferences.start_minimized ? 8u : 0u) |
+                        (preferences.spellcheck ? 0u : 16u) | (preferences.game_detection ? 32u : 0u));
     record.data[67] = preferences.message_group_spacing;
     record.data[68] = static_cast<u8>(preferences.channel_pane_width);
     record.data[69] = static_cast<u8>(preferences.channel_pane_width >> 8);
@@ -184,6 +186,7 @@ ClientPreferencesResult client_preferences_decode(ConstSlice<u8> record,
     decoded.spellcheck = !(record.data[66] & 16);
     decoded.game_detection = (record.data[66] & 32) != 0;
     decoded.message_group_spacing = record.data[67];
+    decoded.expression_picker_width = byte_load_le16(record.data + 58);
     decoded.channel_pane_width = byte_load_le16(record.data + 68);
     decoded.member_pane_width = byte_load_le16(record.data + 70);
     if (!client_preferences_valid(decoded))

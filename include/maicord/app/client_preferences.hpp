@@ -50,6 +50,9 @@ struct ClientPreferences {
     // Splitter-resized pane widths in DIPs; 0 keeps the theme's default.
     u16 channel_pane_width = 0;
     u16 member_pane_width = 0;
+    // Shared expression drawer width in DIPs; layout clamps it to the current
+    // theme minimum and viewport. Zero keeps the theme default.
+    u16 expression_picker_width = 0;
 };
 inline constexpr u8 kClientPreferencesGroupSpacingCount = 6;
 inline constexpr u16 kClientPreferencesPaneWidthMinimum = 120;
@@ -92,7 +95,8 @@ constexpr ClientPreferences client_preferences_defaults() noexcept {
 bool client_preferences_valid(const ClientPreferences& preferences) noexcept;
 bool client_preferences_equal(const ClientPreferences& a, const ClientPreferences& b) noexcept;
 
-// Bytes 48..56 hold the three effect profiles; 57..65 are reserved and ignored.
+// Bytes 48..56 hold the three effect profiles; 58..59 hold the expression
+// drawer width (little-endian u16). Bytes 57 and 60..65 are reserved and ignored.
 // Byte 66 bits: 0 taskbar flash off, 1 unread badge off, 2 minimize to tray
 // off, 3 start minimized, 4 spellcheck off, 5 game detection on (defaults
 // encode as zero bits).

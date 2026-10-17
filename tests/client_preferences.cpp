@@ -98,16 +98,18 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
         record[46] = 66;
         record[47] = 55;
         for (u32 i = 57; i < 66; ++i)
-            record[i] = static_cast<u8>(0x40 + i);
+            if (i != 58 && i != 59)
+                record[i] = static_cast<u8>(0x40 + i);
         byte_store_le64(record + 72, hash64_bytes(kHash64Seed, record, 72));
         const auto none_settings = background_effect_settings_defaults(BackgroundEffect::none);
-        removed_effects = removed_effects && client_preferences_decode({record, 80}, &decoded).ok() &&
-                          decoded.gradient.effect == BackgroundEffect::none &&
-                          decoded.gradient.speed == none_settings.speed &&
-                          decoded.gradient.strength == none_settings.strength &&
-                          decoded.gradient.density == none_settings.density &&
-                          decoded.theme == both.theme && decoded.gradient.colors[0] == both.gradient.colors[0] &&
-                          decoded.effect_profiles[2].density == 37 && background_theme_valid(decoded.gradient);
+        removed_effects =
+            removed_effects && client_preferences_decode({record, 80}, &decoded).ok() &&
+            decoded.gradient.effect == BackgroundEffect::none &&
+            decoded.gradient.speed == none_settings.speed &&
+            decoded.gradient.strength == none_settings.strength &&
+            decoded.gradient.density == none_settings.density && decoded.theme == both.theme &&
+            decoded.gradient.colors[0] == both.gradient.colors[0] &&
+            decoded.effect_profiles[2].density == 37 && background_theme_valid(decoded.gradient);
     }
     check(removed_effects, "preferences: a saved removed effect falls back to None with default tuning "
                            "instead of rejecting the record");
@@ -180,18 +182,26 @@ void test_client_preferences(void (*check)(bool, const char*) noexcept) noexcept
           "preferences: tray, start minimized and spellcheck bits roundtrip at byte 66");
     auto games = defaults;
     games.game_detection = true;
-    check(!defaults.game_detection && client_preferences_encode(games, {record, 80}).ok() && record[66] == 32 &&
-              client_preferences_decode({record, 80}, &decoded).ok() && decoded.game_detection &&
-              !client_preferences_equal(decoded, defaults),
+    check(!defaults.game_detection && client_preferences_encode(games, {record, 80}).ok() &&
+              record[66] == 32 && client_preferences_decode({record, 80}, &decoded).ok() &&
+              decoded.game_detection && !client_preferences_equal(decoded, defaults),
           "preferences: opt-in game detection bit roundtrips at byte 66 and defaults off");
+    auto picker = defaults;
+    picker.expression_picker_width = 750;
+    check(reset() && byte_load_le16(record + 58) == 0 &&
+              client_preferences_encode(picker, {record, 80}).ok() && byte_load_le16(record + 58) == 750 &&
+              client_preferences_decode({record, 80}, &decoded).ok() &&
+              client_preferences_equal(decoded, picker) && !client_preferences_equal(decoded, defaults),
+          "preferences: expression drawer width uses reserved bytes without changing the record version or "
+          "size");
     auto panes = defaults;
     panes.channel_pane_width = 312;
     panes.member_pane_width = kClientPreferencesPaneWidthMaximum;
     check(reset() && byte_load_le16(record + 68) == 0 && byte_load_le16(record + 70) == 0 &&
               client_preferences_encode(panes, {record, 80}).ok() && byte_load_le16(record + 68) == 312 &&
               byte_load_le16(record + 70) == kClientPreferencesPaneWidthMaximum &&
-              client_preferences_decode({record, 80}, &decoded).ok() && client_preferences_equal(decoded, panes) &&
-              !client_preferences_equal(decoded, defaults),
+              client_preferences_decode({record, 80}, &decoded).ok() &&
+              client_preferences_equal(decoded, panes) && !client_preferences_equal(decoded, defaults),
           "preferences: v9 splitter pane widths roundtrip at bytes 68..71; zero keeps theme defaults");
     decoded = sentinel;
     bool pane_bounds = true;

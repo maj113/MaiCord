@@ -71,23 +71,22 @@ bool picker_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* s
         layout.rail = {left, layout.body.top, left + m.rail_width, layout.body.bottom};
         layout.body.left += m.rail_width;
     }
-    layout.columns = kind == UiMediaPickerKind::gif ? 2 : kind == UiMediaPickerKind::sticker ? 4 : 8;
-    const float cell_width =
-        (ui_rect_width(layout.body) - m.padding * 2 - m.scrollbar_gutter - m.gap * (layout.columns - 1)) /
-        layout.columns;
-    layout.cell_pitch = kind == UiMediaPickerKind::gif
-                            ? maximum(m.gif_min_height, cell_width * m.gif_aspect_ratio + m.gap)
-                            : cell_width + m.gap;
-    if (kind == UiMediaPickerKind::emoji)
-        layout.cell_pitch = maximum(m.emoji_min_height, layout.cell_pitch);
+    const float content_width = ui_rect_width(layout.body) - m.padding * 2 - m.scrollbar_gutter;
+    layout.columns = kind == UiMediaPickerKind::sticker ? 4 : 8;
+    if (kind == UiMediaPickerKind::gif) {
+        // Landing categories may include the favorites tile. Result/favorites
+        // views share the denser cap, without resolving offscreen catalogue items.
+        const u32 cap = back ? 8 : 6;
+        layout.columns =
+            static_cast<u8>(minimum(cap, maximum(1u, static_cast<u32>(maximum(0.f, content_width + m.gap) /
+                                                                      (m.gif_target_width + m.gap)))));
+    }
     const float art_inset = kind == UiMediaPickerKind::sticker ? m.sticker_inset
                             : kind == UiMediaPickerKind::emoji ? m.emoji_inset
                                                                : 0;
     // Validate the actual available pane, not just the preferred panel width.
-    // Partial rows, collapsed headers and the category rail have fixed budgets.
-    if (!ui_rect_has_area(layout.text) || (!reaction && (ui_rect_width(layout.tabs) - m.gap * 2) / 3 < 24) ||
-        cell_width <= art_inset * 2 + 1 || layout.cell_pitch - m.gap <= art_inset * 2 + 1 ||
-        style.control_radius * 2 > minimum(cell_width, layout.cell_pitch - m.gap) ||
+    if (!ui_rect_has_area(layout.text) ||
+        (!reaction && (ui_rect_width(layout.tabs) - m.gap * 2) / 3 < 24) ||
         style.edit_radius * 2 > m.search_height)
         return false;
     // Keep the common full body. Reject an incompatible override as a whole;
@@ -95,20 +94,39 @@ bool picker_layout(const UiMediaPickerStyle& style, const UiMediaPickerSource* s
     const float body_height = ui_rect_height(layout.body);
     if (body_height <= m.content_inset + 1)
         return false;
-    const u32 visible_rows = static_cast<u32>(body_height / layout.cell_pitch) + 2;
-    const u32 cells = visible_rows * layout.columns;
     const bool sections = source && source->sections.count;
     const u32 headers = sections ? static_cast<u32>(body_height / m.section_height) + 2 : 0;
     const u32 rail_slots = sections ? static_cast<u32>(body_height / m.rail_pitch) + 2 : 0;
-    // Disabled previews use at most five quads; category rail symbols eleven,
-    // section arrows two. Reserve native chrome/focus work within the shared
-    // fixed paint budget, even when every visible source preview is unavailable.
-    if (cells > kUiMediaPickerVisibleCells || headers > kUiMediaPickerVisibleSections ||
-        rail_slots > kUiMediaPickerVisibleSections ||
-        cells * 5 + headers * 2 + rail_slots * 11 + 24 > kMaxPaintQuads)
+    if (headers > kUiMediaPickerVisibleSections || rail_slots > kUiMediaPickerVisibleSections)
         return false;
-    *output = layout;
-    return true;
+    for (;;) {
+        const float cell_width = (content_width - m.gap * (layout.columns - 1)) / layout.columns;
+        layout.cell_pitch = kind == UiMediaPickerKind::gif
+                                ? maximum(m.gif_min_height, cell_width * m.gif_aspect_ratio + m.gap)
+                                : cell_width + m.gap;
+        if (kind == UiMediaPickerKind::emoji)
+            layout.cell_pitch = maximum(m.emoji_min_height, layout.cell_pitch);
+        if (cell_width <= art_inset * 2 + 1 || layout.cell_pitch - m.gap <= art_inset * 2 + 1 ||
+            style.control_radius * 2 > minimum(cell_width, layout.cell_pitch - m.gap)) {
+            if (kind != UiMediaPickerKind::gif || layout.columns == 1)
+                return false;
+            --layout.columns;
+            continue;
+        }
+        const u32 visible_rows = static_cast<u32>(body_height / layout.cell_pitch) + 2;
+        const u32 cells = visible_rows * layout.columns;
+        // Disabled previews use at most five quads; rail symbols eleven and
+        // section arrows two. Wider GIF cells reduce rows when a dense theme
+        // would exceed the fixed projection or paint bank at its desired count.
+        if (cells <= kUiMediaPickerVisibleCells &&
+            cells * 5 + headers * 2 + rail_slots * 11 + 24 <= kMaxPaintQuads) {
+            *output = layout;
+            return true;
+        }
+        if (kind != UiMediaPickerKind::gif || layout.columns == 1)
+            return false;
+        --layout.columns;
+    }
 }
 bool label_valid(Utf8View text) noexcept {
     return text.bytes <= 256 && (!text.bytes || text.data) && utf8_validate(text).valid;
@@ -531,7 +549,8 @@ bool ui_media_picker_style_valid(const UiMediaPickerStyle& style) noexcept {
            bounded(m.scrollbar_gutter, 8, 24) && bounded(m.sticker_inset, 0, 16) &&
            bounded(m.emoji_inset, 0, 8) && bounded(m.gif_min_height, 48, 128) &&
            bounded(m.emoji_min_height, 32, 80) && bounded(m.gif_aspect_ratio, .35f, 1) &&
-           bounded(m.icon_extent, 16, 28) && bounded(m.text_inset, 2, 8) && bounded(m.rail_inset, 2, 8) &&
+           bounded(m.gif_target_width, 48, 768) && bounded(m.icon_extent, 16, 28) &&
+           bounded(m.text_inset, 2, 8) && bounded(m.rail_inset, 2, 8) &&
            bounded(style.panel_radius, 0, 24) && bounded(style.control_radius, 0, 24) &&
            bounded(style.edit_radius, 0, 24) && bounded(style.selection_width, .5f, 3) &&
            bounded(style.category_opacity, 0, 1) && m.search_height >= m.icon_extent + m.text_inset * 2 &&

@@ -574,6 +574,7 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
     dense.metrics.gap = 2;
     dense.metrics.gif_min_height = 48;
     dense.metrics.gif_aspect_ratio = .35f;
+    dense.metrics.gif_target_width = 96;
     dense.metrics.icon_extent = 28;
     dense.metrics.footer_height = 64;
     check(ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 1000, 1000}, {560, 900, 940, 940},
@@ -621,7 +622,7 @@ void test_picker_style(void (*check)(bool, const char*) noexcept) noexcept {
     content.placeholder = utf8_literal("Search stickers");
     const UiRect viewport{0, 0, 1000, 800}, anchor{560, 700, 940, 740};
     const auto defaults = ui_media_picker_style();
-    check(ui_media_picker_style_valid(defaults) && sizeof(UiMediaPickerStyle) == 112 &&
+    check(ui_media_picker_style_valid(defaults) && sizeof(UiMediaPickerStyle) == 116 &&
               ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) &&
               ui_rect_width(scene.panel) == 432 && ui_rect_height(scene.panel) == 480 &&
               scene.tabs.top == scene.panel.top + 8 && scene.tabs.bottom == scene.panel.top + 40 &&
@@ -894,6 +895,120 @@ void test_picker_resize(void (*check)(bool, const char*) noexcept) noexcept {
           "media picker resize: reaction popout ignores expression drawer preference");
     ui_media_picker_scene_release(&scene);
 }
+void test_picker_gif_reflow(void (*check)(bool, const char*) noexcept) noexcept {
+    UiMediaPickerScene scene{};
+    PickerFixture fixture{0, 512, 4000, UiMediaPickerItemKind::category, false};
+    UiMediaPickerSource source{&fixture, 7, 1, fixture.count, 1, {}, resolve_picker};
+    UiMediaPickerContent content{};
+    content.account_scope = 7;
+    content.query_generation = 1;
+    content.revision = 1;
+    content.kind = UiMediaPickerKind::gif;
+    content.phase = UiMediaPickerPhase::ready;
+    content.available_tabs = 7;
+    content.edit.active = true;
+    const UiRect viewport{0, 0, 2200, 1000}, anchor{1800, 900, 2160, 940};
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) && scene.columns == 2 &&
+              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 567) &&
+              scene.columns == 2 &&
+              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 568) &&
+              scene.columns == 3 &&
+              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 2000) &&
+              scene.columns == 6,
+          "media picker reflow: native two-column default crosses the third-column boundary and caps "
+          "landing categories at six");
+    if (!scene.active)
+        return;
+    const auto bank = scene.storage.arena.base;
+    const auto committed = scene.storage.arena.committed;
+    fixture.kind = UiMediaPickerItemKind::gif;
+    ++source.revision;
+    content.back = true;
+    ++content.revision;
+    const u32 result_calls = fixture.calls;
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 2000) &&
+              scene.columns == 8 && fixture.calls - result_calls == scene.cell_count &&
+              scene.projection->cells[0].item.kind == UiMediaPickerItemKind::gif &&
+              scene.projection->cells[8].rectangle.top > scene.projection->cells[0].rectangle.top &&
+              ui_media_picker_scene_select(&scene, 0) &&
+              ui_media_picker_scene_move_selection(&scene, 0, 1) && scene.selected_index == 8,
+          "media picker reflow: result and favorites views cap at eight with matching row geometry "
+          "and keyboard stride");
+    check(ui_media_picker_scene_scroll(&scene, 40), "media picker reflow: result viewport scrolls");
+    const float scroll = scene.scroll_dips;
+    const u32 selected = scene.selected_index;
+    const u64 query_generation = scene.query_generation;
+    const u32 narrow_calls = fixture.calls;
+    check(
+        ui_media_picker_scene_update(&scene, &source, &content, {0, 0, 300, 1000}, anchor, nullptr, 2000) &&
+            scene.columns == 1 && scene.scroll_dips == scroll && scene.selected_index == selected &&
+            scene.query_generation == query_generation && scene.source_revision == source.revision &&
+            fixture.calls - narrow_calls == scene.cell_count && scene.cell_count <= 80 &&
+            scene.storage.arena.base == bank && scene.storage.arena.committed == committed,
+        "media picker reflow: narrow viewport keeps one column and scroll, selection, query and "
+        "the original visible bank");
+    UiMediaPickerSection sections[]{{1, 0, 256, utf8_literal("First GIF section"), true},
+                                    {2, 256, 256, utf8_literal("Second GIF section"), true}};
+    source.sections = {sections, 2};
+    ++source.revision;
+    check(ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor) && scene.columns == 2 &&
+              ui_media_picker_scene_scroll_section(&scene, 2) &&
+              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, nullptr, 800) &&
+              scene.columns == 4 && ui_media_picker_scene_scroll_section(&scene, 2) &&
+              scene.rail_count == 2 && scene.header_count &&
+              scene.cell_count <= kUiMediaPickerVisibleCells && scene.widgets.count <= 128 &&
+              scene.storage.arena.base == bank && scene.storage.arena.committed == committed,
+          "media picker reflow: section rail participates in width while section projection and "
+          "storage remain bounded");
+    auto dense = ui_media_picker_style();
+    dense.metrics.panel_height = 768;
+    dense.metrics.gif_target_width = 48;
+    dense.metrics.gif_min_height = 48;
+    dense.metrics.gif_aspect_ratio = .35f;
+    dense.metrics.section_height = 48;
+    dense.metrics.rail_pitch = 64;
+    fixture.missing_asset = true;
+    fixture.favoritable = fixture.favorite = true;
+    ++source.revision;
+    PaintStream paint{};
+    check(ui_media_picker_style_valid(dense) &&
+              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, &dense, 600) &&
+              scene.style.metrics.gif_target_width == 48 && scene.columns > 1 && scene.columns < 8 &&
+              scene.cell_count <= kUiMediaPickerVisibleCells && scene.widgets.count <= 128 &&
+              scene.header_count <= kUiMediaPickerVisibleSections &&
+              scene.rail_count <= kUiMediaPickerVisibleSections && scene.body.bottom == scene.footer.top &&
+              paint_stream_initialize(&paint) && paint_stream_reset(&paint, 2200, 1000) &&
+              ui_media_picker_scene_paint(scene, kDefaultTheme, &paint, nullptr, 96) &&
+              ui_media_picker_scene_paint_foreground(scene, kDefaultTheme, &paint) && !paint.rejected &&
+              paint.clip_depth == 1 && paint.count < kMaxPaintQuads && scene.storage.arena.base == bank &&
+              scene.storage.arena.committed == committed,
+          "media picker reflow: dense tall theme reduces columns within fixed cells, sections, "
+          "widgets and paint budgets without replacing its metrics or visible bank");
+    auto rounded = ui_media_picker_style();
+    rounded.metrics.gif_target_width = rounded.metrics.gif_min_height = 48;
+    rounded.metrics.gif_aspect_ratio = .35f;
+    rounded.control_radius = 24;
+    source.sections = {};
+    ++source.revision;
+    check(ui_media_picker_style_valid(rounded) &&
+              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, &rounded) &&
+              scene.style.control_radius == 24 && scene.style.metrics.gif_target_width == 48 &&
+              scene.columns == 2 && scene.cell_count <= kUiMediaPickerVisibleCells &&
+              paint_stream_reset(&paint, 2200, 1000) &&
+              ui_media_picker_scene_paint(scene, kDefaultTheme, &paint, nullptr, 96) &&
+              ui_media_picker_scene_paint_foreground(scene, kDefaultTheme, &paint) && !paint.rejected &&
+              paint.count < kMaxPaintQuads,
+          "media picker reflow: large valid corner radius reduces GIF columns before discarding "
+          "the theme and still paints within the fixed bank");
+    paint_stream_release(&paint);
+    dense.metrics.gif_target_width = 0;
+    check(!ui_media_picker_style_valid(dense) &&
+              ui_media_picker_scene_update(&scene, &source, &content, viewport, anchor, &dense) &&
+              scene.columns == 2 &&
+              scene.style.metrics.gif_target_width == ui_media_picker_style().metrics.gif_target_width,
+          "media picker reflow: invalid target width falls back to the complete native style");
+    ui_media_picker_scene_release(&scene);
+}
 } // namespace
 void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
     test_picker_scrollbars(check);
@@ -902,6 +1017,7 @@ void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
     test_picker_style(check);
     test_picker_favorites(check);
     test_picker_resize(check);
+    test_picker_gif_reflow(check);
     UiMediaPickerScene scene{};
     PickerFixture fixture{0, 65'536, 10, UiMediaPickerItemKind::category, false};
     UiMediaPickerSource source{&fixture, 7, 1, fixture.count, 1, {}, resolve_picker};

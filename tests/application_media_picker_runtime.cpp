@@ -29,6 +29,7 @@ struct AccountFixture {
     RestClientSubmitError admission;
 } account;
 u32 failures, repaints, composer_refreshes, history_pumps, text_builds;
+u32 preference_saves;
 u32 member_activations, launcher_activations;
 bool settings;
 bool favorites_enabled, favorites_visible;
@@ -405,16 +406,17 @@ void run() noexcept {
     const float resize_y = (p.scene.panel.top + p.scene.panel.bottom) * .5f;
     const auto resize_generation = p.generation;
     check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
-                                                   pointer(p.scene.panel.left, resize_y)) &&
+                                                  pointer(p.scene.panel.left, resize_y)) &&
               p.resizing && GetCapture() == g_app.window &&
               application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON,
-                                                       pointer(fixed_edge - initial_width - 64, resize_y)) &&
+                                                      pointer(fixed_edge - initial_width - 64, resize_y)) &&
               ui_rect_width(p.scene.panel) == initial_width + 64 && p.scene.panel.right == fixed_edge &&
-              p.generation == resize_generation && !p.edit.bytes &&
+              p.generation == resize_generation && !p.edit.bytes && preference_saves == 0 &&
               application_media_picker_window_message(WM_LBUTTONUP, 0,
-                                                       pointer(fixed_edge - initial_width - 64, resize_y)) &&
-              !p.resizing && GetCapture() != g_app.window,
-          "picker runtime: left-edge captured resize keeps right anchor and query identity");
+                                                      pointer(fixed_edge - initial_width - 64, resize_y)) &&
+              !p.resizing && GetCapture() != g_app.window && preference_saves == 1 &&
+              g_app.preferences.expression_picker_width == initial_width + 64,
+          "picker runtime: captured resize keeps query identity and saves width once on release");
     const float saved_width = p.preferred_width;
     application_media_picker_close();
     check(application_media_picker_open(UiMediaPickerKind::gif) && p.preferred_width == saved_width &&
@@ -1185,7 +1187,27 @@ void run() noexcept {
               same(message_composer_text(p.edit), utf8_literal("smile")) &&
               same(p.content.placeholder, utf8_literal("Find the perfect emoji")),
           "reaction popout: the composer Emoji tab returns with its own query and selector");
+    const auto saves_before_close = preference_saves;
+    const float close_resize_y = (p.scene.panel.top + p.scene.panel.bottom) * .5f;
+    check(application_media_picker_window_message(WM_LBUTTONDOWN, MK_LBUTTON,
+                                                  pointer(p.scene.panel.left, close_resize_y)) &&
+              application_media_picker_window_message(WM_MOUSEMOVE, MK_LBUTTON,
+                                                      pointer(p.scene.panel.left - 32, close_resize_y)) &&
+              p.resizing && preference_saves == saves_before_close,
+          "picker runtime: an unfinished resize has no preference writes");
     application_media_picker_close();
+    const auto persisted_width = g_app.preferences.expression_picker_width;
+    const auto saves_before_release = preference_saves;
+    application_media_picker_close();
+    check(saves_before_release == saves_before_close + 1 && preference_saves == saves_before_release &&
+              persisted_width == p.preferred_width && !p.resizing && GetCapture() != g_app.window,
+          "picker runtime: close ends an active resize and saves exactly once before teardown");
+    application_media_picker_release();
+    check(persisted_width != 0 && application_media_picker_open(UiMediaPickerKind::gif) &&
+              g_app.media_picker->preferred_width == persisted_width &&
+              ui_rect_width(g_app.media_picker->scene.panel) == persisted_width &&
+              preference_saves == saves_before_release,
+          "picker runtime: a recreated owner restores saved width without another preference write");
     release();
     owner_measurements("picker_released");
     check(!g_app.media_picker && !g_app.renderer.media_picker_scene &&
@@ -1403,6 +1425,10 @@ bool pump_message_history() noexcept {
 }
 bool application_settings_active() noexcept {
     return media_picker_runtime_test::settings;
+}
+bool application_settings_commit_preferences() noexcept {
+    ++media_picker_runtime_test::preference_saves;
+    return true;
 }
 bool application_friends_active() noexcept {
     return false;

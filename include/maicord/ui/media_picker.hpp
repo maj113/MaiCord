@@ -22,7 +22,7 @@ struct UiMediaPickerMetrics {
     float padding, gap, content_inset, tab_height, tab_max_width;
     float search_height, footer_height, section_height, rail_width, rail_pitch;
     float scrollbar_gutter, sticker_inset, emoji_inset;
-    float gif_min_height, emoji_min_height, gif_aspect_ratio;
+    float gif_min_height, emoji_min_height, gif_aspect_ratio, gif_target_width;
     float icon_extent, text_inset, rail_inset;
 };
 struct UiMediaPickerStyle {
@@ -52,6 +52,8 @@ constexpr UiMediaPickerStyle ui_media_picker_style() noexcept {
     m.gif_min_height = kUiMenuShortcutMaximumWidth;
     m.emoji_min_height = kUiMediaControlHeight + kUiFloatingSurfaceInset;
     m.gif_aspect_ratio = .60f;
+    // Keep two native columns even when the category rail is present.
+    m.gif_target_width = (m.panel_width - m.rail_width - m.padding * 2 - m.scrollbar_gutter - m.gap) * .5f;
     m.icon_extent = kUiMenuIconExtent;
     m.text_inset = kUiComposerPadding;
     m.rail_inset = kUiComposerPadding;

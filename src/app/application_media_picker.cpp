@@ -855,6 +855,7 @@ ApplicationMediaPicker* ensure_owner() noexcept {
     p->source.context = p;
     p->source.resolve = resolve;
     p->source.revision = 1;
+    p->preferred_width = g_app.preferences.expression_picker_width;
     g_app.media_picker = p;
     return p;
 }
@@ -985,10 +986,8 @@ void application_media_picker_close() noexcept {
         p->reaction_scope = {};
         p->reaction_error = false;
     }
-    p->captured = p->dragging = p->scrollbar_dragging = p->resizing = false;
+    revoke_capture(*p);
     p->hover_at = 0;
-    if (GetCapture() == g_app.window)
-        ReleaseCapture();
     if (g_app.context_focus == &p->scene.widgets)
         g_app.context_focus = nullptr;
     ui_media_picker_scene_close(&p->scene);
@@ -1585,12 +1584,20 @@ bool rail_scroll_write(void* opaque, u64 scope, double offset, bool* changed) no
     return scroll_write(opaque, scope, offset, changed, true);
 }
 void revoke_capture(ApplicationMediaPicker& p) noexcept {
+    const bool was_resizing = p.resizing;
     p.captured = p.dragging = p.scrollbar_dragging = p.resizing = false;
     ui_media_picker_scene_set_scrollbar_state(&p.scene, false, UiScrollbarVisualState::normal);
     ui_media_picker_scene_set_scrollbar_state(&p.scene, true, UiScrollbarVisualState::normal);
     ui_media_picker_scene_cancel_capture(&p.scene);
     if (GetCapture() == g_app.window)
         ReleaseCapture();
+    if (was_resizing) {
+        const u16 width = ui_splitter_persisted_width(p.preferred_width);
+        if (g_app.preferences.expression_picker_width != width) {
+            g_app.preferences.expression_picker_width = width;
+            application_settings_commit_preferences();
+        }
+    }
 }
 UiMediaPickerTarget focused_target(const ApplicationMediaPicker& p) noexcept {
     const auto* node = ui_widget_manager_layout_node(p.scene.widgets, p.scene.widgets.focused);

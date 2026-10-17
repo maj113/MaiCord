@@ -758,6 +758,7 @@ int application_run() noexcept {
     log_u64(LogLevel::info, "app", "steady_wake_frames", wake_ledger.frames);
     log_u64(LogLevel::info, "app", "steady_wake_handles", wake_ledger.handles);
     drain_deferred_text_services();
+    application_media_picker_close();
     application_preferences_shutdown();
     application_updates_release();
     application_plugin_browser_release();
