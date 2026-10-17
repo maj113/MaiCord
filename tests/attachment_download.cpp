@@ -74,12 +74,15 @@ void test_attachment_download(void (*check)(bool, const char*) noexcept) noexcep
                  &unsized, bytes(utf8_literal("HTTP/1.1 200 OK\r\nContent-Length: 101\r\n\r\n")), 1024, 32)
                  .ok() &&
             unsized.error == AttachmentDownloadResponseError::size_limit &&
+            attachment_download_parse_response_head(
+                &unsized, bytes(utf8_literal("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")),
+                1024, 32)
+                .ok() &&
             !attachment_download_parse_response_head(
-                 &unsized, bytes(utf8_literal("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")),
-                 1024, 32)
+                 &unsized, bytes(utf8_literal("HTTP/1.0 200 OK\r\n\r\n")), 1024, 32)
                  .ok() &&
             unsized.error == AttachmentDownloadResponseError::size_mismatch,
-        "unsized response requires a Content-Length within the maximum");
+        "unsized response needs a Content-Length within the maximum or chunked framing");
 
     AttachmentDownloadResponsePolicy policy{5, 100, AttachmentDownloadResponseError::none};
     bool admitted = true;

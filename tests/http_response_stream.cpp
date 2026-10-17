@@ -6,14 +6,16 @@ namespace maicord { namespace {
 ConstSlice<u8> bytes(Utf8View value) noexcept {
     return {reinterpret_cast<const u8*>(value.data), value.bytes};
 }
-struct Run { HttpResponseStreamState state; HttpResponseStreamError error; u64 written; bool exact; };
+struct Run {
+    HttpResponseStreamState state; HttpResponseStreamError error; u64 written; bool exact; u64 expected;
+};
 Run run(Utf8View wire, u64 expected, u32 segment, bool close, Utf8View body = {},
         u64 maximum = 0) noexcept {
     u8 storage[2048]{}, written[64]{};
     HttpResponseStream d{};
     if (!http_response_stream_initialize(&d, {storage, sizeof(storage)}, expected,
                                          maximum ? maximum : expected, 1024, 32))
-        return {HttpResponseStreamState::failed, HttpResponseStreamError::invalid_input, 0, false};
+        return {HttpResponseStreamState::failed, HttpResponseStreamError::invalid_input, 0, false, 0};
     u32 offset = 0, copied = 0;
     auto state = http_response_stream_feed(&d, {});
     for (u32 guard = 0; guard < 10000; ++guard) {
@@ -35,7 +37,9 @@ Run run(Utf8View wire, u64 expected, u32 segment, bool close, Utf8View body = {}
         }
     }
     return {state.state, state.error, state.body_bytes,
-        offset == wire.bytes && (!body.data || (copied == body.bytes && bytes_equal(written, body.data, body.bytes)))};
+        offset == wire.bytes &&
+            (!body.data || (copied == body.bytes && bytes_equal(written, body.data, body.bytes))),
+        d.expected_body_bytes};
 }
 } // namespace
 
@@ -53,20 +57,22 @@ void test_http_response_stream(void (*check)(bool, const char*) noexcept) noexce
     }
     check(partitions, "stream handles every small feed partition for length/chunked/until-close without body allocation");
     bool from_head = true;
-    for (u32 segment = 1; segment <= fixed.bytes; ++segment) {
-        const auto result =
-            run(fixed, kHttpResponseLengthFromHead, segment, true, utf8_literal("hello"), 10);
-        from_head = from_head && result.state == HttpResponseStreamState::complete && result.written == 5 &&
-                    result.exact;
+    for (u32 segment = 1; segment <= chunked.bytes; ++segment) {
+        for (const auto wire : {fixed, chunked}) {
+            const auto result =
+                run(wire, kHttpResponseLengthFromHead, segment, true, utf8_literal("hello"), 10);
+            from_head = from_head && result.state == HttpResponseStreamState::complete &&
+                        result.written == 5 && result.expected == 5 && result.exact;
+        }
     }
     check(from_head &&
-              run(chunked, kHttpResponseLengthFromHead, 64, true, {}, 10).error ==
-                  HttpResponseStreamError::unsupported_body &&
               run(until_close, kHttpResponseLengthFromHead, 64, true, {}, 10).error ==
                   HttpResponseStreamError::unsupported_body &&
               run(fixed, kHttpResponseLengthFromHead, 64, true, {}, 4).error ==
+                  HttpResponseStreamError::size_limit &&
+              run(chunked, kHttpResponseLengthFromHead, 64, true, {}, 4).error ==
                   HttpResponseStreamError::size_limit,
-          "stream takes an unknown length from a required Content-Length within the maximum");
+          "stream takes an unknown length from Content-Length or the last chunk within the maximum");
     const auto uncl = run(until_close, 5, 1, false, utf8_literal("hello"));
     check(uncl.state == HttpResponseStreamState::body && uncl.written == 5,
         "until-close stream waits for peer closure after exact bytes");

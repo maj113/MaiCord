@@ -37,10 +37,13 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
             d->parsed_head = parsed.head;
             if (parsed.head.has_content_length && parsed.head.content_length > d->maximum_body_bytes)
                 return fail(d, HttpResponseStreamError::size_limit, accepted);
+            // Without a Content-Length only chunked framing marks the end; a
+            // close-delimited body cannot tell completion from truncation.
             if (d->expected_body_bytes == kHttpResponseLengthFromHead) {
-                if (!parsed.head.has_content_length)
+                if (parsed.head.has_content_length)
+                    d->expected_body_bytes = parsed.head.content_length;
+                else if (http_response_body_kind(parsed.head, false, false) != HttpBodyKind::chunked)
                     return fail(d, HttpResponseStreamError::unsupported_body, accepted);
-                d->expected_body_bytes = parsed.head.content_length;
             }
             if (parsed.head.has_content_length && parsed.head.content_length != d->expected_body_bytes)
                 return fail(d, HttpResponseStreamError::size_mismatch, accepted);
@@ -55,9 +58,15 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
         }
         const auto kind = http_response_body_kind(d->parsed_head, false, false);
         if (kind == HttpBodyKind::chunked) {
+            const bool open = d->expected_body_bytes == kHttpResponseLengthFromHead;
             const auto chunk = http_chunk_decode(&d->chunk_decoder, readable);
+            // The decoder holds a body of unknown length to the maximum.
             if (chunk.state == HttpChunkStepState::error)
-                return fail(d, HttpResponseStreamError::body_framing, accepted, chunk.error);
+                return fail(d,
+                            open && chunk.error == HttpError::chunk_too_large
+                                ? HttpResponseStreamError::size_limit
+                                : HttpResponseStreamError::body_framing,
+                            accepted, chunk.error);
             if (d->chunk_decoder.body_bytes > d->expected_body_bytes)
                 return fail(d, HttpResponseStreamError::size_mismatch, accepted);
             if (chunk.state == HttpChunkStepState::data) {
@@ -72,6 +81,7 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
             if (!byte_queue_consume(&d->input, chunk.consumed))
                 return fail(d, HttpResponseStreamError::invalid_input, accepted);
             if (chunk.state == HttpChunkStepState::complete) {
+                if (open) d->expected_body_bytes = d->body_bytes;
                 if (d->body_bytes != d->expected_body_bytes)
                     return fail(d, HttpResponseStreamError::size_mismatch, accepted);
                 d->state = HttpResponseStreamState::complete;

@@ -39,8 +39,8 @@ struct AttachmentDownloadResponsePolicy {
 // HttpResponseHeadParser callback. Only HTTP 200 with absent or a single
 // identity Content-Encoding is accepted. Content-Length, if present, must
 // match the source attachment size; with kHttpResponseLengthFromHead as the
-// expected size it must be present and within the maximum. The streaming
-// decoder verifies the body.
+// expected size it must be within the maximum, and absent only for a chunked
+// body. The streaming decoder verifies the body.
 HttpHeadResult attachment_download_parse_response_head(
     void* context, ConstSlice<u8> input, u32 maximum_header_bytes,
     u32 maximum_fields) noexcept;
