@@ -171,6 +171,8 @@ struct RestRequestDiagnostics {
 struct RestClientResponse {
     RateLimitHeaders rate;
     u64 request_id;
+    // Monotonic Retry-After deadline; a floor for eligible retries, never
+    // permission to replay. Action-required responses clear this value.
     u64 retry_at_ms;
     u64 elapsed_us;
     u32 body_bytes;

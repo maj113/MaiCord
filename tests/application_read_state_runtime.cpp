@@ -619,6 +619,46 @@ void run() noexcept {
         "read runtime: actual current user identity rejects old captured user token before observer runs");
     state.self_user_id = 1;
 
+    const struct {
+        u16 status;
+        u64 header_delay, expected_delay;
+        RestClientError error;
+    } retry_cases[]{
+        {503, 5000, 5000, RestClientError::none},
+        {503, 0, 1000, RestClientError::none},
+        {503, 250, 1000, RestClientError::none},
+        {503, 5000, 1000, RestClientError::receive},
+        {429, 250, 250, RestClientError::none},
+        {204, 5000, 0, RestClientError::none},
+        {403, 5000, 0, RestClientError::none},
+    };
+    bool retry_metadata = true;
+    for (const auto& item : retry_cases) {
+        fresh_owner();
+        retry_metadata = mark() && admit() && retry_metadata;
+        const u64 now = clock_monotonic_milliseconds();
+        RestClientResponse completed{};
+        completed.request_id = seen.request_id;
+        completed.status_code = item.status;
+        completed.error = item.error;
+        completed.retry_at_ms = now + item.header_delay;
+        retry_metadata = application_read_state_response(completed, nullptr, 0, now) && retry_metadata;
+        const u64 due = item.expected_delay ? now + item.expected_delay : 0;
+        retry_metadata = application_read_state_next_wake() == due && retry_metadata;
+        const u32 calls = seen.submissions;
+        if (due)
+            retry_metadata = !application_read_state_submit(++seen.next_request, due - 1) &&
+                             seen.submissions == calls &&
+                             application_read_state_submit(++seen.next_request, due) && reply(204) &&
+                             retry_metadata;
+        else
+            retry_metadata = !application_read_state_submit(++seen.next_request, now + 10000) &&
+                             seen.submissions == calls && retry_metadata;
+    }
+    check(retry_metadata,
+          "read runtime: trusted non429 retry metadata extends eligible ACK backoff without shortening it, "
+          "early submission, transport-error hints or new success/terminal retries; 429 stays exact");
+
     fresh_owner();
     check(mark() && admit(), "read runtime: long 429 fixture admits work");
     const u64 long_retry = clock_monotonic_milliseconds() + 6ull * 60 * 60 * 1000;

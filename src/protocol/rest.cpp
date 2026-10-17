@@ -1153,8 +1153,12 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler,
     ++scheduler->observations;
 
     const RateLimitHeaders& rate = response_head.rate;
+    const bool limited = response_head.head.status_code == 429;
     const bool has_bucket = (rate.fields & rate_limit_field_bucket) != 0;
-    const bool has_rate_data = rate.fields != 0 || response_head.head.status_code == 429;
+    constexpr u32 bucket_fields = rate_limit_field_bucket | rate_limit_field_limit |
+                                  rate_limit_field_remaining | rate_limit_field_reset |
+                                  rate_limit_field_reset_after;
+    const bool has_rate_data = (rate.fields & bucket_fields) != 0 || limited;
     RestRateBucket* bucket = nullptr;
     u16 bucket_index = invalid_rate_index;
     if (has_rate_data) {
@@ -1204,7 +1208,6 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler,
         bucket->last_used_ms = now_ms;
     }
 
-    const bool limited = response_head.head.status_code == 429;
     u64 retry_after_ms = 0;
     if ((rate.fields & rate_limit_field_retry_after) != 0) {
         retry_after_ms = rate.retry_after_ms;
@@ -1212,11 +1215,13 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler,
     if (rate_limit_body && rate_limit_body->retry_after_ms > retry_after_ms) {
         retry_after_ms = rate_limit_body->retry_after_ms;
     }
-    const bool global = ((rate.fields & rate_limit_field_global) != 0 && rate.global) ||
-                        ((rate.fields & rate_limit_field_scope) != 0 &&
-                         rate.scope == RateLimitScope::global) ||
-                        (rate_limit_body && rate_limit_body->global);
-    u64 retry_at_ms = 0;
+    const bool global =
+        limited && (((rate.fields & rate_limit_field_global) != 0 && rate.global) ||
+                    ((rate.fields & rate_limit_field_scope) != 0 && rate.scope == RateLimitScope::global) ||
+                    (rate_limit_body && rate_limit_body->global));
+    // A non-429 Retry-After is owner-scoped metadata, not a scheduler throttle.
+    u64 retry_at_ms =
+        (rate.fields & rate_limit_field_retry_after) != 0 ? deadline_after(now_ms, rate.retry_after_ms) : 0;
     if (limited) {
         if ((rate.fields & rate_limit_field_retry_after) == 0 && !rate_limit_body) {
             return observation_error(RestRateError::missing_retry_deadline);

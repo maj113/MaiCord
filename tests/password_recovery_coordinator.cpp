@@ -157,10 +157,11 @@ void run() noexcept {
         runtime->active_request_id == retry_request && runtime->retained_request_bytes == exact.bytes,
         "recovery coordinator: stale old completion cannot erase newer replay or adopt a result");
     check(body(utf8_literal("{\"method\":\"unverified\"}")), "recovery coordinator: sent body prepares");
-    response(200, retry_request);
+    response(200, retry_request, GetTickCount64() + 60000);
     check(user_auth_coordinator_pump(&coordinator, &event).ok() && event.kind == UserAuthCoordinatorEventKind::recovery_sent &&
-        coordinator.state.phase == UserAuthCoordinatorPhase::recovery_sent && erased(*runtime),
-        "recovery coordinator: neutral sent result erases every retained secret and uses a non-auth event");
+        coordinator.state.phase == UserAuthCoordinatorPhase::recovery_sent && erased(*runtime) &&
+        !event.retry_at_ms && !coordinator.state.retry_at_ms,
+        "recovery coordinator: neutral sent result erases secrets without turning success Retry-After into a cooldown");
     AccountProfile profile{};
     check(!user_auth_coordinator_take_profile(&coordinator, 1, &profile, 1).ok() && !profile.credential.data,
         "recovery coordinator: sent request cannot produce or promote a profile credential");
@@ -173,15 +174,18 @@ void run() noexcept {
         check(user_auth_coordinator_start(&coordinator).ok() && user_auth_coordinator_submit_recovery(&coordinator, &identifier).ok() &&
             body(bodies[i]), "recovery coordinator: isolated terminal request prepares");
         runtime = runtime_of(&coordinator);
-        const u64 due = i == 1 ? 21'600'000 : 0;
+        const u64 due = i == 0 ? GetTickCount64() + 60000 : i == 1 ? 21'600'000 : 0;
         response(statuses[i], runtime->active_request_id, due);
         const auto result = user_auth_coordinator_pump(&coordinator, &event);
         check((i == 0 ? runtime->phone_context_active && runtime->continuation_base_bytes &&
                        !runtime->token_bytes && !runtime->ticket_bytes : erased(*runtime)) && !profile.credential.data &&
-            (i == 0 ? event.kind == UserAuthCoordinatorEventKind::recovery_phone_required :
-             i == 1 || i >= 3 ? result.retry_at_ms == due && result.phase == UserAuthCoordinatorPhase::recovery_rate_limited :
+            (i == 0 ? event.kind == UserAuthCoordinatorEventKind::recovery_phone_required &&
+                       !event.retry_at_ms && !result.retry_at_ms && !runtime->continuation_retry_at_ms &&
+                       user_auth_coordinator_submit_phone_resend(&coordinator).ok() :
+             i == 1 || i >= 3 ? event.retry_at_ms == due && result.retry_at_ms == due &&
+                                result.phase == UserAuthCoordinatorPhase::recovery_rate_limited :
                       event.kind == UserAuthCoordinatorEventKind::protocol_error),
-            "recovery coordinator: phone continuation retains its identifier while rate-limit and malformed results erase terminal ownership");
+            "recovery coordinator: only 429 publishes a cooldown while phone continuation stays manually editable");
         user_auth_coordinator_stop(&coordinator, 1);
     }
     for (u32 i = 0; i < 2; ++i) {

@@ -204,6 +204,59 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
         }
     }
     {
+        const struct {
+            u16 status;
+            Utf8View body;
+            bool challenge;
+        } responses[]{
+            {503, utf8_literal("{}"), false},
+            {200, utf8_literal("{}"), false},
+            {403, utf8_literal(R"({"code":50001})"), false},
+            {503,
+             utf8_literal(
+                 R"({"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic"})"),
+             true}};
+        for (const auto& response : responses) {
+            RestStorageProbe probe;
+            bool valid = probe.initialize(4096) && probe.begin_request(true);
+            if (valid) {
+                const RestRouteKey route = probe.runtime->command.route;
+                u8 head[256]{};
+                ProtocolWriter writer{{head, sizeof(head)}, 0};
+                valid = protocol_writer_append_literal(&writer, "HTTP/1.1 ") &&
+                        protocol_writer_append_u64(&writer, response.status) &&
+                        protocol_writer_append_literal(
+                            &writer, " Response\r\nContent-Type: application/json\r\nContent-Length: ") &&
+                        protocol_writer_append_u64(&writer, response.body.bytes) &&
+                        protocol_writer_append_literal(&writer, "\r\nRetry-After: 60\r\n\r\n") &&
+                        response_plaintext_received(probe.runtime, {head, writer.used}, false) ==
+                            TlsStreamReadAction::continue_read &&
+                        response_plaintext_received(
+                            probe.runtime,
+                            {reinterpret_cast<const u8*>(response.body.data), response.body.bytes},
+                            false) == TlsStreamReadAction::complete &&
+                        probe.finish() && probe.runtime->completed.transport_ok() &&
+                        probe.runtime->completed.status_code == response.status &&
+                        probe.runtime->completed.retry_at_ms == (response.challenge ? 0 : 60'001) &&
+                        !probe.runtime->completed.rate_limited &&
+                        !probe.runtime->completed.global_rate_limit &&
+                        api_rejection_requires_action(probe.runtime->completed.rejection) ==
+                            response.challenge &&
+                        probe.runtime->completed.rate.retry_after_ms == 60'000 &&
+                        (probe.runtime->completed.rate.fields & rate_limit_field_retry_after) &&
+                        !probe.runtime->scheduler->global_reset_at_ms && probe.client.requests == 0 &&
+                        probe.client.responses == 1;
+                if (valid) {
+                    auto acquired = rest_rate_acquire(probe.runtime->scheduler, route, 2);
+                    valid = acquired.acquired_request() &&
+                            rest_rate_cancel(probe.runtime->scheduler, &acquired.lease);
+                }
+            }
+            check(valid, "rest_non429_retry_floor_survives_transport_without_enabling_rate_replay_"
+                         "and_challenges_clear_the_floor");
+        }
+    }
+    {
         constexpr Utf8View bodies[]{
             utf8_literal("{"),
             utf8_literal(

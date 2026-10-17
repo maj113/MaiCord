@@ -804,9 +804,13 @@ bool application_read_state_response(const RestClientResponse& response, const u
     const bool retry = transient && !api_rejection_requires_action(response.rejection) &&
                        ((!manual && !source.scoped) || source.attempts < 3);
     const u64 retry_delay = source.scoped ? (source.attempts < 2 ? 2000 : 4000) : 1000;
-    const u64 retry_due = source.scoped ? maximum(response.retry_at_ms, deadline_after(now_ms, retry_delay))
-                          : response.retry_at_ms ? response.retry_at_ms
-                                                 : deadline_after(now_ms, retry_delay);
+    // Non-rate-limit metadata may extend the ordinary ACK backoff, never shorten it.
+    const u64 server_retry_at = response.transport_ok() ? response.retry_at_ms : 0;
+    const u64 local_retry_at = deadline_after(now_ms, retry_delay);
+    const u64 retry_due = source.scoped ? maximum(response.retry_at_ms, local_retry_at)
+                          : response.status_code == 429 && server_retry_at
+                              ? server_retry_at
+                              : maximum(server_retry_at, local_retry_at);
     const auto outcome = success ? ReadAckCompletion::success
                          : retry ? ReadAckCompletion::retry
                                  : ReadAckCompletion::terminal;

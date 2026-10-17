@@ -649,7 +649,11 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
         runtime->active_captcha_revision != runtime->captcha_revision) return true;
     event.request_id = transport_response.request_id;
     event.generation = runtime->active_generation;
-    event.retry_at_ms = transport_response.retry_at_ms;
+    // Header timing is metadata on any status; only a received 429 imposes a
+    // manual authentication cooldown.
+    const u64 retry_at_ms = transport_response.transport_ok() && transport_response.status_code == 429
+                                ? transport_response.retry_at_ms : 0;
+    event.retry_at_ms = retry_at_ms;
     event.http_status = transport_response.status_code;
     event.transport_error = transport_response.error;
 
@@ -661,7 +665,7 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
     coordinator->state.content_encoding = transport_response.content_encoding;
     coordinator->state.body_kind = transport_response.body_kind;
     coordinator->state.transport_error = transport_response.error;
-    coordinator->state.retry_at_ms = transport_response.retry_at_ms;
+    coordinator->state.retry_at_ms = retry_at_ms;
     if (runtime->reset_context_active)
         return consume_reset_response(coordinator, runtime, event, transport_response, locked_body);
     if (runtime->phone_context_active)
@@ -816,7 +820,7 @@ bool consume_response(void* opaque, const RestClientResponse& transport_response
     coordinator->state.content_encoding = transport_response.content_encoding;
     coordinator->state.body_kind = transport_response.body_kind;
     coordinator->state.phase = coordinator_phase(runtime->flow.phase);
-    coordinator->state.retry_at_ms = transport_response.retry_at_ms;
+    coordinator->state.retry_at_ms = retry_at_ms;
     if (runtime->active_operation == UserAuthOperation::recovery && decoded.kind != UserAuthResponseKind::captcha_required) {
         clear_retained(runtime);
         if (decoded.kind == UserAuthResponseKind::rejected) {

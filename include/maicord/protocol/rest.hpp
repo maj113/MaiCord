@@ -375,6 +375,8 @@ struct RestRateAcquireResult {
 };
 
 struct RestRateObservation {
+    // Absolute monotonic deadline from Retry-After, or a 429 header/body maximum.
+    // Zero when absent. Metadata alone does not make a response retryable.
     u64 retry_at_ms;
     RestRateError error;
     bool rate_limited;

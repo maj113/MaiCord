@@ -24102,11 +24102,12 @@ void test_rest() noexcept {
                                               "X-RateLimit-Limit: 2\r\n"
                                               "X-RateLimit-Remaining: 1\r\n"
                                               "X-RateLimit-Reset-After: 1.5\r\n"
+                                              "Retry-After: 60\r\n"
                                               "X-RateLimit-Bucket: alpha\r\n\r\n"));
     const RestRateObservation observed_a =
         rest_rate_observe(&scheduler, &lease_a.lease, alpha_first, nullptr, 100, 1'000'000);
-    expect(observed_a.ok() && !observed_a.rate_limited && !lease_a.lease.active &&
-               scheduler.observations == 1,
+    expect(observed_a.ok() && !observed_a.rate_limited && !lease_a.lease.active && !observed_a.global &&
+               observed_a.retry_at_ms == 60'100 && scheduler.observations == 1,
            "rest_rate_first_canonical_observation");
 
     RestRateAcquireResult consumed_a = rest_rate_acquire(&scheduler, route_a, 200);
@@ -24210,6 +24211,63 @@ void test_rest() noexcept {
                                  1'007'001)
                        .error == RestRateError::incomplete_bucket_deadline,
            "rest_rate_rejects_exhaustion_without_deadline");
+
+    {
+        RestRateBucket retry_buckets[1]{};
+        RestRateBinding retry_bindings[3]{};
+        RestRateScheduler retry_scheduler{};
+        rest_rate_scheduler_initialize(&retry_scheduler, {retry_buckets, 1}, {retry_bindings, 3});
+        auto seed = rest_rate_acquire(&retry_scheduler, route_a, 100);
+        const bool seeded =
+            seed.acquired_request() &&
+            rest_rate_observe(&retry_scheduler, &seed.lease, alpha_first, nullptr, 100, 1'000'000).ok();
+        auto pinned = rest_rate_acquire(&retry_scheduler, route_a, 101);
+        expect(seeded && pinned.acquired_request() && retry_buckets[0].in_flight == 1,
+               "rest_retry_metadata_fixture_pins_the_only_bucket");
+        const RateLimitBodyResult unrelated_body = decode_rate_limit_body(
+            utf8_literal(R"({"retry_after":90,"global":true})"), {rate_structurals, 64}, 8);
+        const struct {
+            ConstSlice<u8> head;
+            u64 now, deadline;
+        } cases[]{{byte_literal("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n"
+                                "Retry-After: 60\r\n\r\n"),
+                   100, 60'100},
+                  {byte_literal("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n"
+                                "Retry-After: 0\r\n\r\n"),
+                   100, 100},
+                  {byte_literal("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n"), 100, 0},
+                  {byte_literal("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n"
+                                "Retry-After: 1.0001\r\nX-RateLimit-Global: true\r\n"
+                                "X-RateLimit-Scope: global\r\n\r\n"),
+                   100, 1101},
+                  {byte_literal("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n"
+                                "Retry-After: 1\r\nX-RateLimit-Scope: shared\r\n\r\n"),
+                   100, 1100},
+                  {byte_literal("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n"
+                                "Retry-After: 60\r\n\r\n"),
+                   100, 60'100},
+                  {byte_literal("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n"
+                                "Retry-After: 1\r\n\r\n"),
+                   ~0ull - 500, ~0ull}};
+        for (const auto& test : cases) {
+            auto request = rest_rate_acquire(&retry_scheduler, route_b, test.now);
+            const auto observed =
+                rest_rate_observe(&retry_scheduler, &request.lease, parse_rest_response_head(test.head),
+                                  &unrelated_body, test.now, 1'000'000);
+            auto next = rest_rate_acquire(&retry_scheduler, route_b, test.now + 1);
+            expect(request.acquired_request() && observed.ok() && observed.retry_at_ms == test.deadline &&
+                       !observed.rate_limited && !observed.global &&
+                       retry_scheduler.global_reset_at_ms == 0 && retry_buckets[0].in_flight == 1 &&
+                       retry_buckets[0].remaining == 0 && retry_buckets[0].reset_at_ms == 1600 &&
+                       next.acquired_request() && rest_rate_cancel(&retry_scheduler, &next.lease),
+                   "rest_non429_retry_header_is_saturating_metadata_without_bucket_or_global_throttle");
+        }
+        auto other = rest_rate_acquire(&retry_scheduler, route_c, 102);
+        expect(other.acquired_request() && rest_rate_cancel(&retry_scheduler, &other.lease) &&
+                   rest_rate_cancel(&retry_scheduler, &pinned.lease) &&
+                   retry_scheduler.invalid_requests == 1,
+               "rest_non429_retry_metadata_keeps_unrelated_routes_and_invalid_request_accounting");
+    }
 
     const RestHeadResult shared_seed = parse_rest_response_head(byte_literal(
         "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-RateLimit-Bucket: alias\r\n"

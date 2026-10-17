@@ -196,11 +196,12 @@ void run() noexcept {
     check(user_auth_coordinator_pump(&coordinator, &event).ok() && event.kind == UserAuthCoordinatorEventKind::none &&
         bytes_equal(snapshot, runtime->secrets.data, sizeof(snapshot)) && same_metadata(saved_metadata, coordinator.state),
         "phone coordinator: stale request admission rejects before decoder or metadata writes");
-    body(utf8_literal("{\"code\":50035}")); response(400, admitted);
+    body(utf8_literal("{\"code\":50035}")); response(400, admitted, GetTickCount64() + 60000);
     check(user_auth_coordinator_pump(&coordinator, &event).ok() && event.kind == UserAuthCoordinatorEventKind::phone_rejected &&
         coordinator.state.phase == UserAuthCoordinatorPhase::phone_rejected && runtime->continuation_base_bytes == base.bytes &&
+        !event.retry_at_ms && !coordinator.state.retry_at_ms && !runtime->continuation_retry_at_ms &&
         bytes_equal(runtime->secrets.data, base.data, base.bytes) && zero_range(runtime->secrets.data + base.bytes, 32768 - base.bytes),
-        "phone coordinator: code rejection restores phone and erases code challenge and token stage");
+        "phone coordinator: non-429 rejection restores phone without publishing a manual cooldown");
     const auto before_resend = fixture.submissions;
     check(user_auth_coordinator_submit_phone_resend(&coordinator).ok() && fixture.operation == UserAuthOperation::phone_resend &&
         coordinator.state.phase == UserAuthCoordinatorPhase::phone_resend_pending && fixture.request.bytes == base.bytes &&
@@ -219,17 +220,18 @@ void run() noexcept {
     body(utf8_literal("{}")); const u64 due = GetTickCount64() + 60000;
     response(429, runtime->active_request_id, due);
     check(user_auth_coordinator_pump(&coordinator, &event).ok() && coordinator.state.phase == UserAuthCoordinatorPhase::phone_rate_limited &&
-        coordinator.state.retry_at_ms == due && runtime->continuation_retry_at_ms == due &&
+        event.retry_at_ms == due && coordinator.state.retry_at_ms == due && runtime->continuation_retry_at_ms == due &&
         !user_auth_coordinator_submit_phone_resend(&coordinator).ok() && !user_auth_coordinator_submit_phone_verify(&coordinator, &code).ok() &&
         fixture.submissions == before_resend + 2, "phone coordinator: admitted 429 deadline gates explicit attempts without automatic resend");
     check(!user_auth_coordinator_captcha_snapshot(&coordinator).active && !runtime->captcha_invisible,
         "phone coordinator: rate-limited editing cannot project the cleared resend challenge");
     runtime->continuation_retry_at_ms = GetTickCount64();
     check(user_auth_coordinator_submit_phone_resend(&coordinator).ok(), "phone coordinator: explicit resend admitted after deadline");
-    secure_buffer_clear(&fixture.response); response(204, runtime->active_request_id);
+    secure_buffer_clear(&fixture.response); response(204, runtime->active_request_id, GetTickCount64() + 60000);
     check(user_auth_coordinator_pump(&coordinator, &event).ok() && event.kind == UserAuthCoordinatorEventKind::phone_code_sent &&
-        coordinator.state.phase == UserAuthCoordinatorPhase::recovery_phone_required && !runtime->token_bytes,
-        "phone coordinator: empty resend completion stays editable and cannot authenticate");
+        coordinator.state.phase == UserAuthCoordinatorPhase::recovery_phone_required && !runtime->token_bytes &&
+        !event.retry_at_ms && !coordinator.state.retry_at_ms && !runtime->continuation_retry_at_ms,
+        "phone coordinator: successful resend ignores Retry-After and stays manually editable");
     check(user_auth_coordinator_submit_phone_verify(&coordinator, &code).ok(), "phone coordinator: retry verify admitted");
     char full_token[4108]{}; copy_bytes(full_token, "{\"token\":\"", 10);
     for (u32 i = 0; i < 4096; ++i) full_token[10 + i] = 'x';

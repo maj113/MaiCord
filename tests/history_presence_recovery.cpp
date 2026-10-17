@@ -17,6 +17,124 @@ bool route(Utf8View json, GatewayClientEvent* event, Slice<u8> output = {}, u32*
     UserAppearance appearance{};
     return user_appearance_read(payload,event->presence.user_id,event->presence.guild_id,&appearance);
 }
+
+void history_retry_floors(void (*check)(bool, const char*) noexcept, MessageTimeline& timeline,
+                          MessageEventPump& pump) noexcept {
+    const u32 resident = timeline.store->count;
+    const u64 scroll = timeline.scroll_units;
+    struct Sample {
+        u64 now_ms, server_at, expected;
+        u8 attempts;
+        RestClientError transport_error;
+    };
+    const Sample samples[]{
+        {10'000, 70'000, 70'000, 0, RestClientError::none},
+        {10'000, 10'100, 10'500, 0, RestClientError::none},
+        {10'000, 9'000, 10'500, 0, RestClientError::none},
+        {10'000, 0, 10'500, 0, RestClientError::none},
+        {10'000, 10'100, 14'000, 3, RestClientError::none},
+        {~0ull - 100, 1, ~0ull, 6, RestClientError::none},
+        {10'000, ~0ull, ~0ull, 0, RestClientError::none},
+        {10'000, 70'000, 10'500, 0, RestClientError::receive},
+    };
+    for (const auto& sample : samples) {
+        RestClientResponse unavailable{};
+        unavailable.status_code = 503;
+        unavailable.error = sample.transport_error;
+        unavailable.retry_at_ms = sample.server_at;
+        MessageHistoryOlder paging{};
+        paging.state = MessageHistoryOlderState::awaiting_page;
+        paging.channel_id = 7;
+        paging.cursor_before = 100;
+        paging.request_limit = 2;
+        paging.requests = 1;
+        paging.transient_retries = sample.attempts;
+        MessageHistoryCatchup recovery{};
+        recovery.state = MessageHistoryCatchupState::awaiting_page;
+        recovery.channel_id = 7;
+        recovery.cursor_after = 300;
+        recovery.request_limit = 2;
+        recovery.requests = 1;
+        recovery.transient_retries = sample.attempts;
+        const auto paged =
+            message_history_older_accept_rest(&paging, &timeline, nullptr, nullptr, nullptr, unavailable,
+                                              {}, {}, MessageContentAvailability::unknown, sample.now_ms);
+        const auto caught = message_history_catchup_accept_rest(
+            &recovery, &pump, unavailable, {}, {}, MessageContentAvailability::unknown, sample.now_ms);
+        const u32 attempts = minimum(static_cast<u32>(sample.attempts) + 1u, 6u);
+        check(paged.accepted() && caught.accepted() &&
+                  paged.disposition == MessageHistoryRestDisposition::retry_scheduled &&
+                  caught.disposition == MessageHistoryRestDisposition::retry_scheduled &&
+                  paging.retry_at_ms == sample.expected && recovery.retry_at_ms == sample.expected &&
+                  paging.transient_retries == attempts && recovery.transient_retries == attempts &&
+                  paging.failures == 1 && recovery.failures == 1 && paging.requests == 1 &&
+                  recovery.requests == 1 && paging.cursor_before == 100 && recovery.cursor_after == 300 &&
+                  timeline.store->count == resident && timeline.scroll_units == scroll,
+              "history eligible retries honor server floor without shortening local backoff or moving "
+              "cursors");
+        const auto duplicate_page =
+            message_history_older_accept_rest(&paging, &timeline, nullptr, nullptr, nullptr, unavailable,
+                                              {}, {}, MessageContentAvailability::unknown, sample.now_ms);
+        const auto duplicate_catchup = message_history_catchup_accept_rest(
+            &recovery, &pump, unavailable, {}, {}, MessageContentAvailability::unknown, sample.now_ms);
+        check(duplicate_page.error == MessageHistoryRestError::invalid_input &&
+                  duplicate_catchup.error == MessageHistoryRestError::invalid_input &&
+                  paging.failures == 1 && recovery.failures == 1 && paging.retry_at_ms == sample.expected &&
+                  recovery.retry_at_ms == sample.expected,
+              "history duplicate completion cannot change a waiting retry");
+        MessageHistoryQuery older_query{}, newer_query{};
+        check(!message_history_older_tick(&paging, sample.expected - 1) &&
+                  !message_history_catchup_tick(&recovery, sample.expected - 1) &&
+                  message_history_older_tick(&paging, sample.expected) &&
+                  message_history_catchup_tick(&recovery, sample.expected) &&
+                  message_history_older_take_query(&paging, &older_query) &&
+                  message_history_catchup_take_query(&recovery, &newer_query) &&
+                  older_query.position == MessageHistoryPosition::before && older_query.cursor == 100 &&
+                  newer_query.position == MessageHistoryPosition::after && newer_query.cursor == 300 &&
+                  paging.requests == 2 && recovery.requests == 2,
+              "history retry becomes due exactly at the combined deadline in both directions");
+    }
+    struct Terminal {
+        RestClientError error;
+        u16 status;
+        ApiRejection rejection;
+    };
+    const Terminal terminals[]{
+        {RestClientError::none, 503, {0, false, true}}, {RestClientError::none, 503, {40002, true, false}},
+        {RestClientError::none, 429, {0, false, true}}, {RestClientError::none, 403, {}},
+        {RestClientError::cancelled, 503, {}},
+    };
+    for (const auto& terminal : terminals) {
+        RestClientResponse response{};
+        response.error = terminal.error;
+        response.status_code = terminal.status;
+        response.rejection = terminal.rejection;
+        response.rate_limited = terminal.status == 429;
+        response.retry_at_ms = 70'000;
+        MessageHistoryOlder paging{};
+        paging.state = MessageHistoryOlderState::awaiting_page;
+        paging.channel_id = 7;
+        paging.cursor_before = 100;
+        paging.request_limit = 2;
+        MessageHistoryCatchup recovery{};
+        recovery.state = MessageHistoryCatchupState::awaiting_page;
+        recovery.channel_id = 7;
+        recovery.cursor_after = 300;
+        recovery.request_limit = 2;
+        const auto paged =
+            message_history_older_accept_rest(&paging, &timeline, nullptr, nullptr, nullptr, response, {},
+                                              {}, MessageContentAvailability::unknown, 10'000);
+        const auto caught = message_history_catchup_accept_rest(
+            &recovery, &pump, response, {}, {}, MessageContentAvailability::unknown, 10'000);
+        check(
+            !paged.accepted() && !caught.accepted() && paging.state == MessageHistoryOlderState::failed &&
+                recovery.state == MessageHistoryCatchupState::failed && !paging.retry_at_ms &&
+                !recovery.retry_at_ms && !paging.transient_retries && !recovery.transient_retries &&
+                paging.failures == 1 && recovery.failures == 1 && timeline.store->count == resident &&
+                timeline.scroll_units == scroll,
+            "history server deadlines never enable retries for challenges cancellation or terminal status");
+    }
+}
 }
 
 void test_history_presence_recovery(void (*check)(bool, const char*) noexcept) noexcept {
@@ -68,6 +186,7 @@ void test_history_presence_recovery(void (*check)(bool, const char*) noexcept) n
     MessageHistoryDecodeScratch scratch{{page_indices, 256}, {message_indices, 256}, {decoded_text, 256},
         {messages, 2}, {names, 4}, {}, 32};
     response.status_code = 200; response.body_bytes = body.bytes;
+    response.retry_at_ms = now + 60'000;
     const auto recovered = message_history_older_accept_rest(&older, &timeline, nullptr, nullptr, nullptr,
         response, body, scratch, MessageContentAvailability::available, now + 30'001);
     check(recovered.accepted() && recovered.disposition == MessageHistoryRestDisposition::applied &&
@@ -106,6 +225,7 @@ void test_history_presence_recovery(void (*check)(bool, const char*) noexcept) n
         message_history_catchup_tick(&catchup, 20'500) && message_history_catchup_take_query(&catchup, &query) &&
         query.position == MessageHistoryPosition::after && query.cursor == 300,
         "history_catchup_timeout_keeps_after_cursor");
+    history_retry_floors(check, timeline, pump);
 
     u8 http_head[kRestMaximumHeaderBytes]{}; u8 http_body[128]{}; RestResponse http{};
     check(rest_response_initialize(&http, {http_head, kRestMaximumHeaderBytes}, {http_body, 128}), "history_eof_fixture");

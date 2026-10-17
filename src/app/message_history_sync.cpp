@@ -9,6 +9,8 @@ static_assert(sizeof(MessageHistoryOlder) == 64);
 static_assert(sizeof(AttachmentRefresh) == 48);
 
 bool history_transient_failure(const RestClientResponse& response) noexcept {
+    if (api_rejection_requires_action(response.rejection))
+        return false;
     switch (response.error) {
     case RestClientError::resolve:
     case RestClientError::connect:
@@ -25,12 +27,15 @@ bool history_transient_failure(const RestClientResponse& response) noexcept {
     }
 }
 
-u64 history_retry_deadline(u8* retries, u64 now_ms) noexcept {
+u64 history_retry_deadline(u8* retries, const RestClientResponse& response, u64 now_ms) noexcept {
     // Read-only pages are safe to replay. Keep the cursor and resident window,
     // let the failed transport reconnect, and cap offline polling at once/30s.
     const u64 delay_ms = minimum(500ull << minimum(static_cast<u32>(*retries), 6u), 30'000ull);
-    if (*retries < 6) ++*retries;
-    return deadline_after(now_ms, delay_ms);
+    if (*retries < 6)
+        ++*retries;
+    const u64 local = deadline_after(now_ms, delay_ms);
+    // Only a completed HTTP response can supply a trusted server wait.
+    return response.transport_ok() ? maximum(local, response.retry_at_ms) : local;
 }
 
 inline constexpr u32 kHistoryRichFieldMask =
@@ -1147,9 +1152,11 @@ MessageHistoryRestResult message_history_catchup_accept_rest(
         return result;
     }
     if (history_transient_failure(response)) {
-        message_history_catchup_retry(catchup, response.transport_ok()
-            ? MessageHistoryCatchupFailure::http_status : MessageHistoryCatchupFailure::transport,
-            history_retry_deadline(&catchup->transient_retries, now_ms));
+        message_history_catchup_retry(
+            catchup,
+            response.transport_ok() ? MessageHistoryCatchupFailure::http_status
+                                    : MessageHistoryCatchupFailure::transport,
+            history_retry_deadline(&catchup->transient_retries, response, now_ms));
         result.disposition = MessageHistoryRestDisposition::retry_scheduled;
         return result;
     }
@@ -1159,7 +1166,8 @@ MessageHistoryRestResult message_history_catchup_accept_rest(
         return result;
     }
     if (response.status_code == 429) {
-        if (!response.rate_limited || response.retry_at_ms == 0 ||
+        if (api_rejection_requires_action(response.rejection) || !response.rate_limited ||
+            response.retry_at_ms == 0 ||
             !message_history_catchup_retry(catchup, MessageHistoryCatchupFailure::rate_limited,
                                            response.retry_at_ms)) {
             message_history_catchup_fail(catchup, MessageHistoryCatchupFailure::rate_limited);
@@ -1216,9 +1224,10 @@ MessageHistoryRestResult message_history_older_accept_rest(
         return result;
     }
     if (history_transient_failure(response)) {
-        message_history_older_retry(older, response.transport_ok()
-            ? MessageHistoryCatchupFailure::http_status : MessageHistoryCatchupFailure::transport,
-            history_retry_deadline(&older->transient_retries, now_ms));
+        message_history_older_retry(older,
+                                    response.transport_ok() ? MessageHistoryCatchupFailure::http_status
+                                                            : MessageHistoryCatchupFailure::transport,
+                                    history_retry_deadline(&older->transient_retries, response, now_ms));
         result.disposition = MessageHistoryRestDisposition::retry_scheduled;
         return result;
     }
@@ -1228,7 +1237,8 @@ MessageHistoryRestResult message_history_older_accept_rest(
         return result;
     }
     if (response.status_code == 429) {
-        if (!response.rate_limited || response.retry_at_ms == 0 ||
+        if (api_rejection_requires_action(response.rejection) || !response.rate_limited ||
+            response.retry_at_ms == 0 ||
             !message_history_older_retry(older, MessageHistoryCatchupFailure::rate_limited,
                                          response.retry_at_ms)) {
             message_history_older_fail(older, MessageHistoryCatchupFailure::rate_limited);
