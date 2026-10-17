@@ -26,11 +26,17 @@ StagedFileResult staged_file_begin(StagedFile* owner, NetworkLoop* loop,
     const wchar_t* destination_path, const wchar_t* stage_path, u64 expected_bytes,
     bool destination_exists, bool overwrite_authorized, FileSnapshot destination) noexcept;
 // Checks acknowledged and actual bytes, flushes, closes, revalidates the
-// destination snapshot, then commits with ordinary atomic Win32 rename.
+// destination snapshot, then commits with ordinary atomic Win32 rename. While
+// another process briefly holds the closed stage (antivirus, indexing), the
+// rename is retried for up to five seconds or until the deadline.
 // Snapshot validation and replacement are separate calls; concurrent writers
 // can still change the namespace in that interval (no compare-and-replace API).
 StagedFileResult staged_file_commit(StagedFile* owner, u64 acknowledged_bytes,
     const volatile LONG* cancellation = nullptr, u64 deadline_ms = ~u64{0}) noexcept;
+// Commit's last step: revalidates the destination and renames the closed,
+// owned stage onto it, retrying while the stage is held.
+StagedFileResult staged_file_rename(StagedFile* owner, const volatile LONG* cancellation = nullptr,
+                                    u64 deadline_ms = ~u64{0}) noexcept;
 // Cancels/closes first. A pending IOCP write or failed DeleteFile retains all
 // ownership; repeat on the worker after completion or cleanup recovery.
 StagedFileResult staged_file_discard(StagedFile* owner) noexcept;
