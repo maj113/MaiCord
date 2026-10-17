@@ -535,20 +535,28 @@ bool chat_state_store_apply_read_state(ChatStateStore* store,
     return true;
 }
 
-bool chat_state_store_can_replace_guild_permissions(const ChatStateStore& store, u64 guild_id,
-                                                       u32 role_count, u32 overwrite_count) noexcept {
-    if (guild_id == 0 || role_count > kGuildRoleMaximum || !permission_prefix_valid(store)) {
-        return false;
-    }
-    if (!store.roles || !store.overwrites) {
-        return true;
-    }
+ChatStateStoreError chat_state_store_guild_permission_admission(const ChatStateStore& store,
+                                                                u64 guild_id, u32 role_count,
+                                                                u32 overwrite_count) noexcept {
+    if (guild_id == 0 || role_count > kGuildRoleMaximum || !permission_prefix_valid(store))
+        return ChatStateStoreError::invalid_input;
+    if (!store.roles || !store.overwrites)
+        return ChatStateStoreError::none;
     const u32 old_roles = guild_role_count(store, guild_id);
     const u32 old_overwrites = guild_overwrite_count(store, guild_id);
     if (old_overwrites > store.overwrite_count)
-        return false;
-    return role_count <= store.role_capacity - (store.role_count - old_roles) &&
-           overwrite_count <= store.overwrite_capacity - (store.overwrite_count - old_overwrites);
+        return ChatStateStoreError::invalid_input;
+    if (role_count > store.role_capacity - (store.role_count - old_roles))
+        return ChatStateStoreError::role_capacity;
+    if (overwrite_count > store.overwrite_capacity - (store.overwrite_count - old_overwrites))
+        return ChatStateStoreError::overwrite_capacity;
+    return ChatStateStoreError::none;
+}
+
+bool chat_state_store_can_replace_guild_permissions(const ChatStateStore& store, u64 guild_id,
+                                                       u32 role_count, u32 overwrite_count) noexcept {
+    return chat_state_store_guild_permission_admission(store, guild_id, role_count, overwrite_count) ==
+           ChatStateStoreError::none;
 }
 
 bool chat_state_store_can_replace_channel_overwrites(const ChatStateStore& store, u64 channel_id,

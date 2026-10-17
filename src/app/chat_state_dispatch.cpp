@@ -63,6 +63,17 @@ ChatStateApplyResult store_error(const ChatStateStoreResult& mutation) noexcept 
     return result;
 }
 
+// A full table is reported by name so a rejection's log detail says which
+// one (channels, roles, overwrites, emojis) ran out.
+ChatStateApplyResult table_full(ChatStateStoreError table) noexcept {
+    return store_error(ChatStateStoreResult{0, table, false, false});
+}
+
+ChatStateApplyResult admission_error(ChatStateStoreError admission,
+                                     ChatStateApplyError otherwise) noexcept {
+    return admission == ChatStateStoreError::invalid_input ? apply_error(otherwise) : table_full(admission);
+}
+
 GuildSettings guild_settings(const GatewayClientStateMutation& state) noexcept {
     GuildSettings settings{};
     settings.known = static_cast<u16>(state.guild_settings_known & guild_settings_all);
@@ -815,12 +826,13 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 !guild_emojis_payload(
                     event, payload,
                     Slice<CustomEmojiInput>{emojis, kGuildEmojiMaximum},
-                    &emoji_count) ||
-                !chat_state_store_can_replace_guild_emojis(
-                    *store, event.state.guild_id, emoji_count,
-                    event.state.emoji_role_count)) {
+                    &emoji_count)) {
                 return apply_error(ChatStateApplyError::invalid_payload);
             }
+            const auto emoji_admission = chat_state_store_guild_emoji_admission(
+                *store, event.state.guild_id, emoji_count, event.state.emoji_role_count);
+            if (emoji_admission != ChatStateStoreError::none)
+                return admission_error(emoji_admission, ChatStateApplyError::invalid_payload);
             if (!chat_state_store_replace_guild_emojis(
                     store, event.state.guild_id,
                     ConstSlice<CustomEmojiInput>{emojis, emoji_count})) {
@@ -934,15 +946,17 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
                 }
                 const u32 resident_channels = resident_guild_channels(*store, event.state.id);
                 if (event.state.record_count >
-                        store->channel_capacity - (store->channel_count - resident_channels) ||
-                    !chat_state_store_can_replace_guild_permissions(
-                        *store, event.state.id, event.state.role_count,
-                        event.state.overwrite_count) ||
-                    (event.state.emojis_known &&
-                     !chat_state_store_can_replace_guild_emojis(
-                         *store, event.state.id, emoji_count,
-                         event.state.emoji_role_count))) {
-                    return apply_error(ChatStateApplyError::capacity);
+                    store->channel_capacity - (store->channel_count - resident_channels))
+                    return table_full(ChatStateStoreError::channel_capacity);
+                const auto permission_admission = chat_state_store_guild_permission_admission(
+                    *store, event.state.id, event.state.role_count, event.state.overwrite_count);
+                if (permission_admission != ChatStateStoreError::none)
+                    return admission_error(permission_admission, ChatStateApplyError::capacity);
+                if (event.state.emojis_known) {
+                    const auto emoji_admission = chat_state_store_guild_emoji_admission(
+                        *store, event.state.id, emoji_count, event.state.emoji_role_count);
+                    if (emoji_admission != ChatStateStoreError::none)
+                        return admission_error(emoji_admission, ChatStateApplyError::capacity);
                 }
                 const GuildSettings settings = guild_settings(event.state);
                 const auto input =
@@ -1044,14 +1058,13 @@ ChatStateApplyResult chat_state_apply_gateway_event(ChatStateStore* store,
             }
             const u32 old_roles = resident_guild_roles(*store, event.state.id);
             if (store->roles && event.state.role_count >
-                                    store->role_capacity - (store->role_count - old_roles)) {
-                return apply_error(ChatStateApplyError::capacity);
-            }
-            if (event.state.emojis_known &&
-                !chat_state_store_can_replace_guild_emojis(
-                    *store, event.state.id, emoji_count,
-                    event.state.emoji_role_count)) {
-                return apply_error(ChatStateApplyError::capacity);
+                                    store->role_capacity - (store->role_count - old_roles))
+                return table_full(ChatStateStoreError::role_capacity);
+            if (event.state.emojis_known) {
+                const auto emoji_admission = chat_state_store_guild_emoji_admission(
+                    *store, event.state.id, emoji_count, event.state.emoji_role_count);
+                if (emoji_admission != ChatStateStoreError::none)
+                    return admission_error(emoji_admission, ChatStateApplyError::capacity);
             }
             const GuildSettings settings = guild_settings(event.state);
             const auto guild =

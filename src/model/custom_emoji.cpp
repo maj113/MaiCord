@@ -124,15 +124,23 @@ bool chat_state_store_emoji_usable(const ChatStateStore& store,
     return false;
 }
 
-bool chat_state_store_can_replace_guild_emojis(const ChatStateStore& store, u64 guild_id,
-                                                  u32 emoji_count, u32 role_count) noexcept {
-    if (!store.emojis || !store.emoji_roles || guild_id == 0 || emoji_count > kGuildEmojiMaximum) {
-        return false;
-    }
+ChatStateStoreError chat_state_store_guild_emoji_admission(const ChatStateStore& store, u64 guild_id,
+                                                           u32 emoji_count, u32 role_count) noexcept {
+    if (!store.emojis || !store.emoji_roles || guild_id == 0 || emoji_count > kGuildEmojiMaximum)
+        return ChatStateStoreError::invalid_input;
     const u32 old_emojis = resident_emoji_count(store, guild_id);
     const u32 old_roles = resident_role_count(store, guild_id);
-    return emoji_count <= store.emoji_capacity - (store.emoji_count - old_emojis) &&
-           role_count <= store.emoji_role_capacity - (store.emoji_role_count - old_roles);
+    if (emoji_count > store.emoji_capacity - (store.emoji_count - old_emojis))
+        return ChatStateStoreError::emoji_capacity;
+    if (role_count > store.emoji_role_capacity - (store.emoji_role_count - old_roles))
+        return ChatStateStoreError::emoji_role_capacity;
+    return ChatStateStoreError::none;
+}
+
+bool chat_state_store_can_replace_guild_emojis(const ChatStateStore& store, u64 guild_id,
+                                                  u32 emoji_count, u32 role_count) noexcept {
+    return chat_state_store_guild_emoji_admission(store, guild_id, emoji_count, role_count) ==
+           ChatStateStoreError::none;
 }
 
 void chat_state_store_remove_guild_emojis(ChatStateStore* store, u64 guild_id) noexcept {

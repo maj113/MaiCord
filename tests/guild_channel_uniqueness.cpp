@@ -174,10 +174,12 @@ bool success_case(u32 count, u32 sequence, bool emojis, bool resident = false, b
         result.selection_changed == (actual.state.selection_revision != selection_revision) && same_model() &&
         bytes_equal(payload_snapshot, payload, used);
 }
+ChatStateApplyResult last_rejection{};
 bool rejection(ChatStateApplyError error = ChatStateApplyError::invalid_payload) noexcept {
     copy_bytes(&snapshot, &actual, sizeof(actual));
     copy_bytes(payload_snapshot, payload, used);
     const auto result = apply();
+    last_rejection = result;
     return result.error == error && !result.guilds && !result.channels && !result.roles && !result.overwrites &&
         !result.emojis && !result.selection_changed && bytes_equal(&actual, &snapshot, sizeof(actual)) &&
         bytes_equal(payload_snapshot, payload, used);
@@ -268,7 +270,8 @@ void test_guild_channel_uniqueness(void (*check)(bool, const char*) noexcept) no
     check(valid, "guild uniqueness resident cross-guild collision still rejects atomically");
     valid = build(64, 2, true, true) && reset(&actual, true);
     if (valid) { actual.state.channel_capacity = 32; valid = rejection(ChatStateApplyError::capacity); }
-    check(valid, "guild uniqueness capacity failure after sorting preserves complete prior model");
+    check(valid && last_rejection.store_error == ChatStateStoreError::channel_capacity,
+          "guild uniqueness capacity failure after sorting preserves complete prior model and names the channel table");
 }
 namespace {
 u32 uniqueness_failures;

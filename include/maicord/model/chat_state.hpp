@@ -605,6 +605,10 @@ bool chat_state_store_emoji_usable(const ChatStateStore& store,
                                       const CustomEmojiRecord& record) noexcept;
 bool chat_state_store_can_replace_guild_emojis(const ChatStateStore& store, u64 guild_id,
                                                   u32 emoji_count, u32 role_count) noexcept;
+// As above, naming the full table: emoji_capacity or emoji_role_capacity, or
+// invalid_input for an unbound store or an out-of-range request.
+ChatStateStoreError chat_state_store_guild_emoji_admission(const ChatStateStore& store, u64 guild_id,
+                                                           u32 emoji_count, u32 role_count) noexcept;
 bool chat_state_store_replace_guild_emojis(ChatStateStore* store, u64 guild_id,
                                               ConstSlice<CustomEmojiInput> emojis) noexcept;
 void chat_state_store_remove_guild_emojis(ChatStateStore* store, u64 guild_id) noexcept;
@@ -635,6 +639,11 @@ bool chat_state_store_note_thread(ChatStateStore* store, u64 parent_id,
                                      u64 thread_id, u64 owner_id) noexcept;
 bool chat_state_store_can_replace_guild_permissions(const ChatStateStore& store, u64 guild_id,
                                                        u32 role_count, u32 overwrite_count) noexcept;
+// As above, naming the full table: role_capacity or overwrite_capacity, or
+// invalid_input for an out-of-range request or an inconsistent store.
+ChatStateStoreError chat_state_store_guild_permission_admission(const ChatStateStore& store,
+                                                                u64 guild_id, u32 role_count,
+                                                                u32 overwrite_count) noexcept;
 bool chat_state_store_can_replace_channel_overwrites(const ChatStateStore& store, u64 channel_id,
                                                         u32 overwrite_count) noexcept;
 void chat_state_store_remove_guild_roles(ChatStateStore* store, u64 guild_id) noexcept;
