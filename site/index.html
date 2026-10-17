@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MaiCord — a lightweight, native Discord client for Windows</title>
+<meta name="description" content="MaiCord is a free, open-source Discord client for Windows written in C++ with Direct3D 11. No Electron and no browser engine: a 5.5 MB portable download that idles at near-zero CPU.">
+<link rel="canonical" href="https://maj113.github.io/MaiCord/">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#1a1a1e" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f9fafc" media="(prefers-color-scheme: light)">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MaiCord">
+<meta property="og:title" content="MaiCord — a lightweight, native Discord client for Windows">
+<meta property="og:description" content="No Electron, no browser engine. A 5.5 MB portable Discord client written in C++ that idles at near-zero CPU.">
+<meta property="og:url" content="https://maj113.github.io/MaiCord/">
+<meta property="og:image" content="https://maj113.github.io/MaiCord/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="MaiCord, a native Discord client for Windows">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "MaiCord",
+  "description": "A lightweight, native Discord client for Windows written in C++ with Direct3D 11.",
+  "applicationCategory": "CommunicationApplication",
+  "operatingSystem": "Windows 10, Windows 11",
+  "url": "https://maj113.github.io/MaiCord/",
+  "downloadUrl": "https://github.com/maj113/MaiCord/releases/latest",
+  "image": "https://maj113.github.io/MaiCord/og.png",
+  "license": "https://www.mozilla.org/en-US/MPL/2.0/",
+  "isAccessibleForFree": true,
+  "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+  "codeRepository": "https://github.com/maj113/MaiCord"
+}
+</script>
+<style>
+:root {
+  --bg: #1a1a1e; --surface: #222225; --raised: #2a2a2e; --line: #35353a;
+  --text: #f2f4f7; --muted: #b5bac1; --accent: #5865f2; --accent-hover: #4752c4; --on-accent: #fff;
+  --radius: 8px; --radius-lg: 12px;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f9fafc; --surface: #fff; --raised: #f2f5fa; --line: #e3e6ee;
+    --text: #1c1f26; --muted: #5c616e;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); line-height: 1.55; font-size: 16px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+nav { display: flex; align-items: center; gap: 24px; height: 64px; }
+nav .brand { display: flex; align-items: center; gap: 10px; color: var(--text); font-weight: 600; font-size: 18px; margin-right: auto; }
+nav .brand:hover { text-decoration: none; }
+nav a:not(.brand) { color: var(--muted); font-size: 15px; }
+nav a:not(.brand):hover { color: var(--text); text-decoration: none; }
+.logo { width: 28px; height: 28px; flex: none; }
+header.hero { padding: 72px 0 56px; }
+h1 { font-size: clamp(34px, 6vw, 52px); line-height: 1.1; letter-spacing: -0.02em; margin: 0 0 18px; max-width: 14em; }
+.lead { font-size: 19px; color: var(--muted); max-width: 36em; margin: 0 0 32px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.button { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: var(--radius); font-weight: 600; font-size: 15px; }
+.button:hover { text-decoration: none; }
+.primary { background: var(--accent); color: var(--on-accent); }
+.primary:hover { background: var(--accent-hover); }
+.secondary { background: var(--raised); color: var(--text); border: 1px solid var(--line); }
+.secondary:hover { border-color: var(--muted); }
+.fine { color: var(--muted); font-size: 14px; margin: 16px 0 0; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; margin: 0 0 80px; }
+.stats div { background: var(--surface); padding: 20px; }
+.stats b { display: block; font-size: 26px; letter-spacing: -0.01em; }
+.stats span { color: var(--muted); font-size: 14px; }
+section { margin: 0 0 80px; }
+h2 { font-size: 28px; letter-spacing: -0.01em; margin: 0 0 12px; }
+section > p { color: var(--muted); max-width: 40em; margin: 0 0 28px; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 20px; }
+.card h3 { font-size: 16px; margin: 0 0 8px; }
+.card ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 15px; }
+.card li + li { margin-top: 4px; }
+ol.steps { margin: 0 0 24px; padding-left: 22px; }
+ol.steps li { margin-bottom: 8px; }
+code { font-family: "Cascadia Mono", Consolas, ui-monospace, monospace; font-size: 0.9em; background: var(--raised); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+details { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; }
+summary { cursor: pointer; padding: 14px 18px; font-weight: 600; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "+"; color: var(--muted); font-weight: 400; }
+details[open] summary::after { content: "−"; }
+details p { margin: 0; padding: 0 18px 16px; color: var(--muted); }
+footer { border-top: 1px solid var(--line); padding: 28px 0 40px; color: var(--muted); font-size: 14px; }
+footer .links { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 12px; }
+footer a { color: var(--muted); }
+footer a:hover { color: var(--text); }
+@media (max-width: 760px) {
+  nav a.hide { display: none; }
+  header.hero { padding: 40px 0 40px; }
+  .stats { grid-template-columns: repeat(2, 1fr); margin-bottom: 56px; }
+  .grid { grid-template-columns: 1fr; }
+  section { margin-bottom: 56px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a class="brand" href="./"><svg class="logo" viewBox="0 0 176 176" aria-hidden="true"><rect width="176" height="176" rx="53" fill="#5865f2"/><path d="M49.3 125V54.6L88 96.8l38.7-42.2V125" fill="none" stroke="#fff" stroke-width="25" stroke-linecap="round" stroke-linejoin="round"/></svg>MaiCord</a>
+  <a class="hide" href="#features">Features</a>
+  <a class="hide" href="#install">Install</a>
+  <a class="hide" href="#faq">FAQ</a>
+  <a href="https://github.com/maj113/MaiCord">GitHub</a>
+</nav>
+
+<header class="hero">
+  <h1>A lightweight, native Discord client for Windows</h1>
+  <p class="lead">MaiCord is written from scratch in C++ and draws its own interface with Direct3D&nbsp;11. No Electron, no browser engine, nothing to install: one small portable app that stays out of your way.</p>
+  <div class="actions">
+    <a class="button primary" href="https://github.com/maj113/MaiCord/releases/latest">Download for Windows</a>
+    <a class="button secondary" href="https://github.com/maj113/MaiCord">View source on GitHub</a>
+  </div>
+  <p class="fine">Free and open source (MPL-2.0) · Windows 10 and 11, 64-bit · Updates itself</p>
+</header>
+
+<div class="stats">
+  <div><b>5.5 MB</b><span>portable download</span></div>
+  <div><b>~7 MB</b><span>on disk, one EXE and one DLL</span></div>
+  <div><b>~60 ms</b><span>to the first frame*</span></div>
+  <div><b>~0%</b><span>CPU while nothing changes</span></div>
+</div>
+
+<section id="why">
+  <h2>Why another client?</h2>
+  <p>The official desktop app is a web page running in Electron, and it carries a whole browser with it. MaiCord renders on the GPU and only redraws when something on screen changes, so it starts instantly and sits idle at near-zero CPU. It is built in freestanding C++23 with no runtime dependencies beyond the DLLs that ship with Windows.</p>
+</section>
+
+<section id="features">
+  <h2>Features</h2>
+  <p>MaiCord covers the Discord features you use every day, and more arrive with each release.</p>
+  <div class="grid">
+    <div class="card"><h3>Chat</h3><ul>
+      <li>Markdown, code highlighting and ANSI colors</li>
+      <li>Embeds, galleries, stickers and custom emoji</li>
+      <li>Replies, forwards, pins, reactions, threads, forums and polls</li>
+      <li>Voice messages, GIF picker and file drag and drop</li>
+      <li>Search filters, mentions inbox and a Ctrl+K quick switcher</li>
+    </ul></div>
+    <div class="card"><h3>Voice and video</h3><ul>
+      <li>Voice channels with end-to-end encryption (DAVE)</li>
+      <li>Push-to-talk and per-user volume</li>
+      <li>Soundboard and stage channels</li>
+      <li>Watch Go Live streams and cameras, decoded on the GPU</li>
+    </ul></div>
+    <div class="card"><h3>Servers</h3><ul>
+      <li>Roles, permissions, members, bans and audit log</li>
+      <li>Emoji, stickers, soundboard and invites</li>
+      <li>Scheduled events and community onboarding</li>
+      <li>Per-server profiles and privacy settings</li>
+    </ul></div>
+    <div class="card"><h3>Accounts</h3><ul>
+      <li>Two-factor sign-in: security keys, Windows Hello, authenticator apps, SMS</li>
+      <li>QR code login</li>
+      <li>Up to five saved accounts with quick switching</li>
+      <li>Full profile editor with banners, decorations and effects</li>
+    </ul></div>
+    <div class="card"><h3>Built for Windows</h3><ul>
+      <li>Native notifications, tray icon and taskbar badge</li>
+      <li>Spellcheck and IME through Windows text services</li>
+      <li>Screen reader support through UI Automation</li>
+      <li>Signed automatic updates</li>
+    </ul></div>
+    <div class="card"><h3>Make it yours</h3><ul>
+      <li>Themes for colors, type, spacing and animated backgrounds</li>
+      <li>Dark, light and AMOLED bases</li>
+      <li>Native plugins with a stable C API</li>
+      <li>Plugin permissions you approve</li>
+    </ul></div>
+  </div>
+</section>
+
+<section id="install">
+  <h2>Install</h2>
+  <ol class="steps">
+    <li>Download <code>MaiCord-&lt;version&gt;-windows-x64.zip</code> from the <a href="https://github.com/maj113/MaiCord/releases/latest">latest release</a>.</li>
+    <li>Extract it anywhere, for example <code>%LOCALAPPDATA%\Programs\MaiCord</code>.</li>
+    <li>Run <code>MaiCord.exe</code>. No installer or admin rights are needed.</li>
+  </ol>
+  <p>Requires Windows 10 or 11 (64-bit), a CPU with AVX and a GPU with Direct3D 11 support.</p>
+</section>
+
+<section id="faq">
+  <h2>FAQ</h2>
+  <details><summary>Is MaiCord free?</summary><p>Yes. MaiCord is free and open source under the Mozilla Public License 2.0, and you can build it yourself from the <a href="https://github.com/maj113/MaiCord">source on GitHub</a>.</p></details>
+  <details><summary>Is it an official Discord app?</summary><p>No. MaiCord is an unofficial third-party client, not affiliated with or endorsed by Discord Inc. Using third-party clients may violate <a href="https://discord.com/terms">Discord's Terms of Service</a> and could put your account at risk. Use it at your own discretion.</p></details>
+  <details><summary>Where are my sign-ins stored?</summary><p>On your PC only, in <code>%LOCALAPPDATA%\MaiCord</code>, encrypted with Windows Data Protection so they can be read only by your Windows account.</p></details>
+  <details><summary>How do updates work?</summary><p>MaiCord checks GitHub for new releases and verifies each update against a signature built into the client before installing it.</p></details>
+  <details><summary>Can I share my screen or camera?</summary><p>Not yet. You can join voice, watch Go Live streams and see cameras today; sending video and screen share are on the roadmap.</p></details>
+  <details><summary>Does it run on macOS or Linux?</summary><p>No. MaiCord is built for Windows 10 and 11 and uses Direct3D 11 and other Windows APIs directly.</p></details>
+</section>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="links">
+      <a href="https://github.com/maj113/MaiCord">Source</a>
+      <a href="https://github.com/maj113/MaiCord/releases">Releases</a>
+      <a href="https://github.com/maj113/MaiCord/issues">Issues</a>
+      <a href="https://github.com/maj113/MaiCord/blob/master/LICENSE">License</a>
+      <a href="https://github.com/maj113/MaiCord/blob/master/SECURITY.md">Security</a>
+    </div>
+    <p>* Measured on the developer's machine; your numbers will differ. MaiCord is not affiliated with Discord Inc. Discord is a trademark of Discord Inc.</p>
+  </div>
+</footer>
+</body>
+</html>

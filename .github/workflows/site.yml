@@ -1,0 +1,67 @@
+name: Website
+
+# Deploys the website in site/ to GitHub Pages when it changes. Pages also
+# serves the signed update-channel manifests, so this redeploys them unchanged
+# from the update-channels branch alongside the site (it never signs anything);
+# release.yml and manifest-refresh.yml deploy the same union.
+on:
+  push:
+    branches: [master]
+    paths:
+      - site/**
+      - tools/release/assemble_pages.ps1
+      - .github/workflows/site.yml
+  workflow_dispatch:
+
+permissions: {}
+
+# Serialize with release.yml and manifest-refresh.yml so a site deploy never
+# replaces newer channel manifests with older ones.
+concurrency:
+  group: update-channels
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Assemble the site
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            tools/release
+            site
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: update-channels
+          path: update-channels
+
+      - name: Assemble the Pages site
+        shell: pwsh
+        run: ./tools/release/assemble_pages.ps1 -Channels update-channels -Out "$env:RUNNER_TEMP/pages"
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/pages
+
+  pages:
+    name: Deploy GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

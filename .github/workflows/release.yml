@@ -5,7 +5,8 @@ name: Release
 # Releases are immutable once published, so every asset goes onto a draft that
 # is then published. The channel manifests clients poll live outside releases,
 # on GitHub Pages (https://<owner>.github.io/<repo>/updates/), deployed from the
-# update-channels branch. See tools/release/README.md.
+# update-channels branch together with the website in site/. See
+# tools/release/README.md.
 on:
   push:
     tags: ["v*.*.*"]
@@ -189,13 +190,18 @@ jobs:
         run: |
           Write-Host "::warning::Private repository: skipped provenance attestations and the Pages update channels. Updates reach no one until the repository is public."
 
+      - name: Assemble the Pages site
+        if: steps.channels.outputs.deploy == 'true'
+        shell: powershell
+        run: ./tools/release/assemble_pages.ps1 -Channels "$env:RUNNER_TEMP\update-channels" -Out "$env:RUNNER_TEMP\pages"
+
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: steps.channels.outputs.deploy == 'true'
         with:
-          path: ${{ runner.temp }}/update-channels
+          path: ${{ runner.temp }}/pages
 
   pages:
-    name: Deploy the update channels
+    name: Deploy GitHub Pages
     needs: release
     if: needs.release.outputs.deploy == 'true'
     runs-on: ubuntu-latest
