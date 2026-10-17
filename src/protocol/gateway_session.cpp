@@ -125,6 +125,7 @@ GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View me
         result.kind = GatewaySessionEventKind::error;
         result.error = GatewaySessionError::gateway_decode;
         result.gateway_error = decoded.error;
+        result.scan_error = decoded.scan_error;
         return result;
     }
 

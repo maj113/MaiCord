@@ -101,6 +101,7 @@ struct GatewaySessionEvent {
     WebSocketHandshakeError handshake_error;
     WebSocketError websocket_error;
     GatewayDecodeError gateway_error;
+    JsonScanError scan_error;  // why the envelope scan failed, for scan_failed
     GatewayEventDecodeError event_error;
     ZlibInflateError compression_error;
     GatewaySessionError error;

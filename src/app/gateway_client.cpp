@@ -1643,6 +1643,7 @@ PlaintextDrive fail_session_event(GatewayClientRuntime* runtime,
     runtime->handshake_error = event.handshake_error;
     runtime->websocket_error = event.websocket_error;
     runtime->gateway_decode_error = event.gateway_error;
+    runtime->json_scan_error = event.scan_error;
     runtime->event_decode_error = event.event_error;
     runtime->compression_error = event.compression_error;
     return PlaintextDrive::failed;

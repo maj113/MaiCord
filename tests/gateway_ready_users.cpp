@@ -648,6 +648,11 @@ void index_storage(void (*check)(bool, const char*) noexcept) noexcept {
     check(failed.kind == GatewaySessionEventKind::error && failed.gateway_error == GatewayDecodeError::scan_failed &&
         runtime.structural_scratch.capacity == 1024 && runtime.session.lifecycle.last_sequence == 7 && !index_growth_calls,
         "Gateway callers without the adapter retain fixed-capacity errors and their checkpoint");
+    runtime.json_scan_error = JsonScanError::none;
+    check(failed.scan_error == JsonScanError::output_overflow &&
+        fail_session_event(&runtime, failed) == PlaintextDrive::failed &&
+        runtime.json_scan_error == JsonScanError::output_overflow,
+        "Gateway envelope scan failures report the scan error to the client's diagnostics");
     check(index_session(denied_growth) && gateway_session_push(&runtime.session, {output, bytes}),
         "Gateway failed reserve fixture initializes");
     failed = gateway_session_next(&runtime.session, 0, GetTickCount64());
