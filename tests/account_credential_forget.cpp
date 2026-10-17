@@ -74,7 +74,7 @@ struct Fixture {
         const DWORD length = GetTempPathW(MAX_PATH, temporary);
         if (!length || length >= MAX_PATH || !GetTempFileNameW(temporary, L"MCF", 0, base) ||
             !DeleteFileW(base) || !CreateDirectoryW(base, nullptr) ||
-            !account_paths_build(base, &paths).ok() || !account_paths_ensure_directories(paths).ok() ||
+            !account_paths_build_slot(base, 0, &paths).ok() || !account_paths_ensure_directories(paths).ok() ||
             !child(paths.application_directory, L"client.preferences", preferences))
             return false;
         ready = true;

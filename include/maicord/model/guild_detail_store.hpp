@@ -150,7 +150,6 @@ void guild_detail_store_clear(GuildDetailStore* store) noexcept;
 bool guild_detail_store_apply(GuildDetailStore* store, const GuildDetailInput& input) noexcept;
 bool guild_detail_store_remove(GuildDetailStore* store, u64 guild_id) noexcept;
 const GuildDetailRecord* guild_detail_store_find(const GuildDetailStore& store, u64 guild_id) noexcept;
-Utf8View guild_detail_store_description(const GuildDetailStore& store, const GuildDetailRecord& record) noexcept;
 Utf8View guild_detail_store_vanity_url_code(const GuildDetailStore& store, const GuildDetailRecord& record) noexcept;
 inline Utf8View guild_detail_store_splash(const GuildDetailRecord& record) noexcept {
     return {record.splash, record.splash_bytes};

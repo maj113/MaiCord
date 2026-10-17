@@ -9,7 +9,6 @@ namespace maicord {
 // accumulate millisecond-scale drift; decoder policy may impose a larger floor
 // for zero or unusually short source delays.
 inline constexpr u64 kAnimationFrameDurationMaximumUs = 24ull * 60ull * 60ull * 1'000'000ull;
-inline constexpr u64 kAnimationCompatibilityFrameFloorUs = 10'000;
 // Frame positions are stored in 16 bits; oversized descriptors are rejected
 // before narrowing.
 inline constexpr u32 kAnimationTimelineFrameMaximum = 0xFFFFu;
@@ -161,10 +160,6 @@ AnimationTimelineResult animation_timeline_defer_advance(AnimationTimeline* time
 
 u64 animation_timeline_next_wake_at_us(const AnimationTimeline* timeline) noexcept;
 u32 animation_timeline_wait_timeout_ms(const AnimationTimeline* timeline, u64 monotonic_now_us) noexcept;
-
-// Ceiling conversion means a deadline is never scheduled earlier than the
-// source fraction. Callers normalize format-specific zero denominators first.
-u64 animation_duration_fraction_us(u32 numerator, u32 denominator, u64 minimum_us) noexcept;
 
 static_assert(sizeof(AnimationTimelineEntry) == 72);
 static_assert(sizeof(AnimationTimelineCounters) == 64);

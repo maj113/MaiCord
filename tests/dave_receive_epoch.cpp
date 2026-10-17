@@ -85,10 +85,7 @@ void lifecycle(Check check, KdfSha256Workspace& workspace, Gcm64Backend backend)
     check(open(epoch, workspace, frame, age(1) - 1).error == DaveEpochError::invalid_time &&
               test_filled(frame.output, 48, 0xa5),
           "DAVE rejects clock rollback without writes");
-    dave_receive_epoch_expire(epoch, age(1) + 1);
-    dave_receive_epoch_expire(epoch, age(1) + 9999);
-    check(epoch.expiry_ms == age(1) + 1,
-          "DAVE epoch lifetime cannot be extended by another expiry request");
+    epoch.expiry_ms = age(1) + 1;
     correct(check, open(epoch, workspace, frame, age(1) + 1), frame);
     check(open(epoch, workspace, frame, age(1) + 2).error == DaveEpochError::expired,
           "DAVE epoch expiry is strict and checked before replay/crypto");

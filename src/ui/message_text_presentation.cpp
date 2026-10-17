@@ -1026,7 +1026,6 @@ RetainedReplySummary retain_reply_summary(MessageTextPresentation* presentation,
         saturating_accumulate(presentation->markdown_unresolved_entities, parsed.unresolved_entities);
         saturating_accumulate(presentation->markdown_timestamps, parsed.timestamps);
     } else if (parsed_markdown) {
-        presentation->last_markdown_error = parsed.error;
         saturating_accumulate(presentation->markdown_rejected);
     }
     return RetainedReplySummary{
@@ -1278,7 +1277,6 @@ bool parse_content(MessageTextPresentation* presentation, BuildContext* context,
             presentation->semantics.data + semantic_begin,
             minimum(presentation->semantics.count - semantic_begin, kMessageMarkdownSemanticMaximum)});
     if (!parsed.ok()) {
-        presentation->last_markdown_error = parsed.error;
         saturating_accumulate(presentation->markdown_rejected);
         return true;
     }
@@ -2374,7 +2372,7 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     const MessageMediaPolicyResult media_policy =
         rich ? message_scene_media_policy(
                    scene, message_media_owner(*record, message_rich_store_find(*rich_store, record->id)))
-             : MessageMediaPolicyResult{scene.explicit_filter, true};
+             : MessageMediaPolicyResult{MessageExplicitFilter::show, true};
     if (forwarded) {
         if (!rich)
             return fail(presentation, MessageTextPresentationError::model);
@@ -3469,7 +3467,6 @@ bool message_text_presentation_initialize(MessageTextPresentation* presentation,
     presentation->measurements = measurements;
     presentation->spoiler_reveals = spoiler_reveals;
     presentation->byte_style_scratch = byte_style_scratch;
-    presentation->last_markdown_error = MessageMarkdownError::none;
     presentation->last_error = MessageTextPresentationError::none;
     presentation->failure_message_id = 0;
     presentation->failure_source_index = ~0u;
@@ -3569,9 +3566,7 @@ MessageTextPresentationResult message_text_presentation_build(
     presentation->rich = MessageTextRichMetrics{};
     presentation->next_timestamp_update_unix_seconds = 0;
     presentation->projection_signature = 0;
-    presentation->last_markdown_error = MessageMarkdownError::none;
     presentation->last_error = MessageTextPresentationError::none;
-    presentation->command_measurements_changed = false;
     presentation->active = false;
     if (!append_intro(presentation, scene, theme)) {
         reject_atomically(presentation, presentation->last_error == MessageTextPresentationError::none
@@ -3689,7 +3684,6 @@ bool message_text_presentation_measure(MessageTextPresentation* presentation, Ui
             measurement.reaction_widths[command.measurement_slot] = measured_width.value;
         }
     }
-    presentation->command_measurements_changed = local_changed;
     presentation->projection_signature = message_text_presentation_projection_signature(*presentation);
     presentation->last_error = MessageTextPresentationError::none;
     *changed = local_changed;

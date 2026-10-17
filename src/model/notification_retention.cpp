@@ -158,19 +158,6 @@ bool notification_retention_ticket(const NotificationRetention* n,u64 channel,u3
     if(located.error!=Error::none || !located.exists || ordinal>=n->rows[located.row].count)return false;
     *ticket=n->rows[located.row].tickets[ticket_index(n->rows[located.row],ordinal)];return true;
 }
-NotificationRetentionTake notification_retention_remove_channel(NotificationRetention* n,u64 channel,Slice<u64> output) noexcept {
-    if(!channel || !layout(n) || !output_valid(*n,output.data,usize(output.count)*sizeof(u64)))return {Error::invalid_input};
-    const auto located=find(*n,channel);
-    if(located.error!=Error::none)return {located.error};
-    if(!located.exists)return {};
-    const auto& row=n->rows[located.row];
-    if(output.count<row.count)return {Error::output_too_small};
-    const auto prepared=prepare_erase(*n,located);
-    if(prepared.error!=Error::none)return {prepared.error};
-    const u32 count=row.count;
-    for(u32 i=0;i<count;++i)output[i]=row.tickets[ticket_index(row,i)];
-    erase(*n,located,prepared);return {Error::none,count};
-}
 NotificationRetentionError notification_retention_discard_channel(NotificationRetention* n,u64 channel) noexcept {
     if(!channel || !layout(n))return Error::invalid_input;
     const auto located=find(*n,channel);
@@ -178,10 +165,5 @@ NotificationRetentionError notification_retention_discard_channel(NotificationRe
     const auto prepared=prepare_erase(*n,located);
     if(prepared.error!=Error::none)return prepared.error;
     erase(*n,located,prepared);return Error::none;
-}
-NotificationRetentionError notification_retention_reset(NotificationRetention* n) noexcept {
-    if(!layout(n) || !consistent(*n))return Error::invalid_input;
-    for(u32 i=0;i<n->count;++i)n->rows[i]={};
-    zero_index(n->index);n->count=0;return Error::none;
 }
 } // namespace maicord

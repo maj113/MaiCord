@@ -845,12 +845,6 @@ bool ui_media_picker_scene_edge_selection(UiMediaPickerScene* scene, bool last) 
     return scene && ui_media_picker_scene_current(*scene) && scene->source && scene->source->count &&
            select_available(*scene, last ? scene->source->count - 1 : 0, last ? -1 : 1);
 }
-UiMediaPickerTarget ui_media_picker_scene_selected_target(const UiMediaPickerScene& scene) noexcept {
-    for (u32 i = 0; i < scene.cell_count; ++i)
-        if (scene.projection->cells[i].source_index == scene.selected_index)
-            return target(scene, scene.projection->cells[i].widget);
-    return {};
-}
 bool ui_media_picker_scene_favorite(const UiMediaPickerScene& scene, u32 index, UiRect* rectangle,
                                     UiRect* full_rectangle) noexcept {
     if (!rectangle || !ui_media_picker_scene_current(scene) || index >= scene.cell_count)
@@ -981,31 +975,5 @@ bool ui_media_picker_scene_set_scrollbar_state(UiMediaPickerScene* scene, bool r
     current_state = state;
     ++scene->revision;
     return true;
-}
-Utf8View ui_media_picker_scene_tooltip(const UiMediaPickerScene& scene, u64 now_ms, u64 delay_ms) noexcept {
-    if (!ui_media_picker_scene_current(scene) || !scene.widgets.hovered.generation ||
-        now_ms < scene.widgets.hover_started_ms || now_ms - scene.widgets.hover_started_ms < delay_ms)
-        return {};
-    const auto hit = target(scene, scene.widgets.hovered);
-    if (scene.favorite_hovered)
-        for (u32 i = 0; i < scene.cell_count; ++i) {
-            const auto& cell = scene.projection->cells[i];
-            if (cell.item.id == hit.item_id) {
-                if (cell.item.favorite_pending)
-                    return utf8_literal("Updating favorite");
-                if (cell.item.favorite_failed)
-                    return utf8_literal("Couldn't update favorite. Try again");
-                return cell.item.favorite ? utf8_literal("Remove from favorites")
-                                          : utf8_literal("Add to favorites");
-            }
-        }
-    if (hit.action == UiMediaPickerAction::section_jump || hit.action == UiMediaPickerAction::section)
-        for (u32 i = 0; i < scene.source->sections.count; ++i)
-            if (scene.source->sections[i].id == hit.item_id)
-                return scene.source->sections[i].label;
-    for (u32 i = 0; i < scene.cell_count; ++i)
-        if (scene.projection->cells[i].item.id == hit.item_id)
-            return scene.projection->cells[i].item.label;
-    return {};
 }
 } // namespace maicord

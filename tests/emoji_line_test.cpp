@@ -49,11 +49,8 @@ bool lines_corpus(ConstSlice<u8> data) noexcept {
                 for(u32 i=0;i<line.cluster_count;++i){const auto& cluster=line_clusters[i];CHECK(word_equal(reader,cluster.source_end-first)&&word_equal(reader,bit_pattern(cluster.width)));first=cluster.source_end;}
                 for(u32 at=0;at<=units;++at)for(u32 trailing=0;trailing<2;++trailing){NativeLinePosition hit{};CHECK(native_ascii_line_position({line_clusters,line.cluster_count},line,at,trailing!=0,&hit)==SfntStatus::ok);
                     CHECK(word_equal(reader,hit.source_first)&&word_equal(reader,hit.source_count)&&word_equal(reader,bit_pattern(hit.x))&&word_equal(reader,bit_pattern(hit.left))&&word_equal(reader,bit_pattern(hit.width)));}
-                for(u32 i=0;i<points;++i){u32 x=0,y=0;CHECK(reader.word(&x)&&reader.word(&y));NativeLinePoint hit{};CHECK(native_ascii_line_point({line_clusters,line.cluster_count},line,real(x),real(y),&hit)==SfntStatus::ok);
-                    CHECK(word_equal(reader,hit.source_position)&&word_equal(reader,hit.inside?1u:0u));}
-                for(u32 i=0;i<ranges;++i){u32 at=0,length=0;CHECK(reader.word(&at)&&reader.word(&length));NativeLineSelection hit{};
-                    CHECK(native_ascii_line_range({line_clusters,line.cluster_count},line,{s.run.character_glyphs.data,units},{s.run.placements.data,glyph_count},at,length,&hit)==SfntStatus::ok);
-                    CHECK(word_equal(reader,hit.present?1u:0u)&&word_equal(reader,hit.source_first)&&word_equal(reader,hit.source_count)&&word_equal(reader,bit_pattern(hit.left))&&word_equal(reader,bit_pattern(hit.width)));}
+                // The fixture still records point and selection queries (4 and 7 words); no API answers them.
+                ConstSlice<u8> recorded_queries{};CHECK(reader.take(points*16+ranges*28,&recorded_queries));
                 if(!mode)next=reader.at;else EQUAL(reader.at,next);++runs;nominal_runs+=line.run.nominal_ranges;
             }++cases;
         }

@@ -31,11 +31,9 @@ struct ShapedText;
 // run it sits under (the code block's own colour where the run has none),
 // whatever colour was in effect when its 4/9 opened.
 inline constexpr u16 kAnsiColorNone = 0;
-inline constexpr u32 kAnsiTextStyleMask =
-    text_style_bold | text_style_italic | text_style_underline | text_style_strikethrough;
 
 struct AnsiTextStyle {
-    u32 flags; // kAnsiTextStyleMask bits
+    u32 flags; // text_style_bold/italic/underline/strikethrough bits
     u16 foreground;
     u16 background;
 };

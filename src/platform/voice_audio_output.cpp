@@ -14,7 +14,6 @@ struct Runtime {
     void* context;
     HANDLE thread, stop, wake, notify;
     wchar_t device[128];
-    volatile LONG state, buffer_frames, period_frames, opens, native_error;
 };
 struct Engine {
     IMMDeviceEnumerator* enumerator;
@@ -23,11 +22,6 @@ struct Engine {
     IAudioRenderClient* render;
     u32 frames;
 };
-void publish(Runtime& r, VoiceAudioOutputState state, HRESULT native = S_OK) noexcept {
-    InterlockedExchange(&r.state, static_cast<LONG>(state));
-    if (FAILED(native))
-        InterlockedExchange(&r.native_error, static_cast<LONG>(native));
-}
 void close_stream(Engine& e) noexcept {
     if (e.client)
         e.client->Stop();
@@ -73,9 +67,6 @@ HRESULT open_stream(Runtime& r, Engine& e) noexcept {
     com_release(device);
     constexpr u16 stride = kChannels * sizeof(i16);
     const WAVEFORMATEX format{WAVE_FORMAT_PCM, kChannels, kRate, kRate * stride, stride, 16, 0};
-    REFERENCE_TIME period = 0;
-    if (SUCCEEDED(h))
-        h = e.client->GetDevicePeriod(&period, nullptr);
     if (SUCCEEDED(h))
         h = e.client->Initialize(AUDCLNT_SHAREMODE_SHARED,
                                  AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM |
@@ -93,13 +84,8 @@ HRESULT open_stream(Runtime& r, Engine& e) noexcept {
         h = fill(r, e);
     if (SUCCEEDED(h))
         h = e.client->Start();
-    if (FAILED(h)) {
+    if (FAILED(h))
         close_stream(e);
-        return h;
-    }
-    InterlockedExchange(&r.buffer_frames, static_cast<LONG>(e.frames));
-    InterlockedExchange(&r.period_frames, static_cast<LONG>(period * kRate / 10'000'000));
-    InterlockedIncrement(&r.opens);
     return h;
 }
 HRESULT watch(Runtime& r, Engine& e) noexcept {
@@ -116,19 +102,11 @@ DWORD WINAPI audio_thread(void* parameter) noexcept {
     const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     Engine e{};
     HRESULT h = FAILED(apartment) ? apartment : watch(r, e);
-    if (FAILED(h))
-        publish(r, VoiceAudioOutputState::waiting, h);
     while (SUCCEEDED(h)) {
-        if (!e.client) {
-            publish(r, VoiceAudioOutputState::opening);
-            const HRESULT opened = open_stream(r, e);
-            if (FAILED(opened)) {
-                publish(r, VoiceAudioOutputState::waiting, opened);
-                if (pause(r, 1000))
-                    break;
-                continue;
-            }
-            publish(r, VoiceAudioOutputState::playing);
+        if (!e.client && FAILED(open_stream(r, e))) {
+            if (pause(r, 1000))
+                break;
+            continue;
         }
         HANDLE events[]{r.stop, r.notify, r.wake};
         const DWORD waited = WaitForMultipleObjects(3, events, FALSE, 200);
@@ -142,7 +120,6 @@ DWORD WINAPI audio_thread(void* parameter) noexcept {
         if (FAILED(filled)) {
             // Device invalidated/removed or format change: reopen the default endpoint.
             close_stream(e);
-            publish(r, VoiceAudioOutputState::waiting, filled);
             if (pause(r, filled == AUDCLNT_E_DEVICE_INVALIDATED ? 50 : 500))
                 break;
         }
@@ -151,7 +128,6 @@ DWORD WINAPI audio_thread(void* parameter) noexcept {
     audio_endpoint_unwatch(e.enumerator, e.notify);
     if (SUCCEEDED(apartment))
         CoUninitialize();
-    publish(r, VoiceAudioOutputState::stopped);
     return 0;
 }
 void free_runtime(Runtime* r) noexcept {
@@ -162,10 +138,6 @@ void free_runtime(Runtime* r) noexcept {
     VirtualFree(r, 0, MEM_RELEASE);
 }
 } // namespace
-
-bool voice_audio_output_start(VoiceAudioOutput* output, VoiceAudioRender render, void* context) noexcept {
-    return voice_audio_output_start_device(output, nullptr, render, context);
-}
 
 bool voice_audio_output_start_device(VoiceAudioOutput* output, const wchar_t* device_id, VoiceAudioRender render,
                                      void* context) noexcept {
@@ -181,7 +153,6 @@ bool voice_audio_output_start_device(VoiceAudioOutput* output, const wchar_t* de
     r->stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     r->wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     r->notify = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-    r->state = static_cast<LONG>(VoiceAudioOutputState::opening);
     if (r->stop && r->wake && r->notify)
         r->thread = CreateThread(nullptr, 256 * 1024, audio_thread, r, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     if (!r->thread) {
@@ -206,17 +177,5 @@ void voice_audio_output_stop(VoiceAudioOutput* output) noexcept {
 
 bool voice_audio_output_running(const VoiceAudioOutput& output) noexcept {
     return output.runtime != nullptr;
-}
-
-VoiceAudioOutputStatus voice_audio_output_status(const VoiceAudioOutput& output) noexcept {
-    VoiceAudioOutputStatus status{};
-    if (const auto* r = static_cast<const Runtime*>(output.runtime)) {
-        status.state = static_cast<VoiceAudioOutputState>(ReadAcquire(&r->state));
-        status.buffer_frames = static_cast<u32>(ReadAcquire(&r->buffer_frames));
-        status.period_frames = static_cast<u32>(ReadAcquire(&r->period_frames));
-        status.opens = static_cast<u32>(ReadAcquire(&r->opens));
-        status.native_error = static_cast<u32>(ReadAcquire(&r->native_error));
-    }
-    return status;
 }
 } // namespace maicord

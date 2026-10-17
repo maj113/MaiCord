@@ -92,7 +92,7 @@ inline bool accept(void* context,u32 index,const MessageSearchMessage& result) n
 }
 inline bool initialize(Fixture& f) noexcept {
     if (!message_store_initialize(&f.store,{f.records,kRows},{f.order,kRows},{f.message_bytes,sizeof(f.message_bytes)}) ||
-        !message_rich_store_initialize_owned(&f.rich,&f.rich_storage,kRows,{f.rich_order,kRows},{f.rich_bytes,sizeof(f.rich_bytes)}) ||
+        !message_rich_store_initialize_owned_sparse(&f.rich,&f.rich_storage,kRows,{f.rich_order,kRows},{f.rich_bytes,sizeof(f.rich_bytes)}) ||
         !user_store_initialize(&f.users,{f.user_records,2},{f.user_order,2},{f.user_names,sizeof(f.user_names)}) ||
         !message_text_presentation_initialize(&f.presentation,{f.commands,192},{f.text_bytes,sizeof(f.text_bytes)},
             {f.styles,256},{f.semantics,128},{f.measurements,16},{f.reveals,16},{f.markdown_scratch,16384})) return false;
@@ -281,14 +281,19 @@ inline bool pixels(const Fixture& f,const D3D11Renderer& renderer,const Theme& t
 struct SemanticPoint { MessageTextHit hit{}; UiPoint point{}; };
 inline SemanticPoint semantic(const D3D11Renderer& renderer,const Fixture& f,
     MessageMarkdownSemanticKind kind,Utf8View expected = {}) noexcept {
-    if (!renderer.content_text) return {};
+    if (!renderer.content_text || !renderer.search_scene) return {};
     const auto& text = *renderer.content_text;
     for (u32 i = 0; i < text.content_hit_region_count; ++i) {
         const auto& region = text.content_hit_regions[i];
+        if (region.semantic_index >= text.content_semantic_count) continue;
+        const auto& value = text.content_semantics[region.semantic_index];
         const UiPoint point{(region.left + region.right) * .5f,(region.top + region.bottom) * .5f};
-        const auto hit = renderer_search_content_hit_test(renderer,static_cast<i32>(point.x * renderer.dpi / 96.f),
-            static_cast<i32>(point.y * renderer.dpi / 96.f));
-        if (!hit.valid || hit.kind != kind || hit.message_id != kMixedId) continue;
+        if (!(value.reserved & kRendererSearchSemanticFlag) || value.kind != kind || value.message_id != kMixedId ||
+            (kind != MessageMarkdownSemanticKind::spoiler && (value.reserved & 2u)) ||
+            !ui_rect_has_area(ui_search_scene_content_clip(*renderer.search_scene,
+                {point.x,point.y,point.x + .01f,point.y + .01f}))) continue;
+        const MessageTextHit hit{value.message_id,value.target,value.message_revision,value.source_offset,
+            value.source_bytes,value.kind,true};
         if (expected.bytes && !utf8_equal(message_text_presentation_hit_source(f.published,&f.rich,hit),expected)) continue;
         return {hit,point};
     }
@@ -387,11 +392,7 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
     if (!require(link.hit.valid && frozen.hit.valid && spoiler.hit.valid &&
         !semantic(renderer,f,MessageMarkdownSemanticKind::link,utf8_literal("https://original.example/private")).hit.valid,4)) return false;
     const auto px = static_cast<i32>(link.point.x),py = static_cast<i32>(link.point.y);
-    const auto search_selection = renderer_search_text_position_hit_test(renderer,px,py);
-    if (!require(!renderer_content_hit_test(renderer,px,py).valid && search_selection.valid &&
-        search_selection.message_id == kMixedId && search_selection.command_index < f.presentation.command_count &&
-        search_selection.command_identity == f.presentation.commands[search_selection.command_index].measurement_identity &&
-        search_selection.text_bytes == f.presentation.commands[search_selection.command_index].text.bytes &&
+    if (!require(!renderer_content_hit_test(renderer,px,py).valid &&
         ui_search_scene_hit_test(f.scene,link.point.x,link.point.y).action != UiSearchAction::result,5)) return false;
     bool main_hit = false;
     for (u32 i = 0; i < renderer.message_text->command_count; ++i) {
@@ -401,12 +402,10 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
         if (ui_rect_contains(f.scene.panel,static_cast<float>(x),static_cast<float>(y))) continue;
         const auto selected = renderer_message_text_position_hit_test(renderer,x,y);
         main_hit = selected.valid && selected.message_id == kMixedId && selected.command_identity == command.measurement_identity &&
-            selected.text_bytes == command.text.bytes && !renderer_search_text_position_hit_test(renderer,x,y).valid;
+            selected.text_bytes == command.text.bytes;
         if (main_hit) break;
     }
-    const auto search_again = renderer_search_text_position_hit_test(renderer,px,py);
-    if (!require(main_hit && search_again.valid && search_again.command_identity == search_selection.command_identity &&
-        search_again.text_bytes == search_selection.text_bytes,6)) return false;
+    if (!require(main_hit,6)) return false;
     UiSearchTarget jump{};
     for (u32 i = 0; i < f.scene.count; ++i) if (f.scene.visible[i].message_id == kMixedId) {
         const auto* node = ui_widget_manager_layout_node(f.scene.widgets,f.scene.rows[i]);
@@ -443,7 +442,7 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
     f.result_order[kRows - 1] = first_handle; ++f.source.revision; ++f.content.revision;
     f.content.offset = 25; f.content.previous = true; f.content.next = false;
     if (!require(!ui_search_scene_target_current(f.scene,jump) && !ui_search_scene_target_current(f.scene,snapshot_target) &&
-        !renderer_search_content_hit_test(renderer,px,py).valid && show(L"rich-search-media-only-page.bmp"),12)) return false;
+        show(L"rich-search-media-only-page.bmp"),12)) return false;
     {
         surface_motion_probe_detail::Readback rb{};
         if (!require(read(renderer,theme,rb,0) && pixels(f,renderer,theme,rb,0,2),13)) return false;
@@ -533,8 +532,7 @@ inline bool rich_search_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache& mea
     f.published = f.store;
     if (!require(project() && message_text_presentation_hit_source(f.published,&f.rich,link.hit).bytes == 0,22)) return false;
     f.current = false;
-    if (!require(!ui_search_scene_current(f.scene) && !ui_search_scene_target_current(f.scene,saved) &&
-        !renderer_search_content_hit_test(renderer,px,py).valid,23)) return false;
+    if (!require(!ui_search_scene_current(f.scene) && !ui_search_scene_target_current(f.scene,saved),23)) return false;
     UiSearchSource empty{}; empty.revision = f.source.revision + 1;
     empty.resolve = +[](void*,u32,UiSearchRow*) noexcept { return false; };
     f.content.total = 0; f.content.offset = 0; f.content.previous = f.content.next = false;

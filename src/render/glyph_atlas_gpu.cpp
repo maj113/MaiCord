@@ -179,13 +179,6 @@ bool GlyphRasterBatch::finish() noexcept {
     for(u32 i=0;i<count;++i)gpu->dispatched_pixels+=static_cast<u64>(jobs[i][1]&65535)*(jobs[i][1]>>16);
     count=cursor=groups_x=groups_y=0;return true;
 }
-GlyphAtlasGpuResult glyph_atlas_gpu_rasterize(GlyphAtlasGpu* gpu,ID3D11DeviceContext* context,
-    const GlyphOutline& outline,const GlyphRasterBounds& bounds,const GlyphAtlasAllocation& allocation,
-    float pixels_per_em,u16 padding,float stroke_half_width) noexcept {
-    GlyphRasterBatch batch(gpu,context);const auto result=batch.add(outline,bounds,allocation,pixels_per_em,padding,stroke_half_width);
-    if(!result.ok())return result;
-    return batch.finish()?result:gpu_error(GlyphAtlasGpuError::upload,E_FAIL);
-}
 
 void glyph_atlas_gpu_release(GlyphAtlasGpu* gpu) noexcept {
     if (!gpu) {

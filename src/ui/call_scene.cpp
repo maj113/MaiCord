@@ -11,7 +11,7 @@
 
 namespace maicord {
 namespace {
-constexpr float kCornerButton = 32, kTileRadius = 8, kPillHeight = 24,
+constexpr float kTileRadius = 8, kPillHeight = 24,
                 kPillInset = 8, kHoverButton = 28, kLiveWidth = 40, kLiveHeight = 20, kNameEm = 6.8f,
                 kFullscreenButton = 40, kIndicator = 16, kStopWidth = 136, kWatchWidth = 136, kWatchHeight = 36,
                 kViewerHeight = 20, kSpinner = 32;
@@ -20,32 +20,18 @@ constexpr UiCallControl kBarOrder[]{UiCallControl::mute, UiCallControl::deafen, 
 constexpr UiMotionStyle kMorphStyle{kUiCallMorphMs, UiMotionCurve::spring};
 constexpr u64 kMorphOwner = 0xca11'5ce4'e000'0001ull;
 
+using call_stage::centered;
+using call_stage::copy_text;
+using call_stage::push_text;
+
 float clampf(float value, float low, float high) noexcept {
     return value < low ? low : value > high ? high : value;
-}
-UiRect centered(float x, float y, float width, float height) noexcept {
-    return {x - width * .5f, y - height * .5f, x + width * .5f, y + height * .5f};
-}
-UiRect lerp(UiRect a, UiRect b, float t) noexcept {
-    return {a.left + (b.left - a.left) * t, a.top + (b.top - a.top) * t, a.right + (b.right - a.right) * t,
-            a.bottom + (b.bottom - a.bottom) * t};
 }
 u32 codepoints(Utf8View text) noexcept {
     u32 count = 0;
     for (u32 i = 0; i < text.bytes; ++i)
         count += (static_cast<u8>(text.data[i]) & 0xc0) != 0x80;
     return count;
-}
-// Copies at most capacity bytes without splitting a UTF-8 sequence.
-u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
-    if (!text.data)
-        return 0;
-    u32 bytes = minimum(text.bytes, capacity);
-    while (bytes && bytes < text.bytes && (static_cast<u8>(text.data[bytes]) & 0xc0) == 0x80)
-        --bytes;
-    if (bytes)
-        copy_bytes(destination, text.data, bytes);
-    return bytes;
 }
 UiMotionScope morph_scope(const UiCallScene& s) noexcept {
     return {kMorphOwner, s.morph_generation};
@@ -398,7 +384,7 @@ void place_tiles(UiCallScene& s, UiRect area) noexcept {
 void apply_morph(UiCallScene& s) noexcept {
     const float t = s.morph.active || s.morph.value < 1 ? clampf(s.morph.value, 0, 1) : 1;
     for (u32 i = 0; i < s.tile_count; ++i)
-        s.tiles[i].display = t >= 1 ? s.tiles[i].target : lerp(s.tiles[i].from, s.tiles[i].target, t);
+        s.tiles[i].display = t >= 1 ? s.tiles[i].target : ui_rect_lerp(s.tiles[i].from, s.tiles[i].target, t);
 }
 // Controls drawn on a tile (hit with its user ID) rather than in the chrome.
 bool per_tile(UiCallControl control) noexcept {
@@ -416,13 +402,6 @@ bool stage_chrome(UiCallControl control) noexcept {
 bool control_visible(const UiCallScene& s, UiCallControl control) noexcept {
     return control != UiCallControl::none && control < UiCallControl::count &&
            ui_rect_has_area(s.controls[static_cast<u32>(control)]);
-}
-bool push_text(UiTextOutput* text, const UiCallScene& s, Utf8View value, UiRect rectangle, UiRect clip, Color color,
-               u32 style, UiTextAlignment horizontal = UiTextAlignment::start) noexcept {
-    if (!value.bytes || !ui_rect_has_area(ui_rect_intersection(rectangle, clip)))
-        return true;
-    return ui_text_output_push(text, {value, s.owner, rectangle, clip, color, style, horizontal,
-                                      UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
 }
 } // namespace
 
@@ -647,16 +626,6 @@ void ui_call_scene_release(UiCallScene* s) noexcept {
     s->revision = revision;
     s->morph_generation = generation;
     ui_motion_transition_reset(&s->morph, morph_scope(*s), 1);
-}
-
-bool ui_call_scene_tick(UiCallScene* s, u64 now_ms, bool reduced_motion) noexcept {
-    if (!s || !s->active || !(s->morph.active || s->morph.value < 1))
-        return false;
-    if (!ui_motion_transition_tick(&s->morph, morph_scope(*s), 1, now_ms, kMorphStyle, reduced_motion, true))
-        return false;
-    apply_morph(*s);
-    ++s->revision;
-    return true;
 }
 
 u64 ui_call_scene_next_wake(const UiCallScene& s, u64 now_ms, bool reduced_motion) noexcept {

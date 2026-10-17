@@ -325,7 +325,8 @@ bool initialize() noexcept {
                                             {80, 0, 0, utf8_literal("fixture-dm"), 0, 0, 1})
              .ok() ||
         !ui_scene_initialize_bootstrap(&g_app.shell_scene) ||
-        !ui_scene_layout(&g_app.shell_scene, 1280, 720) ||
+        !ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
+                                      kGuildChannelShellLayoutMetrics, 1280, 720) ||
         !message_composer_initialize(&g_app.message_composer, {draft, sizeof(draft)}) ||
         !reaction_preferences_initialize(&ui.reaction_preferences) ||
         !message_composer_scene_initialize_owned(&g_app.message_composer_scene))

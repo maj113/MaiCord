@@ -253,7 +253,8 @@ bool initialize() noexcept {
     GuildInput guild{7, utf8_literal("Guild"), GuildMutationKind::create, 1};
     guild.banner_hash = kStill;
     guild.banner_known = true;
-    if (!ui_scene_initialize_bootstrap(&f.shell) || !ui_scene_layout(&f.shell, 1280, 800) ||
+    if (!ui_scene_initialize_bootstrap(&f.shell) ||
+        !ui_scene_layout_with_metrics(&f.shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 1280, 800) ||
         !chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1}, {f.channels, 6},
                                      {f.channel_order, 6}, {f.names, sizeof(f.names)}) ||
         !chat_state_store_upsert_guild(&f.state, guild).ok() ||
@@ -449,16 +450,7 @@ void test_card() noexcept {
           "card: without a picture the brand colour brightens toward the bottom");
 }
 
-void test_settings() noexcept {
-    check(!guild_banner_available(1, 0) && guild_banner_available(2, 0) &&
-              guild_banner_available(0, guild_feature_banner) &&
-              !guild_animated_banner_available(2, guild_feature_banner) && guild_animated_banner_available(3, 0) &&
-              guild_animated_banner_available(0, guild_feature_animated_banner),
-          "settings: banners need BANNER (boost level 2), animated ones ANIMATED_BANNER (level 3)");
-}
-
 void run() noexcept {
-    test_settings();
     test_urls();
     test_geometry();
     test_animation();

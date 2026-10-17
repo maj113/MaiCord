@@ -180,6 +180,15 @@ Utf8View voters_body(u64 first, u32 count) noexcept {
     append("]}");
     return {body, body_bytes};
 }
+// Account change: a fresh store, with revisions moving on so bound strings rebind.
+void clear_polls() noexcept {
+    auto& polls = g_app.account_ui->message_poll_store;
+    const u32 revision = polls.revision, content_revision = polls.content_revision;
+    message_poll_store_release(&polls);
+    message_poll_store_initialize_owned(&polls, 16, 8192);
+    polls.revision = revision + 1;
+    polls.content_revision = content_revision + 1;
+}
 void reset() noexcept {
     if (accepted)
         receipt(accepted, 500);
@@ -200,7 +209,7 @@ void reset() noexcept {
     search_publication = 17;
     admission = {};
     now = unix_now = 1000;
-    message_poll_store_reset(&g_app.account_ui->message_poll_store);
+    clear_polls();
     permit();
     seed();
 }
@@ -316,7 +325,7 @@ void run() noexcept {
           "poll app: only fresh known GET clears reconnect ambiguity barrier");
 
     reset();
-    message_poll_store_reset(&g_app.account_ui->message_poll_store);
+    clear_polls();
     check(seed(900, false, false) && state(&value, &source) && !value.results_known &&
               !value.answers[0].count_known && !value.answers[0].me_known &&
               !value.answers[1].me_known && !value.can_vote && !value.can_remove_vote && value.can_retry &&
@@ -347,7 +356,7 @@ void run() noexcept {
           "poll app: later metadata with omitted results retains known counts and own selection");
 
     reset();
-    message_poll_store_reset(&g_app.account_ui->message_poll_store);
+    clear_polls();
     seed(900, false, false);
     state(&value, &source);
     application_poll_open(source);

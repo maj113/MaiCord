@@ -5,10 +5,6 @@
 #include "maicord/ui/text_style.hpp"
 
 namespace maicord::call_stage {
-namespace {
-constexpr float kPad = 12, kAvatar = 40, kAvatarStep = 48, kRowAvatar = 28, kInviteWidth = 72, kButtonHeight = 32,
-                kAcceptWidth = 96, kStartWidth = 104, kEndWidth = 92, kIconButton = 32, kCornerButton = 32;
-
 u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
     if (!text.data)
         return 0;
@@ -19,6 +15,20 @@ u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
         copy_bytes(destination, text.data, bytes);
     return bytes;
 }
+UiRect centered(float x, float y, float width, float height) noexcept {
+    return {x - width * .5f, y - height * .5f, x + width * .5f, y + height * .5f};
+}
+bool push_text(UiTextOutput* text, const UiCallScene& s, Utf8View value, UiRect rectangle, UiRect clip,
+               Color color, u32 style, UiTextAlignment horizontal) noexcept {
+    if (!value.bytes || !ui_rect_has_area(ui_rect_intersection(rectangle, clip)))
+        return true;
+    return ui_text_output_push(text, {value, s.owner, rectangle, clip, color, style, horizontal,
+                                      UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
+}
+namespace {
+constexpr float kPad = 12, kAvatar = 40, kAvatarStep = 48, kRowAvatar = 28, kInviteWidth = 72, kButtonHeight = 32,
+                kAcceptWidth = 96, kStartWidth = 104, kEndWidth = 92, kIconButton = 32;
+
 u8 format(char* output, u32 capacity, Utf8View prefix, u32 value) noexcept {
     u32 at = copy_text(output, capacity, prefix);
     char digits[10];
@@ -29,9 +39,6 @@ u8 format(char* output, u32 capacity, Utf8View prefix, u32 value) noexcept {
     while (count && at < capacity)
         output[at++] = digits[--count];
     return static_cast<u8>(at);
-}
-UiRect centered(float x, float y, float width, float height) noexcept {
-    return {x - width * .5f, y - height * .5f, x + width * .5f, y + height * .5f};
 }
 UiRect control(const UiCallScene& s, UiCallControl c) noexcept {
     return s.controls[static_cast<u32>(c)];
@@ -79,13 +86,6 @@ UiRect request_avatar(const UiCallScene& s, u32 index) noexcept {
 UiRect requests_label(const UiCallScene& s) noexcept {
     const auto& r = s.stage_requests;
     return {r.left + kPad + 24, r.top + 8, r.right - kPad, r.top + 32};
-}
-bool push_text(UiTextOutput* text, const UiCallScene& s, Utf8View value, UiRect rectangle, UiRect clip, Color color,
-               u32 style, UiTextAlignment horizontal = UiTextAlignment::start) noexcept {
-    if (!value.bytes || !ui_rect_has_area(ui_rect_intersection(rectangle, clip)))
-        return true;
-    return ui_text_output_push(text, {value, s.owner, rectangle, clip, color, style, horizontal,
-                                      UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
 }
 Color shaded(Color fill, bool hovered, bool pressed) noexcept {
     const float shade = pressed ? .8f : hovered ? .9f : 1.f;

@@ -38,9 +38,6 @@ UiRect bounds(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
     const auto* node = ui_widget_manager_layout_node(s.widgets, handle);
     return node ? node->rectangle : UiRect{};
 }
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.generation && a.generation == b.generation && a.slot == b.slot;
-}
 bool active(const UiThreadBrowserScene& s) noexcept {
     return ui_thread_browser_scene_current(s) && s.forum && s.view->forum &&
         s.view->forum->posts.count == s.count;
@@ -221,7 +218,7 @@ bool ui_forum_channel_paint(const UiThreadBrowserScene& s, const Theme& t, Paint
     const auto& toolbar = s.backing->toolbar;
     const auto control = [&](UiWidgetHandle handle, bool chosen) noexcept {
         if (!handle.generation) return true;
-        const bool hover = same(handle, s.widgets.hovered), focus = same(handle, s.widgets.focused);
+        const bool hover = ui_widget_handle_matches(handle, s.widgets.hovered), focus = ui_widget_handle_matches(handle, s.widgets.focused);
         return surface(out, bounds(s, handle), t,
             chosen ? ui_emphasis_selected(t, UiElevation::popover) : hover ? t.surface_high : t.surface,
             focus ? t.tokens.border.focus : chosen ? t.tokens.emphasis.outline : t.surface_high, s.style.radius);
@@ -254,8 +251,8 @@ bool ui_forum_channel_paint(const UiThreadBrowserScene& s, const Theme& t, Paint
         const auto card = s.backing->cards[i];
         const auto& post = view.posts[i];
         const auto parts = ui_forum_card_parts(card, view.layout, post, style);
-        ok = surface(out, card, t, same(handle, s.widgets.hovered) ? t.surface_high : t.surface,
-            same(handle, s.widgets.focused) ? t.tokens.border.focus : t.surface_high, style.radius);
+        ok = surface(out, card, t, ui_widget_handle_matches(handle, s.widgets.hovered) ? t.surface_high : t.surface,
+            ui_widget_handle_matches(handle, s.widgets.focused) ? t.tokens.border.focus : t.surface_high, style.radius);
         if (ok && ui_rect_has_area(parts.media)) {
             // Neutral media well; the renderer covers it with the loaded thumbnail.
             ok = paint_stream_push_rounded(out, parts.media.left, parts.media.top, parts.media.right,

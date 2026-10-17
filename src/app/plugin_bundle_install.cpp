@@ -612,13 +612,6 @@ NativePluginBundleInstallResult native_plugin_bundle_install_status(const Native
         if(InterlockedCompareExchange(const_cast<volatile LONG*>(&r.wait_failed),0,0)){result.error=Error::wait;result.cleanup_pending=true;}}
     return result;
 }
-bool native_plugin_bundle_install_manifest(const NativePluginBundleInstall* owner,NativePluginManifest* manifest) noexcept {
-    if(!manifest||!readable(owner))return false;
-    const ConstSlice<u8> output{reinterpret_cast<const u8*>(manifest),sizeof(*manifest)};
-    if(!byte_range_valid(output)||byte_ranges_overlap(output,{reinterpret_cast<const u8*>(owner),sizeof(*owner)})||
-        byte_ranges_overlap(output,{static_cast<const u8*>(owner->runtime),sizeof(Runtime)}))return false;
-    *manifest=static_cast<const Runtime*>(owner->runtime)->installed;return true;
-}
 bool native_plugin_bundle_install_catalog(const NativePluginBundleInstall* owner,NativePluginCatalog* catalog,
     Slice<NativePluginCatalogEntry> entries) noexcept {
     if(!readable(owner)||!catalog||catalog->cleanup||!entries.data||entries.count!=32)return false;

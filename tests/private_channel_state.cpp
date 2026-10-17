@@ -1,4 +1,5 @@
 #include "maicord/app/chat_state_dispatch.hpp"
+#include "maicord/model/read_state.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/scene.hpp"
 #include "maicord/ui/private_channel_title.hpp"
@@ -190,7 +191,8 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
     check(chat_state_store_note_message(&store, 10, 110, 2, false, false) &&
           chat_state_store_channel_unread(store, *dm) && dm->last_message_id == 110 &&
           chat_state_store_note_message(&store, 10, 111, 2, true, false) && dm->mention_count == 1 &&
-          chat_state_store_mark_channel_read(&store, 10) && !chat_state_store_channel_unread(store, *dm) &&
+          read_state_mark_local(&store, 10, dm->last_message_id, dm->read_last_viewed, dm->read_flags) &&
+          !chat_state_store_channel_unread(store, *dm) &&
           dm->mention_count == 0 && dm->last_read_message_id == 111,
           "private activity and read state do not require guild aggregates");
     check(chat_state_store_note_message(&store, 10, 112, 1, false, false) &&
@@ -239,12 +241,12 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
           !chat_state_store_find_channel(store, 11) && store.selected_channel_id == 10,
           "group DM removal repairs selection to remaining private channel");
 
-    chat_state_store_clear(&store);
     // Selection behavior is independent of the separately tested guild role resolver.
-    store.role_capacity = store.overwrite_capacity = 0;
-    store.role_backed_count = store.overwrite_backed_count = 0;
-    store.roles = nullptr;
-    store.overwrites = nullptr;
+    private_channel_store_clear(&private_store);
+    check(chat_state_store_initialize(&store, {guilds, 4}, {guild_order, 4}, {channels, 8},
+              {channel_order, 8}, {names, 2048}),
+          "private state reinitializes without permission banks");
+    store.private_channels = &private_store;
     check(chat_state_store_select_home(&store).ok() && store.home_selected &&
           store.selected_guild_id == 0 && store.selected_channel_id == 0,
           "Home can be selected without private channels or guilds");
@@ -263,7 +265,7 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
           "closing the final DM stays in Home instead of selecting a guild channel");
 
     UiScene shell{};
-    check(ui_scene_initialize_bootstrap(&shell) && ui_scene_layout(&shell, 1280, 800), "Home shell initializes");
+    check(ui_scene_initialize_bootstrap(&shell) && ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 1280, 800), "Home shell initializes");
     const auto* home = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::home_button));
     const auto* rail = ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::guild_navigation));
     check(home && rail && home->rectangle.bottom <= rail->rectangle.top &&
@@ -300,20 +302,20 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
           "arena-backed text reset restores the stream entry mark");
     arena_release(&generated_text);
     UiLayoutDiagnostic diagnostics[32]{};
-    check(ui_scene_validate(shell, {diagnostics, 32}).clean(), "Home shell layout validates");
+    check(ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 32}).clean(), "Home shell layout validates");
     UiShellLayoutMetrics metrics = kGuildChannelShellLayoutMetrics;
     metrics.flags = ui_shell_layout_navigation;
     metrics.member_sidebar_width = 0;
     check(ui_scene_layout_with_metrics(&shell, UiShellView::private_channels, metrics, 960, 600) &&
           !ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::member_toggle)) &&
           !ui_scene_resolve(shell, ui_scene_find(shell, UiSemantic::composer)) &&
-          ui_scene_validate(shell, {diagnostics, 32}).clean(),
+          ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 32}).clean(),
           "empty Home has no guild member controls or composer and validates after scope switch");
     metrics.revision += 1;
     metrics.flags = 0;
     metrics.navigation_header_height = 0;
     check(ui_scene_layout_with_metrics(&shell, UiShellView::private_channels, metrics, 960, 600) &&
-          ui_scene_validate(shell, {diagnostics, 32}).clean(),
+          ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 32}).clean(),
           "Home control does not depend on an optional navigation sidebar header");
     ui_scene_release(&shell);
 
@@ -352,8 +354,8 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
           user_store_upsert(&compact_users, 2, utf8_literal("三四七")).ok() &&
           compact_users.count == 1 && user_store_find(compact_users, 2),
           "Unicode name-byte pressure evicts older users without evicting the update target");
-    user_store_clear(&compact_users);
-    check(user_store_upsert(&compact_users, 1, utf8_literal("A"), utf8_literal("alice")).ok() &&
+    check(user_store_initialize(&compact_users, {compact_records, 3}, {compact_order, 3}, {compact_names, 24}) &&
+        user_store_upsert(&compact_users, 1, utf8_literal("A"), utf8_literal("alice")).ok() &&
         user_store_upsert(&compact_users, 2, utf8_literal("B"), utf8_literal("bob")).ok() &&
         user_store_upsert(&compact_users, 1, utf8_literal("AA")).ok() &&
         user_store_upsert(&compact_users, 1, utf8_literal("AAA")).ok() && compact_users.compactions > 0 &&

@@ -692,15 +692,6 @@ bool cdn_media_pipeline_bind_webp_workspace(CdnMediaPipeline* pipeline, Vp8lWork
     return true;
 }
 
-bool cdn_media_pipeline_bind_lossy_webp_workspace(CdnMediaPipeline* pipeline,
-                                                  LossyWebpWorkspace* workspace) noexcept {
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !workspace) {
-        return false;
-    }
-    pipeline->lossy_webp_workspace = workspace;
-    return true;
-}
-
 bool cdn_media_pipeline_bind_animated_webp_workspace(CdnMediaPipeline* pipeline,
                                                      AnimatedWebpWorkspace* workspace) noexcept {
     if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !workspace) {
@@ -726,14 +717,6 @@ bool cdn_media_pipeline_bind_gif_workspace(CdnMediaPipeline* pipeline, GifWorksp
     }
     pipeline->gif_workspace = workspace;
     pipeline->gif_content_identity = 0;
-    return true;
-}
-
-bool cdn_media_pipeline_bind_jpeg_workspace(CdnMediaPipeline* pipeline, JpegWorkspace* workspace) noexcept {
-    if (!pipeline || !pipeline->cache || !pipeline->scanline_storage || !workspace) {
-        return false;
-    }
-    pipeline->jpeg_workspace = workspace;
     return true;
 }
 
@@ -1675,25 +1658,6 @@ CdnEncodedAudioResult cdn_media_pipeline_admit_audio(CdnMediaPipeline* pipeline,
     result.state = CdnEncodedAudioState::decode_rejected;
     ++pipeline->counters.decode_failures;
     return result;
-}
-
-CdnEncodedAudioResult cdn_media_pipeline_lookup_ogg_opus(CdnMediaPipeline* pipeline, MediaAssetKey key,
-                                                         u64 now_seconds, OggOpusCancelled cancelled,
-                                                         void* context) noexcept {
-    if (media_asset_attachment_format(key) != MediaAttachmentFormat::ogg_opus)
-        return {};
-    return cdn_media_pipeline_lookup_audio(pipeline, key, now_seconds, cancelled, context);
-}
-CdnEncodedAudioResult cdn_media_pipeline_admit_ogg_opus(CdnMediaPipeline* pipeline, MediaAssetKey key,
-                                                        const CdnResponseResult& response,
-                                                        ConstSlice<u8> body,
-                                                        ConstSlice<u8> conditional_etag,
-                                                        OggOpusCancelled cancelled,
-                                                        void* context) noexcept {
-    if (media_asset_attachment_format(key) != MediaAttachmentFormat::ogg_opus)
-        return {};
-    return cdn_media_pipeline_admit_audio(pipeline, key, response, body, conditional_etag, cancelled,
-                                          context);
 }
 
 } // namespace maicord

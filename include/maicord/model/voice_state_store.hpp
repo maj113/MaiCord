@@ -46,11 +46,8 @@ struct VoiceStateStore {
     u32 dropped;
 };
 
-bool voice_state_store_initialize(VoiceStateStore* store,
-                                          Slice<VoiceState> records) noexcept;
 // Requires zero live records and writable caller-owned storage. Leaves array
-// bytes unchanged (voice_state_store_initialize clears them). Readers use
-// count, and apply writes each complete new row.
+// bytes unchanged. Readers use count, and apply writes each complete new row.
 bool voice_state_store_initialize_sparse(VoiceStateStore* store, Slice<VoiceState> records) noexcept;
 bool voice_state_store_reset(VoiceStateStore* store) noexcept;
 // A zero channel removes the user's state in that guild.
@@ -69,10 +66,6 @@ const VoiceState* voice_state_store_channel_at(const VoiceStateStore& store,
 inline bool voice_state_live(const VoiceState& state) noexcept {
     return (state.flags & voice_self_stream) != 0;
 }
-// Users of channel_id that are live, in join order. Returns the total live
-// count; output receives the first output.count of them (may be empty).
-// Watch one with gateway_stream_key_for(guild_id, channel_id, user_id).
-u32 voice_state_store_channel_live(const VoiceStateStore& store, u64 channel_id, Slice<u64> users) noexcept;
 // Marks exactly the listed users of channel_id speaking and clears the
 // mark everywhere else. True when anything changed.
 bool voice_state_store_set_speaking(VoiceStateStore* store, u64 channel_id,

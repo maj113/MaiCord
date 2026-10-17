@@ -1,4 +1,3 @@
-#include "substitution_selection.hpp"
 #include "maicord/text/use_plan.hpp"
 #include "maicord/text/khmer_plan.hpp"
 #include "maicord/text/base.hpp"
@@ -146,10 +145,5 @@ SfntStatus sfnt_khmer_lookup_plan(const SfntLayout& layout,const SfntFeatureSubs
 SfntStatus sfnt_tibetan_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
     Slice<u8> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work) noexcept {
     return plan<Profile::tibetan>(layout,variations,independent,scratch,output,result,work);
-}
-bool use_substitution_feature(u32 tag) noexcept {
-    for(const auto feature:substitution)if(feature.tag==tag)return true;
-    for(const auto feature:khmer_substitution)if(feature.tag==tag)return true;
-    return false;
 }
 }

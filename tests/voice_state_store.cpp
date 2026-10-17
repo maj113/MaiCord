@@ -41,8 +41,8 @@ bool contains(const u8* bytes, u32 count, Utf8View needle) noexcept {
 void store_cases(Check check) noexcept {
     static VoiceState records[4];
     VoiceStateStore store{};
-    check(voice_state_store_initialize(&store, {records, 4}) &&
-              !voice_state_store_initialize(&store, {records, 0}),
+    check(voice_state_store_initialize_sparse(&store, {records, 4}) &&
+              !voice_state_store_initialize_sparse(&store, {records, 0}),
           "voice store initializes caller-owned rows");
     const auto self_mute = static_cast<u32>(voice_self_mute);
     check(voice_state_store_apply(&store, 1, 10, 100, 0) == VoiceStateResult::changed &&
@@ -212,7 +212,7 @@ void roster_cases(Check check) noexcept {
     static Published published;
     static VoiceState records[16];
     VoiceStateStore store{};
-    check(voice_state_store_initialize(&store, {records, 16}), "roster store initializes");
+    check(voice_state_store_initialize_sparse(&store, {records, 16}), "roster store initializes");
     // Stale rows: guild 11 is replaced by an empty list, guild 6 is not listed.
     voice_state_store_apply(&store, 11, 30, 31, 0);
     voice_state_store_apply(&store, 6, 40, 41, 0);

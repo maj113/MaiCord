@@ -132,15 +132,6 @@ WavePcmError wave_pcm_parse(WavePcmSource* output, ConstSlice<u8> encoded) noexc
     *output = candidate;
     return WavePcmError::none;
 }
-WavePcmError wave_pcm_seek_frame(const WavePcmSource& source, u64 target_frame, u64* offset) noexcept {
-    if (!offset || !valid(source) || target_frame > source.total_frames ||
-        overlap(offset, sizeof(*offset), &source, sizeof(source)) ||
-        overlap(offset, sizeof(*offset), source.encoded.data, source.encoded.count))
-        return WavePcmError::invalid_input;
-    *offset = reinterpret_cast<usize>(source.data.data) - reinterpret_cast<usize>(source.encoded.data) +
-              target_frame * source.block_align;
-    return WavePcmError::none;
-}
 WavePcmDecodeResult wave_pcm_decode(const WavePcmSource& source, u64 first_frame, u32 requested,
                                     Slice<float> output) noexcept {
     if (!valid(source) || !requested || requested > kWavePcmMaximumDecodeFrames ||

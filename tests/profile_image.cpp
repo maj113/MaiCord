@@ -147,18 +147,6 @@ void test_crop_interaction() noexcept {
     check(output_is(image_crop_output(s), 147, 0, 706, 2000, 2000, 706, 1),
           "a rotated banner's output is in the visual orientation");
 
-    float p = 0, q = 0;
-    image_crop_unrotate(90, 0, 0, &p, &q);
-    bool corners = p == 0 && q == 1;
-    image_crop_unrotate(90, 1, 0, &p, &q);
-    corners = corners && p == 0 && q == 0;
-    image_crop_unrotate(180, 0, 0, &p, &q);
-    corners = corners && p == 1 && q == 1;
-    image_crop_unrotate(270, 0, 0, &p, &q);
-    corners = corners && p == 1 && q == 0;
-    image_crop_unrotate(0, 0.25f, 0.75f, &p, &q);
-    check(corners && p == 0.25f && q == 0.75f, "output corners map back through the rotation");
-
     // A resize keeps the offset ratio within the new bounds.
     s = image_crop_begin(ImageCropUse::avatar, 1000, 2000, 430, 350);
     image_crop_pan(&s, 0, 50);

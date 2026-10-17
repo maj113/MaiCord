@@ -216,7 +216,6 @@ NativePluginSdkQueryError native_plugin_sdk_query(NativePluginSdkBinding*, mc_qu
 NativePluginResult native_plugin_sdk_enable(NativePluginSdkBinding*, NativePluginHost*,
                                            const NativePluginDefinition& adapter, Slice<u8> state) noexcept;
 bool native_plugin_sdk_adapter(const NativePluginDefinition&) noexcept;
-u64 native_plugin_sdk_owner(const NativePluginSdkBinding*) noexcept;
 u64 native_plugin_sdk_permissions(const NativePluginSdkBinding*) noexcept;
 // Enabled binding for owner, or null.
 const NativePluginSdkBinding* native_plugin_sdk_find(const NativePluginSdkRuntime&, u64 owner_id) noexcept;

@@ -72,9 +72,6 @@ NativeArabicPlanView native_arabic_plan_get(const NativeArabicPlanStore& store,N
     const auto* value=slot(const_cast<NativeArabicPlanStore&>(store),handle);if(!value)return {};
     const auto& data=*reinterpret_cast<const PlanData*>(value->state.base);const u32 mode=independent?1u:0u;return {&data.shape,{data.steps[mode].data,data.steps[mode].count},data.cmap,data.steps[0].generic};
 }
-bool native_arabic_plan_retain(NativeArabicPlanStore* store,NativeArabicPlanHandle handle) noexcept {
-    if(!store)return false;auto* value=slot(*store,handle);if(!value || value->references==0xffffffffu)return false;++value->references;return true;
-}
 bool native_arabic_plan_release(NativeArabicPlanStore* store,NativeArabicPlanHandle handle) noexcept {
     if(!store)return false;auto* value=slot(*store,handle);if(!value)return false;if(--value->references)return true;
     const auto run=value->run;const u32 generation=value->generation;arena_release(&value->state);*value={};value->generation=generation;return native_run_plan_release(store->runs,run);

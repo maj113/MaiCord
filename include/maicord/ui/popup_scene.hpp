@@ -250,10 +250,6 @@ PopupSceneResult popup_scene_open(PopupScene* scene, PopupKind kind, u64 owner_i
 PopupSceneResult popup_scene_open_below(PopupScene* scene, PopupKind kind, u64 owner_id,
                                         ConstSlice<PopupItem> items, UiRect anchor, UiRect viewport,
                                         float preferred_width) noexcept;
-// Menu placement: below the anchor when it fits, else above when that fits,
-// else clamped into the viewport. below_only keeps the top at anchor.bottom.
-UiRect popup_scene_place(UiRect anchor, UiRect viewport, float width, float height,
-                         bool prefer_above, bool below_only = false) noexcept;
 UiRect popup_feedback_rectangle(const PopupScene&) noexcept;
 bool popup_scene_set_feedback(PopupScene*, Utf8View text, bool error = false) noexcept;
 // Footer slider track area (empty without a slider) and value update.

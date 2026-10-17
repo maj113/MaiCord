@@ -1,18 +1,17 @@
 #include "maicord/ui/search_filter_context.hpp"
 
+#include "maicord/core/ascii.hpp"
+
 namespace maicord {
 namespace {
 bool boundary(Utf8View text, u32 at) noexcept {
     return at <= text.bytes && (!at || at == text.bytes ||
                                (static_cast<u8>(text.data[at]) & 0xc0u) != 0x80u);
 }
-char lower(char c) noexcept {
-    return c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c;
-}
 bool key_equal(Utf8View key, Utf8View name) noexcept {
     if (key.bytes != name.bytes) return false;
     for (u32 i = 0; i < key.bytes; ++i)
-        if (lower(key.data[i]) != lower(name.data[i])) return false;
+        if (ascii_lower(key.data[i]) != ascii_lower(name.data[i])) return false;
     return true;
 }
 UiSearchFilterKind filter_kind(Utf8View key) noexcept {

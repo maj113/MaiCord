@@ -19,7 +19,8 @@ void ownership() noexcept {
     ReactionPreferenceStore store{};
     check(reaction_preferences_initialize(&store) && !store.collapsed_guilds.arena.base &&
         !store.collapsed_guilds.arena.committed, "reaction storage: initialized account retains no guild bank reservation or commitment");
-    check(reaction_preferences_toggle_favorite(&store, 4).ok() && reaction_preferences_track(&store, 4, 1000).ok() &&
+    check(reaction_preferences_toggle_favorite_emoji(&store, reaction_emoji_unicode(4)).ok() &&
+        reaction_preferences_track_emoji(&store, ReactionPreferenceKind::reaction, reaction_emoji_unicode(4), 1000).ok() &&
         reaction_preferences_toggle_section(&store, 1).ok() && !store.collapsed_guilds.arena.base,
         "reaction storage: favorites, scoring and Unicode collapse do not allocate a guild bank");
     const auto first = reaction_preferences_toggle_section(&store, 16, 1007);
@@ -50,7 +51,7 @@ void ownership() noexcept {
     for (u32 i = 0; i < kReactionPreferenceCollapsedGuildCapacity - 1; ++i)
         check(reaction_preferences_toggle_section(&store, 16, 2000 + i).ok(), "reaction storage: every retained guild can expand");
     check(!store.collapsed_guild_count && !store.collapsed_guilds.arena.base && vm(base, MEM_FREE) &&
-        reaction_preferences_is_favorite(store, 4) && reaction_preferences_section_collapsed(store, 1),
+        reaction_preferences_is_favorite_emoji(store, reaction_emoji_unicode(4)) && reaction_preferences_section_collapsed(store, 1),
         "reaction storage: last expansion releases the bank without losing favorite or Unicode section state");
     check(reaction_preferences_toggle_section(&store, 16, 1007).ok(), "reaction storage: collapse can allocate again after complete expansion");
     base = store.collapsed_guilds.arena.base;

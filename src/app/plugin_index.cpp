@@ -821,9 +821,6 @@ PluginIndexKeyPeek plugin_index_unverified_key(Utf8View document, Slice<u32> scr
 Utf8View plugin_index_category_name(u32 index) noexcept {
     return index < kPluginIndexCategoryCount ? kCategories[index] : Utf8View{};
 }
-Utf8View plugin_index_disclosure_name(u32 index) noexcept {
-    return index < kPluginIndexDisclosureCount ? kDisclosures[index] : Utf8View{};
-}
 
 PluginIndexResult plugin_index_verify(Utf8View document, ConstSlice<u8> signature, const P256Key& trusted_key,
     KdfSha256Workspace& workspace, const PluginIndexPolicy& policy, Slice<u32> structural_scratch,

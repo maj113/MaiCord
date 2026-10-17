@@ -75,8 +75,6 @@ inline constexpr PermissionSet kPermissionTimeoutAllowedMask =
     kPermissionViewChannel | kPermissionReadMessageHistory;
 inline constexpr PermissionSet kPermissionQuarantineAllowedMask =
     kPermissionTimeoutAllowedMask | kPermissionChangeNickname;
-// Longest timeout the service accepts.
-inline constexpr u64 kPermissionTimeoutMaximumSeconds = 28ull * 24 * 60 * 60;
 
 constexpr bool permission_has(PermissionSet permissions, PermissionSet required) noexcept {
     return (permissions & kPermissionAdministrator) != 0 || (permissions & required) == required;

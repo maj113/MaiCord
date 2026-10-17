@@ -16,7 +16,7 @@ static inline bool qa_same_gsub(const maicord::SfntGsubMatch& a,const maicord::S
 }
 static inline maicord::SfntStatus qa_gsub_match(const maicord::SfntGsubSubtable& sub,const maicord::SfntGdef& gdef,const maicord::SfntLookupFilter& filter,
                                       maicord::ConstSlice<maicord::SfntGsubGlyph> glyphs,maicord::u32 start,maicord::u32 alternate,maicord::Slice<maicord::u32> positions,maicord::SfntGsubMatch* output) noexcept {
-    using namespace maicord;const auto status=sfnt_gsub_subtable_match(sub,gdef,filter,glyphs,start,alternate,positions,output);if(status!=SfntStatus::ok)return status;
+    using namespace maicord;const auto status=sfnt_gsub_subtable_match_view(sub,gdef,filter,sfnt_glyph_view(glyphs),start,alternate,positions,output);if(status!=SfntStatus::ok)return status;
     for(u32 split=0;split<=glyphs.count;++split){SfntGsubMatch other{};++qa_gap_queries;
         if(sfnt_gsub_subtable_match_view(sub,gdef,filter,qa_gap_view(glyphs,split),start,alternate,{qa_gap_positions,65536},&other)!=SfntStatus::ok || !qa_same_gsub(*output,other))return SfntStatus::malformed;
         for(u32 i=0;i<output->input_count;++i)if(qa_gap_positions[i]!=positions.data[i])return SfntStatus::malformed;}
@@ -24,7 +24,7 @@ static inline maicord::SfntStatus qa_gsub_match(const maicord::SfntGsubSubtable&
 }
 static inline maicord::SfntStatus qa_context_match(const maicord::SfntContext& c,const maicord::SfntGdef& gdef,const maicord::SfntLookupFilter& filter,
                                          maicord::ConstSlice<maicord::SfntGsubGlyph> glyphs,maicord::u32 start,maicord::u32 end,maicord::Slice<maicord::u32> positions,maicord::SfntContextMatch* output) noexcept {
-    using namespace maicord;const auto status=sfnt_context_match(c,gdef,filter,glyphs,start,end,positions,output);if(status!=SfntStatus::ok)return status;
+    using namespace maicord;const auto status=sfnt_context_match_view(c,gdef,filter,sfnt_glyph_view(glyphs),start,end,positions,output);if(status!=SfntStatus::ok)return status;
     for(u32 split=0;split<=glyphs.count;++split){SfntContextMatch other{};++qa_gap_queries;
         if(sfnt_context_match_view(c,gdef,filter,qa_gap_view(glyphs,split),start,end,{qa_gap_positions,65536},&other)!=SfntStatus::ok || other.matched!=output->matched || other.input_count!=output->input_count || other.last_input!=output->last_input || other.actions.data!=output->actions.data || other.actions.count!=output->actions.count)return SfntStatus::malformed;
         for(u32 i=0;i<output->input_count;++i)if(qa_gap_positions[i]!=positions.data[i])return SfntStatus::malformed;}
@@ -32,6 +32,6 @@ static inline maicord::SfntStatus qa_context_match(const maicord::SfntContext& c
 }
 static inline maicord::SfntStatus qa_reverse_match(const maicord::SfntReverseSubstitution& r,const maicord::SfntGdef& gdef,const maicord::SfntLookupFilter& filter,
                                          maicord::ConstSlice<maicord::SfntGsubGlyph> glyphs,maicord::u32 start,maicord::SfntGsubMatch* output) noexcept {
-    using namespace maicord;const auto status=sfnt_gsub_reverse_match(r,gdef,filter,glyphs,start,output);if(status!=SfntStatus::ok)return status;
+    using namespace maicord;const auto status=sfnt_gsub_reverse_match_view(r,gdef,filter,sfnt_glyph_view(glyphs),start,output);if(status!=SfntStatus::ok)return status;
     for(u32 split=0;split<=glyphs.count;++split){SfntGsubMatch other{};++qa_gap_queries;if(sfnt_gsub_reverse_match_view(r,gdef,filter,qa_gap_view(glyphs,split),start,&other)!=SfntStatus::ok || !qa_same_gsub(*output,other))return SfntStatus::malformed;}return status;
 }

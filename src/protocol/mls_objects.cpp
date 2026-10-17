@@ -130,41 +130,6 @@ void group_info(MlsReader& reader, MlsGroupInfoView& view) noexcept {
         view.tbs = {reader.input.data + start, tbs_end - start};
     }
 }
-void message(MlsReader& reader, MlsMessageView& view) noexcept {
-    view.version = static_cast<u16>(reader.integer(2));
-    if (reader.error != MlsWireError::none)
-        return;
-    if (view.version != 1) {
-        reader.fail(MlsWireError::unsupported_version, 0);
-        return;
-    }
-    view.format = static_cast<MlsWireFormat>(reader.integer(2));
-    if (reader.error != MlsWireError::none)
-        return;
-    switch (view.format) {
-    case MlsWireFormat::welcome:
-        view.welcome = {};
-        welcome(reader, view.welcome);
-        break;
-    case MlsWireFormat::group_info:
-        view.group_info = {};
-        group_info(reader, view.group_info);
-        if (reader.error == MlsWireError::none && view.group_info.context.version != view.version)
-            reader.fail(MlsWireError::version_mismatch, 4);
-        break;
-    case MlsWireFormat::key_package:
-        view.key_package = {};
-        package(reader, view.key_package);
-        if (reader.error == MlsWireError::none && view.key_package.version != view.version)
-            reader.fail(MlsWireError::version_mismatch, 4);
-        break;
-    default:
-        reader.fail(MlsWireError::unsupported_wire_format, 2);
-        break;
-    }
-    if (reader.error == MlsWireError::none)
-        view.serialized = {reader.input.data, reader.used};
-}
 void psk_id(MlsReader& reader, MlsPreSharedKeyIdView& view) noexcept {
     const u32 start = reader.used;
     view.type = static_cast<u8>(reader.integer(1));
@@ -230,50 +195,18 @@ MlsDecodeResult mls_group_context_decode_prefix(ConstSlice<u8> input,
                                                 MlsGroupContextView* output) noexcept {
     return decode<MlsGroupContextView, group>(input, output, false);
 }
-MlsDecodeResult mls_leaf_decode(ConstSlice<u8> input, MlsLeafView* output) noexcept {
-    return decode<MlsLeafView, leaf>(input, output, true);
-}
 MlsDecodeResult mls_key_package_decode(ConstSlice<u8> input, MlsKeyPackageView* output) noexcept {
     return decode<MlsKeyPackageView, package>(input, output, true);
-}
-MlsDecodeResult mls_group_context_decode(ConstSlice<u8> input, MlsGroupContextView* output) noexcept {
-    return decode<MlsGroupContextView, group>(input, output, true);
 }
 MlsDecodeResult mls_encrypted_group_secrets_decode_prefix(ConstSlice<u8> input,
                                                           MlsEncryptedGroupSecretsView* output) noexcept {
     return decode<MlsEncryptedGroupSecretsView, encrypted_secrets>(input, output, false);
 }
-MlsDecodeResult mls_encrypted_group_secrets_decode(ConstSlice<u8> input,
-                                                   MlsEncryptedGroupSecretsView* output) noexcept {
-    return decode<MlsEncryptedGroupSecretsView, encrypted_secrets>(input, output, true);
-}
-MlsDecodeResult mls_welcome_decode_prefix(ConstSlice<u8> input, MlsWelcomeView* output) noexcept {
-    return decode<MlsWelcomeView, welcome>(input, output, false);
-}
 MlsDecodeResult mls_welcome_decode(ConstSlice<u8> input, MlsWelcomeView* output) noexcept {
     return decode<MlsWelcomeView, welcome>(input, output, true);
 }
-MlsDecodeResult mls_group_info_decode_prefix(ConstSlice<u8> input, MlsGroupInfoView* output) noexcept {
-    return decode<MlsGroupInfoView, group_info>(input, output, false);
-}
 MlsDecodeResult mls_group_info_decode(ConstSlice<u8> input, MlsGroupInfoView* output) noexcept {
     return decode<MlsGroupInfoView, group_info>(input, output, true);
-}
-MlsDecodeResult mls_message_decode_prefix(ConstSlice<u8> input, MlsMessageView* output) noexcept {
-    return decode<MlsMessageView, message>(input, output, false);
-}
-MlsDecodeResult mls_message_decode(ConstSlice<u8> input, MlsMessageView* output) noexcept {
-    return decode<MlsMessageView, message>(input, output, true);
-}
-MlsDecodeResult mls_psk_id_decode_prefix(ConstSlice<u8> input, MlsPreSharedKeyIdView* output) noexcept {
-    return decode<MlsPreSharedKeyIdView, psk_id>(input, output, false);
-}
-MlsDecodeResult mls_psk_id_decode(ConstSlice<u8> input, MlsPreSharedKeyIdView* output) noexcept {
-    return decode<MlsPreSharedKeyIdView, psk_id>(input, output, true);
-}
-MlsDecodeResult mls_group_secrets_decode_prefix(ConstSlice<u8> input,
-                                                MlsGroupSecretsView* output) noexcept {
-    return decode<MlsGroupSecretsView, group_secrets>(input, output, false);
 }
 MlsDecodeResult mls_group_secrets_decode(ConstSlice<u8> input, MlsGroupSecretsView* output) noexcept {
     return decode<MlsGroupSecretsView, group_secrets>(input, output, true);

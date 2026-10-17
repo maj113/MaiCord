@@ -39,11 +39,9 @@ float stem_offset(const IconStem* stems, u32 count, u8 axis, float units_to_pixe
     return best;
 }
 
-u64 cell_key(const IconSource& source, u32 icon, bool solid, u16 size, float half_width, u32 generation) noexcept {
-    return static_cast<u64>(source.index & 1023) | (static_cast<u64>(source.overlay) << 10) |
-           (static_cast<u64>(solid) << 11) | (static_cast<u64>(size) << 12) |
-           (static_cast<u64>(round_i32(half_width * 8) & 255) << 20) | (static_cast<u64>(icon & 255) << 28) |
-           (static_cast<u64>(generation & 0xFFFF) << 36);
+u64 cell_key(u32 icon, bool solid, u16 size, float half_width) noexcept {
+    return static_cast<u64>(icon & 1023) | (static_cast<u64>(solid) << 11) | (static_cast<u64>(size) << 12) |
+           (static_cast<u64>(round_i32(half_width * 8) & 255) << 20) | (static_cast<u64>(icon & 255) << 28);
 }
 
 // Bounds and stroke determine the cache key. Optical offsets are needed only for a new raster.
@@ -81,7 +79,6 @@ bool icon_atlas_initialize(IconAtlas* atlas, ID3D11Device* device) noexcept {
                                     kIconMaximumOutlineCommands)
              .ok())
         return false;
-    atlas->generation = icon_pack_generation();
     atlas->resolved_dpi = 0;
     atlas->ready = true;
     return true;
@@ -96,8 +93,7 @@ void icon_atlas_release(IconAtlas* atlas) noexcept {
 }
 
 bool icon_atlas_stale(const IconAtlas& atlas, u32 dpi, float weight) noexcept {
-    return atlas.ready &&
-           (atlas.resolved_dpi != dpi || atlas.resolved_weight != weight || atlas.generation != icon_pack_generation());
+    return atlas.ready && (atlas.resolved_dpi != dpi || atlas.resolved_weight != weight);
 }
 
 bool icon_atlas_resolve(IconAtlas* atlas, ID3D11DeviceContext* context, const PaintQuad* source,
@@ -105,11 +101,6 @@ bool icon_atlas_resolve(IconAtlas* atlas, ID3D11DeviceContext* context, const Pa
     if (!atlas || !context || !source || !destination || dpi == 0)
         return false;
     const float scale = static_cast<float>(dpi) / 96.f;
-    const u32 generation = icon_pack_generation();
-    if (atlas->ready && atlas->generation != generation) {
-        glyph_atlas_reset(&atlas->allocator);
-        atlas->generation = generation;
-    }
     atlas->resolved_dpi = dpi;
     atlas->resolved_weight = weight;
     glyph_atlas_clear_pins(&atlas->allocator);
@@ -121,26 +112,26 @@ bool icon_atlas_resolve(IconAtlas* atlas, ID3D11DeviceContext* context, const Pa
         PaintQuad quad = source[i];
         quad.reserved_x = quad.reserved_y = -1;
         const UiIconQuadData data = ui_icon_quad_data(quad);
-        IconSource icon{};
+        const IconPack& pack = icon_pack_builtin();
         IconPlacement place{};
         const float quad_weight = data.weight > 0 ? data.weight : weight;
-        if (!atlas->ready || data.icon >= static_cast<u32>(UiIcon::count) || !icon_pack_resolve(data.icon, &icon) ||
-            !place_bounds(*icon.pack, icon.index, {quad.left, quad.top, quad.right, quad.bottom}, scale,
+        if (!atlas->ready || data.icon >= static_cast<u32>(UiIcon::count) ||
+            !place_bounds(pack, data.icon, {quad.left, quad.top, quad.right, quad.bottom}, scale,
                           quad_weight, &place)) {
             ++atlas->unresolved;
             destination[i] = quad;
             continue;
         }
-        const u64 key = cell_key(icon, data.icon, data.solid, place.size, place.stroke_half_width, generation);
+        const u64 key = cell_key(data.icon, data.solid, place.size, place.stroke_half_width);
         GlyphAtlasAllocation cell = glyph_atlas_find(&atlas->allocator, key);
         if (!cell.ok()) {
-            align_stems(*icon.pack, icon.index, &place);
+            align_stems(pack, data.icon, &place);
             cell = glyph_atlas_allocate_unique(&atlas->allocator, key, place.size, place.size);
             GlyphOutline outline{atlas->commands, kIconMaximumOutlineCommands, 0, 0, 0, 0, 0, 0, {}, false};
             const float units_to_pixels = static_cast<float>(place.size) / kIconPackGrid;
             const GlyphRasterBounds bounds{0, 0, place.size, place.size, place.size, place.size};
             if (cell.ok() &&
-                (!icon_pack_decode(*icon.pack, icon.index, {units_to_pixels, place.offset_x, place.offset_y, data.solid},
+                (!icon_pack_decode(pack, data.icon, {units_to_pixels, place.offset_x, place.offset_y, data.solid},
                                    &outline) ||
                  !batch.add(outline, bounds, cell, 1.f, kPadding, place.stroke_half_width).ok())) {
                 // The cell holds no coverage; drop every cell rather than track a hole.

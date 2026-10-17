@@ -194,27 +194,6 @@ bool spsc_mailbox_head_external(const SpscMailbox<T, EventCapacity, PayloadCapac
            (mailbox.records[read & (EventCapacity - 1)].flags & kSpscMailboxExternalPayload) != 0;
 }
 
-template <typename T, u32 EventCapacity, u32 PayloadCapacity>
-SpscMailboxResult spsc_mailbox_peek(
-    const SpscMailbox<T, EventCapacity, PayloadCapacity>& mailbox, T* value) noexcept {
-    if (!value) {
-        return SpscMailboxResult{0, SpscMailboxError::invalid_input};
-    }
-    const u32 read = spsc_mailbox_load_u32(&mailbox.read_sequence);
-    const u32 write = spsc_mailbox_load_u32(&mailbox.write_sequence);
-    if (read == write) {
-        return SpscMailboxResult{0, SpscMailboxError::empty};
-    }
-    const SpscMailboxRecord<T>& record = mailbox.records[read & (EventCapacity - 1)];
-    const u64 payload_read = spsc_mailbox_load_u64(&mailbox.payload_read_sequence);
-    const bool outside = (record.flags & kSpscMailboxExternalPayload) != 0;
-    if (!spsc_mailbox_record_valid<T, PayloadCapacity>(record, payload_read)) {
-        return SpscMailboxResult{record.payload_bytes, SpscMailboxError::corrupt, outside};
-    }
-    *value = record.value;
-    return SpscMailboxResult{record.payload_bytes, SpscMailboxError::none, outside};
-}
-
 // An external record copies from `external`, the producer's buffer for it;
 // without one (or when it is shorter than the record) the record is corrupt.
 template <typename T, u32 EventCapacity, u32 PayloadCapacity>

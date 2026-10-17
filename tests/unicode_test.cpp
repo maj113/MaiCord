@@ -19,7 +19,7 @@ bool cases() noexcept {
        unicode_properties(0x1f1e6)->grapheme_break()!=UnicodeGraphemeBreak::ri || unicode_properties(0x94d)->indic_conjunct_break()!=UnicodeIndicConjunctBreak::linker)return false;
     if(!unicode_properties(0x628)->has(UnicodeFlag::arabic_script_extension) ||
        !unicode_properties(0x640)->has(UnicodeFlag::arabic_script_extension) ||
-       latin->has(UnicodeFlag::arabic_script_extension) || unicode_script_tag(UnicodeScript::latn)!=0x4c61746e)return false;
+       latin->has(UnicodeFlag::arabic_script_extension))return false;
     if(!unicode_properties(0x30fc)->has(UnicodeFlag::east_asian_line_break) ||
        !unicode_properties(0xff66)->has(UnicodeFlag::east_asian_line_break) ||
        !unicode_properties(0x3000)->has(UnicodeFlag::east_asian_line_break) ||
@@ -29,7 +29,7 @@ bool cases() noexcept {
        unicode_properties(0x110000) || unicode_properties(~0u) || unicode_is_scalar(~0u))return false;
     const auto bracket=unicode_bidi_bracket('(');
     return unicode_bidi_mirror('(')==')' && unicode_bidi_mirror(0x2208)==0x220b && bracket.paired==')' && bracket.type==UnicodeBracketType::open &&
-           unicode_bidi_bracket('A').type==UnicodeBracketType::none && unicode_bidi_mirror('A')=='A' && unicode_property_data_bytes()==51922;
+           unicode_bidi_bracket('A').type==UnicodeBracketType::none && unicode_bidi_mirror('A')=='A' && unicode_property_data_bytes()==51222;
 }
 u8 output_buffer[16384];u32 output_used=0;
 bool flush(HANDLE file) noexcept {

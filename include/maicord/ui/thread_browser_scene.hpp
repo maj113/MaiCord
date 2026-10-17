@@ -103,7 +103,6 @@ bool ui_thread_browser_scene_update(UiThreadBrowserScene*, const UiThreadBrowser
 void ui_thread_browser_scene_release(UiThreadBrowserScene*) noexcept;
 bool ui_thread_browser_scene_current(const UiThreadBrowserScene&) noexcept;
 bool ui_thread_browser_scene_contains(const UiThreadBrowserScene&, float x, float y) noexcept;
-UiRect ui_thread_browser_scene_rectangle(const UiThreadBrowserScene&, UiWidgetHandle) noexcept;
 UiThreadBrowserTarget ui_thread_browser_scene_target(const UiThreadBrowserScene&, UiWidgetHandle) noexcept;
 // Captured input requires the enabled widget's current generation and publication.
 bool ui_thread_browser_scene_target_current(const UiThreadBrowserScene&, UiThreadBrowserTarget) noexcept;

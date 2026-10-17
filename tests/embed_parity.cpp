@@ -1377,7 +1377,11 @@ void test_vxtwitter_embeds(Check check) noexcept {
             }
             return seen;
         };
-        message_scene_set_explicit_filter(&f.scene, MessageExplicitFilter::blur);
+        static MessageMediaPolicyResult explicit_policy{MessageExplicitFilter::blur, true};
+        constexpr auto explicit_query = +[](const void* context, const MessageMediaOwner&) noexcept {
+            return *static_cast<const MessageMediaPolicyResult*>(context);
+        };
+        message_scene_set_media_policy(&f.scene, {&explicit_policy, explicit_query, 1});
         check(publish_members() && repaint_gallery() && media_members(0b1001, 0b0110) &&
                   labels(MessageMediaObscure::explicit_content, 0b0110),
               "gallery_filters_blur_only_flagged_members_and_place_each_label_in_its_cell");
@@ -1386,7 +1390,8 @@ void test_vxtwitter_embeds(Check check) noexcept {
                   repaint_gallery() && media_members(0b1011, 0b0100) &&
                   labels(MessageMediaObscure::explicit_content, 0b0100),
               "gallery_reveal_key_opens_one_member_and_keeps_flagged_sibling_obscured");
-        message_scene_set_explicit_filter(&f.scene, MessageExplicitFilter::block);
+        explicit_policy.filter = MessageExplicitFilter::block;
+        message_scene_set_media_policy(&f.scene, {&explicit_policy, explicit_query, 2});
         const bool block_ready = repaint_gallery();
         check(block_ready, "gallery_block_converges_and_paints");
         if (block_ready) {

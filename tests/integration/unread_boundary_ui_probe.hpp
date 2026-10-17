@@ -180,7 +180,7 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
         utf8_literal("The reply remains below its own header.\n\nKeyboard navigation can reach this final message in a short window.\nThe divider belongs to the outer timeline message.\nIts label is native measured text, independent of the message body.\nScrolling keeps the decoration inside the timeline clip.\nThere are no added divider widgets or cache owners.\nOriginal notes remain selectable below the divider.\nEnd of the review.")};
     for (u32 i = 0; i < kRows; ++i)
         if (!require(message_store_upsert(&f.store,{first + i,channel,123,1'725'021'300'000ull + i * 30'000ull,0,bodies[i],0}).ok(),2)) return false;
-    if (!require(message_rich_store_initialize_owned(&f.rich,&f.rich_storage,kRows,{f.rich_order,kRows},{f.rich_text,sizeof(f.rich_text)}) &&
+    if (!require(message_rich_store_initialize_owned_sparse(&f.rich,&f.rich_storage,kRows,{f.rich_order,kRows},{f.rich_text,sizeof(f.rich_text)}) &&
         ui_variable_list_initialize(&f.list,{f.heights,kRows},{f.fenwick,kRows},kRows,ui_extent_units(80)) &&
         message_timeline_initialize(&f.timeline,&f.store,&f.list,ui_extent_units(80),ui_extent_units(700),false) &&
         message_timeline_bind_rich_store(&f.timeline,&f.rich) &&
@@ -306,7 +306,7 @@ inline bool unread_boundary_ui_probe(D3D11Renderer& renderer,UiTextMeasureCache&
         if (menu.items[i].action == static_cast<u32>(MessageContextAction::mark_unread))
             message_label = text_equal(menu.items[i].label,utf8_literal("Mark unread")) && (menu.items[i].flags & popup_item_enabled);
     if (!require(message_label &&
-        show_menu(message_context_menu_items(menu),first + 1,static_cast<u32>(MessageContextAction::mark_unread),L"unread-message-menu.bmp"),11)) return false;
+        show_menu({menu.items,menu.count},first + 1,static_cast<u32>(MessageContextAction::mark_unread),L"unread-message-menu.bmp"),11)) return false;
     PopupItem channel_items[4]{};
     const auto channel_count = channel_context_policy_build(*renderer.chat_state,121,701,702,{channel_items,4},0,703);
     bool channel_label = false;

@@ -69,38 +69,20 @@ u32 resident_role_count(const ChatStateStore& store, u64 guild_id) noexcept {
     return count;
 }
 
-bool bind_emoji_storage(ChatStateStore* store, Slice<CustomEmojiRecord> emojis,
-                         Slice<u64> emoji_roles, bool sparse) noexcept {
+} // namespace
+
+bool chat_state_store_bind_emojis_sparse(ChatStateStore* store, Slice<CustomEmojiRecord> emojis,
+                                            Slice<u64> emoji_roles) noexcept {
     if (!store || !store->guilds || store->emojis || store->emoji_roles || !emojis.data ||
-        emojis.count == 0 || !emoji_roles.data || emoji_roles.count == 0 ||
-        (sparse && (store->emoji_count || store->emoji_role_count))) {
+        emojis.count == 0 || !emoji_roles.data || emoji_roles.count == 0 || store->emoji_count ||
+        store->emoji_role_count) {
         return false;
     }
     store->emojis = emojis.data;
     store->emoji_roles = emoji_roles.data;
     store->emoji_capacity = emojis.count;
     store->emoji_role_capacity = emoji_roles.count;
-    if (!sparse) {
-        for (u32 index = 0; index < emojis.count; ++index) {
-            emojis[index] = CustomEmojiRecord{};
-        }
-        for (u32 index = 0; index < emoji_roles.count; ++index) {
-            emoji_roles[index] = 0;
-        }
-    }
     return true;
-}
-
-} // namespace
-
-bool chat_state_store_bind_emojis(ChatStateStore* store, Slice<CustomEmojiRecord> emojis,
-                                     Slice<u64> emoji_roles) noexcept {
-    return bind_emoji_storage(store, emojis, emoji_roles, false);
-}
-
-bool chat_state_store_bind_emojis_sparse(ChatStateStore* store, Slice<CustomEmojiRecord> emojis,
-                                            Slice<u64> emoji_roles) noexcept {
-    return bind_emoji_storage(store, emojis, emoji_roles, true);
 }
 
 const CustomEmojiRecord* chat_state_store_find_emoji(const ChatStateStore& store,

@@ -251,11 +251,7 @@ u32 guild_role_color_rgba(u32 color) noexcept;
 // separately; MORE_EMOJI raises them to 200 and MORE_STICKERS at tier 3 to 120.
 u32 guild_emoji_slots(u8 premium_tier, u64 features) noexcept;
 u32 guild_sticker_slots(u8 premium_tier, u64 features) noexcept;
-bool guild_banner_available(u8 premium_tier, u64 features) noexcept;
-// Animated (GIF) banners: boost level 3 or ANIMATED_BANNER.
-bool guild_animated_banner_available(u8 premium_tier, u64 features) noexcept;
 bool guild_role_icons_available(u8 premium_tier, u64 features) noexcept;
-bool guild_animated_icon_available(u8 premium_tier, u64 features) noexcept;
 struct GuildEmojiCounts {
     u32 static_count, animated_count;
 };

@@ -12,12 +12,12 @@ SfntStatus tail(ConstSlice<u8> b,u32 at,u32 minimum,ConstSlice<u8>* output) noex
 SfntStatus device(ConstSlice<u8> parent,u16 offset,u32 minimum,SfntDevice* output,u32* work) noexcept {
     *output={};if(!offset)return SfntStatus::ok;if(!spend(work))return SfntStatus::resource_limit;ConstSlice<u8> bytes{};auto s=tail(parent,offset,minimum,&bytes);return s==SfntStatus::ok?sfnt_device_open(bytes,output):s;
 }
-SfntStatus value_open(ConstSlice<u8> parent,u32 offset,u16 format,u32 minimum,SfntValueRecord* output,u32* work) noexcept {
-    *output={};const u16 size=sfnt_position_value_size(format);if(size==0xffff)return SfntStatus::unsupported;
+SfntStatus value_valid(ConstSlice<u8> parent,u32 offset,u16 format,u32 minimum,u32* work) noexcept {
+    const u16 size=sfnt_position_value_size(format);if(size==0xffff)return SfntStatus::unsupported;
     if((parent.count && !parent.data) || minimum>parent.count)return SfntStatus::invalid_input;if(!span(parent,offset,size))return SfntStatus::truncated;
     if(!spend(work))return SfntStatus::resource_limit;
     u32 at=offset;for(u32 i=0;i<8;++i)if(format&(1u<<i)){if(i>=4){SfntDevice d{};auto s=device(parent,r16(parent,at),minimum,&d,work);if(s!=SfntStatus::ok)return s;}at+=2;}
-    *output={parent,offset,format,size};return SfntStatus::ok;
+    return SfntStatus::ok;
 }
 inline SfntValueRecord value_view(ConstSlice<u8> parent,u32 offset,u8 format,u8 bytes) noexcept {return {parent,offset,format,bytes};}
 SfntStatus coverage(ConstSlice<u8> parent,u16 offset,u32 minimum,u32 limit,SfntCoverage* output,u32* work) noexcept {
@@ -32,7 +32,7 @@ SfntStatus classes(ConstSlice<u8> parent,u16 offset,u32 minimum,u32 limit,SfntCl
 SfntStatus validate_values(ConstSlice<u8> parent,u32 at,u32 count,u32 stride,u8 format,u32 minimum,u32* work) noexcept {
     // Every scalar bit pattern is valid; only device offsets require traversal.
     if(!(format&0xf0))return SfntStatus::ok;
-    for(u32 i=0;i<count;++i){SfntValueRecord value{};auto s=value_open(parent,at+i*stride,format,minimum,&value,work);if(s!=SfntStatus::ok)return s;}return SfntStatus::ok;
+    for(u32 i=0;i<count;++i){auto s=value_valid(parent,at+i*stride,format,minimum,work);if(s!=SfntStatus::ok)return s;}return SfntStatus::ok;
 }
 SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposSubtable* output,u32* work) noexcept {
     *output={};if(!bytes.data || !limit || limit>65536)return SfntStatus::invalid_input;if(type<1 || type>2)return SfntStatus::unsupported;
@@ -87,9 +87,6 @@ SfntStatus match(const SfntGposSubtable& sub,const SfntGdef& gdef,const SfntLook
 }
 }
 u16 sfnt_position_value_size(u16 format) noexcept {if(format&0xff00)return 0xffff;u16 bytes=0;while(format){format=static_cast<u16>(format&(format-1));bytes+=2;}return bytes;}
-SfntStatus sfnt_value_record_open(ConstSlice<u8> parent,u32 offset,u16 format,u32 minimum,SfntValueRecord* output,u32 work,u32* used) noexcept {
-    const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;return value_open(parent,offset,format,minimum,output,&work);
-}
 SfntStatus sfnt_value_record_read(const SfntValueRecord& record,SfntPositionValue* output) noexcept {
     if(!output)return SfntStatus::invalid_input;*output={};SfntPositionValue result{};u32 at=record.offset;
     for(u32 i=0;i<8;++i)if(record.format&(1u<<i)){const u16 v=r16(record.parent,at);at+=2;if(i<4)result.design[i]=static_cast<i16>(v);else if(v){const auto s=sfnt_device_open({record.parent.data+v,record.parent.count-v},&result.devices[i-4]);if(s!=SfntStatus::ok)return s;}}
@@ -117,19 +114,7 @@ SfntStatus sfnt_position_value_resolve(const SfntPositionValue& value,const Sfnt
 SfntStatus sfnt_gpos_subtable_open(ConstSlice<u8> table,u16 type,u32 limit,SfntGposSubtable* output,u32 work,u32* used) noexcept {
     const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;return open(table,type,limit,output,&work);
 }
-SfntStatus sfnt_gpos_lookup_prepare(const SfntLayout& layout,u16 index,const SfntGdef& gdef,u32 limit,Slice<SfntGposSubtable> storage,SfntGposLookup* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(layout.kind!=SfntLayoutKind::positioning || !limit || limit>65536 || (gdef.table.data && gdef.glyph_limit!=limit))return SfntStatus::invalid_input;
-    SfntLookup lookup{};auto s=sfnt_layout_lookup(layout,index,&lookup);if(s!=SfntStatus::ok)return s;if(lookup.type<1 || lookup.type>2)return SfntStatus::unsupported;
-    if(storage.count<lookup.subtable_count)return SfntStatus::output_too_small;if(lookup.subtable_count && !storage.data)return SfntStatus::invalid_input;if(!spend(&work,lookup.subtable_count))return SfntStatus::resource_limit;
-    SfntGposLookup result{};s=sfnt_lookup_filter_prepare(gdef,lookup.flags,lookup.mark_set,&result.filter);if(s!=SfntStatus::ok)return s;if((lookup.flags>>8) && !(lookup.flags&0x18) && !gdef.mark_classes.format)return SfntStatus::missing_table;
-    for(u16 i=0;i<lookup.subtable_count;++i){ConstSlice<u8> bytes{};s=sfnt_lookup_subtable(lookup,i,&bytes);if(s!=SfntStatus::ok)return s;s=open(bytes,lookup.type,limit,&storage.data[i],&work);if(s!=SfntStatus::ok)return s;}
-    result.subtables={storage.data,lookup.subtable_count};*output=result;return SfntStatus::ok;
-}
 SfntStatus sfnt_gpos_subtable_match_view(const SfntGposSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 end,SfntGposMatch* output,u32 work,u32* used) noexcept {
     const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;*output={};if(!sfnt_glyph_view_valid(glyphs) || start>=end || end>sfnt_glyph_count(glyphs))return SfntStatus::invalid_input;return match(sub,gdef,filter,glyphs,start,end,output,&work);
-}
-SfntStatus sfnt_gpos_lookup_match_view(const SfntGposLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,u32 start,u32 end,SfntGposMatch* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(!sfnt_glyph_view_valid(glyphs) || start>=end || end>sfnt_glyph_count(glyphs))return SfntStatus::invalid_input;
-    for(u32 i=0;i<lookup.subtables.count;++i){const auto s=match(lookup.subtables.data[i],gdef,lookup.filter,glyphs,start,end,output,&work);if(s!=SfntStatus::ok || output->matched)return s;}return SfntStatus::ok;
 }
 }

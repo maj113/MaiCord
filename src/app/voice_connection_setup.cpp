@@ -73,26 +73,6 @@ void voice_setup_release(VoiceConnectionSetup* setup) noexcept {
     // Preserve the generation across rebinding of this owner.
 }
 
-VoiceSetupResult voice_setup_bind(VoiceConnectionSetup* setup, u64 user_id, JsonString session) noexcept {
-    if (!setup)
-        return VoiceSetupResult::invalid_input;
-    voice_setup_release(setup);
-    u32 bytes = 0;
-    if (!user_id || !measured(session, &bytes))
-        return VoiceSetupResult::invalid_input;
-    if (!reserve(&setup->login_session, bytes))
-        return VoiceSetupResult::storage_failed;
-    const auto decoded =
-        json_string_decode_utf8(session, {reinterpret_cast<char*>(setup->login_session.data), bytes});
-    if (!decoded.ok()) {
-        voice_setup_release(setup);
-        return VoiceSetupResult::invalid_input;
-    }
-    setup->login_session.bytes = bytes;
-    setup->user_id = user_id;
-    return VoiceSetupResult::updated;
-}
-
 bool voice_setup_begin(VoiceConnectionSetup* setup, u64 guild_id, u64 channel_id, u64 now_ms) noexcept {
     if (!setup || !setup->user_id || !setup->login_session.bytes || !channel_id)
         return false;
@@ -226,13 +206,6 @@ VoiceSetupResult voice_setup_stream_server(VoiceConnectionSetup* setup, JsonStri
     if (result == VoiceSetupResult::credentials_ready)
         setup->state_deadline_ms = 0;
     return result;
-}
-
-bool voice_setup_expire(VoiceConnectionSetup* setup, u64 now_ms) noexcept {
-    if (!setup || !deadline_due(now_ms, setup->state_deadline_ms))
-        return false;
-    voice_setup_leave(setup);
-    return true;
 }
 
 bool voice_setup_current(const VoiceConnectionSetup& setup, u64 generation) noexcept {

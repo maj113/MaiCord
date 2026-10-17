@@ -153,11 +153,12 @@ void test_page(Check check) noexcept {
         PaintStream paint{};
         UiTextCommand commands[256]{};
         UiTextCommandStream text{};
+        UiTextOutput text_output{&text, nullptr};
         check(paint_stream_initialize(&paint) &&
                   paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
                   ui_settings_scene_paint(scene, kDefaultTheme, &paint) && paint.rejected == 0 &&
                   ui_text_command_stream_initialize(&text, {commands, 256}) &&
-                  ui_settings_scene_text(scene, kDefaultTheme, &text) && !text.rejected,
+                  ui_settings_scene_text_output(scene, kDefaultTheme, &text_output) && !text.rejected,
               "profile editor page: tabs, sections, swatches, error and counter paint and emit text");
         paint_stream_release(&paint);
         ui_settings_scene_release(&scene);

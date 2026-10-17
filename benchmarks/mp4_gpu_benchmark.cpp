@@ -29,7 +29,6 @@ struct Less {
 };
 struct FrameTrace {
     u32 decode_us, present_us, wait_us, completed_us;
-    VideoFrameGpuTrace presentation;
 };
 constexpr u32 percentile_index(u32 count, u32 percentile) noexcept {
     // Nearest-rank empirical quantile: a four-frame clip's p95/p99 must
@@ -574,9 +573,7 @@ int mp4_gpu_benchmark(ConstSlice<u8> encoded, void (*metric)(const char*, u64)) 
                      f.converter.frames == submitted_frames;
                 if (!ok) break;
             }
-            status = traces ? video_frame_gpu_present_profiled(&f.converter, f.device,
-                f.context1, *frame.gpu, f.uav, 4, 4, &traces[index].presentation) :
-                video_frame_gpu_present(&f.converter, f.device, f.context1, *frame.gpu, f.uav, 4, 4);
+            status = video_frame_gpu_present(&f.converter, f.device, f.context1, *frame.gpu, f.uav, 4, 4);
             if (FAILED(status)) { metric("gpu_present_status", static_cast<u32>(status)); ok = false; break; }
         }
         const i64 presented_at = clock_now();
@@ -728,10 +725,6 @@ int mp4_gpu_benchmark(ConstSlice<u8> encoded, void (*metric)(const char*, u64)) 
         metric("trace_present_us", traces[index].present_us);
         metric("trace_wait_us", traces[index].wait_us);
         metric("trace_completed_us", traces[index].completed_us);
-        const char* stages[]{"trace_validate_us", "trace_resources_us", "trace_constants_us",
-            "trace_copy_us", "trace_bind_us", "trace_dispatch_us", "trace_cleanup_us"};
-        for (u32 stage = 0; stage < 7; ++stage)
-            metric(stages[stage], clock_microseconds(clock, 0, traces[index].presentation.ticks[stage]));
     }
     // Diagnostic control: keep the device and completed first frame alive
     // without submitting anything. Not part of playback/throughput timings.

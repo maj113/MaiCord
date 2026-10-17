@@ -18,6 +18,9 @@ bool native_text_nonvisual(u32 cp) noexcept {
 namespace {
 bool g_browser_invisibles=false;
 bool filler(u32 cp) noexcept {return cp==0x115f||cp==0x1160;}
+// A UTF-8 lead byte that can start a scalar text_hide_default_ignorables hides
+// (or replaces); text without one is returned unchanged without decoding.
+constexpr bool candidate_lead(u8 b) noexcept {return b==0xc2||b==0xd8||b==0xe1||b==0xe2||b==0xe3||b==0xef||b==0xf0||b==0xf3;}
 // A conjoining jamo other than the fillers; fillers next to one (possibly via
 // other fillers) belong to the syllable the shaper composes.
 bool conjoining_jamo(u32 cp) noexcept {return (cp-0x1100u<0x100||cp-0xa960u<0x20||cp-0xd7b0u<0x50)&&!filler(cp);}
@@ -52,7 +55,7 @@ bool text_browser_invisibles() noexcept {return g_browser_invisibles;}
 u32 text_hide_default_ignorables(Utf8View input,Slice<char> output) noexcept {
     if(!input.data||!input.bytes)return 0;
     bool candidate=false;
-    for(u32 i=0;i<input.bytes&&!candidate;++i)candidate=text_hide_candidate_lead(static_cast<u8>(input.data[i]));
+    for(u32 i=0;i<input.bytes&&!candidate;++i)candidate=candidate_lead(static_cast<u8>(input.data[i]));
     if(!candidate)return 0;
     u32 previous=0,solid=0,changed=0;bool tagged=false;
     for(u32 at=0;at<input.bytes;){const auto cp=utf8_decode_one(input.data+at,input.bytes-at);if(!cp.valid||!cp.width)return changed?~0u:0;

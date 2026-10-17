@@ -64,8 +64,9 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "friends_layout_clean");
     UiTextCommand commands[128]{};
     UiTextCommandStream stream{};
+    UiTextOutput stream_output{&stream, nullptr};
     check(ui_text_command_stream_initialize(&stream, {commands, 128}) &&
-              ui_friends_scene_text(scene, kDefaultTheme, &stream),
+              ui_friends_scene_text_output(scene, kDefaultTheme, &stream_output, nullptr),
           "friends_neutral_text_stream");
     u32 borrowed = 0;
     const auto name = fixture.display_name;
@@ -125,7 +126,7 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(ui_friends_scene_update(&compact_chat, &source, UiFriendsTab::all, UiFriendsPhase::ready, {},
                                   {0, 0, 320, 240}) &&
               ui_text_command_stream_initialize(&stream, {commands, 128}) &&
-              ui_friends_scene_text(compact_chat, kDefaultTheme, &stream) &&
+              ui_friends_scene_text_output(compact_chat, kDefaultTheme, &stream_output, nullptr) &&
               chat_commands(compact_chat, stream),
           "friends_compact_icon_buttons_remain_unclipped_and_actionable");
     bool more = false, wide_name = false, old_inline = false;
@@ -233,7 +234,7 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
     edit.text = search_geometry.text;
     edit.caret = {edit.text.left + 24, edit.text.top, edit.text.left + 25, edit.text.bottom};
     check(ui_text_command_stream_initialize(&stream, {commands, 128}) &&
-              ui_friends_scene_text(search_scene, kDefaultTheme, &stream, &edit),
+              ui_friends_scene_text_output(search_scene, kDefaultTheme, &stream_output, &edit),
           "friends_search_uses_shared_native_edit_text");
     bool actual_query = false;
     for (u32 i = 0; i < stream.count; ++i)
@@ -640,7 +641,7 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
               hidden_fixture.calls == hidden_calls,
           "friends_hidden_modal_last_media_row_clips_to_card_without_resolution");
     check(ui_text_command_stream_initialize(&stream, {commands, 128}) &&
-              ui_friends_scene_text(modal, kDefaultTheme, &stream),
+              ui_friends_scene_text_output(modal, kDefaultTheme, &stream_output, nullptr),
           "friends_hidden_modal_native_text_stream");
     bool hidden_title = false, hidden_tabs = false, hidden_more = false, hidden_subtitle = false;
     for (u32 i = 0; i < stream.count; ++i) {

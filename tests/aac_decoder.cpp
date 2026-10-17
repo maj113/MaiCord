@@ -82,11 +82,7 @@ void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
     AacDecoder decoder{};
     check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).ok() && decoder.initialized &&
               !decoder.runtime && !decoder.thread_id && decoder.format == AacPcmFormat::float32 &&
-              !aac_decoder_owned_bytes(&decoder) && decoder.native_stage == AacNativeStage::none &&
-              !decoder.native_output_formats && !aac_decoder_output_requirements(&decoder).minimum_bytes &&
-              !aac_decoder_output_requirements(&decoder).alignment_bytes &&
-              !aac_decoder_output_requirements(&decoder).flags &&
-              !aac_decoder_output_requirements(&decoder).buffer_capacity,
+              decoder.native_stage == AacNativeStage::none && !decoder.native_output_formats,
           "AAC lifecycle: initialization is copied metadata with no native decoder allocation or synthetic "
           "native stage");
     check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).error == AacDecodeError::busy &&

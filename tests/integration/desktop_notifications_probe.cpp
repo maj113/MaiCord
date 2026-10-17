@@ -72,7 +72,7 @@ bool probe_desktop_notifications_live(const wchar_t* report_path,bool toast) noe
         const auto queried=desktop_notifications_setting(&owner,&setting);report.hex("setting_hr",queried.native_error);report.hex("setting",setting);
         if(toast){
             const DesktopNotificationPayload payload{{1,2,3},utf8_literal("MaiCord notification self-test"),utf8_literal("Desktop notifications are working."),{},false,false};
-            report.hex("show_hr",desktop_notifications_show(&owner,payload).native_error);Sleep(8000);
+            report.hex("show_hr",desktop_notifications_show_once(&owner,payload).result.native_error);Sleep(8000);
         }
         desktop_notifications_release(&owner);
     }

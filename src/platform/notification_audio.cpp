@@ -68,7 +68,6 @@ u32 notification_audio_mixer_needed_rate(const NotificationAudioMixer& m,u32 rat
     for(u32 i=0;i<m.count;++i)if(m.voices[i].clip.sample_rate==rate)end=maximum(end,m.voices[i].start+m.voices[i].clip.samples.count/2);
     return static_cast<u32>(minimum<u64>(end-position,10*rate));
 }
-u32 notification_audio_mixer_needed(const NotificationAudioMixer& m) noexcept {return notification_audio_mixer_needed_rate(m,kNotificationAudioRate);}
 NotificationAudioMixResult notification_audio_mixer_render_rate(NotificationAudioMixer* m,Slice<i16> output,u32 rate) noexcept {
     if(!m||!m->epoch||!rate_valid(rate)||!output.data||!output.count||(output.count&1u)||output.count>2*kNotificationAudioMixChunkFrames||
         overlap(m,sizeof(*m),output.data,usize(output.count)*sizeof(i16)))return {NotificationAudioError::invalid_input};
@@ -87,16 +86,13 @@ NotificationAudioMixResult notification_audio_mixer_render_rate(NotificationAudi
     }
     submitted(*m,rate)+=frames;return {NotificationAudioError::none,frames,nonzero};
 }
-NotificationAudioMixResult notification_audio_mixer_render(NotificationAudioMixer* m,Slice<i16> output) noexcept {return notification_audio_mixer_render_rate(m,output,kNotificationAudioRate);}
 u32 notification_audio_mixer_played_rate(NotificationAudioMixer* m,u32 padding,u32 rate) noexcept {
     if(!m||!rate_valid(rate)||padding>submitted(*m,rate)-consumed(*m,rate))return 0;
     consumed(*m,rate)=submitted(*m,rate)-padding;u32 kept=0;
     for(u32 i=0;i<m->count;++i)if(m->voices[i].clip.sample_rate!=rate||m->voices[i].start+m->voices[i].clip.samples.count/2>consumed(*m,rate))m->voices[kept++]=m->voices[i];
     const u32 retired=m->count-kept;for(u32 i=kept;i<m->count;++i)m->voices[i]={};m->count=kept;return retired;
 }
-u32 notification_audio_mixer_played(NotificationAudioMixer* m,u32 padding) noexcept {return notification_audio_mixer_played_rate(m,padding,kNotificationAudioRate);}
 void notification_audio_mixer_rewind_rate(NotificationAudioMixer* m,u32 rate) noexcept {if(m&&rate_valid(rate))submitted(*m,rate)=consumed(*m,rate);}
-void notification_audio_mixer_rewind(NotificationAudioMixer* m) noexcept {notification_audio_mixer_rewind_rate(m,kNotificationAudioRate);}
 
 namespace {
 // No runtime/app/PCM pointer is ever borrowed by the OS notification callback.
@@ -441,7 +437,6 @@ NotificationAudioResult notification_audio_release(NotificationAudio* owner,u32 
         wait==WAIT_TIMEOUT?WAIT_TIMEOUT:thread_last_error());
     free_runtime(r);*owner={};return {};
 }
-u32 notification_audio_owned_bytes(const NotificationAudio* owner) noexcept {return owner&&owner->runtime?static_cast<u32>(sizeof(Runtime)+2*sizeof(EndpointNotify)):0;}
 u32 notification_audio_owned_handles(const NotificationAudio* owner) noexcept {
     auto* r=owner?static_cast<Runtime*>(owner->runtime):nullptr;if(!r)return 0;
     AcquireSRWLockShared(&r->lock);const u32 n=u32(r->thread!=nullptr)+u32(r->command!=nullptr)+u32(r->stop!=nullptr)+u32(r->render!=nullptr)+r->callback_handles;

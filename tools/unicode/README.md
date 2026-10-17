@@ -5,11 +5,11 @@ HarfBuzz or other Unicode/text library. Python and the official archives are
 offline development inputs: normal CMake builds use the checked-in generated
 files and need neither Python nor a network connection.
 
-The native tests (`MaiCordUnicodeTests`, `MaiCordBidiTests`, `MaiCordWordTests`,
+The native tests (`MaiCordUnicodeTests`, `MaiCordBidiTests`,
 `MaiCordLineBreakTests`, `MaiCordLineWindowsTests`) run through the build script:
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test -TestNames maicord_native_unicode,maicord_native_bidi,maicord_native_words,maicord_native_line_breaks,maicord_native_line_compat
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Test -TestNames maicord_native_unicode,maicord_native_bidi,maicord_native_line_breaks,maicord_native_line_compat
 ```
 
 The corpus and Windows comparisons below run the executables directly.
@@ -42,8 +42,7 @@ contributes only Arabic membership and East_Asian_Width only F/W/H membership.
 Records sit behind a three-level page index (shared pages, direct IDs for uniform
 spans, a 128-entry ASCII index); `compact_pages.py` overlaps pages, and
 reconstruction is verified at every code point. Tables are static and allocate
-nothing. Enum values and layout are tied to the pinned data version; ISO 15924
-script tags are not OpenType script tags.
+nothing. Enum values and layout are tied to the pinned data version.
 
 `python -I tools/unicode/tibetan_categories.py --ucd <UCD.zip>` derives the
 Tibetan cluster categories (`src/text/generated/tibetan_categories.inc`) from
@@ -157,24 +156,6 @@ python tools/unicode/reduce_bidi_probes.py --failures regressions.json --oracle 
 Results are deletion-minimal, not globally minimal, and not Unicode expected
 outputs. Oracle identity and batch coverage are checked; when comparing two
 candidates, their Windows observations must agree.
-
-## Default word segmentation
-
-`unicode_word_boundaries` implements Unicode 17 default word boundaries over
-validated scalar input. It writes `count + 1` caller-owned bytes (byte i is 1 if
-a boundary precedes scalar i; the last is the end boundary), which also hold
-temporary property tags; no other scratch, no allocation. Invalid input is
-rejected before the output changes. It differs from the app's `utf8_word_range`
-policy and does no dictionary segmentation.
-
-```powershell
-python tools/unicode/generate_word_tests.py --ucd <UCD.zip> --output tests/generated/word_break_test.inc --report generation.json
-cmake --build <build> --config Release --target MaiCordWordTests
-MaiCordWordTests.exe
-```
-
-The official `WordBreakTest.txt` cases are compiled into the QA binary, so
-ordinary builds need no Python or network.
 
 ## Default line-break opportunities
 

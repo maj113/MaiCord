@@ -41,7 +41,6 @@ struct GatewayLifecycle {
 };
 
 struct GatewayLifecycleStep {
-    u64 next_deadline_ms;
     GatewayLifecycleAction action;
     GatewayLifecycleError error;
 

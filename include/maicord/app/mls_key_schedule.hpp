@@ -26,11 +26,9 @@ KdfResult mls_epoch_next(KdfSha256Workspace& workspace, ConstSlice<u8> init_secr
 KdfResult mls_epoch_from_joiner(KdfSha256Workspace& workspace, ConstSlice<u8> joiner_secret,
                                 ConstSlice<u8> psk_secret, ConstSlice<u8> confirmed_hash,
                                 ConstSlice<u8> context, MlsEpochSecrets* output) noexcept;
-// Transcript primitives accept caller-validated serialized hash input. These
-// do not parse AuthenticatedContent or verify signatures/membership. Output is
-// exactly 32 bytes; excess capacity preserved, input alias follows SHA contract.
-KdfResult mls_transcript_confirm(KdfSha256Workspace& workspace, ConstSlice<u8> previous_interim,
-                                 ConstSlice<u8> confirmed_input, Slice<u8> output) noexcept;
+// The interim transcript primitive accepts caller-validated serialized hash input.
+// It does not parse AuthenticatedContent or verify signatures/membership. Output
+// is exactly 32 bytes; excess capacity preserved, input alias follows SHA contract.
 KdfResult mls_transcript_interim(KdfSha256Workspace& workspace, ConstSlice<u8> confirmed_hash,
                                  ConstSlice<u8> confirmation_tag, Slice<u8> output) noexcept;
 // Fixed-length, full-byte comparison; never a prefix comparison. Call only on

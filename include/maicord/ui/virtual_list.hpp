@@ -60,11 +60,6 @@ UiVariableRange ui_variable_list_range(const UiVariableList& list, u64 scroll_un
 // Pixel-distance lookahead; returned offsets remain relative to the real viewport.
 UiVariableRange ui_variable_list_buffered_range(const UiVariableList& list, u64 scroll_units,
                                                 u64 viewport_units, u64 margin_units) noexcept;
-bool ui_variable_list_prepend(UiVariableList* list, u32 item_count,
-                              u32 default_item_units,
-                              UiScrollAnchor* anchor = nullptr) noexcept;
-bool ui_variable_list_remove_prefix(UiVariableList* list, u32 item_count,
-                                    UiScrollAnchor* anchor = nullptr) noexcept;
 bool ui_variable_list_insert(UiVariableList* list, u32 index, u32 item_count,
                              u32 default_item_units,
                              UiScrollAnchor* anchor = nullptr) noexcept;

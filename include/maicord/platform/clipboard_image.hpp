@@ -12,8 +12,6 @@ u64 clipboard_image_encode_png(const u8* rgba, u32 width, u32 height, u32 stride
 // Bottom-up 32-bit BITMAPV5HEADER image with explicit alpha mask (CF_DIBV5 payload).
 u64 clipboard_image_dib_bytes(u32 width, u32 height) noexcept;
 u64 clipboard_image_build_dib(const u8* rgba, u32 width, u32 height, u32 stride, Slice<u8> output) noexcept;
-// Accepts V3/V4/V5 32-bit headers, either row order.
-bool clipboard_image_parse_dib(ConstSlice<u8> dib, Slice<u8> rgba, u32* width, u32* height) noexcept;
 
 // Pasting: format choice and conversion stay free of OLE so tests can drive
 // them with in-memory payloads.

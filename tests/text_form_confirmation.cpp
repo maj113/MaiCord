@@ -56,9 +56,10 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
             "confirmation_revealed_accept_has_real_hit_target");
         check(text_form_scroll(&scene,-1000000),"confirmation_context_is_accessible_through_native_scroll");
         PaintStream paint{};UiTextCommand commands[16]{};UiTextCommandStream text{};
+        UiTextOutput text_output{&text, nullptr};
         check(paint_stream_reset(&paint,size.right,size.bottom)&&text_form_paint(scene,{},kDefaultTheme,&paint)&&
             paint.clip_depth==1&&paint.rejected==0,"confirmation_paints_without_editor_geometry");
-        check(ui_text_command_stream_initialize(&text,{commands,16})&&text_form_text(scene,{},kDefaultTheme,&text),
+        check(ui_text_command_stream_initialize(&text,{commands,16})&&text_form_text_output(scene,{},kDefaultTheme,&text_output),
             "confirmation_text_needs_no_editor_projection");
         paint_stream_release(&paint);
     }
@@ -71,13 +72,6 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
     editing.confirmation_only=true;
     check(text_form_update(&scene,editing,viewport,&cache)&&!text_form_node(scene,TextFormElement::edit)&&
         text_form_focused(scene)==TextFormElement::cancel,"confirmation_switch_back_restores_no_editor_cancel_focus");
-    text_form_close(&scene);UiTextCommand commands[16]{};UiTextCommandStream text{};
-    check(!scene.active&&!scene.measure&&text_form_focused(scene)==TextFormElement::count&&
-        !text_form_focus(&scene,TextFormElement::accept)&&text_form_hit_test(scene,160,200)==TextFormElement::count&&
-        ui_text_command_stream_initialize(&text,{commands,16})&&text_form_text(scene,{},kDefaultTheme,&text)&&text.count==0,
-        "confirmation_closed_owner_has_no_focus_actions_or_text");
-    check(text_form_update(&scene,content,viewport,&cache)&&text_form_focused(scene)==TextFormElement::cancel,
-        "confirmation_reopen_starts_at_cancel");
     // The "Leaving Discord" option row: a checkbox square left of a wrapped
     // label, focusable before the buttons, and painted checked on demand.
     TextFormContent option=content;option.option=utf8_literal("Trust example.com links from now on");
@@ -96,10 +90,11 @@ void test_text_form_confirmation(void (*check)(bool,const char*) noexcept) noexc
     u32 painted[2]{};
     for(u32 checked=0;checked<2;++checked){option.option_checked=checked!=0;const u32 revision=scene.revision;
         PaintStream option_paint{};UiTextCommand option_commands[16]{};UiTextCommandStream option_text{};
+        UiTextOutput option_text_output{&option_text, nullptr};
         check(text_form_update(&scene,option,viewport,&cache)&&(!checked||scene.revision!=revision)&&
             paint_stream_reset(&option_paint,viewport.right,viewport.bottom)&&text_form_paint(scene,{},kDefaultTheme,&option_paint)&&
             option_paint.rejected==0&&ui_text_command_stream_initialize(&option_text,{option_commands,16})&&
-            text_form_text(scene,{},kDefaultTheme,&option_text),"confirmation_option_paints_and_projects_text");
+            text_form_text_output(scene,{},kDefaultTheme,&option_text_output),"confirmation_option_paints_and_projects_text");
         painted[checked]=option_paint.count;bool label=false;
         for(u32 i=0;i<option_text.count;++i)label=label||(option_commands[i].text.bytes==option.option.bytes&&
             bytes_equal(option_commands[i].text.data,option.option.data,option.option.bytes)&&

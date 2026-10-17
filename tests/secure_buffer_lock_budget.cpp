@@ -368,20 +368,20 @@ void dpapi_failure() noexcept {
     check(initialized && secure_buffer_assign(&input, {synthetic, sizeof(synthetic)}).ok(),
         "lock budget: DPAPI synthetic fixture initializes");
     if (initialized) {
-        const auto encrypted = secure_buffer_protect_user(input, {protected_bytes, sizeof(protected_bytes)});
+        const auto encrypted = secure_buffer_protect_user_bound(input, {}, {protected_bytes, sizeof(protected_bytes)});
         check(encrypted.ok(), "lock budget: DPAPI fixture protects synthetic bytes");
         if (encrypted.ok()) {
             const u8 sentinel[] = {0x7e, 0x53, 0x19};
             secure_buffer_assign(&output, {sentinel, sizeof(sentinel)});
             reset_fault(Fault::setter, sizeof(synthetic));
-            const auto rejected = secure_buffer_unprotect_user({protected_bytes, encrypted.bytes}, &output);
+            const auto rejected = secure_buffer_unprotect_user_bound({protected_bytes, encrypted.bytes}, {}, &output);
             check(rejected.error == SecureBufferError::lock_failed && rejected.native_error == ERROR_PRIVILEGE_NOT_HELD &&
                 output.bytes == sizeof(sentinel) && bytes_equal(output.data, sentinel, sizeof(sentinel)) &&
                 set_calls == 1 && close_calls == 2 && release_calls == 2 && decrypt_calls == 1 && maximum_depth == 2 &&
                 wipe_observed && !inspected_allocation && lifecycle_preserved && !ownership_depth,
                 "lock budget: DPAPI recursive recovery failure retains destination, native error, ownership and full wipe");
             reset_fault(Fault::grow, sizeof(synthetic));
-            const auto recovered = secure_buffer_unprotect_user({protected_bytes, encrypted.bytes}, &output);
+            const auto recovered = secure_buffer_unprotect_user_bound({protected_bytes, encrypted.bytes}, {}, &output);
             check(recovered.ok() && output.bytes == sizeof(synthetic) && bytes_equal(output.data, synthetic, sizeof(synthetic)) &&
                 set_calls == 1 && close_calls == 2 && release_calls == 2 && maximum_depth == 2 && unlock_calls == 1 &&
                 wipe_observed && !inspected_allocation && lifecycle_preserved && !ownership_depth,
@@ -389,7 +389,7 @@ void dpapi_failure() noexcept {
             const Fault before_decrypt[] = {Fault::mutex_create, Fault::mutex_wait, Fault::mutex_timeout, Fault::decrypt};
             for (Fault value : before_decrypt) {
                 reset_fault(value); secure_buffer_assign(&output, {sentinel, sizeof(sentinel)});
-                const auto failed = secure_buffer_unprotect_user({protected_bytes, encrypted.bytes}, &output);
+                const auto failed = secure_buffer_unprotect_user_bound({protected_bytes, encrypted.bytes}, {}, &output);
                 const u32 expected_error = value == Fault::mutex_create ? ERROR_ACCESS_DENIED :
                     value == Fault::mutex_wait ? ERROR_INVALID_HANDLE : value == Fault::mutex_timeout ? ERROR_TIMEOUT : ERROR_INVALID_DATA;
                 check(failed.error == (value == Fault::decrypt ? SecureBufferError::unprotect_failed : SecureBufferError::lock_failed) &&
@@ -402,7 +402,7 @@ void dpapi_failure() noexcept {
                     "lock budget: DPAPI acquisition/decryption failure makes no plaintext copy and releases ownership");
             }
             fault = Fault::real; inspect_free = false;
-            check(secure_buffer_unprotect_user({protected_bytes, encrypted.bytes}, &output).ok() &&
+            check(secure_buffer_unprotect_user_bound({protected_bytes, encrypted.bytes}, {}, &output).ok() &&
                 output.bytes == sizeof(synthetic) && bytes_equal(output.data, synthetic, sizeof(synthetic)) && all_pages_locked(output),
                 "lock budget: DPAPI normal decrypt remains locked and copies synthetic plaintext");
         }

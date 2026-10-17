@@ -1,12 +1,12 @@
 // No argument runs the registered checks. Manual: MAICORD_SINHALA_FONT=<font file> streams that
 // font's shaping results for external comparison (QA only).
-#include "maicord/text/sinhala_shape_cluster.hpp"
 #include "maicord/text/sinhala_shape_run.hpp"
 #include "maicord/text/sinhala_run.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/text/use_plan.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "gsub_program_fixture.hpp"
 #include <Windows.h>
 namespace maicord {namespace {
 u32 checks=0;
@@ -20,7 +20,7 @@ bool units(SfntShapeStorage s) noexcept {
     SfntCmap cmap{{bytes,sizeof(bytes)},{},32,12};SfntShapePlan plan{};plan.units_per_em=1000;
     plan.advance=+[](void*,u16,double* v) noexcept {*v=600;return SfntStatus::ok;};SfntShapeRunResult result{};
     const u32 split[]{0xd9a,0xddd},orphan[]{0xddd},barrier[]{0xd9a,0xdca,0xd9a,0xdd9},control[]{0xd9a,0x200d};
-    const auto shape=[&](ConstSlice<u32> input,SfntShapeLimits limits=SfntShapeLimits{}) noexcept {return sfnt_sinhala_shape_cluster(plan,cmap,input,1000,s,&result,{},limits);};
+    const auto shape=[&](ConstSlice<u32> input,SfntShapeLimits limits=SfntShapeLimits{}) noexcept {return sfnt_sinhala_shape_run(plan,cmap,input,1000,s,&result,{},limits);};
     CHECK(shape({split,2})==SfntStatus::ok&&result.glyph_count==3&&result.source_units==2);
     CHECK(s.glyphs[0].glyph.glyph==6&&s.glyphs[1].glyph.glyph==2&&s.glyphs[2].glyph.glyph==7&&!s.character_glyphs[0]&&!s.character_glyphs[1]);
     CHECK(shape({orphan,1})==SfntStatus::ok&&result.glyph_count==3&&s.glyphs[0].glyph.glyph==6&&s.glyphs[1].glyph.glyph==10&&s.glyphs[2].glyph.glyph==7&&!s.character_glyphs[0]);
@@ -31,12 +31,9 @@ bool units(SfntShapeStorage s) noexcept {
         const auto status=shape({control,2},{budget,100000,1000000});CHECK(result.lookup_operations<=budget&&status==(budget==full?SfntStatus::ok:SfntStatus::resource_limit));
         if(status!=SfntStatus::ok)CHECK(!result.glyph_count&&!result.source_units&&!result.target_count);
     }
-    const u32 invalid[]{0xd9a,0xd800},separate[]{0xd9a,0xd9a};
+    const u32 invalid[]{0xd9a,0xd800};
     CHECK(shape({invalid,2})==SfntStatus::invalid_input&&!result.glyph_count&&!result.source_units);
-    CHECK(shape({separate,2})==SfntStatus::unsupported_sequence&&!result.glyph_count&&!result.source_units);
     CHECK(shape({}, {})==SfntStatus::ok&&!result.glyph_count);
-    auto small=s;small.glyphs.count=2;
-    CHECK(sfnt_sinhala_shape_cluster(plan,cmap,{split,2},1000,small,&result,{})==SfntStatus::output_too_small&&!result.glyph_count);
     const u16 reph_words[]{1,8,1,14,1,1,3,1,4,11,3,4,9};
     const u16 pref_words[]{1,8,1,14,1,1,4,1,4,13,3,9,12};
     u8 reph_bytes[sizeof(reph_words)],pref_bytes[sizeof(pref_words)];
@@ -49,27 +46,23 @@ bool units(SfntShapeStorage s) noexcept {
     SfntGsubProgram substitutions{{lookups,2},{},32};plan.substitutions=&substitutions;
     const SfntLookupStep steps[]{{0,0,1},{1,0,2}};
     const u32 forms[]{0xdbb,0xdca,0x200d,0xd9a,0xdca,0x200d,0xdba,0xdd9};
-    CHECK(sfnt_sinhala_shape_cluster(plan,cmap,{forms,8},1000,s,&result,{steps,2})==SfntStatus::ok&&result.glyph_count==4);
+    CHECK(sfnt_sinhala_shape_run(plan,cmap,{forms,8},1000,s,&result,{steps,2})==SfntStatus::ok&&result.glyph_count==4);
     const u16 formed[]{6,13,2,11};for(u32 i=0;i<4;++i)CHECK(s.glyphs[i].glyph.glyph==formed[i]);
     for(u32 i=0;i<8;++i)CHECK(!s.character_glyphs[i]);
     const u64 formed_work=result.lookup_operations;
     for(u64 budget=0;budget<=formed_work;++budget){
-        const auto status=sfnt_sinhala_shape_cluster(plan,cmap,{forms,8},1000,s,&result,{steps,2},{budget,100000,1000000});
+        const auto status=sfnt_sinhala_shape_run(plan,cmap,{forms,8},1000,s,&result,{steps,2},{budget,100000,1000000});
         CHECK(result.lookup_operations<=budget&&status==(budget==formed_work?SfntStatus::ok:SfntStatus::resource_limit));
         if(status!=SfntStatus::ok)CHECK(!result.glyph_count&&!result.source_units&&!result.target_count);
     }
     const u32 late[]{0xd9a,0xdca,0xd9a,0xdca,0xdbb,0xdca,0x200d,0xd9a,0xdd9};
-    CHECK(sfnt_sinhala_shape_cluster(plan,cmap,{late,9},1000,s,&result,{steps,2})==SfntStatus::ok&&result.glyph_count==7);
+    CHECK(sfnt_sinhala_shape_run(plan,cmap,{late,9},1000,s,&result,{steps,2})==SfntStatus::ok&&result.glyph_count==7);
     const u16 late_expected[]{2,4,2,4,6,2,11};for(u32 i=0;i<7;++i)CHECK(s.glyphs[i].glyph.glyph==late_expected[i]);
     const u32 twice[]{0xdbb,0xdca,0x200d,0xdbb,0xdca,0x200d,0xd9a,0xdd9};
-    CHECK(sfnt_sinhala_shape_cluster(plan,cmap,{twice,8},1000,s,&result,{steps,2})==SfntStatus::ok&&result.glyph_count==4);
+    CHECK(sfnt_sinhala_shape_run(plan,cmap,{twice,8},1000,s,&result,{steps,2})==SfntStatus::ok&&result.glyph_count==4);
     const u16 twice_expected[]{6,11,2,11};for(u32 i=0;i<4;++i)CHECK(s.glyphs[i].glyph.glyph==twice_expected[i]);
-    small=s;small.positions.count=1;
-    CHECK(sfnt_sinhala_shape_cluster(plan,cmap,{forms,8},1000,small,&result,{steps,2})==SfntStatus::output_too_small&&!result.glyph_count&&!result.source_units);
-    small=s;small.components.count=1;
-    CHECK(sfnt_sinhala_shape_cluster(plan,cmap,{forms,8},1000,small,&result,{steps,2})==SfntStatus::output_too_small&&!result.glyph_count&&!result.source_units);
     SfntLookupStep masked[]{steps[0]};masked[0].feature_mask=1;
-    CHECK(sfnt_sinhala_shape_cluster(plan,cmap,{forms,8},1000,s,&result,{masked,1})==SfntStatus::invalid_input&&!result.glyph_count&&!result.source_units);
+    CHECK(sfnt_sinhala_shape_run(plan,cmap,{forms,8},1000,s,&result,{masked,1})==SfntStatus::invalid_input&&!result.glyph_count&&!result.source_units);
     const u32 run_input[]{0xd9a,0xddd,0xdbb,0xdca,0x200d,0xd9a,0xdd9};
     CHECK(sfnt_sinhala_shape_run(plan,cmap,{run_input,7},1000,s,&result,{steps,2})==SfntStatus::ok&&result.glyph_count==6);
     const u16 run_expected[]{6,2,7,6,2,11};for(u32 i=0;i<6;++i)CHECK(s.glyphs[i].glyph.glyph==run_expected[i]);
@@ -116,8 +109,8 @@ bool font_stream(ConstSlice<u8> bytes,Arena& a,SfntShapeStorage s) noexcept {
         CHECK(status==SfntStatus::ok&&sfnt_layout_open(table,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout)==SfntStatus::ok);
         CHECK(sfnt_sinhala_lookup_plan(layout,{},independent,{scratch,4096},{chosen,4096},&result)==SfntStatus::ok&&result.language_found);
         if(!kind){step_count=result.lookup_count;copy_bytes(steps,chosen,step_count*sizeof(SfntLookupStep));SfntGsubProgramRequirements n{};
-            CHECK(sfnt_gsub_program_requirements(layout,&n)==SfntStatus::ok);
-            CHECK(sfnt_gsub_program_prepare(layout,gdef,metrics.glyph_count,{allocate<SfntGsubExecutableLookup>(a,n.lookups),allocate<SfntGsubExecutableSubtable>(a,n.subtables),allocate<SfntCoverage>(a,n.coverages),allocate<SfntClassDef>(a,n.classes)},&gsub)==SfntStatus::ok);
+            CHECK(gsub_program_needs(layout,&n)==SfntStatus::ok);
+            CHECK(prepare_gsub_program(layout,gdef,metrics.glyph_count,{allocate<SfntGsubExecutableLookup>(a,n.lookups),allocate<SfntGsubExecutableSubtable>(a,n.subtables),allocate<SfntCoverage>(a,n.coverages),allocate<SfntClassDef>(a,n.classes)},&gsub)==SfntStatus::ok);
         }else{root_count=result.lookup_count;for(u32 i=0;i<root_count;++i)roots[i]=chosen[i].lookup;SfntGposProgramRequirements n{};
             CHECK(sfnt_gpos_program_requirements(layout,&n)==SfntStatus::ok);
             CHECK(sfnt_gpos_program_prepare(layout,gdef,metrics.glyph_count,{allocate<SfntGposExecutableLookup>(a,n.lookups),allocate<SfntGposSubtable>(a,n.basic),allocate<SfntGposAttachment>(a,n.attachments),allocate<SfntContext>(a,n.contexts),allocate<SfntCoverage>(a,n.coverages),allocate<SfntClassDef>(a,n.classes)},&gpos)==SfntStatus::ok);
@@ -128,8 +121,7 @@ bool font_stream(ConstSlice<u8> bytes,Arena& a,SfntShapeStorage s) noexcept {
     u8 header[12];CHECK(read(header,12)&&bytes_equal(header,"MDSHP1\0\0",8));const u32 cases=byte_load_le32(header+8);CHECK(cases&&cases<=100000&&write(header,12));
     for(u32 row=0;row<cases;++row){u32 n=0,input[256],sources[256];u16 glyphs[512];SfntShapeRunResult result{};
         CHECK(read(&n,4)&&n&&n<=256&&read(input,n*4));
-        const auto shaped=flag(L"MAICORD_SINHALA_RUN")?sfnt_sinhala_shape_run(plan,cmap,{input,n},1000,s,&result,{steps,step_count},{},rtl):
-            sfnt_sinhala_shape_cluster(plan,cmap,{input,n},1000,s,&result,{steps,step_count},{},rtl);
+        const auto shaped=sfnt_sinhala_shape_run(plan,cmap,{input,n},1000,s,&result,{steps,step_count},{},rtl);
         const u32 code=static_cast<u32>(shaped);CHECK(result.glyph_count<=512);
         u32 units=0;for(u32 i=0;i<n;++i){sources[i]=shaped==SfntStatus::ok?s.character_glyphs[units]:0;units+=input[i]>0xffff?2u:1u;}
         for(u32 i=0;i<result.glyph_count;++i)glyphs[i]=s.glyphs[i].glyph.glyph;

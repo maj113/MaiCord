@@ -1,6 +1,6 @@
 """Bounded Tibetan glyph/source/exact-placement comparisons.
 
-Checks one original cluster, complete scalar runs with --run, or retained UTF-8
+Checks one-cluster cases, complete scalar runs with --run, or retained UTF-8
 font admission with --owned/--compact. Final-zero compact rejections are counted
 separately from exact output. App pixels and universal font/axis coverage are
 not established. UTF-16 sources are projected to input scalars.
@@ -40,7 +40,7 @@ def worker(args):
     for s,_ in cases:payload+=struct.pack('<I',len(s))+struct.pack('<'+'I'*len(s),*s)
     native=subprocess.run([str(args.native)],input=payload,capture_output=True,timeout=2,
         env=dict(os.environ,MAICORD_TIBETAN_FONT=str(args.font),MAICORD_TIBETAN_INDEPENDENT=str(int(args.independent)),
-                 MAICORD_TIBETAN_RTL=str(int(args.rtl)),MAICORD_TIBETAN_RUN=str(int(args.run)),
+                 MAICORD_TIBETAN_RTL=str(int(args.rtl)),
                  MAICORD_TIBETAN_OWNED=str(int(args.owned or args.compact)),MAICORD_TIBETAN_COMPACT=str(int(args.compact))),creationflags=subprocess.CREATE_NO_WINDOW)
     if native.returncode:raise RuntimeError(repr(native.stdout[-500:])+repr(native.stderr))
     actual=decode(native.stdout,cases,True)

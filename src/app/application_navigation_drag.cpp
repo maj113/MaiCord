@@ -30,9 +30,6 @@ constexpr u32 kRowCapacity = kGuildRailRowCapacity > kShellNavigationRowCapacity
                                                                                   : kShellNavigationRowCapacity;
 NavigationDragRow g_rows[kRowCapacity + 1];
 
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.slot == b.slot && a.generation == b.generation;
-}
 bool account_ready() noexcept {
     return g_app.account_ui && !g_app.login.visible && !g_app.popup_scene.active && !g_app.text_form;
 }

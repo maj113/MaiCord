@@ -9,7 +9,7 @@ bool recovery_geometry(const LoginScene& scene, const LoginView& view, u32* stag
     *stage = base + 1;
     if (!login_view_matches_scene(view, &scene) || scene.qr_visible || !scene.credential_fields_hidden ||
         view.password_mask.bytes || view.qr_code || !scene.focus_visible) return false;
-    const UiRect back = login_scene_control_rectangle(scene, LoginControl::back);
+    const UiRect back = login_scene_rectangle(scene, LoginElement::forgot_password);
     *stage = base + 2;
     if (!ui_rect_has_area(back) || login_scene_hit_test(scene, (back.left + back.right) * .5f,
         (back.top + back.bottom) * .5f) != LoginControl::back ||
@@ -23,7 +23,7 @@ bool recovery_geometry(const LoginScene& scene, const LoginView& view, u32* stag
             (editing ? LoginAction::recovery_submit : captcha ? LoginAction::captcha_verify : LoginAction::none)) return false;
     if (editing) {
         *stage = base + 4;
-        const auto field = login_scene_control_rectangle(scene, LoginControl::login);
+        const auto field = login_scene_rectangle(scene, LoginElement::login_field);
         if (!ui_rect_has_area(field) || login_scene_hit_test(scene, (field.left + field.right) * .5f,
             (field.top + field.bottom) * .5f) != LoginControl::login) return false;
     }

@@ -334,7 +334,7 @@ bool initialize(Stores& s) noexcept {
                                        {s.names, sizeof(s.names)}) &&
            chat_state_store_bind_permissions(&s.state, {s.roles, kRoleCapacity},
                                              {s.overwrites, kOverwriteCapacity}) &&
-           chat_state_store_bind_emojis(&s.state, {s.emojis, kEmojiCapacity}, {s.emoji_roles, kEmojiRoleCapacity}) &&
+           chat_state_store_bind_emojis_sparse(&s.state, {s.emojis, kEmojiCapacity}, {s.emoji_roles, kEmojiRoleCapacity}) &&
            read_state_initialize(&s.read_state, {s.reads, kChannelCapacity}) &&
            read_state_bind(&s.state, &s.read_state) &&
            user_store_initialize(&s.user_store, {s.users, kUserCapacity}, {s.user_order, kUserCapacity},
@@ -345,7 +345,7 @@ bool initialize(Stores& s) noexcept {
            thread_member_store_initialize(&s.thread_members, {s.thread_a, kThreadMemberMaximumIds},
                                           {s.thread_b, kThreadMemberMaximumIds}) &&
            typing_store_initialize(&s.typing_store, {s.typing, kTypingRecordCapacity}) &&
-           voice_state_store_initialize(&s.voice_states, {s.voice, kVoiceStateCapacity}) &&
+           voice_state_store_initialize_sparse(&s.voice_states, {s.voice, kVoiceStateCapacity}) &&
            message_store_initialize(&s.message_store, {s.messages, 8}, {s.message_order, 8},
                                     {s.message_text, sizeof(s.message_text)}) &&
            ui_variable_list_initialize(&s.list, {s.heights, 8}, {s.fenwick, 8}, 0, 100) &&

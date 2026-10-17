@@ -19,7 +19,7 @@ float positive_zero(float value) noexcept {
 
 #include "cff_bold.inc"
 
-template<bool Bold,bool MetricsOnly> struct VirtualMachine {
+template<bool Bold> struct VirtualMachine {
     const CffFont& font;
     CffIndex local_subrs;
     GlyphOutline& out;
@@ -39,7 +39,7 @@ template<bool Bold,bool MetricsOnly> struct VirtualMachine {
     bool width_seen = false, ended = false, composite = false;
     bool flex_points = false;
     double oblique_scale = 0;
-    static constexpr bool bold=Bold,metrics_only=MetricsOnly;
+    static constexpr bool bold=Bold;
 
     bool flex_coordinate(double value, double* result) const noexcept {
         // Windows' unhinted flex path round-trips output controls through a 16.16
@@ -73,7 +73,7 @@ template<bool Bold,bool MetricsOnly> struct VirtualMachine {
 
     bool append(GlyphPathCommandKind kind, double x1 = 0, double y1 = 0,
                   double x2 = 0, double y2 = 0, double x3 = 0, double y3 = 0) noexcept {
-        if (!metrics_only&&out.count == out.capacity) return false;
+        if (out.count == out.capacity) return false;
         GlyphPathCommand command{}; command.kind = kind;
         const double points[]{x1,y1,x2,y2,x3,y3};
         float coordinates[6]{};
@@ -134,7 +134,7 @@ template<bool Bold,bool MetricsOnly> struct VirtualMachine {
                     metrics->maximum_y=maximum(metrics->maximum_y,design_y);
                 }
             }
-            if(bold||metrics_only)continue;
+            if(bold)continue;
             if (!out.has_bounds) {
                 out.minimum_x = out.maximum_x = px; out.minimum_y = out.maximum_y = py;
                 out.has_bounds = true;
@@ -143,7 +143,6 @@ template<bool Bold,bool MetricsOnly> struct VirtualMachine {
                 out.minimum_y = minimum(out.minimum_y, py); out.maximum_y = maximum(out.maximum_y, py);
             }
         }
-        if(metrics_only)return true;
         command.x1=coordinates[0]; command.y1=coordinates[1]; command.x2=coordinates[2];
         command.y2=coordinates[3]; command.x3=coordinates[4]; command.y3=coordinates[5];
         out.commands[out.count++] = command;
@@ -192,7 +191,7 @@ template<bool Bold,bool MetricsOnly> struct VirtualMachine {
         return count == required;
     }
     SfntStatus geometry_error() const noexcept {
-        return !metrics_only&&out.count == out.capacity ? SfntStatus::output_too_small : SfntStatus::malformed;
+        return out.count == out.capacity ? SfntStatus::output_too_small : SfntStatus::malformed;
     }
 
     SfntStatus arithmetic(u8 op) noexcept {
@@ -414,11 +413,11 @@ template<bool Bold,bool MetricsOnly> struct VirtualMachine {
     }
 };
 
-template<bool Bold,bool MetricsOnly> SfntStatus decode(const CffFont& font, u16 glyph, double dx, double dy,
+template<bool Bold> SfntStatus decode(const CffFont& font, u16 glyph, double dx, double dy,
                     GlyphOutline& output, u32& work, u32 depth, CffGlyphMetrics* metrics,bool oblique) noexcept {
     if (glyph >= font.glyph_count) return SfntStatus::glyph_out_of_range;
     if (depth > 8) return SfntStatus::resource_limit;
-    VirtualMachine<Bold,MetricsOnly> vm{font, {}, output, work, metrics};
+    VirtualMachine<Bold> vm{font, {}, output, work, metrics};
     auto status=cff_detail::select_dict(font,glyph,&vm.local_subrs,vm.matrix,&vm.random,&vm.advance,&vm.nominal_width);
     if (status!=SfntStatus::ok) return status;
     if (vm.matrix[0]>0 && vm.matrix[0]==vm.matrix[3] && !vm.matrix[1] && !vm.matrix[2] && !vm.matrix[4] && !vm.matrix[5]) {
@@ -445,19 +444,12 @@ template<bool Bold,bool MetricsOnly> SfntStatus decode(const CffFont& font, u16 
     u16 base=0,accent=0;
     status=cff_detail::standard_glyph(font,vm.base_code,&base); if(status!=SfntStatus::ok)return status;
     status=cff_detail::standard_glyph(font,vm.accent_code,&accent); if(status!=SfntStatus::ok)return status;
-    status=decode<Bold,MetricsOnly>(font,accent,dx+vm.accent_x,dy+vm.accent_y,output,work,depth+1,metrics,oblique); if(status!=SfntStatus::ok)return status;
-    return decode<Bold,MetricsOnly>(font,base,dx,dy,output,work,depth+1,metrics,oblique);
+    status=decode<Bold>(font,accent,dx+vm.accent_x,dy+vm.accent_y,output,work,depth+1,metrics,oblique); if(status!=SfntStatus::ok)return status;
+    return decode<Bold>(font,base,dx,dy,output,work,depth+1,metrics,oblique);
 }
 #pragma float_control(pop)
 
 } // namespace
-
-SfntStatus cff_glyph_metrics(const CffFont& font,u16 glyph,CffGlyphMetrics* metrics,u32 work_limit) noexcept {
-    if(!metrics)return SfntStatus::invalid_input;*metrics={};
-    if(!font.table.data||!font.charstrings.count)return SfntStatus::invalid_input;
-    GlyphOutline unused{};const auto status=decode<false,true>(font,glyph,0,0,unused,work_limit,0,metrics,false);
-    if(status!=SfntStatus::ok)*metrics={};return status;
-}
 
 SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
     if (metrics) *metrics={};
@@ -465,7 +457,7 @@ SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32
     auto* commands=output->commands; const u32 capacity=output->capacity;
     *output={}; output->commands=commands; output->capacity=capacity; output->fill_rule=GlyphFillRule::winding;
     if (!commands || !font.table.data || !font.charstrings.count) return SfntStatus::invalid_input;
-    auto status=decode<false,false>(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
+    auto status=decode<false>(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
     if(status!=SfntStatus::ok) {
         *output={}; output->commands=commands; output->capacity=capacity;
         output->fill_rule=GlyphFillRule::winding; output->rejected=1;
@@ -479,7 +471,7 @@ SfntStatus cff_outline_bold(const CffFont& font, u16 glyph, GlyphOutline* output
     auto* commands=output->commands; const u32 capacity=output->capacity;
     *output={}; output->commands=commands; output->capacity=capacity; output->fill_rule=GlyphFillRule::winding;
     if (!commands || !font.table.data || !font.charstrings.count) return SfntStatus::invalid_input;
-    auto status=decode<true,false>(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
+    auto status=decode<true>(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
     if(status==SfntStatus::ok)status=cff_bolden(font,*output,work_limit,oblique);
     if(status!=SfntStatus::ok) {
         *output={}; output->commands=commands; output->capacity=capacity;

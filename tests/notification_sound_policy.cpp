@@ -19,8 +19,6 @@ NotificationSoundRequest request(u64 generation,u32 pack=1,NotificationSoundKind
 }
 void test_notification_sound_policy(void(*check)(bool,const char*)noexcept) noexcept {
     using A=NotificationSoundDecision;using R=NotificationMessageSoundRoute;
-    using S=NotificationSoundStage;using N=NotificationSoundNative;using D=NotificationSoundDispatch;
-    using T=NotificationSoundTransport;
     auto selected=selected_input();
     check(notification_selected_sound_admission(selected)==A::allowed,"selected sound independent predicate admits ordinary selected author");
     selected.main_selected=false;check(notification_selected_sound_admission(selected)==A::denied,"sidebar-only selection does not enter main selected sound path");
@@ -66,37 +64,6 @@ void test_notification_sound_policy(void(*check)(bool,const char*)noexcept) noex
     i=message_input();i.duplicate=true;check(notification_message_sound_decide(i).ordinary==R::none,"duplicate sound admission suppresses both transport paths");
     i.duplicate=false;i.optimistic=true;check(notification_message_sound_decide(i).ordinary==R::none,"optimistic create cannot play notification sound");
     i.optimistic=false;i.live=false;check(notification_message_sound_decide(i).ordinary==R::none,"history edit and pre-resume admission do not synthesize sound");
-
-    check(notification_sound_dispatch(S::direct,N::authorized_sound,true)==D::direct,"direct message sounds bypass the throttle independently of native backend");
-    check(notification_sound_dispatch(S::before_popup,N::authorized_sound,true)==D::native_attached,"authorized native attached sound bypasses application throttle");
-    check(notification_sound_dispatch(S::before_popup,N::authorized_silent,true)==D::throttled&&
-        notification_sound_dispatch(S::before_popup,N::provisional,true)==D::throttled,"silent or provisional native popup still requests throttled fallback");
-    check(notification_sound_dispatch(S::popup_suppressed,N::authorized_sound,true)==D::throttled&&
-        notification_sound_dispatch(S::popup_suppressed,N::authorized_sound,true,false)==D::none,"suppressed popup defaults to sound but honors explicit no fallback");
-    check(notification_sound_dispatch(S::native_failed,N::authorized_sound,true)==D::throttled&&
-        notification_sound_dispatch(S::native_failed,N::authorized_silent,true)==D::throttled&&
-        notification_sound_dispatch(S::native_failed,N::denied,true)==D::none,"failed native attempt requests separate fallback call only after native authorization");
-    check(notification_sound_transport(N::authorized_sound,true)==T::native_standalone&&
-        notification_sound_transport(N::authorized_silent,true)==T::none&&
-        notification_sound_transport(N::denied,false)==T::fallback,"native standalone bypasses the streamer fallback sound gate");
-    check(notification_sound_transport(N::authorized_sound,false,true)==T::fallback&&
-        notification_sound_transport(N::authorized_sound,true,true)==T::none,
-        "failed standalone native send falls through to fallback streamer gate without rewriting authorization");
-    check(notification_sound_dispatch(S::before_popup,N::unknown,true)==D::none&&
-        notification_sound_transport(N::unknown,false)==T::none&&
-        notification_sound_transport(N::unavailable,false)==T::fallback,
-        "unsupported native authority differs from completed unavailable query and fails closed");
-    check(notification_sound_dispatch(S::before_popup,static_cast<N>(255),true)==D::none&&
-        notification_sound_transport(static_cast<N>(255),false)==T::none,
-        "invalid native authority enum does not synthesize fallback sound");
-    float gain=9.0f;
-    check(notification_message_sound_gain(100,&gain)&&gain==0.4f&&notification_message_sound_gain(200,&gain)&&gain==0.8f&&
-        notification_message_sound_gain(300,&gain)&&gain==1.0f,"fallback output volume scales nominal gain then caps at one");
-    check(!notification_message_sound_gain(-1,&gain)&&gain==1.0f,"invalid output volume preserves output argument");
-    u32 nonfinite_bits=0x7fc00000;float nonfinite{};copy_bytes(&nonfinite,&nonfinite_bits,sizeof(nonfinite));
-    check(!notification_message_sound_gain(nonfinite,&gain)&&gain==1.0f,"unknown NaN output volume does not fabricate audible gain");
-    nonfinite_bits=0x7f800000;copy_bytes(&nonfinite,&nonfinite_bits,sizeof(nonfinite));
-    check(!notification_message_sound_gain(nonfinite,&gain)&&gain==1.0f,"infinite output volume is rejected before bounded gain calculation");
 
     NotificationSoundThrottle throttle{};
     check(!notification_sound_throttle_request(&throttle,0,request(0)).invoke&&!throttle.has_last_call&&!throttle.timer_active,

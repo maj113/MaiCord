@@ -2,6 +2,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/cdn_http.hpp"
 #include "maicord/protocol/gif_favorites.hpp"
+#include "maicord/protocol/base64.hpp"
 #include "maicord/ui/message_rich_layout.hpp"
 #include "media_fixture.hpp"
 
@@ -382,16 +383,18 @@ void klipy_video_favourite_case(Check check) noexcept {
     versions.scalar(3, 9);
     root.message(1, versions_bytes, versions.used);
     root.message(2, group_bytes, group.used);
-    const ConstSlice<u8> proto{root_bytes, root.used};
-    const auto measured = gif_favorites_measure_proto(proto);
+    static char settings_text[base64_encoded_size(sizeof(root_bytes))];
+    const auto encoded = base64_encode({root_bytes, root.used}, {settings_text, sizeof(settings_text)});
+    const Utf8View settings{settings_text, encoded.ok() ? encoded.bytes : 0};
+    const auto measured = gif_favorites_measure_base64(settings);
     static u8 owned[1024];
     static GifFavoriteRecord records[4];
     static u32 index[64];
     const auto decoded =
         measured.ok() && measured.group_bytes <= sizeof(owned) && measured.entry_count <= 4 &&
                 measured.index_words <= 64
-            ? gif_favorites_decode_proto(proto, {owned, measured.group_bytes}, {records, measured.entry_count},
-                                         {index, measured.index_words})
+            ? gif_favorites_decode_base64(settings, {owned, measured.group_bytes}, {records, measured.entry_count},
+                                          {index, measured.index_words})
             : GifFavoritesResult{};
     const GifFavoriteRecord& record = records[0];
     const auto equal = [](Utf8View a, Utf8View b) noexcept {

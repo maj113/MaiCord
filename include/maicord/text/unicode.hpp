@@ -13,8 +13,6 @@ const UnicodeProperties* unicode_properties(u32 code_point) noexcept;
 constexpr bool unicode_is_scalar(u32 code_point) noexcept {
     return code_point<=0x10ffff && !(code_point>=0xd800 && code_point<=0xdfff);
 }
-// ISO 15924 tags for reference tools; distinct from OpenType script tags.
-u32 unicode_script_tag(UnicodeScript script) noexcept;
 // A missing mapping returns the input code point; bracket type is then none.
 // Bidi_Mirrored can be true without a code-point mirror mapping; glyph-level
 // mirroring in the font remains a separate shaping responsibility.

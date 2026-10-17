@@ -65,7 +65,7 @@ void test_user_context_menu(void (*check)(bool, const char*) noexcept) noexcept 
         const bool built = message_context_menu_build(&model, record, false, true, false, nullptr, true, false, true,
                                                       false, false, false, false, {true, false, false, false})
                                .ok();
-        const auto menu_items = message_context_menu_items(model);
+        const ConstSlice<PopupItem> menu_items{model.items, model.count};
         const u32 apps = index_of(menu_items, static_cast<u32>(MessageContextAction::apps_menu));
         const u32 copy = index_of(menu_items, static_cast<u32>(MessageContextAction::copy_text));
         UiMenuRowGeometry apps_row{}, copy_row{};
@@ -321,7 +321,7 @@ void test_active_now(void (*check)(bool, const char*) noexcept) noexcept {
     playing(&fixture.sets[3], 5, 0, utf8_literal("Chess"), 2000);
     static VoiceState records[4]{};
     VoiceStateStore voice{};
-    voice_state_store_initialize(&voice, {records, 4});
+    voice_state_store_initialize_sparse(&voice, {records, 4});
     voice_state_store_apply(&voice, 9, 90, 5, 0);
     voice_state_store_apply(&voice, 9, 90, 6, 0);
     voice_state_store_apply(&voice, 9, 91, 99, 0); // not a friend
@@ -389,8 +389,9 @@ void test_friends_active_now(void (*check)(bool, const char*) noexcept) noexcept
           "active now: hover tracks the card under the pointer");
     UiTextCommand commands[64]{};
     UiTextCommandStream stream{};
+    UiTextOutput stream_output{&stream, nullptr};
     bool heading = false;
-    if (ui_text_command_stream_initialize(&stream, {commands, 64}) && ui_friends_scene_text(scene, kDefaultTheme, &stream))
+    if (ui_text_command_stream_initialize(&stream, {commands, 64}) && ui_friends_scene_text_output(scene, kDefaultTheme, &stream_output, nullptr))
         for (u32 i = 0; i < stream.count; ++i)
             heading = heading || utf8_equal(commands[i].text, utf8_literal("Active now"));
     check(heading, "active now: the column is titled");

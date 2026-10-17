@@ -20,7 +20,6 @@ template <typename T, u32 Capacity> struct SpscQueue {
     u8 read_padding[60];
     volatile LONG write_sequence;
     u8 write_padding[60];
-    volatile LONG dropped;
 };
 
 template <typename T, u32 Capacity>
@@ -33,7 +32,6 @@ bool spsc_queue_push(SpscQueue<T, Capacity>* queue, const T& value) noexcept {
     const u32 read =
         static_cast<u32>(_InterlockedCompareExchange(&queue->read_sequence, 0, 0));
     if (write - read >= Capacity) {
-        _InterlockedIncrement(&queue->dropped);
         return false;
     }
     queue->items[write & (Capacity - 1)] = value;
@@ -65,12 +63,6 @@ u32 spsc_queue_size(const SpscQueue<T, Capacity>& queue) noexcept {
     const u32 read = static_cast<u32>(_InterlockedCompareExchange(
         const_cast<volatile LONG*>(&queue.read_sequence), 0, 0));
     return write - read;
-}
-
-template <typename T, u32 Capacity>
-u32 spsc_queue_dropped(const SpscQueue<T, Capacity>& queue) noexcept {
-    return static_cast<u32>(_InterlockedCompareExchange(
-        const_cast<volatile LONG*>(&queue.dropped), 0, 0));
 }
 
 } // namespace maicord

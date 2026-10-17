@@ -318,8 +318,6 @@ struct MessageRichReactionMutation {
 
 bool message_rich_store_initialize(MessageRichStore* store, Slice<MessageRichRecord> records,
                                    Slice<u16> order, Slice<u8> text) noexcept;
-bool message_rich_store_initialize_owned(MessageRichStore* store, StableStorage* record_storage,
-                                         u32 record_capacity, Slice<u16> order, Slice<u8> text) noexcept;
 // For caller-owned sparse virtual text reservations. Initialize and reset write
 // only text[0] and text[text.count / 2], which must already be committed.
 // Before apply/reaction mutation/compaction, the caller must commit both banks'

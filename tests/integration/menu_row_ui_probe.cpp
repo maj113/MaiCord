@@ -41,7 +41,7 @@ bool menu_row_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) 
     MessageContextMenuModel context{};
     bool valid = message_context_menu_build(&context, *message, true, true, false, nullptr, true).ok() &&
                  popup_scene_open(&menu, PopupKind::context_menu, message->id,
-                                  message_context_menu_items(context), anchor, viewport, 280)
+                                  {context.items, context.count}, anchor, viewport, 280)
                      .ok() &&
                  renderer_bind_popup_scene(&renderer, &menu);
     u32 context_icons = 0;

@@ -479,11 +479,6 @@ bool popup_scene_bind_theme_styles(PopupScene* scene, const UiResolvedThemeStyle
     return true;
 }
 
-UiRect popup_scene_place(UiRect anchor, UiRect viewport, float width, float height, bool prefer_above,
-                         bool below_only) noexcept {
-    return place_popup(anchor, viewport, width, height, prefer_above, below_only);
-}
-
 namespace {
 PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, ConstSlice<PopupItem> items,
                             UiRect anchor, UiRect viewport, float preferred_width, bool prefer_above,

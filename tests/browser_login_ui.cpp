@@ -32,7 +32,7 @@ void test_browser_login_ui(void (*check)(bool, const char*) noexcept) noexcept {
     check(login_scene_layout(&scene, 360, 640) && login_view_matches_scene(view, &scene) &&
               login_scene_focus(&scene, LoginControl::browser_sign_in),
           "browser UI: compact layout exposes keyboard focusable browser control");
-    const auto box = login_scene_control_rectangle(scene, LoginControl::browser_sign_in);
+    const auto box = login_scene_rectangle(scene, LoginElement::browser_sign_in);
     check(login_scene_hit_test(scene, (box.left + box.right) / 2, (box.top + box.bottom) / 2) ==
               LoginControl::browser_sign_in,
           "browser UI: browser link hit testing resolves the same action as keyboard activation");

@@ -207,7 +207,7 @@ struct ProfileScene {
     // Laid-out header geometry (absolute DIPs): banner, avatar, its
     // decoration and status dot, the card holding them (the modal's profile
     // card) and the profile effect's area.
-    UiRect banner, avatar, decoration, status, card, effect_area, secondary_viewport, media_viewport;
+    UiRect banner, avatar, decoration, status, card, effect_area, secondary_viewport;
     float avatar_stroke;
     float secondary_scroll, secondary_height;
     u64 self_id;
@@ -276,8 +276,6 @@ ProfileCardMask profile_scene_card_mask(const ProfileScene& scene, const Theme& 
 bool profile_scene_foreground(const ProfileScene& scene, const Theme& theme, PaintStream* paint,
                               const UiEditGeometry* edit = nullptr, u32 dpi = 96,
                               u32* controls_first_batch = nullptr) noexcept;
-bool profile_scene_text(const ProfileScene& scene, const Theme& theme, UiTextCommandStream* text,
-                        const UiEditGeometry* edit = nullptr) noexcept;
 ProfileAction profile_scene_action(const ProfileScene& scene, UiWidgetHandle widget) noexcept;
 // The part behind a widget, or null.
 const ProfilePart* profile_scene_part(const ProfileScene& scene, UiWidgetHandle widget) noexcept;

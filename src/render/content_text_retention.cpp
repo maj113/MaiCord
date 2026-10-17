@@ -4,13 +4,6 @@
 #include <stddef.h>
 
 namespace maicord {
-u64 content_text_command_stream_signature(const UiTextCommandStream& stream) noexcept {
-    if ((!stream.storage.data && stream.storage.count != 0) || stream.count > stream.storage.count) {
-        return 0;
-    }
-    return stream.signature;
-}
-
 u64 content_text_theme_signature(const Theme& theme) noexcept {
     // All foreground tokens precede the separately painted background. Motion
     // is not text paint and carries padding, so the hash stops before it.

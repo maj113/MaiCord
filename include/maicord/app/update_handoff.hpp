@@ -68,12 +68,9 @@ struct UpdateHandoffChild {
     UpdateHandoffIdentity identity;
     bool acknowledged;
 };
-bool update_handoff_child_requested(ConstSlice<wchar_t> command_line) noexcept;
 UpdateHandoffResult update_handoff_child_open(ConstSlice<wchar_t> command_line,
     const UpdateHandoffIdentity& independently_validated_identity,
     bool trusted_caller_enrolled, UpdateHandoffChild*) noexcept;
-UpdateHandoffResult update_handoff_child_wait_parent(UpdateHandoffChild*, u32 timeout_ms,
-    HANDLE cancel = nullptr) noexcept;
 // Caller asserts local initialization AND account_host API acceptance;
 // network authentication/READY is neither needed nor accepted as a substitute.
 UpdateHandoffResult update_handoff_child_acknowledge(UpdateHandoffChild*, bool local_startup_admitted) noexcept;

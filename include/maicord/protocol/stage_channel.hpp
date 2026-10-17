@@ -13,7 +13,6 @@ inline constexpr u32 kStageMaximumTargetBytes = 96;
 inline constexpr u32 kStageMaximumBodyBytes = 4096;
 inline constexpr u64 kStageRouteBase = 0x5354414745000000ull; // "STAGE"
 // Stage privacy levels; PUBLIC (1) is retired, new stages are guild only.
-inline constexpr u8 kStagePrivacyPublic = 1;
 inline constexpr u8 kStagePrivacyGuildOnly = 2;
 
 enum class StageOperation : u8 {

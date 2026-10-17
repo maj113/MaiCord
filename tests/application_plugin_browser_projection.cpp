@@ -319,10 +319,11 @@ bool lays_out(u32 count, UiRect viewport) noexcept {
     f.content = {utf8_literal("Plugins"), utf8_literal("Add features to MaiCord."), {w.bank.controls, count}, 1};
     f.content.presentation = w.bank.presentation;
     UiTextCommandStream stream{};
+    UiTextOutput stream_output{&stream, nullptr};
     if (!ui_page_registry_initialize(&f.registry, {&f.page, 1}) ||
         !ui_page_registry_register(&f.registry, {{1, 4}, utf8_literal("Plugins"), &f.content}).ok()) { g_scene_line = __LINE__; return false; }
     if (!ui_settings_scene_update(&f.scene, &f.registry, viewport)) { g_scene_line = __LINE__; return false; }
-    if (!ui_text_command_stream_initialize(&stream, {f.commands, 512}) || !ui_settings_scene_text(f.scene, kDefaultTheme, &stream)) {
+    if (!ui_text_command_stream_initialize(&stream, {f.commands, 512}) || !ui_settings_scene_text_output(f.scene, kDefaultTheme, &stream_output)) {
         g_scene_line = __LINE__;
         return false;
     }

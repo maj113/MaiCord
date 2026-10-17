@@ -197,7 +197,6 @@ bool animation_frame_cache_gpu_trim(AnimationFrameCacheGpu* gpu, u64 now_ms) noe
     animation_frame_cache_gpu_reset(gpu);
     gpu->cache.allocations.height = gpu->growth.minimum_height;
     gpu->growth.trim_pending = false;
-    gpu->growth.last_trim_ms = now_ms;
     ++gpu->growth.shrinks;
     return true;
 }

@@ -1,4 +1,3 @@
-#include "substitution_selection.hpp"
 #include "maicord/text/indic_plan.hpp"
 #include "layout_language.hpp"
 #include "maicord/text/base.hpp"
@@ -117,13 +116,4 @@ SfntStatus sfnt_indic_form_lookup_plan(const SfntLayout& layout,const SfntFeatur
     Builder builder{layout,variations,scratch,output,*result,work};builder.initial=profile==SfntIndicProfile::bengali;builder.form_stage=stage;
     const auto status=builder.run(script);result->operations=work-builder.work;return status;
 }
-SfntStatus sfnt_devanagari_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
-    Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work) noexcept {
-    return sfnt_indic_lookup_plan(layout,variations,SfntIndicProfile::devanagari,independent,scratch,output,result,work);
-}
-SfntStatus sfnt_devanagari_form_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,SfntDevanagariForm form,
-    Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work) noexcept {
-    return sfnt_indic_form_lookup_plan(layout,variations,SfntIndicProfile::devanagari,form,scratch,output,result,work);
-}
-bool indic_substitution_feature(u32 tag) noexcept {return choice(SfntLayoutKind::substitution,tag,true).identity!=0;}
 }

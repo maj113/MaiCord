@@ -785,11 +785,6 @@ __forceinline u8 channel(u32 pixel, u32 shift) noexcept {
     return static_cast<u8>(pixel >> shift);
 }
 
-__forceinline u32 pack_channels(u8 alpha, u8 red, u8 green, u8 blue) noexcept {
-    return static_cast<u32>(alpha) << 24 | static_cast<u32>(red) << 16 | static_cast<u32>(green) << 8 |
-           blue;
-}
-
 // Per-channel sums and floor averages without carries between channels.
 __forceinline u32 add_pixels(u32 first, u32 second) noexcept {
     const u32 alpha_green = (first & 0xFF00FF00u) + (second & 0xFF00FF00u);

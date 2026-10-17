@@ -1,5 +1,5 @@
 #include "maicord/text/arabic_joining.hpp"
-#include "maicord/text/gsub_execute.hpp"
+#include "gsub_program_fixture.hpp"
 #include "maicord/core/utf.hpp"
 #include <Windows.h>
 
@@ -16,7 +16,7 @@ bool vectors() noexcept {
         SfntLayout layout{};SfntGdef gdef{};SfntGsubProgram program{};
         if(c.scalars.count>64 || sfnt_layout_open(c.gsub,SfntLayoutKind::substitution,&layout)!=SfntStatus::ok ||
            sfnt_gdef_open(c.gdef,37,&gdef)!=SfntStatus::ok ||
-           sfnt_gsub_program_prepare(layout,gdef,37,{{lookups,16},{subtables,32},{coverages,128},{classes,32}},&program)!=SfntStatus::ok)return false;
+           prepare_gsub_program(layout,gdef,37,{{lookups,16},{subtables,32},{coverages,128},{classes,32}},&program)!=SfntStatus::ok)return false;
         for(u32 gate=0;gate<2;++gate) {
             for(u32 i=0;i<program.lookups.count;++i)lookups[i].bounds.ready=static_cast<u16>(gate);
             for(u32 split=0;split<=c.scalars.count;++split) {

@@ -55,9 +55,6 @@ bool guards(const NativeEmojiPlan& plan) noexcept {
     s=buffers(0);s.source_glyphs.count=1;CHECK(native_emoji_paragraph_shape(store,plan,tag,17.5f,s,b,&out)==SfntStatus::output_too_small);
     s=buffers(0);s.clusters.data=nullptr;CHECK(native_emoji_paragraph_shape(store,plan,tag,17.5f,s,b,&out)==SfntStatus::invalid_input);
     s=buffers(0);CHECK(native_emoji_paragraph_shape(store,plan,tag,17.5f,s,{},&out)==SfntStatus::output_too_small&&!out.cluster_count);
-    NativeParagraphShape shape{1,0,1,{17.5f,14}};NativeParagraphCluster bad{0,1,0,0,1,native_paragraph_nonvisual};NativeParagraphLayout layout{};
-    CHECK(native_ordered_paragraph_layout(shape,{&bad,1},{},100,40,false,{layout_runs,256},&layout)==SfntStatus::invalid_input);
-    bad.width=0;CHECK(native_ordered_paragraph_layout(shape,{&bad,1},{},100,40,false,{layout_runs,256},&layout)==SfntStatus::ok);
     return true;
 }
 bool corpus(ConstSlice<u8> data) noexcept {
@@ -72,12 +69,11 @@ bool corpus(ConstSlice<u8> data) noexcept {
             CHECK(reader.word(&em)&&reader.word(&bytes)&&reader.word(&glyph_count)&&reader.word(&units)&&reader.word(&points)&&reader.word(&ranges)&&reader.word(&run_count)&&reader.word(&line_count));
             CHECK(glyph_count<=1024&&units<=256&&reader.take(bytes,&text)&&reader.take(glyph_count*2,&glyphs)&&reader.take(glyph_count*12,&placements)&&reader.take(units*4,&map));
             const auto geometry=reader.at;u32 next=0;
-            for(u32 mode=0;mode<4;++mode){reader.at=geometry;auto s=buffers(mode&1);NativeParagraphShape shape{};NativeParagraphLayout layout{};NativeParagraphHits hits{};
+            for(u32 mode=0;mode<2;++mode){reader.at=geometry;auto s=buffers(mode);NativeParagraphShape shape{};NativeParagraphLayout layout{};NativeParagraphHits hits{};
                 NativeParagraphHitStorage hs{{hit_clusters,256},{hit_lines,257},{hit_advances,1024},&hits,{}};
                 EQUAL(static_cast<u32>(native_emoji_paragraph_shape(store,plan,{reinterpret_cast<const char*>(text.data),bytes},real(em),s,{{scalars,256},{breaks,257}},&shape)),static_cast<u32>(SfntStatus::ok));
                 EQUAL(shape.glyph_count,glyph_count);EQUAL(shape.source_units,units);
-                const auto fit=mode&2?native_prepared_paragraph_layout(shape,{paragraph_clusters,shape.cluster_count},{paragraph_placements,shape.glyph_count},1000000,real(em)*4,true,{layout_runs,256},&layout,&hs):
-                    native_ordered_paragraph_layout(shape,{paragraph_clusters,shape.cluster_count},{paragraph_placements,shape.glyph_count},1000000,real(em)*4,true,{layout_runs,256},&layout,&hs);
+                const auto fit=native_prepared_paragraph_layout(shape,{paragraph_clusters,shape.cluster_count},{paragraph_placements,shape.glyph_count},1000000,real(em)*4,true,{layout_runs,256},&layout,&hs);
                 EQUAL(static_cast<u32>(fit),static_cast<u32>(SfntStatus::ok));
                 EQUAL(layout.line_count,line_count);
                 for(u32 i=0;i<glyph_count;++i){EQUAL(paragraph_glyphs[i],byte_load_le16(glyphs.data+i*2));u32 bits[3];copy_bytes(bits,paragraph_placements+i,12);for(u32 k=0;k<3;++k)EQUAL(bits[k],byte_load_le32(placements.data+(i*3+k)*4));}
@@ -97,7 +93,7 @@ bool corpus(ConstSlice<u8> data) noexcept {
         }
         CHECK(native_run_plan_release(&store,handle)&&!native_font_stats(fonts).files);
     }
-    CHECK(reader.at==data.count&&runs==cases*4);return true;
+    CHECK(reader.at==data.count&&runs==cases*2);return true;
 }
 bool run() noexcept {
     CHECK(visibility());CHECK(arena_initialize(&scratch,16*1024*1024,0,4096)&&arena_initialize(&state,1024*1024,0,4096));wchar_t folder[MAX_PATH];

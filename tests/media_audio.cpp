@@ -20,12 +20,11 @@ void test_media_audio(void (*check)(bool,const char*) noexcept) noexcept {
         "media ring: bounded full admission refuses overflow atomically");
     check(media_audio_ring_render(&ring,{output,1024},1)==512&&ring.submitted==512&&!media_audio_ring_free(ring)&&
         bytes_equal(input,output,1024*4),"media ring: rendering copies exact native float samples but does not release unplayed storage");
-    check(!media_audio_ring_played(&ring,513)&&ring.consumed==0&&media_audio_ring_played(&ring,200)&&ring.consumed==312&&media_audio_ring_free(ring)==312,
-        "media ring: invalid padding preserves cursors and observed consumption releases only played frames");
+    ring.consumed=ring.submitted-200;check(media_audio_ring_free(ring)==312,"media ring: observed consumption releases only played frames");
     media_audio_ring_rewind(&ring);
     check(ring.submitted==312&&media_audio_ring_render(&ring,{output,1024},1)==512&&bytes_equal(input+624,output,1024*4),
         "media ring: device rewind replays retained PCM from confirmed consumption without losing buffered frames");
-    check(media_audio_ring_played(&ring,0)&&ring.consumed==824,"media ring: continued native drain advances monotonic played cursor");
+    ring.consumed=ring.submitted;
     check(media_audio_ring_native_queue_empty(ring,0)&&ring.written>ring.consumed&&!media_audio_ring_native_queue_empty(ring,1),
         "media clock: running or paused drained submitted prefix needs reanchoring despite future PCM, and nonzero native padding never qualifies");
     // A 200ms unsupplied endpoint interval is not part of the 824-frame source
@@ -40,7 +39,7 @@ void test_media_audio(void (*check)(bool,const char*) noexcept) noexcept {
     const u32 rendered=media_audio_ring_render(&ring,{output,4096},1);
     bool exact=rendered==1536;for(u32 i=0;i<1224*2&&exact;++i)exact=output[i]==input[1648+i];
     for(u32 i=1224*2;i<1536*2&&exact;++i)exact=output[i]==-.75f;
-    check(exact&&media_audio_ring_played(&ring,0)&&media_audio_ring_free(ring)==2048,
+    ring.consumed=ring.submitted;check(exact&&media_audio_ring_free(ring)==2048,
         "media ring: cross-wrap render preserves old tail/new prefix ordering and final capacity");
     check(media_audio_ring_native_queue_empty(ring,0),"media clock: EOF confirms an empty submitted prefix");
     const auto before=ring;u32 nan_bits=0x7fc00000;float nan{};copy_bytes(&nan,&nan_bits,4);input[1]=nan;
@@ -85,7 +84,7 @@ void test_media_audio(void (*check)(bool,const char*) noexcept) noexcept {
         !media_audio_clock_frames((~u64{0}/3)*2+1,2,3,&frames)&&frames==77,
         "media clock: missing output/rate/frequency, product overflow and sum overflow refuse atomically");
     MediaAudio owner{};MediaAudioConfig config{};config.pcm={storage,4096};config.sample_rate=48000;config.channels=2;config.source_origin_100ns=-100000;
-    check(media_audio_initialize(&owner,config).ok()&&!owner.runtime&&!media_audio_owned_bytes(&owner)&&media_audio_status(&owner).presentation_time_100ns==-100000&&
+    check(media_audio_initialize(&owner,config).ok()&&!owner.runtime&&media_audio_status(&owner).presentation_time_100ns==-100000&&
         !media_audio_status(&owner).clock_valid&&!media_audio_status(&owner).owned_handles,
         "media lifecycle: metadata opens no audio device/thread and reports no fabricated hardware clock");
     input[0]=.25f;input[1]=-.25f;

@@ -32,10 +32,6 @@ bool append_u32(Slice<char> output, u32* used, u32 value) noexcept {
         output.data[(*used)++] = digits[--count];
     return true;
 }
-Color faded(Color color, float level) noexcept {
-    color.alpha *= level;
-    return color;
-}
 // Notice card text: a bold title line over the wrapped description (up to
 // four lines). Narrow cards move the actions to their own row below.
 constexpr float kNoticeTitleLine = 22, kNoticeTextLine = 18, kNoticePadding = 10, kNoticeTextLeft = 46,
@@ -350,9 +346,8 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
         const float level = scene.notice_motion.value;
         const auto r = scene.notice;
         const auto surface = ui_surface_style(theme, UiElevation::banner);
-        const Color fill = faded(surface.fill, level), border = faded(surface.border, level);
-        const Color tone = faded(scene.notice_warning ? theme.tokens.accent.warning : theme.tokens.emphasis.outline,
-                                 level);
+        const Color fill = ui_theme_color_alpha(surface.fill, level), border = ui_theme_color_alpha(surface.border, level);
+        const Color tone = ui_theme_color_alpha(scene.notice_warning ? theme.tokens.accent.warning : theme.tokens.emphasis.outline, level);
         ok = paint_stream_record_content(paint, scene.text_owner, r, UiLayoutContentKind::control,
                                          ui_layout_content_bounds_allow_overlap) &&
              paint_stream_push_rounded(paint, r.left, r.top + 2, r.right, r.bottom + 2,
@@ -364,28 +359,28 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
         const bool busy = scene.notice_busy;
         if (ok && scene.notice_primary_bytes) {
             const auto b = scene.notice_primary_rect;
-            Color button = faded(theme.tokens.emphasis.fill, level * (busy ? .5f : 1.f));
+            Color button = ui_theme_color_alpha(theme.tokens.emphasis.fill, level * (busy ? .5f : 1.f));
             ok = paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom, button, theme.scale.radius_sm) &&
                  (scene.hovered != UiUnreadBannerAction::notice_primary ||
                   paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom,
-                                            faded(theme.tokens.state.hover, level), theme.scale.radius_sm));
+                                            ui_theme_color_alpha(theme.tokens.state.hover, level), theme.scale.radius_sm));
         }
         if (ok && scene.notice_secondary_bytes) {
             const auto b = scene.notice_secondary_rect;
             ok = paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom,
-                                           faded(theme.tokens.fill.subtle, level * (busy ? .5f : 1.f)),
+                                           ui_theme_color_alpha(theme.tokens.fill.subtle, level * (busy ? .5f : 1.f)),
                                            theme.scale.radius_sm) &&
                  (scene.hovered != UiUnreadBannerAction::notice_secondary ||
                   paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom,
-                                            faded(theme.tokens.state.hover, level), theme.scale.radius_sm));
+                                            ui_theme_color_alpha(theme.tokens.state.hover, level), theme.scale.radius_sm));
         }
     }
     if (ok && scene.banner_motion.value > 0 && scene.label_bytes) {
         const float level = scene.banner_motion.value;
         const auto r = scene.banner;
         // The unread bar is an emphasis fill: gradient-derived on gradient themes.
-        const Color fill = faded(theme.tokens.emphasis.fill, level);
-        const Color text = faded(theme.tokens.emphasis.text, level);
+        const Color fill = ui_theme_color_alpha(theme.tokens.emphasis.fill, level);
+        const Color text = ui_theme_color_alpha(theme.tokens.emphasis.text, level);
         const float icon_top = (r.top + r.bottom - st.icon) * .5f;
         const UiRect icon{scene.banner_action.right - 10 - st.icon, icon_top, scene.banner_action.right - 10,
                           icon_top + st.icon};
@@ -406,7 +401,7 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
         // The jump pill floats over the timeline: banner elevation material,
         // with the shared hover highlight above it.
         const auto surface = ui_surface_style(theme, UiElevation::banner);
-        const Color fill = faded(surface.fill, level), border = faded(surface.border, level);
+        const Color fill = ui_theme_color_alpha(surface.fill, level), border = ui_theme_color_alpha(surface.border, level);
         const float icon_top = (r.top + r.bottom - st.icon) * .5f;
         const UiRect icon{r.right - 14 - st.icon, icon_top, r.right - 14, icon_top + st.icon};
         ok = paint_stream_record_content(paint, scene.text_owner, r, UiLayoutContentKind::control,
@@ -415,8 +410,8 @@ bool ui_unread_banner_paint(const UiUnreadBannerScene& scene, const Theme& theme
                                        st.pill_radius) &&
              ui_surface_paint(paint, r, theme, UiElevation::banner, st.pill_radius, &fill, &border) &&
              (!hovered || paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom,
-                                                    faded(theme.tokens.state.hover, level), st.pill_radius)) &&
-             ui_icon_paint(paint, UiIcon::arrow_down, icon, faded(theme.tokens.emphasis.outline, level));
+                                                    ui_theme_color_alpha(theme.tokens.state.hover, level), st.pill_radius)) &&
+             ui_icon_paint(paint, UiIcon::arrow_down, icon, ui_theme_color_alpha(theme.tokens.emphasis.outline, level));
     }
     return paint_stream_pop_clip(paint) && ok;
 }
@@ -429,15 +424,15 @@ bool ui_unread_banner_text_output(const UiUnreadBannerScene& scene, const Theme&
     if (scene.notice_motion.value > 0 && scene.notice_title_bytes) {
         const float level = scene.notice_motion.value;
         const auto clip = ui_rect_intersection(scene.viewport, scene.notice);
-        const Color primary_text = faded(theme.tokens.emphasis.text, level * (scene.notice_busy ? .6f : 1.f));
-        const Color secondary_text = faded(theme.text_primary, level * (scene.notice_busy ? .6f : 1.f));
+        const Color primary_text = ui_theme_color_alpha(theme.tokens.emphasis.text, level * (scene.notice_busy ? .6f : 1.f));
+        const Color secondary_text = ui_theme_color_alpha(theme.text_primary, level * (scene.notice_busy ? .6f : 1.f));
         if (!ui_text_output_push(output, {{scene.notice_title, scene.notice_title_bytes}, scene.text_owner,
-                                          scene.notice_title_rect, clip, faded(theme.text_primary, level),
+                                          scene.notice_title_rect, clip, ui_theme_color_alpha(theme.text_primary, level),
                                           text_style_bold, UiTextAlignment::start, UiTextAlignment::center,
                                           UiTextWrapping::no_wrap, UiTextOverflow::ellipsis}) ||
             (scene.notice_text_bytes &&
              !ui_text_output_push(output, {{scene.notice_text, scene.notice_text_bytes}, scene.text_owner,
-                                           scene.notice_text_rect, clip, faded(theme.text_secondary, level),
+                                           scene.notice_text_rect, clip, ui_theme_color_alpha(theme.text_secondary, level),
                                            text_style_subtext, UiTextAlignment::start, UiTextAlignment::start,
                                            UiTextWrapping::wrap, UiTextOverflow::ellipsis})) ||
             (scene.notice_primary_bytes &&
@@ -456,7 +451,7 @@ bool ui_unread_banner_text_output(const UiUnreadBannerScene& scene, const Theme&
     }
     if (scene.banner_motion.value > 0 && scene.label_bytes) {
         const float level = scene.banner_motion.value;
-        const Color text = faded(theme.tokens.emphasis.text, level);
+        const Color text = ui_theme_color_alpha(theme.tokens.emphasis.text, level);
         const auto action = scene.banner_action;
         if (!ui_text_output_push(output, {{scene.label, scene.label_bytes}, scene.text_owner, scene.banner_label,
                                           scene.viewport, text, text_style_subtext | text_style_bold,
@@ -475,12 +470,12 @@ bool ui_unread_banner_text_output(const UiUnreadBannerScene& scene, const Theme&
         const float action = minimum(st.pill_action, ui_rect_width(r) * .5f);
         return ui_text_output_push(output, {kOlderMessages, scene.text_owner,
                                             {r.left + 16, r.top, r.right - action - 8, r.bottom}, scene.viewport,
-                                            faded(theme.text_secondary, level), text_style_subtext,
+                                            ui_theme_color_alpha(theme.text_secondary, level), text_style_subtext,
                                             UiTextAlignment::start, UiTextAlignment::center,
                                             UiTextWrapping::no_wrap, UiTextOverflow::ellipsis}) &&
                ui_text_output_push(output, {kJumpPresent, scene.text_owner,
                                             {r.right - action, r.top, r.right - 18 - st.icon, r.bottom},
-                                            scene.viewport, faded(theme.text_primary, level),
+                                            scene.viewport, ui_theme_color_alpha(theme.text_primary, level),
                                             text_style_subtext | text_style_bold, UiTextAlignment::end,
                                             UiTextAlignment::center, UiTextWrapping::no_wrap,
                                             UiTextOverflow::ellipsis});

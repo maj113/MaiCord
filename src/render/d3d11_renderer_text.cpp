@@ -261,13 +261,6 @@ bool d3d11_renderer_restore_login_form_base(D3D11Renderer* renderer) noexcept {
 
 namespace {
 
-const UiNode* scene_node(const D3D11Renderer* renderer, UiSemantic semantic) noexcept {
-    return renderer && renderer->ui_scene
-               ? ui_scene_resolve(*renderer->ui_scene, ui_scene_find(*renderer->ui_scene, semantic))
-               : nullptr;
-}
-
-
 bool append_text_batch(RendererTextStorage* storage, const UiRect& clip, u32 first_quad,
                        bool force_new_batch = false) noexcept {
     if (!storage || first_quad > storage->quad_count) {

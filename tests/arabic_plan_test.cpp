@@ -1,6 +1,7 @@
 // Arabic joining plans. No argument runs the built-in corpora (the registry builds this file
 // three ways). Manual: `<font file> [--original-order | --arabic-script | --bench-arabic]`
 // shapes a whole font file for external comparison; --bench-arabic times it.
+#include "gsub_program_fixture.hpp"
 #include "maicord/text/shape_run.hpp"
 #include "maicord/text/arabic_shape_run.hpp"
 #include "maicord/text/arabic_joining.hpp"
@@ -175,7 +176,7 @@ bool corpus(ConstSlice<u8> corpus_bytes,bool diagnostic=false,bool reorder=true,
                 gp_count=result.lookup_count;for(u32 i=0;i<gp_count;++i){if(out[i].feature_mask || out[i].stage)return fail(c,5);gp_roots[i]=out[i].lookup;}
                 if(sfnt_gpos_program_prepare(layout,gdef,metrics.glyph_count,{{gp_lookups,256},{gp_basic,512},{gp_attach,512},{gp_context,512},{gp_cov,4096},{gp_classes,512}},&gp)!=SfntStatus::ok)return fail(c,6);
             } else {
-                gs_count=result.lookup_count;if(sfnt_gsub_program_prepare(layout,gdef,metrics.glyph_count,{{gs_lookups,256},{gs_subs,512},{gs_cov,4096},{gs_classes,512}},&gs)!=SfntStatus::ok)return fail(c,7);
+                gs_count=result.lookup_count;if(prepare_gsub_program(layout,gdef,metrics.glyph_count,{{gs_lookups,256},{gs_subs,512},{gs_cov,4096},{gs_classes,512}},&gs)!=SfntStatus::ok)return fail(c,7);
             }
         }
         (void)generic;

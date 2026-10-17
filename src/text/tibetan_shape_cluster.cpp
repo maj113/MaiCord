@@ -1,4 +1,3 @@
-#include "maicord/text/tibetan_shape_cluster.hpp"
 #include "maicord/text/tibetan_shape_run.hpp"
 #include "selector_slots.hpp"
 #include "maicord/text/tibetan_input.hpp"
@@ -7,7 +6,7 @@
 namespace maicord {
 namespace {
 SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,bool rtl,
-    Slice<SfntClusterGlyph> mapped,u32& count,u32& units,SfntSelectorSlots* history=nullptr) noexcept {
+    Slice<SfntClusterGlyph> mapped,u32& count,u32& units,SfntSelectorSlots* history) noexcept {
     using C=TibetanCategory;using namespace use_shape;
     count=0;units=0;u32 selector_cursor=0;
     const auto selector=[](C c) noexcept {return c==C::selector||c==C::supplementary_selector;};
@@ -16,12 +15,12 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
         // Windows keeps selector slots in original non-selector order while
         // circles/expansion change the mapped order. Walk those slots once,
         // independently of source ownership, without a selector array.
-        if(history&&count>=32)return SfntStatus::invalid_input;
+        if(count>=32)return SfntStatus::invalid_input;
         u32 variation=0;
         if(selector_cursor<input.count){++selector_cursor;
             if(selector_cursor<input.count&&selector(tibetan_category(input[selector_cursor])))variation=input[selector_cursor++];
-            if(history)history->put(count,variation);}
-        else if(history)variation=history->get(count);
+            history->put(count,variation);}
+        else variation=history->get(count);
         const u32 code=rtl?unicode_bidi_mirror(scalar):scalar;u16 glyph=0;
         auto s=sfnt_cmap_glyph(cmap,code,variation,&glyph);
         if(variation&&s==SfntStatus::unsupported_sequence)s=sfnt_cmap_glyph(cmap,code,0,&glyph);
@@ -46,22 +45,6 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
     }
     return SfntStatus::ok;
 }
-}
-SfntStatus sfnt_tibetan_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,bool defer_output) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
-    if(input.count>62)return SfntStatus::unsupported_sequence;
-    u8 boundaries[62];auto status=sfnt_tibetan_cluster_boundaries(input,{boundaries,62},limits.stage_work);if(status!=SfntStatus::ok)return status;
-    for(u32 i=1;i<input.count;++i)if(boundaries[i])return SfntStatus::unsupported_sequence;
-    if((steps.count&&!steps.data)||(storage.positions.count&&!storage.positions.data))return SfntStatus::invalid_input;
-    if(steps.count>limits.stage_work)return SfntStatus::resource_limit;
-    if(static_cast<u64>(input.count)*3>limits.stage_work)return SfntStatus::resource_limit;
-    auto* mapped=reinterpret_cast<SfntClusterGlyph*>(storage.positions.data);
-    const u32 capacity=static_cast<u32>(minimum<u64>(static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntClusterGlyph),0xffffffffu));
-    u32 count=0,units=0;
-    status=map_cluster(plan,cmap,input,rtl,{mapped,capacity},count,units);if(status!=SfntStatus::ok)return status;
-    u16 controls[4];for(u32 i=0;i<4;++i){status=sfnt_cmap_glyph(cmap,0x200c+i,0,controls+i);if(status!=SfntStatus::ok)return status;}
-    return use_shape::cluster(plan,cmap,{mapped,count},units,0,em,storage,result,steps,limits,rtl,defer_output,controls);
 }
 SfntStatus sfnt_tibetan_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
     float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl) noexcept {

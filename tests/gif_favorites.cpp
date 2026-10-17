@@ -65,6 +65,20 @@ Utf8View patch_base64(ConstSlice<u8> json) noexcept {
     return end < json.count ? Utf8View{reinterpret_cast<const char*>(json.data + 13), end - 13}
                             : Utf8View{};
 }
+// Snapshots arrive as base64; encode raw protobuf fixtures first. An encoding
+// failure yields text the decoder rejects.
+char g_encoded[4096];
+Utf8View encode(ConstSlice<u8> proto) noexcept {
+    const auto base = base64_encode(proto, {g_encoded, sizeof(g_encoded)});
+    return base.ok() ? Utf8View{g_encoded, base.bytes} : utf8_literal("*");
+}
+GifFavoritesResult measure(ConstSlice<u8> proto) noexcept {
+    return gif_favorites_measure_base64(encode(proto));
+}
+GifFavoritesResult decode(ConstSlice<u8> proto, Slice<u8> owned, Slice<GifFavoriteRecord> records,
+                          Slice<u32> index) noexcept {
+    return gif_favorites_decode_base64(encode(proto), owned, records, index);
+}
 } // namespace
 void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
     u8 first_bytes[1024]{}, second_bytes[512]{}, root_bytes[2048]{}, version_bytes[32]{};
@@ -84,7 +98,7 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
     const u8 unrelated[]{8, 17};
     root.message(3, {unrelated, sizeof(unrelated)});
     root.scalar(28, 123);
-    const auto measured = gif_favorites_measure_proto(root.view());
+    const auto measured = measure(root.view());
     check(measured.ok() && measured.entry_count == 3 && measured.group_bytes == first.used + second.used &&
               measured.group_present && measured.versions_present && measured.client_version == 12 &&
               measured.server_version == 13 && measured.data_version == 14 && !measured.hide_tooltip,
@@ -92,7 +106,7 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
     u8 owned[2048]{}, changed[2048]{}, scratch[4096]{}, json[4096]{};
     GifFavoriteRecord records[16]{};
     u32 index[64]{};
-    auto decoded = gif_favorites_decode_proto(root.view(), {owned, sizeof(owned)}, {records, 16},
+    auto decoded = decode(root.view(), {owned, sizeof(owned)}, {records, 16},
                                               {index, measured.index_words});
     check(
         decoded.ok() && decoded.record_count == 2 && records[0].order == 8 &&
@@ -110,15 +124,6 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
             !gif_favorites_find({records, decoded.record_count}, {index, decoded.index_words},
                                 utf8_literal("https://example.test/not-saved")),
         "GIF favorites: permanent exact UTF8 lookup indexes canonical records without URL identity hashes");
-    char base64[4096]{};
-    const auto encoded = base64_encode(root.view(), {base64, sizeof(base64)});
-    const auto encoded_measure = gif_favorites_measure_base64({base64, encoded.bytes});
-    check(encoded.ok() && encoded_measure.ok() && encoded_measure.entry_count == measured.entry_count &&
-              gif_favorites_decode_base64({base64, encoded.bytes}, {changed, sizeof(changed)},
-                                          {records, 16}, {index, measured.index_words})
-                  .ok() &&
-              bytes_equal(owned, changed, measured.group_bytes),
-          "GIF favorites: virtual canonical-base64 reader matches complete raw protobuf projection");
     GifFavoriteMutation add{utf8_literal("https://example.test/new"),
                             utf8_literal("https://example.test/new.webp"),
                             640,
@@ -196,17 +201,17 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
           "GIF favorites: insufficient JSON capacity leaves complete publication untouched");
     owned[0] = 91;
     records[0].width = 987;
-    check(gif_favorites_decode_proto(root.view(), {owned, 1}, {records, 16}, {index, measured.index_words})
+    check(decode(root.view(), {owned, 1}, {records, 16}, {index, measured.index_words})
                       .error == GifFavoritesError::capacity &&
               owned[0] == 91 && records[0].width == 987 &&
-              gif_favorites_decode_proto(root.view(), {owned, sizeof(owned)}, {records, 1},
+              decode(root.view(), {owned, sizeof(owned)}, {records, 1},
                                          {index, measured.index_words})
                       .error == GifFavoritesError::capacity &&
               owned[0] == 91 && records[0].width == 987,
           "GIF favorites: owned group and records remain atomic on either capacity failure");
     root.bytes[root.used++] = 0;
     check(
-        gif_favorites_decode_proto(root.view(), {owned, sizeof(owned)}, {records, 16},
+        decode(root.view(), {owned, sizeof(owned)}, {records, 16},
                                    {index, measured.index_words})
                     .error == GifFavoritesError::protobuf &&
             owned[0] == 91 && records[0].width == 987 &&
@@ -214,7 +219,7 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
         "GIF favorites: malformed unrelated protobuf and noncanonical base64 reject the complete snapshot");
     --root.used;
     const u8 invalid_utf8[]{18, 9, 10, 7, 10, 1, 255, 18, 2, 8, 1};
-    check(gif_favorites_decode_proto({invalid_utf8, sizeof(invalid_utf8)}, {owned, sizeof(owned)},
+    check(decode({invalid_utf8, sizeof(invalid_utf8)}, {owned, sizeof(owned)},
                                      {records, 16}, {index, 4})
                       .error == GifFavoritesError::utf8 &&
               owned[0] == 91,
@@ -234,10 +239,10 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
           "GIF favorites: thin-service envelope excludes missing guard, arbitrary root writes and "
           "duplicate/unknown JSON keys");
     const u8 absent_group[]{10, 2, 24, 0}, empty_group[]{18, 0};
-    check(gif_favorites_measure_proto({absent_group, sizeof(absent_group)}).ok() &&
-              !gif_favorites_measure_proto({absent_group, sizeof(absent_group)}).group_present &&
-              gif_favorites_measure_proto({empty_group, sizeof(empty_group)}).group_present &&
-              gif_favorites_measure_proto({empty_group, sizeof(empty_group)}).entry_count == 0,
+    check(measure({absent_group, sizeof(absent_group)}).ok() &&
+              !measure({absent_group, sizeof(absent_group)}).group_present &&
+              measure({empty_group, sizeof(empty_group)}).group_present &&
+              measure({empty_group, sizeof(empty_group)}).entry_count == 0,
           "GIF favorites: absent lazy group stays distinct from an observed empty favorites group");
     u8 collision_group[512]{}, collision_root[1024]{};
     FixtureWire collisions{{collision_group, sizeof(collision_group)}},
@@ -248,7 +253,7 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
     favorite(collisions, collision_a, src_a, 4, 1, 1);
     favorite(collisions, collision_b, src_a, 4, 1, 2);
     collision_top.message(2, collisions.view());
-    const auto collision_result = gif_favorites_decode_proto(
+    const auto collision_result = decode(
         collision_top.view(), {changed, sizeof(changed)}, {records, 16}, {index, 8});
     check(collision_result.ok() && collision_result.record_count == 2 &&
               utf8_equal(records[0].url, collision_b) &&
@@ -260,14 +265,15 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
           "matches");
     changed[0] = 95;
     records[0].width = 987;
-    check(gif_favorites_decode_proto(collision_top.view(), {changed, sizeof(changed)}, {records, 16},
-                                     {index, 1})
+    const Utf8View collision_text = encode(collision_top.view());
+    const char collision_first = collision_text.data[0];
+    check(gif_favorites_decode_base64(collision_text, {changed, sizeof(changed)}, {records, 16}, {index, 1})
                       .error == GifFavoritesError::capacity &&
               changed[0] == 95 && records[0].width == 987 &&
-              gif_favorites_decode_proto(collision_top.view(), {collision_root, sizeof(collision_root)},
-                                         {records, 16}, {index, 8})
+              gif_favorites_decode_base64(collision_text, {reinterpret_cast<u8*>(g_encoded), sizeof(g_encoded)},
+                                          {records, 16}, {index, 8})
                       .error == GifFavoritesError::input &&
-              collision_root[0] == 18,
+              g_encoded[0] == collision_first,
           "GIF favorites: short index and aliased source bank reject before owned publication");
     u8 overflow_group[512]{};
     FixtureWire overflow{{overflow_group, sizeof(overflow_group)}};
@@ -298,8 +304,11 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
     large.used = kGifFavoritesMaximumGroupBytes;
     FixtureWire top{{large_proto, kGifFavoritesMaximumGroupBytes + 16}};
     top.message(2, large.view());
-    check(gif_favorites_measure_proto(top.view()).ok() &&
-              gif_favorites_measure_proto(top.view()).group_bytes == kGifFavoritesMaximumGroupBytes,
+    const auto large_text =
+        base64_encode(top.view(), {reinterpret_cast<char*>(large_json), kGifFavoritesMaximumPatchBytes});
+    const auto large_measured =
+        gif_favorites_measure_base64({reinterpret_cast<const char*>(large_json), large_text.bytes});
+    check(large_text.ok() && large_measured.ok() && large_measured.group_bytes == kGifFavoritesMaximumGroupBytes,
           "GIF favorites: official raw group cap accepts complete opaque fields without counting base64 "
           "overhead");
     large_json[0] = 89;

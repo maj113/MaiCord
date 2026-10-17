@@ -38,7 +38,6 @@ struct GatewayEndpoint {
     u8 reserved;
 };
 
-GatewayEndpointError gateway_endpoint_parse(Utf8View url, GatewayEndpoint* endpoint) noexcept;
 GatewayEndpointError gateway_endpoint_parse_with_policy(
     Utf8View url, GatewayEndpointPolicy policy,
     GatewayEndpoint* endpoint) noexcept;

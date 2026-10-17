@@ -22,8 +22,8 @@ struct State {
     IMFTransform* transform{};
     IMFSample* output{};
     IMFMediaBuffer* output_buffer{};
-    DWORD input_id{}, output_id{}, output_flags{};
-    u32 output_bytes{}, output_alignment{}, output_capacity{}, input_bytes{}, input_alignment{};
+    DWORD input_id{}, output_id{};
+    u32 input_bytes{}, input_alignment{};
     bool mf{}, ready{}, need_output{}, discontinuity{true};
 };
 static_assert(sizeof(State) <= 256);
@@ -87,11 +87,6 @@ HRESULT output_type(AacDecoder& owner, State& s) noexcept {
         owner.native_stage = AacNativeStage::output_info;
         h = s.transform->GetOutputStreamInfo(s.output_id, &info);
     }
-    if (SUCCEEDED(h)) {
-        s.output_bytes = info.cbSize;
-        s.output_alignment = info.cbAlignment;
-        s.output_flags = info.dwFlags;
-    }
     u32 alignment_mask{}, capacity{};
     if (SUCCEEDED(h) && (!aac_decoder_output_capacity(info.cbSize, &capacity) ||
                          !aac_decoder_alignment_mask(info.cbAlignment, &alignment_mask)))
@@ -105,15 +100,11 @@ HRESULT output_type(AacDecoder& owner, State& s) noexcept {
     if (SUCCEEDED(h)) {
         com_release(s.output);
         com_release(s.output_buffer);
-        s.output_capacity = 0;
         h = s.api.sample(&s.output);
         if (SUCCEEDED(h))
             h = s.api.aligned(capacity, alignment_mask, &s.output_buffer);
         if (SUCCEEDED(h))
-            s.output_capacity = capacity;
-        if (SUCCEEDED(h))
             h = s.output->AddBuffer(s.output_buffer);
-        s.output_flags = info.dwFlags;
     }
     return h;
 }
@@ -473,14 +464,5 @@ AacDecodeResult aac_decoder_release(AacDecoder* owner) noexcept {
     }
     *owner = {};
     return {};
-}
-u32 aac_decoder_owned_bytes(const AacDecoder* owner) noexcept {
-    return owner && owner->runtime ? sizeof(State) : 0;
-}
-AacOutputRequirements aac_decoder_output_requirements(const AacDecoder* owner) noexcept {
-    if (!owner || !owner->runtime || !thread(*owner))
-        return {};
-    const auto& s = *static_cast<const State*>(owner->runtime);
-    return {s.output_bytes, s.output_alignment, s.output_flags, s.output_capacity};
 }
 } // namespace maicord

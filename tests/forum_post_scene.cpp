@@ -147,9 +147,10 @@ void test_forum_post_scene(void (*check)(bool, const char*) noexcept) noexcept {
     for (const auto& theme : themes) {
         UiTextCommand commands[40]{};
         UiTextCommandStream text{};
+        UiTextOutput output{&text, nullptr};
         bool title_single = false, body_multi = false;
         bool ok = ui_text_command_stream_initialize(&text, {commands, 40}) &&
-                  forum_post_text(scene, geometry, theme, &text);
+                  forum_post_text_output(scene, geometry, theme, &output);
         for (u32 i = 0; ok && i < text.count; ++i) {
             const auto& command = text.storage[i];
             if (command.owner.handle.slot == scene.elements[static_cast<u32>(ForumPostElement::title)].slot)
@@ -340,10 +341,6 @@ void test_forum_post_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(!forum_post_update(&scene, content, viewport, &cache) && scene.revision == retained &&
               scene.active,
           "forum_scene_split_surrogate_rejected_without_mutating_scene");
-    forum_post_close(&scene);
-    check(!scene.active && !scene.content.fields[0].text.data && !scene.content.fields[1].text.data &&
-              forum_post_hit_test(scene, 20, 20).element == ForumPostElement::count,
-          "forum_scene_close_detaches_borrowed_fields_and_input");
     forum_post_release(&scene);
     check(!scene.storage.arena.base && !scene.widgets.count, "forum_scene_release_lazy_storage");
 }

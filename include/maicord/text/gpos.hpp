@@ -18,8 +18,6 @@ static_assert(sizeof(SfntValueRecord)==24 && sizeof(SfntPositionValue)==104 && s
 static_assert(sizeof(SfntPositionInstance)==16 && sizeof(SfntPositionAdjustment)==40);
 // Returns 0xffff for reserved bits, otherwise 0..16 bytes (zero is meaningful).
 u16 sfnt_position_value_size(u16 format) noexcept;
-SfntStatus sfnt_value_record_open(ConstSlice<u8> parent,u32 offset,u16 format,u32 device_minimum,SfntValueRecord* output,
-                                  u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 SfntStatus sfnt_value_record_read(const SfntValueRecord& record,SfntPositionValue* output) noexcept;
 SfntStatus sfnt_anchor_open(ConstSlice<u8> table,SfntAnchor* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 SfntStatus sfnt_anchor_read(const SfntAnchor& anchor,SfntAnchorValue* output) noexcept;
@@ -46,16 +44,12 @@ static_assert(sizeof(SfntGposSubtable)==80 && sizeof(SfntGposMatch)==64 && sizeo
 // Prepared views and mappings remain immutable; work reports share a caller budget.
 SfntStatus sfnt_gpos_subtable_open(ConstSlice<u8> table,u16 type,u32 glyph_limit,SfntGposSubtable* output,
                                    u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
-SfntStatus sfnt_gpos_lookup_prepare(const SfntLayout& layout,u16 lookup,const SfntGdef& gdef,u32 glyph_limit,
-                                   Slice<SfntGposSubtable> storage,SfntGposLookup* output,u32 work_limit=1000000) noexcept;
 // Logical glyph order, bounded input range; first input is always tested, and
 // intervening filtered glyphs survive. An empty second value format leaves the
 // second glyph available as the next input; a present zero value still consumes
 // that input. Class indices outside encoded matrices produce no match.
-// First matching subtable wins, including zero adjustments. No positions mutate.
+// No positions mutate.
 SfntStatus sfnt_gpos_subtable_match_view(const SfntGposSubtable& subtable,const SfntGdef& gdef,const SfntLookupFilter& filter,
                                         SfntGlyphView glyphs,u32 start,u32 input_end,SfntGposMatch* output,
                                         u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
-SfntStatus sfnt_gpos_lookup_match_view(const SfntGposLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,
-                                     u32 start,u32 input_end,SfntGposMatch* output,u32 work_limit=1000000) noexcept;
 }

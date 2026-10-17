@@ -85,27 +85,20 @@ void test_clipboard_image(void (*check)(bool, const char*) noexcept) noexcept {
     check(png_bytes == clipboard_image_png_bytes(width, height) && same,
           "clipboard image: stored-deflate PNG decodes back to identical straight RGBA through the native decoder");
     u8 dib[sizeof(BITMAPV5HEADER) + sizeof(rgba)]{};
-    u8 back[sizeof(rgba)]{};
-    u32 read_width = 0, read_height = 0;
     const u64 dib_bytes = clipboard_image_build_dib(rgba, width, height, width * 4, {dib, sizeof(dib)});
     BITMAPV5HEADER header{};
     copy_bytes(&header, dib, sizeof(header));
-    bool round_trip = dib_bytes == sizeof(dib) && header.bV5Height > 0 && header.bV5AlphaMask == 0xff000000u &&
-                      header.bV5Compression == BI_BITFIELDS && dib[sizeof(header) + 2] == 10 &&
-                      dib[sizeof(header) + 3] == 40 &&
-                      clipboard_image_parse_dib({dib, sizeof(dib)}, {back, sizeof(back)}, &read_width, &read_height) &&
-                      read_width == width && read_height == height;
-    for (u32 i = 0; round_trip && i < sizeof(rgba); ++i)
-        round_trip = back[i] == rgba[i];
-    check(round_trip,
-          "clipboard image: CF_DIBV5 payload is bottom-up BGRA with alpha and parses back to the same pixels");
-    header.bV5Height = -static_cast<LONG>(height);
-    copy_bytes(dib, &header, sizeof(header));
-    check(clipboard_image_parse_dib({dib, sizeof(dib)}, {back, sizeof(back)}, &read_width, &read_height) &&
-              back[0] == 10 && !clipboard_image_parse_dib({dib, 40}, {back, sizeof(back)}, &read_width, &read_height) &&
-              !clipboard_image_encode_png(rgba, width, height, width * 4, {png, 16}) &&
-              !clipboard_image_png_bytes(0, 1),
-          "clipboard image: top-down DIBs, truncation and capacity limits are handled explicitly");
+    bool bottom_up = dib_bytes == sizeof(dib) && header.bV5Height > 0 && header.bV5AlphaMask == 0xff000000u &&
+                     header.bV5Compression == BI_BITFIELDS;
+    for (u32 y = 0; bottom_up && y < height; ++y)
+        for (u32 x = 0; bottom_up && x < width; ++x) {
+            const u8* source = rgba + ((height - 1 - y) * width + x) * 4;
+            const u8* pixel = dib + sizeof(header) + (y * width + x) * 4;
+            bottom_up = pixel[0] == source[2] && pixel[1] == source[1] && pixel[2] == source[0] && pixel[3] == source[3];
+        }
+    check(bottom_up, "clipboard image: CF_DIBV5 payload is bottom-up BGRA with alpha");
+    check(!clipboard_image_encode_png(rgba, width, height, width * 4, {png, 16}) && !clipboard_image_png_bytes(0, 1),
+          "clipboard image: capacity limits are handled explicitly");
 }
 // Captures clipboard transactions in memory. Tests install it so the user's
 // real clipboard is never opened, emptied or replaced.
@@ -275,11 +268,12 @@ void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
     PaintStream paint{};
     UiTextCommand commands[5]{};
     UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1200, 800) &&
               ui_image_viewer_paint(viewer, kDefaultTheme, &paint) && paint.count == 10 &&
               ui_icon_quad(paint.quads[2]) && ui_icon_quad(paint.quads[8]) &&
               ui_text_command_stream_initialize(&text, {commands, 5}) &&
-              ui_image_viewer_text(viewer, kDefaultTheme, &text) && text.count == 1,
+              ui_image_viewer_text_output(viewer, kDefaultTheme, &text_output) && text.count == 1,
           "viewer uses shared paint and text streams for modal controls");
     const auto outlines = [&]() noexcept {
         u32 count = 0;
@@ -295,7 +289,7 @@ void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
     ui_text_command_stream_reset(&text);
     paint_stream_reset(&paint, 1200, 800);
     bool light_controls = ui_image_viewer_paint(viewer, light_gradient, &paint) &&
-                          ui_image_viewer_text(viewer, light_gradient, &text) && text.count == 1 &&
+                          ui_image_viewer_text_output(viewer, light_gradient, &text_output) && text.count == 1 &&
                           text.storage[0].color.red > .9f;
     u32 bright_icons = 0;
     for (u32 i = 0; light_controls && i < paint.count; ++i) {

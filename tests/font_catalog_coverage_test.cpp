@@ -1,5 +1,4 @@
 #include "maicord/text/font_catalog_coverage.hpp"
-#include "maicord/text/font_catalog_builder.hpp"
 #include "maicord/core/byte_order.hpp"
 #include <Windows.h>
 namespace maicord {namespace {
@@ -16,16 +15,16 @@ struct Temporary {
     bool open() noexcept {wchar_t dir[MAX_PATH];const u32 n=GetTempPathW(MAX_PATH,dir);if(!n||n>=MAX_PATH)return false;for(auto& p:paths)if(!GetTempFileNameW(dir,L"mfc",0,p))return false;return true;}
     ~Temporary() noexcept{for(auto& p:paths)if(*p)cleanup_ok=DeleteFileW(p)&&cleanup_ok;}
 };
+#include "font_catalog_fixture.inc"
 constexpr u32 held_faces=1024,collection_faces=held_faces+1;
 struct Owner {
-    NativeFontCatalogBuilder catalog{},alias{};NativeFontSession* session=nullptr;NativeFontCoverageCache cache{};
+    CatalogFixture catalog,alias;NativeFontSession* session=nullptr;NativeFontCoverageCache cache{};
     NativeFontCoverageSlot slots[3]{};NativeFontHandle retained[held_faces]{};NativeFontInstanceHandle instance{};
     ~Owner() noexcept {
         if(session){auto* fonts=native_font_session_fonts(session);for(auto h:retained)if(h.slot)cleanup_ok=native_font_release(fonts,h)&&cleanup_ok;
             if(instance.slot)cleanup_ok=native_font_instance_release(native_font_session_instances(session),instance)&&cleanup_ok;}
         cleanup_ok=native_font_coverage_release(&cache)&&cleanup_ok;
         if(session)cleanup_ok=native_font_session_release(&session)&&cleanup_ok;
-        native_font_catalog_builder_release(&alias);native_font_catalog_builder_release(&catalog);
     }
 };
 u8 collection[65536];
@@ -44,10 +43,9 @@ bool run() noexcept {
     FILE_BASIC_INFO clock{},older{};bool dated_ok=GetFileInformationByHandleEx(dated,FileBasicInfo,&clock,sizeof(clock))!=FALSE;
     older.ChangeTime.QuadPart=clock.ChangeTime.QuadPart-100000000;
     dated_ok=dated_ok&&SetFileInformationByHandle(dated,FileBasicInfo,&older,sizeof(older));CloseHandle(dated);CHECK(dated_ok);
-    CHECK(native_font_catalog_builder_initialize(&owner.catalog)&&native_font_catalog_builder_initialize(&owner.alias));u16 names[256];u32 id=0;
-    CHECK(native_font_catalog_builder_add(&owner.catalog,temp.paths[0],{names,256},&id).ok());
-    CHECK(native_font_catalog_builder_add(&owner.catalog,temp.paths[1],{names,256},&id).ok());
-    CHECK(native_font_catalog_builder_add(&owner.alias,temp.paths[0],{names,256},&id).ok());
+    u32 id=0;CHECK(owner.catalog.add(temp.paths[0],&id));
+    CHECK(owner.catalog.add(temp.paths[1],&id));
+    CHECK(owner.alias.add(temp.paths[0],&id));
     const auto& c=owner.catalog.catalog;const auto& alias=owner.alias.catalog;CHECK(c.count.faces==collection_faces+1&&c.count.candidates==collection_faces+1&&alias.count.faces==collection_faces);
     CHECK(c.count.files==2&&bytes_equal(&c.files[1].change_time,&older.ChangeTime,8));
     CHECK(native_font_session_create(&owner.session));auto*& session=owner.session;auto& cache=owner.cache;auto* fonts=native_font_session_fonts(session);
@@ -115,9 +113,8 @@ bool run() noexcept {
     changed=CreateFileW(temp.paths[1],FILE_WRITE_ATTRIBUTES,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);CHECK(changed!=INVALID_HANDLE_VALUE);
     const bool restored=SetFileTime(changed,nullptr,nullptr,&old_time)!=0;CloseHandle(changed);CHECK(restored);
     CHECK(native_font_coverage_probe(&cache,c,collection_faces,65,&covered).native_error==ERROR_RETRY&&!covered&&!native_font_session_stats(session).live.files);
-    NativeFontCatalogBuilder refreshed{};struct RefreshRelease {NativeFontCatalogBuilder& b;~RefreshRelease() noexcept {native_font_catalog_builder_release(&b);}} refreshed_release{refreshed};CHECK(native_font_catalog_builder_initialize(&refreshed));
-    CHECK(native_font_catalog_builder_add(&refreshed,temp.paths[1],{names,256},&id).ok());
-    CHECK(native_font_coverage_probe(&cache,refreshed.catalog,0,65,&covered).ok()&&covered);CHECK(native_font_coverage_reset(&cache));native_font_catalog_builder_release(&refreshed);
+    CatalogFixture refreshed;CHECK(refreshed.add(temp.paths[1],&id));
+    CHECK(native_font_coverage_probe(&cache,refreshed.catalog,0,65,&covered).ok()&&covered);CHECK(native_font_coverage_reset(&cache));
     CHECK(write(temp.paths[1],{collection,4}));const auto malformed=native_font_coverage_probe(&cache,c,collection_faces,65,&covered);
     CHECK(malformed.error==NativeFontError::font&&!covered&&!native_font_session_stats(session).live.files);
     CHECK(DeleteFileW(temp.paths[1]));const auto missing=native_font_coverage_probe(&cache,c,collection_faces,65,&covered);

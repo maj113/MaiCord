@@ -4,7 +4,8 @@
 namespace maicord {namespace {
 struct Record {SfntGsubGlyph glyph;u32 source,color,flags;u64 provenance;};
 static_assert(sizeof(Record)==24);
-u64 edit_checks=0,record_checks=0,position_checks=0,boundary_checks=0,stream_moves=0,flat_moves=0;
+u64 edit_checks=0,record_checks=0,boundary_checks=0,stream_moves=0,flat_moves=0;
+constexpr u32 inserted_origin=0xffffffffu;
 void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
 void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 u32 random(u32* state) noexcept {*state^=*state<<13;*state^=*state>>17;*state^=*state<<5;return *state;}
@@ -31,11 +32,10 @@ bool exercise(u32 initial,u32 seed) noexcept {
         if(status!=SfntStatus::ok || edit.old_count!=count || edit.new_count!=after || edit.start!=start || edit.replacement_count!=inserted || edit.consumed.count!=consumed)return false;
         // Build an independent flat result by walking old records and emitting
         // replacement records at the insertion point. Track surviving old slots.
-        u32 n=0,p=0;for(u32 old=0;old<=count;++old){if(old==start)for(u32 i=0;i<inserted;++i){next[n]=replacement[i];origins[n++]=sfnt_removed_position;}if(old==count)break;
+        u32 n=0,p=0;for(u32 old=0;old<=count;++old){if(old==start)for(u32 i=0;i<inserted;++i){next[n]=replacement[i];origins[n++]=inserted_origin;}if(old==count)break;
             if(p<consumed && positions[p]==old){++p;continue;}next[n]=expected[old];origins[n++]=old;}
         if(n!=after || !equal(buffer,next,n))return false;
-        for(u32 old=0;old<count;++old){u32 found=sfnt_removed_position;for(u32 i=0;i<n;++i)if(origins[i]==old){found=i;break;}u32 actual=0;if(sfnt_glyph_edit_position(edit,old,&actual)!=SfntStatus::ok || actual!=found)return false;++position_checks;}
-        for(u32 boundary=0;boundary<=count;++boundary)for(u32 affinity=0;affinity<2;++affinity){u32 found=0;for(u32 i=0;i<n;++i)if(origins[i]!=sfnt_removed_position && origins[i]<boundary)++found;
+        for(u32 boundary=0;boundary<=count;++boundary)for(u32 affinity=0;affinity<2;++affinity){u32 found=0;for(u32 i=0;i<n;++i)if(origins[i]!=inserted_origin && origins[i]<boundary)++found;
             if(start<boundary || (start==boundary && affinity))found+=inserted;u32 actual=0;if(sfnt_glyph_edit_boundary(edit,boundary,affinity!=0,&actual)!=SfntStatus::ok || actual!=found)return false;++boundary_checks;}
         for(u32 i=0;i<n;++i)expected[i]=next[i];count=n;++edit_checks;
         for(u32 i=0;i<sizeof(Record);++i)if(reinterpret_cast<u8*>(storage)[i]!=0xa5 || reinterpret_cast<u8*>(storage+capacity+1)[i]!=0xa5)return false;
@@ -84,7 +84,7 @@ int run() noexcept {
     if(!failures()){print(utf8_literal("FAIL glyph buffer failure checks\n"));return 1;}
     if(!exercise(0,0x941ae973) || !exercise(96,0x0519baed)){print(utf8_literal("FAIL glyph buffer model\n"));return 2;}
     if(!streaming()){print(utf8_literal("FAIL glyph buffer stream\n"));return 3;}if(!guards()){print(utf8_literal("FAIL glyph buffer guards\n"));return 4;}
-    print(utf8_literal("edits="));number(edit_checks);print(utf8_literal("\nrecords="));number(record_checks);print(utf8_literal("\npositions="));number(position_checks);print(utf8_literal("\nboundaries="));number(boundary_checks);print(utf8_literal("\ngap_record_copies="));number(stream_moves);print(utf8_literal("\nflat_record_copies="));number(flat_moves);print(utf8_literal("\nPASS native glyph gap buffer\n"));return 0;
+    print(utf8_literal("edits="));number(edit_checks);print(utf8_literal("\nrecords="));number(record_checks);print(utf8_literal("\nboundaries="));number(boundary_checks);print(utf8_literal("\ngap_record_copies="));number(stream_moves);print(utf8_literal("\nflat_record_copies="));number(flat_moves);print(utf8_literal("\nPASS native glyph gap buffer\n"));return 0;
 }
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_glyph_buffer_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}

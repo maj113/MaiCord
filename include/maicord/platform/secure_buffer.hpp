@@ -41,10 +41,6 @@ ConstSlice<u8> secure_buffer_view(const SecureBuffer& buffer) noexcept;
 // DPAPI output is copied into caller storage, then the OS allocation is
 // securely erased and released. Protect reports the required encrypted size
 // without partially writing when output is too small.
-SecureBufferResult secure_buffer_protect_user(const SecureBuffer& plaintext,
-                                              Slice<u8> protected_output) noexcept;
-SecureBufferResult secure_buffer_unprotect_user(ConstSlice<u8> protected_input,
-                                                SecureBuffer* plaintext) noexcept;
 SecureBufferResult secure_buffer_protect_user_bound(
     const SecureBuffer& plaintext, ConstSlice<u8> entropy,
     Slice<u8> protected_output) noexcept;

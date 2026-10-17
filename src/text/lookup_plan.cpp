@@ -1,4 +1,3 @@
-#include "substitution_selection.hpp"
 #include "maicord/text/lookup_plan.hpp"
 #include "maicord/text/khmer_plan.hpp"
 #include "layout_language.hpp"
@@ -113,9 +112,5 @@ SfntStatus sfnt_alphabetic_lookup_plan(const SfntLayout& layout,const SfntFeatur
     if(script==sfnt_tag('l','a','t','n'))return sfnt_latin_lookup_plan(layout,variations,independent,scratch,indices,result,work);
     if(!sfnt_alphabetic_script_supported(script)||!layout.table.data||static_cast<u8>(layout.kind)>1||(scratch.count&&!scratch.data)||(indices.count&&!indices.data))return SfntStatus::invalid_input;
     Builder builder{layout,variations,scratch,indices,*result,work};const auto status=builder.run(independent,false,script);result->operations=work-builder.work;return status;
-}
-bool alphabetic_substitution_feature(u32 tag) noexcept {
-    return feature_bit(SfntLayoutKind::substitution,tag,false)||feature_bit(SfntLayoutKind::substitution,tag,true)||
-        tag==sfnt_tag('l','j','m','o')||tag==sfnt_tag('v','j','m','o')||tag==sfnt_tag('t','j','m','o');
 }
 }

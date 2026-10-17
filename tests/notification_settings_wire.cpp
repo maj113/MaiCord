@@ -9,6 +9,11 @@ NotificationSettingsDecodeError decode(Utf8View text,bool snapshot,Slice<Message
     const JsonIndexedDocument doc{text,{scratch,scan.count}};
     return decode_notification_settings(doc,{text,0,JsonValueKind::object},snapshot,g,o,p);
 }
+// The decoder reads base64 settings; encode raw protobuf fixtures first.
+NotificationSettingsDecodeError decode_global(ConstSlice<u8> bytes,MessageNotificationGlobal*out) noexcept {
+    char encoded[64]{};const auto base=base64_encode(bytes,{encoded,64});
+    return base.ok()?decode_notification_global_base64({encoded,base.bytes},out):NotificationSettingsDecodeError::input;
+}
 }
 void test_notification_settings_wire(void(*check)(bool,const char*)noexcept) noexcept {
     using E=NotificationSettingsDecodeError;MessageNotificationGuildSetting g[3]{};MessageNotificationOverride o[4]{};NotificationSettingsPacket packet{};
@@ -30,36 +35,34 @@ void test_notification_settings_wire(void(*check)(bool,const char*)noexcept) noe
     // root notifications(7): quiet wrapper(5)->bool; expiry(6) fixed64.
     // root status(11): status wrapper(1)->StringValue dnd.
     const u8 bytes[]={0x3a,13,0x2a,2,8,1,0x31,0xe8,3,0,0,0,0,0,0,0x5a,7,0x0a,5,0x0a,3,'d','n','d'};
-    MessageNotificationGlobal global{};check(decode_notification_global_proto({bytes,sizeof(bytes)},&global)==E::none&&global.quiet&&global.focus_expires_ms==1000&&global.status==MessageNotificationStatus::dnd,"minimal nested protobuf subset");
-    char encoded[64]{};const auto base=base64_encode({bytes,sizeof(bytes)},{encoded,64});MessageNotificationGlobal virtual_global{};
-    check(base.ok()&&decode_notification_global_base64({encoded,base.bytes},&virtual_global)==E::none&&virtual_global.fields==global.fields&&virtual_global.status==global.status,"virtual base64 reader equals raw decoder without bank");
-    const u8 empty_wrapper[]={0x3a,2,0x2a,0};check(decode_notification_global_proto({empty_wrapper,4},&global)==E::none&&(global.fields&notification_quiet)&&!global.quiet,"empty present wrapper carries protobuf default false");
+    MessageNotificationGlobal global{};check(decode_global({bytes,sizeof(bytes)},&global)==E::none&&global.quiet&&global.focus_expires_ms==1000&&global.status==MessageNotificationStatus::dnd,"minimal nested protobuf subset");
+    const u8 empty_wrapper[]={0x3a,2,0x2a,0};check(decode_global({empty_wrapper,4},&global)==E::none&&(global.fields&notification_quiet)&&!global.quiet,"empty present wrapper carries protobuf default false");
     const u8 empty_notifications[]={0x3a,0};
-    check(decode_notification_global_proto({empty_notifications,2},&global)==E::none&&global.fields==(notification_quiet|notification_focus_expiry)&&!global.quiet&&!global.focus_expires_ms,
+    check(decode_global({empty_notifications,2},&global)==E::none&&global.fields==(notification_quiet|notification_focus_expiry)&&!global.quiet&&!global.focus_expires_ms,
         "present empty notifications group projects both replacement defaults");
     MessageNotificationGlobal retained{100,200,15,true,MessageNotificationStatus::dnd};
     message_notifications_apply_global(&retained,global,true);
     check(!retained.quiet&&!retained.focus_expires_ms&&retained.status==MessageNotificationStatus::dnd&&retained.status_expires_ms==200,
         "partial notifications group resets its members and preserves omitted status group");
     const u8 empty_status[]={0x5a,0};
-    check(decode_notification_global_proto({empty_status,2},&global)==E::none&&global.fields==(notification_status|notification_status_expiry)&&global.status==MessageNotificationStatus::unknown&&!global.status_expires_ms,
+    check(decode_global({empty_status,2},&global)==E::none&&global.fields==(notification_status|notification_status_expiry)&&global.status==MessageNotificationStatus::unknown&&!global.status_expires_ms,
         "present empty status group projects unknown status and zero expiry defaults");
     retained={100,200,15,true,MessageNotificationStatus::dnd};message_notifications_apply_global(&retained,global,true);
     check(retained.quiet&&retained.focus_expires_ms==100&&retained.status==MessageNotificationStatus::unknown&&!retained.status_expires_ms,
         "partial status group replaces its members and preserves omitted notifications group");
     const u8 status_only[]={0x5a,7,0x0a,5,0x0a,3,'d','n','d'};
-    check(decode_notification_global_proto({status_only,sizeof(status_only)},&global)==E::none&&global.fields==(notification_status|notification_status_expiry)&&global.status==MessageNotificationStatus::dnd&&!global.status_expires_ms,
+    check(decode_global({status_only,sizeof(status_only)},&global)==E::none&&global.fields==(notification_status|notification_status_expiry)&&global.status==MessageNotificationStatus::dnd&&!global.status_expires_ms,
         "status group with omitted fixed64 expiry explicitly clears prior finite expiry");
     retained={100,200,15,true,MessageNotificationStatus::dnd};
-    check(decode_notification_global_proto({},&global)==E::none&&!global.fields,"entire empty partial proto has no present groups");
+    check(decode_global({},&global)==E::none&&!global.fields,"entire empty partial proto has no present groups");
     message_notifications_apply_global(&retained,global,true);
     check(retained.quiet&&retained.focus_expires_ms==100&&retained.status==MessageNotificationStatus::dnd&&retained.status_expires_ms==200,
         "entire empty partial proto preserves both existing groups");
-    const u8 repeated_wrapper[]={0x3a,6,0x2a,2,8,1,0x2a,0};check(decode_notification_global_proto({repeated_wrapper,8},&global)==E::none&&global.quiet,"repeated protobuf message wrapper merges rather than clearing");
-    const u8 unknown[]={0x80,1,7,0x3a,4,0x2a,2,8,1};check(decode_notification_global_proto({unknown,sizeof(unknown)},&global)==E::none&&global.quiet,"unknown varint field skipped");
+    const u8 repeated_wrapper[]={0x3a,6,0x2a,2,8,1,0x2a,0};check(decode_global({repeated_wrapper,8},&global)==E::none&&global.quiet,"repeated protobuf message wrapper merges rather than clearing");
+    const u8 unknown[]={0x80,1,7,0x3a,4,0x2a,2,8,1};check(decode_global({unknown,sizeof(unknown)},&global)==E::none&&global.quiet,"unknown varint field skipped");
     const u8 malformed[]={0x3a,10,0x2a,2,8,1};global.quiet=false;global.fields=99;
-    check(decode_notification_global_proto({malformed,sizeof(malformed)},&global)==E::protobuf&&global.fields==99,"truncated proto leaves output unchanged");
-    const u8 overflow[]={0x80,0x80,0x80,0x80,0x80,0x80,0x80,0x80,0x80,2};check(decode_notification_global_proto({overflow,10},&global)==E::protobuf,"overflow varint rejected");
+    check(decode_global({malformed,sizeof(malformed)},&global)==E::protobuf&&global.fields==99,"truncated proto leaves output unchanged");
+    const u8 overflow[]={0x80,0x80,0x80,0x80,0x80,0x80,0x80,0x80,0x80,2};check(decode_global({overflow,10},&global)==E::protobuf,"overflow varint rejected");
     check(decode_notification_global_base64(utf8_literal("AB=="),&global)==E::base64,"noncanonical base64 rejected before parsing");
 }
 } // namespace maicord

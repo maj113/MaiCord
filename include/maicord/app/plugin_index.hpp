@@ -53,7 +53,6 @@ inline constexpr u32 kPluginIndexCategoryCount = 10;  // chat appearance notific
                                                       // accessibility moderation developer fun
 inline constexpr u32 kPluginIndexDisclosureCount = 4; // network files processes input
 Utf8View plugin_index_category_name(u32 index) noexcept;
-Utf8View plugin_index_disclosure_name(u32 index) noexcept;
 
 // official: the compiled provider; its index says id "maicord", carries no
 // key, names a commit for every version and derives file locations.

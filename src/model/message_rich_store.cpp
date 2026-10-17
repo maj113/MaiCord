@@ -740,34 +740,23 @@ bool message_rich_store_initialize(MessageRichStore* store, Slice<MessageRichRec
                             records.count, order, text, records.count);
 }
 
-static bool initialize_owned_store(MessageRichStore* store, StableStorage* record_storage,
-                                   u32 record_capacity, Slice<u16> order, Slice<u8> text,
-                                   bool sparse_text) noexcept {
+bool message_rich_store_initialize_owned_sparse(MessageRichStore* store, StableStorage* record_storage,
+                                                u32 record_capacity, Slice<u16> order,
+                                                Slice<u8> reserved_text) noexcept {
     if (!store || !record_storage || record_storage->arena.base || record_capacity == 0 ||
-        record_capacity > 0xFFFFu || !order.data || order.count < record_capacity || !text.data ||
-        text.count < 2 || (text.count & 1u) != 0 ||
+        record_capacity > 0xFFFFu || !order.data || order.count < record_capacity || !reserved_text.data ||
+        reserved_text.count < 2 || (reserved_text.count & 1u) != 0 ||
         !stable_storage_initialize(record_storage, minimum<u32>(record_capacity * 2u, 0xFFFFu), 0,
                                    sizeof(MessageRichRecord), alignof(MessageRichRecord), false)) {
         return false;
     }
     if (!initialize_store(store, stable_storage_data<MessageRichRecord>(*record_storage), record_storage,
-                          record_capacity, 0, order, text, minimum<u32>(record_capacity * 2u, 0xFFFFu),
-                          sparse_text)) {
+                          record_capacity, 0, order, reserved_text, minimum<u32>(record_capacity * 2u, 0xFFFFu),
+                          true)) {
         stable_storage_release(record_storage);
         return false;
     }
     return true;
-}
-
-bool message_rich_store_initialize_owned(MessageRichStore* store, StableStorage* record_storage,
-                                         u32 record_capacity, Slice<u16> order, Slice<u8> text) noexcept {
-    return initialize_owned_store(store, record_storage, record_capacity, order, text, false);
-}
-
-bool message_rich_store_initialize_owned_sparse(MessageRichStore* store, StableStorage* record_storage,
-                                                u32 record_capacity, Slice<u16> order,
-                                                Slice<u8> reserved_text) noexcept {
-    return initialize_owned_store(store, record_storage, record_capacity, order, reserved_text, true);
 }
 
 void message_rich_store_release(MessageRichStore* store) noexcept {

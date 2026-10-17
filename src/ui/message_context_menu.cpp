@@ -292,11 +292,6 @@ MessageContextMenuResult message_context_menu_build(MessageContextMenuModel* mod
     return MessageContextMenuResult{model->count, MessageContextMenuError::none};
 }
 
-ConstSlice<PopupItem> message_context_menu_items(const MessageContextMenuModel& model) noexcept {
-    return model.count <= kMessageContextMaximumItems ? ConstSlice<PopupItem>{model.items, model.count}
-                                                      : ConstSlice<PopupItem>{};
-}
-
 bool message_context_menu_resolve_quick_reaction(const MessageContextMenuModel& model, u32 value,
                                                  MessageContextQuickReaction* reaction) noexcept {
     const u32 first = action(MessageContextAction::quick_reaction_0);

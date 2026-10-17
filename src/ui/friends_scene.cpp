@@ -1485,14 +1485,6 @@ bool ui_friends_scene_active_hover(UiFriendsScene* s, float x, float y) noexcept
     ++s->revision;
     return true;
 }
-bool ui_friends_scene_text(const UiFriendsScene& s, const Theme& theme, UiTextCommandStream* stream,
-                           const UiEditGeometry* edit) noexcept {
-    UiTextOutput output{stream, nullptr};
-    return ui_friends_scene_text_output(s, theme, &output, edit);
-}
-} // namespace maicord
-
-namespace maicord {
 bool ui_friends_scene_icon_action(const UiFriendsScene& s, bool keyboard, float x, float y,
                                   UiWidgetHandle* widget, UiFriendsTarget* target, Utf8View* tooltip) noexcept {
     if (!widget || !target || !tooltip || !current(s))

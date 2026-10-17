@@ -3,33 +3,28 @@
 namespace maicord {
 namespace {
 
-bool finite_value(float value) noexcept {
-    return value == value && value >= -kMaximumUiCoordinate &&
-           value <= kMaximumUiCoordinate;
-}
-
 bool unit_value(float value) noexcept {
     return value == value && value >= 0.0f && value <= 1.0f;
 }
 
 bool valid_clip(UiRect rectangle) noexcept {
-    return finite_value(rectangle.left) && finite_value(rectangle.top) &&
-           finite_value(rectangle.right) && finite_value(rectangle.bottom) &&
+    return ui_coordinate_valid(rectangle.left) && ui_coordinate_valid(rectangle.top) &&
+           ui_coordinate_valid(rectangle.right) && ui_coordinate_valid(rectangle.bottom) &&
            ui_rect_has_area(rectangle);
 }
 
 bool valid_quad(const GlyphQuad& quad) noexcept {
     const float color_offset = quad.u0 >= 2.f ? 2.f : 0.f;
-    return finite_value(quad.left) && finite_value(quad.top) &&
-           finite_value(quad.right) && finite_value(quad.bottom) &&
+    return ui_coordinate_valid(quad.left) && ui_coordinate_valid(quad.top) &&
+           ui_coordinate_valid(quad.right) && ui_coordinate_valid(quad.bottom) &&
            quad.right > quad.left && quad.bottom > quad.top &&
            unit_value(quad.u0 - color_offset) && unit_value(quad.v0) &&
            unit_value(quad.u1 - color_offset) && unit_value(quad.v1) &&
            quad.u1 >= quad.u0 && quad.v1 >= quad.v0 &&
-           finite_value(quad.color.red) &&
-           finite_value(quad.color.green) &&
-           finite_value(quad.color.blue) &&
-           finite_value(quad.color.alpha);
+           ui_coordinate_valid(quad.color.red) &&
+           ui_coordinate_valid(quad.color.green) &&
+           ui_coordinate_valid(quad.color.blue) &&
+           ui_coordinate_valid(quad.color.alpha);
 }
 
 GlyphQuad clipped_quad(const GlyphQuad& source, UiRect clip) noexcept {

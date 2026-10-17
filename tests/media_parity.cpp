@@ -395,7 +395,7 @@ void test_media_parity(Check check) noexcept {
           "message_gif_large_fixture");
     const auto gif_head = utf8_literal("HTTP/1.1 200 OK\r\nContent-Type: image/gif\r\nTransfer-Encoding: "
                                        "chunked\r\nCache-Control: max-age=60\r\n\r\n");
-    check(validate_static_gif_response({reinterpret_cast<const u8*>(gif_head.data), gif_head.bytes},
+    check(validate_static_image_response(CdnImageType::gif, {reinterpret_cast<const u8*>(gif_head.data), gif_head.bytes},
                                        gif.encoded_bytes, 100)
               .ok(),
           "message_gif_over_2mb_http_policy");

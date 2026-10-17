@@ -90,7 +90,6 @@ SecureEditResult secure_edit_select_word(SecureEdit* edit, u32 byte_position) no
 SecureEditResult secure_edit_select_line(SecureEdit* edit, u32 byte_position) noexcept;
 void secure_edit_cancel_composition(SecureEdit* edit) noexcept;
 ConstSlice<u8> secure_edit_view(const SecureEdit& edit) noexcept;
-bool secure_edit_has_selection(const SecureEdit& edit) noexcept;
 SecureEditResult secure_edit_utf16_length(const SecureEdit& edit, u32* units) noexcept;
 SecureEditResult secure_edit_utf16_selection(const SecureEdit& edit,
                                              SecureEditUtf16Selection* selection) noexcept;
@@ -103,13 +102,11 @@ SecureEditResult secure_edit_copy_utf16(const SecureEdit& edit, u32 start, u32 e
 SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end, ConstSlice<u16> input,
                                            SecureEditUtf16Change* change) noexcept;
 
-// Produces the only text view that should be handed to rendering. Password
-// fields emit one UTF-8 bullet per Unicode scalar; ordinary fields are copied.
-// Output is not NUL terminated and is caller-owned.
-SecureEditResult secure_edit_render_text(const SecureEdit& edit, Slice<char> output,
-                                         u32* output_bytes) noexcept;
-// Renders at most maximum_codepoints while keeping the caret visible. Anchor
-// and caret are returned as codepoint boundaries relative to the window.
+// Produces the only text view that should be handed to rendering: at most
+// maximum_codepoints while keeping the caret visible. Password fields emit one
+// UTF-8 bullet per Unicode scalar; ordinary fields are copied. Output is not
+// NUL terminated and is caller-owned. Anchor and caret are returned as
+// codepoint boundaries relative to the window.
 SecureEditResult secure_edit_render_window(const SecureEdit& edit, u32 maximum_codepoints,
                                            Slice<char> output, u32* output_bytes,
                                            SecureEditRenderWindow* window) noexcept;

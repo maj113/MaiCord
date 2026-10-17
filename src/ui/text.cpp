@@ -171,7 +171,6 @@ void shaped_text_reset(ShapedText* text) noexcept {
     text->width_including_trailing_whitespace = 0.0f;
     text->height = 0.0f;
     text->line_count = 0;
-    text->set_unsupported_inline_object(false);
 }
 
 TextShapeResult text_system_initialize(TextSystem* system, const wchar_t* family_name, float em_size,

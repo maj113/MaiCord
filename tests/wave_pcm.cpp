@@ -99,12 +99,8 @@ void test_wave_pcm(void (*check)(bool, const char*) noexcept) noexcept {
         check(result.ok() && result.frames == 4 && fixture.samples[0] == -1 && fixture.samples[1] == 0 &&
                   pcm_sample_matches(fixture.samples[2], maximum) && fixture.samples[3] == -0.5f,
               "wave PCM converter normalizes integer extrema and clips frame count only at EOF");
-        u64 offset = 0;
-        check(wave_pcm_seek_frame(fixture.source, 3, &offset) == WavePcmError::none &&
-                  offset == fixture.data_offset + 3 * width &&
-                  wave_pcm_decode(fixture.source, 3, 1, {fixture.samples, 1}).ok() &&
-                  fixture.samples[0] == -0.5f,
-              "wave PCM exact frame seek addresses the same sample without decoder delay");
+        check(wave_pcm_decode(fixture.source, 3, 1, {fixture.samples, 1}).ok() && fixture.samples[0] == -0.5f,
+              "wave PCM decode at a frame addresses the same sample without decoder delay");
     }
     begin();
     const u8 odd[3]{4, 5, 6};
@@ -124,14 +120,8 @@ void test_wave_pcm(void (*check)(bool, const char*) noexcept) noexcept {
     check(wave_pcm_decode(fixture.source, 0, 2, {fixture.samples, 3}).error == WavePcmError::capacity &&
               fixture.samples[0] == 9 && fixture.samples[1] == 9 && unchanged(before),
           "wave PCM insufficient output capacity preserves every sample and immutable source");
-    u64 offset = 77;
-    check(wave_pcm_seek_frame(fixture.source, fixture.source.total_frames, &offset) == WavePcmError::none &&
-              offset == fixture.data_offset + 12 &&
-              wave_pcm_decode(fixture.source, 2, 1, {fixture.samples, 16}).error ==
-                  WavePcmError::end_of_stream &&
-              wave_pcm_seek_frame(fixture.source, 3, &offset) == WavePcmError::invalid_input &&
-              offset == fixture.data_offset + 12,
-          "wave PCM permits exact EOF seek and rejects beyond-EOF seeks without replacing the offset");
+    check(wave_pcm_decode(fixture.source, 2, 1, {fixture.samples, 16}).error == WavePcmError::end_of_stream,
+          "wave PCM decode at the exact EOF frame reports end of stream");
     check(wave_pcm_decode(fixture.source, 0, 8193, {fixture.samples, 16}).error ==
                   WavePcmError::invalid_input &&
               wave_pcm_decode(fixture.source, 0, 1, {reinterpret_cast<float*>(fixture.bytes), 1}).error ==

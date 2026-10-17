@@ -266,43 +266,5 @@ MessageReconcileResult message_reconcile_delete(
                                  MessageStoreError::not_found);
 }
 
-MessageBulkReconcileResult message_reconcile_bulk_delete(
-    MessageStore* store, const GatewayMessageBulkDeleteEvent& event,
-    ConstSlice<u64> ids) noexcept {
-    if (!store || event.channel_id == 0 || event.id_count == 0 ||
-        event.id_count > kGatewayBulkDeleteMaximumIds || event.id_count != ids.count ||
-        !ids.data) {
-        return MessageBulkReconcileResult{0, 0, 0,
-                                          MessageReconcileError::invalid_input};
-    }
-    MessageBulkReconcileResult result{};
-    for (u32 index = 0; index < ids.count; ++index) {
-        const MessageStoreResult found = message_store_find(*store, ids[index]);
-        if (found.error == MessageStoreError::not_found) {
-            ++result.not_found;
-            continue;
-        }
-        if (!found.ok()) {
-            result.error = MessageReconcileError::store_failure;
-            return result;
-        }
-        const MessageRecord* record = message_store_resolve(*store, found.handle);
-        if (!record) {
-            result.error = MessageReconcileError::store_failure;
-            return result;
-        }
-        if (record->channel_id != event.channel_id) {
-            ++result.channel_mismatch;
-            continue;
-        }
-        if (!message_store_delete(store, ids[index])) {
-            result.error = MessageReconcileError::store_failure;
-            return result;
-        }
-        ++result.deleted;
-    }
-    return result;
-}
-
 } // namespace maicord
 

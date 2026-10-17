@@ -78,12 +78,10 @@ struct CdnRequestResult {
 // Writes a transactional, credential-free GET head. The only conditional
 // state accepted is a bounded ETag; Authorization and Cookie cannot enter this
 // API.
-CdnRequestResult write_static_png_cdn_get_request(CdnHost host, ConstSlice<u8> target, ConstSlice<u8> etag,
-                                                  Slice<u8> output) noexcept;
-// A range is accepted only for MP4 and never with an ETag.
 CdnRequestResult write_static_cdn_get_request(CdnImageType image_type, CdnHost host, ConstSlice<u8> target,
                                               ConstSlice<u8> etag, Slice<u8> output,
                                               CdnByteRange range = {}) noexcept;
+// A range is accepted only for MP4 and never with an ETag.
 
 struct CdnRedirectResult {
     CdnHost host;
@@ -134,14 +132,6 @@ struct CdnResponseResult {
 
 // Parses and validates a fully received response head plus the decoded entity
 // byte count. The returned slices borrow response_head storage.
-CdnResponseResult validate_static_png_response(ConstSlice<u8> response_head, u32 decoded_body_bytes,
-                                               u64 now_seconds) noexcept;
-CdnResponseResult validate_static_webp_response(ConstSlice<u8> response_head, u32 decoded_body_bytes,
-                                                u64 now_seconds) noexcept;
-CdnResponseResult validate_static_gif_response(ConstSlice<u8> response_head, u32 decoded_body_bytes,
-                                               u64 now_seconds) noexcept;
-CdnResponseResult validate_static_jpeg_response(ConstSlice<u8> response_head, u32 decoded_body_bytes,
-                                                u64 now_seconds) noexcept;
 CdnResponseResult validate_static_image_response(CdnImageType image_type, ConstSlice<u8> response_head,
                                                  u32 decoded_body_bytes, u64 now_seconds) noexcept;
 // Range answers: 206 needs a single "bytes first-last/length" Content-Range

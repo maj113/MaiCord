@@ -128,11 +128,7 @@ struct AccountVideoSession {
         audio_eof{};
     AccountVideoCommand command_kind{};
     bool video_started{}, audio_epoch_ready{};
-    union {
-        const EncodedAudioMetadata* encoded_metadata{};
-        const OggOpusDemuxer* opus_metadata;
-    };
-    bool legacy_opus_metadata{};
+    const EncodedAudioMetadata* encoded_metadata{};
     // Progressive MP4: a track waits for bytes (the clock holds), or a seek
     // waits for its IDR payload before the decoder cursor moves.
     bool video_pending{}, audio_pending{}, seek_pending{};
@@ -159,9 +155,6 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession*, Mp4Dec
                                                     Mp4SourceAvailability audio_availability = {}) noexcept;
 // Borrowed, validated source. Metadata only, no H.264, GPU or endpoint.
 // The encoded source/demux must outlive joined session release.
-AccountVideoResult account_video_session_initialize_opus(AccountVideoSession*, const OggOpusDemuxer*,
-                                                         const AccountVideoIdentity&,
-                                                         HANDLE lane_event) noexcept;
 AccountVideoResult account_video_session_initialize_audio(AccountVideoSession*, const EncodedAudioMetadata*,
                                                           const AccountVideoIdentity&,
                                                           HANDLE lane_event) noexcept;

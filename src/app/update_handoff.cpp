@@ -218,12 +218,6 @@ UpdateHandoffResult update_handoff_release(UpdateHandoff* owner) noexcept {
     for (auto* handle : handles) if (!close(*handle)) return fail(UpdateHandoffError::release, GetLastError());
     *owner = {}; return {};
 }
-bool update_handoff_child_requested(ConstSlice<wchar_t> line) noexcept {
-    // An oversized early-mode command still selects refusal, never ordinary
-    // account/UI initialization. Full parsing retains the strict total bound.
-    if (line.count >= kUpdateHandoffCommandCharacters) line.count = kUpdateHandoffCommandCharacters - 1;
-    u32 after = 0; return flag_at(line, &after);
-}
 UpdateHandoffResult update_handoff_child_open(ConstSlice<wchar_t> line, const UpdateHandoffIdentity& expected,
     bool enrolled, UpdateHandoffChild* owner) noexcept {
     if (!owner || owner->parent || owner->mapping || owner->event || owner->view || owner->acknowledged) return fail(UpdateHandoffError::invalid_input);
@@ -240,17 +234,6 @@ UpdateHandoffResult update_handoff_child_open(ConstSlice<wchar_t> line, const Up
     owner->view = MapViewOfFile(owner->mapping, FILE_MAP_READ | FILE_MAP_WRITE, 0, 0, sizeof(AckSlot));
     if (!owner->view) return fail(UpdateHandoffError::channel, GetLastError());
     return {};
-}
-UpdateHandoffResult update_handoff_child_wait_parent(UpdateHandoffChild* owner, u32 timeout, HANDLE cancel) noexcept {
-    if (!owner || !owner->parent || !timeout || timeout > kUpdateHandoffMaximumWaitMs || (cancel && (!handle_ok(cancel) || cancel == owner->parent)))
-        return fail(UpdateHandoffError::invalid_input);
-    HANDLE handles[2]{cancel ? cancel : owner->parent, owner->parent};
-    const DWORD result = WaitForMultipleObjects(cancel ? 2 : 1, handles, FALSE, timeout);
-    if (result == WAIT_FAILED) return fail(UpdateHandoffError::wait, GetLastError());
-    if (result == WAIT_TIMEOUT) return {UpdateHandoffError::none, 0, UpdateHandoffOutcome::deadline};
-    if (cancel && result == WAIT_OBJECT_0) return {UpdateHandoffError::none, 0, UpdateHandoffOutcome::cancelled};
-    if (result == WAIT_OBJECT_0 + (cancel ? 1 : 0)) return {UpdateHandoffError::none, 0, UpdateHandoffOutcome::process_exited};
-    return fail(UpdateHandoffError::wait, ERROR_INVALID_DATA);
 }
 UpdateHandoffResult update_handoff_child_acknowledge(UpdateHandoffChild* owner, bool admitted) noexcept {
     if (!owner || !owner->view || !owner->event || owner->acknowledged) return fail(UpdateHandoffError::invalid_input);

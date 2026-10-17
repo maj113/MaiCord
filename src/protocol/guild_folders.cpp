@@ -1,5 +1,6 @@
 #include "maicord/protocol/guild_folders.hpp"
 #include "maicord/protocol/base64.hpp"
+#include "maicord/protocol/user_settings_proto.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
@@ -287,17 +288,9 @@ u32 guild_folders_encode_settings_patch(const GuildFolderSettings& settings, Sli
     return header + bytes;
 }
 
-GuildFoldersError guild_folders_extract_proto(ConstSlice<u8> settings, Slice<u8> group, u32* bytes,
-                                              bool* present) noexcept {
-    if (!bytes || !present || settings.count > kGuildFoldersMaximumProtoBytes || !byte_range_valid(settings) ||
-        !output_valid(group) || byte_ranges_overlap(settings, {group.data, group.count}))
-        return E::input;
-    return extract({settings, {}, settings.count}, group, bytes, present);
-}
-
 GuildFoldersError guild_folders_extract_base64(Utf8View settings, Slice<u8> group, u32* bytes,
                                                bool* present) noexcept {
-    if (!bytes || !present || settings.bytes > base64_encoded_size(kGuildFoldersMaximumProtoBytes) ||
+    if (!bytes || !present || settings.bytes > base64_encoded_size(kUserSettingsProtoMaximumProtoBytes) ||
         !output_valid(group) ||
         byte_ranges_overlap({reinterpret_cast<const u8*>(settings.data), settings.bytes}, {group.data, group.count}))
         return E::input;

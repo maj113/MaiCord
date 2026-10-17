@@ -7,7 +7,6 @@ enum class SelfStatusSettingsOperation : u8 {
     update
 };
 inline constexpr u32 kSelfStatusSettingsMaximumGroupBytes = 16 * 1024;
-inline constexpr u32 kSelfStatusSettingsMaximumProtoBytes = 16 * 1024 * 1024;
 inline constexpr u32 kSelfStatusSettingsMaximumPatchBytes = 23 * 1024;
 enum class SelfStatusSettingsError : u8 {
     none,
@@ -27,8 +26,6 @@ struct SelfStatusSettingsProjection {
 // Validates before touching either output; no whole-proto decode allocation.
 SelfStatusSettingsError self_status_settings_decode_base64(
     Utf8View input, Slice<u8> group, SelfStatusSettingsProjection* projection) noexcept;
-SelfStatusSettingsError self_status_settings_decode_proto(
-    ConstSlice<u8> input, Slice<u8> group, SelfStatusSettingsProjection* projection) noexcept;
 // Partial settings updates replace a present top-level group. This writer
 // retains every opaque field in the observed StatusSettings group except the
 // known status/expiry/creation fields. Unrelated top-level groups are omitted.

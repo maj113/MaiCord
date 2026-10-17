@@ -1189,41 +1189,12 @@ bool visit_role(void* opaque, JsonString name, JsonValue value) noexcept {
     return valid || fail(&p.error);
 }
 
-bool decode_role_value(const JsonIndexedDocument& document, JsonValue value, GuildAdminRole* output,
-                       GuildAdminError* error) noexcept {
-    if (value.kind != JsonValueKind::object)
-        return fail(error);
-    RoleParse p{};
-    p.fields = {kRoleFields, 11, 0, &p.error};
-    const auto read = json_visit_indexed_object(document, value, kDepth, visit_role, &p);
-    if (!read.ok())
-        return fail(error, p.error == GuildAdminError::none ? GuildAdminError::json : p.error);
-    constexpr u64 required = 1u | 2u | 4u | 8u;
-    if ((p.fields.seen & required) != required || !p.value.id)
-        return fail(error, GuildAdminError::identity);
-    *output = p.value;
-    return true;
-}
-
 template <typename Item> struct ArrayParse {
     const JsonIndexedDocument* document;
     Slice<Item> output;
     u32 count;
     GuildAdminError error;
 };
-
-bool visit_role_item(void* opaque, u32, JsonValue value) noexcept {
-    auto& p = *static_cast<ArrayParse<GuildAdminRole>*>(opaque);
-    if (p.count >= p.output.count)
-        return fail(&p.error, GuildAdminError::capacity);
-    if (!decode_role_value(*p.document, value, &p.output[p.count], &p.error))
-        return false;
-    for (u32 i = 0; i < p.count; ++i)
-        if (p.output[i].id == p.output[p.count].id)
-            return fail(&p.error, GuildAdminError::duplicate);
-    ++p.count;
-    return true;
-}
 
 // Role member counts: {"<role id>": <count>, ...}
 bool visit_role_count(void* opaque, JsonString name, JsonValue value) noexcept {
@@ -1935,10 +1906,6 @@ GuildAdminResult guild_admin_decode_role(Utf8View body, Slice<u32> scratch, Guil
         return {0, 0, GuildAdminError::identity};
     *output = p.value;
     return {body.bytes, 1, GuildAdminError::none};
-}
-
-GuildAdminResult guild_admin_decode_roles(Utf8View body, Slice<u32> scratch, Slice<GuildAdminRole> output) noexcept {
-    return decode_array(body, scratch, output, visit_role_item);
 }
 
 GuildAdminResult guild_admin_decode_role_counts(Utf8View body, Slice<u32> scratch,

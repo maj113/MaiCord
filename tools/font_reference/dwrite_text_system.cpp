@@ -509,18 +509,12 @@ class CaptureRenderer final : public IDWriteTextRenderer {
                                                BOOL right_to_left,
                                                IUnknown* drawing_effect) noexcept override {
         if (!output_ || !object || drawing_inline_) {
-            if (output_) {
-                output_->set_unsupported_inline_object(true);
-            }
             return object ? E_FAIL : E_INVALIDARG;
         }
         drawing_inline_ = true;
         const HRESULT result =
             object->Draw(context, this, origin_x, origin_y, sideways, right_to_left, drawing_effect);
         drawing_inline_ = false;
-        if (FAILED(result)) {
-            output_->set_unsupported_inline_object(true);
-        }
         return result;
     }
 

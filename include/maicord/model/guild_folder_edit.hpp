@@ -47,8 +47,7 @@ GuildFolderEditError guild_folders_move(GuildFolderSettings* settings, GuildFold
 GuildFolderEditError guild_folders_edit(GuildFolderSettings* settings, u64 folder_id, Utf8View name,
                                         u32 color, bool has_color) noexcept;
 
-// Index of the folder entry that holds a guild, or of a real folder; ~0u when absent.
-u32 guild_folders_find_guild(const GuildFolderSettings& settings, u64 guild_id) noexcept;
+// Index of a real folder; ~0u when absent.
 u32 guild_folders_find_folder(const GuildFolderSettings& settings, u64 folder_id) noexcept;
 // A nonzero 31-bit folder id unused by settings, derived from seed.
 u64 guild_folders_new_id(const GuildFolderSettings& settings, u64 seed) noexcept;

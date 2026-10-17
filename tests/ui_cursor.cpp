@@ -124,38 +124,6 @@ void test_media_controls(Check check) noexcept {
     audio.playing = audio.can_play = audio.can_seek = audio.can_volume = audio.can_download = audio.has_duration =
         true;
     audio.title = utf8_literal("Original recording.ogg");
-    u32 hands = 0, labels = 0;
-    bool exact = true, projected_cards = true;
-    constexpr bool voices[]{false, true};
-    for (const bool voice : voices) {
-        audio.voice = voice;
-        const UiRect card{20, 40, 420, 40 + ui_audio_card_height(kDefaultUiAudioControlsStyle, 400, voice)};
-        UiAudioControlsProjection projection{};
-        projected_cards = projected_cards && ui_audio_controls_project(audio, card, kDefaultUiAudioControlsStyle,
-                                                                       kDefaultTheme, &projection, true);
-        for (const auto& control : projection.controls) {
-            if (!control.visible || !ui_rect_has_area(control.bounds))
-                continue;
-            const auto point = center(control.bounds);
-            const auto hit = ui_audio_controls_hit(projection, point);
-            if (control.kind == UiAudioControlKind::label) {
-                // Title, time and status text never claim the pointer.
-                if (hit == UiAudioControl::none) {
-                    ++labels;
-                    exact = exact && ui_audio_controls_cursor(projection, point) == UiCursor::arrow;
-                }
-                continue;
-            }
-            if (!control.enabled || hit != control.id)
-                continue;
-            ++hands;
-            exact = exact && ui_audio_controls_cursor(projection, point) == UiCursor::hand;
-        }
-        exact = exact && ui_audio_controls_cursor(projection, {card.right + 10, card.bottom + 10}) == UiCursor::arrow;
-    }
-    check(projected_cards && exact && hands >= 6 && labels >= 1,
-          "cursor: audio card buttons and ranges are hands, labels and empty space are arrows");
-
     OwnerFixture owner{};
     UiAudioScene scene{};
     audio.voice = true;

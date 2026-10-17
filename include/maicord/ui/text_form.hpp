@@ -112,7 +112,6 @@ bool text_form_bind_measure_revision(TextFormScene*, u16) noexcept;
 bool text_form_bind_theme_styles(TextFormScene*, const UiResolvedThemeStyles*) noexcept;
 bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRect viewport,
                       UiTextMeasureCache* measure) noexcept;
-void text_form_close(TextFormScene* scene) noexcept;
 void text_form_release(TextFormScene* scene) noexcept;
 const UiLayoutNode* text_form_node(const TextFormScene& scene, TextFormElement element) noexcept;
 // The option row's checkbox square (empty when the form has no option).
@@ -130,12 +129,6 @@ bool text_form_move_focus(TextFormScene* scene, bool reverse) noexcept;
 bool text_form_scroll(TextFormScene* scene, float delta) noexcept;
 bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edit, const Theme& theme,
                      PaintStream* paint) noexcept;
-bool text_form_text(const TextFormScene& scene, const TextFormEditGeometry& edit, const Theme& theme,
-                    UiTextCommandStream* text) noexcept;
-
-} // namespace maicord
-
-namespace maicord {
 bool text_form_text_output(const TextFormScene& scene, const TextFormEditGeometry& edit, const Theme& theme,
                            UiTextOutput* stream) noexcept;
 } // namespace maicord

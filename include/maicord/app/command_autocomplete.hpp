@@ -24,6 +24,5 @@ bool command_autocomplete_begin(CommandAutocomplete*, u64 nonce, u64 now) noexce
 bool command_autocomplete_transport(CommandAutocomplete*, u64 nonce, bool success) noexcept;
 bool command_autocomplete_accept(CommandAutocomplete*, Utf8View body, Slice<u32> scratch) noexcept;
 bool command_autocomplete_tick(CommandAutocomplete*, u64 now) noexcept;
-u64 command_autocomplete_next_wake(const CommandAutocomplete&) noexcept;
 void command_autocomplete_cancel(CommandAutocomplete*) noexcept;
 } // namespace maicord

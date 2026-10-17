@@ -61,9 +61,6 @@ struct AacDecodedBlock {
         return error == AacDecodeError::none;
     }
 };
-struct AacOutputRequirements {
-    u32 minimum_bytes{}, alignment_bytes{}, flags{}, buffer_capacity{};
-};
 struct AacDecoder {
     void* runtime{};
     u8 asc[16]{};
@@ -106,8 +103,4 @@ AacDecodedBlock aac_decoder_read(AacDecoder*, Slice<u8> pcm) noexcept;
 AacDecodeResult aac_decoder_drain(AacDecoder*) noexcept;
 AacDecodeResult aac_decoder_flush(AacDecoder*) noexcept;
 AacDecodeResult aac_decoder_release(AacDecoder*) noexcept;
-u32 aac_decoder_owned_bytes(const AacDecoder*) noexcept;
-// Serial decoder-thread observation, including failed negotiation. Returns
-// zero before native initialization; does not allocate or expose COM pointers.
-AacOutputRequirements aac_decoder_output_requirements(const AacDecoder*) noexcept;
 } // namespace maicord

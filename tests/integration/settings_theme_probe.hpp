@@ -192,11 +192,12 @@ inline bool settings_theme_ui_probe(BackgroundThemeProbeContext c) noexcept {
         return false;
     UiTextCommand commands[64]{};
     UiTextCommandStream stream{};
+    UiTextOutput stream_output{&stream, nullptr};
     u32 sidebar = 0, card = 0;
     {
         Pixels pixels(r);
         if (!ui_text_command_stream_initialize(&stream, {commands, 64}) ||
-            !ui_settings_scene_text(scene, theme, &stream))
+            !ui_settings_scene_text_output(scene, theme, &stream_output))
             return false;
         u32 labels = 0;
         for (u32 i = 0; i < stream.count; ++i)

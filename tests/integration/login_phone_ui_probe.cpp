@@ -41,7 +41,7 @@ bool login_phone_ui_probe(D3D11Renderer& renderer,
             sparse_composition.start = 2; sparse_composition.end = 5;
             sparse_composition.line_style = TextCompositionLineStyle::solid;
             sparse_composition.attribute = TextCompositionAttribute::input;
-            view.edit_composition_active = view.edit_composition_complete = true;
+            view.edit_composition_active = true;
             view.edit_composition = {&sparse_composition, 1};
         }
         view.focus = i == 8 ? LoginControl::password : login_phone_editable(view.status) ? LoginControl::phone_code : LoginControl::back;

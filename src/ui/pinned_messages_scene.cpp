@@ -206,7 +206,6 @@ bool ui_pinned_messages_scene_update(UiPinnedMessagesScene* s, const UiPinnedMes
     s->body = {s->panel.left, banner ? s->status_rectangle.bottom : s->header.bottom,
                s->panel.right, s->footer.top};
     if (!ui_rect_has_area(s->body)) return false;
-    s->state_rectangle = s->body;
     s->source = source;
     s->content = content;
     s->source_revision = source ? source->revision : 0;

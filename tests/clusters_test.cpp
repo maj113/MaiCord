@@ -1,4 +1,4 @@
-#include "maicord/text/gsub_execute.hpp"
+#include "gsub_program_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
 #include <Windows.h>
 namespace maicord {namespace {
@@ -122,7 +122,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         if(!r.take(f[1],&gs)||!r.take(f[2],&gd)||!r.take(f[3]*8,&input)||!r.take(f[8]*2,&expected)||!r.take(f[10]*2,&windows)||!r.take(f[12]*4,&seed)||!r.take(f[11]*4,&clusters)||!r.take(f[10],&flags))return false;
         for(u32 i=0;i<f[12];++i)boundaries[i]=byte_load_le32(seed.data+i*4);
         SfntLayout layout{};SfntGdef gdef{};SfntGsubProgram program{};
-        if(sfnt_layout_open(gs,SfntLayoutKind::substitution,&layout)!=SfntStatus::ok || sfnt_gdef_open(gd,f[0],&gdef)!=SfntStatus::ok || sfnt_gsub_program_prepare(layout,gdef,f[0],{{lookups,128},{subtables,256},{coverages,1024},{classes,128}},&program)!=SfntStatus::ok)return false;
+        if(sfnt_layout_open(gs,SfntLayoutKind::substitution,&layout)!=SfntStatus::ok || sfnt_gdef_open(gd,f[0],&gdef)!=SfntStatus::ok || prepare_gsub_program(layout,gdef,f[0],{{lookups,128},{subtables,256},{coverages,1024},{classes,128}},&program)!=SfntStatus::ok)return false;
         if(c==2){if(program.lookups.data[0].type!=4)return false;u64 complete_work=0;
             for(u64 budget=1000000;;){copy_bytes(glyphs,input.data,input.count);SfntGlyphBuffer buffer{};SfntClusterMap map{};
                 if(sfnt_glyph_buffer_open({reinterpret_cast<u8*>(glyphs),sizeof(glyphs)},sizeof(SfntClusterGlyph),f[3],&buffer)!=SfntStatus::ok || sfnt_cluster_map_open(f[11],{boundaries,f[12]},{bitmap,9000},&map)!=SfntStatus::ok)return false;

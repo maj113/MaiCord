@@ -19,7 +19,6 @@ struct IconAtlas {
     GlyphAtlasEntry entries[kIconAtlasEntries];
     GlyphAtlasRow rows[kIconAtlasRows];
     GlyphPathCommand commands[kIconMaximumOutlineCommands];
-    u32 generation;
     u32 resolved_dpi;
     float resolved_weight;
     u32 rasterized;

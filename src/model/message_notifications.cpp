@@ -31,7 +31,6 @@ template<class T,class U> bool overlaps(ConstSlice<T> a,Slice<U>b) noexcept {
 bool has_guild(ConstSlice<MessageNotificationGuildSetting> s,u64 id) noexcept {
     for(u32 i=0;i<s.count;++i)if(s[i].guild_id==id)return true;return false;
 }
-MessageNotificationDecision reject(MessageNotificationReason r) noexcept {return {r,false,false};}
 }
 bool message_notifications_initialize(MessageNotificationStore* s,Slice<MessageNotificationGuildSetting>g,
     Slice<MessageNotificationOverride>o,Slice<MessageNotificationThreadSetting>t,MessageNotificationReserve r,void*c) noexcept {
@@ -196,10 +195,6 @@ MessageNotificationReason message_notification_admit(const MessageNotificationPo
 }
 MessageNotificationReason message_notification_admit(const MessageNotificationPolicyInput&i) noexcept {
     return message_notification_admit(i,i.required_gates);
-}
-MessageNotificationDecision message_notification_decide(const MessageNotificationPolicyInput&i) noexcept {
-    const auto reason=message_notification_admit(i);
-    return reason==MessageNotificationReason::eligible?MessageNotificationDecision{reason,i.desktop_enabled,i.sound_enabled}:reject(reason);
 }
 MessageReadBadge message_read_badge(const MessageNotificationPolicyInput& i,
                                     bool mention_on_all_messages) noexcept {

@@ -256,8 +256,6 @@ bool oblique_corpus() noexcept {
             if(raw.advance_x!=styled.advance_x||raw.advance_y!=styled.advance_y||raw.minimum_x!=styled.minimum_x||raw.minimum_y!=styled.minimum_y||raw.maximum_x!=styled.maximum_x||raw.maximum_y!=styled.maximum_y||raw.has_bounds!=styled.has_bounds)return false;
             if(cff_outline(font,static_cast<u16>(i),&out,0,&styled,true)!=SfntStatus::resource_limit||out.count||out.has_bounds||styled.has_bounds)return false;
             if(n){out.capacity=n-1;if(cff_outline(font,static_cast<u16>(i),&out,1000000,&styled,true)!=SfntStatus::output_too_small||out.count||out.has_bounds||styled.has_bounds)return false;}
-            CffGlyphMetrics metrics_only{};
-            if(cff_glyph_metrics(font,static_cast<u16>(i),&metrics_only)!=SfntStatus::ok||raw.advance_x!=metrics_only.advance_x||raw.advance_y!=metrics_only.advance_y||raw.minimum_x!=metrics_only.minimum_x||raw.minimum_y!=metrics_only.minimum_y||raw.maximum_x!=metrics_only.maximum_x||raw.maximum_y!=metrics_only.maximum_y||raw.has_bounds!=metrics_only.has_bounds)return false;
             for(u32 simulation=0;simulation<2;++simulation){
                 out=outline();
                 if(cff_outline_bold(font,static_cast<u16>(i),&out,1000000,&styled,simulation!=0)!=SfntStatus::ok)return false;

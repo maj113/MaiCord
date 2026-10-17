@@ -285,10 +285,5 @@ void test_surface_elevation(void (*check)(bool, const char*) noexcept) noexcept 
               same(settings.color.nav_selected, gradient.tokens.emphasis.selected) &&
               ui_theme_contrast_ratio(settings.color.on_brand, settings.color.brand_hover) >= 4.5f,
           "accent tokens: switches, sliders, radios, nav selection and focus rings follow the emphasis tokens");
-    check(ui_theme_contrast_ratio(gradient.tokens.emphasis.text, ui_emphasis_fill(gradient, true, false)) >=
-                  ui_theme_contrast_ratio(gradient.tokens.emphasis.text, gradient.tokens.emphasis.fill) &&
-              ui_theme_contrast_ratio(gradient.tokens.emphasis.text, ui_emphasis_fill(gradient, false, true)) >=
-                  ui_theme_contrast_ratio(gradient.tokens.emphasis.text, gradient.tokens.emphasis.fill),
-          "accent tokens: hover/pressed emphasis states keep or gain label contrast");
 }
 } // namespace maicord

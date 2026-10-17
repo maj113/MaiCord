@@ -266,7 +266,6 @@ inline bool channel_overview_ui_probe(D3D11Renderer& renderer, UiTextMeasureCach
         !renderer.media_picker_layout.active || renderer.media_picker_layout.scroll_y <= 0 ||
         !renderer.media_picker_edit_geometry.selection_count ||
         !ui_settings_scene_control_geometry(scene, topic_target, &topic_geometry) ||
-        ui_settings_scene_control_geometry_current(scene, name_geometry) ||
         !ui_settings_scene_activation(scene, save_target, false, &activation))
         return fail();
     const auto& edit = renderer.media_picker_edit_geometry;

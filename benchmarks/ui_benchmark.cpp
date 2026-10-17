@@ -54,7 +54,6 @@ u32 kContentBoundsValidationIterations = 500'000;
 u32 kSecureEditIterations = 500'000;
 u32 kSecureTextStoreIterations = 500'000;
 u32 kQrIterations = 20'000;
-u32 kVirtualIterations = 5'000'000;
 inline constexpr u32 kVariableItems = 65'536;
 u32 kVariableIterations = 1'000'000;
 inline constexpr u32 kProjectionChannels = 256;
@@ -174,7 +173,6 @@ bool configure_benchmark_workload() noexcept {
     kSecureEditIterations = quick_iteration_count(kSecureEditIterations);
     kSecureTextStoreIterations = quick_iteration_count(kSecureTextStoreIterations);
     kQrIterations = quick_iteration_count(kQrIterations);
-    kVirtualIterations = quick_iteration_count(kVirtualIterations);
     kVariableIterations = quick_iteration_count(kVariableIterations);
     kProjectionIterations = quick_iteration_count(kProjectionIterations);
     kMessageSceneIterations = quick_iteration_count(kMessageSceneIterations);
@@ -439,7 +437,8 @@ int run() noexcept {
     begin = clock_now();
     for (u32 iteration = 0; iteration < kLayoutIterations; ++iteration) {
         const float width = (iteration & 1) != 0 ? 1280.0f : 600.0f;
-        if (!ui_scene_layout(&scene, width, 800.0f)) {
+        if (!ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+                                          width, 800.0f)) {
             return 2;
         }
         const UiNode* content = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::content));
@@ -453,7 +452,9 @@ int run() noexcept {
     begin = clock_now();
     for (u32 iteration = 0; iteration < kLayoutReflowIterations; ++iteration) {
         const float width = (iteration & 1u) != 0 ? 1280.0f : 1200.0f;
-        if (!ui_scene_layout(&scene, width, 800.0f) || scene.layout_rebuilds != scene_rebuilds) {
+        if (!ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+                                          width, 800.0f) ||
+            scene.layout_rebuilds != scene_rebuilds) {
             return 22;
         }
         checksum += scene.layout_passes + scene.count;
@@ -730,7 +731,7 @@ int run() noexcept {
     begin = clock_now();
     for (u32 iteration = 0; iteration < kLayoutValidationIterations; ++iteration) {
         const UiLayoutValidationResult validation =
-            login_scene_validate(login_scene, Slice<UiLayoutDiagnostic>{layout_diagnostics, 32});
+            ui_layout_engine_validate(login_scene.widgets.layout, Slice<UiLayoutDiagnostic>{layout_diagnostics, 32});
         if (!validation.clean()) {
             return 21;
         }
@@ -867,14 +868,6 @@ int run() noexcept {
     text_store->UnadviseSink(&text_store_sink);
     secure_text_store_release(&text_store_owner);
     secure_edit_release(&secure_edit);
-
-    begin = clock_now();
-    for (u32 iteration = 0; iteration < kVirtualIterations; ++iteration) {
-        const UiVirtualRange range =
-            ui_virtual_range(1'000'000, 68.0f, static_cast<float>(iteration % 500'000), 720.0f, 2);
-        checksum += range.first + range.count + static_cast<u32>(-range.first_offset);
-    }
-    const u64 virtual_us = clock_microseconds(clock, begin, clock_now());
 
     for (u32 index = 0; index < kMemberListItems; ++index) {
         g_member_records[index].id = static_cast<u64>(index) + 1;
@@ -1040,8 +1033,11 @@ int run() noexcept {
                                      Slice<UiLayoutNode>{g_virtual_guild_layout, 34})) {
         return 25;
     }
+    if (!guild_rail_scene_update(&virtual_guild_scene, &virtual_guild_navigation, virtual_guild_viewport, 0.0f).ok()) {
+        return 25;
+    }
     const float virtual_guild_max_scroll =
-        guild_rail_content_height(&virtual_guild_navigation) - ui_rect_height(virtual_guild_viewport);
+        virtual_guild_scene.content_height - ui_rect_height(virtual_guild_viewport);
     begin = clock_now();
     for (u32 iteration = 0; iteration < kPresentationIterations; ++iteration) {
         const float scroll = static_cast<float>((static_cast<u64>(iteration) * 17ull) %
@@ -1123,18 +1119,6 @@ int run() noexcept {
                          : 0);
     }
     const u64 shell_text_presentation_us = clock_microseconds(clock, begin, clock_now());
-    const u64 default_shell_signature = content_text_command_stream_signature(shell_text_stream);
-    Theme alternate_shell_theme = kDefaultTheme;
-    alternate_shell_theme.text_primary.red += 0.03125f;
-    if (default_shell_signature == 0 ||
-        !shell_text_presentation_build(scene, state, navigation, alternate_shell_theme,
-                                       shell_navigation_scene, &shell_text_stream) ||
-        content_text_command_stream_signature(shell_text_stream) == default_shell_signature ||
-        !shell_text_presentation_build(scene, state, navigation, kDefaultTheme, shell_navigation_scene,
-                                       &shell_text_stream) ||
-        content_text_command_stream_signature(shell_text_stream) != default_shell_signature) {
-        return 31;
-    }
 
     MessageStore message_store{};
     if (!message_store_initialize(
@@ -1758,7 +1742,7 @@ int run() noexcept {
     constexpr u32 content_text_retention_miss_iterations = 50'000;
     ContentTextRetentionOwner content_text_retention{};
     ContentTextRetentionKey content_text_key{
-        content_text_command_stream_signature(shell_text_stream),
+        1,
         message_text.projection_signature,
         0,
         content_text_theme_signature(kDefaultTheme),
@@ -1798,7 +1782,7 @@ int run() noexcept {
         login_cached_layout_us == 0 || login_reflow_us == 0 || login_presentation_us == 0 ||
         login_text_presentation_us == 0 || layout_validation_us == 0 || qr_us == 0 || secure_edit_us == 0 ||
         secure_edit_render_us == 0 || secure_edit_acp_us == 0 || secure_text_store_us == 0 ||
-        virtual_us == 0 || member_list_us == 0 || variable_us == 0 || projection_us == 0 ||
+        member_list_us == 0 || variable_us == 0 || projection_us == 0 ||
         guild_rail_layout_us == 0 || shell_navigation_layout_us == 0 || shell_presentation_us == 0 ||
         shell_text_presentation_us == 0 || message_scene_layout_us == 0 || rich_message_layout_us == 0 ||
         rich_message_materialize_us == 0 || message_presentation_us == 0 || text_flow_us == 0 ||
@@ -1849,7 +1833,6 @@ int run() noexcept {
                  static_cast<u64>(kSecureEditIterations) * 1'000'000ull / secure_edit_acp_us);
     write_metric("ui_secure_text_store_read_lock",
                  static_cast<u64>(kSecureTextStoreIterations) * 1'000'000ull / secure_text_store_us);
-    write_metric("ui_virtual_range", static_cast<u64>(kVirtualIterations) * 1'000'000ull / virtual_us);
     write_metric("ui_member_list_100k_scroll_materialize",
                  static_cast<u64>(kMemberListIterations) * 1'000'000ull / member_list_us);
     write_metric("ui_variable_range", static_cast<u64>(kVariableIterations) * 1'000'000ull / variable_us);

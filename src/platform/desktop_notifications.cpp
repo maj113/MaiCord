@@ -252,9 +252,6 @@ DesktopNotificationShowResult desktop_notifications_show_once(DesktopNotificatio
     result=(FAILED(h)||disconnected(h))?failed(DesktopNotificationError::transport,h):DesktopNotificationResult{};
     return {desktop_notification_show_state(result),result,attempted};
 }
-DesktopNotificationResult desktop_notifications_show(DesktopNotifications* n,const DesktopNotificationPayload& p) noexcept {
-    return desktop_notifications_show_once(n,p).result;
-}
 DesktopNotificationResult desktop_notifications_remove_message(DesktopNotifications* n,DesktopNotificationActivation a) noexcept {
     auto* s=owner(n);if(!ui_owner(s)||!a.profile_id||!a.channel_id||!a.message_id)return failed(DesktopNotificationError::invalid_input,E_INVALIDARG);
     HRESULT h=remove_once(s,a.profile_id,a.message_id);if(disconnected(h)){drop_transport(s);h=remove_once(s,a.profile_id,a.message_id);}return FAILED(h)?failed(DesktopNotificationError::transport,h):DesktopNotificationResult{};

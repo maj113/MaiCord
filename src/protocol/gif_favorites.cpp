@@ -1,4 +1,5 @@
 #include "maicord/protocol/gif_favorites.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -364,8 +365,6 @@ GifFavoriteRecord record(const Wire& group, const Entry& parsed, u32 first) noex
             parsed.height,
             parsed.order,
             parsed.format,
-            parsed.begin,
-            parsed.end - parsed.begin,
             first};
 }
 bool comes_before(const GifFavoriteRecord& a, const GifFavoriteRecord& b) noexcept {
@@ -474,30 +473,12 @@ bool outputs_valid(ConstSlice<u8> input, Slice<u8> output, Slice<GifFavoriteReco
     return true;
 }
 } // namespace
-GifFavoritesResult gif_favorites_measure_proto(ConstSlice<u8> input) noexcept {
-    if (!byte_range_valid(input) || input.count > kGifFavoritesMaximumProtoBytes) {
-        GifFavoritesResult r{};
-        r.error = E::input;
-        return r;
-    }
-    return measure({input, {}, input.count});
-}
 GifFavoritesResult gif_favorites_measure_base64(Utf8View input) noexcept {
     Wire wire{};
     GifFavoritesResult result{};
     if (!encoded_wire(input, &wire, &result.error))
         return result;
     return measure(wire);
-}
-GifFavoritesResult gif_favorites_decode_proto(ConstSlice<u8> input, Slice<u8> output,
-                                              Slice<GifFavoriteRecord> records,
-                                              Slice<u32> scratch) noexcept {
-    if (input.count > kGifFavoritesMaximumProtoBytes || !outputs_valid(input, output, records, scratch)) {
-        GifFavoritesResult r{};
-        r.error = E::input;
-        return r;
-    }
-    return decode({input, {}, input.count}, output, records, scratch);
 }
 GifFavoritesResult gif_favorites_decode_base64(Utf8View input, Slice<u8> output,
                                                Slice<GifFavoriteRecord> records,
@@ -661,14 +642,6 @@ void write_group(const Wire& group, const GifFavoriteMutation& mutation, const M
     if (plan.set_hide_tooltip)
         out.scalar(2, 1);
 }
-u32 decimal_bytes(u32 n) noexcept {
-    u32 bytes = 1;
-    while (n >= 10) {
-        n /= 10;
-        ++bytes;
-    }
-    return bytes;
-}
 struct PatchJson {
     Utf8View encoded;
     u32 version;
@@ -764,7 +737,7 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
     const u32 encoded_bytes = base64_encoded_size(proto_bytes);
     constexpr u32 start_bytes = static_cast<u32>(sizeof(start) - 1);
     constexpr u32 middle_bytes = static_cast<u32>(sizeof(middle) - 1);
-    const u32 json_bytes = start_bytes + encoded_bytes + middle_bytes + decimal_bytes(data_version) + 1;
+    const u32 json_bytes = start_bytes + encoded_bytes + middle_bytes + decimal_digits(data_version) + 1;
     if (proto_bytes > scratch.count || json_bytes > output.count ||
         json_bytes > kGifFavoritesMaximumPatchBytes)
         return fail(E::capacity);

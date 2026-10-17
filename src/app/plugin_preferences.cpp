@@ -226,9 +226,6 @@ const NativePluginPreference* native_plugin_preferences_find(const NativePluginP
     for(u32 i=0;i<preferences.count;++i) if(same_identity(key,preferences.entries[i])) return &preferences.entries[i];
     return nullptr;
 }
-bool native_plugin_preferences_has(const NativePluginPreferences& preferences,const NativePluginManifest& manifest) noexcept {
-    return native_plugin_preferences_find(preferences,manifest)!=nullptr;
-}
 bool native_plugin_preferences_restorable(const NativePluginPreferences& preferences,const NativePluginManifest& manifest) noexcept {
     const auto* entry=native_plugin_preferences_find(preferences,manifest);
     return entry && !entry->flags && !(manifest.permissions & ~static_cast<u64>(entry->permissions));

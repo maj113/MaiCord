@@ -37,7 +37,6 @@ struct StreamPreviewCache {
 // entry), stamped as wanted at now_ms. Null for an invalid key or when every
 // entry has a fetch in flight.
 StreamPreviewEntry* stream_preview_want(StreamPreviewCache* cache, const GatewayStreamKey& key, u64 now_ms) noexcept;
-const StreamPreviewEntry* stream_preview_find(const StreamPreviewCache& cache, const GatewayStreamKey& key) noexcept;
 // The most recently wanted entry whose fetch is due (wanted, idle, past next_ms).
 const StreamPreviewEntry* stream_preview_next_due(const StreamPreviewCache& cache, u64 now_ms) noexcept;
 // Earliest future time a wanted entry becomes due; zero when nothing waits.

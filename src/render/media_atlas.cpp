@@ -358,7 +358,6 @@ MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
     const u16 generation = entry.generation;
     entry = MediaAtlasEntry{};
     entry.key = key;
-    entry.allocation_key = allocation_key;
     entry.allocation = allocation.handle;
     entry.generation = next_generation(generation);
     entry.occupied = true;

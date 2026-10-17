@@ -239,14 +239,4 @@ SecureBufferResult secure_buffer_unprotect_user_bound(ConstSlice<u8> protected_i
     return result;
 }
 
-SecureBufferResult secure_buffer_protect_user(const SecureBuffer& plaintext,
-                                              Slice<u8> protected_output) noexcept {
-    return secure_buffer_protect_user_bound(plaintext, ConstSlice<u8>{nullptr, 0}, protected_output);
-}
-
-SecureBufferResult secure_buffer_unprotect_user(ConstSlice<u8> protected_input,
-                                                SecureBuffer* plaintext) noexcept {
-    return secure_buffer_unprotect_user_bound(protected_input, ConstSlice<u8>{nullptr, 0}, plaintext);
-}
-
 } // namespace maicord

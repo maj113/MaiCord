@@ -108,7 +108,8 @@ bool initialize() noexcept {
         !chat_state_store_upsert_channel(&ui.chat_state,
             {80, 0, 0, utf8_literal("fixture-dm"), 0, 0, 1}).ok() ||
         !ui_scene_initialize_bootstrap(&g_app.shell_scene) ||
-        !ui_scene_layout(&g_app.shell_scene, 1280, 720) ||
+        !ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
+                                      kGuildChannelShellLayoutMetrics, 1280, 720) ||
         !application_history_decode_storage_initialize(ui) ||
         !message_store_initialize(&g_app.message_view.store, {records, 4}, {order, 4}, {text, 4096}) ||
         !message_store_upsert(&g_app.message_view.store,

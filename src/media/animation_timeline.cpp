@@ -536,17 +536,4 @@ u32 animation_timeline_wait_timeout_ms(const AnimationTimeline* timeline, u64 mo
     return milliseconds >= INFINITE ? INFINITE - 1 : static_cast<u32>(milliseconds);
 }
 
-u64 animation_duration_fraction_us(u32 numerator, u32 denominator, u64 minimum_us) noexcept {
-    if (denominator == 0 || minimum_us > kAnimationFrameDurationMaximumUs) {
-        return 0;
-    }
-    const u64 scaled = static_cast<u64>(numerator) * 1'000'000ull;
-    u64 duration = scaled / denominator;
-    if (scaled % denominator != 0) {
-        ++duration;
-    }
-    duration = maximum(duration, minimum_us);
-    return minimum(duration, kAnimationFrameDurationMaximumUs);
-}
-
 } // namespace maicord

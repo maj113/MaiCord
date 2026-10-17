@@ -88,7 +88,6 @@ bool mp4_decoder_initialize(Mp4Decoder* decoder, ConstSlice<u8> encoded,
 // until release; neither accessor allocates, reparses or creates a device.
 ConstSlice<u8> mp4_decoder_source(const Mp4Decoder&) noexcept;
 H264GpuMovie mp4_decoder_movie(const Mp4Decoder&) noexcept;
-H264GpuDiagnostic mp4_decoder_diagnostic(const Mp4Decoder&) noexcept;
 bool mp4_decoder_busy(const Mp4Decoder&) noexcept;
 bool mp4_decoder_wait(Mp4Decoder*, u32 timeout_ms) noexcept;
 // The renderer's copy acknowledgement must reach the codec worker before seek.

@@ -40,10 +40,6 @@ struct CffGlyphMetrics {
 // Font handles must come from cff_open, remain unmodified and outlive decoding.
 // CFF2 variation programs are a separate, still unsupported provider.
 SfntStatus cff_open(const SfntFace& face, CffFont* font) noexcept;
-// Bounded metrics-only decode; no path buffer or allocation. Same unsimulated
-// design metrics as cff_outline, including flex/composite resolution.
-SfntStatus cff_glyph_metrics(const CffFont& font,u16 glyph,CffGlyphMetrics* metrics,
-                            u32 work_limit=1000000) noexcept;
 // Oblique emission supports only a uniform positive FontMatrix.
 // It preserves base charstring metrics and transforms output ink/bounds only.
 SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output,

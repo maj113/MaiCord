@@ -1,4 +1,5 @@
 #include "maicord/protocol/emoji_preferences.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/byte_range.hpp"
@@ -500,15 +501,6 @@ bool entries_valid(ConstSlice<EmojiFrecencyEntry> entries) noexcept {
     return true;
 }
 
-u32 decimal_bytes(u32 n) noexcept {
-    u32 bytes = 1;
-    while (n >= 10) {
-        n /= 10;
-        ++bytes;
-    }
-    return bytes;
-}
-
 struct PatchJson {
     Utf8View encoded;
     u8 seen;
@@ -715,7 +707,7 @@ EmojiPreferencesWriteResult emoji_preferences_write_patch(const EmojiPreferences
     constexpr u32 middle_bytes = static_cast<u32>(sizeof(middle) - 1);
     const u32 encoded_bytes = base64_encoded_size(counted.used);
     const u32 json_bytes =
-        start_bytes + encoded_bytes + middle_bytes + decimal_bytes(patch.required_data_version) + 1;
+        start_bytes + encoded_bytes + middle_bytes + decimal_digits(patch.required_data_version) + 1;
     if (json_bytes > json.count || json_bytes > kEmojiPreferencesMaximumPatchBytes)
         return fail(E::capacity);
     Writer proto{scratch.data, 0, scratch.count, false};

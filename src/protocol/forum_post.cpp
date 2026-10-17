@@ -941,9 +941,6 @@ bool forum_post_selection_valid(const ForumParentSnapshot& parent, ConstSlice<u6
     }
     return true;
 }
-Utf8View forum_parent_name_view(const ForumParentSnapshot& value) noexcept {
-    return value.name_bytes <= sizeof(value.name) ? Utf8View{value.name, value.name_bytes} : Utf8View{};
-}
 Utf8View forum_tag_name_view(const ForumTagSnapshot& value) noexcept {
     return value.name_bytes <= sizeof(value.name) ? Utf8View{value.name, value.name_bytes} : Utf8View{};
 }

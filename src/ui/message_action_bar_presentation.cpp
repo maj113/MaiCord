@@ -146,13 +146,4 @@ bool message_action_bar_text_presentation_build_output(const MessageActionBar& b
     }
     return true;
 }
-
-} // namespace maicord
-
-namespace maicord {
-bool message_action_bar_text_presentation_build(const MessageActionBar& bar, const Theme& theme,
-                                                UiTextCommandStream* text) noexcept {
-    UiTextOutput output{text, nullptr};
-    return message_action_bar_text_presentation_build_output(bar, theme, &output);
-}
 } // namespace maicord

@@ -1,21 +1,7 @@
-#include "maicord/text/bengali_shape_run.hpp"
-#include "maicord/text/gujarati_shape_run.hpp"
-#include "maicord/text/gujarati_run.hpp"
-#include "maicord/text/gurmukhi_run.hpp"
-#include "maicord/text/gurmukhi_shape_run.hpp"
-#include "maicord/text/odia_shape_run.hpp"
-#include "maicord/text/odia_run.hpp"
-#include "maicord/text/telugu_run.hpp"
-#include "maicord/text/telugu_shape_run.hpp"
-#include "maicord/text/kannada_shape_run.hpp"
-#include "maicord/text/kannada_run.hpp"
-#include "maicord/text/malayalam_run.hpp"
-#include "maicord/text/malayalam_shape_run.hpp"
 #include "maicord/text/indic_clusters.hpp"
 #include "maicord/text/unicode.hpp"
 #include "shape_position.hpp"
 #include "indic_cluster.hpp"
-#include "maicord/text/bengali_run.hpp"
 #include "maicord/text/base.hpp"
 namespace maicord {namespace {
 template<class T> Slice<T> tail(Slice<T> value,u32 start) noexcept {
@@ -25,21 +11,20 @@ bool word_character(u32 scalar) noexcept {
     const auto category=unicode_properties(scalar)->indic_syllabic_category();
     return (scalar>=0x980&&scalar<0xa00&&category!=UnicodeIndicSyllabicCategory::other)||scalar==0x200c||scalar==0x200d||scalar==0x25cc;
 }
-SfntStatus execute_run(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,Utf8View text,bool encoded,ConstSlice<u8> forms,
+}
+SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
     float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float trailing_spacing) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
-    if((input.count&&!input.data)||(text.bytes&&!text.data)||forms.count!=128||!forms.data||(steps.count&&!steps.data)||!plan.advance||!plan.units_per_em||!(em>0)||em>65536)return SfntStatus::invalid_input;
+    if((text.bytes&&!text.data)||forms.count!=128||!forms.data||(steps.count&&!steps.data)||!plan.advance||!plan.units_per_em||!(em>0)||em>65536)return SfntStatus::invalid_input;
     u32 spacing_bits=0;copy_bytes(&spacing_bits,&trailing_spacing,4);
     if((spacing_bits&0x7fffffffu)>=0x7f800000u||((spacing_bits&0x80000000u)&&(spacing_bits&0x7fffffffu)))return SfntStatus::invalid_input;
-    const u32 source_size=encoded?text.bytes:input.count;
+    const u32 source_size=text.bytes;
     if(source_size>limits.stage_work||plan.positioning_roots.count>limits.stage_work)return SfntStatus::resource_limit;
     if((plan.positioning_roots.count&&!plan.positioning_roots.data)||(plan.positioning_roots.count&&!plan.positioning))return SfntStatus::invalid_input;
     for(u32 i=0;i<plan.positioning_roots.count;++i)if(plan.positioning_roots[i]>=plan.positioning->lookups.count)return SfntStatus::invalid_input;
     u64 total_units=0;
-    for(u32 i=0;i<source_size;){u32 scalar=0,width=1;
-        if(encoded){const auto decoded=utf8_decode_one(text.data+i,text.bytes-i);if(!decoded.valid)return SfntStatus::invalid_input;scalar=decoded.codepoint;width=decoded.width;}
-        else{scalar=input[i];if(!unicode_is_scalar(scalar))return SfntStatus::invalid_input;}
-        total_units+=scalar>0xffff?2u:1u;i+=width;}
+    for(u32 i=0;i<source_size;){const auto decoded=utf8_decode_one(text.data+i,text.bytes-i);if(!decoded.valid)return SfntStatus::invalid_input;
+        total_units+=decoded.codepoint>0xffff?2u:1u;i+=decoded.width;}
 
     if(total_units>storage.character_glyphs.count)return SfntStatus::output_too_small;
     if(total_units&&!storage.character_glyphs.data)return SfntStatus::invalid_input;
@@ -49,9 +34,9 @@ SfntStatus execute_run(SfntIndicProfile profile,const SfntShapePlan& plan,const 
     const bool position_bounds=plan.positioning_roots.count>1;
     u32 previous=0;bool have_previous=false;
     for(u32 first=0;first<source_size;){u32 decoded_scalars[32]{},byte_offsets[33]{};
-        u32 window=minimum<u32>(32,source_size-first);const u32* scalars=encoded?decoded_scalars:input.data+first;
-        if(encoded){window=0;u32 at=first;while(at<source_size&&window<32){const auto decoded=utf8_decode_one(text.data+at,source_size-at);
-            if(!decoded.valid)return SfntStatus::invalid_input;decoded_scalars[window++]=decoded.codepoint;at+=decoded.width;byte_offsets[window]=at-first;}}
+        u32 window=0;const u32* scalars=decoded_scalars;
+        for(u32 at=first;at<source_size&&window<32;){const auto decoded=utf8_decode_one(text.data+at,source_size-at);
+            if(!decoded.valid)return SfntStatus::invalid_input;decoded_scalars[window++]=decoded.codepoint;at+=decoded.width;byte_offsets[window]=at-first;}
         u8 boundaries[32]{};
         auto status=sfnt_indic_cluster_boundaries(profile,{scalars,window},{boundaries,32},limits.stage_work,(profile==SfntIndicProfile::telugu||profile==SfntIndicProfile::kannada||profile==SfntIndicProfile::malayalam)?forms:ConstSlice<u8>{});
         if(status!=SfntStatus::ok)return status;
@@ -59,7 +44,7 @@ SfntStatus execute_run(SfntIndicProfile profile,const SfntShapePlan& plan,const 
         // input; the scanner's 31-scalar cap guarantees progress in a full 32-scalar
         // window. A scalar is decoded/scanned at most twice.
         for(u32 at=0;at<window;){u32 length=1;while(at+length<window&&!boundaries[at+length])++length;
-            const u32 consumed=encoded?byte_offsets[at+length]-byte_offsets[at]:length;
+            const u32 consumed=byte_offsets[at+length]-byte_offsets[at];
             if(at+length==window&&first+consumed<source_size)break;
             auto local=storage;local.glyphs=tail(storage.glyphs,count);local.character_glyphs=tail(storage.character_glyphs,units);
             local.targets=tail(storage.targets,targets);local.associations=tail(storage.associations,count);local.advances=tail(storage.advances,count);
@@ -96,65 +81,5 @@ SfntStatus execute_run(SfntIndicProfile profile,const SfntShapePlan& plan,const 
                 storage.flags[index]=saved;break;}
             if(status!=SfntStatus::ok)return status;first=end;}}
     if(status==SfntStatus::ok){result->glyph_count=count;result->source_units=units;result->target_count=targets;}return status;
-}
- }
-SfntStatus indic_utf8_run(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return execute_run(profile,plan,cmap,{},text,true,forms,em,storage,result,steps,limits,rtl,spacing);
-}
-SfntStatus sfnt_bengali_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float trailing_spacing) noexcept {
-    return execute_run(SfntIndicProfile::bengali,plan,cmap,input,{},false,forms,em,storage,result,steps,limits,rtl,trailing_spacing);
-}
-SfntStatus native_bengali_run(const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float trailing_spacing) noexcept {
-    return indic_utf8_run(SfntIndicProfile::bengali,plan,cmap,text,forms,em,storage,result,steps,limits,rtl,trailing_spacing);
-}
-SfntStatus sfnt_gujarati_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return execute_run(SfntIndicProfile::gujarati,plan,cmap,input,{},false,forms,em,storage,result,steps,limits,rtl,spacing);
-}
-SfntStatus native_gujarati_run(const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return indic_utf8_run(SfntIndicProfile::gujarati,plan,cmap,text,forms,em,storage,result,steps,limits,rtl,spacing);
-}
-SfntStatus sfnt_gurmukhi_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return execute_run(SfntIndicProfile::gurmukhi,plan,cmap,input,{},false,forms,em,storage,result,steps,limits,rtl,spacing);
-}
-SfntStatus native_gurmukhi_run(const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return indic_utf8_run(SfntIndicProfile::gurmukhi,plan,cmap,text,forms,em,storage,result,steps,limits,rtl,spacing);
-}
-SfntStatus sfnt_odia_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return execute_run(SfntIndicProfile::odia,plan,cmap,input,{},false,forms,em,storage,result,steps,limits,rtl,spacing);
-}
-SfntStatus native_odia_run(const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return indic_utf8_run(SfntIndicProfile::odia,plan,cmap,text,forms,em,storage,result,steps,limits,rtl,spacing);
-}
-SfntStatus sfnt_telugu_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return execute_run(SfntIndicProfile::telugu,plan,cmap,input,{},false,forms,em,storage,result,steps,limits,rtl,spacing);
-}
-SfntStatus native_telugu_run(const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return indic_utf8_run(SfntIndicProfile::telugu,plan,cmap,text,forms,em,storage,result,steps,limits,rtl,spacing);
-}SfntStatus sfnt_kannada_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return execute_run(SfntIndicProfile::kannada,plan,cmap,input,{},false,forms,em,storage,result,steps,limits,rtl,spacing);
-}
-SfntStatus native_kannada_run(const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return indic_utf8_run(SfntIndicProfile::kannada,plan,cmap,text,forms,em,storage,result,steps,limits,rtl,spacing);
-}
-SfntStatus sfnt_malayalam_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return execute_run(SfntIndicProfile::malayalam,plan,cmap,input,{},false,forms,em,storage,result,steps,limits,rtl,spacing);
-}
-SfntStatus native_malayalam_run(const SfntShapePlan& plan,const SfntCmap& cmap,Utf8View text,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,float spacing) noexcept {
-    return indic_utf8_run(SfntIndicProfile::malayalam,plan,cmap,text,forms,em,storage,result,steps,limits,rtl,spacing);
 }
 }

@@ -1,17 +1,12 @@
 #include "maicord/render/video_frame_gpu.hpp"
 
 #include "maicord/core/memory.hpp"
-#include "maicord/core/time.hpp"
 #include "maicord/media/yuv_convert_common.hpp"
 #include "maicord/render/shader_bytecode.hpp"
 #include <d3d11_4.h>
 
 namespace maicord {
 namespace {
-
-template<class T> void release(T*& object) noexcept {
-    if (object) { object->Release(); object = nullptr; }
-}
 
 struct VideoConstants {
     u32 crop_x, crop_y, width, height, x, y;
@@ -57,10 +52,10 @@ HRESULT ensure_nv12(VideoFrameGpu* gpu, ID3D11Device* device, u32 width, u32 hei
     view.Format = DXGI_FORMAT_R8G8_UNORM;
     if (SUCCEEDED(status)) status = device->CreateShaderResourceView(texture, &view, &chroma);
     if (FAILED(status)) {
-        release(chroma); release(luma); release(texture);
+        com_release(chroma); com_release(luma); com_release(texture);
         return status;
     }
-    release(gpu->chroma); release(gpu->luma); release(gpu->nv12);
+    com_release(gpu->chroma); com_release(gpu->luma); com_release(gpu->nv12);
     gpu->nv12 = texture; gpu->luma = luma; gpu->chroma = chroma;
     gpu->width = desc.Width; gpu->height = desc.Height;
     ++gpu->allocations;
@@ -75,7 +70,7 @@ bool plane_matches(ID3D11ShaderResourceView* view, ID3D11Texture2D* texture, DXG
     ID3D11Resource* resource = nullptr;
     view->GetResource(&resource);
     const bool matches = resource == static_cast<ID3D11Resource*>(texture);
-    release(resource);
+    com_release(resource);
     return matches;
 }
 
@@ -86,24 +81,9 @@ bool direct_planes(const GpuVideoFrame& frame, const D3D11_TEXTURE2D_DESC& input
            plane_matches(frame.chroma, frame.texture, DXGI_FORMAT_R8G8_UNORM);
 }
 
-template<bool Profile>
-void checkpoint(VideoFrameGpuTrace* trace, u32 stage, i64* previous) noexcept {
-    if constexpr (Profile) {
-        const i64 now = clock_now();
-        trace->ticks[stage] = now - *previous;
-        *previous = now;
-    }
-}
-
-template<bool Profile>
 HRESULT present(VideoFrameGpu* gpu, ID3D11Device* device,
     ID3D11DeviceContext1* context, const GpuVideoFrame& frame,
-    ID3D11UnorderedAccessView* destination, u32 x, u32 y, u32 step, VideoFrameGpuTrace* trace) noexcept {
-    i64 previous = 0;
-    if constexpr (Profile) {
-        if (!trace) return E_INVALIDARG;
-        previous = clock_now();
-    }
+    ID3D11UnorderedAccessView* destination, u32 x, u32 y, u32 step) noexcept {
     if (!gpu || !device || !context || !frame.texture || !destination || frame.rotation > 3 ||
         frame.width == 0 || frame.height == 0 || step == 0 || step > kGpuVideoReductionMaximum) return E_INVALIDARG;
     // Reduced source extent; the written (rotated) extent swaps it for odd turns.
@@ -119,7 +99,7 @@ HRESULT present(VideoFrameGpu* gpu, ID3D11Device* device,
     ID3D11Device* source_device = nullptr;
     frame.texture->GetDevice(&source_device);
     const bool same_device = source_device == device;
-    release(source_device);
+    com_release(source_device);
     if (!same_device) return E_INVALIDARG;
     D3D11_UNORDERED_ACCESS_VIEW_DESC output_view{};
     destination->GetDesc(&output_view);
@@ -131,16 +111,15 @@ HRESULT present(VideoFrameGpu* gpu, ID3D11Device* device,
     ID3D11Texture2D* output = nullptr;
     HRESULT status = resource->QueryInterface(__uuidof(ID3D11Texture2D),
         reinterpret_cast<void**>(&output));
-    release(resource);
+    com_release(resource);
     if (FAILED(status)) return status;
     D3D11_TEXTURE2D_DESC target{};
     output->GetDesc(&target);
-    release(output);
+    com_release(output);
     if (target.Format != DXGI_FORMAT_R8G8B8A8_UNORM ||
         x > target.Width || output_width > target.Width - x ||
         y > target.Height || output_height > target.Height - y) return E_INVALIDARG;
     const bool direct = direct_planes(frame, input);
-    checkpoint<Profile>(trace, 0, &previous);
     status = ensure_resources(gpu, device);
     if (SUCCEEDED(status) && !direct) status = ensure_nv12(gpu, device, input.Width, input.Height);
     if (FAILED(status)) return status;
@@ -149,7 +128,6 @@ HRESULT present(VideoFrameGpu* gpu, ID3D11Device* device,
             reinterpret_cast<void**>(&gpu->multithread));
         if (FAILED(status)) return status;
     }
-    checkpoint<Profile>(trace, 1, &previous);
     // Keep the short upload/conversion command sequence together instead of
     // repeatedly yielding the protected immediate context to decoder workers.
     // No decode, fence wait or resource creation occurs under this lock.
@@ -161,13 +139,11 @@ HRESULT present(VideoFrameGpu* gpu, ID3D11Device* device,
         yuv_rgb_coefficients(frame.bt709, frame.full_range), step, frame.width, frame.height, frame.rotation};
     copy_bytes(mapped.pData, &constants, sizeof(constants));
     context->Unmap(gpu->constants, 0);
-    checkpoint<Profile>(trace, 2, &previous);
     if (!direct) {
         const D3D11_BOX box{0, 0, 0, input.Width, input.Height, 1};
         context->CopySubresourceRegion(gpu->nv12, 0, 0, 0, 0,
                                       frame.texture, frame.subresource, &box);
     }
-    checkpoint<Profile>(trace, 3, &previous);
     ID3D11ShaderResourceView* inputs[]{direct ? frame.luma : gpu->luma, direct ? frame.chroma : gpu->chroma};
     // The atlas can still be bound by the preceding draw. Unbind it before
     // using the UAV; leave all compute bindings clean for the next render pass.
@@ -178,9 +154,7 @@ HRESULT present(VideoFrameGpu* gpu, ID3D11Device* device,
     context->CSSetConstantBuffers(0, 1, &gpu->constants);
     context->CSSetShaderResources(0, 2, inputs);
     context->CSSetUnorderedAccessViews(0, 1, &destination, nullptr);
-    checkpoint<Profile>(trace, 4, &previous);
     context->Dispatch((output_width + 7u) / 8u, (output_height + 7u) / 8u, 1);
-    checkpoint<Profile>(trace, 5, &previous);
     context->CSSetShaderResources(0, 2, empty);
     ID3D11UnorderedAccessView* no_uav = nullptr;
     context->CSSetUnorderedAccessViews(0, 1, &no_uav, nullptr);
@@ -188,7 +162,6 @@ HRESULT present(VideoFrameGpu* gpu, ID3D11Device* device,
     context->CSSetConstantBuffers(0, 1, &no_buffer);
     context->CSSetShader(nullptr, nullptr, 0);
     gpu->multithread->Leave();
-    checkpoint<Profile>(trace, 6, &previous);
     ++gpu->frames;
     if (!direct) gpu->copied_bytes += static_cast<u64>(input.Width) * input.Height * 3u / 2u;
     gpu->converted_pixels += static_cast<u64>(width) * height;
@@ -200,20 +173,14 @@ HRESULT present(VideoFrameGpu* gpu, ID3D11Device* device,
 HRESULT video_frame_gpu_present(VideoFrameGpu* gpu, ID3D11Device* device,
     ID3D11DeviceContext1* context, const GpuVideoFrame& frame,
     ID3D11UnorderedAccessView* destination, u32 x, u32 y, u32 step) noexcept {
-    return present<false>(gpu, device, context, frame, destination, x, y, step, nullptr);
-}
-
-HRESULT video_frame_gpu_present_profiled(VideoFrameGpu* gpu, ID3D11Device* device,
-    ID3D11DeviceContext1* context, const GpuVideoFrame& frame,
-    ID3D11UnorderedAccessView* destination, u32 x, u32 y, VideoFrameGpuTrace* trace) noexcept {
-    return present<true>(gpu, device, context, frame, destination, x, y, 1, trace);
+    return present(gpu, device, context, frame, destination, x, y, step);
 }
 
 void video_frame_gpu_release(VideoFrameGpu* gpu) noexcept {
     if (!gpu) return;
-    release(gpu->chroma); release(gpu->luma); release(gpu->nv12);
-    release(gpu->shader); release(gpu->constants);
-    release(gpu->multithread);
+    com_release(gpu->chroma); com_release(gpu->luma); com_release(gpu->nv12);
+    com_release(gpu->shader); com_release(gpu->constants);
+    com_release(gpu->multithread);
     *gpu = VideoFrameGpu{};
 }
 

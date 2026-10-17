@@ -1,4 +1,3 @@
-#include "substitution_selection.hpp"
 #include "maicord/text/arabic_plan.hpp"
 #include "layout_language.hpp"
 #include "maicord/text/base.hpp"
@@ -79,5 +78,4 @@ SfntStatus sfnt_arabic_lookup_plan(const SfntLayout& layout,const SfntFeatureSub
     if(!layout.table.data || static_cast<u8>(layout.kind)>1 || (scratch.count && !scratch.data) || (output.count && !output.data))return SfntStatus::invalid_input;
     Builder builder{layout,variations,scratch,output,*result,work};const auto s=builder.run(independent);result->operations=work-builder.work;return s;
 }
-bool arabic_substitution_feature(u32 tag) noexcept {return choice(SfntLayoutKind::substitution,tag,false).bit!=0;}
 } // namespace maicord

@@ -179,12 +179,6 @@ PollControllerResult poll_controller_queue_voter_page(PollController* c,u32 answ
     c->last_error=PollControllerError::none;
     return result(*c,PollControllerError::none,true);
 }
-PollControllerResult poll_controller_queue_voters(PollController* c,u32 answer,bool more,
-                                                  u32 limit,u64 now) noexcept {
-    if (more && (!c || c->voter_answer_id!=answer || !c->voters_more || c->flight.active || c->pending_ready))
-        return {PollControllerError::busy};
-    return poll_controller_queue_voter_page(c,answer,more?c->after_user_id:0,limit,now);
-}
 PollControllerResult poll_controller_queue_refresh(PollController* c,u64 now) noexcept {
     if (!c || !c->initialized || !c->source_active || !now) return {PollControllerError::invalid_input};
     if (!c->snapshot.can_inspect) return result(*c,PollControllerError::forbidden);

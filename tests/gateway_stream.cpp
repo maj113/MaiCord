@@ -419,18 +419,13 @@ void test_stream_connection(Check check) noexcept {
 void test_live_badges(Check check) noexcept {
     VoiceState records[8]{};
     VoiceStateStore store{};
-    voice_state_store_initialize(&store, {records, 8});
+    voice_state_store_initialize_sparse(&store, {records, 8});
     voice_state_store_apply(&store, 1, 20, 300, voice_self_stream | voice_self_mute);
     voice_state_store_apply(&store, 1, 20, 301, voice_self_video);
-    voice_state_store_apply(&store, 1, 20, 302, voice_self_stream);
-    voice_state_store_apply(&store, 1, 21, 303, voice_self_stream);
-    u64 live[1]{};
-    check(voice_state_store_channel_live(store, 20, {live, 1}) == 2 && live[0] == 300 &&
-              voice_state_store_channel_live(store, 21, {}) == 1 && !voice_state_store_channel_live(store, 22, {}) &&
-              voice_state_live(*voice_state_store_find(store, 1, 302)) &&
+    check(voice_state_live(*voice_state_store_find(store, 1, 300)) &&
               !voice_state_live(*voice_state_store_find(store, 1, 301)),
-          "LIVE badges: self_stream users per voice channel in join order");
-    check(gateway_stream_key_for(1, 20, live[0]) == GatewayStreamKey{1, 20, 300, GatewayStreamType::guild, {}},
+          "LIVE badges: self_stream marks the streaming user");
+    check(gateway_stream_key_for(1, 20, 300) == GatewayStreamKey{1, 20, 300, GatewayStreamType::guild, {}},
           "a live voice row maps to its stream key");
 }
 } // namespace

@@ -215,10 +215,11 @@ void test_action_bar(Check check) noexcept {
     PaintStream paint{};
     UiTextCommand text_commands[4]{};
     UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     const bool presented = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 740, 600) &&
                            ui_text_command_stream_initialize(&text, {text_commands, 4}) &&
                            message_action_bar_presentation_build(bar, kDefaultTheme, &paint) &&
-                           message_action_bar_text_presentation_build(bar, kDefaultTheme, &text);
+                           message_action_bar_text_presentation_build_output(bar, kDefaultTheme, &text_output);
     u32 icons = 0;
     for (u32 i = 0; presented && i < paint.count; ++i)
         icons += ui_icon_quad(paint.quads[i]) ? 1u : 0u;

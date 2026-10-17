@@ -259,11 +259,9 @@ struct MessageTextPresentation {
     // Where the next measurement-history lookup starts (see append_command).
     u32 measurement_history_cursor;
     MessageMarkdownSemanticKind hovered_kind;
-    bool command_measurements_changed;
     bool has_hover;
     bool active;
     bool reveal_spoilers; // Chat setting: spoiler text renders revealed
-    MessageMarkdownError last_markdown_error;
     MessageTextPresentationError last_error;
     u64 failure_message_id;
     u32 failure_source_index;

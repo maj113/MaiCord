@@ -16,6 +16,12 @@ using Check = void (*)(bool, const char*) noexcept;
 GatewayStreamKey key(u64 owner, u64 channel = 20) noexcept {
     return gateway_stream_key_for(10, channel, owner);
 }
+const StreamPreviewEntry* preview(const StreamPreviewCache& cache, const GatewayStreamKey& stream) noexcept {
+    for (const auto& entry : cache.entries)
+        if (entry.key.type != GatewayStreamType::none && entry.key == stream)
+            return &entry;
+    return nullptr;
+}
 Utf8View text(const char* value) noexcept {
     u32 bytes = 0;
     while (value[bytes])
@@ -87,7 +93,7 @@ void preview_cache(Check check) noexcept {
               done->next_ms == 500'009 + kStreamPreviewRetryMs * kStreamPreviewMaximumAttempts,
           "stream preview: backoff stops growing at the attempt cap");
     stream_preview_deferred(&cache, b, 600'000);
-    check(stream_preview_find(cache, b)->next_ms == 600'000 && stream_preview_find(cache, b)->attempts == done->attempts,
+    check(preview(cache, b)->next_ms == 600'000 && preview(cache, b)->attempts == done->attempts,
           "stream preview: a busy lane defers without counting a failure");
     // Wants expire: nothing is fetched for a surface that closed.
     check(!stream_preview_next_due(cache, 700'000 + kStreamPreviewWantMs),
@@ -96,7 +102,7 @@ void preview_cache(Check check) noexcept {
     // Recycling keeps in-flight entries.
     for (u64 owner = 3; owner < 3 + kStreamPreviewEntries; ++owner)
         stream_preview_want(&cache, key(owner), 800'000 + owner);
-    check(stream_preview_find(cache, key(2 + kStreamPreviewEntries)) && !stream_preview_find(cache, a),
+    check(preview(cache, key(2 + kStreamPreviewEntries)) && !preview(cache, a),
           "stream preview: the least recently shown stream is recycled");
 }
 

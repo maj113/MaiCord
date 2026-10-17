@@ -85,5 +85,11 @@ constexpr bool ui_rect_equal(const UiRect& left, const UiRect& right) noexcept {
 
 UiRect ui_rect_inset(UiRect rectangle, const UiInsets& insets) noexcept;
 UiRect ui_rect_intersection(const UiRect& left, const UiRect& right) noexcept;
+// Unclamped intersection: right < left or bottom < top when the rectangles
+// are disjoint (ui_rect_intersection clamps to an empty rectangle instead).
+UiRect ui_rect_overlap(const UiRect& a, const UiRect& b) noexcept;
+// Every edge moved inward by amount (outward when negative); unclamped.
+UiRect ui_rect_shrink(const UiRect& rectangle, float amount) noexcept;
+UiRect ui_rect_lerp(const UiRect& from, const UiRect& to, float t) noexcept;
 
 } // namespace maicord

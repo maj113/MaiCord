@@ -101,20 +101,6 @@ MlsStatus mls_external_sender_parse(ConstSlice<u8> input, MlsExternalSender* sen
     *sender = {key, identity};
     return MlsStatus::ok;
 }
-MlsStatus mls_external_sender_write(const u8* signature_key, ConstSlice<u8> identity, Slice<u8> output,
-                                    u32* written) noexcept {
-    if (!signature_key || signature_key[0] != 4 || !identity.count || identity.count > 1024 || !written)
-        return MlsStatus::invalid_argument;
-    *written = 0;
-    MlsWriter writer{output};
-    writer.vector(signature_key, kMlsPointBytes);
-    writer.integer(1, 2);
-    writer.vector(identity.data, identity.count);
-    if (!writer.ok())
-        return writer.status;
-    *written = writer.used;
-    return MlsStatus::ok;
-}
 
 MlsStatus mls_group_context_write(u64 group_id, u64 epoch, const u8* tree_hash,
                                   const u8* confirmed_transcript_hash, ConstSlice<u8> external_sender,

@@ -30,6 +30,10 @@ struct UiPollState {
     bool total_votes_known{}, supported{}, loading{}, error{}, can_vote{}, can_remove_vote{};
     bool can_view_results{}, can_view_voters{}, can_retry{};
 };
+// Finalized, or past a known expiry.
+bool ui_poll_closed(const UiPollState& state) noexcept;
+// Results view (vote counts shown): voted, closed or "Show results".
+bool ui_poll_counts_visible(const UiPollState& state) noexcept;
 // Default poll layout (DIP): a 16-padded card at most 472 wide; 50-high answer
 // rows (8/16 padding, 8 radius, 8 gap) with the selection icon on the right; a
 // 38-high footer of vote details and actions. Theme metrics override the lengths.
@@ -121,7 +125,6 @@ bool ui_poll_controls_project(const UiPollState&, UiRect bounds, const UiPollSty
                               UiTextMeasureCache*, u16 backend_revision, UiPollProjection*) noexcept;
 Utf8View ui_poll_count_label(const UiPollProjection&, u32 answer_index) noexcept;
 Utf8View ui_poll_summary_label(const UiPollProjection&) noexcept;
-Utf8View ui_poll_expiry_label(const UiPollProjection&) noexcept;
 UiPollTarget ui_poll_controls_hit(const UiPollProjection&, UiPoint) noexcept;
 UiRect ui_poll_target_rectangle(const UiPollProjection&, UiPollTarget) noexcept;
 bool ui_poll_target_enabled(const UiPollProjection&, UiPollTarget) noexcept;
@@ -270,5 +273,4 @@ bool ui_poll_voters_scene_focus(UiPollVotersScene*, UiPollVotersTarget, bool key
 UiPollVotersSceneResult ui_poll_voters_scene_pointer(UiPollVotersScene*, UiPollPointerEvent,
                                                      UiPoint) noexcept;
 UiPollVotersSceneResult ui_poll_voters_scene_key(UiPollVotersScene*, UiPollKey) noexcept;
-bool ui_poll_voters_action_current(const UiPollVotersState&, const UiPollVotersAction&) noexcept;
 } // namespace maicord

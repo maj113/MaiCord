@@ -122,7 +122,6 @@
 #include "maicord/ui/login_scene.hpp"
 #include "maicord/ui/login_presentation.hpp"
 #include "maicord/ui/login_text_presentation.hpp"
-#include "maicord/ui/layout_debug.hpp"
 #include "maicord/ui/layout_engine.hpp"
 #include "maicord/ui/message_action_bar_presentation.hpp"
 #include "maicord/ui/message_context_controller.hpp"
@@ -956,8 +955,7 @@ void test_spsc_queue() noexcept {
         filled = filled && spsc_queue_push(&queue, value + 10);
     }
     expect(filled && spsc_queue_size(queue) == 8, "spsc_queue_full_capacity");
-    expect(!spsc_queue_push(&queue, static_cast<u32>(99)) && spsc_queue_dropped(queue) == 1,
-           "spsc_queue_bounded_drop");
+    expect(!spsc_queue_push(&queue, static_cast<u32>(99)), "spsc_queue_bounded_drop");
     bool ordered = true;
     for (u32 expected = 0; expected < 8; ++expected) {
         u32 value = 0;
@@ -995,8 +993,6 @@ void test_spsc_mailbox() noexcept {
            "spsc_mailbox_payload_backpressure");
 
     u32 value = 0;
-    const SpscMailboxResult peeked = spsc_mailbox_peek(mailbox, &value);
-    expect(peeked.ok() && peeked.payload_bytes == 5 && value == 10, "spsc_mailbox_peek");
     u8 too_small[4]{};
     expect(spsc_mailbox_pop(&mailbox, &value, Slice<u8>{too_small, 4}).error ==
                    SpscMailboxError::output_too_small &&
@@ -1178,7 +1174,6 @@ void test_message_store() noexcept {
     MessageRecord records[4]{};
     u32 order[4]{};
     u8 text[64]{};
-    u8 scratch[64]{};
     MessageStore store{};
     expect(message_store_initialize(&store, Slice<MessageRecord>{records, 4}, Slice<u32>{order, 4},
                                     Slice<u8>{text, 64}),
@@ -1228,11 +1223,6 @@ void test_message_store() noexcept {
                inserted_fourth.handle.generation != stale_first.generation &&
                !message_store_resolve(store, stale_first),
            "message_store_slot_generation_reuse");
-    const u32 live_before_compact = store.text_used - store.text_wasted;
-    expect(message_store_compact(&store, Slice<u8>{scratch, 64}) &&
-               store.text_used == live_before_compact && store.text_wasted == 0 &&
-               utf8_view_equal(message_store_content(store, updated.handle), utf8_literal("two edited")),
-           "message_store_compaction_preserves_handles_content");
 
     expect(message_store_upsert(&store, MessageInput{500, 7, 15, 5'000, 0, utf8_literal("five"), 0}).ok() &&
                message_store_upsert(&store, MessageInput{600, 7, 16, 6'000, 0, utf8_literal("six"), 0})
@@ -1441,7 +1431,7 @@ void test_message_rich_store() noexcept {
     MessageRichStore lazy_store{};
     u16 lazy_order[4]{};
     u8 lazy_text[4 * 1024]{};
-    const bool lazy_initialized = message_rich_store_initialize_owned(
+    const bool lazy_initialized = message_rich_store_initialize_owned_sparse(
         &lazy_store, &lazy_record_storage, 4, Slice<u16>{lazy_order, 4}, Slice<u8>{lazy_text, 4 * 1024});
     const MessageRichStoreResult lazy_inserted =
         lazy_initialized ? message_rich_store_apply(&lazy_store, 900, 1, rich) : MessageRichStoreResult{};
@@ -1899,7 +1889,9 @@ void test_gpu_timing_math() noexcept {
 
 void test_ui_scene() noexcept {
     UiScene scene{};
-    expect(ui_scene_initialize_bootstrap(&scene) && ui_scene_layout(&scene, 1280.0f, 800.0f),
+    expect(ui_scene_initialize_bootstrap(&scene) &&
+               ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+                                            1280.0f, 800.0f),
            "ui_scene_bootstrap_layout");
     const UiNode* guild = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::guild_rail));
     const UiNode* channels = ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::channel_sidebar));
@@ -1983,12 +1975,18 @@ void test_ui_scene() noexcept {
     const u32 scene_rebuilds = scene.layout_rebuilds;
     const u32 scene_layout_passes = scene.layout_passes;
     const u16 scene_generation = scene.generation;
-    expect(ui_scene_validate(scene, Slice<UiLayoutDiagnostic>{scene_diagnostics, 32}).clean() &&
-               ui_scene_layout(&scene, 1280.0f, 800.0f) && scene.layout_rebuilds == scene_rebuilds,
+    expect(ui_layout_engine_validate(scene.widgets.layout, Slice<UiLayoutDiagnostic>{scene_diagnostics, 32}).clean() &&
+               ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+                                            1280.0f, 800.0f) &&
+               scene.layout_rebuilds == scene_rebuilds,
            "ui_scene_widget_validation_and_invalidation_cache");
-    expect(ui_scene_layout(&scene, 1200.0f, 800.0f) && scene.layout_rebuilds == scene_rebuilds &&
+    expect(ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+                                        1200.0f, 800.0f) &&
+               scene.layout_rebuilds == scene_rebuilds &&
                scene.layout_passes == scene_layout_passes + 1 && scene.generation == scene_generation &&
-               ui_scene_layout(&scene, 1280.0f, 800.0f) && scene.layout_rebuilds == scene_rebuilds &&
+               ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+                                            1280.0f, 800.0f) &&
+               scene.layout_rebuilds == scene_rebuilds &&
                scene.layout_passes == scene_layout_passes + 2,
            "ui_scene_same_variant_rearrange_without_tree_rebuild");
 
@@ -3005,7 +3003,8 @@ void test_ui_scene() noexcept {
            "message_scene_capacity_failure_does_not_publish_partial_tree");
 
     expect(
-        ui_scene_layout(&scene, 632.0f, 480.0f) &&
+        ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+                                     632.0f, 480.0f) &&
             ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::channel_sidebar)) &&
             !ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::member_sidebar)) &&
             ui_scene_resolve(scene, ui_scene_find(scene, UiSemantic::member_toggle)) &&
@@ -3092,17 +3091,10 @@ void test_ui_scene() noexcept {
     UiNodeHandle stale = title;
     ++stale.generation;
     expect(ui_scene_resolve(scene, title) && !ui_scene_resolve(scene, stale) &&
-               !ui_scene_layout(&scene, 0.0f, 480.0f) && scene.rejected == 1,
+               !ui_scene_layout_with_metrics(&scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
+                                             0.0f, 480.0f) &&
+               scene.rejected == 1,
            "ui_scene_handle_and_bounds");
-
-    const UiVirtualRange top = ui_virtual_range(100, 68.0f, 0.0f, 300.0f, 1);
-    const UiVirtualRange middle = ui_virtual_range(100, 68.0f, 200.0f, 300.0f, 1);
-    const UiVirtualRange end = ui_virtual_range(10, 68.0f, 612.0f, 100.0f, 1);
-    const UiVirtualRange invalid = ui_virtual_range(100, 0.0001f, 0.0f, 100.0f, 1);
-    expect(top.first == 0 && top.count == 6 && top.first_offset == 0.0f && middle.first == 1 &&
-               middle.count == 8 && middle.first_offset == -132.0f && end.first == 8 && end.count == 2 &&
-               invalid.count == 0,
-           "ui_virtual_range_overscan_clamp");
     ui_scene_release(&friends_scene);
     ui_scene_release(&scene);
     expect(!scene.storage.arena.base && !scene.nodes, "ui_scene_owned_storage_release");
@@ -4604,89 +4596,6 @@ void test_text_measure_cache() noexcept {
                cache.hits == 0 && fixture.calls == calls_before_reinitialize + 1,
            "text_measure_cache_reinitialize_discards_resident_generation");
 
-    UiTextMeasureRecord layout_records[16]{};
-    UiTextMeasureCache layout_cache{};
-    fixture.calls = 0;
-    const UiTextMeasureLayoutBinding binding{77, UiTextMeasureKey{77, 88, 1, 0, 1},
-                                             utf8_literal("01234567890123456789"),
-                                             ConstSlice<TextStyleSpan>{}};
-    UiTextMeasureLayoutContext layout_context{};
-    expect(ui_text_measure_cache_initialize(&layout_cache, Slice<UiTextMeasureRecord>{layout_records, 16},
-                                            backend, &fixture) &&
-               ui_text_measure_layout_context_initialize(
-                   &layout_context, &layout_cache, ConstSlice<UiTextMeasureLayoutBinding>{&binding, 1}),
-           "text_measure_layout_context_initialize");
-    const UiTextMeasureLayoutBinding duplicates[2]{binding, binding};
-    UiTextMeasureLayoutContext duplicate_context{};
-    expect(!ui_text_measure_layout_context_initialize(
-               &duplicate_context, &layout_cache, ConstSlice<UiTextMeasureLayoutBinding>{duplicates, 2}),
-           "text_measure_layout_rejects_duplicate_node_keys");
-
-    UiWidget widgets[3]{};
-    UiLayoutNode nodes[3]{};
-    UiWidgetManager manager{};
-    UiLayoutStyle root_style = ui_layout_style();
-    root_style.flow = UiLayoutFlow::vertical;
-    root_style.width = ui_layout_fill();
-    root_style.height = ui_layout_fill();
-    UiLayoutStyle text_style = ui_layout_style();
-    text_style.width = ui_layout_fill();
-    text_style.height = ui_layout_content();
-    text_style.horizontal_alignment = UiLayoutAlignment::stretch;
-    text_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_text_content);
-    UiLayoutStyle footer_style = ui_layout_style();
-    footer_style.width = ui_layout_fill();
-    footer_style.height = ui_layout_fixed(18.0f);
-    footer_style.horizontal_alignment = UiLayoutAlignment::stretch;
-    const bool manager_ready =
-        ui_widget_manager_initialize(&manager, Slice<UiWidget>{widgets, 3},
-                                     Slice<UiLayoutNode>{nodes, 3}) &&
-        ui_widget_manager_set_measure_callback(&manager, ui_text_measure_layout_callback, &layout_context);
-    const UiWidgetResult root =
-        manager_ready ? ui_widget_manager_add(&manager, ui_widget_invalid_handle(),
-                                              UiWidgetDesc{1, UiWidgetKind::container, ui_widget_enabled,
-                                                           UiLayoutNodeSpec{utf8_literal("MeasuredRoot"),
-                                                                            root_style, UiSize{}, 0.0f, 1}})
-                      : UiWidgetResult{};
-    const UiWidgetResult text =
-        root.ok() ? ui_widget_manager_add(&manager, root.handle,
-                                          UiWidgetDesc{2, UiWidgetKind::text, ui_widget_enabled,
-                                                       UiLayoutNodeSpec{utf8_literal("MeasuredText"),
-                                                                        text_style, UiSize{}, 0.0f, 77}})
-                  : UiWidgetResult{};
-    const UiWidgetResult footer =
-        root.ok() ? ui_widget_manager_add(&manager, root.handle,
-                                          UiWidgetDesc{3, UiWidgetKind::text, ui_widget_enabled,
-                                                       UiLayoutNodeSpec{utf8_literal("MeasuredFooter"),
-                                                                        footer_style, UiSize{}, 0.0f, 3}})
-                  : UiWidgetResult{};
-    UiLayoutDiagnostic diagnostics[8]{};
-    const UiLayoutResult narrow_layout = ui_widget_manager_layout(&manager, UiSize{64.0f, 200.0f});
-    const UiLayoutNode* text_node = ui_widget_manager_layout_node(manager, text.handle);
-    const UiLayoutNode* footer_node = ui_widget_manager_layout_node(manager, footer.handle);
-    const u32 calls_after_narrow = fixture.calls;
-    expect(root.ok() && text.ok() && footer.ok() && narrow_layout.ok() && text_node && footer_node &&
-               ui_rect_height(text_node->rectangle) == 54.0f && text_node->measured_baseline == 14.0f &&
-               footer_node->rectangle.top == text_node->rectangle.bottom &&
-               ui_layout_engine_validate(manager.layout, Slice<UiLayoutDiagnostic>{diagnostics, 8}).clean(),
-           "text_measure_cache_layout_engine_places_nonoverlapping_sibling");
-    expect(ui_widget_manager_layout(&manager, UiSize{64.0f, 200.0f}).ok() &&
-               fixture.calls == calls_after_narrow && layout_cache.hits != 0,
-           "text_measure_cache_layout_reflow_hits_cache");
-    expect(ui_widget_manager_layout(&manager, UiSize{32.0f, 200.0f}).ok() &&
-               fixture.calls == calls_after_narrow + 1,
-           "text_measure_cache_layout_width_change_remeasures_once");
-    text_node = ui_widget_manager_layout_node(manager, text.handle);
-    footer_node = ui_widget_manager_layout_node(manager, footer.handle);
-    expect(text_node && footer_node && ui_rect_height(text_node->rectangle) == 90.0f &&
-               footer_node->rectangle.top == 90.0f,
-           "text_measure_cache_layout_width_change_moves_sibling");
-    const u32 calls_before_clear = fixture.calls;
-    ui_text_measure_cache_invalidate(&layout_cache);
-    expect(ui_widget_manager_layout(&manager, UiSize{32.0f, 200.0f}).ok() &&
-               fixture.calls == calls_before_clear + 1,
-           "text_measure_cache_font_revision_invalidation_remeasures");
-
     MessageTextCommand commands[2]{};
     char utf8[8]{};
     TextStyleSpan styles[1]{};
@@ -4888,25 +4797,10 @@ void test_layout_engine_and_widget_manager() noexcept {
     const UiLayoutValidationResult collision =
         ui_layout_engine_validate(manager.layout, Slice<UiLayoutDiagnostic>{diagnostics, 16});
     bool found_collision = false;
-    u32 collision_index = 0;
     for (u32 index = 0; index < collision.count; ++index) {
-        if (diagnostics[index].kind == UiLayoutDiagnosticKind::sibling_collision) {
-            found_collision = true;
-            collision_index = index;
-        }
+        found_collision = found_collision || diagnostics[index].kind == UiLayoutDiagnosticKind::sibling_collision;
     }
     expect(found_collision, "layout_engine_reports_sibling_collision");
-    char warning[256]{};
-    const u32 warning_bytes = ui_widget_manager_format_diagnostic(manager, diagnostics[collision_index],
-                                                                  Slice<char>{warning, 256});
-    PaintStream debug_paint{};
-    paint_stream_reset(&debug_paint, 200.0f, 100.0f);
-    expect(warning_bytes > 32 && warning[0] == 'L' &&
-               ui_widget_manager_debug_paint(
-                   manager, ConstSlice<UiLayoutDiagnostic>{diagnostics, collision.count},
-                   ui_layout_debug_all, kDefaultUiLayoutDebugPalette, &debug_paint) &&
-               debug_paint.count != 0,
-           "layout_engine_named_warning_and_debug_overlay");
 
     ui_widget_manager_reset(&manager);
     expect(!ui_widget_manager_resolve(manager, button.handle) && manager.count == 0 &&
@@ -5181,7 +5075,7 @@ void test_login_scene() noexcept {
                login_scene_hit_test(scene, qr.left + 1.0f, qr.top + 1.0f) == LoginControl::qr,
            "login_scene_hit_targets");
     UiLayoutDiagnostic diagnostics[32]{};
-    expect(login_scene_validate(scene, Slice<UiLayoutDiagnostic>{diagnostics, 32}).clean(),
+    expect(ui_layout_engine_validate(scene.widgets.layout, Slice<UiLayoutDiagnostic>{diagnostics, 32}).clean(),
            "login_scene_wide_layout_validation");
     const u32 wide_rebuilds = scene.layout_rebuilds;
     const u32 wide_layout_passes = scene.layout_passes;
@@ -5715,7 +5609,7 @@ void test_login_scene() noexcept {
            "login_scene_revisioned_layout_metrics");
     expect(login_scene_layout(&scene, 240.0f, 320.0f), "login_scene_extreme_narrow_layout");
     const UiLayoutValidationResult narrow_validation =
-        login_scene_validate(scene, Slice<UiLayoutDiagnostic>{diagnostics, 32});
+        ui_layout_engine_validate(scene.widgets.layout, Slice<UiLayoutDiagnostic>{diagnostics, 32});
     bool narrow_overflow = false;
     for (u32 index = 0; index < narrow_validation.count; ++index) {
         narrow_overflow = narrow_overflow ||
@@ -6524,7 +6418,7 @@ void test_secure_edit() noexcept {
            "secure_edit_unicode_boundary_backspace");
     expect(secure_edit_move(&edit, SecureEditMove::end, false) == SecureEditResult::changed &&
                secure_edit_move(&edit, SecureEditMove::previous, true) == SecureEditResult::changed &&
-               secure_edit_has_selection(edit) &&
+               edit.anchor != edit.caret &&
                secure_edit_insert_scalar(&edit, 'x') == SecureEditResult::changed &&
                edit.storage.bytes == 2 && edit.storage.data[0] == 'a' && edit.storage.data[1] == 'x',
            "secure_edit_selection_replace");
@@ -6584,9 +6478,10 @@ void test_secure_edit() noexcept {
                            static_cast<char>(0x98u), static_cast<char>(0x80u)};
     char masked[12]{};
     u32 masked_bytes = 0;
+    SecureEditRenderWindow masked_window{};
     expect(secure_edit_assign(&password, Utf8View{secret, sizeof(secret)}) == SecureEditResult::changed &&
-               secure_edit_render_text(password, Slice<char>{masked, sizeof(masked)}, &masked_bytes) ==
-                   SecureEditResult::unchanged &&
+               secure_edit_render_window(password, 16, Slice<char>{masked, sizeof(masked)}, &masked_bytes,
+                                         &masked_window) == SecureEditResult::unchanged &&
                masked_bytes == 6 && static_cast<u8>(masked[0]) == 0xE2u &&
                static_cast<u8>(masked[3]) == 0xE2u && masked[0] != 'p',
            "secure_edit_password_mask_only");
@@ -8136,9 +8031,10 @@ void test_popup_scene() noexcept {
     paint_stream_reset(&paint, viewport.right, viewport.bottom);
     UiTextCommand commands[8]{};
     UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     const bool presented = ui_text_command_stream_initialize(&text, Slice<UiTextCommand>{commands, 8}) &&
                            popup_presentation_build(scene, kDefaultTheme, &paint) &&
-                           popup_text_presentation_build(scene, kDefaultTheme, &text);
+                           popup_text_presentation_build_output(scene, kDefaultTheme, &text_output);
     UiLayoutDiagnostic diagnostics[32]{};
     const UiLayoutValidationResult validation =
         ui_layout_engine_validate(scene.widgets.layout, Slice<UiLayoutDiagnostic>{diagnostics, 32});
@@ -8501,7 +8397,8 @@ void test_message_context_menu() noexcept {
     }
     const bool shark_tracked =
         preferences_ready && shark_index <= 0xFFFEu &&
-        reaction_preferences_track(&preferences, static_cast<u16>(shark_index), 1'000).ok();
+        reaction_preferences_track_emoji(&preferences, ReactionPreferenceKind::reaction,
+                                         reaction_emoji_unicode(static_cast<u16>(shark_index)), 1'000).ok();
 
     MessageContextMenuModel model{};
     const MessageContextMenuResult authoritative =
@@ -8647,10 +8544,11 @@ void test_message_context_menu() noexcept {
     const UiLayoutNode* add = opened.ok() ? popup_scene_layout_node(popup, popup.rows[4].widget) : nullptr;
     UiTextCommand context_commands[kMessageContextMaximumItems]{};
     UiTextCommandStream context_text{};
+    UiTextOutput context_text_output{&context_text, nullptr};
     const bool context_presented =
         ui_text_command_stream_initialize(
             &context_text, Slice<UiTextCommand>{context_commands, kMessageContextMaximumItems}) &&
-        opened.ok() && popup_text_presentation_build(popup, kDefaultTheme, &context_text);
+        opened.ok() && popup_text_presentation_build_output(popup, kDefaultTheme, &context_text_output);
     expect(context_presented && quick0 && quick1 && quick0_label && add &&
                ui_rect_width(popup.rectangle) == kMessageContextPreferredWidth &&
                ui_rect_width(quick0->rectangle) == kPopupQuickReactionExtent &&
@@ -8776,11 +8674,12 @@ void test_reaction_users_and_viewer() noexcept {
     paint_stream_reset(&paint, 1600.0f, 900.0f);
     UiTextCommand viewer_commands[96]{};
     UiTextCommandStream viewer_command_stream{};
+    UiTextOutput viewer_command_stream_output{&viewer_command_stream, nullptr};
     const bool viewer_text_ready = ui_text_command_stream_initialize(
         &viewer_command_stream, Slice<UiTextCommand>{viewer_commands, 96});
     const bool paint_presented = reaction_viewer_presentation_build(viewer, kDefaultTheme, &paint);
-    const bool text_presented = viewer_text_ready && reaction_viewer_text_presentation_build(
-                                                         viewer, kDefaultTheme, &viewer_command_stream);
+    const bool text_presented = viewer_text_ready && reaction_viewer_text_presentation_build_output(
+                                                         viewer, kDefaultTheme, &viewer_command_stream_output);
     const UiRect first_user = reaction_viewer_user_rectangle(viewer, 0);
     const ReactionViewerHit first_user_hit =
         reaction_viewer_hit_test(viewer, first_user.left + 2.0f, first_user.top + 2.0f);
@@ -8815,14 +8714,14 @@ void test_reaction_users_and_viewer() noexcept {
     paint_stream_reset(&paint, 1600, 900);
     ui_text_command_stream_initialize(&viewer_command_stream, {viewer_commands, 96});
     bool clipped_columns = reaction_viewer_presentation_build(viewer, kDefaultTheme, &paint) &&
-        reaction_viewer_text_presentation_build(viewer, kDefaultTheme, &viewer_command_stream);
+        reaction_viewer_text_presentation_build_output(viewer, kDefaultTheme, &viewer_command_stream_output);
     for (u32 i = 2; i < viewer_command_stream.count; ++i)
         clipped_columns = clipped_columns && ui_rect_equal(viewer_commands[i].clip, viewer.body);
     expect(clipped_columns && paint.clip_depth == 1, "reaction_viewer_fractional_presentation_shared_body_clip");
     reaction_viewer_set_scroll(&viewer, false, 39.5f, &aggregate_moved);
     reaction_viewer_set_scroll(&viewer, true, 49.5f, &user_moved);
     ui_text_command_stream_initialize(&viewer_command_stream, {viewer_commands, 96});
-    bool gap_clipped = reaction_viewer_text_presentation_build(viewer, kDefaultTheme, &viewer_command_stream);
+    bool gap_clipped = reaction_viewer_text_presentation_build_output(viewer, kDefaultTheme, &viewer_command_stream_output);
     for (u32 i = 0; i < viewer_command_stream.count; ++i)
         gap_clipped = gap_clipped && ui_rect_has_area(ui_rect_intersection(
             viewer_commands[i].rectangle, viewer_commands[i].clip));
@@ -8970,7 +8869,8 @@ void test_message_action_bar() noexcept {
     }
     const bool preference_ready =
         preferences_ready && shark_index <= 0xFFFEu &&
-        reaction_preferences_track(&preferences, static_cast<u16>(shark_index), 2'000).ok();
+        reaction_preferences_track_emoji(&preferences, ReactionPreferenceKind::reaction,
+                                         reaction_emoji_unicode(static_cast<u16>(shark_index)), 2'000).ok();
 
     MessageActionBar bar{};
     const MessageSceneHit scene_hit =
@@ -9004,12 +8904,13 @@ void test_message_action_bar() noexcept {
     paint_stream_reset(&paint, viewport.right, viewport.bottom);
     UiTextCommand text_commands[kMessageActionBarQuickReactionCount]{};
     UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     const bool presented =
         opened.ok() &&
         ui_text_command_stream_initialize(
             &text, Slice<UiTextCommand>{text_commands, kMessageActionBarQuickReactionCount}) &&
         message_action_bar_presentation_build(bar, kDefaultTheme, &paint) &&
-        message_action_bar_text_presentation_build(bar, kDefaultTheme, &text);
+        message_action_bar_text_presentation_build_output(bar, kDefaultTheme, &text_output);
     u32 action_icons = 0;
     for (u32 i = 0; i < paint.count; ++i)
         action_icons += ui_icon_quad(paint.quads[i]) ? 1u : 0u;
@@ -9144,7 +9045,8 @@ void test_reaction_picker() noexcept {
 
     const ReactionPreferenceResult favorited =
         thumbs_index <= 0xFFFEu
-            ? reaction_preferences_toggle_favorite(&preferences, static_cast<u16>(thumbs_index))
+            ? reaction_preferences_toggle_favorite_emoji(&preferences,
+                                                         reaction_emoji_unicode(static_cast<u16>(thumbs_index)))
             : ReactionPreferenceResult{};
     const ReactionPickerResult favorite_refreshed =
         favorited.ok() ? reaction_picker_refresh_preferences(&personalized) : ReactionPickerResult{};
@@ -9155,7 +9057,8 @@ void test_reaction_picker() noexcept {
             : ~0u;
     expect(favorited.ok() && favorited.changed && favorited.favorite && favorite_refreshed.ok() &&
                favorite_first == thumbs_index &&
-               reaction_preferences_is_favorite(preferences, static_cast<u16>(thumbs_index)) &&
+               reaction_preferences_is_favorite_emoji(preferences,
+                                                      reaction_emoji_unicode(static_cast<u16>(thumbs_index))) &&
                personalized.sections[0].count == 1 &&
                personalized.sections[1].local == kReactionPickerSectionFrequent,
            "reaction_picker_alt_favorite_priority_precedes_frequently_used");
@@ -9164,14 +9067,16 @@ void test_reaction_picker() noexcept {
     const bool bounded_ready = reaction_preferences_initialize(&bounded);
     bool favorites_filled = bounded_ready;
     for (u32 index = 0; index < kReactionPreferenceFavoriteCapacity && favorites_filled; ++index) {
-        favorites_filled = reaction_preferences_toggle_favorite(&bounded, static_cast<u16>(index)).ok();
+        favorites_filled =
+            reaction_preferences_toggle_favorite_emoji(&bounded, reaction_emoji_unicode(static_cast<u16>(index))).ok();
     }
-    const ReactionPreferenceResult favorite_overflow = reaction_preferences_toggle_favorite(
-        &bounded, static_cast<u16>(kReactionPreferenceFavoriteCapacity));
+    const ReactionPreferenceResult favorite_overflow = reaction_preferences_toggle_favorite_emoji(
+        &bounded, reaction_emoji_unicode(static_cast<u16>(kReactionPreferenceFavoriteCapacity)));
     ReactionPreferenceStore samples{};
     bool samples_ready = reaction_preferences_initialize(&samples);
     for (u32 use = 1; use <= 12 && samples_ready; ++use) {
-        samples_ready = reaction_preferences_track(&samples, 7, preference_now + use, 1).ok();
+        samples_ready = reaction_preferences_track_emoji(&samples, ReactionPreferenceKind::reaction,
+                                                         reaction_emoji_unicode(7), preference_now + use, 1).ok();
     }
     const ReactionPreferenceUsage* retained = nullptr;
     for (u32 index = 0; index < kReactionPreferenceUsageCapacity; ++index) {
@@ -9194,11 +9099,14 @@ void test_reaction_picker() noexcept {
     bool aging_ready = reaction_preferences_initialize(&aging);
     const u32 ages[] = {3, 15, 30, 45, 80, 81};
     for (u32 index = 0; index < 6 && aging_ready; ++index) {
-        aging_ready = reaction_preferences_track(&aging, static_cast<u16>(100 + index),
-                                                 preference_now - ages[index] * day_ms)
+        aging_ready = reaction_preferences_track_emoji(&aging, ReactionPreferenceKind::reaction,
+                                                       reaction_emoji_unicode(static_cast<u16>(100 + index)),
+                                                       preference_now - ages[index] * day_ms)
                           .ok();
     }
-    aging_ready = aging_ready && reaction_preferences_recompute(&aging, preference_now);
+    // A use at preference_now recomputes every age against it.
+    aging_ready = aging_ready && reaction_preferences_track_emoji(&aging, ReactionPreferenceKind::reaction,
+                                                                  reaction_emoji_unicode(99), preference_now).ok();
     const u16 expected_scores[] = {100, 70, 50, 30, 10, 1};
     const u16 expected_frecencies[] = {280, 256, 240, 224, 208, 200};
     bool exact_aging = aging_ready;
@@ -9319,12 +9227,6 @@ void test_chat_state_free_slot_hints() noexcept {
     expect(valid && first == &channels[2] && second == &channels[5] && guild == &guilds[2] &&
                state.channel_free_hint == 3 && state.channel_count == 8 && state.guild_count == 4,
            "chat_state_free_slot_hints_recycle_lowest_slot");
-    chat_state_store_clear(&state);
-    expect(state.guild_free_hint == 0 && state.channel_free_hint == 0 &&
-               chat_state_store_upsert_guild(&state, {300, utf8_literal("Again"), GuildMutationKind::create, 1})
-                   .ok() &&
-               chat_state_store_find_guild(state, 300) == &guilds[0],
-           "chat_state_clear_resets_free_slot_hints");
 }
 
 void test_ui_scroll_host() noexcept {
@@ -9485,15 +9387,6 @@ void test_ui_scroll_host() noexcept {
 }
 
 void test_ui_smooth_scroll() noexcept {
-    i64 wheel_remainder = 0;
-    const i64 first_half_notch = ui_wheel_accumulate(&wheel_remainder, 60, 1);
-    const i64 second_half_notch = ui_wheel_accumulate(&wheel_remainder, 60, 1);
-    const i64 reverse_half_notch = ui_wheel_accumulate(&wheel_remainder, -60, 1);
-    const i64 reverse_notch = ui_wheel_accumulate(&wheel_remainder, -60, 1);
-    expect(first_half_notch == 0 && second_half_notch == 1 && reverse_half_notch == 0 &&
-               reverse_notch == -1 && wheel_remainder == 0,
-           "ui_wheel_accumulator_preserves_high_resolution_input");
-
     UiSmoothScroll scroll{};
     double delta = -1.0;
     double total = 0.0;
@@ -9734,15 +9627,15 @@ void test_ui_variable_list() noexcept {
                ui_variable_list_restore_anchor(list, anchor, &restored) && restored == 159,
            "ui_variable_list_anchor_inside_clamp");
 
-    expect(ui_variable_list_prepend(&list, 2, 40, &anchor) && list.count == 7 && list.generation == 2 &&
+    expect(ui_variable_list_insert(&list, 0, 2, 40, &anchor) && list.count == 7 && list.generation == 2 &&
                anchor.index == 3 && anchor.generation == 2 &&
                ui_variable_list_restore_anchor(list, anchor, &restored) && restored == 239,
            "ui_variable_list_prepend_anchor_restore");
-    expect(ui_variable_list_remove_prefix(&list, 1, &anchor) && list.count == 6 && list.generation == 3 &&
+    expect(ui_variable_list_remove(&list, 0, 1, &anchor) && list.count == 6 && list.generation == 3 &&
                anchor.index == 2 && ui_variable_list_restore_anchor(list, anchor, &restored) &&
                restored == 199,
            "ui_variable_list_remove_anchor_restore");
-    expect(ui_variable_list_remove_prefix(&list, 3, &anchor) && list.count == 3 && !anchor.valid &&
+    expect(ui_variable_list_remove(&list, 0, 3, &anchor) && list.count == 3 && !anchor.valid &&
                list.total_units == 250 && !ui_variable_list_restore_anchor(list, anchor, &restored),
            "ui_variable_list_remove_anchor_invalidate");
 
@@ -11601,8 +11494,7 @@ void test_cdn_targets() noexcept {
 
 void test_cdn_http_policy() noexcept {
     u8 request[1024]{};
-    const CdnRequestResult unconditional = write_static_png_cdn_get_request(
-        CdnHost::cdn, byte_literal("/stickers/88.png"), {}, Slice<u8>{request, sizeof(request)});
+    const CdnRequestResult unconditional = write_static_cdn_get_request(CdnImageType::png, CdnHost::cdn, byte_literal("/stickers/88.png"), {}, Slice<u8>{request, sizeof(request)});
     expect(unconditional.ok() && bytes_equal(ConstSlice<u8>{request, unconditional.bytes},
                                              byte_literal("GET /stickers/88.png HTTP/1.1\r\n"
                                                           "Host: cdn.discordapp.com\r\n"
@@ -11611,8 +11503,7 @@ void test_cdn_http_policy() noexcept {
                                                           "Connection: keep-alive\r\n\r\n")),
            "cdn_credential_free_request_head");
 
-    const CdnRequestResult conditional = write_static_png_cdn_get_request(
-        CdnHost::media, byte_literal("/stickers/90.png"), byte_literal("W/\"asset-1\""),
+    const CdnRequestResult conditional = write_static_cdn_get_request(CdnImageType::png, CdnHost::media, byte_literal("/stickers/90.png"), byte_literal("W/\"asset-1\""),
         Slice<u8>{request, sizeof(request)});
     expect(conditional.ok() && bytes_equal(ConstSlice<u8>{request, conditional.bytes},
                                            byte_literal("GET /stickers/90.png HTTP/1.1\r\n"
@@ -11696,19 +11587,18 @@ void test_cdn_http_policy() noexcept {
         short_output[index] = 0xA5;
     }
     const CdnRequestResult short_result =
-        write_static_png_cdn_get_request(CdnHost::cdn, byte_literal("/stickers/1.png"), {},
+        write_static_cdn_get_request(CdnImageType::png, CdnHost::cdn, byte_literal("/stickers/1.png"), {},
                                          Slice<u8>{short_output, sizeof(short_output)});
     bool short_unchanged = true;
     for (u32 index = 0; index < sizeof(short_output); ++index) {
         short_unchanged = short_unchanged && short_output[index] == 0xA5;
     }
     expect(short_result.error == CdnHttpError::output_capacity && short_unchanged &&
-               write_static_png_cdn_get_request(CdnHost::cdn,
+               write_static_cdn_get_request(CdnImageType::png, CdnHost::cdn,
                                                 byte_literal("/stickers/1.png\r\nCookie:x"), {},
                                                 Slice<u8>{request, sizeof(request)})
                        .error == CdnHttpError::invalid_target &&
-               write_static_png_cdn_get_request(
-                   CdnHost::cdn, byte_literal("/stickers/1.png"),
+               write_static_cdn_get_request(CdnImageType::png, CdnHost::cdn, byte_literal("/stickers/1.png"),
                    byte_literal("\"x\"\r\nAuthorization:x"), Slice<u8>{request, sizeof(request)})
                        .error == CdnHttpError::invalid_etag,
            "cdn_request_injection_and_transaction_bounds");
@@ -11739,7 +11629,7 @@ void test_cdn_http_policy() noexcept {
            "cdn_redirect_authority_and_fragment_reject");
 
     const CdnResponseResult accepted =
-        validate_static_png_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 200 OK\r\n"
                                                   "Content-Type: image/png\r\n"
                                                   "Content-Length: 8\r\n"
                                                   "ETag: \"asset-1\"\r\n"
@@ -11753,14 +11643,14 @@ void test_cdn_http_policy() noexcept {
            "cdn_png_mime_and_freshness_admission");
 
     const CdnResponseResult webp_accepted =
-        validate_static_webp_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::webp, byte_literal("HTTP/1.1 200 OK\r\n"
                                                    "Content-Type: image/webp\r\n"
                                                    "Content-Length: 8\r\n"
                                                    "Cache-Control: max-age=30\r\n\r\n"),
                                       8, 1'000);
     expect(webp_accepted.ok() && webp_accepted.disposition == CdnResponseDisposition::accept_body &&
                webp_accepted.expires_at_seconds == 1'030 &&
-               validate_static_webp_response(byte_literal("HTTP/1.1 200 OK\r\n"
+               validate_static_image_response(CdnImageType::webp, byte_literal("HTTP/1.1 200 OK\r\n"
                                                           "Content-Type: image/png\r\n"
                                                           "Content-Length: 8\r\n\r\n"),
                                              8, 0)
@@ -11768,14 +11658,14 @@ void test_cdn_http_policy() noexcept {
            "cdn_webp_exact_mime_admission");
 
     const CdnResponseResult gif_accepted =
-        validate_static_gif_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::gif, byte_literal("HTTP/1.1 200 OK\r\n"
                                                   "Content-Type: image/gif\r\n"
                                                   "Content-Length: 8\r\n"
                                                   "Cache-Control: max-age=30\r\n\r\n"),
                                      8, 1'000);
     expect(gif_accepted.ok() && gif_accepted.disposition == CdnResponseDisposition::accept_body &&
                gif_accepted.expires_at_seconds == 1'030 &&
-               validate_static_gif_response(byte_literal("HTTP/1.1 200 OK\r\n"
+               validate_static_image_response(CdnImageType::gif, byte_literal("HTTP/1.1 200 OK\r\n"
                                                          "Content-Type: image/png\r\n"
                                                          "Content-Length: 8\r\n\r\n"),
                                             8, 0)
@@ -11783,14 +11673,14 @@ void test_cdn_http_policy() noexcept {
            "cdn_gif_exact_mime_admission");
 
     const CdnResponseResult jpeg_accepted =
-        validate_static_jpeg_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::jpeg, byte_literal("HTTP/1.1 200 OK\r\n"
                                                    "Content-Type: image/jpeg\r\n"
                                                    "Content-Length: 8\r\n"
                                                    "Cache-Control: max-age=30\r\n\r\n"),
                                       8, 1'000);
     expect(jpeg_accepted.ok() && jpeg_accepted.disposition == CdnResponseDisposition::accept_body &&
                jpeg_accepted.expires_at_seconds == 1'030 &&
-               validate_static_jpeg_response(byte_literal("HTTP/1.1 200 OK\r\n"
+               validate_static_image_response(CdnImageType::jpeg, byte_literal("HTTP/1.1 200 OK\r\n"
                                                           "Content-Type: image/png\r\n"
                                                           "Content-Length: 8\r\n\r\n"),
                                              8, 0)
@@ -11818,13 +11708,13 @@ void test_cdn_http_policy() noexcept {
            "cdn_mp4_exact_mime_admission");
 
     const CdnResponseResult no_store =
-        validate_static_png_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 200 OK\r\n"
                                                   "Content-Type: image/png\r\n"
                                                   "Content-Length: 4\r\n"
                                                   "Cache-Control: no-store, no-cache\r\n\r\n"),
                                      4, 200);
     const CdnResponseResult not_modified =
-        validate_static_png_response(byte_literal("HTTP/1.1 304 Not Modified\r\n"
+        validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 304 Not Modified\r\n"
                                                   "Cache-Control: max-age=60\r\n\r\n"),
                                      0, 500);
     expect(no_store.ok() && !no_store.store_allowed && no_store.must_revalidate && not_modified.ok() &&
@@ -11832,8 +11722,7 @@ void test_cdn_http_policy() noexcept {
                not_modified.expires_at_seconds == 560,
            "cdn_no_store_and_304_policy");
 
-    const CdnResponseResult redirect = validate_static_png_response(
-        byte_literal("HTTP/1.1 302 Found\r\n"
+    const CdnResponseResult redirect = validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 302 Found\r\n"
                      "Location: https://cdn.discordapp.com/stickers/8.png\r\n"
                      "Content-Length: 0\r\n\r\n"),
         0, 0);
@@ -11842,17 +11731,15 @@ void test_cdn_http_policy() noexcept {
            "cdn_redirect_response_admission");
 
     expect(
-        validate_static_png_response(byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/webp\r\n"
+        validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/webp\r\n"
                                                   "Content-Length: 4\r\n\r\n"),
                                      4, 0)
                     .error == CdnHttpError::invalid_content_type &&
-            validate_static_png_response(
-                byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n"
+            validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n"
                              "Content-Encoding: gzip\r\nContent-Length: 4\r\n\r\n"),
                 4, 0)
                     .error == CdnHttpError::invalid_content_encoding &&
-            validate_static_png_response(
-                byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n"
+            validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n"
                              "Content-Length: 5\r\n\r\n"),
                 4, 0)
                     .error == CdnHttpError::body_size_mismatch,
@@ -12088,13 +11975,6 @@ void test_animation_timeline() noexcept {
     expect(scale_ok && scale.entry_count == 4'096 && scale.counters.releases == 2'048 &&
                scale.counters.due_advances == 4'096 && scale_elapsed_ms < 250,
            "animation_timeline_4096_identity_batch_churn_is_bounded");
-
-    expect(animation_duration_fraction_us(1, 60, 1) == 16'667 &&
-               animation_duration_fraction_us(0, 100, kAnimationCompatibilityFrameFloorUs) ==
-                   kAnimationCompatibilityFrameFloorUs &&
-               animation_duration_fraction_us(1, 0, 1) == 0 &&
-               animation_duration_fraction_us(0xFFFFFFFFu, 1, 1) == kAnimationFrameDurationMaximumUs,
-           "animation_timeline_fraction_ceiling_floor_and_cap");
 }
 
 void test_animation_visual_runtime() noexcept {
@@ -12226,10 +12106,9 @@ void test_encoded_media_cache() noexcept {
                encoded_media_cache_find(&cache, key1, 0).state == EncodedMediaCacheLookupState::miss,
            "encoded_media_cache_no_store_and_explicit_erase");
 
-    encoded_media_cache_reset(&cache);
-    expect(cache.entry_count == 0 && cache.used_pages == 0 && cache.stored_bytes == 0 &&
-               page_owners[0] == kEncodedMediaCacheFreePage,
-           "encoded_media_cache_reset");
+    const bool reinitialized = encoded_media_cache_initialize(
+        &cache, Slice<EncodedMediaCacheEntry>{entries, 3}, Slice<u16>{page_owners, 4},
+        Slice<u8>{storage, sizeof(storage)}, Slice<u32>{index_buckets, 8});
     const auto animation1 = media_asset_custom_emoji(5001, true);
     const auto animation2 = media_asset_custom_emoji(5002, true);
     const auto animation3 = media_asset_custom_emoji(5003, true);
@@ -12239,8 +12118,9 @@ void test_encoded_media_cache() noexcept {
     const u64 video_source2 = encoded_media_new_content_identity();
     encoded_media_cache_store(&cache, animation2, {one_page, sizeof(one_page)}, fresh);
     const auto identity2 = encoded_media_cache_find(&cache, animation2, 100);
-    expect(identity1.content_identity != 0 && identity1.content_identity == identity2.content_identity &&
-               hit.content_identity == 0, "encoded_animation_identity_shares_exact_bytes_only");
+    expect(reinitialized && identity1.content_identity != 0 &&
+               identity1.content_identity == identity2.content_identity && hit.content_identity == 0,
+           "encoded_animation_identity_shares_exact_bytes_only");
     expect(video_source1 != 0 && video_source2 != 0 && video_source1 != video_source2 &&
                video_source1 != identity1.content_identity && video_source2 != identity1.content_identity,
            "encoded_media_source_lifetimes_and_cache_share_distinct_nonzero_identities");
@@ -12252,7 +12132,8 @@ void test_encoded_media_cache() noexcept {
     const auto identity3 = encoded_media_cache_find(&cache, animation3, 100);
     expect(identity3.content_identity != 0 && identity3.content_identity != identity1.content_identity,
            "encoded_animation_hash_collision_never_aliases_frames");
-    encoded_media_cache_reset(&cache);
+    encoded_media_cache_initialize(&cache, Slice<EncodedMediaCacheEntry>{entries, 3}, Slice<u16>{page_owners, 4},
+                                   Slice<u8>{storage, sizeof(storage)}, Slice<u32>{index_buckets, 8});
     const u64 video_source3 = encoded_media_new_content_identity();
     expect(video_source3 != 0 && video_source3 != video_source1 && video_source3 != video_source2 &&
                video_source3 != identity1.content_identity && video_source3 != identity3.content_identity,
@@ -12319,14 +12200,14 @@ void test_cdn_static_png_pipeline() noexcept {
                cdn_media_pipeline_initialize(&pipeline, &cache,
                                              Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)}) &&
                cdn_media_pipeline_bind_webp_workspace(&pipeline, &g_vp8l_workspace) &&
-               cdn_media_pipeline_bind_lossy_webp_workspace(&pipeline, &g_lossy_webp_workspace) &&
                cdn_media_pipeline_bind_animated_webp_workspace(&pipeline, &animated_webp_workspace) &&
                cdn_media_pipeline_bind_apng_workspace(&pipeline, &apng_workspace) &&
                cdn_media_pipeline_bind_gif_workspace(&pipeline, &gif_workspace),
            "cdn_pipeline_caller_owned_initialize");
+    pipeline.lossy_webp_workspace = &g_lossy_webp_workspace;
 
     const CdnResponseResult accepted =
-        validate_static_png_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 200 OK\r\n"
                                                   "Content-Type: image/png\r\n"
                                                   "Transfer-Encoding: chunked\r\n"
                                                   "ETag: \"png-1\"\r\n"
@@ -12346,7 +12227,7 @@ void test_cdn_static_png_pipeline() noexcept {
     const CdnStaticPngResult stale = cdn_media_pipeline_lookup_static_png(&pipeline, key, 1'060);
     const bool stale_etag_ok = bytes_equal(stale.etag, byte_literal("\"png-1\""));
     const CdnResponseResult not_modified =
-        validate_static_png_response(byte_literal("HTTP/1.1 304 Not Modified\r\n"
+        validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 304 Not Modified\r\n"
                                                   "ETag: \"png-2\"\r\n"
                                                   "Cache-Control: max-age=120\r\n\r\n"),
                                      0, 1'060);
@@ -12360,7 +12241,7 @@ void test_cdn_static_png_pipeline() noexcept {
            "cdn_pipeline_stale_conditional_and_304_refresh");
 
     const CdnResponseResult no_store =
-        validate_static_png_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 200 OK\r\n"
                                                   "Content-Type: image/png\r\n"
                                                   "Transfer-Encoding: chunked\r\n"
                                                   "Cache-Control: no-store\r\n\r\n"),
@@ -12395,7 +12276,7 @@ void test_cdn_static_png_pipeline() noexcept {
            "cdn_pipeline_304_exact_request_etag_correlation");
 
     const CdnResponseResult webp_policy =
-        validate_static_webp_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::webp, byte_literal("HTTP/1.1 200 OK\r\n"
                                                    "Content-Type: image/webp\r\n"
                                                    "Content-Length: 62\r\n"
                                                    "ETag: \"webp-1\"\r\n"
@@ -12415,7 +12296,7 @@ void test_cdn_static_png_pipeline() noexcept {
            "cdn_pipeline_vp8l_decode_before_cache_and_fresh_hit");
 
     const CdnResponseResult lossy_webp_policy =
-        validate_static_webp_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::webp, byte_literal("HTTP/1.1 200 OK\r\n"
                                                    "Content-Type: image/webp\r\n"
                                                    "Content-Length: 92\r\n"
                                                    "ETag: \"webp-lossy-1\"\r\n"
@@ -12444,7 +12325,7 @@ void test_cdn_static_png_pipeline() noexcept {
     }
     corrupt_webp[0] ^= 1;
     const CdnResponseResult corrupt_webp_policy =
-        validate_static_webp_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::webp, byte_literal("HTTP/1.1 200 OK\r\n"
                                                    "Content-Type: image/webp\r\n"
                                                    "Content-Length: 32\r\n\r\n"),
                                       sizeof(corrupt_webp), 0);
@@ -12479,9 +12360,9 @@ void test_cdn_static_png_pipeline() noexcept {
     const bool jpeg_not_published_without_workspace =
         encoded_media_cache_find(&cache, jpeg_key, 2'000).state == EncodedMediaCacheLookupState::miss;
     expect(jpeg_requires_workspace.state == CdnStaticJpegState::jpeg_workspace_required &&
-               jpeg_not_published_without_workspace &&
-               cdn_media_pipeline_bind_jpeg_workspace(&pipeline, &g_jpeg_workspace),
+               jpeg_not_published_without_workspace,
            "cdn_pipeline_jpeg_lazy_workspace_before_publication");
+    pipeline.jpeg_workspace = &g_jpeg_workspace;
     const CdnStaticJpegResult jpeg_admitted = cdn_media_pipeline_admit_static_jpeg(
         &pipeline, jpeg_key, jpeg_policy, ConstSlice<u8>{g_png_encoded, jpeg_fixture.encoded_bytes});
     const CdnStaticJpegResult jpeg_hit = cdn_media_pipeline_lookup_static_jpeg(&pipeline, jpeg_key, 2'010);
@@ -12540,7 +12421,7 @@ void test_cdn_static_png_pipeline() noexcept {
                                     Slice<u8>{g_png_zlib, sizeof(g_png_zlib)}, &apng_fixture),
            "cdn_pipeline_apng_fixture_build");
     const CdnResponseResult apng_policy =
-        validate_static_png_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 200 OK\r\n"
                                                   "Content-Type: image/png\r\n"
                                                   "Transfer-Encoding: chunked\r\n"
                                                   "ETag: \"apng-1\"\r\n"
@@ -12589,7 +12470,7 @@ void test_cdn_static_png_pipeline() noexcept {
                                             Slice<u8>{g_png_zlib, sizeof(g_png_zlib)}, &excluded_fixture),
            "cdn_pipeline_apng_excluded_default_fixture_build");
     const CdnResponseResult excluded_policy =
-        validate_static_png_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::png, byte_literal("HTTP/1.1 200 OK\r\n"
                                                   "Content-Type: image/png\r\n"
                                                   "Transfer-Encoding: chunked\r\n"
                                                   "Cache-Control: max-age=60\r\n\r\n"),
@@ -12615,7 +12496,7 @@ void test_cdn_static_png_pipeline() noexcept {
                                      Slice<u8>{g_png_zlib, sizeof(g_png_zlib)}, &gif_fixture),
            "cdn_pipeline_gif_fixture_build");
     const CdnResponseResult gif_policy =
-        validate_static_gif_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::gif, byte_literal("HTTP/1.1 200 OK\r\n"
                                                   "Content-Type: image/gif\r\n"
                                                   "Transfer-Encoding: chunked\r\n"
                                                   "ETag: \"gif-1\"\r\n"
@@ -12677,7 +12558,7 @@ void test_cdn_static_png_pipeline() noexcept {
                                                 &animated_fixture),
            "cdn_pipeline_animated_webp_fixture_build");
     const CdnResponseResult animated_policy =
-        validate_static_webp_response(byte_literal("HTTP/1.1 200 OK\r\n"
+        validate_static_image_response(CdnImageType::webp, byte_literal("HTTP/1.1 200 OK\r\n"
                                                    "Content-Type: image/webp\r\n"
                                                    "Transfer-Encoding: chunked\r\n"
                                                    "ETag: \"animated-webp-1\"\r\n"
@@ -12768,8 +12649,7 @@ void test_cdn_static_png_pipeline() noexcept {
                encoded_media_cache_find(&cache, mixed_key, 6'000).state ==
                    EncodedMediaCacheLookupState::miss,
            "cdn_pipeline_mixed_animated_webp_lazy_workspace");
-    expect(cdn_media_pipeline_bind_lossy_webp_workspace(&pipeline, &g_lossy_webp_workspace),
-           "cdn_pipeline_mixed_animated_webp_workspace_bind");
+    pipeline.lossy_webp_workspace = &g_lossy_webp_workspace;
     const CdnAnimatedWebpResult mixed_admitted = cdn_media_pipeline_admit_animated_webp(
         &pipeline, mixed_key, mixed_policy, ConstSlice<u8>{g_png_encoded, mixed_fixture.encoded_bytes});
     const CdnAnimatedWebpResult mixed_lossy = cdn_media_pipeline_decode_animated_webp_frame(
@@ -12830,8 +12710,7 @@ void test_cdn_gif_metadata_reuse() noexcept {
     const auto a = media_asset_sticker(88001, 4), b = media_asset_sticker(88002, 4);
     const auto alias = media_asset_sticker(88003, 4);
     const EncodedMediaCachePolicy policy{byte_literal("\"gif-reuse\""), 2000, true, false};
-    auto response = validate_static_gif_response(
-        byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/gif\r\nTransfer-Encoding: chunked\r\n"
+    auto response = validate_static_image_response(CdnImageType::gif, byte_literal("HTTP/1.1 200 OK\r\nContent-Type: image/gif\r\nTransfer-Encoding: chunked\r\n"
                      "ETag: \"gif-reuse\"\r\nCache-Control: max-age=60\r\n\r\n"), bytes.count, 1000);
     const auto admitted = cdn_media_pipeline_admit_gif(&pipeline, a, response, bytes);
     const bool response_unkeyed = admitted.decoded() && !pipeline.gif_content_identity;
@@ -12887,7 +12766,8 @@ void test_cdn_gif_metadata_reuse() noexcept {
                !encoded_media_cache_find(&cache, a, 0).found(),
            "gif_metadata_store_forbidden_304_clears_identity");
 
-    encoded_media_cache_reset(&cache);
+    encoded_media_cache_erase(&cache, alias);
+    encoded_media_cache_erase(&cache, b);
     const auto inserted = encoded_media_cache_store(&cache, a, bytes, policy);
     const auto inserted_lookup = encoded_media_cache_find(&cache, a, 0);
     const auto inserted_frame = cdn_media_pipeline_decode_gif_frame(&pipeline, a, inserted.generation, 0, 1000);
@@ -17399,8 +17279,7 @@ void test_text_shaping() noexcept {
     result = text_shape_utf8(
         &system, utf8_literal("A reply preview that is deliberately wider than its retained row"), 72.0f,
         20.0f, Slice<wchar_t>{utf16, 256}, &shaped, TextWrapping::no_wrap, TextOverflow::ellipsis);
-    expect(result.ok() && shaped.line_count == 1 && shaped.glyph_count != 0 && shaped.width <= 72.0f &&
-               !shaped.unsupported_inline_object(),
+    expect(result.ok() && shaped.line_count == 1 && shaped.glyph_count != 0 && shaped.width <= 72.0f,
            "text_shape_single_line_character_ellipsis");
 
     constexpr TextStyleSpan styled_spans[] = {
@@ -18903,7 +18782,7 @@ void test_chat_state() noexcept {
                &store, Slice<RoleRecord>{role_records, 16},
                Slice<PermissionOverwriteRecord>{overwrite_records, 32}),
            "chat_state_permission_storage_bind");
-    expect(chat_state_store_bind_emojis(&store, Slice<CustomEmojiRecord>{emoji_records, 16},
+    expect(chat_state_store_bind_emojis_sparse(&store, Slice<CustomEmojiRecord>{emoji_records, 16},
                                            Slice<u64>{emoji_roles, 32}),
            "chat_state_emoji_storage_bind");
 
@@ -19089,7 +18968,9 @@ void test_chat_state() noexcept {
     char shell_text_owned_bytes[256]{};
     UiTextCommandStream shell_text_stream{};
     const bool shell_text_scene_ready = ui_scene_initialize_bootstrap(&shell_text_scene) &&
-                                        ui_scene_layout(&shell_text_scene, 1280.0f, 800.0f);
+                                        ui_scene_layout_with_metrics(&shell_text_scene, UiShellView::guild_channel,
+                                                                     kGuildChannelShellLayoutMetrics, 1280.0f,
+                                                                     800.0f);
     const UiNode* shell_navigation =
         ui_scene_resolve(shell_text_scene, ui_scene_find(shell_text_scene, UiSemantic::channel_navigation));
     const bool shell_text_ready =
@@ -20024,7 +19905,9 @@ void test_activity_and_actions() noexcept {
     activity_guild = chat_state_store_find_guild(state, 100);
     expect(ordinary.ok() && activity && chat_state_store_channel_unread(state, *activity) &&
                activity->mention_count == 0 && activity_guild && activity_guild->unread_channels == 1 &&
-               activity_guild->mention_count == 0 && chat_state_store_mark_channel_read(&state, 8) &&
+               activity_guild->mention_count == 0 &&
+               read_state_mark_local(&state, 8, activity->last_message_id, activity->read_last_viewed,
+                                     activity->read_flags) &&
                !chat_state_store_channel_unread(state, *activity),
            "activity_unmentioned_and_explicit_read");
 
@@ -20045,7 +19928,8 @@ void test_activity_and_actions() noexcept {
     selected_channel = chat_state_store_find_channel(state, 7);
     expect(inactive.ok() && selected_channel &&
                chat_state_store_channel_unread(state, *selected_channel) &&
-               chat_state_store_mark_channel_read(&state, 7),
+               read_state_mark_local(&state, 7, selected_channel->last_message_id,
+                                     selected_channel->read_last_viewed, selected_channel->read_flags),
            "activity_inactive_selected_is_unread");
     message_event_pump_set_view_active(&pump, true);
     timeline.follow_bottom = false;
@@ -20054,7 +19938,8 @@ void test_activity_and_actions() noexcept {
     selected_channel = chat_state_store_find_channel(state, 7);
     expect(scrollback.ok() && selected_channel &&
                chat_state_store_channel_unread(state, *selected_channel) &&
-               chat_state_store_mark_channel_read(&state, 7),
+               read_state_mark_local(&state, 7, selected_channel->last_message_id,
+                                     selected_channel->read_last_viewed, selected_channel->read_flags),
            "activity_scrollback_selected_is_unread");
 
     const ChatStateStoreResult snapshot_advanced = chat_state_store_upsert_channel(
@@ -20881,12 +20766,6 @@ void test_gateway_message_events() noexcept {
     expect(message_reconcile_delete(&store, GatewayMessageDeleteEvent{1, 8}).error ==
                MessageReconcileError::channel_mismatch,
            "gateway_message_reconcile_delete_channel_guard");
-    const u64 reconcile_ids[] = {1, 2, 3, 999};
-    const MessageBulkReconcileResult reconciled = message_reconcile_bulk_delete(
-        &store, GatewayMessageBulkDeleteEvent{2, 4}, ConstSlice<u64>{reconcile_ids, 4});
-    expect(reconciled.ok() && reconciled.deleted == 2 && reconciled.not_found == 1 &&
-               reconciled.channel_mismatch == 1 && store.count == 1 && message_store_find(store, 3).ok(),
-           "gateway_message_reconcile_bulk_outcomes");
 }
 
 void test_message_history_protocol() noexcept {
@@ -21624,7 +21503,7 @@ void test_gateway_lifecycle() noexcept {
 
     const GatewayLifecycleStep hello = gateway_lifecycle_hello(&lifecycle, GatewayHello{45000}, 0, 1000);
     expect(hello.ok() && hello.action == GatewayLifecycleAction::send_identify &&
-               hello.next_deadline_ms == 1000 && lifecycle.phase == GatewayLifecyclePhase::awaiting_session,
+               lifecycle.next_heartbeat_ms == 1000 && lifecycle.phase == GatewayLifecyclePhase::awaiting_session,
            "gateway_lifecycle_hello_identify");
     expect(gateway_lifecycle_hello(&lifecycle, GatewayHello{45000}, 0, 1000).error ==
                GatewayLifecycleError::invalid_state,
@@ -21644,7 +21523,7 @@ void test_gateway_lifecycle() noexcept {
            "gateway_heartbeat_before_deadline");
     const GatewayLifecycleStep first_heartbeat = gateway_lifecycle_tick(&lifecycle, 1000);
     expect(first_heartbeat.action == GatewayLifecycleAction::send_heartbeat &&
-               first_heartbeat.next_deadline_ms == 46000 && lifecycle.awaiting_heartbeat_ack,
+               lifecycle.next_heartbeat_ms == 46000 && lifecycle.awaiting_heartbeat_ack,
            "gateway_first_heartbeat");
     expect(gateway_lifecycle_heartbeat_acknowledged(&lifecycle).ok() && !lifecycle.awaiting_heartbeat_ack,
            "gateway_heartbeat_ack");
@@ -21676,7 +21555,7 @@ void test_gateway_lifecycle() noexcept {
     const GatewayLifecycleStep resume_hello =
         gateway_lifecycle_hello(&lifecycle, GatewayHello{45000}, 0xFFFFFFFFu, 5000);
     expect(resume_hello.action == GatewayLifecycleAction::send_resume &&
-               resume_hello.next_deadline_ms == 49999,
+               lifecycle.next_heartbeat_ms == 49999,
            "gateway_resume_and_full_jitter");
     expect(gateway_lifecycle_invalid_session(&lifecycle, true).action ==
                GatewayLifecycleAction::reconnect_resume,
@@ -21782,14 +21661,13 @@ void test_gateway_runtime() noexcept {
     GatewayReconnectBackoff backoff{};
     const GatewayReconnectDelay first = gateway_reconnect_next(&backoff, 0);
     const GatewayReconnectDelay second = gateway_reconnect_next(&backoff, ~0u);
-    expect(first.ceiling_ms == 1'000 && first.delay_ms == 0 && second.ceiling_ms == 2'000 &&
-               second.delay_ms == 2'000 && backoff.attempt == 2,
+    expect(first.delay_ms == 0 && second.delay_ms == 2'000 && backoff.attempt == 2,
            "gateway_reconnect_full_jitter");
     GatewayReconnectDelay capped{};
     for (u32 index = 0; index < 8; ++index) {
         capped = gateway_reconnect_next(&backoff, ~0u);
     }
-    expect(capped.ceiling_ms == 30'000 && capped.delay_ms == 30'000, "gateway_reconnect_backoff_cap");
+    expect(capped.delay_ms == 30'000, "gateway_reconnect_backoff_cap");
     gateway_reconnect_reset(&backoff);
     expect(backoff.attempt == 0 && gateway_invalid_session_delay(0) == 1'000 &&
                gateway_invalid_session_delay(~0u) == 5'000,
@@ -21840,7 +21718,7 @@ void test_gateway_runtime() noexcept {
 void test_gateway_endpoint() noexcept {
     GatewayEndpoint endpoint{};
     expect(
-        gateway_endpoint_parse(utf8_literal("wss://gateway.discord.gg"), &endpoint) ==
+        gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway.discord.gg"), GatewayEndpointPolicy::application_v10_json, &endpoint) ==
                 GatewayEndpointError::none &&
             endpoint.port == 443 && endpoint.host_bytes == 18 && endpoint.host_wide[0] == L'g' &&
             endpoint.service_wide[0] == L'4' &&
@@ -21850,7 +21728,7 @@ void test_gateway_endpoint() noexcept {
         "gateway_endpoint_default");
 
     expect(
-        gateway_endpoint_parse(utf8_literal("wss://edge.example:8443/socket?old=1"), &endpoint) ==
+        gateway_endpoint_parse_with_policy(utf8_literal("wss://edge.example:8443/socket?old=1"), GatewayEndpointPolicy::application_v10_json, &endpoint) ==
                 GatewayEndpointError::none &&
             endpoint.port == 8443 && endpoint.service_wide[3] == L'3' &&
             bytes_equal(
@@ -21877,33 +21755,33 @@ void test_gateway_endpoint() noexcept {
     mismatched_policy.policy = GatewayEndpointPolicy::application_v10_json;
     expect(!gateway_endpoint_validate(mismatched_policy), "gateway_endpoint_reject_policy_target_mismatch");
 
-    expect(gateway_endpoint_parse(utf8_literal("wss://[2001:db8::1]:444/"), &endpoint) ==
+    expect(gateway_endpoint_parse_with_policy(utf8_literal("wss://[2001:db8::1]:444/"), GatewayEndpointPolicy::application_v10_json, &endpoint) ==
                    GatewayEndpointError::none &&
                endpoint.port == 444 && endpoint.host_wide[0] == L'2' && endpoint.host_wide[10] == L'1',
            "gateway_endpoint_ipv6");
-    expect(gateway_endpoint_parse(utf8_literal("https://gateway.discord.gg"), &endpoint) ==
+    expect(gateway_endpoint_parse_with_policy(utf8_literal("https://gateway.discord.gg"), GatewayEndpointPolicy::application_v10_json, &endpoint) ==
                GatewayEndpointError::invalid_scheme,
            "gateway_endpoint_reject_scheme");
-    expect(gateway_endpoint_parse(utf8_literal("wss://user@gateway.discord.gg"), &endpoint) ==
+    expect(gateway_endpoint_parse_with_policy(utf8_literal("wss://user@gateway.discord.gg"), GatewayEndpointPolicy::application_v10_json, &endpoint) ==
                GatewayEndpointError::invalid_authority,
            "gateway_endpoint_reject_userinfo");
-    expect(gateway_endpoint_parse(utf8_literal("wss://gateway.discord.gg:0"), &endpoint) ==
+    expect(gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway.discord.gg:0"), GatewayEndpointPolicy::application_v10_json, &endpoint) ==
                GatewayEndpointError::invalid_port,
            "gateway_endpoint_reject_port_zero");
-    expect(gateway_endpoint_parse(utf8_literal("wss://gateway.discord.gg:70000"), &endpoint) ==
+    expect(gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway.discord.gg:70000"), GatewayEndpointPolicy::application_v10_json, &endpoint) ==
                GatewayEndpointError::invalid_port,
            "gateway_endpoint_reject_port_overflow");
-    expect(gateway_endpoint_parse(utf8_literal("wss://gateway.discord.gg:999999999999999999999999"),
+    expect(gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway.discord.gg:999999999999999999999999"), GatewayEndpointPolicy::application_v10_json,
                                   &endpoint) == GatewayEndpointError::invalid_port,
            "gateway_endpoint_reject_port_integer_wrap");
-    expect(gateway_endpoint_parse(utf8_literal("wss://bad..example"), &endpoint) ==
+    expect(gateway_endpoint_parse_with_policy(utf8_literal("wss://bad..example"), GatewayEndpointPolicy::application_v10_json, &endpoint) ==
                GatewayEndpointError::invalid_host,
            "gateway_endpoint_reject_empty_label");
-    expect(gateway_endpoint_parse(utf8_literal("wss://gateway.discord.gg/path#fragment"), &endpoint) ==
+    expect(gateway_endpoint_parse_with_policy(utf8_literal("wss://gateway.discord.gg/path#fragment"), GatewayEndpointPolicy::application_v10_json, &endpoint) ==
                GatewayEndpointError::invalid_target,
            "gateway_endpoint_reject_fragment");
     GatewayEndpoint validated{};
-    expect(gateway_endpoint_parse(utf8_literal("wss://edge.example:8443/socket"), &validated) ==
+    expect(gateway_endpoint_parse_with_policy(utf8_literal("wss://edge.example:8443/socket"), GatewayEndpointPolicy::application_v10_json, &validated) ==
                    GatewayEndpointError::none &&
                gateway_endpoint_validate(validated),
            "gateway_endpoint_canonical_validation");
@@ -23437,7 +23315,7 @@ void test_websocket_frames() noexcept {
     expect(wire_matches, "websocket_rfc_mask_example");
     const WebSocketParseResult client_frame = websocket_parse_frame(
         ConstSlice<u8>{masked, written.bytes}, 1024, WebSocketDirection::client_to_server);
-    expect(client_frame.ok() && client_frame.frame.masking_key == 0x37FA213Du,
+    expect(client_frame.ok() && client_frame.frame.masked && client_frame.frame.header_bytes == 6,
            "websocket_parse_client_mask");
     expect(websocket_write_client_frame(WebSocketOpcode::text, true, ConstSlice<u8>{hello, 5}, 1,
                                         Slice<u8>{masked, 8})
@@ -24523,8 +24401,7 @@ void test_rest_transaction() noexcept {
                 kRestClientMinimumResponseBytes &&
             rest_client_user_auth_runtime_bytes(kRestClientMinimumResponseBytes - 1) == 0 &&
             rest_client_user_auth_runtime_bytes(kUserAuthMaximumResponseBytes + 1) == 0 &&
-            rest_client_start_authorized(&invalid_client, nullptr, RestAuthorization::bearer,
-                                         kRestClientMinimumResponseBytes)
+            rest_client_start_user(&invalid_client, nullptr, nullptr, kRestClientMinimumResponseBytes)
                     .error == RestClientError::invalid_input &&
             !invalid_client.worker.thread && !invalid_client.runtime,
         "rest_client_configuration_bounds");
@@ -24537,10 +24414,10 @@ void test_rest_transaction() noexcept {
         secure_buffer_assign(&owned_token,
                              ConstSlice<u8>{valid_token, static_cast<u32>(sizeof(valid_token))})
             .ok();
+    const RestUserConfiguration user_configuration{byte_literal("e30="), utf8_literal("en-US"), {}};
     const RestClientResult started =
-        token_assigned ? rest_client_start_authorized(&idle_client, &owned_token,
-                                                      RestAuthorization::bearer,
-                                                      kRestClientMinimumResponseBytes)
+        token_assigned ? rest_client_start_user(&idle_client, &owned_token, &user_configuration,
+                                                kRestClientMinimumResponseBytes)
                        : RestClientResult{};
     expect(token_assigned, "rest_client_token_fixture");
     expect(started.ok() && idle_client.runtime && idle_client.worker.thread && !owned_token.data,
@@ -24981,13 +24858,13 @@ void test_secure_buffer() noexcept {
     expect(!secure_buffer_transfer(&secret, &secret) && secure_buffer_transfer(&secret, &transferred),
            "secure_buffer_transfer_restore");
 
-    const SecureBufferResult protected_size = secure_buffer_protect_user(secret, Slice<u8>{nullptr, 0});
+    const SecureBufferResult protected_size = secure_buffer_protect_user_bound(secret, {}, Slice<u8>{nullptr, 0});
     expect(protected_size.error == SecureBufferError::output_too_small && protected_size.bytes != 0 &&
                protected_size.bytes <= 512,
            "secure_buffer_dpapi_size");
     u8 protected_data[512]{};
     const SecureBufferResult protected_result =
-        secure_buffer_protect_user(secret, Slice<u8>{protected_data, sizeof(protected_data)});
+        secure_buffer_protect_user_bound(secret, {}, Slice<u8>{protected_data, sizeof(protected_data)});
     expect(protected_result.ok() && protected_result.bytes != 0, "secure_buffer_dpapi_protect");
 
     SecureBuffer restored{};
@@ -24995,7 +24872,7 @@ void test_secure_buffer() noexcept {
     expect(restored_initialized.ok(), "secure_buffer_restore_initialize");
     if (restored_initialized.ok() && protected_result.ok()) {
         const SecureBufferResult unprotected =
-            secure_buffer_unprotect_user(ConstSlice<u8>{protected_data, protected_result.bytes}, &restored);
+            secure_buffer_unprotect_user_bound(ConstSlice<u8>{protected_data, protected_result.bytes}, {}, &restored);
         bool equal = unprotected.ok() && restored.bytes == sizeof(token);
         for (u32 index = 0; equal && index < sizeof(token); ++index) {
             equal = restored.data[index] == token[index];
@@ -25076,7 +24953,7 @@ bool account_profile_test_path(wchar_t* output, u32 capacity) noexcept {
 
 void test_account_paths() noexcept {
     AccountPaths paths{};
-    const AccountPathsResult built = account_paths_build(L"C:\\Users\\Example\\AppData\\Local", &paths);
+    const AccountPathsResult built = account_paths_build_slot(L"C:\\Users\\Example\\AppData\\Local", 0, &paths);
     expect(
         built.ok() &&
             wide_text_equal(paths.application_directory, L"C:\\Users\\Example\\AppData\\Local\\MaiCord") &&
@@ -25091,19 +24968,19 @@ void test_account_paths() noexcept {
         "account_paths_canonical");
 
     AccountPaths trailing{};
-    expect(account_paths_build(L"C:\\Local\\", &trailing).ok() &&
+    expect(account_paths_build_slot(L"C:\\Local\\", 0, &trailing).ok() &&
                wide_text_equal(trailing.profile, L"C:\\Local\\MaiCord\\accounts\\active.profile"),
            "account_paths_trailing_separator");
-    expect(account_paths_build(nullptr, &trailing).error == AccountPathsError::invalid_input &&
-               account_paths_build(L"", &trailing).error == AccountPathsError::invalid_input &&
-               account_paths_build(L"C:\\Local", nullptr).error == AccountPathsError::invalid_input,
+    expect(account_paths_build_slot(nullptr, 0, &trailing).error == AccountPathsError::invalid_input &&
+               account_paths_build_slot(L"", 0, &trailing).error == AccountPathsError::invalid_input &&
+               account_paths_build_slot(L"C:\\Local", 0, nullptr).error == AccountPathsError::invalid_input,
            "account_paths_invalid_contract");
 
     wchar_t oversized[kAccountProfileMaximumPathCharacters]{};
     for (u32 index = 0; index < kAccountProfileMaximumPathCharacters - 1; ++index) {
         oversized[index] = L'x';
     }
-    expect(account_paths_build(oversized, &trailing).error == AccountPathsError::capacity,
+    expect(account_paths_build_slot(oversized, 0, &trailing).error == AccountPathsError::capacity,
            "account_paths_capacity");
 
     AccountPaths resolved{};

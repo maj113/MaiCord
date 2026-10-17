@@ -3,6 +3,7 @@
 #include "maicord/model/message_composer.hpp"
 #include "maicord/ui/text_edit_menu.hpp"
 #include "maicord/ui/popup_presentation.hpp"
+#include "maicord/ui/text_presentation.hpp"
 
 #include <Windows.h>
 
@@ -27,13 +28,16 @@ bool benchmark_text_entry(Clock clock, void (*write)(const char*, u64, const cha
             SecureEditUtf16Change change{};
             SecureEditUtf16Selection selection{};
             u32 bytes = 0;
+            SecureEditRenderWindow window{};
             valid = secure_edit_assign(&edit, {initial, sizeof(initial)}) == SecureEditResult::changed &&
                 secure_edit_insert_scalar(&edit, '\n') == SecureEditResult::changed &&
                 secure_edit_replace_utf16(&edit, 0, 1, {replacement, 2}, &change) == SecureEditResult::changed &&
                 change.new_end == 2 &&
                 secure_edit_utf16_selection(edit, &selection) == SecureEditResult::unchanged &&
                 selection.caret == 2 &&
-                secure_edit_render_text(edit, {display, sizeof(display)}, &bytes) == SecureEditResult::unchanged &&
+                secure_edit_render_window(edit, static_cast<u32>(sizeof(display)), {display, sizeof(display)}, &bytes,
+                                          &window) ==
+                    SecureEditResult::unchanged &&
                 bytes == 1027 && static_cast<u8>(display[0]) == 0xF0;
             checksum += bytes + selection.caret + edit.revision;
         }
@@ -178,13 +182,14 @@ bool benchmark_text_entry(Clock clock, void (*write)(const char*, u64, const cha
     if (!popup_scene_initialize_owned(&menu, 7, {widgets, 16}, {nodes, 16})) return false;
     PopupItem items[7]{}; UiTextCommand commands[14]{}; UiTextCommandStream stream{};
     ui_text_command_stream_initialize(&stream, {commands, 14});
+    UiTextOutput output{&stream, nullptr};
     const i64 menu_start = clock_now();
     checksum = 0;
     for (u32 i = 0; valid && i < 10000; ++i) {
         ui_text_command_stream_reset(&stream);
         valid = text_edit_menu_build({false, false, (i & 1) != 0, true, true, true, true, false}, {items, 7}) &&
             popup_scene_open(&menu, PopupKind::context_menu, 7, {items, 7}, {790, 590, 791, 591}, {0, 0, 800, 600}, 260).ok() &&
-            popup_text_presentation_build(menu, kDefaultTheme, &stream) && stream.count == 14;
+            popup_text_presentation_build_output(menu, kDefaultTheme, &output) && stream.count == 14;
         checksum += popup_scene_selected_action(menu);
         popup_scene_close(&menu);
     }

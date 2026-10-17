@@ -9,6 +9,7 @@ struct Fixture {
     NotificationRetentionRow rows[8]{};
     u32 index[16]{};
     bool initialize(u32 capacity=8) noexcept {return notification_retention_initialize(&owner,{rows,capacity},{index,16});}
+    bool reinitialize() noexcept {owner={};return initialize();}
 };
 NotificationRetentionRow large_rows[8192]{};
 u32 large_index[16384]{};
@@ -31,15 +32,13 @@ void fifo(void(*check)(bool,const char*)noexcept) noexcept {
     for(u32 i=21;i<65;++i){added=notification_retention_append(&f.owner,7,i);ordered=ordered&&added.ok()&&added.evicted&&added.evicted_ticket==i-20;}
     for(u32 i=0;i<20;++i)ordered=ordered&&ticket(f.owner,7,i,45+i);
     check(ordered,"retention: repeated FIFO ring wrap returns every oldest success exactly once");
-    u64 out[20]{};const auto taken=notification_retention_remove_channel(&f.owner,7,{out,20});
-    ordered=taken.ok()&&taken.count==20&&f.owner.count==0;
-    for(u32 i=0;i<20;++i)ordered=ordered&&out[i]==45+i;
-    check(ordered&&!notification_retention_room(&f.owner,7).exists,"retention: channel take copies FIFO values then deletes metadata");
+    check(notification_retention_discard_channel(&f.owner,7)==Error::none&&f.owner.count==0&&
+        !notification_retention_room(&f.owner,7).exists,"retention: channel discard deletes metadata");
     for(u32 i=0;i<21;++i)added=notification_retention_append(&f.owner,9,123);
     check(added.ok()&&added.evicted&&added.evicted_ticket==123&&notification_retention_room(&f.owner,9).tickets==20,
         "retention: duplicate tickets occupy independent successful records and are not deduplicated");
     check(notification_retention_discard_channel(&f.owner,9)==Error::none&&f.owner.count==0&&
-        notification_retention_remove_channel(&f.owner,99,{}).ok(),"retention: discard and absent clear retire no unrelated records");
+        notification_retention_discard_channel(&f.owner,99)==Error::none,"retention: discard and absent clear retire no unrelated records");
 }
 void validation(void(*check)(bool,const char*)noexcept) noexcept {
     Fixture f{},before{};
@@ -51,19 +50,15 @@ void validation(void(*check)(bool,const char*)noexcept) noexcept {
     copy_bytes(&before,&f,sizeof(f));
     u64 output[20]{};output[0]=71;
     check(notification_retention_append(&f.owner,0,8).error==Error::invalid_input&&
-        notification_retention_remove_channel(&f.owner,1,{}).error==Error::output_too_small&&
-        notification_retention_remove_channel(&f.owner,1,{nullptr,1}).error==Error::invalid_input&&
         notification_retention_discard_channel(&f.owner,0)==Error::invalid_input&&unchanged(f,before),
-        "retention: invalid and undersized operations are atomic and preserve existing successes");
+        "retention: invalid operations are atomic and preserve existing successes");
     check(!notification_retention_ticket(&f.owner,1,1,output)&&output[0]==71&&
         !notification_retention_ticket(&f.owner,1,0,&f.rows[0].tickets[0])&&
-        notification_retention_remove_channel(&f.owner,1,{f.rows[0].tickets,20}).error==Error::invalid_input&&
         !notification_retention_ticket(&f.owner,1,0,reinterpret_cast<u64*>(&f.owner))&&unchanged(f,before),
         "retention: ticket outputs cannot alias owner or any row storage");
-    check(notification_retention_remove_channel(&f.owner,1,{reinterpret_cast<u64*>(f.index),1}).error==Error::invalid_input&&
-        notification_retention_rebind(&f.owner,{f.rows+1,4},{f.index,16})==Error::invalid_input&&
+    check(notification_retention_rebind(&f.owner,{f.rows+1,4},{f.index,16})==Error::invalid_input&&
         notification_retention_rebind(&f.owner,{f.rows,1},{f.index,16})==Error::invalid_input&&unchanged(f,before),
-        "retention: index output aliases, partial storage overlap and shrinking below active count are atomic");
+        "retention: partial storage overlap and shrinking below active count are atomic");
     Fixture destination{},saved_destination{};copy_bytes(&saved_destination,&destination,sizeof(destination));
     check(notification_retention_rebind(&f.owner,{destination.rows,8},{reinterpret_cast<u32*>(f.rows),16})==Error::invalid_input&&
         unchanged(f,before)&&unchanged(destination,saved_destination),
@@ -73,16 +68,13 @@ void validation(void(*check)(bool,const char*)noexcept) noexcept {
     const u32 old=f.index[occupied];const u64 channel=f.rows[old-1].channel;f.index[occupied]=99;
     copy_bytes(&before,&f,sizeof(f));
     check(notification_retention_append(&f.owner,channel,44).error==Error::invalid_input&&
-        notification_retention_remove_channel(&f.owner,channel,{output,20}).error==Error::invalid_input&&output[0]==71&&
         notification_retention_rebind(&f.owner,{destination.rows,8},{destination.index,16})==Error::invalid_input&&
-        notification_retention_reset(&f.owner)==Error::invalid_input&&unchanged(f,before)&&unchanged(destination,saved_destination),
-        "retention: malformed probed index and inconsistent rebind/reset reject without mutation");
+        unchanged(f,before)&&unchanged(destination,saved_destination),
+        "retention: malformed probed index and inconsistent rebind reject without mutation");
     f.index[occupied]=old;
-    check(notification_retention_reset(&f.owner)==Error::none&&f.owner.count==0&&f.owner.rows.data==f.rows,
-        "retention: reset clears metadata while retaining caller storage");
     NotificationRetention empty{};
     check(notification_retention_initialize(&empty,{},{})&&notification_retention_room(&empty,1).error==Error::full_channels&&
-        notification_retention_append(&empty,1,2).error==Error::full_channels&&notification_retention_reset(&empty)==Error::none,
+        notification_retention_append(&empty,1,2).error==Error::full_channels,
         "retention: zero initial storage is valid without hidden allocations");
     Fixture alias{};
     check(!notification_retention_initialize(&alias.owner,{reinterpret_cast<NotificationRetentionRow*>(&alias.owner),1},{alias.index,16})&&
@@ -97,7 +89,7 @@ void mapping(void(*check)(bool,const char*)noexcept) noexcept {
     for(u64 candidate=1;candidate<=4096&&found<5;++candidate){
         notification_retention_append(&f.owner,candidate,candidate);
         if(f.index[15])colliders[found++]=candidate;
-        notification_retention_reset(&f.owner);
+        f.reinitialize();
     }
     check(found==5,"retention: bounded corpus finds a wraparound collision cluster");
     if(found!=5)return;
@@ -110,7 +102,7 @@ void mapping(void(*check)(bool,const char*)noexcept) noexcept {
     correct=correct&&notification_retention_discard_channel(&f.owner,colliders[4])==Error::none;
     correct=correct&&ticket(f.owner,colliders[1],0,101)&&ticket(f.owner,colliders[3],0,103)&&f.owner.count==2;
     check(correct,"retention: wrapped cluster head/middle/tail deletion repairs probes and dense swap-last indexes");
-    notification_retention_reset(&f.owner);
+    f.reinitialize();
     correct=true;
     for(u32 i=0;i<8;++i)correct=correct&&notification_retention_append(&f.owner,u64(i+1)<<40,i+30).ok();
     Fixture before{};copy_bytes(&before,&f,sizeof(f));
@@ -119,7 +111,7 @@ void mapping(void(*check)(bool,const char*)noexcept) noexcept {
         "retention: full caller channel storage never evicts an unrelated channel");
     check(notification_retention_append(&f.owner,u64{1}<<40,777).ok()&&ticket(f.owner,u64{1}<<40,1,777),
         "retention: existing channel can append at full channel capacity");
-    notification_retention_reset(&f.owner);
+    f.reinitialize();
     correct=true;
     for(u32 i=0;i<10000;++i){const u64 id=(u64(i+1)<<22)|5;
         correct=correct&&notification_retention_append(&f.owner,id,i).ok()&&ticket(f.owner,id,0,i)&&
@@ -150,7 +142,6 @@ void growth(void(*check)(bool,const char*)noexcept) noexcept {
         notification_retention_append(&large,(u64{4097}<<22)|17,4096).ok()&&large.count==4097&&
         ticket(large,(u64{1}<<22)|17,0,0)&&ticket(large,(u64{4097}<<22)|17,0,4096),
         "retention: caller growth beyond4096 historical channels preserves first and last success");
-    check(notification_retention_reset(&large)==Error::none,"retention: large reset leaves reusable caller storage");
 }
 struct Line {
     char text[256]{};u32 count{};

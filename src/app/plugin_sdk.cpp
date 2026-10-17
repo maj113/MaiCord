@@ -1136,9 +1136,6 @@ NativePluginResult native_plugin_sdk_enable(NativePluginSdkBinding* binding, Nat
 bool native_plugin_sdk_adapter(const NativePluginDefinition& definition) noexcept {
     return definition.start == adapter_start && definition.stop == adapter_stop;
 }
-u64 native_plugin_sdk_owner(const NativePluginSdkBinding* binding) noexcept {
-    return live(binding) ? binding->owner_id : 0;
-}
 u64 native_plugin_sdk_permissions(const NativePluginSdkBinding* binding) noexcept {
     return live(binding) ? binding->definition.permissions : 0;
 }

@@ -50,6 +50,16 @@ bool decode_apng(const ImageCorpusEntry& entry, Arena arena) noexcept {
            apng_decode_parsed_frame({entry.data, entry.bytes}, *animation, 1, &deflate, &frame, {scanlines, 64 * 1024}).ok() &&
            frame.width == 5 && frame.height == 4 && rows_hash(frame, scanlines) == entry.expected;
 }
+struct JpegRowCopy {
+    u8* rgba;
+    u32 width;
+};
+bool copy_jpeg_row(void* context, u32 row_index, const u8* row) noexcept {
+    const auto* copy = static_cast<JpegRowCopy*>(context);
+    u8* out = copy->rgba + u64{row_index} * copy->width * 4;
+    for (u32 i = 0; i < copy->width * 4; ++i) out[i] = row[i];
+    return true;
+}
 bool decode_jpeg(const ImageCorpusEntry& entry, Arena arena) noexcept {
     auto* workspace = arena.take<JpegWorkspace>();
     JpegImage image{};
@@ -62,10 +72,12 @@ bool decode_jpeg(const ImageCorpusEntry& entry, Arena arena) noexcept {
         return false;
     u8* scratch = arena.take<u8>(layout.coefficient_bytes + layout.plane_bytes);
     u8* rgba = arena.take<u8>(layout.rgba_bytes);
-    if (!scratch || !rgba ||
-        !jpeg_thumbnail_decode({entry.data, entry.bytes}, image, layout,
-                               {scratch, static_cast<u32>(layout.coefficient_bytes + layout.plane_bytes)},
-                               {rgba, static_cast<u32>(layout.rgba_bytes)}).ok())
+    u8* row = arena.take<u8>(u64{layout.width} * 4);
+    JpegRowCopy copy{rgba, layout.width};
+    if (!scratch || !rgba || !row ||
+        !jpeg_thumbnail_decode_rows({entry.data, entry.bytes}, image, layout,
+                                    {scratch, static_cast<u32>(layout.coefficient_bytes + layout.plane_bytes)},
+                                    {row, layout.width * 4}, copy_jpeg_row, &copy).ok())
         return false;
     // Pillow's libjpeg oracle uses fancy upsampling; allow for the difference.
     for (u32 j = 0; j < 4; ++j)

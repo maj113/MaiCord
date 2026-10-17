@@ -14,7 +14,7 @@ bool indic_run_benchmark(const NativeRunPlanStore& store,const NativeIndicFormPl
             for(u32 i=0;i<repetitions;++i){CHECK(bytes+word.bytes<=sizeof(text));copy_bytes(text+bytes,word.data,word.bytes);bytes+=word.bytes;}}
         NativeAsciiStorage output{{},scratch,{reinterpret_cast<u16*>(scratch.glyphs.data),scratch.glyphs.count},scratch.placements,scratch.character_glyphs};
         NativeAsciiResult result{};const bool rtl=corpus==5;const float spacing=rtl?.25f:0;
-        const auto shape=[&]() noexcept {return gujarati?native_gujarati_run(store,plan,{text,bytes},16,output,&result,{},rtl,spacing):native_bengali_run(store,plan,{text,bytes},16,output,&result,{},rtl,spacing);};
+        const auto shape=[&]() noexcept {return indic_owned_run(plan.indic.profile,store,plan,{text,bytes},16,output,&result,{},rtl,spacing);};
         CHECK(shape()==SfntStatus::ok);
         u64 hash=14695981039346656037ull;
         const auto append=[&](const void* data,usize count) noexcept {const auto* p=static_cast<const u8*>(data);for(usize i=0;i<count;++i){hash^=p[i];hash*=1099511628211ull;}};

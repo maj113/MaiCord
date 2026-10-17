@@ -55,8 +55,5 @@ MessageReconcileResult message_reconcile_validate_update(
         MessageContentAvailability::available) noexcept;
 MessageReconcileResult message_reconcile_delete(
     MessageStore* store, const GatewayMessageDeleteEvent& event) noexcept;
-MessageBulkReconcileResult message_reconcile_bulk_delete(
-    MessageStore* store, const GatewayMessageBulkDeleteEvent& event,
-    ConstSlice<u64> ids) noexcept;
 
 } // namespace maicord

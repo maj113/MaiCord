@@ -50,7 +50,6 @@ const ShellNavigationRowWidget* channel_row(const UnreadContextSource& source, u
     }
     return nullptr;
 }
-bool same_handle(UiWidgetHandle a, UiWidgetHandle b) noexcept { return a.slot == b.slot && a.generation == b.generation; }
 } // namespace
 static bool resolve_target(UnreadContextSource source, UnreadContextKind kind, u64 id,
     UnreadContextTarget* target) noexcept {
@@ -108,6 +107,6 @@ bool unread_context_current(const UnreadContextTarget& target, UnreadContextSour
     return unread_context_capture(source, target.kind, target.id, &now, target.action) && now.channel_id == target.channel_id &&
         now.channel_revision == target.channel_revision && now.channel_generation == target.channel_generation &&
         now.message_revision == target.message_revision && now.message_generation == target.message_generation &&
-        now.source_revision == target.source_revision && same_handle(now.row, target.row);
+        now.source_revision == target.source_revision && ui_widget_handle_equal(now.row, target.row);
 }
 } // namespace maicord

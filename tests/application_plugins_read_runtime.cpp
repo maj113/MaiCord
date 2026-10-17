@@ -122,7 +122,7 @@ bool populate(AccountUiRuntime& ui) noexcept {
          need(guild_member_store_observe_list(&ui.guild_member_store, kGuild, 77, 42, 7, true, true, false, 0, 42),
               "plugin read setup: member list");
 
-    ok = ok && need(voice_state_store_initialize(&ui.voice_states, {ui.voice_state_records, 8}) &&
+    ok = ok && need(voice_state_store_initialize_sparse(&ui.voice_states, {ui.voice_state_records, 8}) &&
          voice_state_store_apply(&ui.voice_states, kGuild, kChannel, kOther, voice_self_mute | voice_deaf) ==
              VoiceStateResult::changed,
                     "plugin read setup: voice");
@@ -147,9 +147,9 @@ bool populate(AccountUiRuntime& ui) noexcept {
     ok = ok && need(message_store_upsert(&messages, first).ok() && message_store_upsert(&messages, second).ok(),
                     "plugin read setup: messages");
 
-    ok = ok && need(message_rich_store_initialize_owned(&ui.message_rich_store, &storage.rich_records, 4,
-                                                   {storage.rich_order, 4},
-                                                   {storage.rich_text, sizeof(storage.rich_text)}),
+    ok = ok && need(message_rich_store_initialize_owned_sparse(&ui.message_rich_store, &storage.rich_records, 4,
+                                                          {storage.rich_order, 4},
+                                                          {storage.rich_text, sizeof(storage.rich_text)}),
                     "plugin read setup: rich store");
     GatewayMessageReaction reaction{0, utf8_literal("👍"), 3, 3, 0, true, false, false};
     GatewayMessageAttachment attachment{};

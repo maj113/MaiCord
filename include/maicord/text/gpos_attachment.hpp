@@ -17,8 +17,6 @@ static_assert(sizeof(SfntGposAttachment)==80 && sizeof(SfntGposCursiveAnchors)==
 // work budget. Target anchor payloads are checked only when queried.
 SfntStatus sfnt_gpos_attachment_open(ConstSlice<u8> bytes,u16 type,u32 glyph_limit,SfntGposAttachment* output,
                                      u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
-SfntStatus sfnt_gpos_attachment_lookup_prepare(const SfntLayout& layout,u16 index,const SfntGdef& gdef,u32 glyph_limit,
-                                               Slice<SfntGposAttachment> storage,SfntGposAttachmentLookup* output,u32 work_limit=1000000) noexcept;
 // Queries require successfully prepared, unchanged views. Target queries validate
 // the selected anchor and device offsets before exposing a view. Uncovered glyphs yield
 // an empty result with covered=false. A covered cursive glyph can have either or

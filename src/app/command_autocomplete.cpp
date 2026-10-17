@@ -53,9 +53,4 @@ bool command_autocomplete_tick(CommandAutocomplete* state, u64 now) noexcept {
     state->deadline = 0;
     return true;
 }
-u64 command_autocomplete_next_wake(const CommandAutocomplete& state) noexcept {
-    return state.phase == CommandAutocompletePhase::debounce  ? state.due_at
-           : state.phase == CommandAutocompletePhase::waiting ? state.deadline
-                                                              : 0;
-}
 } // namespace maicord

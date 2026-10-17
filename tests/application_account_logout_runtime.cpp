@@ -312,7 +312,7 @@ bool setup_files() noexcept {
     for (u32 i = 0; i < used; ++i)
         suffix[i] = digits[used - i - 1];
     if (!append(directory, suffix) || !CreateDirectoryW(directory, nullptr) ||
-        !account_paths_build(directory, &paths).ok() || !account_paths_ensure_directories(paths).ok())
+        !account_paths_build_slot(directory, 0, &paths).ok() || !account_paths_ensure_directories(paths).ok())
         return false;
     return copy(marker, paths.account_directory) && append(marker, L"\\active.logout") &&
            copy(profile_new, paths.profile) && append(profile_new, L".new") &&

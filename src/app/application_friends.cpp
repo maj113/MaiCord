@@ -146,12 +146,6 @@ void sort_snapshot(ApplicationFriends& friends) noexcept {
         if (friends.candidate[i - 1].user_id == friends.candidate[i].user_id) friends.snapshot_failed = true;
     friends.snapshot_sorted = true;
 }
-UiPresence presence(RelationshipPresence value) noexcept {
-    return value == RelationshipPresence::online ? UiPresence::online :
-        value == RelationshipPresence::idle ? UiPresence::idle :
-        value == RelationshipPresence::dnd ? UiPresence::busy :
-        value == RelationshipPresence::offline ? UiPresence::offline : UiPresence::unknown;
-}
 bool resolve_record(const ApplicationFriends& friends, u32 index, UiFriendsRow* row, bool hidden) noexcept {
     if (!row || !g_app.account_ui || index >= friends.store.count) return false;
     const auto& record = friends.records[index];
@@ -168,7 +162,7 @@ bool resolve_record(const ApplicationFriends& friends, u32 index, UiFriendsRow* 
         record.presence == RelationshipPresence::idle ? utf8_literal("Idle") :
         record.presence == RelationshipPresence::dnd ? utf8_literal("Do Not Disturb") :
         record.presence == RelationshipPresence::offline ? utf8_literal("Offline") : utf8_literal("Status unavailable"),
-        presence(record.presence), record.type == RelationshipType::incoming ? UiFriendsKind::incoming :
+        application_friends_presence(record.presence), record.type == RelationshipType::incoming ? UiFriendsKind::incoming :
         record.type == RelationshipType::outgoing ? UiFriendsKind::outgoing :
         record.type == RelationshipType::blocked ? UiFriendsKind::blocked : UiFriendsKind::friend_user,
         request_busy(friends), record.spam, record.ignored};

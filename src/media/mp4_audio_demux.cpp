@@ -201,38 +201,6 @@ void mp4_audio_demux_reset(Mp4AudioDemuxer* d) noexcept {
     if (d)
         mp4_demux_reset(&d->samples);
 }
-Mp4DemuxError mp4_audio_demux_seek(Mp4AudioDemuxer* d, i64 target, Mp4SeekPoint* point) noexcept {
-    if (!d || !point || !d->samples.ready || target < 0 ||
-        static_cast<u64>(target) > d->samples.duration_us)
-        return Mp4DemuxError::invalid_input;
-    const ConstSlice<u8> output{reinterpret_cast<const u8*>(point), sizeof(*point)};
-    if (!byte_range_valid(output) ||
-        byte_ranges_overlap(output, {reinterpret_cast<const u8*>(d), sizeof(*d)}) ||
-        byte_ranges_overlap(output, d->samples.encoded))
-        return Mp4DemuxError::invalid_input;
-    Mp4Demuxer scan = d->samples;
-    mp4_demux_reset(&scan);
-    Mp4Demuxer selected{};
-    Mp4SeekPoint result{};
-    bool found = false;
-    while (scan.sample_index < scan.sample_count) {
-        const auto before = scan;
-        const auto unit = mp4_demux_next(&scan);
-        if (!unit.ok())
-            return unit.error;
-        if (unit.presentation_time_us_signed <= target) {
-            selected = before;
-            result = {unit.sample_index, unit.decode_time_us, unit.presentation_time_us_signed};
-            found = true;
-        } else
-            break;
-    }
-    if (!found)
-        return Mp4DemuxError::unsupported;
-    d->samples = selected;
-    *point = result;
-    return Mp4DemuxError::none;
-}
 namespace {
 constexpr i64 signed_limit = 0x7fffffffffffffffll;
 struct Time {

@@ -52,8 +52,6 @@ struct NativePluginPreferencesResult {
     constexpr bool ok() const noexcept { return error == NativePluginPreferencesError::none; }
 };
 bool native_plugin_preferences_valid(const NativePluginPreferences& preferences) noexcept;
-bool native_plugin_preferences_has(const NativePluginPreferences& preferences,
-    const NativePluginManifest& manifest) noexcept;
 // The entry whose identity matches manifest, or null.
 const NativePluginPreference* native_plugin_preferences_find(const NativePluginPreferences& preferences,
     const NativePluginManifest& manifest) noexcept;

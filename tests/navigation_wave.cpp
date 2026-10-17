@@ -212,7 +212,9 @@ void folders() noexcept {
           "folders: an emptied folder vanishes");
     // Alpha (10) onto Bravo (20): a new folder 1234 holding {20, 10}.
     const u64 created[]{20, 10};
-    const u32 bravo = guild_folders_find_guild(work, 20);
+    u32 bravo = ~0u;
+    for (u32 f = 0; f < work.folder_count && bravo == ~0u; ++f)
+        if (work.folders[f].guild_count && work.guild_ids[work.folders[f].first_guild] == 20) bravo = f;
     check(guild_folders_move(&work, {10, false}, {20, false}, GuildFolderDrop::combine, 1234) ==
                   GuildFolderEditError::none &&
               guild_folders_find_folder(work, 1234) == bravo && folder_is(work, bravo, 1234, {created, 2}),

@@ -1,5 +1,6 @@
 #include "maicord/protocol/self_status_settings.hpp"
 #include "maicord/protocol/base64.hpp"
+#include "maicord/protocol/user_settings_proto.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
@@ -113,20 +114,6 @@ E decode(const Wire& w, Slice<u8> output, SelfStatusSettingsProjection* result) 
     *result = candidate;
     return E::none;
 }
-Utf8View status_name(GatewayUserStatus status) noexcept {
-    switch (status) {
-    case GatewayUserStatus::online:
-        return utf8_literal("online");
-    case GatewayUserStatus::idle:
-        return utf8_literal("idle");
-    case GatewayUserStatus::dnd:
-        return utf8_literal("dnd");
-    case GatewayUserStatus::invisible:
-        return utf8_literal("invisible");
-    default:
-        return {};
-    }
-}
 bool custom_message(const Wire& w, u32 p, u32 end, SelfCustomStatus& out) noexcept {
     out = {};
     out.present = true;
@@ -204,16 +191,9 @@ GatewayCommandWriteResult finish_patch(Slice<u8> scratch, u32 at, Slice<u8> outp
     return {required, GatewayCommandError::none};
 }
 } // namespace
-E self_status_settings_decode_proto(ConstSlice<u8> input, Slice<u8> output,
-                                    SelfStatusSettingsProjection* result) noexcept {
-    if (!result || input.count > kSelfStatusSettingsMaximumProtoBytes || !byte_range_valid(input) ||
-        !range_valid(output) || byte_ranges_overlap(input, {output.data, output.count}))
-        return E::input;
-    return decode({input, {}, input.count}, output, result);
-}
 E self_status_settings_decode_base64(Utf8View input, Slice<u8> output,
                                      SelfStatusSettingsProjection* result) noexcept {
-    if (!result || input.bytes > base64_encoded_size(kSelfStatusSettingsMaximumProtoBytes) ||
+    if (!result || input.bytes > base64_encoded_size(kUserSettingsProtoMaximumProtoBytes) ||
         !range_valid(output) ||
         byte_ranges_overlap({reinterpret_cast<const u8*>(input.data), input.bytes},
                             {output.data, output.count}))
@@ -226,7 +206,7 @@ E self_status_settings_decode_base64(Utf8View input, Slice<u8> output,
 GatewayCommandWriteResult self_status_settings_write_patch(ConstSlice<u8> observed,
                                                            GatewayUserStatus status, u64 unix_now_ms,
                                                            Slice<u8> scratch, Slice<u8> output) noexcept {
-    const auto name = status_name(status);
+    const auto name = gateway_user_status_name(status);
     if (!name.bytes || !unix_now_ms || !patch_buffers_valid(observed, scratch, output))
         return {0, GatewayCommandError::invalid_input};
     if (scratch.count < observed.count + 64)

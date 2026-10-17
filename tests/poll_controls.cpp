@@ -301,7 +301,8 @@ void card_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept 
     check(ready && !ui_poll_target_visible(scene.projection, {UiPollControl::vote}) &&
               !ui_poll_target_visible(scene.projection, {UiPollControl::remove_vote}) &&
               scene.projection.victor_answers[0] && !scene.projection.victor_answers[1] &&
-              utf8_equal(ui_poll_expiry_label(scene.projection), utf8_literal("Poll closed")),
+              utf8_equal(Utf8View{scene.projection.expiry_text, scene.projection.expiry_bytes},
+                         utf8_literal("Poll closed")),
           "poll expiry: a closed poll has no action, marks the winner and reads \"Poll closed\"");
     f.state.now_ms = 100;
     ready =
@@ -380,8 +381,7 @@ void voter_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept
     const auto point = center(ui_poll_voters_row_rectangle(scene, 0));
     const auto down = ui_poll_voters_scene_pointer(&scene, UiPollPointerEvent::down, point);
     const auto up = ui_poll_voters_scene_pointer(&scene, UiPollPointerEvent::up, point);
-    check(down.request_capture && up.action_requested && up.action.id == 1000 &&
-              ui_poll_voters_action_current(state, up.action),
+    check(down.request_capture && up.action_requested && up.action.id == 1000,
           "poll voters pointer: exact visible user action is release-bound and publication fenced");
     check(ui_poll_voters_scene_focus(&scene, {UiPollVotersControl::user, 1099}, true) && scene.scroll > 0 &&
               contained(scene.geometry.body, ui_poll_voters_row_rectangle(scene, 99)) &&
@@ -408,7 +408,6 @@ void voter_tests(Fixture& f, void (*check)(bool, const char*) noexcept) noexcept
     ready = ui_poll_voters_scene_project(&scene, state, {0, 0, 320, 640}, f.owner(),
                                          kDefaultUiPollVotersStyle, kLightTheme, &f.cache, 1);
     check(ready && ui_poll_voters_target_enabled(scene, {UiPollVotersControl::retry}) &&
-              !ui_poll_voters_action_current(state, up.action) &&
               same(scene.error, ui_foreground_color(kLightTheme, kLightTheme.notification)),
           "poll voters error: explicit Retry and semantic Light error ink retain exact stale-response "
           "fences");

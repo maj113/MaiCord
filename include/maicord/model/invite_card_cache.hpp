@@ -47,8 +47,6 @@ bool invite_card_cache_begin(InviteCardCache* cache, Utf8View code) noexcept;
 // and rate-limit failures retry later. Returns true when the entry changed.
 bool invite_card_cache_complete(InviteCardCache* cache, Utf8View code, GuildInviteOutcome outcome,
                                 const GuildInvite* invite, u64 now_ms) noexcept;
-// Abandons in-flight requests (account switch): they become queued again.
-void invite_card_cache_requeue(InviteCardCache* cache) noexcept;
 void invite_card_cache_clear(InviteCardCache* cache) noexcept;
 // Updates an entry's membership flag; returns true when it changed.
 bool invite_card_cache_set_joined(InviteCardCache* cache, u32 index, bool joined) noexcept;

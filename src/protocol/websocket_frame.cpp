@@ -125,14 +125,10 @@ WebSocketParseResult parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes
         }
     }
 
-    u32 masking_key = 0;
     if (masked) {
         if (input.count - offset < 4) {
             return need_more();
         }
-        masking_key = (static_cast<u32>(input[offset]) << 24) |
-                      (static_cast<u32>(input[offset + 1]) << 16) |
-                      (static_cast<u32>(input[offset + 2]) << 8) | input[offset + 3];
         offset += 4;
     }
     if (require_payload && payload_bytes > input.count - offset) {
@@ -145,7 +141,6 @@ WebSocketParseResult parse_frame(ConstSlice<u8> input, u64 maximum_payload_bytes
                          payload_bytes,
                          offset + payload_count,
                          offset,
-                         masking_key,
                          opcode,
                          final,
                          masked};
@@ -231,7 +226,7 @@ WebSocketWriteResult websocket_write_client_frame(WebSocketOpcode opcode, bool f
             return WebSocketWriteResult{0, WebSocketError::control_too_large};
         }
         if (opcode == WebSocketOpcode::close) {
-            const WebSocketFrame frame{payload, payload.count, 0, 0, 0, opcode, true, false};
+            const WebSocketFrame frame{payload, payload.count, 0, 0, opcode, true, false};
             const WebSocketError error = validate_control_payload(frame);
             if (error != WebSocketError::none) {
                 return WebSocketWriteResult{0, error};

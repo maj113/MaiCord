@@ -20,9 +20,6 @@ bool border(PaintStream* stream, UiRect bounds, Color fill, Color line, float ra
            paint_stream_push_rounded_border(stream, bounds.left, bounds.top, bounds.right, bounds.bottom,
                                             fill, line, radius, width);
 }
-UiRect inset(UiRect bounds, float value) noexcept {
-    return {bounds.left + value, bounds.top + value, bounds.right - value, bounds.bottom - value};
-}
 UiRect centered(UiRect bounds, float extent) noexcept {
     const float x = (bounds.left + bounds.right) * .5f, y = (bounds.top + bounds.bottom) * .5f;
     return {x - extent * .5f, y - extent * .5f, x + extent * .5f, y + extent * .5f};
@@ -36,20 +33,11 @@ bool label(UiTextOutput* output, Utf8View text, UiRect bounds, UiRect clip, UiWi
                                               wrap ? UiTextWrapping::wrap : UiTextWrapping::no_wrap,
                                               UiTextOverflow::ellipsis});
 }
-bool closed(const UiPollState& state) noexcept {
-    return (state.finalized_known && state.finalized) ||
-           (state.expiry_known && state.expiry_ms && state.now_ms >= state.expiry_ms);
-}
-// Bars, counts and the own-vote check show once voted, closed, or after
-// "Show results".
-bool counts_visible(const UiPollState& state) noexcept {
-    return state.results || closed(state);
-}
 // The prompt line: a status replaces it; the prompt is hidden when closed.
 Utf8View instruction(const UiPollProjection& projection, const UiPollStyle& style) noexcept {
     const auto& state = projection.state;
     return !state.supported ? style.unavailable
-           : closed(state)  ? Utf8View{}
+           : ui_poll_closed(state)  ? Utf8View{}
            : state.multiselect ? style.multi
                                : style.single;
 }
@@ -114,8 +102,8 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
     if (!paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom))
         return false;
     const auto& state = projection.state;
-    const bool results = counts_visible(state);
-    const bool ended = closed(state);
+    const bool results = ui_poll_counts_visible(state);
+    const bool ended = ui_poll_closed(state);
     const auto draw = [&]() noexcept {
         if (!ui_background_paint_surface(paint, projection.geometry.bounds, theme, projection.surface,
                                          projection.border, style.radius, 1, 1,
@@ -165,7 +153,7 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
             }
             if (keyboard && ui_poll_target_equal(focus, target) &&
                 ui_poll_target_enabled(projection, target) &&
-                !border(paint, inset(row.bounds, -2), {}, projection.accent, style.radius + 2, 2))
+                !border(paint, ui_rect_shrink(row.bounds, -2), {}, projection.accent, style.radius + 2, 2))
                 return false;
         }
         const UiPollTarget targets[]{{UiPollControl::vote},
@@ -194,7 +182,7 @@ bool ui_poll_controls_paint(const UiPollProjection& projection, const UiPollStyl
                     return false;
             }
             if (keyboard && enabled && ui_poll_target_equal(focus, target) &&
-                !border(paint, inset(bounds, -2), {}, projection.accent, style.radius + 2, 2))
+                !border(paint, ui_rect_shrink(bounds, -2), {}, projection.accent, style.radius + 2, 2))
                 return false;
         }
         return true;
@@ -211,7 +199,7 @@ bool ui_poll_controls_text_output(const UiPollProjection& projection, const UiPo
     const auto visible = ui_rect_intersection(clip, projection.geometry.bounds);
     const auto& geometry = projection.geometry;
     const auto& state = projection.state;
-    const bool results = counts_visible(state);
+    const bool results = ui_poll_counts_visible(state);
     const auto status_text = status(projection, style);
     if (!label(output, state.question.bytes ? state.question : style.question_fallback, geometry.question,
                visible, owner, projection.foreground, style.question_style) ||
@@ -310,7 +298,7 @@ u64 ui_poll_scene_paint_revision(const UiPollScene& scene) noexcept {
                        scene.projection.vote_enabled,    scene.projection.remove_enabled,
                        scene.projection.results_enabled, scene.projection.retry_enabled,
                        scene.projection.answers_enabled, scene.projection.results_primary,
-                       scene.keyboard_focus,             closed(scene.projection.state)};
+                       scene.keyboard_focus,             ui_poll_closed(scene.projection.state)};
     for (bool flag : flags)
         hash = hash64_mix(hash, flag);
     const UiPollControl controls[]{UiPollControl::vote, UiPollControl::remove_vote, UiPollControl::results,
@@ -352,7 +340,7 @@ bool ui_poll_voters_scene_paint(const UiPollVotersScene& scene, const Theme& the
                                          UiBackgroundTier::high, UiBackgroundBorderTone::palette) ||
             !paint_stream_record_content(paint, scene.owner, geometry.panel, UiLayoutContentKind::control,
                                          ui_layout_content_bounds_allow_overlap) ||
-            !ui_icon_paint(paint, UiIcon::close, inset(geometry.close, 6), scene.foreground))
+            !ui_icon_paint(paint, UiIcon::close, ui_rect_shrink(geometry.close, 6), scene.foreground))
             return false;
         for (u32 i = 0; i < scene.state.answers.count; ++i) {
             const bool selected = scene.state.answers[i].id == scene.state.answer_id;
@@ -465,7 +453,7 @@ bool ui_poll_voters_scene_text_output(const UiPollVotersScene& scene, UiTextOutp
                                ? scene.accent_foreground
                            : enabled ? scene.foreground
                                      : scene.secondary;
-        if (!label(output, texts[i], inset(ui_poll_voters_target_rectangle(scene, buttons[i]), 8),
+        if (!label(output, texts[i], ui_rect_shrink(ui_poll_voters_target_rectangle(scene, buttons[i]), 8),
                    geometry.panel, scene.owner, color, text_style_none, false, UiTextAlignment::center,
                    UiTextAlignment::center))
             return false;

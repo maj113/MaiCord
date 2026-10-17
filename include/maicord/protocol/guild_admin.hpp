@@ -515,7 +515,6 @@ struct GuildAdminVanity {
 };
 GuildAdminResult guild_admin_decode_vanity(Utf8View body, Slice<u32> scratch, GuildAdminVanity* output) noexcept;
 GuildAdminResult guild_admin_decode_role(Utf8View body, Slice<u32> scratch, GuildAdminRole* output) noexcept;
-GuildAdminResult guild_admin_decode_roles(Utf8View body, Slice<u32> scratch, Slice<GuildAdminRole> output) noexcept;
 GuildAdminResult guild_admin_decode_role_counts(Utf8View body, Slice<u32> scratch,
                                                 Slice<GuildAdminRoleCount> output) noexcept;
 GuildAdminResult guild_admin_decode_bans(Utf8View body, Slice<u32> scratch, Slice<GuildAdminBan> output) noexcept;

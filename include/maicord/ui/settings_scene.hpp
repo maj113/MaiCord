@@ -302,7 +302,7 @@ struct UiSettingsScene {
     UiRect viewport;
     float sidebar_offset, content_offset;
     u32 capacity, prefix_capacity, registry_revision, content_revision, revision;
-    bool active, focus_visible, form_layout;
+    bool active, focus_visible;
     UiSettingsPaletteSource palette{};
     u32 palette_hovered_index = ~u32{0};
     UiSettingsPresentation presentation{};
@@ -375,8 +375,6 @@ bool ui_settings_scene_control_anchor(const UiSettingsScene&, UiSettingsTarget, 
 // by the scrolling body or sticky footer has no geometry/input target.
 bool ui_settings_scene_control_geometry(const UiSettingsScene&, UiSettingsTarget,
                                         UiSettingsControlGeometry*) noexcept;
-bool ui_settings_scene_control_geometry_current(const UiSettingsScene&,
-                                                const UiSettingsControlGeometry&) noexcept;
 // Only inline edit/multiline fields participate, never their labels or footer.
 bool ui_settings_scene_editor_hit(const UiSettingsScene&, float x, float y,
                                   UiSettingsControlGeometry*) noexcept;
@@ -448,16 +446,11 @@ struct UiSettingsAvatarGeometry {
 bool ui_settings_scene_next_avatar(const UiSettingsScene&, u32* cursor, UiSettingsAvatarGeometry*) noexcept;
 bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, PaintStream* paint,
                              u32 dpi = 96, UiSettingsPaintRanges* ranges = nullptr) noexcept;
-bool ui_settings_scene_text(const UiSettingsScene& scene, const Theme& theme,
-                            UiTextCommandStream* text) noexcept;
+bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& theme,
+                                   UiTextOutput* stream) noexcept;
 
 } // namespace maicord
 
 static_assert(sizeof(maicord::UiSettingsStyle) == 32);
 static_assert(sizeof(maicord::UiSettingsControl) == 96);
 static_assert(sizeof(maicord::UiSettingsControlPresentation) == 4);
-
-namespace maicord {
-bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& theme,
-                                   UiTextOutput* stream) noexcept;
-} // namespace maicord

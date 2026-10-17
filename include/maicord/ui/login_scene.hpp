@@ -182,8 +182,5 @@ LoginControl login_scene_move_focus(LoginScene* scene, bool reverse) noexcept;
 const UiLayoutNode* login_scene_element(const LoginScene& scene, LoginElement element) noexcept;
 UiRect login_scene_rectangle(const LoginScene& scene, LoginElement element) noexcept;
 UiRect login_scene_content_rectangle(const LoginScene& scene, LoginElement element) noexcept;
-UiRect login_scene_control_rectangle(const LoginScene& scene, LoginControl control) noexcept;
-UiLayoutValidationResult login_scene_validate(const LoginScene& scene,
-                                              Slice<UiLayoutDiagnostic> output) noexcept;
 
 } // namespace maicord

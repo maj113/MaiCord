@@ -45,7 +45,7 @@ void test_password_reset_ui(void (*check)(bool, const char*) noexcept) noexcept 
             !login_scene_element(scene, LoginElement::login_label) && scene.widgets.count <= kMaximumLoginWidgets &&
             login_view_matches_scene(view, &scene) && login_text_presentation_build(scene, view, kDefaultTheme, &stream),
             "reset presentation hides identifier and QR within fixed native widget budget");
-        const auto back = login_scene_control_rectangle(scene, LoginControl::back);
+        const auto back = login_scene_rectangle(scene, LoginElement::forgot_password);
         check(ui_rect_has_area(back) && login_scene_hit_test(scene, (back.left + back.right) / 2,
             (back.top + back.bottom) / 2) == LoginControl::back && login_scene_focus(&scene, LoginControl::back),
             "reset Back remains a native focusable semantic control through every MFA and terminal state");

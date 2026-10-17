@@ -29,10 +29,10 @@ void erase_head(DesktopNotificationQueue& q) noexcept {
     for(u32 i=1;i<q.count;++i){q.rows[i-1]=q.rows[i];q.rows[i-1].offset-=n;}
     q.rows[--q.count]={};q.used-=n;
 }
-enum class Purge : u8 {all,profile,channel,message};
+enum class Purge : u8 {all,channel,message};
 bool matches(const DesktopNotificationQueueRow& r,Purge kind,u64 p,u64 g,u64 c,u64 m) noexcept {
-    return kind==Purge::all || (r.profile_id==p && (kind==Purge::profile ||
-        (r.generation==g && r.channel_id==c && (kind==Purge::channel || r.message_id==m))));
+    return kind==Purge::all || (r.profile_id==p && r.generation==g && r.channel_id==c &&
+        (kind==Purge::channel || r.message_id==m));
 }
 u32 purge(DesktopNotificationQueue* q,Purge kind,u64 p=0,u64 g=0,u64 c=0,u64 m=0) noexcept {
     if(!initialized(q))return 0;
@@ -135,6 +135,5 @@ DesktopNotificationQueueCompletion desktop_notification_queue_complete(DesktopNo
 }
 u32 desktop_notification_queue_purge_channel(DesktopNotificationQueue* q,u64 p,u64 g,u64 c) noexcept {return p&&g&&c?purge(q,Purge::channel,p,g,c):0;}
 u32 desktop_notification_queue_purge_message(DesktopNotificationQueue* q,u64 p,u64 g,u64 c,u64 m) noexcept {return p&&g&&c&&m?purge(q,Purge::message,p,g,c,m):0;}
-u32 desktop_notification_queue_purge_profile(DesktopNotificationQueue* q,u64 p) noexcept {return p?purge(q,Purge::profile,p):0;}
 u32 desktop_notification_queue_purge_all(DesktopNotificationQueue* q) noexcept {return purge(q,Purge::all);}
 } // namespace maicord

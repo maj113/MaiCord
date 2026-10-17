@@ -116,13 +116,6 @@ KdfResult mls_epoch_from_joiner(KdfSha256Workspace& workspace, ConstSlice<u8> jo
                                 ConstSlice<u8> context, MlsEpochSecrets* output) noexcept {
     return derive(workspace, joiner_secret, {}, psk_secret, confirmed_hash, context, output, true);
 }
-KdfResult mls_transcript_confirm(KdfSha256Workspace& workspace, ConstSlice<u8> previous_interim,
-                                 ConstSlice<u8> confirmed_input, Slice<u8> output) noexcept {
-    if (previous_interim.count != 32)
-        return {0, 0, KdfError::invalid_input};
-    const ConstSlice<u8> parts[]{previous_interim, confirmed_input};
-    return sha256(workspace, {parts, 2}, output);
-}
 KdfResult mls_transcript_interim(KdfSha256Workspace& workspace, ConstSlice<u8> confirmed_hash,
                                  ConstSlice<u8> confirmation_tag, Slice<u8> output) noexcept {
     if ((confirmed_hash.count != 0 && confirmed_hash.count != 32) || confirmation_tag.count != 32)

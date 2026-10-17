@@ -100,14 +100,6 @@ bool invite_card_cache_complete(InviteCardCache* cache, Utf8View code, GuildInvi
     return true;
 }
 
-void invite_card_cache_requeue(InviteCardCache* cache) noexcept {
-    if (!cache)
-        return;
-    for (auto& entry : cache->entries)
-        if (entry.state == InviteCardState::pending)
-            entry.state = InviteCardState::queued;
-}
-
 void invite_card_cache_clear(InviteCardCache* cache) noexcept {
     if (!cache)
         return;

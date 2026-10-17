@@ -192,16 +192,6 @@ inline bool ui_surface_paint(PaintStream* stream, UiRect rectangle, const Theme&
            ui_surface_paint_plate(stream, rectangle, theme, elevation, radius, plain_fill, plain_border);
 }
 
-// Accent treatment for interaction states. Pressed/hovered darken the fill in
-// place so the emphasis.text label only gains contrast.
-inline Color ui_emphasis_fill(const Theme& theme, bool hovered = false, bool pressed = false) noexcept {
-    Color fill = theme.tokens.emphasis.fill;
-    const float shade = pressed ? .80f : hovered ? .90f : 1.f;
-    fill.red *= shade;
-    fill.green *= shade;
-    fill.blue *= shade;
-    return fill;
-}
 // Selected rows/tabs/pills: the emphasis tint gains alpha with elevation on a
 // gradient theme, the way higher surfaces gain gradient contrast. The
 // resolver reserved contrast headroom for the full boost.

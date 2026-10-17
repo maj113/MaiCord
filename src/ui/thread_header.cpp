@@ -6,9 +6,6 @@
 
 namespace maicord {
 namespace {
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.slot == b.slot && a.generation == b.generation;
-}
 bool enabled(const UiThreadHeaderView& v, UiThreadAction action) noexcept {
     return (v.enabled_actions & ui_thread_action_bit(action)) != 0;
 }
@@ -120,7 +117,7 @@ Color button_fill(const UiThreadHeader& h, UiWidgetHandle w, const Theme& theme,
 bool paint_button(const UiThreadHeader& h, UiWidgetHandle w, UiRect r, const Theme& theme,
     PaintStream* out, bool accent) noexcept {
     if (!ui_rect_has_area(r)) return true;
-    const bool focus = same(h.manager->focused, w) && ui_widget_manager_input_enabled(*h.manager, w);
+    const bool focus = ui_widget_handle_equal(h.manager->focused, w) && ui_widget_manager_input_enabled(*h.manager, w);
     const auto fill = button_fill(h, w, theme, accent);
     return ui_background_paint_surface(out, r, theme, fill, focus ? theme.tokens.border.focus : theme.surface_high,
         kUiControlCornerRadius, focus ? 1.5f : .75f) &&
@@ -158,21 +155,6 @@ Utf8View ui_thread_action_label(UiThreadAction action) noexcept {
     case UiThreadAction::menu: return utf8_literal("Thread actions");
     default: return {};
     }
-}
-Utf8View ui_thread_header_status_label(const UiThreadHeaderView& v) noexcept {
-    if (!v.archive_known) {
-        if (v.membership == UiThreadMembership::joined) return utf8_literal("Joined");
-        if (v.membership == UiThreadMembership::not_joined) return utf8_literal("Not joined");
-        return Utf8View{};
-    }
-    if (v.archived) {
-        if (v.membership == UiThreadMembership::joined) return utf8_literal("Joined · Archived");
-        if (v.membership == UiThreadMembership::not_joined) return utf8_literal("Not joined · Archived");
-        return utf8_literal("Archived");
-    }
-    if (v.membership == UiThreadMembership::joined) return utf8_literal("Joined · Active");
-    if (v.membership == UiThreadMembership::not_joined) return utf8_literal("Not joined · Active");
-    return Utf8View{};
 }
 bool ui_thread_header_project(const UiThreadHeaderView& v, const UiThreadHeaderStyle& s, UiRect r,
     UiRect clip, UiThreadHeaderGeometry* out) noexcept {
@@ -212,7 +194,7 @@ bool ui_thread_header_bind(UiThreadHeader* h, UiWidgetManager* manager, UiThread
         const auto* w = ui_widget_manager_resolve(*manager, handle(widgets, i));
         if (!w || !ui_widget_manager_layout_node(*manager, handle(widgets, i))) return false;
         if ((i == 2 || i == 3 || i == 5) && w->kind != UiWidgetKind::button) return false;
-        for (u32 j = 0; j < i; ++j) if (same(handle(widgets, i), handle(widgets, j))) return false;
+        for (u32 j = 0; j < i; ++j) if (ui_widget_handle_equal(handle(widgets, i), handle(widgets, j))) return false;
     }
     h->manager = manager;
     h->shell = nullptr;
@@ -264,9 +246,9 @@ UiThreadHeaderTarget ui_thread_header_widget_target(const UiThreadHeader& h, UiW
     if (!h.active || !h.manager || !h.view.visible || !h.view.thread_id || !h.view.source_publication ||
         !ui_widget_manager_input_enabled(*h.manager, widget)) return target;
     UiThreadAction action = UiThreadAction::none;
-    if (same(widget, h.widgets.primary) && !h.view.busy) action = ui_thread_header_primary_action(h.view);
-    else if (same(widget, h.widgets.overflow)) action = UiThreadAction::menu;
-    else if (same(widget, h.widgets.cancel)) action = UiThreadAction::cancel;
+    if (ui_widget_handle_equal(widget, h.widgets.primary) && !h.view.busy) action = ui_thread_header_primary_action(h.view);
+    else if (ui_widget_handle_equal(widget, h.widgets.overflow)) action = UiThreadAction::menu;
+    else if (ui_widget_handle_equal(widget, h.widgets.cancel)) action = UiThreadAction::cancel;
     if (action == UiThreadAction::none || (action != UiThreadAction::menu && !enabled(h.view, action))) return target;
     const auto* n = ui_widget_manager_layout_node(*h.manager, widget);
     if (!n || !n->visible || !ui_rect_has_area(n->clip_rectangle)) return target;

@@ -493,30 +493,6 @@ void test_permission_prefix(void (*check)(bool, const char*) noexcept) noexcept 
         state.role_count == 8 && state.overwrite_count == 8 && prefix.reserve.calls == cap_calls && semantic_unchanged(true),
         "permission prefix: direct full-bank writers reject before callback names shifts or owner mutation");
 
-    check(seed(), "permission prefix: clear and reuse fixture seeds");
-    check(chat_state_store_prepare_permissions(&state, 6, 5), "permission prefix: explicit backing high water admits without live-count growth");
-    const u32 clear_calls = prefix.reserve.calls;
-    chat_state_store_clear(&state);
-    bool cleared = state.roles == prefix.roles && state.overwrites == prefix.overwrites &&
-        state.role_capacity == 8 && state.overwrite_capacity == 8 && state.role_backed_count == 6 &&
-        state.overwrite_backed_count == 5 && state.permission_reserve == reserve_prefix &&
-        state.permission_reserve_context == &prefix.reserve && state.role_count == 0 && state.overwrite_count == 0 &&
-        state.guild_count == 0 && state.channel_count == 0 && state.name_used == 0 && prefix.reserve.calls == clear_calls;
-    for (u32 i = 0; i < 6; ++i) cleared = cleared && role_equal(prefix.roles[i], {});
-    for (u32 i = 0; i < 5; ++i) cleared = cleared && overwrite_equal(prefix.overwrites[i], {});
-    check(cleared && suffix_untouched(), "permission prefix: clear preserves owners callback high water zeros only admitted prefixes and leaves suffix sentinels");
-    check(chat_state_store_upsert_guild(&state, {20, utf8_literal("Reused"), GuildMutationKind::create, 999}).ok() &&
-        chat_state_store_upsert_channel(&state, {200, 20, 0, utf8_literal("Reused"), 0, 0, 0}).ok() &&
-        chat_state_store_upsert_role(&state, {20, 20, kPrefixBase, utf8_literal("Everyone")}) &&
-        chat_state_store_set_self_roles(&state, 20, 999, 42, {}) &&
-        chat_state_store_append_channel_overwrite(&state, 200, {20, 0, 0, 0}),
-        "permission prefix: cleared store reuses stable admitted backing through actual writers");
-    chat_state_store_recompute_guild_permissions(&state, 20);
-    parent = chat_state_store_find_channel(state, 200);
-    check(parent && parent->permissions_resolved && chat_state_store_channel_visible(state, *parent) &&
-        state.role_count == 1 && state.overwrite_count == 1 && state.role_backed_count == 6 && state.overwrite_backed_count == 5 &&
-        prefix.reserve.calls == clear_calls && suffix_untouched(), "permission prefix: reuse restores resolved actions without growing or touching reserved suffix");
-
     check(initialize(false), "permission prefix: fixed binder compatibility fixture initializes");
     bool fixed = state.role_backed_count == 8 && state.overwrite_backed_count == 8 &&
         state.permission_reserve == nullptr && state.permission_reserve_context == nullptr;

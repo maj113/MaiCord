@@ -54,9 +54,6 @@ u32 media_audio_ring_render(MediaAudioRing* r,Slice<float> output,float gain) no
         if(++frame_index==capacity)frame_index=0;}
     r->submitted+=count;return count;
 }
-bool media_audio_ring_played(MediaAudioRing* r,u32 padding) noexcept {
-    if(!r||!ring_valid(*r)||padding>r->submitted-r->consumed)return false;r->consumed=r->submitted-padding;return true;
-}
 bool media_audio_ring_native_queue_empty(const MediaAudioRing& r,u32 padding) noexcept {
     return ring_valid(r)&&!padding&&r.submitted==r.consumed;
 }
@@ -360,5 +357,4 @@ MediaAudioResult media_audio_release(MediaAudio* owner,u32 timeout) noexcept {
         if(wait!=WAIT_OBJECT_0)return fail(wait==WAIT_TIMEOUT?Error::join_pending:Error::wait,wait==WAIT_TIMEOUT?WAIT_TIMEOUT:GetLastError());}
     const auto result=free_runtime(*owner);if(result.ok())*owner={};return result;
 }
-u32 media_audio_owned_bytes(const MediaAudio* owner) noexcept{return owner&&owner->runtime?sizeof(Runtime)+sizeof(EndpointNotify):0;}
 } // namespace maicord

@@ -45,7 +45,7 @@ bool command_arguments(const CommandIndex&, const ApplicationCommand&, Utf8View 
 struct CommandArgumentFocus {
     JsonValue option;
     Utf8View name, value;
-    u32 name_begin, value_begin, value_end;
+    u32 value_begin, value_end;
     bool quoted, closed;
 };
 // Byte ranges borrow the input. Tolerates a partially typed final argument.

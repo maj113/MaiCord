@@ -39,7 +39,6 @@ struct GatewayReconnectBackoff {
 
 struct GatewayReconnectDelay {
     u32 delay_ms;
-    u32 ceiling_ms;
 };
 
 // Full-jitter exponential backoff: random value in [0, ceiling], with a 1 s

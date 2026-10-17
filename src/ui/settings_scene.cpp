@@ -77,9 +77,6 @@ float section_trailing(const UiSettingsPageContent& content, u32 index) noexcept
         return 0;
     return kSectionGap * 2 + 1;
 }
-UiRect intersect(UiRect a, UiRect b) noexcept {
-    return {maximum(a.left, b.left), maximum(a.top, b.top), minimum(a.right, b.right), minimum(a.bottom, b.bottom)};
-}
 UiSettingsTokens layout_tokens(const UiSettingsScene& scene) noexcept {
     Theme theme = kDefaultTheme;
     theme.styles = scene.theme_styles;
@@ -948,7 +945,7 @@ bool row_pointer_region(const void* context, const UiWidgetManager&, UiWidgetHan
     RowLayout row{};
     UiRect clip{};
     return row_layout_for(scene, layout_tokens(scene), handle, index, &row, &clip) &&
-           ui_rect_contains(intersect(row.control, clip), x, y);
+           ui_rect_contains(ui_rect_overlap(row.control, clip), x, y);
 }
 u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& content, const UiSettingsStyle& style,
                      UiRect viewport, UiPageKey page, u32 registry_revision) noexcept {
@@ -1004,7 +1001,7 @@ bool text(UiTextOutput* stream, const UiSettingsScene& scene, UiWidgetHandle han
     const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
     if (!node)
         return false;
-    const auto clip = intersect(rectangle, node->clip_rectangle);
+    const auto clip = ui_rect_overlap(rectangle, node->clip_rectangle);
     if (!label.bytes || !ui_rect_has_area(clip))
         return true;
     return ui_text_output_push(stream, {label,
@@ -1451,7 +1448,6 @@ bool ui_settings_scene_update(UiSettingsScene* scene, UiPageRegistry* registry, 
     scene->content_revision = content.revision;
     scene->projected_theme_geometry_revision = scene->theme_geometry_revision;
     scene->projected_navigation_revision = scene->navigation_revision;
-    scene->form_layout = true;
     scene->layout_signature = signature;
     scene->selected_page = selected;
     if (changed_page) {
@@ -1670,7 +1666,7 @@ UiScrollbarGeometry ui_settings_scene_scrollbar(const UiSettingsScene& scene, bo
     if (!node)
         return {};
     const auto t = layout_tokens(scene);
-    auto viewport = intersect(node->rectangle, node->clip_rectangle);
+    auto viewport = ui_rect_overlap(node->rectangle, node->clip_rectangle);
     if (sidebar)
         viewport.right = minimum(scene.layout.sidebar.right, viewport.right + 12);
     return ui_scrollbar_geometry(viewport, sidebar ? scene.sidebar_offset : scene.content_offset,
@@ -1749,7 +1745,7 @@ bool ui_settings_scene_control_geometry(const UiSettingsScene& scene, UiSettings
         text_rectangle = {field.left + pad, field.top + vertical, field.right - pad, field.bottom - vertical};
     } else if (control->kind == UiSettingsControlKind::choice)
         text_rectangle = ui_select_text_rect(t, field);
-    const auto visible = intersect(field, clip);
+    const auto visible = ui_rect_overlap(field, clip);
     if (!ui_rect_has_area(visible) || !ui_rect_has_area(text_rectangle))
         return false;
     *output = {target,
@@ -1763,22 +1759,6 @@ bool ui_settings_scene_control_geometry(const UiSettingsScene& scene, UiSettings
                control->enabled,
                control->kind == UiSettingsControlKind::multiline};
     return true;
-}
-bool ui_settings_scene_control_geometry_current(const UiSettingsScene& scene,
-                                                const UiSettingsControlGeometry& geometry) noexcept {
-    if (geometry.owner.manager != &scene.widgets || geometry.scene_revision != scene.revision ||
-        geometry.content_revision != scene.content_revision ||
-        !ui_widget_manager_resolve(scene.widgets, geometry.owner.handle))
-        return false;
-    UiSettingsControlGeometry now{};
-    const bool resolved = geometry.target.kind == UiSettingsTargetKind::search
-                              ? ui_settings_scene_search_geometry(scene, &now)
-                              : ui_settings_scene_control_geometry(scene, geometry.target, &now);
-    return resolved && now.owner.handle.slot == geometry.owner.handle.slot &&
-           now.owner.handle.generation == geometry.owner.handle.generation &&
-           ui_rect_equal(now.control, geometry.control) && ui_rect_equal(now.field, geometry.field) &&
-           ui_rect_equal(now.text, geometry.text) && ui_rect_equal(now.clip, geometry.clip) &&
-           now.enabled == geometry.enabled && now.multiline == geometry.multiline;
 }
 bool ui_settings_scene_editor_hit(const UiSettingsScene& scene, float x, float y,
                                   UiSettingsControlGeometry* output) noexcept {
@@ -2094,8 +2074,8 @@ bool ui_settings_scene_aside(const UiSettingsScene& scene, UiRect* heading, UiRe
         top = f.body.top + row_start(scene, content.aside_row) - aside.block - kSectionGap - scene.content_offset;
     const UiRect head{left, top, left + aside.width, top + (label ? kUiSettingsLabelLine : 0)};
     const UiRect body{left, top + label, left + aside.width, top + label + content.aside_height};
-    const UiRect visible = intersect(f.body, scene.layout.panel);
-    if (!ui_rect_has_area(intersect({left, top, left + aside.width, top + aside.block}, visible)))
+    const UiRect visible = ui_rect_overlap(f.body, scene.layout.panel);
+    if (!ui_rect_has_area(ui_rect_overlap({left, top, left + aside.width, top + aside.block}, visible)))
         return false;
     if (heading)
         *heading = head;
@@ -2151,7 +2131,7 @@ bool ui_settings_scene_next_avatar(const UiSettingsScene& scene, u32* cursor,
             lead.left += t.metric.grip_width + 4;
         const float size = t.metric.avatar_size, cy = (lead.top + lead.bottom) * .5f;
         const UiRect avatar{lead.left, cy - size * .5f, lead.left + size, cy + size * .5f};
-        const UiRect visible = intersect(avatar, clip);
+        const UiRect visible = ui_rect_overlap(avatar, clip);
         if (!ui_rect_has_area(visible))
             continue;
         *output = {&media, {&scene.widgets, handle}, avatar, visible};
@@ -2168,7 +2148,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
     RowLayout r{};
     UiRect clip{};
     if (!row_layout_for(scene, t, handle, entry.source_index, &r, &clip) ||
-        !ui_rect_has_area(intersect(r.row, clip)))
+        !ui_rect_has_area(ui_rect_overlap(r.row, clip)))
         return true;
     const auto& tc = t.color;
     auto state = widget_state(scene, handle, entry.target, c.enabled);
@@ -2434,7 +2414,7 @@ bool paint_nav(const UiSettingsScene& scene, const UiSettingsTokens& t, PaintStr
     const auto* nav = ui_widget_manager_layout_node(scene.widgets, scene.sidebar);
     if (!nav)
         return false;
-    const auto clip = intersect(nav->rectangle, nav->clip_rectangle);
+    const auto clip = ui_rect_overlap(nav->rectangle, nav->clip_rectangle);
     if (!paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom))
         return false;
     bool ok = true;
@@ -2446,7 +2426,7 @@ bool paint_nav(const UiSettingsScene& scene, const UiSettingsTokens& t, PaintStr
         const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
         NavRow row{};
         if (!node || !nav_row(scene, entry.source_index, &row) ||
-            !ui_rect_has_area(intersect(node->rectangle, node->clip_rectangle)))
+            !ui_rect_has_area(ui_rect_overlap(node->rectangle, node->clip_rectangle)))
             continue;
         if (row.kind == UiSettingsNavKind::separator) {
             ok = ui_settings_separator_paint(paint, t, node->rectangle);
@@ -2541,7 +2521,7 @@ bool ui_settings_scene_paint(const UiSettingsScene& scene, const Theme& theme, P
         ranges->page_first_quad = paint->count;
     const auto* body = ui_widget_manager_layout_node(scene.widgets, scene.body);
     if (ok && body) {
-        const auto clip = intersect(body->rectangle, body->clip_rectangle);
+        const auto clip = ui_rect_overlap(body->rectangle, body->clip_rectangle);
         ok = paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom);
         for (u32 i = 0; ok && i < scene.widgets.count; ++i) {
             const auto& entry = entries(scene)[i];
@@ -2611,7 +2591,7 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
     const auto& c = scene.content.controls[entry.source_index];
     RowLayout r{};
     UiRect clip{};
-    if (!row_layout_for(scene, t, handle, entry.source_index, &r, &clip) || !ui_rect_has_area(intersect(r.row, clip)))
+    if (!row_layout_for(scene, t, handle, entry.source_index, &r, &clip) || !ui_rect_has_area(ui_rect_overlap(r.row, clip)))
         return true;
     const auto& tc = t.color;
     const auto state = widget_state(scene, handle, entry.target, c.enabled);
@@ -2781,7 +2761,7 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
         const bool entered = editor.view.text.bytes != 0;
         const bool measured = entered && editor.geometry && ui_rect_has_area(editor.geometry->text);
         const auto rectangle = measured ? editor.geometry->text : geometry.text;
-        const auto text_clip = intersect(geometry.text, geometry.clip);
+        const auto text_clip = ui_rect_overlap(geometry.text, geometry.clip);
         if (c.kind == UiSettingsControlKind::multiline && scene.content.sectioned && c.action_label.bytes) {
             const UiRect counter{geometry.field.right - 14 - 64, geometry.field.bottom - 10 - kUiSettingsLabelLine,
                                  geometry.field.right - 14, geometry.field.bottom - 10};
@@ -2828,7 +2808,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
         const auto* node = ui_widget_manager_layout_node(scene.widgets, handle);
         NavRow row{};
         if (!node || !nav_row(scene, entry.source_index, &row) || row.kind == UiSettingsNavKind::separator ||
-            !ui_rect_has_area(intersect(node->rectangle, node->clip_rectangle)))
+            !ui_rect_has_area(ui_rect_overlap(node->rectangle, node->clip_rectangle)))
             continue;
         if (row.kind == UiSettingsNavKind::header) {
             const float inset = t.metric.nav_item_padding;
@@ -2854,7 +2834,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
             const bool entered = search.view.text.bytes != 0;
             const bool measured = entered && search.view.focused && search.geometry &&
                                   ui_rect_has_area(search.geometry->text);
-            const auto clip = intersect(geometry.text, geometry.clip);
+            const auto clip = ui_rect_overlap(geometry.text, geometry.clip);
             if (ui_rect_has_area(clip) &&
                 !ui_text_output_push(stream, {entered ? search.view.text
                                                       : (search.placeholder.bytes ? search.placeholder
@@ -2896,7 +2876,7 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
     }
     UiRect aside_heading{}, aside_clip{};
     if (scene.content.aside_label.bytes && ui_settings_scene_aside(scene, &aside_heading, nullptr, &aside_clip)) {
-        const auto clip = intersect(aside_heading, aside_clip);
+        const auto clip = ui_rect_overlap(aside_heading, aside_clip);
         if (ui_rect_has_area(clip) &&
             !ui_text_output_push(stream, {scene.content.aside_label,
                                           {&scene.widgets, scene.body},
@@ -2952,12 +2932,5 @@ bool ui_settings_scene_text_output(const UiSettingsScene& scene, const Theme& th
             return false;
     }
     return true;
-}
-} // namespace maicord
-
-namespace maicord {
-bool ui_settings_scene_text(const UiSettingsScene& scene, const Theme& theme, UiTextCommandStream* stream) noexcept {
-    UiTextOutput output{stream, nullptr};
-    return ui_settings_scene_text_output(scene, theme, &output);
 }
 } // namespace maicord

@@ -1,12 +1,6 @@
 #include "maicord/model/notification_sound_policy.hpp"
 
 namespace maicord {
-namespace {
-bool finite(float value) noexcept {
-    u32 bits{};copy_bytes(&bits,&value,sizeof(bits));
-    return (bits&0x7f800000u)!=0x7f800000u;
-}
-}
 NotificationSoundDecision notification_selected_sound_admission(const NotificationSelectedSoundInput& i) noexcept {
     using A=NotificationSoundDecision;
     if(!i.selection_known)return A::unknown;
@@ -38,31 +32,12 @@ NotificationMessageSoundDecision notification_message_sound_decide(const Notific
     d.ordinary=i.desktop_never?NotificationMessageSoundRoute::direct:NotificationMessageSoundRoute::popup;
     return d;
 }
-NotificationSoundDispatch notification_sound_dispatch(NotificationSoundStage stage,NotificationSoundNative native,
-    bool sound,bool when_disabled) noexcept {
-    using D=NotificationSoundDispatch;using S=NotificationSoundStage;using N=NotificationSoundNative;
-    if(!sound||static_cast<u8>(stage)>static_cast<u8>(S::native_failed)||
-        static_cast<u8>(native)>static_cast<u8>(N::authorized_sound))return D::none;
-    if(stage==S::direct)return D::direct;
-    if(stage==S::popup_suppressed)return when_disabled?D::throttled:D::none;
-    if(stage==S::before_popup)return native==N::unknown?D::none:native==N::authorized_sound?D::native_attached:D::throttled;
-    if(stage==S::native_failed&&(native==N::authorized_sound||native==N::authorized_silent||native==N::provisional))return D::throttled;
-    return D::none;
-}
-NotificationSoundTransport notification_sound_transport(NotificationSoundNative native,bool disabled,bool failed) noexcept {
-    if(native==NotificationSoundNative::unknown||
-        static_cast<u8>(native)>static_cast<u8>(NotificationSoundNative::authorized_sound))return NotificationSoundTransport::none;
-    if(native==NotificationSoundNative::authorized_sound&&!failed)return NotificationSoundTransport::native_standalone;
-    return disabled?NotificationSoundTransport::none:NotificationSoundTransport::fallback;
-}
-bool notification_message_sound_gain(float percent,float* gain) noexcept {
-    // NaN and infinity are classified by bits: correct under fast-float and
-    // needs no math/runtime import.
-    if(!gain||!finite(percent)||percent<0.0f)return false;
-    const float value=(percent/100.0f)*0.4f;*gain=value<1.0f?value:1.0f;return true;
-}
 namespace {
 constexpr u64 wait_ms=1000;
+bool finite(float value) noexcept {
+    u32 bits{};copy_bytes(&bits,&value,sizeof(bits));
+    return (bits&0x7f800000u)!=0x7f800000u;
+}
 u64 deadline(u64 now,u64 wait) noexcept {return now>~u64{0}-wait?~u64{0}:now+wait;}
 bool should_invoke(const NotificationSoundThrottle& s,u64 now) noexcept {
     return !s.has_last_call||now<s.last_call_ms||now-s.last_call_ms>=wait_ms||

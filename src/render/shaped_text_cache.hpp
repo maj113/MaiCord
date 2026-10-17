@@ -41,7 +41,7 @@ inline constexpr u32 kShapedTextCacheKeyBytes = 48 * 1024;
 struct ShapedTextCacheEntry {
     u64 hash;
     TextSystem system;
-    u64 owner_flags; // moved session reference and inline-object flag
+    u64 owner_flags; // moved session reference
     float maximum_width, maximum_height;
     float width, width_including_trailing_whitespace, height;
     u32 line_count, dpi, typography_revision;

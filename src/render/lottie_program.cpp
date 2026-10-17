@@ -97,9 +97,6 @@ struct Document {
     Gradient& get_gradient(u32 index) noexcept {
         return *reinterpret_cast<Gradient*>(leaf_pool + leaf_offset(index) + sizeof(Leaf));
     }
-    const Gradient& get_gradient(u32 index) const noexcept {
-        return *reinterpret_cast<const Gradient*>(leaf_pool + leaf_offset(index) + sizeof(Leaf));
-    }
     bool has_gradient(u32 index) const noexcept {
         return (leaf_records[index] & gradient_flag) != 0;
     }
@@ -190,7 +187,6 @@ struct Document {
         }
         return result;
     }
-    JsonValue sample(JsonValue property) noexcept {return sampled(property).start;}
     float component(JsonValue value,u32 index,float fallback=0) noexcept {
         if(value.kind==JsonValueKind::array){JsonValue a[256]{};u32 n=0;
             if(!array(value,{a,256},&n)||!n)return fallback;value=a[minimum(index,n-1)];}
@@ -1021,16 +1017,6 @@ bool compile_indexed(const JsonIndexedDocument& json, ColrPaintProgram* program,
     return colr_program_build(program, source, root_paint, {0, 0, w / extent, h / extent}, pixels);
 }
 } // namespace
-bool lottie_program_compile(ConstSlice<u8> encoded, ColrPaintProgram* program, float frame, float pixels,
-                            float* source_width) noexcept {
-    if (!encoded.data || !encoded.count || encoded.count > kLottieMaximumBytes ||
-        !compile_parameters_valid(program, frame, pixels))
-        return false;
-    ScannedJson source;
-    return source.read(encoded) &&
-           json_visit_root_object(source.json.input, source.json.structurals, 64, nullptr, nullptr).ok() &&
-           compile_indexed(source.json, program, frame, pixels, source_width);
-}
 bool lottie_program_compile_frame(ConstSlice<u8> encoded, u32 frame_index, float pixels,
                                   LottieTiming* timing, LottieProgramAcquire acquire, void* context,
                                   float* source_width) noexcept {

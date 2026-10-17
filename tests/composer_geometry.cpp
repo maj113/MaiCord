@@ -569,7 +569,7 @@ void test_composer_geometry(void (*check)(bool, const char*) noexcept) noexcept 
     UiTextCommandStream status_stream{};
     const auto status_label = utf8_literal("Could not save caption. Try again.");
     bool status = ui_scene_initialize_bootstrap(&status_shell) &&
-                  ui_scene_layout(&status_shell, 1280, 800) &&
+                  ui_scene_layout_with_metrics(&status_shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 1280, 800) &&
                   ui_text_command_stream_initialize(&status_stream, {status_commands, 16});
     u32 status_passes = 0;
     for (u32 severity = 0; severity < 2; ++severity) {

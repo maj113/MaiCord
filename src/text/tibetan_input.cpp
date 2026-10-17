@@ -52,7 +52,6 @@ struct Scanner {
         previous=static_cast<u8>((previous&127)|(selector?128:0));return !attach;
     }
 };static_assert(sizeof(Scanner)==4);
-bool split(u32 c) noexcept {return c==0xf73||c==0xf76||c==0xf78||c==0xf81;}
 }
 SfntStatus sfnt_tibetan_cluster_boundaries(ConstSlice<u32> input,Slice<u8> output,u64 work) noexcept {
     if((input.count&&!input.data)||(output.count&&!output.data)||overlaps(input.data,static_cast<u64>(input.count)*4,output.data,output.count))return SfntStatus::invalid_input;
@@ -60,21 +59,5 @@ SfntStatus sfnt_tibetan_cluster_boundaries(ConstSlice<u32> input,Slice<u8> outpu
     for(u32 i=0;i<input.count;++i)if(!unicode_is_scalar(input[i]))return SfntStatus::invalid_input;
     if(output.count<input.count)return SfntStatus::output_too_small;
     Scanner state{};for(u32 i=0;i<input.count;++i)output[i]=state.next(tibetan_category(input[i]))?1:0;return SfntStatus::ok;
-}
-SfntStatus sfnt_tibetan_expand_cluster(ConstSlice<u32> input,Slice<SfntTibetanInputScalar> output,SfntTibetanInputResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
-    if((input.count&&!input.data)||(output.count&&!output.data)||overlaps(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*sizeof(SfntTibetanInputScalar)))return SfntStatus::invalid_input;
-    if(static_cast<u64>(input.count)*3>work)return SfntStatus::resource_limit;
-    u64 count=input.count,units=0;
-    for(u32 i=0;i<input.count;++i){const u32 scalar=input[i];if(!unicode_is_scalar(scalar))return SfntStatus::invalid_input;count+=split(scalar)?1u:0u;units+=scalar>0xffff?2u:1u;}
-    if(count>0xffffffffu||units>0xffffffffu)return SfntStatus::resource_limit;
-    const SfntTibetanInputResult sizes{static_cast<u32>(count),static_cast<u32>(units)};
-    if(count>output.count){*result=sizes;return SfntStatus::output_too_small;}
-    u32 at=0,source=0;
-    for(u32 i=0;i<input.count;++i){const u32 scalar=input[i];
-        u32 first=0,second=0;
-        if(tibetan_split_pair(scalar,first,second)){output[at++]={first,source};output[at++]={second,source};}
-        else output[at++]={scalar,source};source+=scalar>0xffff?2u:1u;
-    }*result=sizes;return SfntStatus::ok;
 }
 }

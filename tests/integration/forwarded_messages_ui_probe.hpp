@@ -91,7 +91,7 @@ inline bool forwarded_messages_ui_probe(D3D11Renderer& renderer, UiTextMeasureCa
             {fixture.text, sizeof(fixture.text)}) &&
         message_store_upsert(&fixture.store, {id, channel, 123, 1'725'021'300'000ull, 0,
             utf8_literal("**Current note:** [outer guide](https://outer.example/guide). This text belongs to the sender."), 0}).ok() &&
-        message_rich_store_initialize_owned(&fixture.rich, &fixture.rich_storage, 2,
+        message_rich_store_initialize_owned_sparse(&fixture.rich, &fixture.rich_storage, 2,
             {fixture.rich_order, 2}, {fixture.rich_text, sizeof(fixture.rich_text)}) &&
         ui_variable_list_initialize(&fixture.list, {fixture.heights, 2}, {fixture.fenwick, 2}, 1, ui_extent_units(80)) &&
         message_timeline_initialize(&fixture.timeline, &fixture.store, &fixture.list,

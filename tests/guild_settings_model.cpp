@@ -514,10 +514,8 @@ void test_expressions_and_safety() noexcept {
               guild_sticker_slots(3, 0) == 60 && guild_sticker_slots(3, guild_feature_more_stickers) == 120 &&
               guild_sticker_slots(2, guild_feature_more_stickers) == 30,
           "expressions: sticker slots follow the boost tier; MORE_STICKERS applies at tier 3");
-    check(!guild_banner_available(1, 0) && guild_banner_available(2, 0) && guild_banner_available(0, guild_feature_banner) &&
-              !guild_role_icons_available(1, 0) && guild_role_icons_available(0, guild_feature_role_icons) &&
-              !guild_animated_icon_available(0, 0) && guild_animated_icon_available(1, 0),
-          "expressions: banner, role icons and animated icons unlock by tier or feature");
+    check(!guild_role_icons_available(1, 0) && guild_role_icons_available(0, guild_feature_role_icons),
+          "expressions: role icons unlock by tier or feature");
     char name[kGuildEmojiNameMaximum];
     const auto suggest = [&](Utf8View file, Utf8View expected) noexcept {
         const u32 bytes = guild_emoji_name_from_filename(file, {name, sizeof(name)});

@@ -1,4 +1,3 @@
-#include "maicord/text/khmer_shape_cluster.hpp"
 #include "maicord/text/khmer_shape_run.hpp"
 #include "maicord/text/khmer_input.hpp"
 #include "maicord/text/khmer_plan.hpp"
@@ -7,11 +6,11 @@ namespace maicord {namespace {
 using C=KhmerCategory;
 constexpr u32 nil=0xffffffffu;
 constexpr u8 pre_role=4,ro_first=8,ro_last=16,generated_pre=64;
-struct Policy {const SfntGdef* gdef;u32 units=0;u16 space=0,zero[3]{};};
-static_assert(sizeof(Policy)==24);
-SfntStatus reorder(Slice<SfntClusterGlyph> glyphs,u64 available,u64* spent=nullptr) noexcept {
+struct Policy {const SfntGdef* gdef;u16 space=0,zero[3]{};};
+static_assert(sizeof(Policy)==16);
+SfntStatus reorder(Slice<SfntClusterGlyph> glyphs,u64 available,u64* spent) noexcept {
     u64 used=0;const auto spend=[&](u64 cost) noexcept {if(cost>available-used)return false;used+=cost;return true;};
-    struct Report {u64& used;u64* out;~Report() noexcept {if(out)*out=used;}} report{used,spent};
+    struct Report {u64& used;u64* out;~Report() noexcept {*out=used;}} report{used,spent};
     const u32 n=glyphs.count;
     // Reorder in original event order. A literal pre-vowel protects its
     // prefix from later RO pairs; a generated piece alone does not. Generated
@@ -48,13 +47,8 @@ SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,
         zero[i]=static_cast<u8>(invisible||g.glyph_class==SfntGlyphClass::mark);
     }return SfntStatus::ok;
 }
-SfntStatus restore(void* context,SfntClusterMap* clusters,const SfntComponentForest&,Slice<SfntComponentGlyph>,u64 work) noexcept {
-    auto& p=*static_cast<Policy*>(context);SfntClusterMerge merge{};u64 used=0;
-    const auto status=sfnt_cluster_map_plan(*clusters,0,p.units-1,&merge,work,&used);if(status!=SfntStatus::ok)return status;
-    if(merge.commit_work>work-used)return SfntStatus::resource_limit;sfnt_cluster_map_commit(clusters,merge);return SfntStatus::ok;
-}
 SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    ConstSlice<SfntKhmerInputScalar> expanded,bool rtl,Slice<SfntClusterGlyph> mapped,u32& count,u32 source_base=0) noexcept {
+    ConstSlice<SfntKhmerInputScalar> expanded,bool rtl,Slice<SfntClusterGlyph> mapped,u32& count,u32 source_base) noexcept {
     count=0;bool seen_ro=false,cfar=false;u32 pending=nil;
     const auto map=[&](u32 scalar,u32 source,u8 role,u32 selector=0) noexcept {
         if(count>=mapped.count)return SfntStatus::output_too_small;
@@ -81,7 +75,7 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
     return SfntStatus::ok;
 }
 struct RunPolicy {Policy cluster;Slice<u32> groups,boundaries;u32 boundary_count;};
-static_assert(sizeof(RunPolicy)==64);
+static_assert(sizeof(RunPolicy)==56);
 SfntStatus run_finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
     return finish(&static_cast<RunPolicy*>(context)->cluster,glyphs,zero,work);
 }
@@ -110,28 +104,6 @@ SfntStatus run_restore(void* context,SfntClusterMap* clusters,const SfntComponen
     return sfnt_cluster_map_open(groups.count,{p.boundaries.data,count},clusters->storage,clusters,cost);
 }
 }
-SfntStatus sfnt_khmer_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,bool defer_output) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
-    if((steps.count&&!steps.data)||(storage.positions.count&&!storage.positions.data))return SfntStatus::invalid_input;
-    if(steps.count>limits.stage_work)return SfntStatus::resource_limit;
-    for(u32 i=0;i<steps.count;++i)if(steps[i].stage>=2||(steps[i].feature_mask&&(steps[i].feature_mask!=sfnt_khmer_cfar_mask||steps[i].stage!=1)))return SfntStatus::invalid_input;
-    auto status=sfnt_khmer_cluster_boundaries(input,storage.flags,limits.stage_work);if(status!=SfntStatus::ok)return status;
-    for(u32 i=1;i<input.count;++i)if(storage.flags[i])return SfntStatus::unsupported_sequence;
-    auto* expanded=reinterpret_cast<SfntKhmerInputScalar*>(storage.positions.data);SfntKhmerInputResult sizes{};
-    const u64 slots=static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntKhmerInputScalar);
-    status=sfnt_khmer_expand_cluster(input,{expanded,static_cast<u32>(minimum<u64>(slots,0xffffffffu))},&sizes,limits.stage_work);if(status!=SfntStatus::ok)return status;
-    auto* mapped=expanded?reinterpret_cast<SfntClusterGlyph*>(expanded+sizes.scalar_count):nullptr;u32 count=0;
-    static_assert(sizeof(SfntClusterGlyph)==sizeof(SfntKhmerInputScalar));
-    status=map_cluster(plan,cmap,input,{expanded,sizes.scalar_count},rtl,{mapped,static_cast<u32>(minimum<u64>(slots-sizes.scalar_count,0xffffffffu))},count);if(status!=SfntStatus::ok)return status;
-    status=reorder({mapped,count},limits.stage_work);if(status!=SfntStatus::ok)return status;
-    Policy policy{&plan.gdef};policy.units=sizes.source_units;
-    status=sfnt_cmap_glyph(cmap,0x20,0,&policy.space);if(status!=SfntStatus::ok)return status;
-    for(u32 i=0;i<3;++i){status=sfnt_cmap_glyph(cmap,0x200b+i,0,&policy.zero[i]);if(status!=SfntStatus::ok)return status;}
-    const u32 boundary=0;const SfntShapeGlyphPolicy glyph_policy{&policy,finish,restore};
-    auto resolved=plan;resolved.retain_zero_positioning=false;resolved.compensate_consecutive_zeroes=true;
-    return sfnt_shape_run(resolved,{mapped,count},sizes.source_units,{&boundary,input.count?1u:0u},rtl,em,storage,result,limits,steps,{},glyph_policy,nullptr,nullptr,defer_output);
-}
 SfntStatus sfnt_khmer_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
     float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
@@ -157,7 +129,7 @@ SfntStatus sfnt_khmer_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,C
         if(status!=SfntStatus::ok)return status;u64 cost=0;status=reorder({mapped+count,amount},reorder_work,&cost);reorder_work-=cost;
         if(status!=SfntStatus::ok)return status;count+=amount;first=end;units=end_units;pieces=end_pieces;
     }
-    RunPolicy policy{{&plan.gdef},{storage.character_glyphs.data,units},storage.targets,starts};policy.cluster.units=units;
+    RunPolicy policy{{&plan.gdef},{storage.character_glyphs.data,units},storage.targets,starts};
     status=sfnt_cmap_glyph(cmap,0x20,0,&policy.cluster.space);if(status!=SfntStatus::ok)return status;
     for(u32 i=0;i<3;++i){status=sfnt_cmap_glyph(cmap,0x200b+i,0,&policy.cluster.zero[i]);if(status!=SfntStatus::ok)return status;}
     auto resolved=plan;resolved.retain_zero_positioning=false;resolved.compensate_consecutive_zeroes=true;

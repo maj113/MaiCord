@@ -1,15 +1,10 @@
-#include "maicord/text/myanmar_shape_cluster.hpp"
 #include "maicord/text/myanmar_input.hpp"
 #include "maicord/text/myanmar_shape_run.hpp"
 #include "myanmar_character.hpp"
 #include "selector_slots.hpp"
 namespace maicord {namespace {
-struct Policy {const SfntGdef* gdef;u32 units;u16 space=0,zero[4]{};};
+struct Policy {const SfntGdef* gdef;u16 space=0,zero[4]{};};
 static_assert(sizeof(Policy)==24);
-SfntStatus prepare(void*,u16 stage,SfntGlyphBuffer*,SfntClusterMap*,SfntComponentForest* forest,
-    SfntGsubExecutionScratch,u64,u64* used) noexcept {
-    *used=0;if(!stage)forest->preserve_forms=false;return SfntStatus::ok;
-}
 SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
     const auto& p=*static_cast<Policy*>(context);
     if(zero.count<glyphs.count)return SfntStatus::output_too_small;
@@ -23,18 +18,12 @@ SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,
         zero[i]=static_cast<u8>(invisible||g.glyph_class==SfntGlyphClass::mark);
     }return SfntStatus::ok;
 }
-SfntStatus restore(void* context,SfntClusterMap* clusters,const SfntComponentForest&,Slice<SfntComponentGlyph>,u64 work) noexcept {
-    const auto& p=*static_cast<Policy*>(context);SfntClusterMerge merge{};u64 used=0;
-    const auto status=sfnt_cluster_map_plan(*clusters,0,p.units-1,&merge,work,&used);if(status!=SfntStatus::ok)return status;
-    if(merge.commit_work>work-used)return SfntStatus::resource_limit;
-    sfnt_cluster_map_commit(clusters,merge);return SfntStatus::ok;
-}
 // Windows overwrites only the current cluster's selector slots. A generated
 // circle can observe a tail slot from an earlier cluster. Encode all 256
 // selectors plus zero in 32 bytes and one high-bit mask instead of 128 bytes.
 using SelectorSlots=SfntSelectorSlots;
 SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    ConstSlice<SfntIndicInputScalar> expanded,bool rtl,Slice<SfntClusterGlyph> mapped,u32& count,SelectorSlots* history=nullptr) noexcept {
+    ConstSlice<SfntIndicInputScalar> expanded,bool rtl,Slice<SfntClusterGlyph> mapped,u32& count,SelectorSlots* history) noexcept {
     count=0;u32 original=0;
     for(u32 i=0;i<expanded.count;++i){
         if(count==mapped.count)return SfntStatus::output_too_small;
@@ -139,37 +128,6 @@ SfntStatus run_restore(void* context,SfntClusterMap* clusters,const SfntComponen
 }
 
 }
-SfntStatus sfnt_myanmar_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,
-    SfntShapeLimits limits,bool rtl,bool defer_output) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
-    if((steps.count&&!steps.data)||(storage.positions.count&&!storage.positions.data)||plan.substitution_roots.count)
-        return SfntStatus::invalid_input;
-    if(steps.count>limits.stage_work)return SfntStatus::resource_limit;
-    for(u32 i=0;i<steps.count;++i)if(steps[i].stage>=7||steps[i].feature_mask||
-        (i&&steps[i].stage<steps[i-1].stage))return SfntStatus::invalid_input;
-    auto status=sfnt_myanmar_cluster_boundaries(input,storage.flags,limits.stage_work);if(status!=SfntStatus::ok)return status;
-    for(u32 i=1;i<input.count;++i)if(storage.flags[i])return SfntStatus::unsupported_sequence;
-    auto* expanded=reinterpret_cast<SfntIndicInputScalar*>(storage.positions.data);SfntIndicInputResult sizes{};
-    const u64 slots=static_cast<u64>(storage.positions.count)*sizeof(SfntPosition)/sizeof(SfntIndicInputScalar);
-    status=sfnt_myanmar_prepare_input(input,{expanded,static_cast<u32>(minimum<u64>(slots,0xffffffffu))},&sizes,limits.stage_work);
-    if(status!=SfntStatus::ok)return status;
-    // Mapping consumes no more records than preparation emits. Map in place
-    // after reading each current record and its attached selector, avoiding a
-    // second scalar-sized staging buffer.
-    auto* mapped=reinterpret_cast<SfntClusterGlyph*>(expanded);u32 count=0;
-    static_assert(sizeof(SfntClusterGlyph)==sizeof(SfntIndicInputScalar));
-    status=map_cluster(plan,cmap,input,{expanded,sizes.scalar_count},rtl,{mapped,sizes.scalar_count},count);
-    if(status!=SfntStatus::ok)return status;
-    Policy policy{&plan.gdef,sizes.source_units};
-    status=sfnt_cmap_glyph(cmap,0x20,0,&policy.space);if(status!=SfntStatus::ok)return status;
-    for(u32 i=0;i<4;++i){status=sfnt_cmap_glyph(cmap,0x200c+i,0,&policy.zero[i]);if(status!=SfntStatus::ok)return status;}
-    const u32 boundary=0;const SfntShapeStagePolicy stages{&policy,prepare,7};
-    // Initial mark/control advances are zero; later GPOS adjustments survive.
-    auto resolved=plan;resolved.retain_zero_positioning=true;
-    return sfnt_shape_run(resolved,{mapped,count},sizes.source_units,{&boundary,input.count?1u:0u},rtl,em,
-        storage,result,limits,steps,{},{&policy,finish,restore},nullptr,&stages,defer_output);
-}
 SfntStatus sfnt_myanmar_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
     float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,bool modern) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
@@ -203,7 +161,7 @@ SfntStatus sfnt_myanmar_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap
             {mapped+count,sizes.scalar_count-count},amount,modern?&selectors:nullptr);if(status!=SfntStatus::ok)return status;
         count+=amount;first=end;units=end_units;pieces=end_pieces;
     }
-    RunPolicy policy{{&plan.gdef,units},&plan,{steps.data,early},{storage.character_glyphs.data,units},storage.targets};
+    RunPolicy policy{{&plan.gdef},&plan,{steps.data,early},{storage.character_glyphs.data,units},storage.targets};
     policy.boundary_count=starts;policy.match_work=limits.match_work;
     status=sfnt_cmap_glyph(cmap,0x20,0,&policy.cluster.space);if(status!=SfntStatus::ok)return status;
     for(u32 i=0;i<4;++i){status=sfnt_cmap_glyph(cmap,0x200c+i,0,&policy.cluster.zero[i]);if(status!=SfntStatus::ok)return status;}

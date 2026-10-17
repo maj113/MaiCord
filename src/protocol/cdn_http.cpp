@@ -258,12 +258,6 @@ CdnResponseResult validate_response(CdnImageType image_type, ConstSlice<u8> resp
 
 } // namespace
 
-CdnRequestResult write_static_png_cdn_get_request(CdnHost host, ConstSlice<u8> target,
-                                                  ConstSlice<u8> etag,
-                                                  Slice<u8> output) noexcept {
-    return write_static_cdn_get_request(CdnImageType::png, host, target, etag, output);
-}
-
 CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
                                               CdnHost host, ConstSlice<u8> target,
                                               ConstSlice<u8> etag, Slice<u8> output,
@@ -392,34 +386,6 @@ CdnRedirectResult parse_cdn_redirect(CdnHost current_host, ConstSlice<u8> locati
     }
     copy_bytes(target_output.data, target.data, target.count);
     return CdnRedirectResult{target_host, target.count, CdnHttpError::none};
-}
-
-CdnResponseResult validate_static_png_response(ConstSlice<u8> response_head,
-                                               u32 decoded_body_bytes,
-                                               u64 now_seconds) noexcept {
-    return validate_static_image_response(CdnImageType::png, response_head,
-                                          decoded_body_bytes, now_seconds);
-}
-
-CdnResponseResult validate_static_webp_response(ConstSlice<u8> response_head,
-                                                u32 decoded_body_bytes,
-                                                u64 now_seconds) noexcept {
-    return validate_static_image_response(CdnImageType::webp, response_head,
-                                          decoded_body_bytes, now_seconds);
-}
-
-CdnResponseResult validate_static_gif_response(ConstSlice<u8> response_head,
-                                               u32 decoded_body_bytes,
-                                               u64 now_seconds) noexcept {
-    return validate_static_image_response(CdnImageType::gif, response_head,
-                                          decoded_body_bytes, now_seconds);
-}
-
-CdnResponseResult validate_static_jpeg_response(ConstSlice<u8> response_head,
-                                                u32 decoded_body_bytes,
-                                                u64 now_seconds) noexcept {
-    return validate_static_image_response(CdnImageType::jpeg, response_head,
-                                          decoded_body_bytes, now_seconds);
 }
 
 CdnResponseResult validate_static_image_response(CdnImageType image_type,

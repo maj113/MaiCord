@@ -49,7 +49,6 @@ inline bool content_text_retention_base_current(const ContentTextRetentionOwner&
         left.atlas_full_resets==key.atlas_full_resets && left.include_messages==key.include_messages;
 }
 
-u64 content_text_command_stream_signature(const UiTextCommandStream& stream) noexcept;
 u64 content_text_theme_signature(const Theme& theme) noexcept;
 bool content_text_retention_probe(ContentTextRetentionOwner* owner,
                                   const ContentTextRetentionKey& key) noexcept;

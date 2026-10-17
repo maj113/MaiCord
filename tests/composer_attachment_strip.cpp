@@ -396,6 +396,23 @@ u32 rgba_at(const u8* rgba, u32 width, u32 x, u32 y) noexcept {
 bool close_to(u32 left, u32 right, u32 tolerance) noexcept {
     return (left > right ? left - right : right - left) <= tolerance;
 }
+struct JpegRowCopy {
+    u8* rgba;
+    u32 width;
+};
+bool copy_jpeg_row(void* context, u32 row_index, const u8* row) noexcept {
+    const auto* copy = static_cast<JpegRowCopy*>(context);
+    copy_bytes(copy->rgba + static_cast<usize>(row_index) * copy->width * 4u, row, copy->width * 4u);
+    return true;
+}
+// Thumbnails decode row by row; the copy is the full RGBA image the checks read.
+JpegDecodeResult jpeg_thumbnail_decode_image(ConstSlice<u8> encoded, const JpegImage& image,
+                                             const JpegThumbnailLayout& layout, Slice<u8> scratch,
+                                             u8* rgba) noexcept {
+    static u8 row[kJpegThumbnailDimensionMaximum * 4u];
+    JpegRowCopy copy{rgba, layout.width};
+    return jpeg_thumbnail_decode_rows(encoded, image, layout, scratch, {row, sizeof(row)}, copy_jpeg_row, &copy);
+}
 } // namespace
 
 void test_local_preview_thumbnail(void (*check)(bool, const char*) noexcept) noexcept {
@@ -510,8 +527,8 @@ void test_local_preview_thumbnail(void (*check)(bool, const char*) noexcept) noe
     static u8 jpeg_rgba[512u * 384u * 4u];
     alignas(16) static u8 aligned_planes[1u * 1024u * 1024u];
     ok = ok && layout.plane_bytes <= sizeof(aligned_planes) &&
-         jpeg_thumbnail_decode({jpeg, jpeg_bytes}, jpeg_image, layout, {aligned_planes, sizeof(aligned_planes)},
-                               {jpeg_rgba, sizeof(jpeg_rgba)})
+         jpeg_thumbnail_decode_image({jpeg, jpeg_bytes}, jpeg_image, layout, {aligned_planes, sizeof(aligned_planes)},
+                                     jpeg_rgba)
              .ok();
     bool jpeg_values = ok;
     for (u32 by = 0; jpeg_values && by < 28; by += 9)
@@ -532,8 +549,9 @@ void test_local_preview_thumbnail(void (*check)(bool, const char*) noexcept) noe
                               kLocalPreviewThumbnailExtent, &jpeg_image, &jpeg_workspace, &layout)
              .ok() &&
          layout.samples == 8 && layout.width == 16 && layout.coefficient_bytes &&
-         jpeg_thumbnail_decode({reinterpret_cast<const u8*>(kJpegProgressive420Reference), kJpegProgressive420ReferenceBytes},
-                               jpeg_image, layout, {aligned_planes, sizeof(aligned_planes)}, {jpeg_rgba, sizeof(jpeg_rgba)})
+         jpeg_thumbnail_decode_image({reinterpret_cast<const u8*>(kJpegProgressive420Reference),
+                                      kJpegProgressive420ReferenceBytes},
+                                     jpeg_image, layout, {aligned_planes, sizeof(aligned_planes)}, jpeg_rgba)
              .ok();
     u64 difference = 0;
     for (u32 i = 0; ok && i < 16 * 16; ++i)

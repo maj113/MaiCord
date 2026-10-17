@@ -1,5 +1,5 @@
-// No argument runs the registered checks. Manual: MAICORD_TIBETAN_INPUT_STREAM=1|2 answers cluster
-// queries from stdin for the Python oracles (QA only).
+// No argument runs the registered checks. Manual: MAICORD_TIBETAN_INPUT_STREAM=1 answers cluster
+// boundary queries from stdin for the Python oracles (QA only).
 #include "maicord/text/tibetan_input.hpp"
 #include "../src/text/tibetan_character.hpp"
 #include "maicord/core/byte_order.hpp"
@@ -44,49 +44,28 @@ bool units() noexcept {
     CHECK(sfnt_tibetan_cluster_boundaries({a,7},{nullptr,7})==SfntStatus::invalid_input);
     CHECK(sfnt_tibetan_cluster_boundaries({long_input,4},{reinterpret_cast<u8*>(long_input),4})==SfntStatus::invalid_input);
     CHECK(sfnt_tibetan_cluster_boundaries({}, {},0)==SfntStatus::ok);
-    const u32 original[]{0x1f600,0xf40,0xf73,0xf76,0xf78,0xf81,0xf75,0xf77,0xf79};
-    const SfntTibetanInputScalar expanded[]{{0x1f600,0},{0xf40,2},{0xf71,3},{0xf72,3},{0xfb2,4},{0xf80,4},
-        {0xfb3,5},{0xf80,5},{0xf71,6},{0xf80,6},{0xf75,7},{0xf77,8},{0xf79,9}};
-    SfntTibetanInputScalar actual[16];SfntTibetanInputResult result{};
-    for(u64 budget=0;budget<=27;++budget){for(auto& v:actual)v={0xffffffffu,0xffffffffu};
-        const auto status=sfnt_tibetan_expand_cluster({original,9},{actual,16},&result,budget);
-        CHECK(status==(budget<27?SfntStatus::resource_limit:SfntStatus::ok));
-        if(status==SfntStatus::ok)CHECK(result.scalar_count==13&&result.source_units==10&&bytes_equal(actual,expanded,sizeof(expanded)));
-        else {CHECK(!result.scalar_count&&!result.source_units);for(const auto& v:actual)CHECK(v.scalar==0xffffffffu&&v.source==0xffffffffu);}
-    }
-    for(auto& v:actual)v={0xffffffffu,0xffffffffu};
-    CHECK(sfnt_tibetan_expand_cluster({original,9},{actual,12},&result)==SfntStatus::output_too_small&&result.scalar_count==13&&result.source_units==10);
-    for(const auto& v:actual)CHECK(v.scalar==0xffffffffu&&v.source==0xffffffffu);
-    CHECK(sfnt_tibetan_expand_cluster({invalid,2},{actual,16},&result)==SfntStatus::invalid_input&&!result.scalar_count&&!result.source_units);
-    for(const auto& v:actual)CHECK(v.scalar==0xffffffffu&&v.source==0xffffffffu);
-    CHECK(sfnt_tibetan_expand_cluster({reinterpret_cast<u32*>(actual),2},{actual,16},&result)==SfntStatus::invalid_input);
-    CHECK(sfnt_tibetan_expand_cluster({}, {},&result,0)==SfntStatus::ok&&!result.scalar_count&&!result.source_units);
-    CHECK(sfnt_tibetan_expand_cluster({}, {},nullptr)==SfntStatus::invalid_input);
     SYSTEM_INFO system{};GetSystemInfo(&system);const u32 page=system.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
     const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
     bool good=false;
-    if(committed){auto* input=reinterpret_cast<u32*>(memory+page-sizeof(original));copy_bytes(input,original,sizeof(original));
-        auto* target=reinterpret_cast<SfntTibetanInputScalar*>(memory+page*3-sizeof(expanded));
-        good=sfnt_tibetan_expand_cluster({input,9},{target,13},&result)==SfntStatus::ok&&bytes_equal(target,expanded,sizeof(expanded));
-        good=good&&sfnt_tibetan_cluster_boundaries({input,9},{memory+page*3-9,9})==SfntStatus::ok;
+    if(committed){auto* input=reinterpret_cast<u32*>(memory+page-sizeof(a));copy_bytes(input,a,sizeof(a));
+        good=sfnt_tibetan_cluster_boundaries({input,7},{memory+page*3-7,7})==SfntStatus::ok;
     }
     CHECK(VirtualFree(memory,0,MEM_RELEASE));CHECK(committed&&good);
     print("PASS Tibetan input; assertions=");number(checks);print("\n");return true;
 }
 bool read(void* destination,u32 count) noexcept {u8* out=static_cast<u8*>(destination);while(count){DWORD got=0;if(!ReadFile(GetStdHandle(STD_INPUT_HANDLE),out,count,&got,nullptr)||!got)return false;out+=got;count-=got;}return true;}
 bool write(const void* source,u32 count) noexcept {const u8* in=static_cast<const u8*>(source);while(count){DWORD done=0;if(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),in,count,&done,nullptr)||!done)return false;in+=done;count-=done;}return true;}
-bool stream(bool expand) noexcept {
+bool stream() noexcept {
     u8 header[12];CHECK(read(header,12)&&bytes_equal(header,"MDVCL1\0\0",8));const u32 cases=byte_load_le32(header+8);CHECK(cases&&cases<=100000&&write(header,12));
-    for(u32 row=0;row<cases;++row){u32 n=0,input[256];u8 boundaries[256];SfntTibetanInputScalar output[512];SfntTibetanInputResult result{};
+    for(u32 row=0;row<cases;++row){u32 n=0,input[256];u8 boundaries[256];
         CHECK(read(&n,4)&&n&&n<=256&&read(input,n*4));
-        if(expand){CHECK(sfnt_tibetan_expand_cluster({input,n},{output,512},&result)==SfntStatus::ok&&write(&result,sizeof(result))&&write(output,result.scalar_count*sizeof(output[0])));}
-        else CHECK(sfnt_tibetan_cluster_boundaries({input,n},{boundaries,256})==SfntStatus::ok&&write(boundaries,n));
+        CHECK(sfnt_tibetan_cluster_boundaries({input,n},{boundaries,256})==SfntStatus::ok&&write(boundaries,n));
     }return true;
 }
 int run() noexcept {
     wchar_t mode[16];const DWORD n=GetEnvironmentVariableW(L"MAICORD_TIBETAN_INPUT_STREAM",mode,16);
-    if(n)return n<16&&stream(mode[0]=='2')?0:2;
+    if(n)return n<16&&stream()?0:2;
     return units()?0:1;
 }
 }}

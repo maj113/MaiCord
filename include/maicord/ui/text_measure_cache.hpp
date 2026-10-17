@@ -73,29 +73,12 @@ struct UiTextMeasureCache {
     u32 rejected;
 };
 
-struct UiTextMeasureLayoutBinding {
-    u32 node_key;
-    UiTextMeasureKey key;
-    Utf8View text;
-    ConstSlice<TextStyleSpan> styles;
-};
-
-struct UiTextMeasureLayoutContext {
-    UiTextMeasureCache* cache;
-    ConstSlice<UiTextMeasureLayoutBinding> bindings;
-};
-
 bool ui_text_measure_cache_initialize(UiTextMeasureCache* cache, Slice<UiTextMeasureRecord> storage,
                                       UiTextMeasureBackend backend, void* backend_context) noexcept;
 void ui_text_measure_cache_invalidate(UiTextMeasureCache* cache) noexcept;
 UiTextMeasureResult ui_text_measure_cache_measure(UiTextMeasureCache* cache,
                                                   const UiTextMeasureRequest& request,
                                                   UiTextMeasureValue* value) noexcept;
-bool ui_text_measure_layout_context_initialize(UiTextMeasureLayoutContext* context,
-                                               UiTextMeasureCache* cache,
-                                               ConstSlice<UiTextMeasureLayoutBinding> bindings) noexcept;
-bool ui_text_measure_layout_callback(void* context, const UiLayoutMeasureRequest& request, UiSize* size,
-                                     float* baseline) noexcept;
 
 static_assert(sizeof(UiTextMeasureKey) == 24);
 static_assert(sizeof(UiTextMeasureValue) == 16);

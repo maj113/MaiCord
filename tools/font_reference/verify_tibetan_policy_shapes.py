@@ -1,4 +1,4 @@
-"""Execute saved Tibetan policy fixtures through the full native cluster shaper.
+"""Execute saved Tibetan policy fixtures through the native scalar-run shaper.
 
 Unlike scheduling projection, this compares actual native glyph order, source
 groups and placement bits, including the previously exposed pref reordering.
@@ -20,7 +20,7 @@ def worker(args):
                 payload=bytearray(b'MDSHP1\0\0'+struct.pack('<I',len(cases)))
                 for scalars,_ in cases:payload+=struct.pack('<I',len(scalars))+struct.pack('<'+'I'*len(scalars),*scalars)
                 run=subprocess.run([str(args.native)],input=payload,capture_output=True,timeout=2,
-                    env=dict(os.environ,MAICORD_TIBETAN_FONT=case['font']['path'],MAICORD_TIBETAN_INDEPENDENT=str(int(mode!='default')),MAICORD_TIBETAN_RTL='0',MAICORD_TIBETAN_OWNED=str(int(args.owned)),MAICORD_TIBETAN_COMPACT='0',MAICORD_TIBETAN_RUN='0'),creationflags=subprocess.CREATE_NO_WINDOW)
+                    env=dict(os.environ,MAICORD_TIBETAN_FONT=case['font']['path'],MAICORD_TIBETAN_INDEPENDENT=str(int(mode!='default')),MAICORD_TIBETAN_RTL='0',MAICORD_TIBETAN_OWNED=str(int(args.owned)),MAICORD_TIBETAN_COMPACT='0'),creationflags=subprocess.CREATE_NO_WINDOW)
                 if run.returncode:raise RuntimeError(repr(run.stdout[-500:])+repr(run.stderr))
                 actual=decode(run.stdout,cases,True)
                 for source,a in zip(observed,actual):

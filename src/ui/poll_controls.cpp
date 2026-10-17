@@ -4,6 +4,13 @@
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
+bool ui_poll_closed(const UiPollState& state) noexcept {
+    return (state.finalized_known && state.finalized) ||
+           (state.expiry_known && state.expiry_ms && state.now_ms >= state.expiry_ms);
+}
+bool ui_poll_counts_visible(const UiPollState& state) noexcept {
+    return state.results || ui_poll_closed(state);
+}
 namespace {
 bool positive(float value) noexcept {
     return ui_coordinate_valid(value) && value > 0;
@@ -80,10 +87,6 @@ bool style_valid(const UiPollStyle& style) noexcept {
             return false;
     return true;
 }
-bool closed(const UiPollState& state) noexcept {
-    return (state.finalized_known && state.finalized) ||
-           (state.expiry_known && state.expiry_ms && state.now_ms >= state.expiry_ms);
-}
 u32 selected_count(const UiPollState& state) noexcept {
     u32 count{};
     for (u32 i = 0; i < state.answers.count; ++i)
@@ -101,7 +104,7 @@ bool own_vote(const UiPollState& state) noexcept {
 UiPollControl primary(const UiPollState& state) noexcept {
     if (state.can_retry)
         return UiPollControl::retry;
-    if (!state.supported || closed(state))
+    if (!state.supported || ui_poll_closed(state))
         return UiPollControl::none;
     if (own_vote(state))
         return state.can_remove_vote ? UiPollControl::remove_vote : UiPollControl::none;
@@ -111,12 +114,8 @@ UiPollControl primary(const UiPollState& state) noexcept {
 }
 // The tertiary "Show results" text action: open, not voted, results hidden.
 bool show_results(const UiPollState& state) noexcept {
-    return state.supported && !closed(state) && !own_vote(state) && !state.results && state.can_view_results &&
+    return state.supported && !ui_poll_closed(state) && !own_vote(state) && !state.results && state.can_view_results &&
            !state.can_retry;
-}
-// Results view (vote counts shown): voted, closed or "Show results".
-bool counts_visible(const UiPollState& state) noexcept {
-    return state.results || closed(state);
 }
 Utf8View question(const UiPollState& state, const UiPollStyle& style) noexcept {
     return state.question.bytes ? state.question : style.question_fallback;
@@ -216,7 +215,7 @@ void labels(UiPollProjection& projection, const UiPollStyle& style) noexcept {
     for (u32 i = 0; i < state.answers.count; ++i)
         if (state.answers[i].count_known)
             top = maximum(top, state.answers[i].count);
-    const bool ended = closed(state);
+    const bool ended = ui_poll_closed(state);
     for (u32 i = 0; i < state.answers.count; ++i) {
         const auto& answer = state.answers[i];
         if (!answer.count_known) {
@@ -525,8 +524,8 @@ bool ui_poll_controls_project_layout(const UiPollState& state, UiPoint origin, c
     projection.bar_voted = ui_theme_color_alpha(theme.tokens.accent.brand, .2f);
     projection.victor = theme.tokens.accent.success;
     projection.bar_victor = ui_theme_color_alpha(theme.tokens.accent.success, .2f);
-    const bool mutable_poll = state.supported && !state.loading && !closed(state);
-    const bool results = counts_visible(state);
+    const bool mutable_poll = state.supported && !state.loading && !ui_poll_closed(state);
+    const bool results = ui_poll_counts_visible(state);
     projection.answers_enabled =
         results ? state.can_view_voters && !state.loading : mutable_poll && state.can_vote;
     projection.vote_enabled = mutable_poll && state.can_vote && selected_count(state);
@@ -552,9 +551,6 @@ Utf8View ui_poll_count_label(const UiPollProjection& projection, u32 index) noex
 }
 Utf8View ui_poll_summary_label(const UiPollProjection& projection) noexcept {
     return {projection.summary_text, projection.summary_bytes};
-}
-Utf8View ui_poll_expiry_label(const UiPollProjection& projection) noexcept {
-    return {projection.expiry_text, projection.expiry_bytes};
 }
 UiRect ui_poll_target_rectangle(const UiPollProjection& projection, UiPollTarget target) noexcept {
     u32 index{};
@@ -625,7 +621,7 @@ bool ui_poll_controls_action(const UiPollProjection& projection, UiPollTarget ta
     UiPollActionKind kind{};
     switch (target.control) {
     case UiPollControl::answer:
-        kind = counts_visible(projection.state) ? UiPollActionKind::voters : UiPollActionKind::toggle_answer;
+        kind = ui_poll_counts_visible(projection.state) ? UiPollActionKind::voters : UiPollActionKind::toggle_answer;
         break;
     case UiPollControl::vote:
         kind = UiPollActionKind::vote;
@@ -653,20 +649,20 @@ bool ui_poll_action_current(const UiPollState& state, const UiPollAction& action
     if (action.kind != UiPollActionKind::toggle_answer && action.kind != UiPollActionKind::voters &&
         action.answer_id)
         return false;
-    const bool mutate = state.supported && !state.loading && !closed(state) && state.can_vote;
+    const bool mutate = state.supported && !state.loading && !ui_poll_closed(state) && state.can_vote;
     switch (action.kind) {
     case UiPollActionKind::toggle_answer:
-        return mutate && !counts_visible(state) && find_answer(state, action.answer_id);
+        return mutate && !ui_poll_counts_visible(state) && find_answer(state, action.answer_id);
     case UiPollActionKind::vote:
         return mutate && !state.results && selected_count(state) && primary(state) == UiPollControl::vote;
     case UiPollActionKind::remove_vote:
-        return state.supported && !state.loading && !closed(state) && state.can_remove_vote &&
+        return state.supported && !state.loading && !ui_poll_closed(state) && state.can_remove_vote &&
                own_vote(state) && primary(state) == UiPollControl::remove_vote;
     case UiPollActionKind::results:
         return state.can_view_results && !state.loading &&
                (primary(state) == UiPollControl::results || show_results(state));
     case UiPollActionKind::voters:
-        return counts_visible(state) && state.can_view_voters && !state.loading &&
+        return ui_poll_counts_visible(state) && state.can_view_voters && !state.loading &&
                find_answer(state, action.answer_id);
     case UiPollActionKind::retry:
         return state.can_retry && !state.loading;

@@ -580,11 +580,6 @@ void ui_scene_release(UiScene* scene) noexcept {
     *scene = UiScene{};
 }
 
-bool ui_scene_layout(UiScene* scene, float width, float height) noexcept {
-    return ui_scene_layout_with_metrics(scene, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics,
-                                        width, height);
-}
-
 bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics,
                                   float width, float height) noexcept {
     if (!scene || !ui_extent_valid(width) || !ui_extent_valid(height) || width <= 0.0f || height <= 0.0f ||
@@ -651,6 +646,10 @@ const UiNode* ui_scene_resolve(const UiScene& scene, UiNodeHandle handle) noexce
     return node.visible && node.generation == handle.generation ? &node : nullptr;
 }
 
+const UiNode* ui_scene_resolve_semantic(const UiScene& scene, UiSemantic semantic) noexcept {
+    return ui_scene_resolve(scene, ui_scene_find(scene, semantic));
+}
+
 UiRect ui_scene_content_rectangle(const UiScene& scene, UiSemantic semantic) noexcept {
     const UiNode* node = ui_scene_resolve(scene, ui_scene_find(scene, semantic));
     const UiLayoutNode* layout =
@@ -683,27 +682,6 @@ UiShellHeaderGeometry ui_scene_header_geometry(const UiScene& scene) noexcept {
     geometry.search_field = {maximum(content.left, content.right - trailing - field_width), geometry.title.top + 8.f,
                              content.right - trailing, geometry.title.top + 40.f};
     return geometry;
-}
-
-UiLayoutValidationResult ui_scene_validate(const UiScene& scene,
-                                           Slice<UiLayoutDiagnostic> output) noexcept {
-    return ui_layout_engine_validate(scene.widgets.layout, output);
-}
-
-UiVirtualRange ui_virtual_range(u32 item_count, float item_extent, float scroll_offset,
-                                float viewport_extent, u32 overscan) noexcept {
-    if (item_count == 0 || !ui_extent_valid(item_extent) || item_extent < 1.0f / 1024.0f ||
-        !ui_extent_valid(scroll_offset) || !ui_extent_valid(viewport_extent) || viewport_extent <= 0.0f) {
-        return UiVirtualRange{};
-    }
-    const u32 first_visible = static_cast<u32>(scroll_offset / item_extent);
-    const u32 visible_end = static_cast<u32>((scroll_offset + viewport_extent) / item_extent) + 1;
-    const u32 first = first_visible > overscan ? first_visible - overscan : 0;
-    const u32 end = minimum(item_count, visible_end > item_count - minimum(item_count, overscan)
-                                            ? item_count
-                                            : visible_end + overscan);
-    return UiVirtualRange{minimum(first, item_count), end > first ? end - first : 0,
-                          static_cast<float>(first) * item_extent - scroll_offset};
 }
 
 } // namespace maicord

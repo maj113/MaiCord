@@ -554,7 +554,7 @@ int quicktime_tests() noexcept {
     const EncodedAudioMetadata m4a{audio};
     if (!encoded_audio_ready(m4a) || encoded_audio_rate(m4a) != 48000 || encoded_audio_channels(m4a) != 2 ||
         encoded_audio_total_frames(m4a) != 3072 || encoded_audio_bytes(m4a).data != w.bytes ||
-        encoded_audio_duration_ms(m4a) != 64)
+        encoded_audio_duration_us(m4a) != 64000)
         return 86;
     g_sound_version = 3;
     const bool future = audio_fixture(w);
@@ -1008,15 +1008,6 @@ int audio_tests() noexcept {
                 b.decode_time_ticks != 1024 || a.presentation_time_us_signed != 0 ||
                 b.presentation_time_ticks != 1024 || a.duration_ticks != 1024 || b.duration_ticks != 1024)
                 return 21;
-            Mp4SeekPoint point{};
-            if (mp4_audio_demux_seek(&d, 30000, &point) != Mp4DemuxError::none || point.sample_index != 1 ||
-                mp4_audio_demux_next(&d).decode_time_ticks != 1024)
-                return 22;
-            const auto saved = d;
-            point = {77, 88, 99};
-            if (mp4_audio_demux_seek(&d, -1, &point) != Mp4DemuxError::invalid_input ||
-                !bytes_equal(&d, &saved, sizeof(d)) || point.sample_index != 77)
-                return 23;
         }
     if (!audio_fixture(w, 48000, 2, 0, true) ||
         mp4_audio_demux_initialize(&d, {w.bytes, w.count}) != Mp4DemuxError::none)

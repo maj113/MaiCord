@@ -228,7 +228,8 @@ void test_message_context_controller_extensions(void (*check)(bool, const char*)
     for (u32 index = 0; index < catalog.count; ++index)
         if (utf8_equal(catalog[index].name(), utf8_literal("shark"))) chosen = static_cast<u16>(index);
     check(chosen != kReactionPreferenceInvalidCatalogIndex &&
-        reaction_preferences_track(&preferences, chosen, 1000).ok(),
+        reaction_preferences_track_emoji(&preferences, ReactionPreferenceKind::reaction, reaction_emoji_unicode(chosen),
+                                         1000).ok(),
         "message context extras: customize quick reaction preference");
 
     const auto opened = message_context_controller_open(&controller, &fixture.popup, message,

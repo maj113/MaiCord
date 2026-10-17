@@ -30,6 +30,10 @@ void dispatch(State& s,u32 side,u32 count) noexcept {
     for(u32 i=0;i<count;++i)s.context->Dispatch(8,8,1);
     ID3D11UnorderedAccessView* null_view=nullptr;s.context->CSSetUnorderedAccessViews(0,1,&null_view,nullptr);
 }
+bool rasterize(GlyphAtlasGpu* gpu,ID3D11DeviceContext* context,const GlyphOutline& outline,
+    const GlyphRasterBounds& bounds,const GlyphAtlasAllocation& allocation,float scale,u16 padding) noexcept {
+    GlyphRasterBatch batch(gpu,context);return batch.add(outline,bounds,allocation,scale,padding).ok()&&batch.finish();
+}
 bool run() noexcept {
     State s;CHECK(SUCCEEDED(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,0,nullptr,0,D3D11_SDK_VERSION,&s.device,nullptr,&s.context)));
     for(auto& gpu:s.gpu)CHECK(glyph_atlas_gpu_initialize(&gpu,s.device,extent,extent,128).ok());
@@ -66,7 +70,7 @@ bool run() noexcept {
         GlyphRasterBounds bounds{-static_cast<i32>(frame%5),-static_cast<i32>(frame%7),size,size,size,size};
         GlyphAtlasAllocation allocation{{0,1},padding,padding,size,size,0,GlyphAtlasError::none,false,false};
         for(u32 order=0;order<2;++order){const u32 side=order^(frame&1);const UINT clear[4]{};s.context->ClearUnorderedAccessViewUint(s.gpu[side].texture_uav,clear);
-            CHECK(side||s.raw_reference?glyph_atlas_gpu_rasterize(&s.gpu[side],s.context,outline,bounds,allocation,scale,padding).ok():
+            CHECK(side||s.raw_reference?rasterize(&s.gpu[side],s.context,outline,bounds,allocation,scale,padding):
                 s.reference.rasterize(s.context,s.gpu[0].texture_uav,outline,bounds,allocation,scale,padding));
             s.context->CopyResource(s.staging,s.gpu[side].texture);D3D11_MAPPED_SUBRESOURCE mapped{};
             CHECK(SUCCEEDED(s.context->Map(s.staging,0,D3D11_MAP_READ,0,&mapped)));
@@ -81,9 +85,9 @@ bool run() noexcept {
         if(control==1)commands[i].kind=GlyphPathCommandKind::line;else if(control==2)commands[i].kind=GlyphPathCommandKind::cubic;}
     GlyphOutline timed{commands,128,last_count,0,-1,-1,2,2,GlyphFillRule::winding,true};
     GlyphRasterBounds timed_bounds{0,0,62,62,62,62};GlyphAtlasAllocation timed_allocation{{0,1},1,1,62,62,0,GlyphAtlasError::none,false,false};
-    CHECK(s.raw_reference?glyph_atlas_gpu_rasterize(&s.gpu[0],s.context,timed,timed_bounds,timed_allocation,24,1).ok():
+    CHECK(s.raw_reference?rasterize(&s.gpu[0],s.context,timed,timed_bounds,timed_allocation,24,1):
         s.reference.rasterize(s.context,s.gpu[0].texture_uav,timed,timed_bounds,timed_allocation,24,1));
-    CHECK(glyph_atlas_gpu_rasterize(&s.gpu[1],s.context,timed,timed_bounds,timed_allocation,24,1).ok());
+    CHECK(rasterize(&s.gpu[1],s.context,timed,timed_bounds,timed_allocation,24,1));
     D3D11_QUERY_DESC q{D3D11_QUERY_TIMESTAMP_DISJOINT,0};CHECK(SUCCEEDED(s.device->CreateQuery(&q,&s.disjoint)));q.Query=D3D11_QUERY_TIMESTAMP;
     for(u32 i=0;i<2;++i)CHECK(SUCCEEDED(s.device->CreateQuery(&q,&s.starts[i]))&&SUCCEEDED(s.device->CreateQuery(&q,&s.ends[i])));
     print("{\"kind\":\"glyph_distance\",\"control\":");number(control);print(",\"variant\":");number(variant);print(",\"raw_reference\":");print(s.raw_reference?"true":"false");print(",\"frames\":");number(frames);print(",\"exact_texels\":");number(compared);print(",\"painted\":");number(painted);print(",\"partial\":");number(partial);print(",\"batches\":[");

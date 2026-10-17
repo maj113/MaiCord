@@ -4404,7 +4404,7 @@ bool probe_media_underlay_and_quick_reactions() noexcept {
                                 {menu_rows, kMessageContextMaximumItems},
                                 {menu_widgets, sizeof(menu_widgets) / sizeof(menu_widgets[0])},
                                 {menu_nodes, sizeof(menu_nodes) / sizeof(menu_nodes[0])}) ||
-        !popup_scene_open(&menu, PopupKind::context_menu, record->id, message_context_menu_items(model),
+        !popup_scene_open(&menu, PopupKind::context_menu, record->id, {model.items, model.count},
                           g_probe.message_action_bar.items[5].rectangle, g_probe.message_scene.viewport,
                           260)
              .ok() ||
@@ -4670,9 +4670,7 @@ bool probe_media_gallery(bool favorites = false) noexcept {
             valid = require(ui_media_picker_scene_select(&gallery, 0), 105);
             keyboard_favorite =
                 valid &&
-                ui_media_picker_scene_selected_favorite_target(gallery).action ==
-                    UiMediaPickerAction::favorite &&
-                ui_media_picker_scene_selected_target(gallery).action == UiMediaPickerAction::item;
+                ui_media_picker_scene_selected_favorite_target(gallery).action == UiMediaPickerAction::favorite;
             valid = valid && require(keyboard_favorite, 106) &&
                     show(L"media-favorites-20261003-keyboard-focus.bmp");
         }
@@ -5117,8 +5115,9 @@ bool probe_friends_scene() noexcept {
     const auto pixels = [](const UiFriendsScene& scene, bool rows, bool last) noexcept {
         UiTextCommand commands[kUiFriendsMaximumTextCommands]{};
         UiTextCommandStream text{};
+        UiTextOutput text_output{&text, nullptr};
         if (!ui_text_command_stream_initialize(&text, {commands, kUiFriendsMaximumTextCommands}) ||
-            !ui_friends_scene_text(scene, kDefaultTheme, &text))
+            !ui_friends_scene_text_output(scene, kDefaultTheme, &text_output, nullptr))
             return false;
         const Utf8View labels[]{utf8_literal("Friends"), utf8_literal("Pending"),
                                 last ? utf8_literal("Last native friend") : utf8_literal("Native friend")};
@@ -5378,9 +5377,10 @@ bool probe_friends_scene() noexcept {
         return false;
     UiTextCommand form_commands[32]{};
     UiTextCommandStream form_text{};
+    UiTextOutput form_text_output{&form_text, nullptr};
     UiRect title{};
     if (!ui_text_command_stream_initialize(&form_text, {form_commands, 32}) ||
-        !text_form_text(form, surface.geometry, kDefaultTheme, &form_text))
+        !text_form_text_output(form, surface.geometry, kDefaultTheme, &form_text_output))
         return false;
     for (u32 i = 0; i < form_text.count; ++i)
         if (form_commands[i].text.bytes == content.title.bytes &&
@@ -5428,9 +5428,10 @@ bool probe_friends_scene() noexcept {
         return false;
     UiTextCommand settings_commands[32]{};
     UiTextCommandStream settings_text_stream{};
+    UiTextOutput settings_text_stream_output{&settings_text_stream, nullptr};
     UiRect settings_title{};
     if (!ui_text_command_stream_initialize(&settings_text_stream, {settings_commands, 32}) ||
-        !ui_settings_scene_text(settings, kDefaultTheme, &settings_text_stream))
+        !ui_settings_scene_text_output(settings, kDefaultTheme, &settings_text_stream_output))
         return false;
     for (u32 i = 0; i < settings_text_stream.count; ++i)
         if (settings_commands[i].text.data == settings_content.title.data)
@@ -5744,8 +5745,9 @@ bool probe_friends_requests_scene() noexcept {
     const auto text_rect = [](const UiFriendsScene& scene, Utf8View label, bool prefix = false) noexcept {
         UiTextCommand commands[128]{};
         UiTextCommandStream stream{};
+        UiTextOutput stream_output{&stream, nullptr};
         if (!ui_text_command_stream_initialize(&stream, {commands, 128}) ||
-            !ui_friends_scene_text(scene, kDefaultTheme, &stream))
+            !ui_friends_scene_text_output(scene, kDefaultTheme, &stream_output, nullptr))
             return UiRect{};
         for (u32 i = 0; i < stream.count; ++i)
             if ((prefix ? commands[i].text.bytes >= label.bytes : commands[i].text.bytes == label.bytes) &&
@@ -5908,9 +5910,10 @@ bool probe_friends_requests_scene() noexcept {
         return false;
     UiTextCommand profile_commands[128]{};
     UiTextCommandStream profile_text{};
+    UiTextOutput profile_text_output{&profile_text, nullptr};
     UiRect profile_name{};
     if (!ui_text_command_stream_initialize(&profile_text, {profile_commands, 128}) ||
-        !profile_scene_text(profile, kDefaultTheme, &profile_text))
+        !profile_scene_text_output(profile, kDefaultTheme, &profile_text_output, nullptr))
         return false;
     for (u32 i = 0; i < profile_text.count; ++i)
         if (utf8_equal(profile_commands[i].text, profile_data.display_name.view()))
@@ -6700,8 +6703,9 @@ bool probe_settings_scene() noexcept {
     const auto settings_pixels = [](const UiSettingsScene& settings, bool amoled) noexcept {
         UiTextCommand commands[64]{};
         UiTextCommandStream stream{};
+        UiTextOutput stream_output{&stream, nullptr};
         if (!ui_text_command_stream_initialize(&stream, {commands, 64}) ||
-            !ui_settings_scene_text(settings, amoled ? kAmoledTheme : kDefaultTheme, &stream))
+            !ui_settings_scene_text_output(settings, amoled ? kAmoledTheme : kDefaultTheme, &stream_output))
             return false;
         const Utf8View labels[]{utf8_literal("Theme"), utf8_literal("ESC"),
                                 amoled ? utf8_literal("AMOLED") : utf8_literal("Dark"),
@@ -7082,11 +7086,12 @@ bool probe_autocomplete_identity() noexcept {
     g_probe.failure_stage = 146;
     UiTextCommand commands[4]{};
     UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     if (popup_media_presentation_resolve(g_probe.popup_scene, 0, &media) !=
             PopupMediaPresentationStatus::ready ||
         !media.avatar || media.media_variant != 117 ||
         !ui_text_command_stream_initialize(&text, {commands, 4}) ||
-        !popup_text_presentation_build(g_probe.popup_scene, kDefaultTheme, &text) || text.count != 2 ||
+        !popup_text_presentation_build_output(g_probe.popup_scene, kDefaultTheme, &text_output) || text.count != 2 ||
         !utf8_equal(commands[0].text, item.detail) ||
         commands[0].horizontal_alignment != UiTextAlignment::end ||
         !utf8_equal(commands[1].text, item.label) ||
@@ -7200,9 +7205,10 @@ bool probe_autocomplete_identity() noexcept {
             return false;
         UiTextCommand text_commands[4]{};
         UiTextCommandStream stream{};
+        UiTextOutput stream_output{&stream, nullptr};
         UiRect rectangles[4]{};
         if (!ui_text_command_stream_initialize(&stream, {text_commands, 4}) ||
-            !popup_text_presentation_build(g_probe.popup_scene, kDefaultTheme, &stream) || !stream.count)
+            !popup_text_presentation_build_output(g_probe.popup_scene, kDefaultTheme, &stream_output) || !stream.count)
             return false;
         for (u32 i = 0; i < stream.count; ++i)
             rectangles[i] = text_commands[i].rectangle;
@@ -7267,9 +7273,9 @@ bool probe_glyph_atlas_gutters() noexcept {
         valid = glyph_raster_bounds(outline, static_cast<float>(extent), 1, &bounds);
         allocation.width = bounds.width;
         allocation.height = bounds.height;
-        valid = valid && glyph_atlas_gpu_rasterize(&gpu, context, outline, bounds, allocation,
-                                                   static_cast<float>(extent), padding)
-                             .ok();
+        GlyphRasterBatch batch(&gpu, context);
+        valid = valid && batch.add(outline, bounds, allocation, static_cast<float>(extent), padding).ok() &&
+                batch.finish();
         if (!valid)
             break;
         context->CopyResource(staging, gpu.texture);
@@ -7500,8 +7506,9 @@ bool probe_profile_hover(ProfileScene& scene) noexcept {
                                  profile_scene_hit_test(scene, outside.x, outside.y));
         UiTextCommand outside_commands[320]{};
         UiTextCommandStream outside_stream{};
+        UiTextOutput outside_stream_output{&outside_stream, nullptr};
         if (!ui_text_command_stream_initialize(&outside_stream, {outside_commands, 320}) ||
-            !profile_scene_text(scene, kDefaultTheme, &outside_stream))
+            !profile_scene_text_output(scene, kDefaultTheme, &outside_stream_output, nullptr))
             return false;
         for (u32 i = 0; i < outside_stream.count; ++i)
             if (outside_commands[i].owner.handle.slot == target.slot &&
@@ -7518,8 +7525,9 @@ bool probe_profile_hover(ProfileScene& scene) noexcept {
         ++scene.revision;
         UiTextCommand commands[320]{};
         UiTextCommandStream stream{};
+        UiTextOutput stream_output{&stream, nullptr};
         if (!ui_text_command_stream_initialize(&stream, {commands, 320}) ||
-            !profile_scene_text(scene, kDefaultTheme, &stream))
+            !profile_scene_text_output(scene, kDefaultTheme, &stream_output, nullptr))
             return false;
         bool underline = false;
         for (u32 i = 0; i < stream.count; ++i)
@@ -8029,6 +8037,7 @@ bool probe_profile_card() noexcept {
     // back for height trimming, so it cannot prove native drawing admission.
     UiTextCommand mixed_commands[320]{};
     UiTextCommandStream mixed_stream{};
+    UiTextOutput mixed_stream_output{&mixed_stream, nullptr};
     TextDecoration bio_decorations[128];
     TextHitRegion bio_hits[256];
     valid = valid && ui_text_command_stream_initialize(&mixed_stream, {mixed_commands, 320}) &&
@@ -8036,7 +8045,7 @@ bool probe_profile_card() noexcept {
             shaped_text_bind_hit_regions(&wrapped_output, {bio_hits, 256});
     const auto native_bio_command = [&](bool expect_height_trim = false) noexcept {
         ui_text_command_stream_reset(&mixed_stream);
-        if (!profile_scene_text(scene, kDefaultTheme, &mixed_stream))
+        if (!profile_scene_text_output(scene, kDefaultTheme, &mixed_stream_output, nullptr))
             return false;
         bool found = false;
         for (u32 i = 0; i < mixed_stream.count; ++i) {
@@ -9317,8 +9326,9 @@ bool probe_popup_overlays() noexcept {
         return false;
     UiTextCommand edit_commands[14]{};
     UiTextCommandStream edit_stream{};
+    UiTextOutput edit_stream_output{&edit_stream, nullptr};
     ui_text_command_stream_initialize(&edit_stream, {edit_commands, 14});
-    if (!popup_text_presentation_build(g_probe.popup_scene, kDefaultTheme, &edit_stream) ||
+    if (!popup_text_presentation_build_output(g_probe.popup_scene, kDefaultTheme, &edit_stream_output) ||
         edit_stream.count != 14)
         return false;
     for (u32 i = 0; i < edit_stream.count; i += 2) {

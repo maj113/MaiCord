@@ -7,9 +7,6 @@
 
 namespace maicord {
 namespace {
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.generation && a.slot == b.slot && a.generation == b.generation;
-}
 bool current(const UiDownloadScene& s) noexcept {
     return s.active && s.content && s.content->revision == s.content_revision &&
         (!s.source || (s.source->revision == s.source_revision && s.source->count == s.accepted_count &&
@@ -185,8 +182,8 @@ bool surface(PaintStream* out, UiRect r, const Theme& t, Color fill, Color borde
 constexpr float kDisabledOpacity = .5f;
 bool button(PaintStream* out, const UiDownloadScene& s, UiWidgetHandle handle, UiRect r,
     const Theme& t, bool enabled, bool filled = false) noexcept {
-    const bool hover = enabled && same(s.widgets.hovered, handle);
-    const bool focus = enabled && same(s.widgets.focused, handle);
+    const bool hover = enabled && ui_widget_handle_matches(s.widgets.hovered, handle);
+    const bool focus = enabled && ui_widget_handle_matches(s.widgets.focused, handle);
     const float opacity = enabled ? 1.f : kDisabledOpacity;
     return surface(out,r,t,ui_theme_color_alpha(filled ? t.tokens.emphasis.fill : hover ? t.surface_high : t.base_low, opacity),
         ui_theme_color_alpha(focus ? ui_foreground_color(t,t.tokens.border.focus) : filled ? t.tokens.emphasis.fill : t.interactive, opacity),6);
@@ -225,11 +222,11 @@ bool ui_download_scene_update(UiDownloadScene* s, const UiDownloadSource* source
         bool retain_capture = s->active && s->source == source;
         for (u32 i = 0; i < s->count; ++i) {
             const auto index = s->first + i;
-            if (!same(s->widgets.captured,s->primary[i]) && !same(s->widgets.captured,s->secondary[i])) continue;
+            if (!ui_widget_handle_matches(s->widgets.captured, s->primary[i]) && !ui_widget_handle_matches(s->widgets.captured, s->secondary[i])) continue;
             retain_capture &= index < count && s->accepted[index].id == accepted[index].id;
-            if (retain_capture && same(s->widgets.captured,s->primary[i]))
+            if (retain_capture && ui_widget_handle_matches(s->widgets.captured, s->primary[i]))
                 retain_capture &= primary_action(s->accepted[index]) == primary_action(accepted[index]);
-            if (retain_capture && same(s->widgets.captured,s->secondary[i]))
+            if (retain_capture && ui_widget_handle_matches(s->widgets.captured, s->secondary[i]))
                 retain_capture &= terminal(accepted[index].phase) && accepted[index].dismiss;
         }
         if (!retain_capture) cancel_capture(*s);
@@ -279,18 +276,18 @@ bool ui_download_scene_contains(const UiDownloadScene& s, float x, float y) noex
 }
 UiDownloadTarget ui_download_scene_target(const UiDownloadScene& s, UiWidgetHandle handle) noexcept {
     if (!current(s)) return {};
-    if (same(handle,s.close)) return {UiDownloadAction::close};
+    if (ui_widget_handle_matches(handle, s.close)) return {UiDownloadAction::close};
     if (s.mode == UiDownloadMode::confirmation) {
-        if (same(handle,s.confirm)) return {UiDownloadAction::confirm,s.confirmation_id,0,s.source_revision};
-        if (same(handle,s.cancel)) return {UiDownloadAction::cancel_confirmation,s.confirmation_id,0,s.source_revision};
+        if (ui_widget_handle_matches(handle, s.confirm)) return {UiDownloadAction::confirm,s.confirmation_id,0,s.source_revision};
+        if (ui_widget_handle_matches(handle, s.cancel)) return {UiDownloadAction::cancel_confirmation,s.confirmation_id,0,s.source_revision};
         return {};
     }
-    if (same(handle,s.previous) && s.page) return {UiDownloadAction::previous};
-    if (same(handle,s.next) && (s.page + 1) * s.page_size < s.accepted_count) return {UiDownloadAction::next};
+    if (ui_widget_handle_matches(handle, s.previous) && s.page) return {UiDownloadAction::previous};
+    if (ui_widget_handle_matches(handle, s.next) && (s.page + 1) * s.page_size < s.accepted_count) return {UiDownloadAction::next};
     for (u32 i = 0; i < s.count; ++i) {
         const auto& r = s.accepted[s.first + i];
-        if (same(handle,s.primary[i])) return {primary_action(r),r.id,s.first + i,s.source_revision};
-        if (same(handle,s.secondary[i]) && terminal(r.phase) && r.dismiss)
+        if (ui_widget_handle_matches(handle, s.primary[i])) return {primary_action(r),r.id,s.first + i,s.source_revision};
+        if (ui_widget_handle_matches(handle, s.secondary[i]) && terminal(r.phase) && r.dismiss)
             return {UiDownloadAction::dismiss,r.id,s.first + i,s.source_revision};
     }
     return {};
@@ -313,7 +310,7 @@ bool ui_download_scene_set_hover(UiDownloadScene* s, float x, float y, bool* cha
     if (!s || !current(*s)) return false;
     const auto hit = ui_widget_manager_hit_test(s->widgets,x,y), before = s->widgets.hovered;
     if (!ui_widget_manager_hover(&s->widgets,hit)) return false;
-    const bool delta = !same(before,hit) && (before.generation || hit.generation);
+    const bool delta = !ui_widget_handle_matches(before, hit) && (before.generation || hit.generation);
     if (delta) ++s->revision;
     if (changed) *changed = delta;
     return true;
@@ -327,7 +324,7 @@ bool ui_download_scene_paint(const UiDownloadScene& s, const Theme& t, PaintStre
                          &t.interactive_hover) &&
         ui_icon_paint(out,s.mode == UiDownloadMode::confirmation ? UiIcon::warning : UiIcon::download,
             {p.left + 20,p.top + 16,p.left + 40,p.top + 36},ui_foreground_color(t,t.tokens.emphasis.outline));
-    if (ok && (same(s.widgets.hovered,s.close) || same(s.widgets.focused,s.close)))
+    if (ok && (ui_widget_handle_matches(s.widgets.hovered, s.close) || ui_widget_handle_matches(s.widgets.focused, s.close)))
         ok = surface(out,{p.right - 44,p.top + 8,p.right - 12,p.top + 40},t,t.surface_high,t.interactive,6);
     ok = ok && ui_icon_paint(out,UiIcon::close,{p.right - 38,p.top + 14,p.right - 18,p.top + 34},t.text_secondary);
     if (s.mode == UiDownloadMode::confirmation) {

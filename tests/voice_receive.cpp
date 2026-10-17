@@ -272,14 +272,12 @@ void test_device(Check check) noexcept {
         return;
     static VoiceAudioOutput output;
     static Tone value;
-    check(voice_audio_output_start(&output, tone, &value), "Voice audio output: thread starts");
+    check(voice_audio_output_start_device(&output, nullptr, tone, &value), "Voice audio output: thread starts");
     const u64 deadline = GetTickCount64() + 3000;
     while (GetTickCount64() < deadline && ReadAcquire64(&value.frames) < 24000)
         Sleep(20);
-    const auto status = voice_audio_output_status(output);
     voice_audio_output_stop(&output);
-    check(status.state == VoiceAudioOutputState::playing && status.opens >= 1 && status.buffer_frames &&
-              ReadAcquire64(&value.frames) >= 24000 && !voice_audio_output_running(output),
+    check(ReadAcquire64(&value.frames) >= 24000 && !voice_audio_output_running(output),
           "Voice audio output: WASAPI pulls 48 kHz PCM16 events and stops cleanly");
 }
 } // namespace

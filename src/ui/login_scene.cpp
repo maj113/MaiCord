@@ -787,13 +787,4 @@ UiRect login_scene_content_rectangle(const LoginScene& scene, LoginElement eleme
     return node ? node->content_rectangle : UiRect{};
 }
 
-UiRect login_scene_control_rectangle(const LoginScene& scene, LoginControl control) noexcept {
-    return login_scene_rectangle(scene, element_for_control(control));
-}
-
-UiLayoutValidationResult login_scene_validate(const LoginScene& scene,
-                                              Slice<UiLayoutDiagnostic> output) noexcept {
-    return ui_layout_engine_validate(scene.widgets.layout, output);
-}
-
 } // namespace maicord

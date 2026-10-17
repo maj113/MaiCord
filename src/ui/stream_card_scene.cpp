@@ -75,10 +75,6 @@ void layout(UiStreamCardScene& s) noexcept {
     s.button = {p.left + kUiStreamCardPadding, p.bottom - kUiStreamCardPadding - kButtonHeight,
                 p.right - kUiStreamCardPadding, p.bottom - kUiStreamCardPadding};
 }
-Color fade(Color color, float opacity) noexcept {
-    color.alpha *= opacity;
-    return color;
-}
 float opacity(const UiStreamCardScene& s) noexcept {
     return s.progress < 0 ? 0.f : s.progress > 1 ? 1.f : s.progress;
 }
@@ -210,8 +206,8 @@ bool ui_stream_card_paint(const UiStreamCardScene& s, const Theme& theme, PaintS
     if (!paint)
         return false;
     const float a = opacity(s);
-    const Color fill = fade(theme.tokens.background.floating, a);
-    const Color border = fade(theme.tokens.border.subtle, a);
+    const Color fill = ui_theme_color_alpha(theme.tokens.background.floating, a);
+    const Color border = ui_theme_color_alpha(theme.tokens.border.subtle, a);
     bool ok = ui_surface_paint(paint, s.panel, theme, UiElevation::popover, theme.scale.radius_md, &fill, &border);
     // Thumbnail plate (media scrim): the preview covers it once resident.
     Color plate = theme.tokens.overlay.media;
@@ -227,24 +223,24 @@ bool ui_stream_card_paint(const UiStreamCardScene& s, const Theme& theme, PaintS
     if (ok && s.preview_state == UiStreamCardPreview::loading) {
         const float cx = (s.thumbnail.left + s.thumbnail.right) * .5f;
         const float cy = (s.thumbnail.top + s.thumbnail.bottom) * .5f;
-        ok = ui_spinner_paint(paint, {cx - 14, cy - 14, cx + 14, cy + 14}, fade(kDefaultTheme.text_primary, a),
+        ok = ui_spinner_paint(paint, {cx - 14, cy - 14, cx + 14, cy + 14}, ui_theme_color_alpha(kDefaultTheme.text_primary, a),
                               s.spinner_phase);
     }
     ok = ok && paint_stream_push_rounded(paint, s.live.left, s.live.top, s.live.right, s.live.bottom,
-                                         fade(theme.tokens.accent.danger, a), theme.scale.radius_sm);
+                                         ui_theme_color_alpha(theme.tokens.accent.danger, a), theme.scale.radius_sm);
     Color button = theme.tokens.accent.brand;
     const float shade = s.pressed && s.hovered ? .8f : s.hovered ? .9f : 1.f;
     button.red *= shade;
     button.green *= shade;
     button.blue *= shade;
     const auto b = s.button;
-    ok = ok && paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom, fade(button, a),
+    ok = ok && paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom, ui_theme_color_alpha(button, a),
                                          theme.scale.radius_sm);
     const float y = (b.top + b.bottom) * .5f;
     const float label = s.watching ? 96.f : 104.f; // Estimated label width keeps the glyph beside it.
     const float x = (b.left + b.right - label) * .5f - 12;
     return ok && ui_icon_paint(paint, s.watching ? UiIcon::maximize : UiIcon::screen_share,
-                               {x - 18, y - 9, x, y + 9}, fade(theme.tokens.text.on_accent, a));
+                               {x - 18, y - 9, x, y + 9}, ui_theme_color_alpha(theme.tokens.text.on_accent, a));
 }
 
 bool ui_stream_card_text_output(const UiStreamCardScene& s, const Theme& theme, UiTextOutput* text) noexcept {
@@ -253,7 +249,7 @@ bool ui_stream_card_text_output(const UiStreamCardScene& s, const Theme& theme, 
     if (!text)
         return false;
     const float a = opacity(s);
-    bool ok = push_text(text, s, utf8_literal("LIVE"), s.live, fade(theme.tokens.text.on_accent, a),
+    bool ok = push_text(text, s, utf8_literal("LIVE"), s.live, ui_theme_color_alpha(theme.tokens.text.on_accent, a),
                         text_style_subtext | text_style_bold, UiTextAlignment::center);
     if (ok && s.preview_state == UiStreamCardPreview::unavailable) {
         const auto t = s.thumbnail;
@@ -263,7 +259,7 @@ bool ui_stream_card_text_output(const UiStreamCardScene& s, const Theme& theme, 
         ok = push_text(text, s, utf8_literal("No preview yet"), {t.left, cy - 10, t.right, cy + 10}, ink,
                        text_style_subtext, UiTextAlignment::center);
     }
-    ok = ok && push_text(text, s, {s.name, s.name_bytes}, name_line(s), fade(theme.tokens.text.normal, a),
+    ok = ok && push_text(text, s, {s.name, s.name_bytes}, name_line(s), ui_theme_color_alpha(theme.tokens.text.normal, a),
                          text_style_bold);
     if (ok && s.channel_bytes) {
         // "Live in <channel>"; the prefix and name share one line.
@@ -274,13 +270,13 @@ bool ui_stream_card_text_output(const UiStreamCardScene& s, const Theme& theme, 
         copy_bytes(line + bytes, s.channel, s.channel_bytes);
         bytes += s.channel_bytes;
         ok = ui_text_output_push_owned(text, {{line, bytes}, s.owner, channel_line(s), s.panel,
-                                              fade(theme.tokens.text.muted, a), text_style_subtext,
+                                              ui_theme_color_alpha(theme.tokens.text.muted, a), text_style_subtext,
                                               UiTextAlignment::start, UiTextAlignment::center,
                                               UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
     }
     const auto b = s.button;
     return ok && push_text(text, s, s.watching ? utf8_literal("Open stream") : utf8_literal("Watch stream"),
-                           {b.left + 12, b.top, b.right - 12, b.bottom}, fade(theme.tokens.text.on_accent, a),
+                           {b.left + 12, b.top, b.right - 12, b.bottom}, ui_theme_color_alpha(theme.tokens.text.on_accent, a),
                            text_style_bold, UiTextAlignment::center);
 }
 } // namespace maicord

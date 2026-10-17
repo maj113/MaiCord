@@ -34,13 +34,11 @@ SfntStatus open(ConstSlice<u8> input,ColrFont* font) noexcept {
 }
 bool palettes_and_graphs() noexcept {
     fixture();ColrFont font{};if(open({data,sizeof(data)},&font)!=SfntStatus::ok)return false;
-    CpalColor color{};CpalPaletteInfo info{};u16 label=0;
+    CpalColor color{};
     if(cpal_color(font.palette,1,0,&color)!=SfntStatus::ok || color.red!=22 || color.green!=12 || color.blue!=2 || color.alpha!=102 ||
        cpal_color(font.palette,0,1,&color)!=SfntStatus::ok || color.red!=22 ||
        cpal_color(font.palette,0,0xffff,&color)!=SfntStatus::unsupported_sequence ||
-       cpal_color(font.palette,2,0,&color)!=SfntStatus::invalid_input ||
-       cpal_palette_info(font.palette,1,&info)!=SfntStatus::ok || info.flags!=2 || info.name_id!=0xffff ||
-       cpal_entry_label(font.palette,2,&label)!=SfntStatus::ok || label!=262)return false;
+       cpal_color(font.palette,2,0,&color)!=SfntStatus::invalid_input)return false;
     ColrLayerRange layers{};ColrLegacyLayer layer{};
     if(colr_legacy_layers(font,0,&layers)!=SfntStatus::ok || layers.count!=1 ||
        colr_legacy_layer(font,0,&layer)!=SfntStatus::ok || layer.glyph!=2 || layer.palette!=0xffff)return false;
@@ -55,7 +53,7 @@ bool palettes_and_graphs() noexcept {
     put32(data+512+100,64);
     if(open({data,sizeof(data)},&font)!=SfntStatus::ok || colr_validate_glyph(font,0,{active,64},100,&result)!=SfntStatus::malformed)return false;
     fixture();put16(data+128,0);
-    if(open({data,sizeof(data)},&font)!=SfntStatus::ok || cpal_palette_info(font.palette,0,&info)!=SfntStatus::ok || info.flags || info.name_id!=0xffff)return false;
+    if(open({data,sizeof(data)},&font)!=SfntStatus::ok)return false;
     return true;
 }
 

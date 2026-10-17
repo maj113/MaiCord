@@ -36,7 +36,7 @@ bool reset(UniquenessModel* model, bool resident = false) noexcept {
     if (!chat_state_store_initialize(&state, {model->guilds, 2}, {model->guild_order, 2},
         {model->channels, kRows + 1}, {model->channel_order, kRows + 1}, {model->names, sizeof(model->names)}) ||
         !chat_state_store_bind_permissions(&state, {model->roles, 4}, {model->overwrites, 8}) ||
-        !chat_state_store_bind_emojis(&state, {model->emojis, 4}, {model->emoji_roles, 8})) return false;
+        !chat_state_store_bind_emojis_sparse(&state, {model->emojis, 4}, {model->emoji_roles, 8})) return false;
     state.self_user_id = kSelf;
     if (!chat_state_store_upsert_guild(&state, {99, utf8_literal("Stay"), GuildMutationKind::create, kOwner}).ok() ||
         !chat_state_store_upsert_channel(&state, {5000, 99, 0, utf8_literal("stable"), 0, 0, 0}).ok()) return false;

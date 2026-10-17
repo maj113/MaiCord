@@ -17,25 +17,14 @@ void remove_at(VoiceStateStore* store, u32 index) noexcept {
         store->records[i - 1] = store->records[i];
     store->records[--store->count] = {};
 }
-bool initialize_store(VoiceStateStore* store, Slice<VoiceState> records, bool sparse) noexcept {
-    if (!store || !records.data || !records.count || records.count > kVoiceStateCapacity ||
-        (sparse && store->count))
+} // namespace
+
+bool voice_state_store_initialize_sparse(VoiceStateStore* store, Slice<VoiceState> records) noexcept {
+    if (!store || store->count || !records.data || !records.count || records.count > kVoiceStateCapacity)
         return false;
     *store = {};
     store->records = records;
-    if (sparse) return true;
-    for (u32 i = 0; i < records.count; ++i)
-        records[i] = {};
     return true;
-}
-} // namespace
-
-bool voice_state_store_initialize(VoiceStateStore* store, Slice<VoiceState> records) noexcept {
-    return initialize_store(store, records, false);
-}
-
-bool voice_state_store_initialize_sparse(VoiceStateStore* store, Slice<VoiceState> records) noexcept {
-    return initialize_store(store, records, true);
 }
 
 bool voice_state_store_reset(VoiceStateStore* store) noexcept {
@@ -116,21 +105,6 @@ u32 voice_state_store_channel_count(const VoiceStateStore& store, u64 channel_id
     if (store_valid(store) && channel_id)
         for (u32 i = 0; i < store.count; ++i)
             count += store.records[i].channel_id == channel_id;
-    return count;
-}
-
-u32 voice_state_store_channel_live(const VoiceStateStore& store, u64 channel_id, Slice<u64> users) noexcept {
-    u32 count = 0;
-    if (!store_valid(store) || !channel_id || (!users.data && users.count))
-        return 0;
-    for (u32 i = 0; i < store.count; ++i) {
-        const auto& state = store.records[i];
-        if (state.channel_id != channel_id || !voice_state_live(state))
-            continue;
-        if (count < users.count)
-            users.data[count] = state.user_id;
-        ++count;
-    }
     return count;
 }
 

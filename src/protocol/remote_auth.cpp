@@ -35,9 +35,8 @@ struct DecodeContext {
 RemoteAuthDecodeResult failure(RemoteAuthError error, u32 offset = 0,
                                JsonScanError scan_error = JsonScanError::none,
                                JsonReadError read_error = JsonReadError::none,
-                               Base64Error base64_error = Base64Error::none,
-                               Base64UrlError base64url_error = Base64UrlError::none) noexcept {
-    return RemoteAuthDecodeResult{offset, error, scan_error, read_error, base64_error, base64url_error};
+                               Base64Error base64_error = Base64Error::none) noexcept {
+    return RemoteAuthDecodeResult{offset, error, scan_error, read_error, base64_error};
 }
 
 bool mark(DecodeContext* context, u32 field, u32 offset) noexcept {
@@ -118,13 +117,9 @@ bool validate_standard_base64(JsonString string, u32 expected_bytes, Base64Error
     return false;
 }
 
-bool validate_base64url(JsonString string, u32 expected_bytes, Base64UrlError* error) noexcept {
+bool validate_base64url(JsonString string, u32 expected_bytes) noexcept {
     const Base64UrlResult result = base64url_decode(string.encoded, Slice<u8>{nullptr, 0});
-    if (result.error == Base64UrlError::output_too_small && result.bytes == expected_bytes) {
-        return true;
-    }
-    *error = result.error;
-    return false;
+    return result.error == Base64UrlError::output_too_small && result.bytes == expected_bytes;
 }
 
 void copy_string(JsonString source, Slice<char> destination) noexcept {
@@ -238,10 +233,8 @@ RemoteAuthDecodeResult remote_auth_decode_server_packet(Utf8View body, Slice<u32
         if ((context.fields & field_fingerprint) == 0) {
             return failure(RemoteAuthError::missing_field);
         }
-        Base64UrlError base64url_error = Base64UrlError::none;
-        if (!validate_base64url(context.fingerprint, kRemoteAuthFingerprintBytes, &base64url_error)) {
-            return failure(RemoteAuthError::invalid_field, context.fingerprint.source_offset,
-                           JsonScanError::none, JsonReadError::none, Base64Error::none, base64url_error);
+        if (!validate_base64url(context.fingerprint, kRemoteAuthFingerprintBytes)) {
+            return failure(RemoteAuthError::invalid_field, context.fingerprint.source_offset);
         }
         decoded.kind = RemoteAuthPacketKind::pending_remote_init;
         packet_text = context.fingerprint;

@@ -2,8 +2,8 @@
 #include "maicord/text/lookup_plan.hpp"
 #include "maicord/text/nominal_sources.hpp"
 #include "maicord/text/nominal_participation.hpp"
-#include "maicord/text/gsub_execute.hpp"
-#include "maicord/text/gpos_execute.hpp"
+#include "gsub_program_fixture.hpp"
+#include "gpos_lookup_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
 #include <Windows.h>
 namespace maicord {namespace {
@@ -21,7 +21,7 @@ bool run_corpus() noexcept {
         u64 sources=0,participation=0,scratch[4];SfntNominalParticipationResult p{};
         if(metrics.glyph_count>64 || sfnt_nominal_sources(cmap,{&sources,1})!=SfntStatus::ok || sfnt_nominal_participation_add(layout,metrics.glyph_count,{&participation,1},{scratch,4},&p,1000000,{&sources,1})!=SfntStatus::ok)return fail(f,0,2);
         SfntGsubExecutableLookup lookups[2];SfntGsubExecutableSubtable subs[2];SfntGsubProgram program{};
-        if(!kind && sfnt_gsub_program_prepare(layout,gdef,metrics.glyph_count,{{lookups,2},{subs,2},{},{}},&program)!=SfntStatus::ok)return fail(f,0,3);
+        if(!kind && prepare_gsub_program(layout,gdef,metrics.glyph_count,{{lookups,2},{subs,2},{},{}},&program)!=SfntStatus::ok)return fail(f,0,3);
         for(u32 c=0;c<count;++c){u32 weight=0,independent=0,n=0,wanted_record=0,simple=0;u32 text[2],wanted[2],wanted_position[6],layout_glyph[2],layout_position[6];
             if(!r.word(&weight)||!r.word(&independent)||!r.word(&n)||!r.word(&wanted_record)||!r.word(&simple)||n<1||n>2||independent>1||simple>1)return false;
             for(u32 i=0;i<n;++i)if(!r.word(text+i))return false;for(u32 i=0;i<n;++i)if(!r.word(wanted+i))return false;for(u32 i=0;i<n*3;++i)if(!r.word(wanted_position+i))return false;for(u32 i=0;i<n;++i)if(!r.word(layout_glyph+i))return false;for(u32 i=0;i<n*3;++i)if(!r.word(layout_position+i))return false;
@@ -37,7 +37,7 @@ bool run_corpus() noexcept {
             double advances[2];u8 flags[2]{2,2};SfntPosition state[2];SfntPlacement placed[2];
             for(u32 i=0;i<n;++i){SfntGlyphMetrics m{};if(glyphs[i].glyph!=wanted[i] || sfnt_horizontal_metrics(metrics,glyphs[i].glyph,&m)!=SfntStatus::ok)return fail(f,c,10);advances[i]=m.advance;++glyph_checks;}
             if(sfnt_position_initialize({advances,n},{flags,n},false,{state,n})!=SfntStatus::ok)return false;
-            if(kind)for(u32 i=0;i<plan.lookup_count;++i){SfntGposSubtable tables[1];SfntGposLookup lookup{};SfntPositionExecution result{};if(sfnt_gpos_lookup_prepare(layout,plan_ids[i],gdef,metrics.glyph_count,{tables,1},&lookup)!=SfntStatus::ok || sfnt_position_execute_lookup(lookup,gdef,sfnt_glyph_buffer_view(buffer),{state,n},0,n,false,{},&result)!=SfntStatus::ok)return fail(f,c,11);}
+            if(kind)for(u32 i=0;i<plan.lookup_count;++i){SfntGposSubtable tables[1];SfntGposExecutableLookup lookup{};SfntPositionExecution result{};if(gpos_prepare_one(layout,plan_ids[i],gdef,metrics.glyph_count,{tables,1},{},&lookup)!=SfntStatus::ok || lookup.type>2 || sfnt_position_execute_lookup({lookup.tables.basic,lookup.filter},gdef,sfnt_glyph_buffer_view(buffer),{state,n},0,n,false,{},&result)!=SfntStatus::ok)return fail(f,c,11);}
             if(sfnt_position_finalize({state,n},{flags,n},1000,metrics.units_per_em,{placed,n})!=SfntStatus::ok || !bytes_equal(placed,wanted_position,n*12))return fail(f,c,12);placement_checks+=n*3;
             // These fixtures are one ASCII word in one font/style. This does not
             // define general range segmentation or combining-mark policy.

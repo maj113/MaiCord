@@ -1256,16 +1256,10 @@ void message_scene_invalidate_geometry(MessageScene* scene) noexcept {
         invalidate_geometry(scene);
 }
 
-MessageMediaObscure message_scene_media_obscure(const MessageScene& scene, u64 message_id, u64 reveal_key,
-                                                bool spoiler, bool explicit_media) noexcept {
-    return message_scene_media_obscure(scene, MessageMediaPolicyResult{scene.explicit_filter, true},
-                                       message_id, reveal_key, spoiler, explicit_media);
-}
-
 MessageMediaPolicyResult message_scene_media_policy(const MessageScene& scene,
                                                     const MessageMediaOwner& owner) noexcept {
     return scene.media_policy.query ? scene.media_policy.query(scene.media_policy.context, owner)
-                                    : MessageMediaPolicyResult{scene.explicit_filter, true};
+                                    : MessageMediaPolicyResult{MessageExplicitFilter::show, true};
 }
 
 bool message_scene_set_media_policy(MessageScene* scene, const MessageMediaPolicy& policy) noexcept {
@@ -1314,14 +1308,6 @@ bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept {
     if (!scene || !message_media_reveal(&scene->media_reveals, reveal_key))
         return false;
     // Blocked notices and blur labels can differ in height from previews.
-    invalidate_geometry(scene);
-    return true;
-}
-
-bool message_scene_set_explicit_filter(MessageScene* scene, MessageExplicitFilter filter) noexcept {
-    if (!scene || scene->explicit_filter == filter)
-        return false;
-    scene->explicit_filter = filter;
     invalidate_geometry(scene);
     return true;
 }

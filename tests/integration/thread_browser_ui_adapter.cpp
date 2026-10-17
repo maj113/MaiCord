@@ -147,8 +147,10 @@ bool thread_browser_ui_adapter_pointer(UiWidgetHandle widget, bool down) noexcep
     auto* scene = application_thread_browser_scene();
     if (!browser_adapter || !scene) return false;
     if (down) {
-        const auto r = ui_thread_browser_scene_rectangle(*scene, widget);
-        if (!ui_rect_has_area(r)) return false;
+        const auto* node = ui_thread_browser_scene_current(*scene)
+            ? ui_widget_manager_layout_node(scene->widgets, widget) : nullptr;
+        if (!node || !ui_rect_has_area(node->rectangle)) return false;
+        const auto r = node->rectangle;
         browser_adapter->pressed_point = {(r.left + r.right) * .5f, (r.top + r.bottom) * .5f};
     }
     return application_thread_browser_window_message(down ? WM_LBUTTONDOWN : WM_LBUTTONUP,

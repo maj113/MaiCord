@@ -34,8 +34,6 @@ struct MlsExternalSender {
     ConstSlice<u8> identity;
 };
 MlsStatus mls_external_sender_parse(ConstSlice<u8> input, MlsExternalSender* sender) noexcept;
-MlsStatus mls_external_sender_write(const u8* signature_key, ConstSlice<u8> identity, Slice<u8> output,
-                                    u32* written) noexcept;
 
 // DAVE GroupContext: eight-byte big-endian group id (the channel snowflake)
 // and exactly one ExternalSenders extension equal to the gateway package.

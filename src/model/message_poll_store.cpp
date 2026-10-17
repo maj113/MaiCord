@@ -203,19 +203,6 @@ void message_poll_store_release(MessagePollStore* store) noexcept {
     }
     *store = {};
 }
-void message_poll_store_reset(MessagePollStore* store) noexcept {
-    if (!store)
-        return;
-    if (store->owned) {
-        clear_bytes(store->owned->observations, sizeof(store->owned->observations));
-        store->owned->next_observation = 0;
-        for (auto& bank : store->owned->text_banks)
-            arena_reset(&bank);
-    }
-    store->count = store->text_used = store->text_wasted = 0;
-    advance(store->revision);
-    advance(store->content_revision);
-}
 const MessagePollRecord* message_poll_store_find(const MessagePollStore& store, u64 id) noexcept {
     if (!id || !store.records)
         return nullptr;

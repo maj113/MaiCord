@@ -75,7 +75,7 @@ void test_poll_controller(void (*check)(bool,const char*) noexcept) noexcept {
     poll_controller_admit(&c,command,84,502,5,&ticket);
     ReactionUser users[2]{}; users[0].id=101; users[1].id=103;
     check(poll_controller_complete(&c,ticket,receipt(84),503,5,true,{users,2}).page_ready &&
-              c.after_user_id==103 && c.voters_more && poll_controller_queue_voters(&c,42,true,2,504).ok(),
+              c.after_user_id==103 && c.voters_more && poll_controller_queue_voter_page(&c,42,c.after_user_id,2,504).ok(),
           "poll voter pagination retains real advancing last snowflake and full-page continuation");
     poll_controller_prepare(c,504,5,&command); poll_controller_admit(&c,command,85,504,5,&ticket);
     check(poll_controller_complete(&c,ticket,receipt(85),505,5,true,{}).page_ready &&

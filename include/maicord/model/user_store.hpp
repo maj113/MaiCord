@@ -77,7 +77,6 @@ bool user_store_initialize(UserStore* store,
 // so record pages are touched only as slots fill. The count bounds order reads.
 bool user_store_initialize_sparse(UserStore* store, Slice<UserRecord> records, Slice<u32> order,
                                   Slice<u8> double_buffered_names) noexcept;
-void user_store_clear(UserStore* store) noexcept;
 void user_store_clear_pins(UserStore* store) noexcept;
 bool user_store_pin(UserStore* store, u64 id) noexcept;
 UserStoreResult user_store_upsert(UserStore* store,

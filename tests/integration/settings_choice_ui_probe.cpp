@@ -57,8 +57,9 @@ bool page_geometry(ChoiceFixture& f, PopupScene& popup, u32 first) noexcept {
     if (!hit.inside || !hit.enabled || !ui_settings_choice_selected(f.control, first, hit.action, &absolute) ||
         absolute != (first == 992 ? 1023 : first)) return false;
     UiTextCommand commands[34]{}; UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     if (!ui_text_command_stream_initialize(&text, {commands, 34}) ||
-        !popup_text_presentation_build(popup, kDefaultTheme, &text)) return false;
+        !popup_text_presentation_build_output(popup, kDefaultTheme, &text_output)) return false;
     bool found = false;
     for (u32 i = 0; i < text.count; ++i) {
         const auto& command = commands[i];

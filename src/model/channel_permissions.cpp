@@ -497,33 +497,6 @@ bool chat_state_store_note_thread(ChatStateStore* store, u64 parent_id,
     return true;
 }
 
-bool chat_state_store_mark_channel_read(ChatStateStore* store, u64 channel_id) noexcept {
-    ChannelRecord* channel = mutable_channel(store, channel_id);
-    if (!store || !channel) {
-        return false;
-    }
-    const bool old_unread = channel_activity_visible(*store, *channel);
-    const u32 old_mentions =
-        chat_state_store_channel_visible(*store, *channel) ? channel->mention_count : 0;
-    if (!old_unread && channel->mention_count == 0 &&
-        channel->last_read_message_id == channel->last_message_id && !channel->read_auto_ack_suppressed) {
-        return true;
-    }
-    GuildRecord* guild = mutable_guild(store, channel->guild_id);
-    if (!guild && !channel_is_private(channel->type))
-        return false;
-    channel->last_read_message_id = channel->last_message_id;
-    channel->mention_count = 0;
-    channel->read_state_known = true;
-    channel->read_mentions_incomplete = false;
-    channel->read_auto_ack_suppressed = false;
-    adjust_guild_activity(store, guild, old_unread, old_mentions, false, 0);
-    saturating_increment(channel->revision);
-    ++store->channel_mutations;
-    ++store->activity_mutations;
-    return true;
-}
-
 bool chat_state_store_apply_read_state(ChatStateStore* store,
                                           const ReadStateEntry& entry) noexcept {
     auto* channel = mutable_channel(store, entry.channel_id);

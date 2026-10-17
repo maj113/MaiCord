@@ -19,7 +19,6 @@ struct UiSwitchThumb {
     UiRect box;
     float radius;
 };
-UiRect ui_switch_rect(const UiSettingsTokens&, float right, float center_y) noexcept;
 UiSwitchThumb ui_switch_thumb(const UiSettingsTokens&, UiRect track, bool checked, float motion,
                               bool reduced_motion, bool pressed) noexcept;
 bool ui_switch_paint(PaintStream*, const UiSettingsTokens&, UiRect track, bool checked, float motion,
@@ -71,7 +70,6 @@ enum class UiSettingsButtonSize : u8 {
     compact,
     regular
 };
-float ui_settings_button_height(const UiSettingsTokens&, UiSettingsButtonSize) noexcept;
 float ui_settings_button_width(const UiSettingsTokens&, UiSettingsButtonSize, float label_width) noexcept;
 bool ui_settings_button_paint(PaintStream*, const UiSettingsTokens&, UiRect, UiSettingsButtonVariant,
                               UiControlState) noexcept;
@@ -145,7 +143,7 @@ bool ui_settings_shadow_paint(PaintStream*, UiRect, float radius, float spread, 
 // time, widths are estimated from per-character advances of a UI sans face.
 inline constexpr float kUiSettingsLabelEm = 16, kUiSettingsLabelLine = 20;
 inline constexpr float kUiSettingsDescriptionEm = 13, kUiSettingsDescriptionLine = 18;
-inline constexpr float kUiSettingsCaptionEm = 13, kUiSettingsCaptionLine = 16;
+inline constexpr float kUiSettingsCaptionLine = 16;
 float ui_settings_text_width(Utf8View text, float em) noexcept;
 u32 ui_settings_text_lines(Utf8View text, float em, float width) noexcept;
 

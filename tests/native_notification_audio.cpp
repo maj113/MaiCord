@@ -65,44 +65,44 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
         notification_audio_mixer_add(&mixer,1,clip,0.5f).ok(),
         "notification mixer rejects stale owner epoch without modifying active voices");
     i16 output[8]{};constexpr i16 half[]{5000,-5000,10000,-10000,15000,-15000,500,-500};
-    const auto first=notification_audio_mixer_render(&mixer,{output,8});
+    const auto first=notification_audio_mixer_render_rate(&mixer,{output,8},kNotificationAudioRate);
     check(first.error==Error::none&&first.frames==4&&first.nonzero&&same_samples(output,half,8)&&
-        mixer.count==1&&!notification_audio_mixer_needed(mixer),
+        mixer.count==1&&!notification_audio_mixer_needed_rate(mixer,kNotificationAudioRate),
         "notification offline gain preserves stereo channels and pins fully submitted PCM until consumed");
-    check(notification_audio_mixer_played(&mixer,5)==0&&mixer.consumed==0&&
-        notification_audio_mixer_played(&mixer,2)==0&&mixer.consumed==2,
+    check(notification_audio_mixer_played_rate(&mixer,5,kNotificationAudioRate)==0&&mixer.consumed==0&&
+        notification_audio_mixer_played_rate(&mixer,2,kNotificationAudioRate)==0&&mixer.consumed==2,
         "notification padding accounts source-format frames and rejects invalid/backwards consumption");
-    notification_audio_mixer_rewind(&mixer);
-    const auto rewound=notification_audio_mixer_render(&mixer,{output,4});
+    notification_audio_mixer_rewind_rate(&mixer,kNotificationAudioRate);
+    const auto rewound=notification_audio_mixer_render_rate(&mixer,{output,4},kNotificationAudioRate);
     check(rewound.frames==2&&same_samples(output,half+4,4)&&mixer.submitted==4&&
-        notification_audio_mixer_played(&mixer,0)==1&&!mixer.count&&!mixer.voices[0].clip.samples.data,
+        notification_audio_mixer_played_rate(&mixer,0,kNotificationAudioRate)==1&&!mixer.count&&!mixer.voices[0].clip.samples.data,
         "notification device-switch rewind reproduces only known unconsumed source PCM then retires its borrowed descriptor");
 
     notification_audio_mixer_reset(&mixer,2);
     notification_audio_mixer_add(&mixer,2,clip,1);
-    notification_audio_mixer_render(&mixer,{output,4});
+    notification_audio_mixer_render_rate(&mixer,{output,4},kNotificationAudioRate);
     constexpr i16 other[]{1000,2000,2000,4000};
     notification_audio_mixer_add(&mixer,2,{{other,4}},1);
     constexpr i16 overlap[]{31000,-28000,3000,3000};
-    const auto mixed=notification_audio_mixer_render(&mixer,{output,4});
+    const auto mixed=notification_audio_mixer_render_rate(&mixer,{output,4},kNotificationAudioRate);
     check(mixed.frames==2&&same_samples(output,overlap,4)&&mixer.count==2,
         "notification voices overlap independently at the next submitted frame with unequal left/right source channels");
-    check(notification_audio_mixer_played(&mixer,1)==0&&notification_audio_mixer_played(&mixer,0)==2,
+    check(notification_audio_mixer_played_rate(&mixer,1,kNotificationAudioRate)==0&&notification_audio_mixer_played_rate(&mixer,0,kNotificationAudioRate)==2,
         "notification overlapping voices remain owned through their final queued endpoint frames");
     constexpr i16 peaks[]{32767,-32768};
     notification_audio_mixer_add(&mixer,2,{{peaks,2}},1);notification_audio_mixer_add(&mixer,2,{{peaks,2}},1);
-    const auto peak=notification_audio_mixer_render(&mixer,{output,2});
+    const auto peak=notification_audio_mixer_render_rate(&mixer,{output,2},kNotificationAudioRate);
     check(peak.frames==1&&output[0]==32767&&output[1]==-32768,
         "notification summation saturates PCM16 rather than overflowing or wrapping");
     notification_audio_mixer_reset(&mixer,3);
     notification_audio_mixer_add(&mixer,3,clip,0);
-    const auto silent=notification_audio_mixer_render(&mixer,{output,8});
+    const auto silent=notification_audio_mixer_render_rate(&mixer,{output,8},kNotificationAudioRate);
     check(silent.frames==4&&!silent.nonzero&&output[0]==0&&output[7]==0,
         "notification zero gain consumes voice time with an explicit silent packet");
     notification_audio_mixer_reset(&mixer,4);
     notification_audio_mixer_add(&mixer,4,clip,1);
-    check(notification_audio_mixer_render(&mixer,{const_cast<i16*>(stereo),8}).error==Error::invalid_input&&
-        !mixer.submitted&&notification_audio_mixer_render(&mixer,{output,3}).error==Error::invalid_input&&!mixer.submitted,
+    check(notification_audio_mixer_render_rate(&mixer,{const_cast<i16*>(stereo),8},kNotificationAudioRate).error==Error::invalid_input&&
+        !mixer.submitted&&notification_audio_mixer_render_rate(&mixer,{output,3},kNotificationAudioRate).error==Error::invalid_input&&!mixer.submitted,
         "notification mixer output cannot alias borrowed PCM or split an interleaved frame");
     check(notification_audio_mixer_add(&mixer,4,{{reinterpret_cast<const i16*>(&mixer),8}},1).error==Error::invalid_input&&mixer.count==1,
         "notification PCM cannot alias the mutable schedule owner");
@@ -110,9 +110,9 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
     for(u32 i=0;i<kNotificationAudioVoiceCapacity;++i)voices=voices&&notification_audio_mixer_add(&mixer,5,clip,0.5f).ok();
     check(voices&&mixer.count==64&&notification_audio_mixer_add(&mixer,5,clip,0.5f).error==Error::full_voices,
         "notification mixer reserves64 distinct voices and explicitly rejects a65th without replacement");
-    notification_audio_mixer_render(&mixer,{output,8});
+    notification_audio_mixer_render_rate(&mixer,{output,8},kNotificationAudioRate);
     check(notification_audio_mixer_add(&mixer,5,clip,0.5f).error==Error::full_voices&&
-        notification_audio_mixer_played(&mixer,0)==64&&notification_audio_mixer_add(&mixer,5,clip,0.5f).ok(),
+        notification_audio_mixer_played_rate(&mixer,0,kNotificationAudioRate)==64&&notification_audio_mixer_add(&mixer,5,clip,0.5f).ok(),
         "notification voice capacity is released on consumed completion, not merely rendering the last sample");
     notification_audio_mixer_reset(&mixer,6);
     check(!mixer.count&&!mixer.voices[0].clip.samples.data&&notification_audio_mixer_add(&mixer,5,clip,1).error==Error::stale_epoch,
@@ -129,18 +129,18 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
     check(notification_audio_mixer_add(&mixer,7,clip,.5f).ok()&&notification_audio_mixer_add(&mixer,7,alternate,1).ok()&&
         notification_audio_mixer_voices_rate(mixer,44100)==1&&notification_audio_mixer_voices_rate(mixer,48000)==1,
         "notification mixed-rate descriptors share capacity while retaining separate native source timelines");
-    notification_audio_mixer_render(&mixer,{output,4});
+    notification_audio_mixer_render_rate(&mixer,{output,4},kNotificationAudioRate);
     const auto alternate_mix=notification_audio_mixer_render_rate(&mixer,{output,4},48000);
     check(alternate_mix.frames==2&&same_samples(output,alternate_samples,4)&&mixer.submitted==2&&mixer.submitted_48000==2&&
-        !mixer.consumed&&!mixer.consumed_48000&&notification_audio_mixer_needed(mixer)==2,
+        !mixer.consumed&&!mixer.consumed_48000&&notification_audio_mixer_needed_rate(mixer,kNotificationAudioRate)==2,
         "notification48000 rendering copies exact samples without interpolation or advancing44100 cursor");
     notification_audio_mixer_played_rate(&mixer,1,48000);notification_audio_mixer_rewind_rate(&mixer,48000);
     const auto alternate_tail=notification_audio_mixer_render_rate(&mixer,{output,2},48000);
     check(alternate_tail.frames==1&&same_samples(output,alternate_samples+2,2)&&mixer.submitted==2&&
         notification_audio_mixer_played_rate(&mixer,0,48000)==1&&mixer.count==1,
         "notification48000 padding rewind reproduces its native tail and retires only its own rate");
-    notification_audio_mixer_render(&mixer,{output,4});
-    check(same_samples(output,half+4,4)&&notification_audio_mixer_played(&mixer,0)==1&&!mixer.count,
+    notification_audio_mixer_render_rate(&mixer,{output,4},kNotificationAudioRate);
+    check(same_samples(output,half+4,4)&&notification_audio_mixer_played_rate(&mixer,0,kNotificationAudioRate)==1&&!mixer.count,
         "notification44100 voice remains intact after alternate-rate consumption and completes independently");
     notification_audio_mixer_reset(&mixer,8);voices=true;
     for(u32 i=0;i<64;++i)voices=voices&&notification_audio_mixer_add(&mixer,8,i&1?alternate:clip,.5f).ok();
@@ -161,7 +161,7 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
         "notification worker preparation resolves immutable asset before sampling current output gain");
     notification_audio_mixer_reset(&mixer,1);notification_audio_mixer_add(&mixer,1,prepared,effective);
     bank.volume=1;
-    notification_audio_mixer_render(&mixer,{output,2});
+    notification_audio_mixer_render_rate(&mixer,{output,2},kNotificationAudioRate);
     check(output[0]>=1999&&output[0]<=2000&&output[1]>=-2000&&output[1]<=-1999,
         "notification active voice freezes loaded gain even if output preference later changes");
     bank.phase=0;bank.reject=true;
@@ -175,7 +175,7 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
         "notification predecoded PCM and null gain callback retain direct QA gain without asset loading");
 
     NotificationAudio owner{};config={};config.enabled=false;
-    check(notification_audio_initialize(&owner,config).ok()&&!owner.runtime&&!notification_audio_owned_bytes(&owner)&&
+    check(notification_audio_initialize(&owner,config).ok()&&!owner.runtime&&
         !notification_audio_can_accept(&owner,1),"notification disabled metadata initialization creates no thread, COM or audio endpoint");
     check(notification_audio_submit(&owner,{1,0,0.4f,clip}).error==Error::stopped&&!owner.runtime,
         "notification disabled owner rejects even valid PCM without opening or emitting audio");
@@ -216,13 +216,13 @@ void test_native_notification_audio(void(*check)(bool,const char*) noexcept) noe
             "notification blocked old resolver remains owned until epoch cancellation is actually acknowledged");
         const auto pending=notification_audio_release(&owner,0);
         check(pending.error==Error::join_pending&&owner.runtime&&notification_audio_owned_handles(&owner)==4&&
-            notification_audio_owned_bytes(&owner)>0&&!notification_audio_can_accept(&owner,1),
+            !notification_audio_can_accept(&owner,1),
             "notification stop timeout retains worker, four exact handles, metadata and resolver context instead of freeing live storage");
     }
     SetEvent(blocked.unblock);
     // No sleeps: the release waits on the actual thread's completion handle.
     const auto joined=notification_audio_release(&owner,1000);
-    check(joined.ok()&&!owner.runtime&&!notification_audio_owned_handles(&owner)&&!notification_audio_owned_bytes(&owner),
+    check(joined.ok()&&!owner.runtime&&!notification_audio_owned_handles(&owner),
         "notification acknowledged worker exit permits exact attached-handle teardown with no device or playback");
     if(joined.ok()){CloseHandle(blocked.entered);CloseHandle(blocked.unblock);}
     // If an exceptional join failure occurs, retain the context/events rather

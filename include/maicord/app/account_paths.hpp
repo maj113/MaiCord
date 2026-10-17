@@ -34,8 +34,7 @@ struct AccountPathsResult {
 // is accounts\slot-N\active.*. Every slot has the same canonical file names.
 inline constexpr u32 kAccountPathsSlotCount = 8;
 
-// Builds the canonical per-user paths without touching the filesystem.
-AccountPathsResult account_paths_build(const wchar_t* local_application_data, AccountPaths* paths) noexcept;
+// Builds the canonical per-user paths for slot without touching the filesystem.
 AccountPathsResult account_paths_build_slot(const wchar_t* local_application_data, u32 slot,
                                             AccountPaths* paths) noexcept;
 // Resolves the process's selected slot (0 until the account inventory selects one).

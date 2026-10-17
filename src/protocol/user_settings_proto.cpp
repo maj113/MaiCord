@@ -1,5 +1,6 @@
 #include "maicord/protocol/user_settings_proto.hpp"
 #include "maicord/protocol/base64.hpp"
+#include "maicord/protocol/guild_folders.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/json_scan.hpp"
@@ -365,16 +366,6 @@ u32 user_settings_proto_rewrite(ConstSlice<u8> group, UserSettingsField field, c
     return close_reserved_field(output, start, field.field, contents);
 }
 
-UserSettingsExtractResult user_settings_proto_extract(ConstSlice<u8> proto, u32 mask, Utf8View hash,
-                                                      Slice<u8> output) noexcept {
-    UserSettingsExtractResult invalid{0, 0, E::input};
-    if (proto.count > kUserSettingsProtoMaximumProtoBytes || !byte_range_valid(proto) || !range_valid(output) ||
-        byte_ranges_overlap(proto, {output.data, output.count}) || hash.bytes > kUserSettingsSessionHashBytes ||
-        (hash.bytes && !hash.data))
-        return invalid;
-    return extract(proto_source(proto), mask, hash, output);
-}
-
 UserSettingsExtractResult user_settings_proto_extract_base64(Utf8View base64, u32 mask, Utf8View hash,
                                                              Slice<u8> output) noexcept {
     UserSettingsExtractResult result{0, 0, E::input};
@@ -427,7 +418,7 @@ bool user_settings_proto_patch_valid(ConstSlice<u8> partial) noexcept {
             return false;
         ++fields;
         // The guild folders owner sends its group alone, as one valid message.
-        if (f.number == kUserSettingsGuildFoldersGroup) {
+        if (f.number == kGuildFoldersSettingsField) {
             folders = true;
             if (!valid(w, f.body, f.stop))
                 return false;

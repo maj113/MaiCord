@@ -364,7 +364,6 @@ struct UiAccessEventPlan {
 // capacity are not observed (the plan then falls back to a root change).
 bool ui_access_event_state_initialize(UiAccessEventState* state, Slice<UiAccessObservation> current,
                                       Slice<UiAccessObservation> previous) noexcept;
-void ui_access_event_state_reset(UiAccessEventState* state) noexcept;
 bool ui_access_plan_events(UiAccessEventState* state, const UiAccessTree& tree, UiAccessEventPlan* plan) noexcept;
 
 // New-message announcement decision for the focused conversation. The first

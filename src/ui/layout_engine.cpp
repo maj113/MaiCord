@@ -38,17 +38,6 @@ bool valid_style(const UiLayoutNodeSpec& specification) noexcept {
            (specification.debug_name.data || specification.debug_name.bytes == 0);
 }
 
-bool valid_anchor_region(UiRect region) noexcept {
-    return ui_rect_valid_or_empty(region) && region.left >= 0 && region.top >= 0 &&
-           region.right <= 1 && region.bottom <= 1;
-}
-
-bool valid_anchor(const UiLayoutEngine& engine, const UiLayoutNode& node, u32 index) noexcept {
-    const auto* region = ui_layout_engine_anchor_region(engine, {static_cast<u16>(index), node.generation});
-    return region && valid_anchor_region(*region) && node.parent < index &&
-           engine.storage[node.parent].spec.style.flow == UiLayoutFlow::overlay;
-}
-
 float outer_width(const UiLayoutNode& node) noexcept {
     return node.measured_size.width + node.spec.style.margin.left + node.spec.style.margin.right;
 }
@@ -85,11 +74,6 @@ UiSize initial_measure_constraint(const UiLayoutNode& node, UiSize viewport) noe
 UiLayoutError measure_intrinsic_content(UiLayoutEngine* engine, UiSize viewport) noexcept {
     for (u32 index = 0; index < engine->count; ++index) {
         UiLayoutNode& node = engine->storage[index];
-        // Retained anchor edits are validated in this traversal, before geometry
-        // publication, to avoid a separate scan of every node.
-        if (has_flag(node.spec.style, ui_layout_node_anchored) &&
-            (!valid_style(node.spec) || !valid_anchor(*engine, node, index)))
-            return UiLayoutError::invalid_style;
         const bool wrap = node.spec.style.flow == UiLayoutFlow::horizontal_wrap;
         const bool text = has_flag(node.spec.style, ui_layout_node_text_content) &&
                           engine->measure_callback && has_flag(node.spec.style, ui_layout_node_visible);
@@ -169,8 +153,7 @@ void measure_node(UiLayoutEngine* engine, u32 index) noexcept {
         for (u16 child_slot = node.first_child; child_slot != kInvalidUiLayoutSlot;
              child_slot = engine->storage[child_slot].next_sibling) {
             const UiLayoutNode& child = engine->storage[child_slot];
-            if (!has_flag(child.spec.style, ui_layout_node_visible) ||
-                has_flag(child.spec.style, ui_layout_node_anchored)) {
+            if (!has_flag(child.spec.style, ui_layout_node_visible)) {
                 continue;
             }
             const float child_width = outer_width(child);
@@ -291,33 +274,19 @@ inline float arranged_cross_extent(const UiLayoutNode& child, bool horizontal_pa
                         maximum_value);
 }
 
-inline UiRect overlay_child_rectangle(const UiLayoutEngine& engine, const UiLayoutNode& parent,
-                                const UiLayoutNode& child) noexcept {
+inline UiRect overlay_child_rectangle(const UiLayoutNode& parent, const UiLayoutNode& child) noexcept {
     const auto& style = child.spec.style;
-    const bool anchored = has_flag(style, ui_layout_node_anchored);
-    const UiRect available = anchored
-        ? ui_layout_anchor_rectangle(parent, engine.anchor_storage[style.anchor_slot].region)
-        : parent.content_rectangle;
+    const UiRect available = parent.content_rectangle;
     const float available_width = ui_rect_width(available);
     const float available_height = ui_rect_height(available);
     const float width = arranged_cross_extent(child, false, available_width);
     const float height = arranged_cross_extent(child, true, available_height);
-    float left = aligned_position(available.left, available_width, width, style.margin.left,
-                                   style.margin.right, style.horizontal_alignment);
-    float top = aligned_position(available.top, available_height, height, style.margin.top,
-                                  style.margin.bottom, style.vertical_alignment);
-    // A centered fixed-size child pivots around a point anchor, rather than
-    // clamping its leading edge to a zero-width region.
-    if (anchored && style.horizontal_alignment == UiLayoutAlignment::center)
-        left = available.left + style.margin.left +
-            (available_width - style.margin.left - style.margin.right - width) * 0.5f;
-    if (anchored && style.vertical_alignment == UiLayoutAlignment::center)
-        top = available.top + style.margin.top +
-            (available_height - style.margin.top - style.margin.bottom - height) * 0.5f;
-    if (!anchored) {
-        left -= parent.scroll_offset.x;
-        top -= parent.scroll_offset.y;
-    }
+    const float left = aligned_position(available.left, available_width, width, style.margin.left,
+                                        style.margin.right, style.horizontal_alignment) -
+                       parent.scroll_offset.x;
+    const float top = aligned_position(available.top, available_height, height, style.margin.top,
+                                       style.margin.bottom, style.vertical_alignment) -
+                      parent.scroll_offset.y;
     return {left, top, left + width, top + height};
 }
 
@@ -334,7 +303,7 @@ void arrange_overlay_children(UiLayoutEngine* engine, UiLayoutNode& parent) noex
             child.visible = false;
             continue;
         }
-        set_geometry(&child, overlay_child_rectangle(*engine, parent, child), inherited_clip);
+        set_geometry(&child, overlay_child_rectangle(parent, child), inherited_clip);
     }
 }
 
@@ -679,7 +648,7 @@ UiRect expected_alignment_rectangle(const UiLayoutEngine& engine, const UiLayout
         return expected_wrap_rectangle(engine, parent, child);
     }
     if (parent.spec.style.flow == UiLayoutFlow::overlay) {
-        return overlay_child_rectangle(engine, parent, child);
+        return overlay_child_rectangle(parent, child);
     }
 
     const bool horizontal = parent.spec.style.flow == UiLayoutFlow::horizontal;
@@ -744,48 +713,6 @@ bool ui_layout_engine_initialize(UiLayoutEngine* engine, Slice<UiLayoutNode> sto
     return true;
 }
 
-bool ui_layout_engine_bind_anchors(UiLayoutEngine* engine, Slice<UiLayoutAnchor> storage) noexcept {
-    if (!engine || !engine->storage.data || engine->count ||
-        (!storage.data && storage.count) || storage.count > kInvalidUiLayoutSlot) return false;
-    engine->anchor_storage = storage;
-    engine->anchor_count = 0;
-    return true;
-}
-
-const UiRect* ui_layout_engine_anchor_region(const UiLayoutEngine& engine,
-                                            UiLayoutNodeHandle handle) noexcept {
-    const auto* node = ui_layout_engine_resolve(engine, handle);
-    if (!node || !has_flag(node->spec.style, ui_layout_node_anchored) || !engine.anchor_storage.data ||
-        node->spec.style.anchor_slot >= engine.anchor_count) return nullptr;
-    const auto& anchor = engine.anchor_storage[node->spec.style.anchor_slot];
-    return anchor.owner.slot == handle.slot && anchor.owner.generation == handle.generation
-        ? &anchor.region : nullptr;
-}
-
-UiLayoutResult ui_layout_engine_set_anchors(UiLayoutEngine* engine, UiLayoutNodeHandle handle,
-                                           UiRect region) noexcept {
-    auto* node = ui_layout_engine_resolve(engine, handle);
-    if (!node || !valid_anchor_region(region) || node->parent >= handle.slot ||
-        engine->storage[node->parent].spec.style.flow != UiLayoutFlow::overlay)
-        return {UiLayoutError::invalid_style, engine ? engine->count : 0, engine ? engine->revision : 0};
-    u32 slot = 0;
-    for (; slot < engine->anchor_count; ++slot) {
-        const auto& owner = engine->anchor_storage[slot].owner;
-        if (owner.slot == handle.slot && owner.generation == handle.generation) break;
-    }
-    if (slot >= engine->anchor_storage.count || !engine->anchor_storage.data)
-        return {UiLayoutError::capacity, engine->count, engine->revision};
-    if (slot < engine->anchor_count && has_flag(node->spec.style, ui_layout_node_anchored) &&
-        node->spec.style.anchor_slot == slot && ui_rect_equal(engine->anchor_storage[slot].region, region))
-        return {UiLayoutError::none, engine->count, engine->revision};
-    engine->anchor_storage[slot] = {handle, region};
-    if (slot == engine->anchor_count) ++engine->anchor_count;
-    node->spec.style.anchor_slot = static_cast<u16>(slot);
-    node->spec.style.flags |= ui_layout_node_anchored;
-    node->measure_constraint = {};
-    return {UiLayoutError::none, engine->count, engine->revision};
-}
-
 void ui_layout_engine_reset(UiLayoutEngine* engine) noexcept {
     if (!engine || !engine->storage.data || engine->storage.count == 0) {
         return;
@@ -795,7 +722,6 @@ void ui_layout_engine_reset(UiLayoutEngine* engine) noexcept {
         engine->generation = 1;
     }
     engine->count = 0;
-    engine->anchor_count = 0;
     engine->wrap_nodes = 0;
 }
 
@@ -837,11 +763,6 @@ UiLayoutResult ui_layout_engine_add(UiLayoutEngine* engine, UiLayoutNodeHandle p
         return UiLayoutResult{UiLayoutError::invalid_parent, engine->count, engine->revision};
     }
     const u16 depth = root ? 0 : static_cast<u16>(parent_node->depth + 1);
-    // Anchor indices are owned by this engine, never copied from another scene.
-    if (has_flag(specification.style, ui_layout_node_anchored)) {
-        ++engine->rejected;
-        return {UiLayoutError::invalid_style, engine->count, engine->revision};
-    }
     if (depth >= kMaximumUiLayoutDepth) {
         ++engine->rejected;
         return UiLayoutResult{UiLayoutError::depth, engine->count, engine->revision};
@@ -992,14 +913,6 @@ UiLayoutValidationResult ui_layout_engine_validate(const UiLayoutEngine& engine,
         if (!node.visible) {
             continue;
         }
-        if (has_flag(node.spec.style, ui_layout_node_anchored) &&
-            (!valid_style(node.spec) || !valid_anchor(engine, node, index))) {
-            const auto* region = ui_layout_engine_anchor_region(engine, handle_for(node, index));
-            push_diagnostic(&result, output, {UiLayoutDiagnosticKind::invalid_anchor,
-                handle_for(node, index), ui_layout_invalid_handle(), {0, 0, 1, 1},
-                region ? *region : UiRect{}, {}});
-            continue;
-        }
         if (!ui_rect_valid_or_empty(node.rectangle)) {
             push_diagnostic(&result, output,
                             UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_extent,
@@ -1047,9 +960,7 @@ UiLayoutValidationResult ui_layout_engine_validate(const UiLayoutEngine& engine,
             const UiRect expected = expected_alignment_rectangle(engine, parent, node);
             if (!rectangles_match(expected, node.rectangle)) {
                 push_diagnostic(&result, output,
-                                UiLayoutDiagnostic{has_flag(node.spec.style, ui_layout_node_anchored)
-                                                       ? UiLayoutDiagnosticKind::invalid_anchor
-                                                       : UiLayoutDiagnosticKind::invalid_alignment,
+                                UiLayoutDiagnostic{UiLayoutDiagnosticKind::invalid_alignment,
                                                    handle_for(node, index), handle_for(parent, node.parent),
                                                    expected, node.rectangle, UiLayoutOverflow{}});
             }

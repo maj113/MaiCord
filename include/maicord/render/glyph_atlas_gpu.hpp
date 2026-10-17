@@ -76,12 +76,6 @@ struct GlyphRasterBatch {
 GlyphAtlasGpuResult glyph_atlas_gpu_initialize(GlyphAtlasGpu* gpu, ID3D11Device* device,
                                                u16 width, u16 height,
                                                u32 command_capacity) noexcept;
-GlyphAtlasGpuResult glyph_atlas_gpu_rasterize(GlyphAtlasGpu* gpu, ID3D11DeviceContext* context,
-                                              const GlyphOutline& outline,
-                                              const GlyphRasterBounds& bounds,
-                                              const GlyphAtlasAllocation& allocation,
-                                              float pixels_per_em, u16 allocation_padding,
-                                              float stroke_half_width = 0) noexcept;
 void glyph_atlas_gpu_release(GlyphAtlasGpu* gpu) noexcept;
 
 } // namespace maicord

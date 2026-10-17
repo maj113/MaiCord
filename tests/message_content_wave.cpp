@@ -231,16 +231,15 @@ void test_media_policy(Check check) noexcept {
     check(defaults && overrides, "media_explicit_settings_adult_teen_region_and_legacy_table");
 
     MessageScene scene{};
-    scene.explicit_filter = MessageExplicitFilter::block;
     MessageRecord record{};
     record.id = 42;
     record.channel_id = 17;
     record.author_id = 19;
     const MessageMediaOwner normal = message_media_owner(record, nullptr);
     check(normal.channel_id == 17 && normal.author_id == 19 && !normal.forwarded &&
-              message_scene_media_policy(scene, normal).filter == MessageExplicitFilter::block &&
+              message_scene_media_policy(scene, normal).filter == MessageExplicitFilter::show &&
               message_scene_media_policy(scene, normal).explicit_reveal_allowed,
-          "media_owner_and_unbound_scene_keep_existing_filter");
+          "media_owner_and_unbound_scene_show_media");
     MessageRichRecord forward{};
     forward.reference.type = 1;
     forward.reference.channel_id = 71;
@@ -635,9 +634,6 @@ void test_invite_cache(Check check) noexcept {
     invite_card_cache_complete(&cache, flaky, GuildInviteOutcome::unavailable, nullptr, 3000);
     invite_card_cache_touch(&cache, flaky, 3000 + kInviteCardRetryMs);
     check(invite_card_cache_find(cache, flaky)->state == InviteCardState::queued, "invite_cache_retries_failures");
-    invite_card_cache_begin(&cache, flaky);
-    invite_card_cache_requeue(&cache);
-    check(invite_card_cache_find(cache, flaky)->state == InviteCardState::queued, "invite_cache_requeues_in_flight");
     char name[8];
     for (u32 i = 0; i < kInviteCardCacheEntries + 4; ++i) {
         name[0] = 'c';
@@ -968,12 +964,13 @@ void test_plugin_decorations(Check check) noexcept {
     MediaPolicyFixture media_policy{{MessageExplicitFilter::blur, false}, {}, 0};
     message_scene_set_media_policy(&f.scene, {&media_policy, query_media_policy, 1});
     const MessageMediaOwner media_owner{first.channel_id, first.author_id, 0, 0, false};
-    check(message_scene_media_obscure(f.scene, first.id, key, false, false) ==
+    constexpr MessageMediaPolicyResult fallback{MessageExplicitFilter::show, true};
+    check(message_scene_media_obscure(f.scene, fallback, first.id, key, false, false) ==
                   MessageMediaObscure::explicit_content &&
-              message_scene_media_obscure(f.scene, 0, key, false, false) == MessageMediaObscure::none,
+              message_scene_media_obscure(f.scene, fallback, 0, key, false, false) == MessageMediaObscure::none,
           "plugin_render_media_blur");
     decorated.media = ui_plugin_media_hide;
-    check(message_scene_media_obscure(f.scene, first.id, key, false, false) ==
+    check(message_scene_media_obscure(f.scene, fallback, first.id, key, false, false) ==
                   MessageMediaObscure::plugin_hidden &&
               equal(message_media_obscure_label(MessageMediaObscure::plugin_hidden),
                     utf8_literal("Media hidden by a plugin")),

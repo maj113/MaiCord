@@ -456,10 +456,7 @@ bool application_profile_open(u64 user, UiRect anchor, ProfileAnchor kind) noexc
                                    ? relationship_store_find(*relationships, user)
                                    : nullptr;
         if (relation && relation->type == RelationshipType::friend_)
-            p->scene.presence = relation->presence == RelationshipPresence::online ? UiPresence::online
-                                : relation->presence == RelationshipPresence::idle ? UiPresence::idle
-                                : relation->presence == RelationshipPresence::dnd  ? UiPresence::busy
-                                                                                   : UiPresence::offline;
+            p->scene.presence = application_friends_presence(relation->presence, UiPresence::offline);
         p->scene.presence_mobile =
             ui_presence_mobile(p->scene.presence, user_store_client_status(g_app.account_ui->user_store, user));
         if (member)

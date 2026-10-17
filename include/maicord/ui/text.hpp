@@ -122,14 +122,11 @@ struct ShapedText {
     float width_including_trailing_whitespace;
     float height;
     u32 line_count;
-    // Packed into the bool plus trailing padding. NativeFontSession is page-aligned;
-    // bit zero stores the inline-object flag, other bits hold one session reference.
-    // The producer/reset retains and releases it, not these accessors.
+    // One NativeFontSession reference. The producer/reset retains and releases
+    // it, not these accessors.
     u64 owner_flags;
-    bool unsupported_inline_object() const noexcept {return (owner_flags&1)!=0;}
-    void set_unsupported_inline_object(bool value) noexcept {owner_flags=(owner_flags&~u64{1})|static_cast<u64>(value);}
-    NativeFontSession* native_fonts() const noexcept {return reinterpret_cast<NativeFontSession*>(owner_flags&~u64{1});}
-    void set_native_fonts(NativeFontSession* value) noexcept {owner_flags=reinterpret_cast<u64>(value)|(owner_flags&1);}
+    NativeFontSession* native_fonts() const noexcept {return reinterpret_cast<NativeFontSession*>(owner_flags);}
+    void set_native_fonts(NativeFontSession* value) noexcept {owner_flags=reinterpret_cast<u64>(value);}
 };
 
 struct NativeTextContext;

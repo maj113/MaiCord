@@ -112,7 +112,6 @@ struct MessagePollPageResult {
 bool message_poll_store_initialize_owned(MessagePollStore*, u32 capacity = kMessagePollDefaultCapacity,
                                          u32 text_bytes = kMessagePollDefaultTextBytes) noexcept;
 void message_poll_store_release(MessagePollStore*) noexcept;
-void message_poll_store_reset(MessagePollStore*) noexcept;
 const MessagePollRecord* message_poll_store_find(const MessagePollStore&, u64 message_id) noexcept;
 Utf8View message_poll_store_string(const MessagePollStore&, MessagePollString) noexcept;
 const MessagePollAnswer* message_poll_record_answer(const MessagePollRecord&, u32 answer_id) noexcept;

@@ -744,7 +744,7 @@ bool retained_run_lifetime() noexcept {
     CHECK(native_text_candidate_line(transient,utf8_literal("AV  "),1000,1000,&native_output.text,nullptr));
     CHECK(native_output.text.run_count==2&&native_output.text.runs[0].native_font&&native_output.text.runs[1].native_font);
     const auto handle=native_output.text.runs[0].native_face;observer=transient.native_fonts;CHECK(native_font_session_retain(observer));
-    native_output.text.set_unsupported_inline_object(true);CHECK(native_output.text.unsupported_inline_object()&&native_output.text.native_fonts()==observer);
+    CHECK(native_output.text.native_fonts()==observer);
     CHECK(native_run_reference(transient.factory,native_output.text,native_output.text.runs[0],&reference));
     text_system_release(&transient);
     CHECK(native_font_session_stats(observer).references==2&&native_font_run_get(*native_font_session_runs(observer),handle));
@@ -754,7 +754,7 @@ bool retained_run_lifetime() noexcept {
     CHECK(outlined.slot==bridged.slot&&outlined.generation==bridged.generation);
     CHECK(native_font_instance_release(native_font_session_instances(observer),bridged));bridged={};
     shaped_text_reset(&native_output.text);
-    CHECK(!native_output.text.native_fonts()&&!native_output.text.unsupported_inline_object()&&!native_font_run_get(*native_font_session_runs(observer),handle));
+    CHECK(!native_output.text.native_fonts()&&!native_font_run_get(*native_font_session_runs(observer),handle));
     CHECK(native_font_session_stats(observer).references==1&&native_font_session_stats(observer).instances==1&&native_font_instance_get(*native_font_session_instances(observer),outlined));
     CHECK(!native_font_session_release(&observer)&&observer);
     CHECK(native_font_instance_release(native_font_session_instances(observer),outlined));outlined={};

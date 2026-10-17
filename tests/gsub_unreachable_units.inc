@@ -6,7 +6,7 @@ bool unreachable_units() noexcept {
     SfntLayout layout{};SfntGsubProgram program{};
     if(sfnt_layout_open({bytes,sizeof(bytes)},SfntLayoutKind::substitution,&layout)!=SfntStatus::ok)return false;
     const auto build=[&](bool compatible,u32 work=1000000) noexcept {
-        return sfnt_gsub_program_prepare(layout,{},64,storage(),&program,work,1000000,false,compatible);};
+        return prepare_gsub_program(layout,{},64,storage(),&program,false,compatible,work);};
     if(build(false)!=SfntStatus::malformed||program.lookups.count)return false;
     bool prepared=false;
     for(u32 work=0;work<32;++work){++budget_checks;const auto status=build(true,work);
@@ -34,6 +34,6 @@ bool unreachable_units() noexcept {
     bytes[36]=bytes[37]=255;
     for(u32 size=0;size<sizeof(bytes);++size){SfntLayout short_layout{};
         if(sfnt_layout_open({bytes,size},SfntLayoutKind::substitution,&short_layout)!=SfntStatus::ok)continue;
-        if(sfnt_gsub_program_prepare(short_layout,{},64,storage(),&program,1000000,1000000,false,true)==SfntStatus::ok||program.lookups.count)return false;}
+        if(prepare_gsub_program(short_layout,{},64,storage(),&program,false,true)==SfntStatus::ok||program.lookups.count)return false;}
     return true;
 }

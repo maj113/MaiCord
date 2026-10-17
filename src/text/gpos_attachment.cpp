@@ -47,14 +47,6 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposAttachment* out,
 SfntStatus sfnt_gpos_attachment_open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGposAttachment* output,u32 work,u32* used) noexcept {
     const WorkReport report{work,work,used};if(!output)return SfntStatus::invalid_input;return open(bytes,type,limit,output,&work);
 }
-SfntStatus sfnt_gpos_attachment_lookup_prepare(const SfntLayout& layout,u16 index,const SfntGdef& gdef,u32 limit,Slice<SfntGposAttachment> storage,SfntGposAttachmentLookup* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(layout.kind!=SfntLayoutKind::positioning || !limit || limit>65536 || (gdef.table.data && gdef.glyph_limit!=limit))return SfntStatus::invalid_input;
-    SfntLookup lookup{};auto s=sfnt_layout_lookup(layout,index,&lookup);if(s!=SfntStatus::ok)return s;if(lookup.type<3 || lookup.type>6)return SfntStatus::unsupported;
-    if(storage.count<lookup.subtable_count)return SfntStatus::output_too_small;if(lookup.subtable_count && !storage.data)return SfntStatus::invalid_input;if(!spend(&work,lookup.subtable_count))return SfntStatus::resource_limit;
-    SfntGposAttachmentLookup result{};s=sfnt_lookup_filter_prepare(gdef,lookup.flags,lookup.mark_set,&result.filter);if(s!=SfntStatus::ok)return s;if((lookup.flags>>8) && !(lookup.flags&0x18) && !gdef.mark_classes.format)return SfntStatus::missing_table;
-    for(u16 i=0;i<lookup.subtable_count;++i){ConstSlice<u8> bytes{};s=sfnt_lookup_subtable(lookup,i,&bytes);if(s!=SfntStatus::ok)return s;s=open(bytes,lookup.type,limit,&storage.data[i],&work);if(s!=SfntStatus::ok)return s;}
-    result.subtables={storage.data,lookup.subtable_count};*output=result;return SfntStatus::ok;
-}
 SfntStatus sfnt_gpos_cursive_anchors(const SfntGposAttachment& sub,u16 glyph,SfntGposCursiveAnchors* output) noexcept {
     if(!output)return SfntStatus::invalid_input;*output={};if(sub.type!=3)return SfntStatus::invalid_input;if(glyph>=sub.glyph_limit)return SfntStatus::glyph_out_of_range;
     const u32 index=sfnt_coverage_index(sub.coverage[0],glyph);if(index==sfnt_not_covered)return SfntStatus::ok;

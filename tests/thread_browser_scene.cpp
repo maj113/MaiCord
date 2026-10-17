@@ -7,14 +7,18 @@ bool overlaps(UiRect a, UiRect b) noexcept { return ui_rect_has_area(ui_rect_int
 bool inside(UiRect a, UiRect b) noexcept {
     return ui_rect_valid(a) && a.left >= b.left && a.top >= b.top && a.right <= b.right && a.bottom <= b.bottom;
 }
+UiRect rectangle(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
+    const auto* node = ui_widget_manager_layout_node(s.widgets, handle);
+    return node ? node->rectangle : UiRect{};
+}
 bool controls_separate(const UiThreadBrowserScene& s) noexcept {
     const UiWidgetHandle controls[]{s.close, s.active_tab, s.archived_tab, s.previous, s.next, s.retry, s.create_post};
     for (u32 i = 0; i < 7; ++i) {
         if (!controls[i].generation) continue;
-        const auto a = ui_thread_browser_scene_rectangle(s, controls[i]);
+        const auto a = rectangle(s, controls[i]);
         if (!inside(a, s.panel)) return false;
         for (u32 j = 0; j < i; ++j)
-            if (controls[j].generation && overlaps(a, ui_thread_browser_scene_rectangle(s, controls[j]))) return false;
+            if (controls[j].generation && overlaps(a, rectangle(s, controls[j]))) return false;
         if (overlaps(a, s.body)) return false;
     }
     return true;
@@ -99,7 +103,7 @@ void test_forum_channel_scene(void (*check)(bool, const char*) noexcept) noexcep
     if (!scene.active) return;
     const auto first = scene.backing->cards[0], second = scene.backing->cards[1];
     const auto card_hit = ui_thread_browser_scene_hit_test(scene, first.left + 40, first.top + 40);
-    const auto chip = ui_thread_browser_scene_rectangle(scene, scene.backing->chips[2]);
+    const auto chip = rectangle(scene, scene.backing->chips[2]);
     const auto chip_hit = ui_thread_browser_scene_hit_test(scene, chip.left + 4, chip.top + 4);
     check(ui_rect_height(first) == 116 && second.top == first.bottom + 8 &&
         card_hit.action == UiThreadBrowserAction::open_thread && card_hit.thread_id == 900 &&

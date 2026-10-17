@@ -13,7 +13,7 @@
 namespace maicord::confirmation_runtime_test {
 using namespace app_detail;
 struct Observations {
-    u32 failures, editor_calls, store_calls, measurements, builds, saves, render_copies;
+    u32 failures, editor_calls, store_calls, measurements, builds, saves;
     u32 login_prepares, login_releases, login_refreshes;
     bool owner_valid, save_ok, fail_build, ordinary_projection;
     void* last_form;
@@ -142,13 +142,13 @@ void ordinary_projection() noexcept {
     };
     check(refresh_projection() && form->scene.content.text.data == reinterpret_cast<const char*>(model) &&
               form->scene.content.text.bytes == sizeof(model) && form->scene.content.anchor_utf16 == 0 &&
-              form->scene.content.caret_utf16 == 3 && !seen.render_copies,
+              form->scene.content.caret_utf16 == 3,
           "ordinary projection: actual controller borrows exact UTF-8 model and validates supplementary "
           "UTF-16 selection without display copying");
     model[0] = 'B';
     ++form->edit.revision;
     check(refresh_projection() && form->scene.content.text.data == reinterpret_cast<const char*>(model) &&
-              form->scene.content.text.data[0] == 'B' && !seen.render_copies,
+              form->scene.content.text.data[0] == 'B',
           "ordinary projection: next model revision retains borrowed owner and reprojects current bytes");
     const u32 builds = seen.builds, calls = seen.editor_calls;
     form->edit.password = true;
@@ -173,7 +173,7 @@ void ordinary_projection() noexcept {
     form->edit.storage.bytes = 0;
     form->edit.caret = 0;
     check(refresh_projection() && form->scene.content.text.data == reinterpret_cast<const char*>(model) &&
-              !form->scene.content.text.bytes && !seen.render_copies,
+              !form->scene.content.text.bytes,
           "ordinary projection: valid empty model borrows zero bytes without an extra buffer");
     form->request.confirmation_only = true;
     form->edit = {};
@@ -614,11 +614,6 @@ ConstSlice<u8> secure_edit_view(const SecureEdit& edit) noexcept {
     return confirmation_runtime_test::seen.ordinary_projection
                ? ConstSlice<u8>{edit.storage.data, edit.storage.bytes}
                : ConstSlice<u8>{};
-}
-SecureEditResult secure_edit_render_text(const SecureEdit&, Slice<char>, u32*) noexcept {
-    ++confirmation_runtime_test::seen.editor_calls;
-    ++confirmation_runtime_test::seen.render_copies;
-    return SecureEditResult::invalid_input;
 }
 SecureEditResult secure_edit_utf16_selection(const SecureEdit& edit,
                                              SecureEditUtf16Selection* output) noexcept {

@@ -4,10 +4,6 @@
 
 namespace maicord {
 namespace {
-UiRect intersect(UiRect a, UiRect b) noexcept {
-    return {maximum(a.left, b.left), maximum(a.top, b.top), minimum(a.right, b.right),
-            minimum(a.bottom, b.bottom)};
-}
 bool rectangle(UiRect bounds) noexcept {
     return paint_coordinate_valid(bounds.left) && paint_coordinate_valid(bounds.top) &&
            paint_coordinate_valid(bounds.right) && paint_coordinate_valid(bounds.bottom) &&
@@ -48,7 +44,7 @@ const UiVideoControlDescriptor* descriptor(const UiVideoScene& scene, UiVideoCon
 bool eligible(const UiVideoScene& scene, UiVideoControl id) noexcept {
     const auto* control = descriptor(scene, id);
     return scene.active && control && control->enabled && control->visible &&
-           rectangle(intersect(control->bounds, scene.clip));
+           rectangle(ui_rect_overlap(control->bounds, scene.clip));
 }
 bool same_playback_source(const UiVideoScene& scene, const UiVideoPlaybackState& playback) noexcept {
     return scene.active && scene.projection.playback.owner == playback.owner &&
@@ -112,7 +108,7 @@ bool range_request(const UiVideoScene& scene, UiVideoControl id, UiPoint point,
     if (!eligible(scene, id) || !control || control->kind != UiVideoControlKind::range ||
         !paint_coordinate_valid(point.x) || !paint_coordinate_valid(point.y))
         return false;
-    const auto visible = intersect(control->bounds, scene.clip);
+    const auto visible = ui_rect_overlap(control->bounds, scene.clip);
     const float clamped_x = maximum(visible.left, minimum(visible.right, point.x));
     // Requests follow the painted thumb centers. The larger rectangle remains
     // the pointer target, so its end gutters also reach the exact endpoints.
@@ -187,7 +183,7 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
         ui_rect_height(preview) < height + 2 * style.inset ||
         !ui_video_controls_project(playback, bounds, controls, theme, &projected_controls,
                                    same_source && volume_expanded(*scene)) ||
-        !rectangle(intersect(preview, clip))) {
+        !rectangle(ui_rect_overlap(preview, clip))) {
         *scene = {};
         return false;
     }
@@ -206,7 +202,7 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
         projected_controls.controls[1].visible = false;
         projected_controls.controls[4].visible = false;
     }
-    const UiRect effective = intersect(preview, clip);
+    const UiRect effective = ui_rect_overlap(preview, clip);
     const bool geometry_same = same_source && ui_rect_equal(scene->clip, effective) &&
                                ui_rect_equal(scene->projection.bounds, bounds);
     const auto old_focus = scene->focus, old_hover = scene->hover, old_capture = scene->capture;
@@ -233,7 +229,7 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
         scene->buffering_indicator = ui_video_play_affordance_rectangle(preview, {});
     if (!playback.playing && playback.can_play && !playback.error && !playback.buffering) {
         scene->center_play = ui_video_play_affordance_rectangle(preview, {});
-        if (rectangle(intersect(scene->center_play, bounds))) {
+        if (rectangle(ui_rect_overlap(scene->center_play, bounds))) {
             scene->center_play = {};
         }
     }
@@ -277,8 +273,8 @@ bool ui_video_play_affordance_paint(UiRect preview, UiRect clip, const UiVideoPl
     if (!rectangle(preview) || !rectangle(clip) || !affordance_valid(style))
         return false;
     const UiRect button = ui_video_play_affordance_rectangle(preview, style),
-                 visible = intersect(preview, clip);
-    if (!rectangle(button) || !rectangle(visible) || !rectangle(intersect(button, visible)))
+                 visible = ui_rect_overlap(preview, clip);
+    if (!rectangle(button) || !rectangle(visible) || !rectangle(ui_rect_overlap(button, visible)))
         return true;
     if (!paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom))
         return false;
@@ -294,7 +290,7 @@ bool ui_video_scene_covers_preview(const UiVideoScene& scene, UiRect preview) no
     const auto bounds = scene.projection.bounds;
     return scene.active && rectangle(preview) && rectangle(bounds) && bounds.left >= preview.left &&
            bounds.top >= preview.top && bounds.right <= preview.right && bounds.bottom <= preview.bottom &&
-           rectangle(intersect(scene.clip, preview));
+           rectangle(ui_rect_overlap(scene.clip, preview));
 }
 bool ui_video_scene_project_play_only(UiVideoScene* scene, const UiVideoPlaybackState& playback,
                                       UiRect preview, UiRect clip, const UiVideoControlsStyle& controls,
@@ -304,10 +300,10 @@ bool ui_video_scene_project_play_only(UiVideoScene* scene, const UiVideoPlayback
     if (!scene)
         return false;
     const UiRect button = ui_video_play_affordance_rectangle(preview, affordance),
-                 visible = intersect(preview, clip);
+                 visible = ui_rect_overlap(preview, clip);
     UiVideoControlsProjection validated{};
     const float height = ui_video_controls_height(controls, controls.minimum_width);
-    if (!rectangle(clip) || !rectangle(button) || !rectangle(intersect(button, visible)) ||
+    if (!rectangle(clip) || !rectangle(button) || !rectangle(ui_rect_overlap(button, visible)) ||
         !scene_style_valid(style, controls) ||
         !ui_video_controls_project(playback, {0, 0, controls.minimum_width, height}, controls, theme,
                                    &validated)) {
@@ -381,7 +377,7 @@ bool ui_video_scene_hover(UiVideoScene* scene, UiPoint point) noexcept {
         return false;
     const bool previous_preview = scene->preview_hovered;
     const auto previous_control = scene->hover;
-    scene->preview_hovered = scene->active && contains(intersect(scene->preview, scene->clip), point);
+    scene->preview_hovered = scene->active && contains(ui_rect_overlap(scene->preview, scene->clip), point);
     scene->hover = ui_video_scene_hit(*scene, point);
     if (scene->hover == UiVideoControl::seek)
         scene->hover_x = point.x;
@@ -393,7 +389,7 @@ bool ui_video_scene_focus(UiVideoScene* scene, UiVideoControl id, bool keyboard)
         return false;
     const auto* control = descriptor(*scene, id);
     const bool keyboard_volume = keyboard && id == UiVideoControl::volume && control && control->enabled &&
-                                 rectangle(intersect(control->bounds, scene->clip));
+                                 rectangle(ui_rect_overlap(control->bounds, scene->clip));
     if (!eligible(*scene, id) && !keyboard_volume)
         return false;
     scene->focus = id;
@@ -442,7 +438,7 @@ UiVideoSceneResult ui_video_scene_pointer(UiVideoScene* scene, UiVideoPointerEve
             // video, the gaps between controls) are not the picture: a press
             // there must not fall through and toggle playback.
             result.handled =
-                controls_requested(*scene) && contains(intersect(scene->projection.bounds, scene->clip), point);
+                controls_requested(*scene) && contains(ui_rect_overlap(scene->projection.bounds, scene->clip), point);
             return result;
         }
         scene->capture = hit;
@@ -491,7 +487,7 @@ UiVideoSceneResult ui_video_scene_key(UiVideoScene* scene, UiVideoKey key) noexc
     auto projection = scene->projection;
     for (auto& control : projection.controls) {
         const bool hidden_volume = control.id == UiVideoControl::volume && control.enabled &&
-                                   rectangle(intersect(control.bounds, scene->clip));
+                                   rectangle(ui_rect_overlap(control.bounds, scene->clip));
         if (!eligible(*scene, control.id) && !hidden_volume) {
             control.enabled = false;
         }
@@ -544,27 +540,23 @@ u64 ui_video_scene_text_paint_revision(const UiVideoScene& scene) noexcept {
     return hash64_bytes(scene.text_revision, &scene.controls_transition.value,
                         sizeof(scene.controls_transition.value));
 }
-Color faded(Color color, float opacity) noexcept {
-    color.alpha *= opacity;
-    return color;
-}
 u64 ui_video_scene_next_wake(const UiVideoScene& scene, u64 now_ms, bool reduced_motion) noexcept {
     if (!scene.active)
         return 0;
     // Idleness changes visibility, not motion, so it also wakes reduced motion.
     u64 wake = 0;
     if (!scene.idle && scene.activity_ms && idle_countdown(scene) &&
-        rectangle(intersect(scene.projection.bounds, scene.clip))) {
+        rectangle(ui_rect_overlap(scene.projection.bounds, scene.clip))) {
         const u64 deadline = scene.activity_ms + scene.style.idle_ms;
         wake = deadline > now_ms ? deadline : now_ms + 1;
     }
     if (reduced_motion)
         return wake;
     const u64 spinner =
-        ui_spinner_next_wake(now_ms, rectangle(intersect(scene.buffering_indicator, scene.clip)), false);
+        ui_spinner_next_wake(now_ms, rectangle(ui_rect_overlap(scene.buffering_indicator, scene.clip)), false);
     const u64 transition =
         ui_opacity_transition_next_wake(scene.controls_transition, now_ms, false,
-                                        rectangle(intersect(scene.projection.bounds, scene.clip)));
+                                        rectangle(ui_rect_overlap(scene.projection.bounds, scene.clip)));
     if (spinner && (!wake || spinner < wake))
         wake = spinner;
     if (transition && (!wake || transition < wake))
@@ -593,9 +585,9 @@ bool ui_video_scene_tick(UiVideoScene* scene, u64 now_ms, bool reduced_motion) n
     changed = ui_opacity_transition_tick(
                   &scene->controls_transition, controls_requested(*scene) ? 1.0f : 0.0f, now_ms,
                   scene->style.fade_ms, reduced_motion,
-                  rectangle(intersect(scene->projection.bounds, scene->clip))) ||
+                  rectangle(ui_rect_overlap(scene->projection.bounds, scene->clip))) ||
               changed;
-    if (rectangle(intersect(scene->buffering_indicator, scene->clip))) {
+    if (rectangle(ui_rect_overlap(scene->buffering_indicator, scene->clip))) {
         const u8 phase = ui_spinner_phase(now_ms, reduced_motion);
         changed = changed || scene->spinner_phase != phase;
         scene->spinner_phase = phase;
@@ -630,7 +622,7 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
              paint_stream_pop_clip(paint);
     }
     for (const auto& control : scene.projection.controls) {
-        if (!ok || opacity == 0 || !control.visible || !rectangle(intersect(control.bounds, scene.clip)))
+        if (!ok || opacity == 0 || !control.visible || !rectangle(ui_rect_overlap(control.bounds, scene.clip)))
             continue;
         const bool engaged = scene.hover == control.id || scene.capture == control.id;
         if (control.kind == UiVideoControlKind::button) {
@@ -648,7 +640,7 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
                     color.alpha *= .82f;
                 ok = symbol(paint, control.bounds, control.id, scene.projection.playback,
                             scene.play_only ? kUiMediaControlTarget : scene.style.icon_extent,
-                            faded(color, opacity), scene.play_only && scene.projection.playback.error,
+                            ui_theme_color_alpha(color, opacity), scene.play_only && scene.projection.playback.error,
                             scene.capture == control.id && scene.hover == control.id ? 1.0f : 0.0f);
             }
         } else if (control.kind == UiVideoControlKind::range) {
@@ -678,25 +670,25 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
                     const float to = left + scale * minimum(playback.buffered_end[i], u16{10000});
                     if (to > from)
                         ok = quad(paint, {from, track.top, to, track.bottom},
-                                  faded(ink.text_primary, .25f * opacity), round);
+                                  ui_theme_color_alpha(ink.text_primary, .25f * opacity), round);
                 }
             }
             if (ok && control.id == UiVideoControl::seek && scene.hover == UiVideoControl::seek &&
                 scene.capture == UiVideoControl::none && scene.hover_x > left) {
                 // Hover preview: the would-be position, below the played fill.
                 ok = quad(paint, {left, track.top, minimum(right, scene.hover_x), track.bottom},
-                          faded(ink.text_primary, .3f * opacity), round);
+                          ui_theme_color_alpha(ink.text_primary, .3f * opacity), round);
             }
             if (ok && position > left) {
                 ok = quad(paint, {left, track.top, position, track.bottom},
-                          faded(control.enabled ? theme.tokens.emphasis.fill : ink.text_secondary, opacity), round);
+                          ui_theme_color_alpha(control.enabled ? theme.tokens.emphasis.fill : ink.text_secondary, opacity), round);
             }
             if (ok && (engaged || control.id == UiVideoControl::volume ||
                        (scene.keyboard_focus && scene.focus == control.id))) {
                 ok = quad(paint,
                           {position - half_thumb, center_y - half_thumb, position + half_thumb,
                            center_y + half_thumb},
-                          faded(control.id == UiVideoControl::seek ? theme.tokens.emphasis.outline : ink.text_primary, opacity),
+                          ui_theme_color_alpha(control.id == UiVideoControl::seek ? theme.tokens.emphasis.outline : ink.text_primary, opacity),
                           half_thumb);
             }
         } else if (control.id == UiVideoControl::status && ui_video_scene_label(scene, control.id).bytes) {
@@ -705,13 +697,13 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
         if (ok && scene.keyboard_focus && scene.focus == control.id && control.enabled) {
             ok = paint_stream_push_rounded_border(
                 paint, control.bounds.left, control.bounds.top, control.bounds.right, control.bounds.bottom,
-                {}, faded(theme.tokens.border.focus, opacity), scene.style.radius, scene.style.focus_width);
+                {}, ui_theme_color_alpha(theme.tokens.border.focus, opacity), scene.style.radius, scene.style.focus_width);
         }
     }
     if (ok && !scene.play_only && rectangle(scene.center_play)) {
         ok = ui_video_play_affordance_paint(scene.preview, scene.clip, {}, theme, paint);
     }
-    if (ok && rectangle(intersect(scene.buffering_indicator, scene.clip))) {
+    if (ok && rectangle(ui_rect_overlap(scene.buffering_indicator, scene.clip))) {
         const auto backdrop = scene.buffering_indicator;
         Color background = theme.base_lowest;
         background.alpha *= scene.style.surface_opacity;
@@ -733,7 +725,7 @@ bool ui_video_scene_text_output(const UiVideoScene& scene, const Theme& theme, U
         return true;
     for (const auto& control : scene.projection.controls) {
         const auto label = ui_video_scene_label(scene, control.id);
-        const auto clip = intersect(control.bounds, scene.clip);
+        const auto clip = ui_rect_overlap(control.bounds, scene.clip);
         if (!control.visible || !label.bytes || !rectangle(clip) ||
             control.kind == UiVideoControlKind::button)
             continue;

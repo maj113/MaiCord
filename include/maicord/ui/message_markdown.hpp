@@ -113,7 +113,6 @@ struct MessageMarkdownResult {
     Utf8View text;
     u32 span_count;
     u32 transformations;
-    u32 delimiter_peak;
     u32 syntax_tokens;
     u32 syntax_styled_bytes;
     u32 resolved_entities;

@@ -149,20 +149,6 @@ void run() noexcept {
     if (!maximum_admitted) { account_permission_storage_release(*owner); VirtualFree(owner, 0, MEM_RELEASE); return; }
     const usize highwater = owner->role_storage.arena.committed + owner->overwrite_storage.arena.committed;
     measurement("MEASURE permission_max_committed_bytes=", highwater);
-    const u32 full_role_commits = owner->role_storage.arena.commit_count;
-    const u32 full_overwrite_commits = owner->overwrite_storage.arena.commit_count;
-    chat_state_store_clear(&state);
-    check(!state.role_count && !state.overwrite_count && state.role_backed_count == kChatStateRoleCapacity &&
-        state.overwrite_backed_count == kChatStateOverwriteCapacity &&
-        state.roles == reinterpret_cast<const RoleRecord*>(roles) &&
-        state.overwrites == reinterpret_cast<const PermissionOverwriteRecord*>(overwrites) && state.permission_reserve &&
-        state.permission_reserve_context == owner && zero(roles, kChatStateRoleCapacity * sizeof(RoleRecord)) &&
-        zero(overwrites, kChatStateOverwriteCapacity * sizeof(PermissionOverwriteRecord)) &&
-        chat_state_store_prepare_permissions(&state, 1, 1) &&
-        owner->role_storage.arena.commit_count == full_role_commits &&
-        owner->overwrite_storage.arena.commit_count == full_overwrite_commits &&
-        owner->role_storage.arena.committed + owner->overwrite_storage.arena.committed == highwater,
-        "permission clear wipes admitted rows and preserves installed ownership and reusable highwater without VM work");
     state = {}; account_permission_storage_release(*owner);
     check(!owner->role_storage.arena.base && !owner->overwrite_storage.arena.base &&
         vm(roles, MEM_FREE) && vm(overwrites, MEM_FREE), "permission detached production owner releases both actual VM reservations");

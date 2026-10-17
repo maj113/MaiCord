@@ -165,8 +165,9 @@ void popup_identity_case(void (*check)(bool, const char*) noexcept) noexcept {
     valid = valid && popup_media_presentation_resolve(popup, 2, &media) == PopupMediaPresentationStatus::ready &&
         media.regional_flag == 504 && !media.avatar && !media.guild_icon;
     UiTextCommand commands[8]{}; UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     valid = valid && ui_text_command_stream_initialize(&text, {commands, 8}) &&
-        popup_text_presentation_build(popup, Theme{}, &text) && text.count == 1 &&
+        popup_text_presentation_build_output(popup, Theme{}, &text_output) && text.count == 1 &&
         utf8_equal(commands[0].text, tajikistan);
     check(valid, "flag-named users keep text, guild icons keep identity media and Unicode emoji cells use flags");
     popup_scene_release(&popup);

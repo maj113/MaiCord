@@ -31,22 +31,11 @@ def main():
             for name,value in g.GlyphClassDef.classDefs.items():classes[font.getGlyphID(name)]=value
         if g and g.MarkAttachClassDef:
             for name,value in g.MarkAttachClassDef.classDefs.items():marks[font.getGlyphID(name)]=value
-        attach=g.AttachList if g else None;carets=g.LigCaretList if g else None;sets=getattr(g,'MarkGlyphSetsDef',None) if g else None;store=getattr(g,'VarStore',None) if g else None
-        ac=len(attach.Coverage.glyphs) if attach else 0;cc=len(carets.Coverage.glyphs) if carets else 0;sc=len(sets.Coverage) if sets else 0
-        flags=bool(g)|(bool(attach)<<1)|(bool(carets)<<2)|(bool(sets)<<3)|(bool(store)<<4)
-        blob=bytearray(struct.pack('<6I',n,len(raw),flags,ac,cc,sc)+raw)
+        sets=getattr(g,'MarkGlyphSetsDef',None) if g else None;store=getattr(g,'VarStore',None) if g else None
+        sc=len(sets.Coverage) if sets else 0
+        flags=bool(g)|(bool(sets)<<1)|(bool(store)<<2)
+        blob=bytearray(struct.pack('<4I',n,len(raw),flags,sc)+raw)
         for c,m in zip(classes,marks):blob+=struct.pack('<HH',c,m)
-        if attach:
-            for name,points in zip(attach.Coverage.glyphs,attach.AttachPoint):
-                blob+=struct.pack('<II',font.getGlyphID(name),len(points.PointIndex));blob+=struct.pack('<'+'I'*len(points.PointIndex),*points.PointIndex)
-        if carets:
-            for name,lig in zip(carets.Coverage.glyphs,carets.LigGlyph):
-                blob+=struct.pack('<II',font.getGlyphID(name),len(lig.CaretValue))
-                for cv in lig.CaretValue:
-                    dev=getattr(cv,'DeviceTable',None);value=cv.CaretValuePoint if cv.Format==2 else cv.Coordinate
-                    fmt=dev.DeltaFormat if dev else 0;start=dev.StartSize if dev else 0;end=dev.EndSize if dev else 0;deltas=dev.DeltaValue if dev and fmt!=0x8000 else []
-                    blob+=struct.pack('<6I',cv.Format,value&0xffffffff,fmt,start,end,len(deltas))
-                    for d in deltas:blob+=struct.pack('<i',d)
         glyphsets=[set(font.getGlyphID(name) for name in cov.glyphs) for cov in sets.Coverage] if sets else []
         for glyphs in glyphsets:blob+=struct.pack('<I',len(glyphs))+struct.pack('<'+'I'*len(glyphs),*sorted(glyphs))
         blob+=struct.pack('<3I',store.VarRegionList.RegionAxisCount if store else 0,len(store.VarRegionList.Region) if store else 0,len(store.VarData) if store else 0)
@@ -61,7 +50,7 @@ def main():
                         if ignore:bits[glyph//8]|=1<<(glyph%8)
                     configs.append(struct.pack('<II',low|(mt<<8),selected)+bits)
         blob+=struct.pack('<I',len(configs))+b''.join(configs);records.append(blob)
-        metadata.append({**identity,'gdef_sha256':hashlib.sha256(raw).hexdigest(),'version':g.Version if g else None,'glyphs':n,'attachments':ac,'caret_glyphs':cc,'mark_sets':sc,'variation_store':bool(store),'filters':len(configs)})
+        metadata.append({**identity,'gdef_sha256':hashlib.sha256(raw).hexdigest(),'version':g.Version if g else None,'glyphs':n,'mark_sets':sc,'variation_store':bool(store),'filters':len(configs)})
     for source in sources:
         if hashlib.sha256(Path(source['path']).read_bytes()).hexdigest()!=source['sha256']:
             raise ValueError(f"Source font changed: {source['path']}")
@@ -73,7 +62,7 @@ def main():
     for minor in (0,2,3):
         font=TTFont();font.setGlyphOrder(['g0','g1','g2','g3','g4']);raw=synthetic(minor);g=otTables.GDEF();g.decompile(OTTableReader(raw,tableTag='GDEF'),font);g.ensureDecompiled(recurse=True)
         emit(font,raw,g,{'synthetic':True,'name':f'GDEF-1.{minor}'})
-    a.out.write_bytes(b'MCGDEF1\0'+struct.pack('<I',len(records))+b''.join(records))
+    a.out.write_bytes(b'MCGDEF2\0'+struct.pack('<I',len(records))+b''.join(records))
     meta={'fontTools_version':fontTools.__version__,'records':metadata,'corpus_sha256':hashlib.sha256(a.out.read_bytes()).hexdigest()};a.out.with_suffix('.json').write_text(json.dumps(meta,indent=2)+'\n');print(f'Captured {len(records)} GDEF records')
 
 if __name__=='__main__':main()

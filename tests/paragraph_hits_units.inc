@@ -159,16 +159,16 @@ bool hit_guards() noexcept {
         const NativeParagraphShape prepared{4,2,4,{20,15}};
         CHECK(native_latin_paragraph_boundaries(split_text,{split,4},{{scalars,4},{breaks,5}})==SfntStatus::ok);
         CHECK((split[1].flags&native_paragraph_crlf_prefix)&&!(split[1].flags&native_paragraph_newline));
-        CHECK(native_styled_paragraph_layout(prepared,{split,4},{advances,2},{parts,4},1,64,true,{split_runs,4},&fitted)==SfntStatus::ok);
+        CHECK(native_prepared_styled_paragraph_layout(prepared,{split,4},{advances,2},{parts,4},1,64,true,{split_runs,4},&fitted)==SfntStatus::ok);
         CHECK(fitted.line_count==2&&fitted.run_count==4&&fitted.height==40&&fitted.width==7);
         CHECK(split_runs[1].source_first==1&&split_runs[1].source_count==1&&split_runs[2].source_first==2&&split_runs[2].source_count==1&&split_runs[1].baseline==split_runs[2].baseline);
     }
-    NativeParagraphShape shape{3,1,2,{20,15}};const auto text=utf8_literal("a\r\n");
+    NativeParagraphShape shape{3,1,2,{20,15}};
     NativeParagraphCluster clusters[2]{{0,1,0,1,7,0},{1,3,1,0,0,native_paragraph_newline}};
     SfntPlacement placement{7,0,0};NativeParagraphRun runs[3];NativeParagraphLayout layout{};NativeParagraphHits hits{};
     NativeParagraphHitCluster hc[3];NativeParagraphHitLine hl[2];float ha[1];
     NativeParagraphHitStorage storage{{hc,3},{hl,2},{ha,1},&hits};
-    const auto build=[&](NativeParagraphHitStorage* s,float width=40) noexcept {return native_ascii_paragraph_layout(text,shape,{clusters,2},{&placement,1},width,64,true,{runs,3},&layout,s);};
+    const auto build=[&](NativeParagraphHitStorage* s,float width=40) noexcept {return native_prepared_paragraph_layout(shape,{clusters,2},{&placement,1},width,64,true,{runs,3},&layout,s);};
     CHECK(build(&storage)==SfntStatus::ok&&hits.clusters.count==3&&hits.lines.count==2&&hits.advances.count==1);
     {
         ConstSlice<float> values{};CHECK(native_paragraph_hit_advances(hits,0,&values)&&values.count==1&&values[0]==7);
@@ -198,10 +198,10 @@ bool hit_guards() noexcept {
         CHECK(native_paragraph_hit_range(hits,0,1,bad,0,{&metric,1},&count)==SfntStatus::invalid_input);}
     NativeParagraphHits empty{};CHECK(native_paragraph_hit_position(empty,0,false,&metric,&x)==SfntStatus::invalid_input);
     auto excessive=shape;excessive.glyph_count=native_hit_advance_mask+1;
-    CHECK(native_ascii_paragraph_layout(text,excessive,{clusters,2},{&placement,excessive.glyph_count},40,64,true,{runs,3},&layout,&storage)==SfntStatus::resource_limit&&!hits.lines.count);
+    CHECK(native_prepared_paragraph_layout(excessive,{clusters,2},{&placement,excessive.glyph_count},40,64,true,{runs,3},&layout,&storage)==SfntStatus::resource_limit&&!hits.lines.count);
     // Layouts with no glyphs still expose one typographic line. Editor-level
     // empty-input caret height remains the established separate UI policy.
-    shape={0,0,0,{20,15}};CHECK(native_ascii_paragraph_layout({},shape,{}, {},40,64,true,{},&layout,&storage)==SfntStatus::ok);
+    shape={0,0,0,{20,15}};CHECK(native_prepared_paragraph_layout(shape,{},{},40,64,true,{},&layout,&storage)==SfntStatus::ok);
     CHECK(hits.lines.count==1&&!hits.clusters.count&&native_paragraph_hit_position(hits,0,false,&metric,&x)==SfntStatus::ok&&metric.height==20&&x==0);
     return true;
 }

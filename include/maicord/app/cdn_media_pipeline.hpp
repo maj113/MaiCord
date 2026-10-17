@@ -277,32 +277,21 @@ CdnEncodedAudioResult cdn_media_pipeline_admit_audio(CdnMediaPipeline*, MediaAss
                                                      ConstSlice<u8> conditional_etag = {},
                                                      OggOpusCancelled cancelled = nullptr,
                                                      void* context = nullptr) noexcept;
-CdnEncodedAudioResult cdn_media_pipeline_lookup_ogg_opus(CdnMediaPipeline*, MediaAssetKey, u64 now_seconds,
-                                                         OggOpusCancelled cancelled = nullptr,
-                                                         void* context = nullptr) noexcept;
-CdnEncodedAudioResult cdn_media_pipeline_admit_ogg_opus(CdnMediaPipeline*, MediaAssetKey,
-                                                        const CdnResponseResult&, ConstSlice<u8> body,
-                                                        ConstSlice<u8> conditional_etag = {},
-                                                        OggOpusCancelled cancelled = nullptr,
-                                                        void* context = nullptr) noexcept;
 
 bool cdn_media_pipeline_initialize(CdnMediaPipeline* pipeline, EncodedMediaCache* cache,
                                    Slice<u8> scanline_storage) noexcept;
 bool cdn_media_pipeline_bind_webp_workspace(CdnMediaPipeline* pipeline, Vp8lWorkspace* workspace) noexcept;
-bool cdn_media_pipeline_bind_lossy_webp_workspace(CdnMediaPipeline* pipeline,
-                                                  LossyWebpWorkspace* workspace) noexcept;
 bool cdn_media_pipeline_bind_animated_webp_workspace(CdnMediaPipeline* pipeline,
                                                      AnimatedWebpWorkspace* workspace) noexcept;
 bool cdn_media_pipeline_bind_apng_workspace(CdnMediaPipeline* pipeline, ApngWorkspace* workspace) noexcept;
 bool cdn_media_pipeline_bind_gif_workspace(CdnMediaPipeline* pipeline, GifWorkspace* workspace) noexcept;
-bool cdn_media_pipeline_bind_jpeg_workspace(CdnMediaPipeline* pipeline, JpegWorkspace* workspace) noexcept;
 
 // A stale result carries the cached ETag for a conditional request but does
 // not spend decode CPU. Fresh hits are fully parsed, inflated, and filtered.
 CdnStaticPngResult cdn_media_pipeline_lookup_static_png(CdnMediaPipeline* pipeline, MediaAssetKey key,
                                                         u64 now_seconds) noexcept;
 
-// Consumes only metadata produced by validate_static_png_response.
+// Consumes only PNG metadata produced by validate_static_image_response.
 // A 200 body is decoded before it is published into the encoded cache. A 304
 // must correlate to an existing ETag-bearing entry.
 CdnStaticPngResult cdn_media_pipeline_admit_static_png(CdnMediaPipeline* pipeline, MediaAssetKey key,

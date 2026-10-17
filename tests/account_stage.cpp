@@ -95,7 +95,7 @@ void test_instances() noexcept {
                         R"({"channel_id":"20","topic":"Q&A \"live\"","privacy_level":2,"send_start_notification":false})")),
           "stage account: starting posts the channel, escaped topic and guild-only privacy");
     start.send_start_notification = true;
-    start.privacy_level = kStagePrivacyPublic;
+    start.privacy_level = 1; // Retired PUBLIC level passes through unchanged.
     check(submitted(start, M::post, P::none, 0, utf8_literal("/api/v9/stage-instances"),
                     utf8_literal(
                         R"({"channel_id":"20","topic":"Q&A \"live\"","privacy_level":1,"send_start_notification":true})")),

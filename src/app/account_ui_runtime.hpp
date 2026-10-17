@@ -315,7 +315,7 @@ inline constexpr u32 kAccountUiMarkdownCacheBytes = 16 + sizeof(MessageMarkdownC
 // Measurements were 808 bytes and guild records 120 when the base was taken;
 // the appearance and activity stores were then two StableStorage + 16 each.
 static_assert(sizeof(AccountUiRuntime) ==
-              4'298'120 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
+              4'261'240 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   sizeof(MemberMediaCache) +
                   kMaximumMessageTextMeasurements * (sizeof(MessageTextMeasurement) - 808) +
                   kChatStateGuildCapacity * (sizeof(GuildRecord) - 120) +

@@ -4,9 +4,7 @@
 #define update_handoff_launch fixture_handoff_launch
 #define update_handoff_wait fixture_handoff_wait
 #define update_handoff_release fixture_handoff_release
-#define update_handoff_child_requested fixture_handoff_child_requested
 #define update_handoff_child_open fixture_handoff_child_open
-#define update_handoff_child_wait_parent fixture_handoff_child_wait_parent
 #define update_handoff_child_acknowledge fixture_handoff_child_acknowledge
 #define update_handoff_child_release fixture_handoff_child_release
 #include "maicord/app/update_handoff.hpp"
@@ -43,9 +41,7 @@ BOOL WINAPI launch(const wchar_t* app, wchar_t* command, SECURITY_ATTRIBUTES* pr
 #undef update_handoff_launch
 #undef update_handoff_wait
 #undef update_handoff_release
-#undef update_handoff_child_requested
 #undef update_handoff_child_open
-#undef update_handoff_child_wait_parent
 #undef update_handoff_child_acknowledge
 #undef update_handoff_child_release
 
@@ -111,7 +107,6 @@ void test_update_handoff(void (*check)(bool, const char*) noexcept) noexcept {
     check(fixture_handoff_wait(&empty_owner, 1).error == UpdateHandoffError::invalid_input &&
         fixture_handoff_release(&empty_owner).ok(), "handoff: launch success is required before native wait; empty cleanup is safe");
     constexpr wchar_t bare[] = L"MaiCord.exe --maicord-update-child-v1";
-    check(fixture_handoff_child_requested({bare, sizeof(bare) / sizeof(wchar_t) - 1}), "handoff: fixed early mode recognized");
     UpdateHandoffChild child{}; const auto identity = fixture_identity(1);
     check(fixture_handoff_child_open({bare, sizeof(bare) / sizeof(wchar_t) - 1}, identity, false, &child).error == UpdateHandoffError::enrollment &&
         !child.parent && !child.view, "handoff: command-line handles do not authorize unenrolled child");
@@ -193,8 +188,7 @@ void test_update_handoff(void (*check)(bool, const char*) noexcept) noexcept {
                 const bool closed_original = CloseHandle(owner.process) != FALSE;
                 if (closed_original) owner.process = nullptr;
                 check(closed_original, "handoff: original process handle can close without invalidating retained identity");
-                const auto dead = fixture_handoff_child_wait_parent(&retained_process, 1);
-                check(dead.ok() && dead.outcome == UpdateHandoffOutcome::process_exited,
+                check(WaitForSingleObject(retained_process.parent, 1) == WAIT_OBJECT_0,
                     "handoff: real retained process wait observes exact exit after original handle closed; no PID or sleep");
                 check(fixture_handoff_child_release(&retained_process).ok(), "handoff: retained exited process owner closes explicitly");
             }

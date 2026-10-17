@@ -32,8 +32,9 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
     ReactionPreferenceStore preferences{};
     ReactionPickerModel picker{};
     bool valid = reaction_preferences_initialize(&preferences) &&
-                 reaction_preferences_track(&preferences, 4, 1000).ok() &&
-                 reaction_preferences_toggle_favorite(&preferences, 4).ok() &&
+                 reaction_preferences_track_emoji(&preferences, ReactionPreferenceKind::reaction,
+                                                  reaction_emoji_unicode(4), 1000).ok() &&
+                 reaction_preferences_toggle_favorite_emoji(&preferences, reaction_emoji_unicode(4)).ok() &&
                  reaction_picker_open(&picker, 77, &preferences, 1000).ok();
     const u32 favorite = find_section(picker, kReactionPickerSectionFavorites),
               recent = find_section(picker, kReactionPickerSectionFrequent);
@@ -107,9 +108,10 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
     state.emoji_count = kReactionPickerCustomEmojiCapacity;
     state.emoji_roles = roles;
     for (u32 i = 0; valid && i < kReactionPreferenceFavoriteCapacity; ++i)
-        valid = reaction_preferences_toggle_favorite(&preferences, static_cast<u16>(i)).ok();
+        valid = reaction_preferences_toggle_favorite_emoji(&preferences, reaction_emoji_unicode(static_cast<u16>(i))).ok();
     for (u32 i = 0; valid && i < kReactionPreferenceFrequentCapacity; ++i)
-        valid = reaction_preferences_track(&preferences, static_cast<u16>(i), 1000).ok();
+        valid = reaction_preferences_track_emoji(&preferences, ReactionPreferenceKind::reaction,
+                                                 reaction_emoji_unicode(static_cast<u16>(i)), 1000).ok();
     valid = valid && reaction_picker_open(&picker, 88, &preferences, 1000, &state, 1007).ok();
     measurement("MEASURE reaction_maximum_allocation_bytes=", picker.storage.offset);
     measurement("MEASURE reaction_maximum_committed_bytes=", picker.storage.committed);

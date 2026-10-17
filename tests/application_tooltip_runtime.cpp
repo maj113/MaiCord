@@ -51,7 +51,8 @@ void run() noexcept {
     check(ui_text_measure_cache_initialize(&g_app.account_ui->text_measure_cache, {measurements, 4},
                                            measure, nullptr) &&
               ui_scene_initialize_bootstrap(&g_app.shell_scene) &&
-              ui_scene_layout(&g_app.shell_scene, 1000, 700),
+              ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
+                                           kGuildChannelShellLayoutMetrics, 1000, 700),
           "tooltip runtime: actual shell widgets and shared measurement cache initialize");
     const auto gear =
         ui_widget_manager_find(g_app.shell_scene.widgets, static_cast<u32>(UiSemantic::settings) + 1);

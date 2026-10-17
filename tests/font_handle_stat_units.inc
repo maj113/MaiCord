@@ -6,7 +6,14 @@ LONG WINAPI query(HANDLE file,font_path_stat::Io* io,void* buffer,u32 bytes,u32 
     s.volume=31;s.write=37;s.change=41;for(u32 i=0;i<16;++i)s.identity.Identifier[i]=static_cast<u8>(i+1);
     io->bytes=returned;return status;
 }
-using path_stat_tests::public_stamp;
+// Public-API reference stamp from an already open handle.
+bool public_stamp(HANDLE file,NativeFontFileStamp* out) noexcept {
+    *out={};FILE_STANDARD_INFO standard{};FILE_BASIC_INFO basic{};
+    if(GetFileType(file)!=FILE_TYPE_DISK||!GetFileInformationByHandleEx(file,FileIdInfo,&out->identity,sizeof(out->identity))||
+       !GetFileInformationByHandleEx(file,FileStandardInfo,&standard,sizeof(standard))||
+       !GetFileInformationByHandleEx(file,FileBasicInfo,&basic,sizeof(basic))||standard.Directory||standard.EndOfFile.QuadPart<0)return false;
+    out->bytes=static_cast<u64>(standard.EndOfFile.QuadPart);copy_bytes(&out->write,&basic.LastWriteTime,8);copy_bytes(&out->change,&basic.ChangeTime,8);return true;
+}
 bool file_case(const wchar_t* path,bool force_fallback,bool font) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);
     struct Close {HANDLE file;~Close() noexcept {CloseHandle(file);}} close{file};
@@ -18,10 +25,6 @@ bool file_case(const wchar_t* path,bool force_fallback,bool font) noexcept {
         CHECK(native_font_acquire(&store,path,0,&face).ok());
         const auto* opened=native_font_get(store,face);CHECK(opened&&files[0].bytes.count==expected.bytes&&bytes_equal(&files[0].identity,&expected.identity,sizeof(expected.identity)));
         CHECK(native_font_release(&store,face)&&!native_font_stats(store).files);
-        NativeFontCatalogBuilder b{};CHECK(native_font_catalog_builder_initialize(&b));
-        struct Release {NativeFontCatalogBuilder& b;~Release() noexcept {native_font_catalog_builder_release(&b);}} release{b};
-        static u16 scratch[32768];u32 index=0;NativeFontFileStamp discovered{};
-        CHECK(native_font_catalog_builder_add(&b,path,{scratch,32768},&index,65536,1000000,false,&discovered).ok()&&bytes_equal(&discovered,&expected,sizeof(expected)));
     }
     print(projected?"handle stat native identity PASS\n":"handle stat public fallback identity PASS\n");return true;
 }
@@ -45,6 +48,6 @@ bool run(bool force_fallback=false) noexcept {
     CHECK(file_case(path,force_fallback,true));
     n=GetModuleFileNameW(nullptr,path,900);CHECK(n&&n<900);while(n&&path[n-1]!=L'\\')--n;CHECK(n);copy_bytes(path+n,L"fonts\\BioRhyme.ttf",sizeof(L"fonts\\BioRhyme.ttf"));
     CHECK(file_case(path,force_fallback,true));
-    print("handle stat guards, acquisition, catalog and read-locked stamps PASS\n");return true;
+    print("handle stat guards, acquisition and read-locked stamps PASS\n");return true;
 }
 }

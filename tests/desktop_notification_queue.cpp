@@ -141,9 +141,6 @@ void test_desktop_notification_queue(void(*check)(bool,const char*) noexcept) no
     check(desktop_notification_queue_complete(&f.q,generation_old.token,1,Outcome::submitted).error==Error::stale_token &&
         f.q.dispatching && dispatch.identity.generation==2 && utf8_equal(dispatch.body,utf8_literal("body")),
         "display delayed old-generation completion leaves the fresh active receipt and preview unchanged");
-    desktop_notification_queue_complete(&f.q,dispatch.identity.token,dispatch.attempt,Outcome::retry);
-    check(desktop_notification_queue_purge_profile(&f.q,11)==1 && !desktop_notification_queue_pending(&f.q) && zero(f.scratch,64),
-        "display profile purge retires a deferred retry and zeros its retained copied preview");
     desktop_notification_queue_reset(&f.q,0,0);
     check(!desktop_notification_queue_can_admit(&f.q,0) &&
         desktop_notification_queue_enqueue(&f.q,newer).error==Error::stale_generation,

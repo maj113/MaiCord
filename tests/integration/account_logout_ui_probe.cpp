@@ -143,7 +143,7 @@ bool initialize_paths() noexcept {
     while (used)
         suffix[at++] = ticks[--used];
     if (!append(f.root, suffix) || !CreateDirectoryW(f.root, nullptr) ||
-        !account_paths_build(f.root, &f.paths).ok() || !account_paths_ensure_directories(f.paths).ok())
+        !account_paths_build_slot(f.root, 0, &f.paths).ok() || !account_paths_ensure_directories(f.paths).ok())
         return false;
     return copy(f.marker, f.paths.account_directory) && append(f.marker, L"\\active.logout") &&
            copy(f.profile_new, f.paths.profile) && append(f.profile_new, L".new") &&
@@ -1090,7 +1090,7 @@ bool scenarios() noexcept {
                      capture(L"account-logout-startup-complete-light144.bmp"),
                  14))
         return false;
-    const auto field = login_scene_control_rectangle(g_app.login_scene, LoginControl::login);
+    const auto field = login_scene_rectangle(g_app.login_scene, LoginElement::login_field);
     const auto point = center(field);
     if (!require(application_login_position_edit(LoginControl::login, static_cast<short>(LOWORD(point)),
                                                  static_cast<short>(HIWORD(point)), false) &&

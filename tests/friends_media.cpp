@@ -122,8 +122,8 @@ void test_friends_media(void (*check)(bool, const char*) noexcept) noexcept {
         !friends_avatar_media_visit(scene, users, callbacks(&probe)).requests && !probe.requests,
         "friends media: hidden Friends has no requests and cannot admit a late avatar upload");
     scene.active = true;
-    user_store_clear(&users);
-    check(!friends_avatar_media_current(scene, users, second.key),
+    check(user_store_initialize(&users, {records, 160}, {order, 160}, {names, sizeof(names)}) &&
+        !friends_avatar_media_current(scene, users, second.key),
         "friends media: user-cache eviction cannot resurrect a stale avatar identity");
 }
 } // namespace maicord

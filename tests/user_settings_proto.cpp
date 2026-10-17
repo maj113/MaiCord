@@ -35,12 +35,18 @@ template <u32 N> bool has(ConstSlice<u8> haystack, const u8 (&needle)[N]) noexce
 bool text_equal(Slice<u8> data, u32 bytes, Utf8View expected) noexcept {
     return bytes == expected.bytes && bytes_equal(data.data, expected.data, bytes);
 }
+// Settings arrive as base64; encode raw protobuf fixtures first.
+UserSettingsExtractResult extract_raw(ConstSlice<u8> proto, Slice<u8> output) noexcept {
+    char encoded[256]{};
+    const auto base = base64_encode(proto, {encoded, sizeof(encoded)});
+    return base.ok() ? user_settings_proto_extract_base64({encoded, base.bytes}, kUserSettingsStoredGroups, {}, output)
+                     : UserSettingsExtractResult{0, 0, UserSettingsProtoError::input};
+}
 } // namespace
 
 void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcept {
     u8 extracted[512]{};
-    const auto ex = user_settings_proto_extract({kProto, sizeof(kProto)}, kUserSettingsStoredGroups, {},
-                                                {extracted, sizeof(extracted)});
+    const auto ex = extract_raw({kProto, sizeof(kProto)}, {extracted, sizeof(extracted)});
     const ConstSlice<u8> message{extracted, ex.bytes};
     const auto text = user_settings_proto_group(message, 6);
     check(ex.ok() && ex.present_mask == ((1u << 1) | (1u << 6) | (1u << 8) | (1u << 13)) &&
@@ -56,15 +62,13 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
                                                          utf8_literal("hash+/="), {from_text, sizeof(from_text)});
     check(ex64.ok() && ex64.bytes == ex.bytes + 10 && bytes_equal(from_text, extracted, ex.bytes) &&
               user_settings_proto_group({from_text, ex64.bytes}, kUserSettingsSessionHashField).count == 7,
-          "user settings: base64 extraction matches raw extraction and carries the session hash");
+          "user settings: base64 extraction with a session hash keeps the hashless groups and carries the hash");
     const u8 marked[]{66, 0, 0xC8, 0x3E, 1};
     check(user_settings_proto_partial({marked, sizeof(marked)}) && !user_settings_proto_partial(message),
           "user settings: the gateway hand-off marks partial updates");
     u8 bad[]{50, 9, 1};
-    check(user_settings_proto_extract({bad, 3}, kUserSettingsStoredGroups, {}, {from_text, sizeof(from_text)}).error ==
-                  UserSettingsProtoError::protobuf &&
-              user_settings_proto_extract({kProto, sizeof(kProto)}, kUserSettingsStoredGroups, {}, {from_text, 8})
-                      .error == UserSettingsProtoError::capacity,
+    check(extract_raw({bad, 3}, {from_text, sizeof(from_text)}).error == UserSettingsProtoError::protobuf &&
+              extract_raw({kProto, sizeof(kProto)}, {from_text, 8}).error == UserSettingsProtoError::capacity,
           "user settings: malformed input and short output are rejected");
 
     UserSettingsValue v{};

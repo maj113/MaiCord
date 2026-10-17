@@ -4,20 +4,6 @@
 
 namespace maicord {
 namespace {
-Utf8View status_name(GatewayUserStatus status) noexcept {
-    switch (status) {
-    case GatewayUserStatus::online:
-        return utf8_literal("online");
-    case GatewayUserStatus::idle:
-        return utf8_literal("idle");
-    case GatewayUserStatus::dnd:
-        return utf8_literal("dnd");
-    case GatewayUserStatus::invisible:
-        return utf8_literal("invisible");
-    default:
-        return {};
-    }
-}
 bool custom_present(const GatewayCustomStatusActivity* custom) noexcept {
     return custom && (custom->text.bytes || custom->emoji_name.bytes || custom->emoji_id);
 }
@@ -81,7 +67,7 @@ GatewayCommandWriteResult gateway_write_presence_update(const GatewayPresenceUpd
                                                         const GatewayCustomStatusActivity* custom,
                                                         const GatewayGameActivity* game,
                                                         Slice<u8> output) noexcept {
-    const Utf8View status = status_name(presence.status);
+    const Utf8View status = gateway_user_status_name(presence.status);
     if (!status.bytes || !output.data || (presence.has_since && presence.status != GatewayUserStatus::idle) ||
         (game && (!game->name.bytes || !utf8_validate(game->name).valid || !game_type_valid(game->type) ||
                   !utf8_validate(game->details).valid || !utf8_validate(game->state).valid)))

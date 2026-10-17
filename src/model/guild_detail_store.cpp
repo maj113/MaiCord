@@ -278,10 +278,6 @@ const GuildDetailRecord* guild_detail_store_find(const GuildDetailStore& store, 
     return guild_id ? find(const_cast<GuildDetailStore*>(&store), guild_id) : nullptr;
 }
 
-Utf8View guild_detail_store_description(const GuildDetailStore& store, const GuildDetailRecord& record) noexcept {
-    return {store.text + record.text_offset, record.description_bytes};
-}
-
 Utf8View guild_detail_store_vanity_url_code(const GuildDetailStore& store, const GuildDetailRecord& record) noexcept {
     return {store.text + record.text_offset + record.description_bytes, record.vanity_bytes};
 }

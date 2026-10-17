@@ -123,7 +123,6 @@ struct GlyphAtlasGrowth {
     u64 sample_ms[16];
     u64 now_ms;
     u64 last_activity_ms; // last new allocation
-    u64 last_trim_ms;
     u32 sample_count;
     u32 sample_head;
     u32 protect_ms;

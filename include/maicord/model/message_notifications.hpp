@@ -99,12 +99,11 @@ struct MessageNotificationPolicyInput {
     bool ready, live, duplicate, identities_known, roles_known, type_known;
     bool guild_default_known, direct_mention, everyone_mention;
     bool focused, selected, sidebar_selected, current_voice_channel;
-    bool desktop_enabled, sound_enabled, self_mentionable_system;
+    bool self_mentionable_system;
     bool current_voice_channel_known;
 };
 enum class MessageNotificationReason : u8 { eligible, unknown, not_live, duplicate, silent,
     self, special, dnd, quiet, muted, nothing, not_opted_in, selected, not_mentioned, not_joined };
-struct MessageNotificationDecision { MessageNotificationReason reason; bool popup, sound; };
 enum class MessageNotificationScopeMode : u8 { generic, message_thread };
 struct MessageNotificationScope {
     MessageNotificationReason reason;
@@ -122,11 +121,10 @@ MessageNotificationScope message_notification_scope_resolve(const MessageNotific
 MessageNotificationGlobal message_notification_effective_global(const MessageNotificationGlobal&,u64 now_ms,
     bool connected) noexcept;
 // Admission is independent of desktop/sound device output booleans. Callers
-// choose their exact required gate mask; decide uses the input's required_gates.
+// choose their exact required gate mask; this overload uses the input's required_gates.
 MessageNotificationReason message_notification_admit(const MessageNotificationPolicyInput&) noexcept;
 // Override the gate mask without copying the input's roles/global/scope facts.
 MessageNotificationReason message_notification_admit(const MessageNotificationPolicyInput&,u32 required_gates) noexcept;
-MessageNotificationDecision message_notification_decide(const MessageNotificationPolicyInput&) noexcept;
 enum class MessageReadBadge : u8 { none, mention, low_importance };
 // Read-state automations use relationship, mention and mute facts only. Device
 // output, focus, quiet mode, silent messages and popup admission do not apply.

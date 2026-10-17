@@ -33,16 +33,6 @@ struct LogState {
 
 LogState g_log{};
 
-u32 text_length(const char* text) noexcept {
-    u32 length = 0;
-    if (text) {
-        while (text[length] != 0) {
-            ++length;
-        }
-    }
-    return length;
-}
-
 void append_char(char* output, u32 capacity, u32* length, char value) noexcept {
     if (*length + 1 < capacity) {
         output[*length] = value;

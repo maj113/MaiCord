@@ -294,6 +294,7 @@ inline bool theme_views_ui_probe(BackgroundThemeProbeContext c) noexcept {
         UiTextCommand commands[64]{};
         char owned_chars[1024]{};
         UiTextCommandStream text{};
+        UiTextOutput text_output{&text, nullptr};
         if (!ui_text_command_stream_initialize(&text, {commands, 64}, {owned_chars, 1024}))
             return fail(50 + phase);
         if (is_friends) {
@@ -316,7 +317,7 @@ inline bool theme_views_ui_probe(BackgroundThemeProbeContext c) noexcept {
                 if (!pixels.point(x, y, &after) || before == after)
                     return fail(70 + phase);
             }
-            if (!ui_friends_scene_text(friends, theme, &text))
+            if (!ui_friends_scene_text_output(friends, theme, &text_output, nullptr))
                 return fail(80 + phase);
             u32 names_ink = 0;
             Pixels pixels(r);

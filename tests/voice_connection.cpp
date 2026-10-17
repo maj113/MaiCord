@@ -60,7 +60,7 @@ void test_voice_connection(void (*check)(bool, const char*) noexcept) noexcept {
     GatewayVoiceState state{10, 20, 30, session, 0, 0};
     GatewayVoiceServer server{10, 0, text(utf8_literal("test-token-one")), text({endpoint, 10 + digits}),
                               false};
-    check(voice_setup_bind(&setup, 30, session) == VoiceSetupResult::updated &&
+    check(voice_setup_bind_utf8(&setup, 30, session.encoded) == VoiceSetupResult::updated &&
               voice_setup_begin(&setup, 10, 20, GetTickCount64()),
           "voice handoff bound setup");
     voice_setup_server(&setup, server);

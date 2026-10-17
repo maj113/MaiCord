@@ -233,11 +233,12 @@ void test_action_bar_occlusion(Check check) noexcept {
     static PaintStream paint{};
     UiTextCommand commands[kMessageActionBarQuickReactionCount]{};
     UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     bool presented = paint_stream_initialize(&paint) && paint_stream_reset(&paint) &&
                      ui_text_command_stream_initialize(
                          &text, Slice<UiTextCommand>{commands, kMessageActionBarQuickReactionCount}) &&
                      message_action_bar_presentation_build(bar, kDefaultTheme, &paint) &&
-                     message_action_bar_text_presentation_build(bar, kDefaultTheme, &text);
+                     message_action_bar_text_presentation_build_output(bar, kDefaultTheme, &text_output);
     for (u32 i = 0; presented && i < paint.batch_count; ++i) {
         const auto& clip = paint.clips[paint.batches[i].clip_index];
         presented = clip.top >= banner.bottom && clip.bottom <= rectangle.bottom;

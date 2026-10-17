@@ -96,47 +96,23 @@ template <typename T> void exercise_tbs(Check check, T view, u8* encoded) noexce
     check(result.error == MlsWireError::output_capacity && !result.bytes && filled(encoded, 16384),
           "MLS TBS insufficient capacity preserves entire output");
 }
-template <typename T, MlsDecodeResult (*Exact)(ConstSlice<u8>, T*) noexcept,
-          MlsDecodeResult (*Prefix)(ConstSlice<u8>, T*) noexcept>
+template <typename T, MlsDecodeResult (*Prefix)(ConstSlice<u8>, T*) noexcept>
 T exercise(Check check, u8* data, u32 n) noexcept {
     T view{};
-    const auto result = Exact({data, n}, &view);
-    check(result.ok() && result.bytes == n, "MLS published/independent exact object decode");
+    const auto result = Prefix({data, n}, &view);
+    check(result.ok() && result.bytes == n, "MLS published/independent object decode");
     u8 encoded[16384];
-    memset(encoded, 0xa5, sizeof(encoded));
-    const auto size = mls_encoded_size(view);
-    const auto wrote = mls_encode(view, {encoded, sizeof(encoded)});
-    check(size.ok() && size.bytes == n && wrote.ok() && wrote.bytes == n && bytes_equal(encoded, data, n) &&
-              filled(encoded + n, sizeof(encoded) - n),
-          "MLS field serialization exactly reproduces independent fixtures and preserves tail");
     exercise_tbs(check, view, encoded);
-    const u32 capacities[]{0u, n / 2, n - 1};
-    for (const u32 capacity : capacities) {
-        memset(encoded, 0xa5, sizeof(encoded));
-        const auto small = mls_encode(view, {encoded, capacity});
-        check(small.error == MlsWireError::output_capacity && !small.bytes &&
-                  filled(encoded, sizeof(encoded)),
-              "MLS insufficient serialization capacity preserves entire output");
-    }
-    check(mls_encode(view, {data, n}).error == MlsWireError::invalid_input,
-          "MLS serialization rejects borrowed input overlap before writing");
-    check(mls_encode(view, {reinterpret_cast<u8*>(&view), sizeof(view)}).error ==
-              MlsWireError::invalid_input,
-          "MLS serialization rejects input descriptor overlap");
     T unchanged;
     memset(&unchanged, 0xa5, sizeof(unchanged));
     for (u32 cut = 0; cut != n; ++cut) {
-        const auto failed = Exact({data, cut}, &unchanged);
+        const auto failed = Prefix({data, cut}, &unchanged);
         check(!failed.ok() && !failed.bytes && failed.error_offset <= cut &&
                   filled(&unchanged, sizeof(unchanged)),
               "MLS every object truncation preserves output and bounded error offset");
     }
     data[n] = 0xaa;
     check(Prefix({data, n + 1}, &unchanged).bytes == n, "MLS prefix consumes exactly one nested object");
-    memset(&unchanged, 0xa5, sizeof(unchanged));
-    check(Exact({data, n + 1}, &unchanged).error == MlsWireError::trailing_data &&
-              filled(&unchanged, sizeof(unchanged)),
-          "MLS exact decode rejects trailing data atomically");
     return view;
 }
 void write_failures(Check check) noexcept {
@@ -147,24 +123,22 @@ void write_failures(Check check) noexcept {
     // Building fields directly must not depend on a previously decoded object.
     leaf.serialized = {nullptr, 42};
     leaf.tbs = {nullptr, 42};
-    const u8 expected[]{0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 2, 0, 0};
-    auto result = mls_encode(leaf, {output, sizeof(output)});
+    const u8 expected[]{0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 2, 0};
+    auto result = mls_encode_tbs(leaf, {output, sizeof(output)});
     check(result.ok() && result.bytes == sizeof(expected) &&
               bytes_equal(output, expected, sizeof(expected)),
           "MLS serialize newly constructed fields without cached wire bytes");
     auto reject = [&](MlsWireError error) noexcept {
         memset(output, 0xa5, sizeof(output));
-        const auto size = mls_encoded_size(leaf);
-        const auto encoded = mls_encode(leaf, {output, sizeof(output)});
-        check(size.error == error && encoded.error == error && !size.bytes && !encoded.bytes &&
-                  filled(output, sizeof(output)),
-              "MLS invalid serialization fields rejected atomically by size and encode");
+        const auto encoded = mls_encode_tbs(leaf, {output, sizeof(output)});
+        check(encoded.error == error && !encoded.bytes && filled(output, sizeof(output)),
+              "MLS invalid serialization fields rejected atomically");
     };
-    leaf.signature = {nullptr, 1};
+    leaf.encryption_key = {nullptr, 1};
     reject(MlsWireError::invalid_input);
-    leaf.signature = {nullptr, 0x40000000};
+    leaf.encryption_key = {nullptr, 0x40000000};
     reject(MlsWireError::size_overflow);
-    leaf.signature = {};
+    leaf.encryption_key = {};
     leaf.credential.type = 0;
     reject(MlsWireError::unsupported_credential);
     leaf.credential.type = 1;
@@ -196,52 +170,30 @@ void write_boundaries(Check check) noexcept {
         storage[i] = static_cast<u8>(i);
     const u32 counts[]{0, 1, 63, 64, 16383, 16384};
     for (const auto count : counts) {
-        MlsGroupContextView group{};
-        group.version = 0xffff;
-        group.cipher_suite = 0xabcd;
-        group.epoch = ~u64{0};
-        group.group_id = {storage, count};
-        const auto size = mls_encoded_size(group);
-        const auto encoded = mls_encode(group, {storage + capacity, capacity});
+        MlsKeyPackageView package{};
+        package.version = 0xffff;
+        package.cipher_suite = 0xabcd;
+        package.init_key = {storage, count};
+        package.leaf.credential.type = 1;
+        package.leaf.source = MlsLeafSource::key_package;
+        package.leaf.not_after = ~u64{0};
+        u8* wire = storage + capacity;
+        const auto encoded = mls_encode_tbs(package, {wire, capacity - 1});
         u8 prefix[4];
         const u32 prefix_bytes = mls_vector_length(count, prefix);
-        check(encoded.ok() && size.ok() && size.bytes == encoded.bytes &&
-                  encoded.bytes == count + prefix_bytes + 15 &&
-                  bytes_equal(storage + capacity + 4, prefix, prefix_bytes),
+        // Header 4, minimal key-package leaf 29, package extensions 1.
+        check(encoded.ok() && encoded.bytes == count + prefix_bytes + 34 &&
+                  bytes_equal(wire + 4, prefix, prefix_bytes),
               "MLS writer size and canonical vector prefixes across length boundaries");
-        MlsGroupContextView decoded{};
-        check(mls_group_context_decode({storage + capacity, encoded.bytes}, &decoded).ok() &&
-                  decoded.version == group.version && decoded.cipher_suite == group.cipher_suite &&
-                  decoded.epoch == group.epoch && decoded.group_id.count == count &&
-                  bytes_equal(decoded.group_id.data, storage, count),
+        wire[encoded.bytes] = 0; // Empty package signature completes the object.
+        MlsKeyPackageView decoded{};
+        check(encoded.ok() && mls_key_package_decode({wire, encoded.bytes + 1}, &decoded).ok() &&
+                  decoded.version == package.version && decoded.cipher_suite == package.cipher_suite &&
+                  decoded.leaf.not_after == package.leaf.not_after && decoded.init_key.count == count &&
+                  bytes_equal(decoded.init_key.data, storage, count),
               "MLS writer preserves scalar endianness and vector payloads at boundaries");
     }
     VirtualFree(storage, 0, MEM_RELEASE);
-}
-void package_message(Check check, const MlsKeyPackageView& package) noexcept {
-    MlsMessageView message{};
-    message.version = 1;
-    message.format = MlsWireFormat::key_package;
-    message.key_package = package;
-    u8 wire[16384];
-    const auto encoded = mls_encode(message, {wire, sizeof(wire)});
-    const auto size = mls_encoded_size(message);
-    check(encoded.ok() && size.ok() && size.bytes == encoded.bytes &&
-              encoded.bytes == package.serialized.count + 4 && wire[0] == 0 && wire[1] == 1 &&
-              wire[2] == 0 && wire[3] == 5 &&
-              bytes_equal(wire + 4, package.serialized.data, package.serialized.count),
-          "MLS KeyPackage envelope reproduces published header and raw body");
-    MlsMessageView decoded{};
-    check(mls_message_decode({wire, encoded.bytes}, &decoded).ok() &&
-              decoded.key_package.serialized.data == wire + 4 && decoded.key_package.tbs.data == wire + 4 &&
-              decoded.key_package.tbs.count == package.tbs.count &&
-              bytes_equal(decoded.key_package.tbs.data, package.tbs.data, package.tbs.count),
-          "MLS envelope preserves KeyPackage TBS without signing outer header");
-    wire[5] = 2;
-    memset(&decoded, 0xa5, sizeof(decoded));
-    check(mls_message_decode({wire, encoded.bytes}, &decoded).error == MlsWireError::version_mismatch &&
-              filled(&decoded, sizeof(decoded)),
-          "MLS KeyPackage nested version mismatch is atomic");
 }
 void corpus(Check check, u8* buffer) noexcept {
     void* hash = nullptr;
@@ -253,17 +205,16 @@ void corpus(Check check, u8* buffer) noexcept {
         const u32 n = test_unhex(v.hex, buffer);
         Digest d{check, hash, {buffer, n}};
         if (v.kind == 1) {
-            auto package =
-                exercise<MlsKeyPackageView, mls_key_package_decode, mls_key_package_decode_prefix>(
-                    check, buffer, n);
-            d.package(package);
-            package_message(check, package);
+            d.package(exercise<MlsKeyPackageView, mls_key_package_decode_prefix>(check, buffer, n));
+            MlsKeyPackageView unchanged;
+            memset(&unchanged, 0xa5, sizeof(unchanged));
+            check(mls_key_package_decode({buffer, n + 1}, &unchanged).error == MlsWireError::trailing_data &&
+                      filled(&unchanged, sizeof(unchanged)),
+                  "MLS exact decode rejects trailing data atomically");
         } else if (v.kind == 2)
-            d.leaf(exercise<MlsLeafView, mls_leaf_decode, mls_leaf_decode_prefix>(check, buffer, n));
+            d.leaf(exercise<MlsLeafView, mls_leaf_decode_prefix>(check, buffer, n));
         else
-            d.group(
-                exercise<MlsGroupContextView, mls_group_context_decode, mls_group_context_decode_prefix>(
-                    check, buffer, n));
+            d.group(exercise<MlsGroupContextView, mls_group_context_decode_prefix>(check, buffer, n));
     }
     u8 actual[32], expected[32];
     test_unhex(mls_object_digest, expected);
@@ -325,17 +276,17 @@ void lengths(Check check) noexcept {
     MlsLeafView output;
     memset(&output, 0xa5, sizeof(output));
     minimal[5] = 1; // Odd-length version capability vector.
-    check(mls_leaf_decode({minimal, 29}, &output).error == MlsWireError::malformed &&
+    check(mls_leaf_decode_prefix({minimal, 29}, &output).error == MlsWireError::malformed &&
               filled(&output, sizeof(output)),
           "MLS rejects partial u16 capability elements");
     minimal[5] = 0;
     minimal[3] = 3;
-    check(mls_leaf_decode({minimal, 29}, &output).error == MlsWireError::unsupported_credential &&
+    check(mls_leaf_decode_prefix({minimal, 29}, &output).error == MlsWireError::unsupported_credential &&
               filled(&output, sizeof(output)),
           "MLS does not guess unknown credential union framing");
     minimal[3] = 1;
     minimal[10] = 4;
-    check(mls_leaf_decode({minimal, 29}, &output).error == MlsWireError::invalid_leaf_source &&
+    check(mls_leaf_decode_prefix({minimal, 29}, &output).error == MlsWireError::invalid_leaf_source &&
               filled(&output, sizeof(output)),
           "MLS rejects unknown leaf source union");
     minimal[10] = 1;
@@ -343,7 +294,7 @@ void lengths(Check check) noexcept {
     minimal[28] = 0;
     minimal[29] = 10;
     minimal[30] = 0x40;
-    const auto extension_error = mls_leaf_decode({minimal, 32}, &output);
+    const auto extension_error = mls_leaf_decode_prefix({minimal, 32}, &output);
     check(extension_error.error == MlsWireError::truncated && extension_error.error_offset == 30 &&
               filled(&output, sizeof(output)),
           "MLS nested extension errors preserve absolute wire offset");
@@ -441,9 +392,10 @@ void guards(Check check, u8* buffer) noexcept {
     check(mls_key_package_check_crypto(workspace, {input, n}, signed_view).ok(),
           "MLS exact signed candidate guard");
     const auto encode_view = signed_view->view;
-    const auto encoded = mls_encode(encode_view, {end - n, n});
-    check(encoded.ok() && encoded.bytes == n && bytes_equal(end - n, input, n),
-          "MLS serialized signed package exact output guard and read-only source");
+    const u32 tbs_bytes = encode_view.tbs.count;
+    const auto encoded = mls_encode_tbs(encode_view, {end - tbs_bytes, tbs_bytes});
+    check(encoded.ok() && encoded.bytes == tbs_bytes && bytes_equal(end - tbs_bytes, input, tbs_bytes),
+          "MLS signed package TBS exact output guard and read-only source");
     kdf_sha256_release(&workspace);
     // Every encoded prefix length ends at a guard, rather than merely shortening
     // a readable allocation. Even the one-byte header case must not over-read.

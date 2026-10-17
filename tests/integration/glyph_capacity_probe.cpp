@@ -20,6 +20,13 @@ bool descriptor(const GlyphAtlasGpu& gpu) noexcept {
         v.ViewDimension==D3D11_SRV_DIMENSION_BUFFEREX&&v.BufferEx.Flags==D3D11_BUFFEREX_SRV_FLAG_RAW&&
         b.Usage==D3D11_USAGE_DYNAMIC&&v.BufferEx.NumElements==b.ByteWidth/4;
 }
+// One raster job submitted as its own dispatch.
+GlyphAtlasGpuResult rasterize(GlyphAtlasGpu* gpu,ID3D11DeviceContext* context,const GlyphOutline& outline,
+    const GlyphRasterBounds& bounds,const GlyphAtlasAllocation& allocation,float scale,u16 padding) noexcept {
+    GlyphRasterBatch batch(gpu,context);auto result=batch.add(outline,bounds,allocation,scale,padding);
+    if(result.ok()&&!batch.finish())result=GlyphAtlasGpuResult{E_FAIL,GlyphAtlasGpuError::upload};
+    return result;
+}
 bool run() noexcept {
     State s;CHECK(SUCCEEDED(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,0,nullptr,0,D3D11_SDK_VERSION,&s.device,nullptr,&s.context)));
     CHECK(glyph_atlas_gpu_initialize(&s.gpu,s.device,32,32,2048).ok());
@@ -38,20 +45,20 @@ bool run() noexcept {
     GlyphRasterBounds bounds{0,0,8,8,8,8};GlyphAtlasAllocation allocation{{0,1},1,1,8,8,0,GlyphAtlasError::none,false,false};
     wchar_t failure[2]{};const bool inject=GetEnvironmentVariableW(L"MAICORD_GLYPH_GROWTH_FAILURE",failure,2)==1;
     if(inject){auto* old_buffer=s.gpu.command_buffer;auto* old_view=s.gpu.command_view;
-        const auto failed=glyph_atlas_gpu_rasterize(&s.gpu,s.context,shape(129),bounds,allocation,8,1);
+        const auto failed=rasterize(&s.gpu,s.context,shape(129),bounds,allocation,8,1);
         CHECK(failed.error==GlyphAtlasGpuError::create_resource&&s.gpu.command_buffer==old_buffer&&s.gpu.command_view==old_view&&s.gpu.command_committed==128&&descriptor(s.gpu));
-        CHECK(glyph_atlas_gpu_rasterize(&s.gpu,s.context,shape(5),bounds,allocation,8,1).ok());
-        CHECK(glyph_atlas_gpu_rasterize(&s.gpu,s.context,shape(129),bounds,allocation,8,1).ok());
+        CHECK(rasterize(&s.gpu,s.context,shape(5),bounds,allocation,8,1).ok());
+        CHECK(rasterize(&s.gpu,s.context,shape(129),bounds,allocation,8,1).ok());
         CHECK(s.gpu.command_committed==256&&descriptor(s.gpu));print("PASS growth failure preserves buffer and retry\n");return true;}
     CHECK(glyph_atlas_gpu_initialize(&s.control,s.device,32,32,2048).ok());
-    CHECK(glyph_atlas_gpu_rasterize(&s.control,s.context,shape(2048),bounds,allocation,8,1).ok());
+    CHECK(rasterize(&s.control,s.context,shape(2048),bounds,allocation,8,1).ok());
     CHECK(s.control.command_committed==2048&&descriptor(s.control));
     const u32 counts[]{5,128,129,256,257,512,513,1024,1025,2048,5};
     u8 pixels[2][1024]{};u32 compared=0;print("{\"kind\":\"glyph_command_growth\",\"owner_bytes\":");number(sizeof(GlyphAtlasGpu));print(",\"capacities\":[");
     for(u32 test=0;test<11;++test){const auto outline=shape(counts[test]);const UINT clear[4]{};
         auto* old_buffer=s.gpu.command_buffer;const u32 old_capacity=s.gpu.command_committed;
         for(u32 side=0;side<2;++side){auto& gpu=side?s.control:s.gpu;s.context->ClearUnorderedAccessViewUint(gpu.texture_uav,clear);
-            CHECK(glyph_atlas_gpu_rasterize(&gpu,s.context,outline,bounds,allocation,8,1).ok()&&descriptor(gpu));
+            CHECK(rasterize(&gpu,s.context,outline,bounds,allocation,8,1).ok()&&descriptor(gpu));
             s.context->CopyResource(s.staging,gpu.texture);D3D11_MAPPED_SUBRESOURCE mapped{};
             CHECK(SUCCEEDED(s.context->Map(s.staging,0,D3D11_MAP_READ,0,&mapped)));
             for(u32 y=0;y<32;++y)CopyMemory(pixels[side]+y*32,static_cast<const u8*>(mapped.pData)+y*mapped.RowPitch,32);
@@ -63,14 +70,14 @@ bool run() noexcept {
         if(test)print(",");number(s.gpu.command_committed);
     }
     auto* full=s.gpu.command_buffer;const u32 dispatches=s.gpu.dispatch_count;
-    CHECK(glyph_atlas_gpu_rasterize(&s.gpu,s.context,shape(2049),bounds,allocation,8,1).error==GlyphAtlasGpuError::command_capacity);
+    CHECK(rasterize(&s.gpu,s.context,shape(2049),bounds,allocation,8,1).error==GlyphAtlasGpuError::command_capacity);
     CHECK(s.gpu.command_buffer==full&&s.gpu.command_committed==2048&&s.gpu.dispatch_count==dispatches);
     // Grow while the previous buffer's dispatch is still queued. Both tiles
     // must survive; no CPU readback separates the two submissions.
     glyph_atlas_gpu_release(&s.gpu);CHECK(glyph_atlas_gpu_initialize(&s.gpu,s.device,32,32,2048).ok());
     for(u32 side=0;side<2;++side){auto& gpu=side?s.control:s.gpu;const UINT clear[4]{};s.context->ClearUnorderedAccessViewUint(gpu.texture_uav,clear);
-        allocation.x=1;CHECK(glyph_atlas_gpu_rasterize(&gpu,s.context,shape(5),bounds,allocation,8,1).ok());
-        allocation.x=17;CHECK(glyph_atlas_gpu_rasterize(&gpu,s.context,shape(129),bounds,allocation,8,1).ok());
+        allocation.x=1;CHECK(rasterize(&gpu,s.context,shape(5),bounds,allocation,8,1).ok());
+        allocation.x=17;CHECK(rasterize(&gpu,s.context,shape(129),bounds,allocation,8,1).ok());
         s.context->CopyResource(s.staging,gpu.texture);D3D11_MAPPED_SUBRESOURCE mapped{};
         CHECK(SUCCEEDED(s.context->Map(s.staging,0,D3D11_MAP_READ,0,&mapped)));
         for(u32 y=0;y<32;++y)CopyMemory(pixels[side]+y*32,static_cast<const u8*>(mapped.pData)+y*mapped.RowPitch,32);
@@ -79,7 +86,7 @@ bool run() noexcept {
     for(u32 i=0;i<1024;++i){CHECK(pixels[0][i]==pixels[1][i]);++compared;}
     glyph_atlas_gpu_release(&s.gpu);CHECK(!s.gpu.command_buffer&&!s.gpu.command_view&&!s.gpu.command_capacity&&!s.gpu.command_committed);
     CHECK(glyph_atlas_gpu_initialize(&s.gpu,s.device,32,32,5).ok()&&s.gpu.command_committed==5&&descriptor(s.gpu));
-    CHECK(glyph_atlas_gpu_rasterize(&s.gpu,s.context,shape(5),bounds,allocation,8,1).ok());
+    CHECK(rasterize(&s.gpu,s.context,shape(5),bounds,allocation,8,1).ok());
     CHECK(glyph_atlas_gpu_initialize(&s.gpu,s.device,32,32,0).error==GlyphAtlasGpuError::invalid_input&&s.gpu.command_capacity==5);
     CHECK(glyph_atlas_gpu_initialize(&s.gpu,s.device,32,32,65536).error==GlyphAtlasGpuError::invalid_input&&s.gpu.command_capacity==5);
     glyph_atlas_gpu_release(&s.gpu);CHECK(glyph_atlas_gpu_initialize(&s.gpu,s.device,32,32,65535).ok()&&s.gpu.command_capacity==65535&&s.gpu.command_committed==128);
@@ -94,7 +101,7 @@ bool run() noexcept {
                 commands[1].x1=commands[2].x1=0.3f+0.1f*(job%7);
                 allocation.x=static_cast<u16>(1+(mode==2?0:(job%4)*8));
                 allocation.y=static_cast<u16>(1+(mode==2?0:((job/4)%4)*8));
-                CHECK((side?glyph_atlas_gpu_rasterize(&gpu,s.context,outline,bounds,allocation,6,1):
+                CHECK((side?rasterize(&gpu,s.context,outline,bounds,allocation,6,1):
                     batch.add(outline,bounds,allocation,6,1)).ok());
             }
             CHECK(batch.finish()&&!batch.pending()&&gpu.raster_count-raster_first==64);
@@ -114,11 +121,11 @@ bool run() noexcept {
     glyph_atlas_gpu_release(&s.control);CHECK(glyph_atlas_gpu_initialize(&s.control,s.device,32,32,65535).ok());
     bounds={0,0,1,1,1,1};allocation.x=allocation.y=1;allocation.width=allocation.height=1;
     for(u32 side=0;side<2;++side){auto& gpu=side?s.control:s.gpu;
-        CHECK(glyph_atlas_gpu_rasterize(&gpu,s.context,shape(65535),bounds,allocation,1,0).ok());
+        CHECK(rasterize(&gpu,s.context,shape(65535),bounds,allocation,1,0).ok());
         const UINT clear[4]{};s.context->ClearUnorderedAccessViewUint(gpu.texture_uav,clear);
         const u32 before=gpu.dispatch_count;GlyphRasterBatch batch(&gpu,s.context);
         for(u32 job=0;job<2;++job){allocation.x=static_cast<u16>(1+job*16);const auto outline=shape(job?5:65530);
-            CHECK((side?glyph_atlas_gpu_rasterize(&gpu,s.context,outline,bounds,allocation,1,0):batch.add(outline,bounds,allocation,1,0)).ok());
+            CHECK((side?rasterize(&gpu,s.context,outline,bounds,allocation,1,0):batch.add(outline,bounds,allocation,1,0)).ok());
         }
         CHECK(batch.finish()&&gpu.dispatch_count-before==(side?2u:1u));
         s.context->CopyResource(s.staging,gpu.texture);D3D11_MAPPED_SUBRESOURCE mapped{};

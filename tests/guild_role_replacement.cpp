@@ -74,7 +74,7 @@ bool seed(u32 bank = 512, bool bind_roles = true) noexcept {
     if (!chat_state_store_initialize(&s, {fixture.guilds, 3}, {fixture.guild_order, 3},
         {fixture.channels, 2}, {fixture.channel_order, 2}, {fixture.names, bank * 2}) ||
         (bind_roles && !chat_state_store_bind_permissions(&s, {fixture.roles, 8}, {fixture.overwrites, 2})) ||
-        !chat_state_store_bind_emojis(&s, {fixture.emojis, 2},
+        !chat_state_store_bind_emojis_sparse(&s, {fixture.emojis, 2},
             {fixture.emoji_roles, kGuildRoleMaximum + 1})) return false;
     const u64 guild_ids[] = {10, 20, 30};
     for (const u64 id : guild_ids) {

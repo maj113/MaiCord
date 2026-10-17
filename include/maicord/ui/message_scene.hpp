@@ -53,8 +53,6 @@ inline constexpr u32 kMessageSceneRichItemMaximum = kMessageRichItemMaximum;
 inline constexpr u32 kMessageSceneWidgetsPerContent =
     kMessageSceneBaseWidgetsPerRow + kGatewayMessageReactionMaximum + kMessageSceneRichItemMaximum + 1u;
 inline constexpr u32 kMessageSceneWidgetsPerRow = 2u * kMessageSceneWidgetsPerContent;
-inline constexpr float kMessageSnapshotHeaderHeight = 24.0f;
-inline constexpr float kMessageSnapshotPadding = 10.0f;
 
 enum class MessageSceneError : u8 {
     none,
@@ -255,10 +253,9 @@ struct MessageScene {
     float highlight_level;
     u32 highlight_revision;
     MessageSceneDisplay display;
-    // Session reveals and a borrowed per-author policy. The explicit filter is
-    // the fallback for scenes without a policy query.
+    // Session reveals and a borrowed per-author policy; scenes without a policy
+    // query show explicit media.
     MessageMediaReveals media_reveals;
-    MessageExplicitFilter explicit_filter;
     MessageMediaPolicy media_policy;
     MessageSceneInteraction interaction;
     u32 interaction_revision;
@@ -316,10 +313,6 @@ u32 message_scene_invite_codes(const MessageScene& scene, const MessageRecord& r
 bool message_scene_bind_invite_cards(MessageScene* scene, const InviteCardCache* cache) noexcept;
 // Event cards read this store; callers repaint text when it changes.
 bool message_scene_bind_scheduled_events(MessageScene* scene, const ScheduledEventStore* events) noexcept;
-// Effective obscuring of one media item under the scene policy. message_id
-// applies a plugin media verdict (attachments and embeds); zero ignores it.
-MessageMediaObscure message_scene_media_obscure(const MessageScene& scene, u64 message_id, u64 reveal_key,
-                                                bool spoiler, bool explicit_media) noexcept;
 MessageMediaPolicyResult message_scene_media_policy(const MessageScene&, const MessageMediaOwner&) noexcept;
 bool message_scene_set_media_policy(MessageScene*, const MessageMediaPolicy&) noexcept;
 MessageMediaObscure message_scene_media_obscure(const MessageScene&, const MessageMediaOwner&,
@@ -341,8 +334,6 @@ inline u8 message_scene_plugin_visibility(const MessageScene& scene, const Messa
 }
 // Returns true when the item was newly revealed; the host repaints.
 bool message_scene_reveal_media(MessageScene* scene, u64 reveal_key) noexcept;
-// Returns true when the filter changed; every row is remeasured.
-bool message_scene_set_explicit_filter(MessageScene* scene, MessageExplicitFilter filter) noexcept;
 // Returns true when the feedback changed; failure notices change row height.
 bool message_scene_set_interaction(MessageScene* scene, const MessageSceneInteraction& interaction) noexcept;
 // Returns true when the display changed; every row is remeasured.

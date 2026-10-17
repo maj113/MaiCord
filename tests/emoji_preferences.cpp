@@ -109,7 +109,6 @@ void test_model(Check check) noexcept {
     reaction_preferences_track_emoji(&store, ReactionPreferenceKind::reaction, reaction_emoji_unicode(thumbs),
                                      kNow - 20 * kDay);
     reaction_preferences_track_emoji(&store, ReactionPreferenceKind::reaction, custom, kNow - kDay);
-    reaction_preferences_recompute(&store, kNow);
     auto frequent = reaction_preferences_frequently(store, ReactionPreferenceKind::reaction);
     const auto& table = store.tables[0];
     u32 custom_frecency = 0, thumbs_frecency = 0;

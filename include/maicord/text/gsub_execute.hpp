@@ -31,32 +31,16 @@ inline SfntStatus sfnt_gsub_lookup_prepare(const SfntGsubProgram& program,u16 in
     if(prepared)*prepared=lookup;return SfntStatus::ok;
 }
 struct SfntGsubProgramRequirements {u32 lookups,subtables,coverages,classes;};
-struct SfntGsubProgramStorage {Slice<SfntGsubExecutableLookup> lookups;Slice<SfntGsubExecutableSubtable> subtables;Slice<SfntCoverage> coverages;Slice<SfntClassDef> classes;};
 struct SfntGsubLookupStorage {Slice<SfntGsubExecutableSubtable> subtables;Slice<SfntCoverage> coverages;Slice<SfntClassDef> classes;};
 // Prepare one directory entry; contextual children keep their font indices
 // and must be prepared before execution. Failure leaves output empty.
+// Font mappings and prepared payloads are borrowed and must stay unchanged.
+// payload_work_limit is shared across subtable opens; directory_limit caps
+// visited directory entries.
 SfntStatus sfnt_gsub_lookup_requirements(const SfntLayout&,u16,SfntGsubProgramRequirements*,u32 directory_limit=1000000) noexcept;
 SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout&,u16,const SfntGdef&,u32 glyph_limit,
     SfntGsubLookupStorage,SfntGsubExecutableLookup*,u32 payload_work_limit=1000000,u32 directory_limit=1000000,
     bool ignore_empty_sequences=false,bool ignore_unreachable_single_substitutions=false) noexcept;
-// Font mappings and prepared payloads are borrowed and must stay unchanged.
-// Deferred sources may fill empty directory slots; prepare validates each new
-// payload. payload_work_limit is shared across subtable opens; directory_limit
-// caps visited directory entries. Optional child work reports preserve that budget.
-// A supplied selection includes contextual children unless extending a deferred
-// directory in place; its source must prepare children before execution.
-// Unselected slots keep their indices and need preparation before execution.
-// Inherited storage is dense and must use this layout, GDEF, glyph limit and
-// compatibility policy; selected inherited payloads are borrowed, so the
-// inherited program must outlive the result. Destination payloads/output must be
-// disjoint. The lookup directory may alias inherited storage if all existing
-// entries remain selected. On failure only new slots may be partial; the caller
-// rolls them back.
-SfntStatus sfnt_gsub_program_requirements(const SfntLayout& layout,SfntGsubProgramRequirements* output,u32 directory_limit=1000000,ConstSlice<u64> selected={},const SfntGsubProgram* inherited=nullptr) noexcept;
-SfntStatus sfnt_gsub_program_prepare(const SfntLayout& layout,const SfntGdef& gdef,u32 glyph_limit,
-                                   SfntGsubProgramStorage storage,SfntGsubProgram* output,
-                                   u32 payload_work_limit=1000000,u32 directory_limit=1000000,bool ignore_empty_sequences=false,
-                                   bool ignore_unreachable_single_substitutions=false,ConstSlice<u64> selected={},const SfntGsubProgram* inherited=nullptr) noexcept;
 // The final compatibility option accepts a type-1 subtable only if it validates
 // in the complete 16-bit glyph space and every covered input is outside the
 // font's actual glyph range. Its prepared coverage is empty: no valid input can

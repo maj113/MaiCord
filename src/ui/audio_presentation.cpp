@@ -14,10 +14,6 @@ bool rounded(PaintStream* paint, UiRect rectangle, Color fill, float radius) noe
            paint_stream_push_rounded(paint, rectangle.left, rectangle.top, rectangle.right,
                                      rectangle.bottom, fill, radius);
 }
-UiRect inset(UiRect rectangle, float amount) noexcept {
-    return {rectangle.left + amount, rectangle.top + amount, rectangle.right - amount,
-            rectangle.bottom - amount};
-}
 bool owner_current(UiWidgetReference owner) noexcept {
     return owner.manager && ui_widget_manager_resolve(*owner.manager, owner.handle);
 }
@@ -149,7 +145,7 @@ bool ui_audio_controls_paint(const UiAudioControlsProjection& projection, const 
                     continue;
                 const Color color =
                     primary && control.enabled ? ui_surface_foreground(theme, fill) : control.foreground;
-                if (!ui_icon_paint(paint, icon, inset(control.bounds, 6), color))
+                if (!ui_icon_paint(paint, icon, ui_rect_shrink(control.bounds, 6), color))
                     return false;
             } else if (control.id == UiAudioControl::volume) {
                 const float fraction =

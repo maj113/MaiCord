@@ -39,27 +39,6 @@ struct NotificationMessageSoundDecision {
 };
 NotificationMessageSoundDecision notification_message_sound_decide(const NotificationMessageSoundInput&) noexcept;
 
-// The popup adapter checks authorization asynchronously. Every stage describes
-// a separate call; native_failed may request a SECOND throttled invocation after
-// before_popup already requested fallback sound. Do not coalesce those calls.
-enum class NotificationSoundStage : u8 { direct, popup_suppressed, before_popup, native_failed };
-// unavailable includes a completed native query returning null. unknown means
-// no result yet; it must not be normalized to silent/denied.
-enum class NotificationSoundNative : u8 { unknown, unavailable, denied, provisional, authorized_silent, authorized_sound };
-enum class NotificationSoundDispatch : u8 { none, direct, throttled, native_attached };
-NotificationSoundDispatch notification_sound_dispatch(NotificationSoundStage, NotificationSoundNative,
-    bool sound_present, bool play_sound_if_disabled = true) noexcept;
-enum class NotificationSoundTransport : u8 { none, native_standalone, fallback };
-// Current native settings are checked first. The streamer disable-sounds setting
-// applies ONLY to the fallback; an authorized native send has no streamer sound
-// check. A failed standalone native send falls through to the fallback with the
-// same authorization facts. Never report denied to model a failure.
-NotificationSoundTransport notification_sound_transport(NotificationSoundNative, bool streamer_disable_sounds,
-    bool native_send_failed = false) noexcept;
-// Fallback DEFAULT output is the system default sink, not the voice output
-// device. Gain is sampled at audio load/playback, not when a request is queued.
-bool notification_message_sound_gain(float output_percent, float* gain) noexcept;
-
 enum class NotificationSoundKind : u8 { message1, message3 }; // supported message-create assets
 struct NotificationSoundRequest {
     u64 generation; // nonzero account epoch; zero disables sounds

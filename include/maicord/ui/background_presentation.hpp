@@ -83,10 +83,6 @@ inline bool ui_background_palette(const Theme& theme, Color* colors) noexcept {
         colors[i] = {};
     return true;
 }
-// Alias of ui_background_palette; palette RGB is not normalized.
-inline bool ui_background_safe_palette(const Theme& theme, Color* colors) noexcept {
-    return ui_background_palette(theme, colors);
-}
 inline Color ui_background_canvas_color(const Theme& theme, Color plate,
                                         UiBackgroundTier tier = UiBackgroundTier::chat) noexcept {
     if (!ui_background_active(theme))

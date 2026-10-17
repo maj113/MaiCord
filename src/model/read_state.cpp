@@ -170,12 +170,6 @@ bool read_state_mark_unread_local(ChatStateStore* state, u64 channel_id,
         (!mentions_known ? read_state_mentions_incomplete : 0));
     return chat_state_store_apply_read_state(state, entry);
 }
-bool read_state_forget(ReadStateStore* reads, u64 channel_id) noexcept {
-    if (!reads || !reads->pending.data || !channel_id) return false;
-    const u32 position = lower_bound(*reads, channel_id);
-    if (position < reads->count && reads->pending[position].channel_id == channel_id) erase(reads, position);
-    return true;
-}
 bool read_state_apply_pending(ChatStateStore* state, ChannelRecord* channel) noexcept {
     if (!state || !channel) return false;
     if (!state->read_state) return true;

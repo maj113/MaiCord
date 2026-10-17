@@ -304,7 +304,7 @@ inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& mea
             if (!forum_post_ui_adapter_input(UiInputKind::character, unit))
                 return false;
         return forum_post_ui_adapter_input(UiInputKind::key_down, 'A', false, true) &&
-               secure_edit_has_selection(*forum_post_ui_adapter_edit(1)) &&
+               forum_post_ui_adapter_edit(1)->anchor != forum_post_ui_adapter_edit(1)->caret &&
                forum_post_ui_adapter_tsf_paste_composition() &&
                forum_post_ui_adapter_input(UiInputKind::key_down, 'Z', false, true) &&
                forum_post_ui_adapter_input(UiInputKind::key_down, 'Y', false, true) &&

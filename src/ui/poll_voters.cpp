@@ -418,39 +418,4 @@ UiPollVotersSceneResult ui_poll_voters_scene_key(UiPollVotersScene* scene, UiPol
     result.handled = ui_poll_voters_scene_focus(scene, enabled[next], true);
     return result;
 }
-bool ui_poll_voters_action_current(const UiPollVotersState& state,
-                                   const UiPollVotersAction& action) noexcept {
-    if (!valid(state) || action.owner != state.owner || action.generation != state.generation ||
-        action.revision != state.revision)
-        return false;
-    if (action.control != UiPollVotersControl::answer && action.control != UiPollVotersControl::user &&
-        action.id)
-        return false;
-    switch (action.control) {
-    case UiPollVotersControl::close:
-        return true;
-    case UiPollVotersControl::answer:
-        if (state.loading || action.id == state.answer_id)
-            return false;
-        for (u32 i = 0; i < state.answers.count; ++i)
-            if (state.answers[i].id == action.id)
-                return true;
-        return false;
-    case UiPollVotersControl::user:
-        if (state.loading || state.error)
-            return false;
-        for (u32 i = 0; i < state.voters.count; ++i)
-            if (state.voters[i].id == action.id)
-                return true;
-        return false;
-    case UiPollVotersControl::previous:
-        return !state.loading && state.has_previous;
-    case UiPollVotersControl::next:
-        return !state.loading && state.has_next;
-    case UiPollVotersControl::retry:
-        return !state.loading && state.can_retry;
-    default:
-        return false;
-    }
-}
 } // namespace maicord

@@ -178,12 +178,6 @@ u64 plugin_call_ledger_take_disable(PluginCallLedger* ledger) noexcept {
     return 0;
 }
 
-const PluginCallLedgerEntry* plugin_call_ledger_find(const PluginCallLedger& ledger, u64 owner) noexcept {
-    for (const auto& candidate : ledger.entries)
-        if (owner && candidate.owner_id == owner) return &candidate;
-    return nullptr;
-}
-
 void plugin_call_ledger_forget(PluginCallLedger* ledger, u64 owner) noexcept {
     if (!ledger) return;
     for (auto& candidate : ledger->entries)

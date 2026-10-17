@@ -220,10 +220,6 @@ GatewayEndpointError gateway_endpoint_parse_with_policy(Utf8View url, GatewayEnd
     return GatewayEndpointError::none;
 }
 
-GatewayEndpointError gateway_endpoint_parse(Utf8View url, GatewayEndpoint* endpoint) noexcept {
-    return gateway_endpoint_parse_with_policy(url, GatewayEndpointPolicy::application_v10_json, endpoint);
-}
-
 bool gateway_endpoint_validate(const GatewayEndpoint& endpoint) noexcept {
     if (endpoint.host_bytes == 0 || endpoint.host_bytes >= kGatewayEndpointHostCapacity ||
         endpoint.authority_bytes == 0 || endpoint.authority_bytes >= kGatewayEndpointAuthorityCapacity ||

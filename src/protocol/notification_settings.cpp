@@ -145,10 +145,6 @@ NotificationSettingsDecodeError decode_notification_thread(const JsonIndexedDocu
     if(!(p.id_seen?p.id:fallback_thread)||!(p.guild_seen?p.guild:fallback)||p.overrides_seen)return E::field;
     *out={p.guild_seen?p.guild:fallback,p.id_seen?p.id:fallback_thread,p.setting};return E::none;
 }
-NotificationSettingsDecodeError decode_notification_global_proto(ConstSlice<u8>b,MessageNotificationGlobal*out) noexcept {
-    if(!out||!byte_range_valid(b)||b.count>kNotificationProtoMaximumBytes)return E::input;
-    const Wire w=proto_source(b);MessageNotificationGlobal g{};if(!proto(w,0,w.size,0,g))return E::protobuf;*out=g;return E::none;
-}
 NotificationSettingsDecodeError decode_notification_global_base64(Utf8View b,MessageNotificationGlobal*out) noexcept {
     if(!out||b.bytes>kNotificationSettingsMaximumBytes)return E::input;
     const auto r=base64_decode(b,{});if(!r.ok()&&r.error!=Base64Error::output_too_small)return E::base64;

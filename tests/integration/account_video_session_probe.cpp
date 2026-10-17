@@ -836,7 +836,8 @@ void report(const Probe& p, bool okay) noexcept {
 void snapshot(const Probe& p) noexcept {
     if (p.decoder.hevc)
         hevc_gpu_decoder_probe_report(p.decoder.native);
-    const auto codec = mp4_decoder_diagnostic(p.decoder);
+    const auto codec = p.decoder.hevc ? hevc_gpu_decoder_diagnostic(p.decoder.native)
+                                      : h264_gpu_decoder_diagnostic(p.decoder.native);
     metric("codec_is_hevc", p.decoder.hevc);
     metric("generic_mode", p.generic);
     metric("codec_parse_error", static_cast<u32>(p.decoder.native.parse_error));

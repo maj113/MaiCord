@@ -12,9 +12,6 @@
 
 namespace maicord {
 namespace {
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.generation && a.slot == b.slot && a.generation == b.generation;
-}
 bool current(const UiQuickSwitcherScene& s) noexcept {
     return s.active && s.content && s.content->revision == s.content_revision &&
         (!s.source || (s.source->revision == s.source_revision && s.source->count == s.accepted_count &&
@@ -87,7 +84,7 @@ bool rectangle(UiQuickSwitcherScene& s, UiWidgetHandle handle, UiRect r, UiRect 
     return changed;
 }
 void cancel_row_capture(UiQuickSwitcherScene& s) noexcept {
-    for (auto row : s.rows) if (same(row, s.widgets.captured)) {
+    for (auto row : s.rows) if (ui_widget_handle_matches(row, s.widgets.captured)) {
         ui_widget_manager_capture(&s.widgets, ui_widget_invalid_handle()); break;
     }
     ui_widget_manager_hover(&s.widgets, ui_widget_invalid_handle());
@@ -233,12 +230,12 @@ bool ui_quick_switcher_scene_contains(const UiQuickSwitcherScene& s, float x, fl
 }
 UiQuickSwitcherTarget ui_quick_switcher_scene_target(const UiQuickSwitcherScene& s, UiWidgetHandle handle) noexcept {
     if (!current(s)) return {};
-    if (same(handle, s.edit)) return {UiQuickSwitcherAction::edit};
-    if (same(handle, s.close)) return {UiQuickSwitcherAction::close};
-    if (same(handle, s.confirm))
+    if (ui_widget_handle_matches(handle, s.edit)) return {UiQuickSwitcherAction::edit};
+    if (ui_widget_handle_matches(handle, s.close)) return {UiQuickSwitcherAction::close};
+    if (ui_widget_handle_matches(handle, s.confirm))
         return s.content->picker && s.content->can_confirm ? UiQuickSwitcherTarget{UiQuickSwitcherAction::confirm}
                                                            : UiQuickSwitcherTarget{};
-    for (u32 i = 0; i < s.count; ++i) if (same(handle, s.rows[i])) return row_target(s, s.first + i);
+    for (u32 i = 0; i < s.count; ++i) if (ui_widget_handle_matches(handle, s.rows[i])) return row_target(s, s.first + i);
     return {};
 }
 UiQuickSwitcherTarget ui_quick_switcher_scene_hit_test(const UiQuickSwitcherScene& s, float x, float y) noexcept {
@@ -294,7 +291,7 @@ bool ui_quick_switcher_scene_set_hover(UiQuickSwitcherScene* s, float x, float y
     if (!ui_widget_manager_hover(&s->widgets, hit)) return false;
     const auto target = ui_quick_switcher_scene_target(*s, hit);
     if (target.action == UiQuickSwitcherAction::activate) ui_quick_switcher_scene_select(s, target.index, false);
-    const bool delta = !same(before, hit) && (before.generation || hit.generation);
+    const bool delta = !ui_widget_handle_matches(before, hit) && (before.generation || hit.generation);
     if (delta) ++s->revision;
     if (changed) *changed = delta || selected != s->selected;
     return true;
@@ -353,7 +350,7 @@ bool ui_quick_switcher_scene_presence_paint(const UiQuickSwitcherScene& s, const
         if (!ui_rect_has_area(dot))
             continue;
         // The cutout repeats the row's card behind the avatar.
-        const bool card = s.first + i == s.selected || same(s.widgets.hovered, s.rows[i]);
+        const bool card = s.first + i == s.selected || ui_widget_handle_matches(s.widgets.hovered, s.rows[i]);
         ok = ui_presence_paint(out, dot, s.visible[i].presence, card ? theme.surface_high : theme.base_lower, theme,
                                s.visible[i].mobile);
     }
@@ -370,7 +367,7 @@ bool ui_quick_switcher_scene_paint(const UiQuickSwitcherScene& s, const Theme& t
         ui_edit_field_paint(out, s.field, s.text, s.content->edit, geometry, theme.base_lowest, theme, dpi, 8) &&
         ui_icon_paint(out, UiIcon::search, {s.field.left + 12, s.field.top + 14, s.field.left + 32, s.field.top + 34}, theme.text_secondary);
     const auto* close = ui_widget_manager_layout_node(s.widgets, s.close);
-    if (ok && (same(s.widgets.hovered, s.close) || same(s.widgets.focused, s.close)))
+    if (ok && (ui_widget_handle_matches(s.widgets.hovered, s.close) || ui_widget_handle_matches(s.widgets.focused, s.close)))
         ok = surface(out, close->rectangle, theme, theme.surface_high, theme.tokens.border.focus, 6);
     ok = ok && ui_icon_paint(out, UiIcon::close, {s.panel.right - 38, s.panel.top + 14,
                                                s.panel.right - 18, s.panel.top + 34}, theme.text_secondary);
@@ -379,7 +376,7 @@ bool ui_quick_switcher_scene_paint(const UiQuickSwitcherScene& s, const Theme& t
     for (u32 i = 0; ok && i < s.count; ++i) {
         const auto r = s.row_rectangles[i]; const bool selected = s.first + i == s.selected;
         const UiRect card{r.left, r.top + 2, r.right, r.bottom - 2};
-        if (selected || same(s.widgets.hovered, s.rows[i])) ok = surface(out, card, theme, theme.surface_high,
+        if (selected || ui_widget_handle_matches(s.widgets.hovered, s.rows[i])) ok = surface(out, card, theme, theme.surface_high,
             selected ? theme.tokens.emphasis.outline : theme.surface_high, 6);
         ok = ok && ui_icon_paint(out, icon(s.visible[i].kind), {r.left + 12, r.top + 18, r.left + 32, r.top + 38},
             selected ? theme.tokens.emphasis.outline : theme.text_secondary);
@@ -399,7 +396,7 @@ bool ui_quick_switcher_scene_paint(const UiQuickSwitcherScene& s, const Theme& t
         paint_stream_push(out, s.panel.left + 16, s.footer.top - 4, s.panel.right - 16, s.footer.top - 3, theme.surface_high);
     if (ok && s.content->picker) {
         const bool enabled = s.content->can_confirm;
-        const bool emphasis = same(s.widgets.hovered, s.confirm) || same(s.widgets.focused, s.confirm);
+        const bool emphasis = ui_widget_handle_matches(s.widgets.hovered, s.confirm) || ui_widget_handle_matches(s.widgets.focused, s.confirm);
         ok = surface(out, s.confirm_rectangle, theme, enabled ? theme.tokens.emphasis.fill : theme.surface_high,
                      enabled && emphasis ? theme.text_primary : enabled ? theme.tokens.emphasis.fill : theme.surface_high, 8);
     }

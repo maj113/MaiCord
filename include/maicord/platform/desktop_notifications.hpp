@@ -56,9 +56,6 @@ DesktopNotificationShowState desktop_notification_show_state(DesktopNotification
 // native_show_attempted distinguishes earlier XML/init/transport failures from
 // the synchronous Show call. Submitted does not prove a displayed banner.
 DesktopNotificationShowResult desktop_notifications_show_once(DesktopNotifications*, const DesktopNotificationPayload&) noexcept;
-// Also attempts only once. Retry is reported as a non-ok transport error;
-// there is no implicit retry, worker, timer or queued payload.
-DesktopNotificationResult desktop_notifications_show(DesktopNotifications*, const DesktopNotificationPayload&) noexcept;
 DesktopNotificationResult desktop_notifications_remove_message(DesktopNotifications*, DesktopNotificationActivation) noexcept;
 // Only queues the request: copies/coalesces at most 8 profile/channel cleanup requests.
 // Never enumerates history here. The UI thread completes the work with history_step.

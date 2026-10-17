@@ -124,22 +124,15 @@ struct ReactionPreferenceResult {
 bool reaction_preferences_initialize(ReactionPreferenceStore* store) noexcept;
 void reaction_preferences_release(ReactionPreferenceStore* store) noexcept;
 // Records one use and queues it for settings sync unless `pending` is false
-// (seeds). Unicode overloads track the reaction table.
+// (seeds).
 ReactionPreferenceResult reaction_preferences_track_emoji(ReactionPreferenceStore* store,
                                                           ReactionPreferenceKind kind, ReactionEmojiRef emoji,
                                                           u64 timestamp_ms, u32 uses = 1,
                                                           bool pending = true) noexcept;
-ReactionPreferenceResult reaction_preferences_track(
-    ReactionPreferenceStore* store, u16 catalog_index, u64 timestamp_ms,
-    u32 uses = 1) noexcept;
 ReactionPreferenceResult reaction_preferences_toggle_favorite_emoji(ReactionPreferenceStore* store,
                                                                     ReactionEmojiRef emoji) noexcept;
-ReactionPreferenceResult reaction_preferences_toggle_favorite(
-    ReactionPreferenceStore* store, u16 catalog_index) noexcept;
 bool reaction_preferences_is_favorite_emoji(const ReactionPreferenceStore& store,
                                             ReactionEmojiRef emoji) noexcept;
-bool reaction_preferences_is_favorite(const ReactionPreferenceStore& store,
-                                      u16 catalog_index) noexcept;
 ConstSlice<ReactionEmojiRef> reaction_preferences_favorites(
     const ReactionPreferenceStore& store) noexcept;
 ConstSlice<ReactionEmojiRef> reaction_preferences_frequently(
@@ -147,8 +140,6 @@ ConstSlice<ReactionEmojiRef> reaction_preferences_frequently(
     ReactionPreferenceKind kind = ReactionPreferenceKind::reaction) noexcept;
 const ReactionPreferenceTable* reaction_preferences_table(const ReactionPreferenceStore& store,
                                                           ReactionPreferenceKind kind) noexcept;
-bool reaction_preferences_recompute(ReactionPreferenceStore* store,
-                                    u64 now_ms) noexcept;
 // Replaces favorites and both tables with an authoritative snapshot, then
 // replays still-unsent favorite edits and uses on top of it.
 bool reaction_preferences_apply_remote(ReactionPreferenceStore* store, ConstSlice<ReactionEmojiRef> favorites,

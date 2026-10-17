@@ -292,7 +292,6 @@ bool application_synchronize_login_view() noexcept {
             synchronized = false;
         } else if (native.active) {
             view.edit_composition_active = true;
-            view.edit_composition_complete = native.complete;
             const u32 window_first = edit_window.first_codepoint;
             const u32 window_end = window_first + edit_window.codepoints;
             u32 visible_count = 0;
@@ -303,7 +302,6 @@ bool application_synchronize_login_view() noexcept {
                         SecureEditResult::unchanged ||
                     secure_edit_codepoint_from_utf16(*focused_edit, native.spans[index].end, &end) !=
                         SecureEditResult::unchanged) {
-                    view.edit_composition_complete = false;
                     continue;
                 }
                 start = maximum(start, window_first);
@@ -312,7 +310,6 @@ bool application_synchronize_login_view() noexcept {
                     continue;
                 }
                 if (visible_count == kTextCompositionSpanCapacity) {
-                    view.edit_composition_complete = false;
                     break;
                 }
                 TextCompositionSpan span = native.spans[index];

@@ -16,7 +16,7 @@ def worker(args):
         payload=bytearray(b'MDSHP1\0\0'+struct.pack('<I',len(cases)))
         for s,_ in cases:payload+=struct.pack('<I',len(s))+struct.pack('<'+'I'*len(s),*s)
         run=subprocess.run([str(args.native)],input=payload,capture_output=True,timeout=2,
-            env=dict(os.environ,MAICORD_TIBETAN_FONT=inputs['font']['path'],MAICORD_TIBETAN_INDEPENDENT=str(int(inputs['independent'])),MAICORD_TIBETAN_RTL=str(int(inputs['rtl'])),MAICORD_TIBETAN_RUN=str(int(args.run or inputs.get('run',False))),
+            env=dict(os.environ,MAICORD_TIBETAN_FONT=inputs['font']['path'],MAICORD_TIBETAN_INDEPENDENT=str(int(inputs['independent'])),MAICORD_TIBETAN_RTL=str(int(inputs['rtl'])),
                 MAICORD_TIBETAN_OWNED=str(int(args.owned or args.compact or saved.get('owned',False))),MAICORD_TIBETAN_COMPACT=str(int(args.compact or saved.get('compact',False)))),creationflags=subprocess.CREATE_NO_WINDOW)
         if run.returncode:raise RuntimeError(repr(run.stdout[-500:])+repr(run.stderr))
         raw=args.output_dir/f'{index}-native.bin';raw.write_bytes(run.stdout)
@@ -30,13 +30,12 @@ def worker(args):
             if a['status'] or any(a[k]!=b[k] for k in ('glyphs','clusters','placements')):differences.append(dict(index=n,native=a,reference=b,scalars=row['scalars']))
         total+=len(cases);reports.append(dict(report=identity(path),native_output=identity(raw),cases=len(cases),exact=len(cases)-len(differences)-missing_rejections,missing_rejections=missing_rejections,differences=differences))
     if identity(args.native)!=native:raise ValueError('Native executable changed')
-    result=dict(status='passed' if reports and all(not r['differences'] for r in reports) else 'failed',cases=total,exact=sum(r['exact'] for r in reports),missing_rejections=sum(r['missing_rejections'] for r in reports),seconds=time.perf_counter()-start,native=native,source=identity(Path(__file__)),scope=__doc__,force_run=args.run,force_owned=args.owned,force_compact=args.compact,reports=reports)
+    result=dict(status='passed' if reports and all(not r['differences'] for r in reports) else 'failed',cases=total,exact=sum(r['exact'] for r in reports),missing_rejections=sum(r['missing_rejections'] for r in reports),seconds=time.perf_counter()-start,native=native,source=identity(Path(__file__)),scope=__doc__,force_owned=args.owned,force_compact=args.compact,reports=reports)
     (args.output_dir/'result.json').write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8');print(result['exact'],'/',total,'exact clusters');return int(result['status']!='passed')
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--native',required=True,type=Path)
     p.add_argument('--report',required=True,action='append',type=Path);p.add_argument('--output-dir',required=True,type=Path)
-    p.add_argument('--run',action='store_true',help='Replay cluster inputs through the complete run executor')
     p.add_argument('--owned',action='store_true',help='Replay through retained font admission and UTF-8 shaping')
     p.add_argument('--compact',action='store_true',help='Replay through retained compact publication')
     p.add_argument('--worker',action='store_true',help=argparse.SUPPRESS);args=p.parse_args()

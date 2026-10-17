@@ -30,7 +30,7 @@ bool tamil_plan_units(SfntIndicProfile profile=SfntIndicProfile::tamil) noexcept
             CHECK(result.operations<=budget&&status==(budget==form_work?SfntStatus::ok:SfntStatus::resource_limit));
             if(status!=SfntStatus::ok)for(const auto& step:steps)CHECK(step.lookup==65535&&step.feature_mask==255&&step.stage==255);}
         CHECK(sfnt_indic_form_lookup_plan(layout,{},profile,sfnt_deva_pre,{scratch,8},{steps,64},&result)==SfntStatus::ok&&!result.lookup_count);
-        CHECK(sfnt_devanagari_lookup_plan(layout,{},false,{scratch,8},{steps,64},&result)==SfntStatus::ok&&!result.language_found);
+        CHECK(sfnt_indic_lookup_plan(layout,{},SfntIndicProfile::devanagari,false,{scratch,8},{steps,64},&result)==SfntStatus::ok&&!result.language_found);
         for(auto& step:steps)step={65535,255,255};
         CHECK(sfnt_indic_lookup_plan(layout,{},static_cast<SfntIndicProfile>(255),false,{scratch,8},{steps,64},&result)==SfntStatus::invalid_input&&!result.operations&&!result.lookup_count);
         CHECK(sfnt_indic_form_lookup_plan(layout,{},static_cast<SfntIndicProfile>(255),sfnt_deva_half,{scratch,8},{steps,64},&result)==SfntStatus::invalid_input&&!result.operations);

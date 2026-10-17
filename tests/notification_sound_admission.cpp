@@ -19,7 +19,7 @@ struct Fixture {
         policy.ready=policy.live=policy.identities_known=policy.type_known=policy.guild_default_known=true;
         policy.guild_default=L::all;policy.global.fields=notification_status|notification_quiet;
         policy.global.status=MessageNotificationStatus::online;policy.required_gates=(1u<<16)-1;
-        policy.known_gates=policy.required_gates;policy.desktop_enabled=true;
+        policy.known_gates=policy.required_gates;
         sound={&policy,true,false,true,false};return true;
     }
     bool settings(ConstSlice<MessageNotificationOverride> rows={}) noexcept {
@@ -36,13 +36,9 @@ void test_notification_sound_admission(void(*check)(bool,const char*)noexcept) n
     Fixture f{};check(f.initialize(),"sound admission fixture shares typed guild override and thread store");
     auto pair=notification_sound_admissions(f.sound);
     check(pair.ordinary==A::allowed&&pair.selected==A::denied,"ordinary ALL admission is independent of default-disabled selected preference");
-    f.policy.desktop_enabled=f.policy.sound_enabled=false;
-    check(notification_sound_ordinary_admit(f.policy)==R::eligible&&!message_notification_decide(f.policy).popup,
-        "shared admission does not confuse device output booleans with message eligibility");
-    f.policy.desktop_enabled=true;
     f.policy.gates=notification_gate_streamer|notification_gate_overlay|notification_gate_restricted_hours|
         notification_gate_required_action|notification_gate_changelog;
-    check(message_notification_decide(f.policy).reason==R::special&&notification_sound_ordinary_admit(f.policy)==R::eligible,
+    check(message_notification_admit(f.policy)==R::special&&notification_sound_ordinary_admit(f.policy)==R::eligible,
         "ordinary p excludes only later NotificationStore and popup transport gates");
     f.policy.gates=notification_gate_active_application;
     check(notification_sound_ordinary_admit(f.policy)==R::special,"active embedded application remains an ordinary lx gate");

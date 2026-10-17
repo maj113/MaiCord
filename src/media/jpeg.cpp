@@ -2496,11 +2496,10 @@ void reconstruct_component_block(const JpegImage& image, const JpegThumbnailLayo
     reconstruct_block(block, image.tables->quantization[component.quantization_table], layout.samples, target, pitch);
 }
 
-bool convert_planes(const JpegImage& image, const JpegThumbnailLayout& layout, const u8* planes, u8* rgba,
+bool convert_planes(const JpegImage& image, const JpegThumbnailLayout& layout, const u8* planes, u8* row,
                     JpegThumbnailRowSink sink, void* context) noexcept {
     const u32 max_h = image.maximum_horizontal_sampling, max_v = image.maximum_vertical_sampling;
     for (u32 y = 0; y < layout.height; ++y) {
-        u8* row = sink ? rgba : rgba + static_cast<usize>(y) * layout.width * 4u;
         for (u32 x = 0; x < layout.width; ++x) {
             u8 sample[kJpegComponentMaximum]{};
             for (u32 c = 0; c < image.component_count; ++c) {
@@ -2544,7 +2543,7 @@ bool convert_planes(const JpegImage& image, const JpegThumbnailLayout& layout, c
             out[2] = clamp_sample(b);
             out[3] = 255;
         }
-        if (sink && !sink(context, y, row)) return false;
+        if (!sink(context, y, row)) return false;
     }
     return true;
 }
@@ -2593,7 +2592,7 @@ JpegDecodeResult decode_thumbnail(ConstSlice<u8> encoded, const JpegImage& image
     JpegDecodeResult result{};
     const u64 required = layout.coefficient_bytes + layout.plane_bytes;
     if (!image.tables || !layout.samples || (!encoded.data && encoded.count) || !scratch.data ||
-        required > scratch.count || !rgba.data || (sink ? u64{layout.width} * 4 : layout.rgba_bytes) > rgba.count ||
+        required > scratch.count || !rgba.data || u64{layout.width} * 4 > rgba.count ||
         (reinterpret_cast<usize>(scratch.data) & 15u) || !image.component_count ||
         static_cast<u64>(image.entropy_offset) + image.entropy_bytes > encoded.count) {
         result.error = JpegError::invalid_input;
@@ -2729,12 +2728,6 @@ JpegDecodeResult decode_thumbnail(ConstSlice<u8> encoded, const JpegImage& image
 }
 
 } // namespace
-
-JpegDecodeResult jpeg_thumbnail_decode(ConstSlice<u8> encoded, const JpegImage& image,
-                                       const JpegThumbnailLayout& layout, Slice<u8> scratch,
-                                       Slice<u8> rgba) noexcept {
-    return decode_thumbnail(encoded, image, layout, scratch, rgba, nullptr, nullptr);
-}
 
 JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegImage& image,
                                             const JpegThumbnailLayout& layout, Slice<u8> scratch,

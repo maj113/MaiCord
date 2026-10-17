@@ -57,8 +57,6 @@ bool message_search_complete(MessageSearchController*, const MessageSearchToken&
 bool message_search_page(MessageSearchController*, u32 offset) noexcept;
 // Moves an in-flight tabs request to the legacy GET; all-DM search has no GET form.
 bool message_search_fallback(MessageSearchController*, const MessageSearchToken&) noexcept;
-// Same query on another tab: a fresh generation from the first page.
-bool message_search_tab(MessageSearchController*, MessageSearchTab) noexcept;
 u64 message_search_cancel(MessageSearchController*) noexcept;
 u64 message_search_next_wake(const MessageSearchController*) noexcept;
 

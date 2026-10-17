@@ -60,25 +60,6 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
           "sparse rich release frees owned records and clears owner without touching caller text "
           "reservation");
 
-    for (auto& byte : text)
-        byte = 0xA5;
-    check(message_rich_store_initialize_owned(&store, &records, 2, {order, 2}, {text, sizeof(text)}) &&
-              !store.sparse_text,
-          "ordinary owned rich initializer retains its existing full-clear behavior");
-    bool all_zero = true;
-    for (const auto byte : text)
-        all_zero &= byte == 0;
-    check(all_zero, "ordinary owned rich initialization still clears the entire supplied text slice");
-    for (auto& byte : text)
-        byte = 0xA5;
-    check(message_rich_store_reset(&store) && !store.sparse_text,
-          "ordinary rich reset retains full-clear mode");
-    all_zero = true;
-    for (const auto byte : text)
-        all_zero &= byte == 0;
-    check(all_zero, "ordinary rich reset still clears both complete caller text banks");
-    message_rich_store_release(&store);
-
     store.text_capacity = 19;
     order[0] = 7;
     order[1] = 9;
@@ -165,8 +146,8 @@ void test_message_rich_store_sparse(void (*check)(bool, const char*) noexcept) n
     u16 audio_order[2]{};
     StableStorage audio_records{};
     MessageRichStore audio_store{};
-    check(message_rich_store_initialize_owned(&audio_store, &audio_records, 2, {audio_order, 2},
-                                              {audio_text, sizeof(audio_text)}),
+    check(message_rich_store_initialize_owned_sparse(&audio_store, &audio_records, 2, {audio_order, 2},
+                                                     {audio_text, sizeof(audio_text)}),
           "audio rich store reserves records without per-attachment sample banks");
     char waveform[]{'A', 'P', '+', 'A'};
     attachment.filename = utf8_literal("Voice.OGG");

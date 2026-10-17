@@ -49,6 +49,14 @@ u32 group_count_at(u32 index) noexcept {
     const auto* row = member_list_view_row(fixture.projection, index);
     return row ? row->group_count : 0;
 }
+u64 list_user(u64 list, u32 index) noexcept {
+    u64 user = 0;
+    return guild_member_store_list_users(fixture.members, 7, list, index, index, {&user, 1}) ? user : 0;
+}
+u32 list_position_count(u64 list) noexcept {
+    static u64 users[kMemberListPositionCapacity];
+    return guild_member_store_list_users(fixture.members, 7, list, 0, ~0u, {users, kMemberListPositionCapacity});
+}
 bool route(Utf8View source, GatewayClientEvent* event, ConstSlice<u8>* payload) noexcept {
     GatewayEnvelope envelope{};
     bool handled = false;
@@ -203,16 +211,15 @@ void test_member_list_sparse_model(void (*check)(bool, const char*) noexcept) no
               user_at(1) == 2 && user_at(2) == 3,
         "per-list rows: returning to the first list shows every retained row");
     check(guild_member_store_shift_list(&f.members, 7, 71, 0, true) && member(4, 0, 71) && project(70) &&
-              user_at(0) == 1 && user_at(2) == 3 && guild_member_store_list_user(f.members, 7, 71, 1) == 3 &&
-              guild_member_store_list_user(f.members, 7, 71, 2) == 1,
+              user_at(0) == 1 && user_at(2) == 3 && list_user(71, 1) == 3 && list_user(71, 2) == 1,
         "per-list rows: inserts and updates of one list never move another");
     check(guild_member_store_invalidate_list_range(&f.members, 7, 0, 1, 71) && project(70) &&
-              f.projection.resident_count == 3 && !guild_member_store_list_user(f.members, 7, 71, 0),
+              f.projection.resident_count == 3 && !list_user(71, 0),
         "per-list rows: a withdrawn range of one list leaves the other intact");
     check(guild_member_store_remove(&f.members, 7, 2) && project(70) && f.projection.resident_count == 2 &&
-              !guild_member_store_list_user(f.members, 7, 70, 1),
+              !list_user(70, 1),
         "per-list rows: a member leaving the guild leaves every list");
-    const u64 kept = guild_member_store_list_user(f.members, 7, 70, 2);
+    const u64 kept = list_user(70, 2);
     u64 retained_rows[8]{};
     check(kept == 3 && guild_member_store_list_users(f.members, 7, 70, 0, 5, {retained_rows, 8}) == 2,
         "per-list rows: a list reports the users it holds in a range");
@@ -224,9 +231,8 @@ void test_member_list_sparse_model(void (*check)(bool, const char*) noexcept) no
         "position budget fixture initializes");
     bool budget = true;
     for (u32 i = 0; i < 600; ++i) budget &= member(10'000 + i, i);
-    check(budget && guild_member_store_list_position_count(f.members, 7, 70) == kMemberListPositionsPerList &&
-              guild_member_store_list_user(f.members, 7, 70, 0) == 10'000 &&
-              guild_member_store_list_user(f.members, 7, 70, 599) == 10'599,
+    check(budget && list_position_count(70) == kMemberListPositionsPerList && list_user(70, 0) == 10'000 &&
+              list_user(70, 599) == 10'599,
         "per-list budget keeps the pages on screen and the newest rows");
     for (u64 list = 71; list < 76; ++list) {
         budget &= guild_member_store_observe_list(&f.members, 7, list, 600, 600, true, true, true, 0, 600);
@@ -236,8 +242,8 @@ void test_member_list_sparse_model(void (*check)(bool, const char*) noexcept) no
     for (const auto& entry : f.members.positions.entries) held += entry.occupied ? 1u : 0u;
     check(budget && held == f.members.positions.count && held <= kMemberListPositionCapacity &&
               f.members.positions.evicted_lists >= 1 &&
-              guild_member_store_list_position_count(f.members, 7, 70) == kMemberListPositionsPerList &&
-              guild_member_store_list_position_count(f.members, 7, 75) == kMemberListPositionsPerList &&
+              list_position_count(70) == kMemberListPositionsPerList &&
+              list_position_count(75) == kMemberListPositionsPerList &&
               !guild_member_store_list(f.members, 7, 71),
         "full position pool drops the least recently viewed list and keeps the list on screen");
 }

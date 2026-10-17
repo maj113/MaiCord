@@ -92,13 +92,6 @@ constexpr bool guild_rules_gate(u8 features, u8 self_member, bool self_member_kn
     return self_member_known && (self_member & guild_self_member_pending) &&
            ((features & guild_record_verification_gate) || !(features & guild_record_onboarding));
 }
-// Onboarding is due: the server has it and the member started but has not
-// completed it.
-constexpr bool guild_onboarding_due(u8 features, u8 self_member, bool self_member_known) noexcept {
-    return self_member_known && (features & guild_record_onboarding) &&
-           (self_member & guild_self_member_onboarding_started) &&
-           !(self_member & guild_self_member_onboarding_completed);
-}
 
 // Partial observation; only fields in `known` replace stored values.
 struct GuildSettings {
@@ -513,7 +506,7 @@ bool chat_state_store_initialize(ChatStateStore* store, Slice<GuildRecord> guild
                                     Slice<u16> channel_order, Slice<u8> double_buffered_names) noexcept;
 // For zero-filled (freshly committed) arrays: leaves their contents unchanged,
 // so record pages are touched only as slots fill. Active counts bound all
-// order reads; public clear still erases the complete arrays.
+// order reads.
 bool chat_state_store_initialize_sparse(ChatStateStore* store, Slice<GuildRecord> guilds,
                                         Slice<u16> guild_order, Slice<ChannelRecord> channels,
                                         Slice<u16> channel_order, Slice<u8> double_buffered_names) noexcept;
@@ -528,15 +521,11 @@ bool chat_state_store_bind_permissions_reserved(ChatStateStore* store, Slice<Rol
                                                    void* context) noexcept;
 bool chat_state_store_prepare_permissions(ChatStateStore* store, u32 required_roles,
                                              u32 required_overwrites) noexcept;
-bool chat_state_store_bind_emojis(ChatStateStore* store, Slice<CustomEmojiRecord> emojis,
-                                     Slice<u64> emoji_roles) noexcept;
 // Requires an empty emoji model and leaves both array contents unchanged.
 // The caller owns both complete writable arrays for the model lifetime.
 // Active counts bound all reads. Publication initializes each active prefix.
-// Public clear still erases both complete arrays.
 bool chat_state_store_bind_emojis_sparse(ChatStateStore* store, Slice<CustomEmojiRecord> emojis,
                                             Slice<u64> emoji_roles) noexcept;
-void chat_state_store_clear(ChatStateStore* store) noexcept;
 ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
                                                          const GuildInput& input) noexcept;
 bool guild_settings_valid(const GuildSettings& settings) noexcept;
@@ -645,7 +634,6 @@ bool chat_state_store_note_history_latest(ChatStateStore* store, u64 channel_id,
 // newer unread state and an uncertain remaining mention count.
 bool chat_state_store_note_thread(ChatStateStore* store, u64 parent_id,
                                      u64 thread_id, u64 owner_id) noexcept;
-bool chat_state_store_mark_channel_read(ChatStateStore* store, u64 channel_id) noexcept;
 bool chat_state_store_can_replace_guild_permissions(const ChatStateStore& store, u64 guild_id,
                                                        u32 role_count, u32 overwrite_count) noexcept;
 bool chat_state_store_can_replace_channel_overwrites(const ChatStateStore& store, u64 channel_id,

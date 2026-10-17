@@ -131,7 +131,6 @@ MessageHandle message_store_ordered_handle(const MessageStore& store,
                                            u32 order_index) noexcept;
 Utf8View message_store_content(const MessageStore& store,
                                MessageHandle handle) noexcept;
-bool message_store_compact(MessageStore* store, Slice<u8> scratch) noexcept;
 bool message_store_compact_in_place(MessageStore* store) noexcept;
 u64 snowflake_timestamp_ms(u64 snowflake) noexcept;
 

@@ -215,14 +215,9 @@ bool guild_member_store_pin_range(GuildMemberStore* store, u64 guild_id, u64 lis
 // remains bounded independently of the reported logical member-list size.
 const MemberListScope* guild_member_store_list(const GuildMemberStore& store,
                                                               u64 guild_id, u64 list_id) noexcept;
-// The user a list holds at a position (zero when it holds none there).
-u64 guild_member_store_list_user(const GuildMemberStore& store, u64 guild_id, u64 list_id,
-                                 u32 index) noexcept;
 // Users a list holds in [first, last]; returns how many were written.
 u32 guild_member_store_list_users(const GuildMemberStore& store, u64 guild_id, u64 list_id, u32 first,
                                   u32 last, Slice<u64> output) noexcept;
-u32 guild_member_store_list_position_count(const GuildMemberStore& store, u64 guild_id,
-                                           u64 list_id) noexcept;
 bool guild_member_store_observe_list(GuildMemberStore* store, u64 guild_id, u64 list_id,
                                              u32 member_count, u32 online_count, bool members_known,
                                              bool online_known, bool groups_known, u32 group_count,

@@ -48,10 +48,6 @@ SfntStatus sfnt_glyph_buffer_replace(SfntGlyphBuffer* b,u32 start,ConstSlice<u32
     if(!early){copy_bytes(slot(*b,b->gap_begin),replacements.data,replacements.count);b->gap_begin+=inserted;}
     *output=result;return SfntStatus::ok;
 }
-SfntStatus sfnt_glyph_edit_position(const SfntGlyphEdit& edit,u32 old,u32* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output=sfnt_removed_position;if(old>=edit.old_count)return SfntStatus::invalid_input;const u32 removed=rank(edit.consumed,old);
-    if(removed<edit.consumed.count && edit.consumed.data[removed]==old)return SfntStatus::ok;*output=old-removed+(old>=edit.start?edit.replacement_count:0);return SfntStatus::ok;
-}
 SfntStatus sfnt_glyph_edit_boundary(const SfntGlyphEdit& edit,u32 old,bool after,u32* output) noexcept {
     if(!output)return SfntStatus::invalid_input;*output=0;if(old>edit.old_count)return SfntStatus::invalid_input;*output=old-rank(edit.consumed,old)+((old>edit.start || (old==edit.start && after))?edit.replacement_count:0);return SfntStatus::ok;
 }

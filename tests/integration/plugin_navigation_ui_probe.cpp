@@ -57,6 +57,7 @@ bool geometry(PopupScene& popup, u32 placement, u32 native_count, UiRect viewpor
         (native_count ? popup_item_separator_before : 0)) return false;
     UiTextCommand commands[2 + kRows]{};
     UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     if (!ui_text_command_stream_initialize(&text, {commands, 2 + kRows})) return false;
     for (u32 index = 0; index < kRows; ++index) {
         bool changed = false;
@@ -69,7 +70,7 @@ bool geometry(PopupScene& popup, u32 placement, u32 native_count, UiRect viewpor
         const auto hit = popup_scene_hit_test(popup, (r.left + r.right) * .5f, (r.top + r.bottom) * .5f);
         if (!hit.inside || hit.action != kExtraFirst + index || hit.enabled != (index != 2)) return false;
         ui_text_command_stream_reset(&text);
-        if (!popup_text_presentation_build(popup, kDefaultTheme, &text)) return false;
+        if (!popup_text_presentation_build_output(popup, kDefaultTheme, &text_output)) return false;
         bool found = false;
         for (u32 command = 0; command < text.count; ++command) {
             const auto& value = commands[command];

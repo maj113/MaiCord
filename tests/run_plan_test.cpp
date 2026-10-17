@@ -2,10 +2,10 @@
 // registry also runs `<font> <weight> lazy-units` and `... profiles`. Manual modes, not run
 // by the suite: plan-cost, emoji-plan-cost, nominal-cost, metric-cost and profile-cost
 // (benchmarks), lazy-failure (needs a purpose-built font with exactly two GSUB lookups), and
-// the audits q:<file>, line:<file>, ascii:<file>, metrics and <range list>.
+// the audits line:<file>, ascii:<file> and metrics.
 #include "maicord/text/run_plan.hpp"
 #include "../src/text/nominal_placements.hpp"
-#include "maicord/text/nominal_ranges.hpp"
+#include "maicord/text/nominal_sources.hpp"
 #include "maicord/text/ascii_run.hpp"
 #include "maicord/text/ascii_line.hpp"
 #include "maicord/text/latin_line.hpp"
@@ -22,14 +22,12 @@ namespace maicord {namespace {
 #include "generated/lookup_plan_fixture.inc"
 #include "generated/font_metrics_fixture.inc"
 #include "generated/line_measurement_fixture.inc"
-#include "generated/line_hits_fixture.inc"
 char print_buffer[65536];u32 print_count=0;bool print_ok=true;
 void flush() noexcept {DWORD written=0;if(print_count&&(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),print_buffer,print_count,&written,nullptr)||written!=print_count))print_ok=false;print_count=0;}
 void print_bytes(const char* data,u32 count) noexcept {while(count){if(print_count==sizeof(print_buffer))flush();const u32 n=minimum(count,static_cast<u32>(sizeof(print_buffer))-print_count);copy_bytes(print_buffer+print_count,data,n);print_count+=n;data+=n;count-=n;}}
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;print_bytes(s,n);}
 void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print_bytes(s,n);}
 u64 checks=0,fonts=0,values=0,state_bytes=0;
-u64 point_checks=0,range_checks=0;
 #define CHECK(x) do {++checks;if(!(x)){print("FAIL line=");number(__LINE__);print(" font=");number(fonts);print("\n");return false;}} while(0)
 NativeFontFileSlot files[2];NativeFontFaceSlot faces[2];NativeFontInstanceSlot instances[2];NativeRunPlanSlot plans[2];
 NativeFontStore font_store{{files,2},{faces,2}};NativeFontInstanceStore instance_store{&font_store,{instances,2}};NativeRunPlanStore store{&instance_store,{plans,2}};
@@ -194,8 +192,9 @@ bool corpus() noexcept {
             CHECK(shape(h,independent!=0,rtl!=0,glyph,placement));
             const auto nominal_plan=native_run_plan_nominal(store,h);const auto* instance=native_font_instance_get(instance_store,plans[h.slot-1].instance);
             const auto* mapped_face=native_font_get(font_store,instance->face);u16 mapped=0;CHECK(sfnt_cmap_glyph(mapped_face->cmap,'a',0,&mapped)==SfntStatus::ok);
-            const u32 scalar='a';const SfntGsubGlyph initial{mapped,SfntGlyphClass::unassigned,0};SfntNominalRange range{};
-            CHECK(sfnt_nominal_range({&scalar,1},sfnt_glyph_view({&initial,1}),nominal_plan.participation,nominal_plan.glyph_limit,&range)==SfntStatus::ok&&range.scalar_count==1&&range.simple==(nominal!=0));
+            const bool simple=mapped&&mapped<nominal_plan.glyph_limit&&nominal_scalar_is_simple('a')&&
+                (!nominal_plan.participation.count||!(nominal_plan.participation[mapped/64]&(1ull<<(mapped%64))));
+            CHECK(simple==(nominal!=0));
             CHECK(ascii_fixture(h,independent!=0,layout_glyph,layout_placement));
         }
         CHECK(ascii_shared_guards(h));
@@ -207,24 +206,6 @@ bool corpus() noexcept {
         ++fonts;
     }
     return r.at==r.bytes.count;
-}
-bool audit_ranges(NativeRunPlanHandle handle,const wchar_t* command) noexcept {
-    u32 scalars[256],count=0;SfntGsubGlyph glyphs[256];
-    const auto* instance=native_font_instance_get(instance_store,plans[handle.slot-1].instance);
-    const auto* face=native_font_get(font_store,instance->face);const auto plan=native_run_plan_nominal(store,handle);
-    while(*command){u32 cp=0,digits=0;
-        while(*command&&*command!=','){const wchar_t c=*command++;const u32 digit=c>='0'&&c<='9'?c-'0':c>='a'&&c<='f'?c-'a'+10:c>='A'&&c<='F'?c-'A'+10:16;
-            CHECK(digit<16&&cp<=0x10ffff/16);cp=cp*16+digit;++digits;}
-        CHECK(digits&&cp<=0x10ffff&&count<256);scalars[count]=cp;u16 glyph=0;CHECK(sfnt_cmap_glyph(face->cmap,cp,0,&glyph)==SfntStatus::ok);glyphs[count++]={glyph,SfntGlyphClass::unassigned,0};
-        if(*command)++command;
-    }
-    CHECK(count);print("ranges=[");u32 at=0,units=0;
-    while(at<count){SfntNominalRange range{};CHECK(sfnt_nominal_range({scalars+at,count-at},sfnt_glyph_view({glyphs+at,count-at}),plan.participation,plan.glyph_limit,&range)==SfntStatus::ok&&range.scalar_count);
-        if(at)print(",");print("[");number(units);print(",");number(range.utf16_units);print(",");number(range.simple);print(",[");
-        if(range.simple)for(u32 i=0;i<range.scalar_count;++i){if(i)print(",");number(glyphs[at+i].glyph);}print("]]");
-        at+=range.scalar_count;units+=range.utf16_units;
-    }
-    print("]\n");return true;
 }
 void signed_number(i32 value) noexcept {if(value<0){print("-");number(static_cast<u64>(-static_cast<i64>(value)));}else number(value);}
 void metric_fields(const SfntFontLayoutMetrics& m,i32* output) noexcept {
@@ -298,73 +279,6 @@ bool line_corpus() noexcept {
     }
     CHECK(r.at==r.bytes.count);return true;
 }
-u32 float_bits(float value) noexcept {u32 bits=0;copy_bytes(&bits,&value,4);return bits;}
-bool hit_case(NativeRunPlanHandle handle,ConstSlice<u8> data) noexcept {
-    Reader r{data,8};u32 text_size=0,em_bits=0,independent=0,point_count=0,range_count=0;ConstSlice<u8> text{};
-    CHECK(data.count>=8&&bytes_equal(data.data,"MCLHIT1\0",8)&&r.word(&text_size)&&r.word(&em_bits)&&r.word(&independent)&&independent<2&&r.word(&point_count)&&r.word(&range_count)&&r.take(text_size,&text));
-    float em=0;copy_bytes(&em,&em_bits,4);NativeAsciiLineResult line{};
-    CHECK(native_ascii_line(store,handle,{reinterpret_cast<const char*>(text.data),text_size},independent!=0,em,{ascii_buffers.storage(),{line_clusters,256}},&line)==SfntStatus::ok);
-    const ConstSlice<NativeLineCluster> clusters{line_clusters,line.cluster_count};
-    const ConstSlice<u32> mapping{ascii_buffers.map,line.run.source_units};const ConstSlice<SfntPlacement> placements{ascii_buffers.placements,line.run.glyph_count};
-    for(u32 i=0;i<point_count;++i){u32 bits[13];for(u32 j=0;j<13;++j)CHECK(r.word(bits+j));float x=0,y=0;copy_bytes(&x,bits,4);copy_bytes(&y,bits+1,4);NativeLinePoint hit{};
-        CHECK(native_ascii_line_point(clusters,line,x,y,&hit)==SfntStatus::ok);
-        const u32 expected_position=bits[4]+(bits[2]?bits[5]:0);
-        if(hit.source_position!=expected_position||hit.inside!=(bits[3]!=0)){print("point=");number(i);print("\n");}
-        CHECK(hit.source_position==expected_position&&hit.inside==(bits[3]!=0));values+=2;++point_checks;
-    }
-    bool checked_budget=false;
-    for(u32 i=0;i<range_count;++i){u32 first=0,length=0,count=0;CHECK(r.word(&first)&&r.word(&length)&&r.word(&count)&&count<=1);NativeLineSelection selection{};
-        CHECK(native_ascii_line_range(clusters,line,mapping,placements,first,length,&selection)==SfntStatus::ok&&selection.present==(count!=0));
-        if(count){u32 expected[9];for(u32 j=0;j<9;++j)CHECK(r.word(expected+j));
-            const u32 actual[]{selection.source_first,selection.source_count,float_bits(selection.left),0,float_bits(selection.width),float_bits(line.vertical.height),0,1,0};
-            if(!bytes_equal(actual,expected,sizeof(actual))){print("range=");number(i);print("\n");}CHECK(bytes_equal(actual,expected,sizeof(actual)));values+=9;
-            if(selection.source_count&&!checked_budget){CHECK(native_ascii_line_range(clusters,line,mapping,placements,first,length,&selection,0)==SfntStatus::resource_limit&&!selection.present&&!selection.width);checked_budget=true;}
-        }
-        ++range_checks;
-    }
-    CHECK(r.at==r.bytes.count);return true;
-}
-bool hit_file(NativeRunPlanHandle handle,const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);
-    struct Close {HANDLE file;~Close() noexcept {CloseHandle(file);}} close{file};LARGE_INTEGER size{};CHECK(GetFileSizeEx(file,&size)&&size.QuadPart>0&&size.QuadPart<=1024*1024);
-    arena_reset(&scratch);auto* data=arena_allocate<u8>(&scratch,static_cast<u32>(size.QuadPart));CHECK(data);DWORD read=0;
-    CHECK(ReadFile(file,data,static_cast<DWORD>(size.QuadPart),&read,nullptr)&&read==size.QuadPart);return hit_case(handle,{data,read});
-}
-bool hit_corpus() noexcept {
-    Reader r{{line_hits_fixture,sizeof(line_hits_fixture)},8};u32 count=0;CHECK(r.word(&count));
-    for(u32 i=0;i<count;++i){u32 font_size=0,case_size=0;ConstSlice<u8> font{},data{};CHECK(r.word(&font_size)&&r.word(&case_size)&&r.take(font_size,&font)&&r.take(case_size,&data)&&write_font(font));NativeRunPlanHandle h{};CHECK(acquire(temporary,&h)&&hit_case(h,data)&&release(h));++fonts;}
-    CHECK(r.at==r.bytes.count);return true;
-}
-bool hit_guards() noexcept {
-    NativeAsciiLineResult line{};line.geometry_flags=native_line_ordered_x;line.vertical.height=12;
-    NativeLinePoint point{99,true};NativeLineSelection selection{99,99,99,99,true};
-    CHECK(native_ascii_line_point({},line,0,0,&point)==SfntStatus::ok&&!point.source_position&&!point.inside);
-    CHECK(native_ascii_line_range({},line,{},{},0,0,&selection)==SfntStatus::ok&&!selection.present&&!selection.width);
-    const u32 bad_float_bits[]{0x7f800000,0xff800000,0x7fc00000};
-    for(u32 bits:bad_float_bits){float value=0;copy_bytes(&value,&bits,4);
-        CHECK(native_ascii_line_point({},line,value,0,&point)==SfntStatus::invalid_input&&!point.source_position&&!point.inside);
-        CHECK(native_ascii_line_point({},line,0,value,&point)==SfntStatus::invalid_input&&!point.source_position&&!point.inside);}
-    CHECK(native_ascii_line_point({},line,0,0,nullptr)==SfntStatus::invalid_input);
-    CHECK(native_ascii_line_range({},line,{},{},0,0,nullptr)==SfntStatus::invalid_input);
-    const NativeLineCluster cluster{3,0,9};const u32 map[]{0,0,0};const SfntPlacement placement{9,0,0};
-    line.run.source_units=3;line.run.glyph_count=1;line.cluster_count=1;line.caret_end=9;
-    const ConstSlice<NativeLineCluster> clusters{&cluster,1};
-    CHECK(native_ascii_line_point(clusters,line,4.5f,6,&point)==SfntStatus::ok&&point.source_position==3&&point.inside);
-    CHECK(native_ascii_line_point(clusters,line,4.49f,6,&point)==SfntStatus::ok&&!point.source_position&&point.inside);
-    CHECK(native_ascii_line_point(clusters,line,-1,6,&point)==SfntStatus::ok&&!point.source_position&&!point.inside);
-    CHECK(native_ascii_line_point(clusters,line,10,6,&point)==SfntStatus::ok&&point.source_position==3&&!point.inside);
-    CHECK(native_ascii_line_point({nullptr,1},line,0,0,&point)==SfntStatus::invalid_input&&!point.inside);
-    CHECK(native_ascii_line_point({},line,0,0,&point)==SfntStatus::invalid_input);
-    line.geometry_flags=0;CHECK(native_ascii_line_point(clusters,line,0,0,&point)==SfntStatus::unsupported_sequence&&!point.source_position&&!point.inside);line.geometry_flags=native_line_ordered_x;
-    CHECK(native_ascii_line_range(clusters,line,{map,3},{&placement,1},1,1,&selection)==SfntStatus::ok&&selection.present&&!selection.source_count&&!selection.width);
-    CHECK(native_ascii_line_range(clusters,line,{map,3},{&placement,1},1,2,&selection)==SfntStatus::ok&&selection.present&&selection.source_count==3&&selection.width==9);
-    CHECK(native_ascii_line_range(clusters,line,{map,3},{&placement,1},1,0xffffffff,&selection)==SfntStatus::invalid_input&&!selection.present&&!selection.width);
-    CHECK(native_ascii_line_range(clusters,line,{map,3},{&placement,1},4,0,&selection)==SfntStatus::invalid_input&&!selection.present);
-    CHECK(native_ascii_line_range(clusters,line,{nullptr,3},{&placement,1},0,1,&selection)==SfntStatus::invalid_input);
-    CHECK(native_ascii_line_range(clusters,line,{map,3},{nullptr,1},0,1,&selection)==SfntStatus::invalid_input);
-    CHECK(native_ascii_line_range(clusters,line,{map,2},{&placement,1},0,1,&selection)==SfntStatus::invalid_input);
-    return true;
-}
 bool lookup_bound_guards() noexcept {
     SfntGsubGlyph glyph{0,SfntGlyphClass::unassigned,0};const double nominal=1;const u8 flag=sfnt_position_cluster_start;SfntPosition position{1,0,0};
     SfntGposExecutableLookup lookup{};lookup.type=1;lookup.bounds.ready=1;
@@ -378,6 +292,7 @@ bool lookup_bound_guards() noexcept {
     const u64 nan_bits=0x7ff8000000000000ull;copy_bytes(&position.advance,&nan_bits,8);CHECK(execute(100)==SfntStatus::invalid_input);
     return true;
 }
+u32 float_bits(float value) noexcept {u32 bits=0;copy_bytes(&bits,&value,4);return bits;}
 #include "ascii_paragraph_cases.hpp"
 #include "positioning_profile_units.inc"
 #include "lazy_substitution_units.inc"
@@ -395,8 +310,8 @@ bool run() noexcept {
     CHECK(arena_initialize(&scratch,1024*1024,0,4096));
     const wchar_t* command=GetCommandLineW();bool quoted=false;while(*command){if(*command=='"')quoted=!quoted;else if(!quoted&&(*command==' '||*command=='\t'))break;++command;}while(*command==' '||*command=='\t')++command;
     if(*command){wchar_t path[32768];u32 n=0;quoted=*command=='"';if(quoted)++command;while(*command&&!(quoted?*command=='"':*command==' '||*command=='\t')){CHECK(n+1<32768);path[n++]=*command++;}path[n]=0;if(quoted&&*command=='"')++command;while(*command==' '||*command=='\t')++command;u32 weight=0;while(*command>='0'&&*command<='9'){CHECK(weight<10000);weight=weight*10+*command++-'0';}while(*command==' '||*command=='\t')++command;
-        NativeRunPlanHandle h{};CHECK(acquire(path,&h,weight));if(lstrcmpW(command,L"lazy-failure")==0){CHECK(lazy_substitution_failure(h));++fonts;return true;}if(lstrcmpW(command,L"lazy-units")==0){CHECK(lazy_substitution_units(h));++fonts;return true;}if(lstrcmpW(command,L"emoji-plan-cost")==0){CHECK(emoji_plan_cost(h));++fonts;return true;}if(lstrcmpW(command,L"plan-cost")==0){CHECK(run_plan_cost(h));++fonts;return true;}if(*command){if(lstrcmpW(command,L"nominal-cost")==0){CHECK(nominal_metric_cost(h)&&release(h));++fonts;return true;}if(lstrcmpW(command,L"metric-cost")==0){CHECK(metric_throughput(h)&&release(h));++fonts;return true;}if(lstrcmpW(command,L"profile-cost")==0)CHECK(positioning_profile_cost(h));else if(lstrcmpW(command,L"profiles")==0)CHECK(positioning_profiles(h));else if(command[0]=='q'&&command[1]==':')CHECK(hit_file(h,command+2));else if(command[0]=='l'&&command[1]=='i'&&command[2]=='n'&&command[3]=='e'&&command[4]==':')CHECK(ascii_audit(h,command+5,true));else if(command[0]=='a'&&command[1]=='s'&&command[2]=='c'&&command[3]=='i'&&command[4]=='i'&&command[5]==':')CHECK(ascii_audit(h,command+6));else if(command[0]=='m'&&command[1]=='e'&&command[2]=='t'&&command[3]=='r'&&command[4]=='i'&&command[5]=='c'&&command[6]=='s'&&!command[7])CHECK(audit_metrics(h));else CHECK(audit_ranges(h,command));}CHECK(shape(h,false,false,0,nullptr)&&shape(h,true,false,0,nullptr));CHECK(release(h));++fonts;return true;}
-    wchar_t folder[MAX_PATH];CHECK(GetTempPathW(MAX_PATH,folder)&&GetTempFileNameW(folder,L"mcp",0,temporary));return corpus()&&metric_corpus()&&metric_guards()&&line_corpus()&&hit_corpus()&&hit_guards()&&lookup_bound_guards()&&paragraph_cases()&&ordered_paragraph_cases()&&latin_boundary_cases()&&styled_paragraph_cases();
+        NativeRunPlanHandle h{};CHECK(acquire(path,&h,weight));if(lstrcmpW(command,L"lazy-failure")==0){CHECK(lazy_substitution_failure(h));++fonts;return true;}if(lstrcmpW(command,L"lazy-units")==0){CHECK(lazy_substitution_units(h));++fonts;return true;}if(lstrcmpW(command,L"emoji-plan-cost")==0){CHECK(emoji_plan_cost(h));++fonts;return true;}if(lstrcmpW(command,L"plan-cost")==0){CHECK(run_plan_cost(h));++fonts;return true;}if(*command){if(lstrcmpW(command,L"nominal-cost")==0){CHECK(nominal_metric_cost(h)&&release(h));++fonts;return true;}if(lstrcmpW(command,L"metric-cost")==0){CHECK(metric_throughput(h)&&release(h));++fonts;return true;}if(lstrcmpW(command,L"profile-cost")==0)CHECK(positioning_profile_cost(h));else if(lstrcmpW(command,L"profiles")==0)CHECK(positioning_profiles(h));else if(command[0]=='l'&&command[1]=='i'&&command[2]=='n'&&command[3]=='e'&&command[4]==':')CHECK(ascii_audit(h,command+5,true));else if(command[0]=='a'&&command[1]=='s'&&command[2]=='c'&&command[3]=='i'&&command[4]=='i'&&command[5]==':')CHECK(ascii_audit(h,command+6));else CHECK(lstrcmpW(command,L"metrics")==0&&audit_metrics(h));}CHECK(shape(h,false,false,0,nullptr)&&shape(h,true,false,0,nullptr));CHECK(release(h));++fonts;return true;}
+    wchar_t folder[MAX_PATH];CHECK(GetTempPathW(MAX_PATH,folder)&&GetTempFileNameW(folder,L"mcp",0,temporary));return corpus()&&metric_corpus()&&metric_guards()&&line_corpus()&&lookup_bound_guards()&&paragraph_cases()&&ordered_paragraph_cases()&&latin_boundary_cases()&&styled_paragraph_cases();
 }
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_run_plan_entry() noexcept {
@@ -406,6 +321,5 @@ extern "C" __declspec(noreturn) void WINAPI maicord_run_plan_entry() noexcept {
     for(u32 i=0;i<2;++i)while(faces[i].references)native_font_release(&font_store,{i+1,faces[i].generation});
     arena_release(&scratch);if(temporary[0]&&!DeleteFileW(temporary))ok=false;
     print("fonts=");number(fonts);print("\nchecks=");number(checks);print("\nvalues=");number(values);print("\nstate_bytes_sum=");number(state_bytes);print("\nslot_bytes=");number(sizeof(NativeRunPlanSlot));
-    print("\npoint_queries=");number(point_checks);print("\nrange_queries=");number(range_checks);
     print(ok?"\nPASS native run plans\n":"\nFAIL native run plans\n");flush();ExitProcess(ok&&print_ok?0:1);
 }

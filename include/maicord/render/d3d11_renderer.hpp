@@ -496,7 +496,6 @@ struct D3D11Renderer {
     u32 draw_calls_last_frame;
     u32 draw_calls_max;
     u32 resize_clipped_updates;
-    u32 glyph_quad_count;
     u32 media_quad_count;
     u32 media_batch_count;
     u32 media_draws_last_frame;
@@ -836,8 +835,6 @@ bool renderer_project_accessible_text(D3D11Renderer* renderer, const Theme& them
 bool renderer_rebuild_shell_text(D3D11Renderer* renderer, const Theme& theme) noexcept;
 MessageTextHit renderer_content_hit_test(const D3D11Renderer& renderer, i32 client_x_pixels,
                                          i32 client_y_pixels) noexcept;
-MessageTextHit renderer_search_content_hit_test(const D3D11Renderer&, i32, i32) noexcept;
-RendererMessageTextPositionHit renderer_search_text_position_hit_test(D3D11Renderer&, i32, i32) noexcept;
 RendererMessageTextPositionHit renderer_message_text_position_hit_test(D3D11Renderer& renderer,
                                                                        i32 client_x_pixels,
                                                                        i32 client_y_pixels) noexcept;

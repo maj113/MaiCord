@@ -240,7 +240,7 @@ void test_playback(Check check) noexcept {
 void test_speaking_marks(Check check) noexcept {
     static VoiceState records[5];
     VoiceStateStore store{};
-    voice_state_store_initialize(&store, {records, 5});
+    voice_state_store_initialize_sparse(&store, {records, 5});
     voice_state_store_apply(&store, 1, 7, 11, voice_self_mute);
     voice_state_store_apply(&store, 1, 7, 22, 0);
     voice_state_store_apply(&store, 1, 8, 33, 0);

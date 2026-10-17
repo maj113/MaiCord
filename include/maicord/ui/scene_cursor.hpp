@@ -26,12 +26,6 @@
 
 namespace maicord {
 
-// Labels (title, time, status) are passive; buttons and ranges are clickable.
-inline UiCursor ui_audio_controls_cursor(const UiAudioControlsProjection& projection, UiPoint point) noexcept {
-    const auto* descriptor = ui_audio_controls_find(projection, ui_audio_controls_hit(projection, point));
-    return ui_action_cursor(descriptor && descriptor->kind != UiAudioControlKind::label);
-}
-
 inline UiCursor ui_audio_scene_cursor(const UiAudioScene& scene, UiPoint point) noexcept {
     if (!scene.active)
         return UiCursor::arrow;

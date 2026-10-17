@@ -75,7 +75,6 @@ bool uia_host_window_message(UiaProviderHost* host, UINT message, WPARAM wparam,
                              LRESULT* result) noexcept;
 // Loads the system libraries without a window request (tests).
 bool uia_host_load(UiaProviderHost* host) noexcept;
-bool uia_host_loaded(const UiaProviderHost& host) noexcept;
 // False before the first request; afterwards UiaClientsAreListening.
 bool uia_host_listening(const UiaProviderHost& host) noexcept;
 bool uia_host_raise_focus(UiaProviderHost* host, u64 key) noexcept;

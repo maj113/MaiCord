@@ -803,8 +803,7 @@ int run() noexcept {
     u64 request_checksum = 0;
     const i64 request_begin = clock_now();
     for (u32 iteration = 0; iteration < kCdnRequestIterations; ++iteration) {
-        const CdnRequestResult written = write_static_png_cdn_get_request(
-            CdnHost::cdn, ConstSlice<u8>{reinterpret_cast<const u8*>("/stickers/100.png"), 17},
+        const CdnRequestResult written = write_static_cdn_get_request(CdnImageType::png, CdnHost::cdn, ConstSlice<u8>{reinterpret_cast<const u8*>("/stickers/100.png"), 17},
             ConstSlice<u8>{reinterpret_cast<const u8*>("\"v1\""), 4},
             Slice<u8>{request_head, sizeof(request_head)});
         if (!written.ok()) {
@@ -828,8 +827,7 @@ int run() noexcept {
                                      "Transfer-Encoding: chunked\r\n"
                                      "ETag: \"v1\"\r\n"
                                      "Cache-Control: max-age=604800\r\n\r\n";
-    const CdnResponseResult response = validate_static_png_response(
-        ConstSlice<u8>{reinterpret_cast<const u8*>(response_head), sizeof(response_head) - 1},
+    const CdnResponseResult response = validate_static_image_response(CdnImageType::png, ConstSlice<u8>{reinterpret_cast<const u8*>(response_head), sizeof(response_head) - 1},
         png_fixture.encoded_bytes, 1);
     const MediaAssetKey pipeline_key = media_asset_sticker(100, 1);
     if (!response.ok() ||
@@ -1543,14 +1541,19 @@ int run() noexcept {
     for (u32 iteration = 0; iteration < kApngDecodeIterations; ++iteration) {
         PngImage frame_image{};
         ApngImage decoded_animation{};
+        const ApngParseResult parsed = apng_parse(ConstSlice<u8>{g_png_encoded, apng_fixture.encoded_bytes},
+                                                  &decoded_animation, &g_apng_workspace);
+        if (!parsed.ok()) {
+            return 33;
+        }
         const ApngDecodeResult decoded =
-            apng_decode_frame(ConstSlice<u8>{g_png_encoded, apng_fixture.encoded_bytes}, iteration & 3u,
-                              &decoded_animation, &g_apng_workspace, &deflate_workspace, &frame_image,
-                              Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)});
+            apng_decode_parsed_frame(ConstSlice<u8>{g_png_encoded, apng_fixture.encoded_bytes}, decoded_animation,
+                                     iteration & 3u, &deflate_workspace, &frame_image,
+                                     Slice<u8>{g_png_scanlines, sizeof(g_png_scanlines)});
         if (!decoded.ok()) {
             return 33;
         }
-        apng_decode_checksum += decoded.duration_us + decoded.parse.sequence_chunks + g_png_scanlines[1];
+        apng_decode_checksum += decoded.duration_us + parsed.sequence_chunks + g_png_scanlines[1];
     }
     const u64 apng_decode_us = maximum<u64>(1, clock_microseconds(clock, apng_decode_begin, clock_now()));
 

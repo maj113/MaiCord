@@ -1,14 +1,11 @@
 #include "maicord/ui/message_component_media.hpp"
 
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
-
-char lower(char c) noexcept {
-    return c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c;
-}
 
 bool has_extension(Utf8View path, const char* extension) noexcept {
     u32 bytes = 0;
@@ -17,7 +14,7 @@ bool has_extension(Utf8View path, const char* extension) noexcept {
     if (path.bytes < bytes)
         return false;
     for (u32 i = 0; i < bytes; ++i)
-        if (lower(path.data[path.bytes - bytes + i]) != extension[i])
+        if (ascii_lower(path.data[path.bytes - bytes + i]) != extension[i])
             return false;
     return true;
 }

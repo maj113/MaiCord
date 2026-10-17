@@ -85,7 +85,7 @@ struct UiProfileDialogScene {
     UiProfileDialogContent content;
     UiTextMeasureCache* measure;
     UiButtonKeyboard keyboard;
-    UiRect viewport, rectangle, crop_viewport, crop_mask, slider_track, grid_viewport;
+    UiRect viewport, rectangle, crop_viewport, slider_track, grid_viewport;
     float grid_scroll, grid_height;
     u32 revision;
     bool active, focus_visible;

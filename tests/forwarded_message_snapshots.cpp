@@ -238,7 +238,7 @@ void test_forwarded_message_snapshots(void (*check)(bool, const char*) noexcept)
     MessageRichStore lazy{};
     u16 lazy_order[4]{};
     u8 lazy_text[8192]{};
-    check(message_rich_store_initialize_owned(&lazy, &owned, 4, {lazy_order, 4}, {lazy_text, 8192}) &&
+    check(message_rich_store_initialize_owned_sparse(&lazy, &owned, 4, {lazy_order, 4}, {lazy_text, 8192}) &&
               lazy.capacity == 4 && lazy.record_capacity == 8 && !owned.arena.committed &&
               !lazy.snapshot_count,
           "snapshot physical headroom reserves without committing child records");

@@ -75,7 +75,6 @@ NativePluginPreferencesResult fault_preferences_decode(ConstSlice<u8>,NativePlug
 #define GetFileInformationByHandle maicord::preference_fault_test::attributes
 #define GetFinalPathNameByHandleW maicord::preference_fault_test::final_path
 #define native_plugin_preferences_valid fault_preferences_valid
-#define native_plugin_preferences_has fault_preferences_has
 #define native_plugin_preferences_find fault_preferences_find
 #define native_plugin_preferences_restorable fault_preferences_restorable
 #define native_plugin_preferences_set_flags fault_preferences_set_flags
@@ -97,7 +96,6 @@ NativePluginPreferencesResult fault_preferences_decode(ConstSlice<u8>,NativePlug
 #undef GetFileInformationByHandle
 #undef GetFinalPathNameByHandleW
 #undef native_plugin_preferences_valid
-#undef native_plugin_preferences_has
 #undef native_plugin_preferences_find
 #undef native_plugin_preferences_restorable
 #undef native_plugin_preferences_set_flags
@@ -137,21 +135,21 @@ bool preferences_fixture_committed(void* page) noexcept {
 }
 void test_plugin_preferences(void (*check)(bool,const char*) noexcept) noexcept {
     NativePluginPreferences preferences{},decoded{};auto manifest=preferences_fixture_manifest();
-    check(native_plugin_preferences_valid(preferences) && !native_plugin_preferences_has(preferences,manifest),
+    check(native_plugin_preferences_valid(preferences) && !native_plugin_preferences_find(preferences,manifest),
         "plugin preferences: zero-init has no implicit execution authority");
     check(native_plugin_preferences_enable(&preferences,manifest).ok() && preferences.count==1 &&
-        native_plugin_preferences_has(preferences,manifest) && preferences.entries[0].dll[0]=='f',
+        native_plugin_preferences_find(preferences,manifest) && preferences.entries[0].dll[0]=='f',
         "plugin preferences: successful explicit choice stores canonical ASCII identity");
     auto changed=manifest;changed.sha256[0]^=1;
-    check(!native_plugin_preferences_has(preferences,changed),"plugin preferences: hash changes require a new explicit Enable");
+    check(!native_plugin_preferences_find(preferences,changed),"plugin preferences: hash changes require a new explicit Enable");
     changed=manifest;changed.owner_id++;
-    check(!native_plugin_preferences_has(preferences,changed),"plugin preferences: owner change never reuses authority");
+    check(!native_plugin_preferences_find(preferences,changed),"plugin preferences: owner change never reuses authority");
     changed=manifest;changed.abi_version++;
-    check(!native_plugin_preferences_has(preferences,changed),"plugin preferences: unsupported ABI cannot match authority");
+    check(!native_plugin_preferences_find(preferences,changed),"plugin preferences: unsupported ABI cannot match authority");
     changed=manifest;changed.dll[0]='X';
-    check(!native_plugin_preferences_has(preferences,changed),"plugin preferences: DLL leaf changes require explicit Enable");
+    check(!native_plugin_preferences_find(preferences,changed),"plugin preferences: DLL leaf changes require explicit Enable");
     changed=manifest;changed.dll[0]='f';changed.version[0]='2';
-    check(native_plugin_preferences_has(preferences,changed),"plugin preferences: DLL case and presentation version do not change code identity");
+    check(native_plugin_preferences_find(preferences,changed)!=nullptr,"plugin preferences: DLL case and presentation version do not change code identity");
     const auto sentinel=preferences;
     changed=manifest;changed.owner_id++;
     check(native_plugin_preferences_enable(&preferences,changed).error==NativePluginPreferencesError::invalid_input &&
@@ -160,7 +158,7 @@ void test_plugin_preferences(void (*check)(bool,const char*) noexcept) noexcept 
     check(native_plugin_preferences_encode(preferences,{record,kNativePluginPreferencesRecordBytes}).ok() && record[8]==2 &&
         byte_load_le32(record+12)==kNativePluginPreferencesRecordBytes && byte_load_le64(record+32)==42 &&
         native_plugin_preferences_decode({record,kNativePluginPreferencesRecordBytes},&decoded).ok() &&
-        native_plugin_preferences_has(decoded,manifest),"plugin preferences: strict little endian v2 record round trips exact identity");
+        native_plugin_preferences_find(decoded,manifest),"plugin preferences: strict little endian v2 record round trips exact identity");
     const auto reject=[&](NativePluginPreferencesError expected,u32 count=kNativePluginPreferencesRecordBytes) noexcept {
         decoded=sentinel;const auto result=native_plugin_preferences_decode({record,count},&decoded);
         return result.error==expected && bytes_equal(&decoded,&sentinel,sizeof(decoded));
@@ -199,9 +197,9 @@ void test_plugin_preferences(void (*check)(bool,const char*) noexcept) noexcept 
         bytes_equal(&full,&preferences,sizeof(full)),"plugin preferences: ninth choice refuses without eviction");
     changed=manifest;changed.sha256[0]^=1;
     check(native_plugin_preferences_enable(&preferences,changed).ok() && preferences.count==8 &&
-        native_plugin_preferences_has(preferences,changed) && !native_plugin_preferences_has(preferences,manifest),
+        native_plugin_preferences_find(preferences,changed) && !native_plugin_preferences_find(preferences,manifest),
         "plugin preferences: explicit owner update revokes the previous digest even at capacity");
-    check(native_plugin_preferences_remove_owner(&preferences,42) && !native_plugin_preferences_has(preferences,changed) &&
+    check(native_plugin_preferences_remove_owner(&preferences,42) && !native_plugin_preferences_find(preferences,changed) &&
         native_plugin_preferences_valid(preferences) && preferences.count==7,
         "plugin preferences: Disable removes owner identity and clears vacated storage");
     check(native_plugin_preferences_encode(sentinel,{reinterpret_cast<u8*>(const_cast<NativePluginPreferences*>(&sentinel)),1440}).error==NativePluginPreferencesError::invalid_input &&
@@ -220,7 +218,7 @@ void test_plugin_preferences(void (*check)(bool,const char*) noexcept) noexcept 
     check(loaded.ok() && loaded.missing && !decoded.count && !io.cleanup,"plugin preferences: missing file succeeds with no authority or retained IO");
     auto saved=native_plugin_preferences_save_file(&io,path,sentinel);
     check(saved.ok() && saved.committed && !io.cleanup && native_plugin_preferences_load_file(&io,path,&decoded).ok() &&
-        native_plugin_preferences_has(decoded,manifest),"plugin preferences: exclusive retained-handle atomic save round trips");
+        native_plugin_preferences_find(decoded,manifest),"plugin preferences: exclusive retained-handle atomic save round trips");
     check(native_plugin_preferences_save_file(&io,path,preferences).ok() && native_plugin_preferences_load_file(&io,path,&decoded).ok() &&
         decoded.count==7,"plugin preferences: atomic replacement stores a complete edited record");
     HANDLE locked=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
@@ -282,7 +280,7 @@ void test_plugin_preferences(void (*check)(bool,const char*) noexcept) noexcept 
     check(saved.error==NativePluginPreferencesError::release && saved.committed && preferences_fixture_committed(page),
         "plugin preferences: postcommit close failure reports committed and retains retryable ownership");
     check(fault_preferences_release(&io).ok() && !io.cleanup && native_plugin_preferences_load_file(&io,path,&decoded).ok() &&
-        native_plugin_preferences_has(decoded,manifest),"plugin preferences: committed record survives release retry");
+        native_plugin_preferences_find(decoded,manifest),"plugin preferences: committed record survives release retry");
     fault=Fault::postcommit_flush;flushes=0;saved=fault_preferences_save_file(&io,path,preferences);
     check(saved.error==NativePluginPreferencesError::flush && saved.committed && !io.cleanup &&
         native_plugin_preferences_load_file(&io,path,&decoded).ok() && decoded.count==7,

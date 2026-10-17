@@ -412,10 +412,6 @@ bool resolve_color(void*, u64 id, u32 choice, BackgroundTheme* theme) noexcept {
     theme->color_count = 1;
     return true;
 }
-Utf8View server_name(Bank& bank, u64 guild_id) noexcept {
-    const auto* guild = chat_state_store_find_guild(state(), guild_id);
-    return guild ? bank.add(chat_state_store_guild_name(state(), *guild)) : Utf8View{};
-}
 Utf8View footer_status(Bank& bank) noexcept {
     if (owner->failed && owner->status.bytes)
         return owner->status;

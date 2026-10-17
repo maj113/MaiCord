@@ -16,7 +16,6 @@ enum MediaAtlasEntryFlags : u8 {
 
 struct MediaAtlasEntry {
     MediaAssetKey key;
-    u64 allocation_key;
     GlyphAtlasHandle allocation;
     u16 generation;
     bool occupied;
@@ -125,6 +124,6 @@ u32 media_atlas_trim(MediaAtlas* atlas, Slice<GlyphAtlasRowMove> moves, bool* re
 // After media_atlas_reset with the GPU surface released: back to initial height.
 void media_atlas_reset_growth(MediaAtlas* atlas) noexcept;
 
-static_assert(sizeof(MediaAtlasEntry) == 32);
+static_assert(sizeof(MediaAtlasEntry) == 24);
 
 } // namespace maicord

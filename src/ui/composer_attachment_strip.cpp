@@ -46,10 +46,6 @@ bool clip_push(PaintStream* paint, UiRect clip) noexcept {
     return paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom);
 }
 
-UiRect inset(UiRect rectangle, float amount) noexcept {
-    return {rectangle.left + amount, rectangle.top + amount, rectangle.right - amount, rectangle.bottom - amount};
-}
-
 UiRect centered(UiRect area, float extent) noexcept {
     extent = minimum(extent, minimum(ui_rect_width(area), ui_rect_height(area)));
     const float x = (area.left + area.right - extent) * .5f;
@@ -279,7 +275,7 @@ UiComposerAttachmentTileGeometry ui_composer_attachment_tile_geometry(
     const float left = strip.left + style.leading - scroll + static_cast<float>(index) * (style.tile + style.gap);
     const float top = strip.top + style.top;
     geometry.card = {left, top, left + style.tile, top + style.tile};
-    const UiRect inner = inset(geometry.card, style.padding);
+    const UiRect inner = ui_rect_shrink(geometry.card, style.padding);
     geometry.name = {inner.left, inner.bottom - style.name_height, inner.right, inner.bottom};
     geometry.media = {inner.left, inner.top, inner.right, geometry.name.top - style.name_gap};
     char status[24];

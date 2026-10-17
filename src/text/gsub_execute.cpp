@@ -1,20 +1,11 @@
 #include "maicord/text/gsub_execute.hpp"
 #include "maicord/text/base.hpp"
 #include "gsub_validated.hpp"
-#include "lookup_selection.hpp"
-#include "context_lookups.hpp"
 #include <intrin.h>
 
 namespace maicord {namespace {
 template<class T> bool valid(Slice<T> s) noexcept {return !s.count || s.data;}
 inline bool spend(u64* work,u64 amount=1) noexcept {if(amount>*work)return false;*work-=amount;return true;}
-SfntStatus require_children(const SfntGsubExecutableLookup& lookup,u16 count,ConstSlice<u64> selected,u32& work) noexcept {
-    if(!selected.count||(lookup.type!=5&&lookup.type!=6))return SfntStatus::ok;
-    for(u32 i=0;i<lookup.subtables.count;++i){u32 used=0;const auto status=sfnt_context_visit_lookups(lookup.subtables[i].context.table,
-        lookup.type==5?SfntContextKind::sequence:SfntContextKind::chained,count,require_lookup,&selected,work,&used);
-        work-=used;if(status!=SfntStatus::ok)return status;}
-    return SfntStatus::ok;
-}
 SfntStatus inspect(const SfntLookup& lookup,ConstSlice<u8> bytes,SfntContextRequirements* req) noexcept {
     *req={};if(lookup.type<=4)return SfntStatus::ok;
     if(lookup.type==5 || lookup.type==6)return sfnt_context_requirements(bytes,lookup.type==5?SfntContextKind::sequence:SfntContextKind::chained,req);
@@ -250,38 +241,6 @@ SfntStatus sfnt_gsub_prepare_lookup(const SfntLayout& layout,u16 index,const Sfn
     LookupBuilder builder{storage,subwork,minimum(subwork,65536u)};SfntGsubExecutableLookup result{};
     s=builder.prepare(lookup,gdef,limit,layout.lookup_count,result,ignore_empty,ignore_unreachable);
     if(s==SfntStatus::ok)*output=result;return s;
-}
-SfntStatus sfnt_gsub_program_requirements(const SfntLayout& layout,SfntGsubProgramRequirements* output,u32 budget,ConstSlice<u64> selected,const SfntGsubProgram* inherited) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(layout.kind!=SfntLayoutKind::substitution)return SfntStatus::invalid_input;
-    if(inherited&&(inherited->lookups.count!=layout.lookup_count||(layout.lookup_count&&!inherited->lookups.data)))return SfntStatus::invalid_input;
-    const auto valid_selection=selection_valid(layout,selected);if(valid_selection!=SfntStatus::ok)return valid_selection;
-    SfntGsubProgramRequirements result{layout.lookup_count,0,0,0};u64 work=budget;
-    for(u32 i=0;i<layout.lookup_count;++i){if(!spend(&work))return SfntStatus::resource_limit;if(!selected_lookup(selected,i)||(inherited&&inherited->lookups[i].type))continue;SfntLookup lookup{};auto s=sfnt_layout_lookup(layout,static_cast<u16>(i),&lookup);if(s!=SfntStatus::ok)return s;
-        s=lookup_requirements(lookup,result,work);if(s!=SfntStatus::ok)return s;}
-    *output=result;return SfntStatus::ok;
-}
-SfntStatus sfnt_gsub_program_prepare(const SfntLayout& layout,const SfntGdef& gdef,u32 limit,SfntGsubProgramStorage storage,SfntGsubProgram* output,u32 subwork,u32 budget,bool ignore_empty,bool ignore_unreachable,ConstSlice<u64> selected,const SfntGsubProgram* inherited) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(!limit || limit>65536 || (gdef.table.data && gdef.glyph_limit!=limit) || !valid(storage.lookups) || !valid(storage.subtables) || !valid(storage.coverages) || !valid(storage.classes))return SfntStatus::invalid_input;
-    if(layout.kind!=SfntLayoutKind::substitution)return SfntStatus::invalid_input;
-    if(inherited&&(inherited->glyph_limit!=limit||inherited->gdef.table.data!=gdef.table.data||inherited->gdef.table.count!=gdef.table.count||
-        inherited->lookups.count!=layout.lookup_count||(layout.lookup_count&&!inherited->lookups.data)))return SfntStatus::invalid_input;
-    auto s=selection_valid(layout,selected);if(s!=SfntStatus::ok)return s;
-    if(layout.lookup_count>storage.lookups.count)return SfntStatus::output_too_small;
-    const bool deferred=inherited&&inherited->source&&storage.lookups.data==inherited->lookups.data;
-    if(inherited&&storage.lookups.data==inherited->lookups.data)
-        for(u32 i=0;i<layout.lookup_count;++i)if(inherited->lookups[i].type&&!selected_lookup(selected,i))return SfntStatus::invalid_input;
-    u64 directory_work=budget;
-    LookupBuilder builder{{storage.subtables,storage.coverages,storage.classes},subwork,minimum(subwork,65536u)};u32 closure_work=budget;
-    for(u32 i=0;i<layout.lookup_count;++i){if(!spend(&directory_work))return SfntStatus::resource_limit;
-        auto& dest=storage.lookups.data[i];
-        if(selected_lookup(selected,i)&&inherited&&inherited->lookups[i].type){dest=inherited->lookups[i];s=deferred?SfntStatus::ok:require_children(dest,layout.lookup_count,selected,closure_work);if(s!=SfntStatus::ok)return s;continue;}
-        dest={};if(!selected_lookup(selected,i))continue;
-        SfntLookup lookup{};s=sfnt_layout_lookup(layout,static_cast<u16>(i),&lookup);if(s!=SfntStatus::ok)return s;
-        if(!spend(&directory_work,lookup.subtable_count))return SfntStatus::resource_limit;
-        s=builder.prepare(lookup,gdef,limit,layout.lookup_count,dest,ignore_empty,ignore_unreachable);if(s!=SfntStatus::ok)return s;
-        if(!deferred){s=require_children(dest,layout.lookup_count,selected,closure_work);if(s!=SfntStatus::ok)return s;}
-    }
-    *output={{storage.lookups.data,layout.lookup_count},gdef,limit,deferred?inherited->source:nullptr};return SfntStatus::ok;
 }
 SfntStatus sfnt_gsub_execute_lookup(const SfntGsubProgram& program,u16 lookup,SfntGlyphBuffer* buffer,u32 start,u32 end,u32 alternate,SfntGsubExecutionScratch scratch,SfntGsubExecutionLimits limits,SfntGsubExecutionResult* output,SfntClusterMap* clusters,SfntComponentForest* components,u8 mask) noexcept {
     if(!output)return SfntStatus::invalid_input;*output={};if(!buffer || lookup>=program.lookups.count || !sfnt_gsub_directory_valid(program) || (components && (!clusters || components->sealed)) || buffer->record_size!=(components?sizeof(SfntComponentGlyph):clusters?sizeof(SfntClusterGlyph):sizeof(SfntGsubGlyph)) || !valid(scratch.frames) || !valid(scratch.positions) || !valid(scratch.rebased) || !valid(scratch.consumed) || !valid(scratch.replacements) || !valid(scratch.component_journal) || scratch.positions.count>0x3fffffffu || scratch.rebased.count>0x3fffffffu || scratch.consumed.count>0x3fffffffu)return SfntStatus::invalid_input;

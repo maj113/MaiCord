@@ -217,7 +217,7 @@ add_dependencies(maicord_account_media maicord_regional_flag_data)
 target_include_directories(maicord_account_media PRIVATE "${MAICORD_GENERATED_DIRECTORY}")
 
 maicord_library(maicord_unicode
-    src/text/arabic_joining.cpp src/text/word.cpp src/text/line_break.cpp src/text/line_break_windows.cpp
+    src/text/arabic_joining.cpp src/text/line_break.cpp src/text/line_break_windows.cpp
     src/text/thai_word_break.cpp src/text/thai_lexical.cpp src/text/thai_syllable.cpp
     src/text/bidi_windows_brackets.cpp src/text/unicode.cpp src/text/grapheme.cpp src/text/bidi.cpp
     LIBS maicord_core)
@@ -238,17 +238,17 @@ maicord_library(maicord_font
     src/text/tt_bold_points.cpp src/text/font_session.cpp src/text/font_prepare.cpp
     src/text/gpos_cursive_execute.cpp src/text/position_anchor.cpp src/text/gpos_mark_execute.cpp
     src/text/gpos_ligature_execute.cpp src/text/gpos_execute.cpp src/text/gpos_program.cpp
-    src/text/lookup_selection.cpp src/text/substitution_selection.cpp src/text/position_flags.cpp
+    src/text/lookup_selection.cpp src/text/position_flags.cpp
     src/text/gpos_attachment.cpp src/text/gpos.cpp src/text/clusters.cpp src/text/components.cpp
     src/text/shape_run.cpp src/text/run_plan.cpp src/text/font_names.cpp src/text/font_match.cpp
-    src/text/font_candidates.cpp src/text/font_family.cpp src/text/font_catalog.cpp src/text/font_path_stat.cpp
+    src/text/font_candidates.cpp src/text/font_family.cpp src/text/font_catalog.cpp
     src/text/font_handle_stat.cpp src/text/font_fallback.cpp src/text/font_fallback_order.cpp
     src/text/font_fallback_catalog.cpp src/text/font_catalog_coverage.cpp src/text/font_fallback_range.cpp
-    src/text/font_fallback_route.cpp src/text/font_fallback_map.cpp src/text/font_catalog_prepare.cpp
-    src/text/font_catalog_builder.cpp src/text/font_run.cpp src/text/arabic_run_plan.cpp src/text/arabic_run.cpp
+    src/text/font_fallback_route.cpp src/text/font_fallback_map.cpp
+    src/text/font_run.cpp src/text/arabic_run_plan.cpp src/text/arabic_run.cpp
     src/text/arabic_paragraph.cpp src/text/gsub_execute.cpp src/text/glyph_buffer.cpp src/text/context.cpp
     src/text/gsub.cpp src/text/layout_directory.cpp src/text/lookup_plan.cpp src/text/nominal_participation.cpp
-    src/text/nominal_sources.cpp src/text/nominal_ranges.cpp src/text/ascii_run.cpp src/text/latin_run.cpp
+    src/text/nominal_sources.cpp src/text/ascii_run.cpp src/text/latin_run.cpp
     src/text/hebrew_shape_run.cpp src/text/run_profile.cpp src/text/emoji_run.cpp src/text/emoji_line.cpp
     src/text/emoji_paragraph.cpp src/text/visibility.cpp src/text/script_class.cpp
     src/text/unicode_line_geometry.cpp src/text/latin_line.cpp src/text/latin_paragraph.cpp
@@ -292,7 +292,7 @@ maicord_library(maicord_ui
     src/ui/code_highlight.cpp src/ui/composer_autocomplete.cpp src/ui/message_markdown.cpp
     src/ui/timestamp_format.cpp src/ui/navigation_view.cpp src/ui/emoji_catalog.cpp src/ui/geometry.cpp
     src/ui/guild_rail_scene.cpp src/ui/navigation_drag.cpp src/ui/unread_banner_scene.cpp
-    src/app/unread_banner_projection.cpp src/ui/layout_debug.cpp src/ui/layout_engine.cpp src/ui/login_scene.cpp
+    src/app/unread_banner_projection.cpp src/ui/layout_engine.cpp src/ui/login_scene.cpp
     src/ui/login_presentation.cpp src/ui/login_text_presentation.cpp src/ui/login_view.cpp
     src/ui/member_list_scene.cpp src/ui/member_list_navigation.cpp src/ui/message_action_bar.cpp
     src/ui/message_action_bar_presentation.cpp src/ui/message_context_controller.cpp

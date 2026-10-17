@@ -48,8 +48,4 @@ WavePcmError wave_pcm_parse(WavePcmSource* output, ConstSlice<u8> encoded) noexc
 // invalid padding, and nonfinite sample failures write nothing. Source unchanged.
 WavePcmDecodeResult wave_pcm_decode(const WavePcmSource& source, u64 first_frame, u32 requested_frames,
                                     Slice<float> output) noexcept;
-// Exact absolute encoded byte offset of a frame; total_frames denotes data end.
-// Stateless seeking introduces no resampling or delay. Failure preserves output.
-WavePcmError wave_pcm_seek_frame(const WavePcmSource& source, u64 target_frame,
-                                 u64* encoded_byte_offset) noexcept;
 } // namespace maicord

@@ -277,8 +277,8 @@ MaiCordLayoutTableTests.exe corpus.bin
 MaiCordLayoutTableTests.exe synthetic.bin
 ```
 
-`gdef_oracle.py` (`MCGDEF1`) covers GDEF classes, attachment points, carets, mark
-sets, variation-store metadata and filter decisions, plus synthetic tables;
+`gdef_oracle.py` (`MCGDEF2`) covers GDEF classes, mark sets, variation-store
+metadata and filter decisions, plus synthetic tables;
 manifest hashes and glyph counts must match.
 
 ```powershell
@@ -718,15 +718,13 @@ native bold in the renderer. Most take an output `<root>` directory first and
 
 ## Script analysis observers
 
-`script_analysis_reference.cpp`, `script_sequence_reference.cpp`,
-`script_font_reference.cpp`, `script_benchmark.cpp` and
-`language_selection_benchmark.cpp` are not built by `cmake/reference_tools.cmake`
+`script_analysis_reference.cpp`, `script_sequence_reference.cpp` and
+`script_font_reference.cpp` are not built by `cmake/reference_tools.cmake`
 or any other CMake file. Each defines its own entry point
 (`maicord_script_analysis_reference_entry`,
-`maicord_script_sequence_reference_entry`, `maicord_script_font_reference_entry`,
-`maicord_script_benchmark_entry`, `maicord_language_selection_benchmark_entry`);
-the sequence, font and benchmark sources include `script_analysis_reference.cpp`.
-The first four use an isolated DirectWrite factory. Layouts are little-endian. A
+`maicord_script_sequence_reference_entry`, `maicord_script_font_reference_entry`);
+the sequence and font sources include `script_analysis_reference.cpp`.
+All three use an isolated DirectWrite factory. Layouts are little-endian. A
 packed script ID is the DirectWrite script index with `0x8000` set for
 `DWRITE_SCRIPT_SHAPES_NO_VISUAL`; `0xffff` marks an unobserved slot. Binary outputs
 end with a `u32` count and that many 20-byte `DWRITE_SCRIPT_PROPERTIES`. Scalars
@@ -750,14 +748,6 @@ are valid Unicode scalar values (no surrogates, at most `0x10ffff`).
   succeeded, cluster map, text properties, glyph IDs, glyph properties, advances
   and offsets (size 1000, en-US). The font must hold exactly one face and each case
   must resolve to one script run. Exit 0, 1 failure, 2 bad font argument.
-- `script_benchmark`: compares `native_script_resolve` with Windows on prepared
-  input and prints one JSON line per sample and length (`sample`, `scalars`,
-  `utf16_units`, `frequency`, `iterations`, `batches` of tick pairs, native then
-  DirectWrite), then `PASS prepared script analysis benchmark`. Results are
-  verified outside the timed batches. Exit 0 or 1.
-- `language_selection_benchmark.cpp` calls `previous_latin_lookup_plan`,
-  `previous_common_lookup_plan` and `previous_arabic_lookup_plan`, which the tree
-  does not contain, so it does not link.
 
 `script_fixtures.py` turns these observations and a Unicode dump into a compact
 compatibility table and standalone native replay fixtures:

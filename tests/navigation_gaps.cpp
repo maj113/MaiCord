@@ -244,13 +244,13 @@ void guild_folders() noexcept {
                   GuildFoldersError::none &&
               present && bytes == group.used && bytes_equal(extracted, group.data, bytes),
           "field 14 is extracted verbatim, unknown nested fields included");
-    check(guild_folders_extract_proto({versions.data, versions.used}, {extracted, sizeof(extracted)}, &bytes,
-                                      &present) == GuildFoldersError::none &&
+    // {1: 3} only; then a truncated field 14.
+    check(guild_folders_extract_base64(utf8_literal("CAM="), {extracted, sizeof(extracted)}, &bytes, &present) ==
+                  GuildFoldersError::none &&
               !present && !bytes,
           "absent folders report not present");
-    u8 truncated[4] = {0x72, 0x10, 0x0A, 0x02};
-    check(guild_folders_extract_proto({truncated, 4}, {extracted, sizeof(extracted)}, &bytes, &present) ==
-              GuildFoldersError::protobuf,
+    check(guild_folders_extract_base64(utf8_literal("chAKAg=="), {extracted, sizeof(extracted)}, &bytes,
+                                       &present) == GuildFoldersError::protobuf,
           "truncated settings are rejected");
 
     static GuildFolderSettings decoded;

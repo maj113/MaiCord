@@ -9,9 +9,6 @@ namespace {
 UiRect square(float right, float middle, float size) noexcept {
     return {right - size, middle - size * .5f, right, middle + size * .5f};
 }
-UiRect inset(UiRect r, float by) noexcept {
-    return {r.left + by, r.top + by, r.right - by, r.bottom - by};
-}
 bool button(PaintStream* stream, UiRect r, UiIcon icon, Color ink, bool hovered, bool pressed, bool active,
             const Theme& theme) noexcept {
     if (active) {
@@ -24,7 +21,7 @@ bool button(PaintStream* stream, UiRect r, UiIcon icon, Color ink, bool hovered,
         if (!paint_stream_push_rounded(stream, r.left, r.top, r.right, r.bottom, fill, theme.scale.radius_sm))
             return false;
     }
-    return ui_icon_paint(stream, icon, inset(r, 7), ink);
+    return ui_icon_paint(stream, icon, ui_rect_shrink(r, 7), ink);
 }
 } // namespace
 

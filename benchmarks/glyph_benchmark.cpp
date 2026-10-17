@@ -233,9 +233,9 @@ int run() noexcept {
     context->End(begin_query);
     bool dispatch_ok = true;
     for (u32 iteration = 0; iteration < kDispatchIterations; ++iteration) {
-        dispatch_ok = dispatch_ok && glyph_atlas_gpu_rasterize(&gpu, context, outline, bounds, allocation,
-                                                               32.0f, allocator.padding)
-                                         .ok();
+        GlyphRasterBatch batch(&gpu, context);
+        dispatch_ok = dispatch_ok && batch.add(outline, bounds, allocation, 32.0f, allocator.padding).ok() &&
+                      batch.finish();
     }
     context->End(end_query);
     context->End(disjoint_query);

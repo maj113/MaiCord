@@ -27,7 +27,7 @@ void test_voice_connection_setup(void (*check)(bool, const char*) noexcept) noex
     check(!voice_setup_begin(&setup, 10, 20, 1) && !voice_setup_credentials(setup, &credentials) &&
               credentials.generation == 91,
           "unbound setup cannot join or overwrite credential output");
-    check(voice_setup_bind(&setup, 30, session) == VoiceSetupResult::updated && setup.login_session.locked,
+    check(voice_setup_bind_utf8(&setup, 30, session.encoded) == VoiceSetupResult::updated && setup.login_session.locked,
           "local login session is held in locked memory");
     check(voice_setup_begin(&setup, 10, 20, 100), "guild voice setup begins");
     const auto request_generation = setup.generation;
@@ -140,25 +140,20 @@ void test_voice_connection_setup(void (*check)(bool, const char*) noexcept) noex
     server.channel_id = 0;
     check(voice_setup_server(&setup, server) == VoiceSetupResult::updated && setup.server_credentials.bytes,
           "server-first credentials remain protected while waiting for state");
-    check(!voice_setup_expire(&setup, 30499) && voice_setup_expire(&setup, 30500) &&
-              !voice_setup_expire(&setup, ~u64{0}) && !setup.state_deadline_ms &&
-              !setup.server_credentials.data,
-          "state acknowledgement timeout fires once and removes its deadline");
+    check(setup.state_deadline_ms == 30500, "state acknowledgement deadline is armed by begin");
     voice_setup_begin(&setup, 10, 20, ~u64{0} - 10);
-    check(setup.state_deadline_ms == ~u64{0} && !voice_setup_expire(&setup, ~u64{0} - 1) &&
-              voice_setup_expire(&setup, ~u64{0}),
-          "state deadline saturates rather than wrapping");
+    check(setup.state_deadline_ms == ~u64{0}, "state deadline saturates rather than wrapping");
 
     // Ownership and JSON escaping: no input buffer or unescaped temporary is retained.
-    char encoded_session[] = "local-\\u00e9-\\ud83d\\ude00";
-    check(voice_setup_bind(&setup, 30, text({encoded_session, sizeof(encoded_session) - 1}, true)) ==
+    char decoded_session[] = "local-é-😀";
+    check(voice_setup_bind_utf8(&setup, 30, {decoded_session, sizeof(decoded_session) - 1}) ==
               VoiceSetupResult::updated,
-          "escaped UTF-8 session binds without an unprotected decoded temporary");
-    clear_bytes(encoded_session, sizeof(encoded_session));
+          "UTF-8 session binds into protected storage");
+    clear_bytes(decoded_session, sizeof(decoded_session));
     voice_setup_begin(&setup, 10, 20, 100);
     state = {10, 20, 30, text(utf8_literal("local-é-😀")), 0, 0};
     check(voice_setup_state(&setup, state) == VoiceSetupResult::updated,
-          "session equality handles escaped Unicode after the source input is destroyed");
+          "session equality holds after the source input is destroyed");
     char encoded_token[] = "test\\u002dtoken";
     server = {10, 0, text({encoded_token, sizeof(encoded_token) - 1}, true),
               text(utf8_literal("voice.example.test")), false};
@@ -177,21 +172,21 @@ void test_voice_connection_setup(void (*check)(bool, const char*) noexcept) noex
               !setup.server_credentials.data && !voice_setup_current(setup, generation),
           "invalid replacement fails closed and retires the old credentials");
     generation = setup.generation;
-    check(voice_setup_bind(&setup, 0, session) == VoiceSetupResult::invalid_input &&
+    check(voice_setup_bind_utf8(&setup, 0, session.encoded) == VoiceSetupResult::invalid_input &&
               !setup.login_session.data && !setup.user_id && setup.generation > generation,
           "invalid fresh binding cannot leave credentials from a previous login active");
 
     // Repeated lifecycles exercise release/rebind and ensure generations never reset.
     for (u32 i = 0; i < 64; ++i) {
         generation = setup.generation;
-        check(voice_setup_bind(&setup, 30, session) == VoiceSetupResult::updated &&
+        check(voice_setup_bind_utf8(&setup, 30, session.encoded) == VoiceSetupResult::updated &&
                   setup.generation > generation,
               "rebind retains monotonic callback identity");
         voice_setup_release(&setup);
         check(!setup.login_session.data && !setup.server_credentials.data && !setup.user_id,
               "teardown releases both protected allocations");
     }
-    voice_setup_bind(&setup, 30, session);
+    voice_setup_bind_utf8(&setup, 30, session.encoded);
     setup.generation = ~u64{0} - 1;
     check(!voice_setup_begin(&setup, 10, 20, 0) && setup.phase == VoiceSetupPhase::idle &&
               !voice_setup_current(setup, ~u64{0}),

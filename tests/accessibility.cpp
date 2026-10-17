@@ -340,10 +340,10 @@ void test_provider(const Scene& scene, UiAccessTree* tree) noexcept {
     check(build_tree(tree, scene), "provider snapshot");
     HostContext context{tree, {}, 0, 0};
     UiaProviderHost host{};
-    check(uia_host_initialize(&host, nullptr, {&context, host_tree, host_act, host_scale}) && !uia_host_loaded(host) &&
+    check(uia_host_initialize(&host, nullptr, {&context, host_tree, host_act, host_scale}) && !host.runtime &&
               !uia_host_listening(host),
           "provider host starts without loading UI Automation");
-    check(uia_host_load(&host) && uia_host_loaded(host), "provider loads UIAutomationCore and OleAut32 on demand");
+    check(uia_host_load(&host) && host.runtime, "provider loads UIAutomationCore and OleAut32 on demand");
 
     IRawElementProviderSimple* root = element(&host, 0);
     IRawElementProviderFragmentRoot* fragment_root = nullptr;
@@ -590,9 +590,6 @@ void test_events(UiAccessTree* tree) noexcept {
     check(event_tree(tree, shape) && ui_access_plan_events(&state, *tree, &plan) &&
               has_property(plan, *tree, 3, UiAccessProperty::name) && !plan.focus_changed,
           "live status text changes are announced");
-    ui_access_event_state_reset(&state);
-    check(event_tree(tree, shape) && ui_access_plan_events(&state, *tree, &plan) && !plan.property_count,
-          "a reset baseline primes again without replaying changes");
 
     UiAccessMessageCursor cursor{};
     check(!ui_access_message_should_announce(&cursor, 5, 100, false), "the first observed message only primes");

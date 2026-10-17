@@ -209,7 +209,7 @@ bool initialize(HWND window) noexcept {
                              {fixture->visibility, 16}, {fixture->channel_keys, 16}),
                          205))
         return false;
-    if (!initialize_step(message_rich_store_initialize_owned(
+    if (!initialize_step(message_rich_store_initialize_owned_sparse(
                              &ui.message_rich_store, &ui.message_rich_record_storage,
                              kMessageViewItemCapacity, {ui.message_rich_order, kMessageViewItemCapacity},
                              {ui.message_rich_text, kMessageRichTextCapacity}),
@@ -225,7 +225,8 @@ bool initialize(HWND window) noexcept {
         return false;
     // Bootstrap reserves the scene storage; the root widget is materialized
     // by layout. The shipping binder requires that actual root before binding.
-    if (!initialize_step(ui_scene_layout(&g_app.shell_scene,
+    if (!initialize_step(ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
+                                         kGuildChannelShellLayoutMetrics,
                                          g_app.renderer.width * 96.f / g_app.renderer.dpi,
                                          g_app.renderer.height * 96.f / g_app.renderer.dpi),
                          215))
@@ -691,7 +692,13 @@ bool gallery_activation() noexcept {
     event.embeds = {embeds, 3};
     if (!record || !message_rich_store_apply(&store, record->id, record->revision, event).ok())
         return false;
-    message_scene_set_explicit_filter(&scene, MessageExplicitFilter::blur);
+    static MessageMediaPolicyResult explicit_policy{};
+    explicit_policy = {MessageExplicitFilter::blur, true};
+    constexpr auto explicit_query = +[](const void* context, const MessageMediaOwner&) noexcept {
+        return *static_cast<const MessageMediaPolicyResult*>(context);
+    };
+    const MessageMediaPolicy previous_policy = scene.media_policy;
+    message_scene_set_media_policy(&scene, {&explicit_policy, explicit_query, previous_policy.revision + 1});
     if (!project())
         return false;
     const auto* row = message_scene_find_row(scene, 0);
@@ -715,11 +722,12 @@ bool gallery_activation() noexcept {
               !message_media_revealed(scene.media_reveals, second_key) && !activate(1) && !activate(0) &&
               !application_message_media_reveal_at((cells[0].right + cells[1].left) * .5f,
                                                     (cells[1].top + cells[1].bottom) * .5f);
-    message_scene_set_explicit_filter(&scene, MessageExplicitFilter::block);
+    explicit_policy.filter = MessageExplicitFilter::block;
+    message_scene_set_media_policy(&scene, {&explicit_policy, explicit_query, previous_policy.revision + 2});
     const auto reveals = scene.media_reveals.count;
     ok = ok && activate(2) && scene.media_reveals.count == reveals &&
          !message_media_revealed(scene.media_reveals, second_key) && !activate(0);
-    message_scene_set_explicit_filter(&scene, MessageExplicitFilter::show);
+    message_scene_set_media_policy(&scene, previous_policy);
     scene.media_reveals = {};
     return ok;
 }

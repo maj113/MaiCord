@@ -2,8 +2,8 @@
 #include "maicord/text/lookup_plan.hpp"
 #include "maicord/text/nominal_participation.hpp"
 #include "maicord/text/nominal_sources.hpp"
-#include "maicord/text/gsub_execute.hpp"
-#include "maicord/text/gpos_execute.hpp"
+#include "gsub_program_fixture.hpp"
+#include "gpos_lookup_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/text/font_store.hpp"
 #include "../src/text/lookup_plan_finish.hpp"
@@ -118,7 +118,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         if(!r.word(&size)||!r.word(&kind)||!r.word(&script)||!r.word(&language)||!r.word(&found)||kind>1||found>1||!r.take(size,&raw))return false;
         SfntFace face{};SfntCmap cmap{};SfntHorizontalMetrics metrics{};ConstSlice<u8> table{};SfntGdef gdef{};SfntLayout layout{};
         if(sfnt_open(raw,0,&face)!=SfntStatus::ok || sfnt_cmap_open(face,&cmap)!=SfntStatus::ok || sfnt_horizontal_metrics_open(face,&metrics)!=SfntStatus::ok || sfnt_table(face,sfnt_tag('G','D','E','F'),&table)!=SfntStatus::ok || sfnt_gdef_open(table,metrics.glyph_count,&gdef)!=SfntStatus::ok || sfnt_table(face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&table)!=SfntStatus::ok || sfnt_layout_open(table,static_cast<SfntLayoutKind>(kind),&layout)!=SfntStatus::ok)return error(f,0,1);
-        SfntGsubProgram program{};if(!kind && sfnt_gsub_program_prepare(layout,gdef,metrics.glyph_count,{{gs_lookups,16},{gs_subs,32},{cov,32},{classes,32}},&program)!=SfntStatus::ok)return error(f,0,2);
+        SfntGsubProgram program{};if(!kind && prepare_gsub_program(layout,gdef,metrics.glyph_count,{{gs_lookups,16},{gs_subs,32},{cov,32},{classes,32}},&program)!=SfntStatus::ok)return error(f,0,2);
         u64 participation=0,participation_scratch[32],sources=0;SfntNominalParticipationResult participation_result{};
         if(metrics.glyph_count>64 || sfnt_nominal_sources(cmap,{&sources,1})!=SfntStatus::ok || sfnt_nominal_participation_add(layout,metrics.glyph_count,{&participation,1},{participation_scratch,32},&participation_result,1000000,{&sources,1})!=SfntStatus::ok)return error(f,0,10);
         for(u32 c=0;c<2;++c){u32 independent=0,rtl=0,n=0,want=0,simple=0,layout_want=0;u32 expected_placement[3]{},layout_placement[3]{};ConstSlice<u8> expected_ids{};
@@ -133,7 +133,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
             if(!kind)for(u32 i=0;i<n;++i){SfntGsubExecutionResult result{};status=sfnt_gsub_execute_lookup(program,indices[i],&buffer,0,1,0,{{frames,2},{positions,8},{rebased,8},{consumed,8},{replacements,32}},{1000000,100000},&result);if(status!=SfntStatus::ok)return error(f,c,6);}
             ++glyph_checks;if(glyph.glyph!=want)return error(f,c,7);SfntGlyphMetrics m{};if(sfnt_horizontal_metrics(metrics,glyph.glyph,&m)!=SfntStatus::ok)return false;const double nominal=m.advance;const u8 flag=2;SfntPosition state{};SfntPlacement placement{};
             if(sfnt_position_initialize({&nominal,1},{&flag,1},rtl!=0,{&state,1})!=SfntStatus::ok)return false;
-            if(kind)for(u32 i=0;i<n;++i){SfntGposSubtable subs[16];SfntGposLookup lookup{};SfntPositionExecution result{};if(sfnt_gpos_lookup_prepare(layout,indices[i],gdef,metrics.glyph_count,{subs,16},&lookup)!=SfntStatus::ok || sfnt_position_execute_lookup(lookup,gdef,sfnt_glyph_buffer_view(buffer),{&state,1},0,1,rtl!=0,{},&result)!=SfntStatus::ok)return error(f,c,8);}
+            if(kind)for(u32 i=0;i<n;++i){SfntGposSubtable subs[16];SfntGposExecutableLookup lookup{};SfntPositionExecution result{};if(gpos_prepare_one(layout,indices[i],gdef,metrics.glyph_count,{subs,16},{},&lookup)!=SfntStatus::ok || lookup.type>2 || sfnt_position_execute_lookup({lookup.tables.basic,lookup.filter},gdef,sfnt_glyph_buffer_view(buffer),{&state,1},0,1,rtl!=0,{},&result)!=SfntStatus::ok)return error(f,c,8);}
             if(sfnt_position_finalize({&state,1},{&flag,1},1000,metrics.units_per_em,{&placement,1})!=SfntStatus::ok || !bytes_equal(&placement,expected_placement,12))return error(f,c,9);placement_checks+=3;++queries;
             // These fixtures are one mapped ASCII scalar, one font, no spacing
             // or range boundary: font participation fully determines the gate.

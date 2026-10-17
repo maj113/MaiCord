@@ -289,29 +289,6 @@ bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMedia
     return true;
 }
 
-void encoded_media_cache_reset(EncodedMediaCache* cache) noexcept {
-    if (!cache || !cache->entries || !cache->page_owners) {
-        return;
-    }
-    AcquireSRWLockExclusive(cache->lock.native());
-    for (u32 index = 0; index < cache->entry_capacity; ++index) {
-        cache->entries[index].occupied = false;
-        cache->entries[index].bytes = 0;
-        cache->entries[index].etag_bytes = 0;
-        cache->entries[index].leases = 0;
-        cache->entries[index].retiring = false;
-    }
-    for (u32 page = 0; page < cache->page_capacity; ++page) {
-        cache->page_owners[page] = kEncodedMediaCacheFreePage;
-    }
-    cache->entry_count = 0;
-    cache->used_pages = 0;
-    cache->stored_bytes = 0;
-    cache->clock = 0;
-    rebuild_index_locked(cache);
-    ReleaseSRWLockExclusive(cache->lock.native());
-}
-
 EncodedMediaCacheLookup encoded_media_cache_find(EncodedMediaCache* cache, MediaAssetKey key,
                                                  u64 now_seconds) noexcept {
     if (!cache || !cache->entries || !cache->storage || !media_asset_key_valid(key)) {

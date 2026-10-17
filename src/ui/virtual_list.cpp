@@ -258,16 +258,6 @@ UiVariableRange ui_variable_list_range(const UiVariableList& list, u64 scroll_un
                            static_cast<i64>(first_prefix) - static_cast<i64>(scroll_units)};
 }
 
-bool ui_variable_list_prepend(UiVariableList* list, u32 item_count,
-                              u32 default_item_units, UiScrollAnchor* anchor) noexcept {
-    return ui_variable_list_insert(list, 0, item_count, default_item_units, anchor);
-}
-
-bool ui_variable_list_remove_prefix(UiVariableList* list, u32 item_count,
-                                    UiScrollAnchor* anchor) noexcept {
-    return ui_variable_list_remove(list, 0, item_count, anchor);
-}
-
 bool ui_variable_list_insert(UiVariableList* list, u32 index, u32 item_count,
                              u32 default_item_units, UiScrollAnchor* anchor) noexcept {
     if (!list || !list->item_units || !list->fenwick || index > list->count ||

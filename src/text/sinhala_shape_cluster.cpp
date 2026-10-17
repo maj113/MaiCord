@@ -1,7 +1,5 @@
-#include "maicord/text/sinhala_shape_cluster.hpp"
 #include "maicord/text/sinhala_shape_run.hpp"
 #include "maicord/text/sinhala_input.hpp"
-#include "maicord/text/use_plan.hpp"
 #include "use_character.hpp"
 #include "use_shape_internal.hpp"
 namespace maicord {namespace {
@@ -12,9 +10,9 @@ static_assert(sizeof(Snapshot)==8);
 struct Policy {
     const SfntGdef* gdef;Slice<Snapshot> snapshots;
     SfntComponentForest* forest=nullptr;u32 snapshot_count=0,pref=nil;
-    // Original single-cluster source units/mapped pre-span are bounded by the
-    // frontend's 31-item cap (including selector/expansion allowance).
-    u8 units=0,pre_count=0;u16 halant=0,space=0,controls[4]{};
+    // The mapped pre-span is bounded by the frontend's 31-item cluster cap
+    // (including selector/expansion allowance).
+    u8 pre_count=0;u16 halant=0,space=0,controls[4]{};
     bool has_reph:1=false,has_pref:1=false,reph_formed:1=false,control_ids:1=false;
 };
 static_assert(sizeof(Policy)==56);
@@ -86,23 +84,6 @@ SfntStatus reorder(Policy& p,Slice<SfntComponentGlyph> glyphs,Work& w) noexcept 
     }
     return SfntStatus::ok;
 }
-SfntStatus prepare(void* context,u16 stage,SfntGlyphBuffer* buffer,SfntClusterMap*,SfntComponentForest* forest,SfntGsubExecutionScratch,u64 available,u64* used) noexcept {
-    auto& p=*static_cast<Policy*>(context);Work w{available};struct Report {Work& w;u64* out;~Report() noexcept {*out=w.used;}} report{w,used};
-    if(!stage){p.forest=forest;forest->preserve_forms=false;return SfntStatus::ok;}
-    if(stage>4||(stage==1&&!p.has_reph)||(stage==2&&!p.has_reph&&!p.has_pref)||(stage==3&&!p.has_pref)||
-        (stage==4&&!p.reph_formed&&p.pref==nil&&!p.pre_count))return SfntStatus::ok;
-    const u32 n=sfnt_glyph_count(sfnt_glyph_buffer_view(*buffer));
-    if(!w.spend(static_cast<u64>(n)*2))return SfntStatus::resource_limit;
-    auto status=sfnt_glyph_buffer_seek(buffer,n,static_cast<u64>(n)*2);if(status!=SfntStatus::ok)return status;
-    Slice<SfntComponentGlyph> glyphs{reinterpret_cast<SfntComponentGlyph*>(buffer->storage.data),n};
-    if(stage==1)return snapshot(p,glyphs,w);
-    if(stage==2){
-        if(p.has_reph){u32 ignored=nil;status=changed(p,glyphs,ignored,w,true);if(status!=SfntStatus::ok)return status;}
-        if(p.has_pref)return snapshot(p,glyphs,w);
-    }else if(stage==3)return changed(p,glyphs,p.pref,w);
-    else return reorder(p,glyphs,w);
-    return SfntStatus::ok;
-}
 SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
     auto& p=*static_cast<Policy*>(context);if(!p.forest)return SfntStatus::invalid_input;
     if(zero.count<glyphs.count)return SfntStatus::output_too_small;Work w{work};
@@ -114,11 +95,6 @@ SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,
         if(invisible)g.glyph=p.space;g.glyph_class=sfnt_gdef_glyph_class(*p.gdef,g.glyph);g.reserved=static_cast<u8>(control);
         zero[i]=static_cast<u8>(invisible||g.glyph_class==SfntGlyphClass::mark);
     }return SfntStatus::ok;
-}
-SfntStatus restore(void* context,SfntClusterMap* clusters,const SfntComponentForest&,Slice<SfntComponentGlyph>,u64 work) noexcept {
-    auto& p=*static_cast<Policy*>(context);SfntClusterMerge merge{};u64 used=0;
-    const auto status=sfnt_cluster_map_plan(*clusters,0,p.units-1,&merge,work,&used);if(status!=SfntStatus::ok)return status;
-    if(merge.commit_work>work-used)return SfntStatus::resource_limit;sfnt_cluster_map_commit(clusters,merge);return SfntStatus::ok;
 }
 SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
     const SfntSinhalaInputScalar* expanded,const SfntSinhalaInputResult& sizes,bool rtl,SfntClusterGlyph* mapped,u32& count) noexcept {
@@ -233,41 +209,6 @@ SfntStatus run_restore(void* context,SfntClusterMap* clusters,const SfntComponen
     return sfnt_cluster_map_open(groups.count,{p.boundaries.data,count},clusters->storage,clusters,cost);
 }
 
-}
-SfntStatus sfnt_sinhala_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl,bool defer_output) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
-    if(input.count>31)return SfntStatus::unsupported_sequence;
-    u8 boundaries[31];auto status=sfnt_sinhala_cluster_boundaries(input,{boundaries,31},limits.stage_work);if(status!=SfntStatus::ok)return status;
-    for(u32 i=1;i<input.count;++i)if(boundaries[i])return SfntStatus::unsupported_sequence;
-    if((steps.count&&!steps.data)||(storage.positions.count&&!storage.positions.data))return SfntStatus::invalid_input;
-    if(steps.count>limits.stage_work)return SfntStatus::resource_limit;
-    SfntSinhalaInputScalar expanded[62];SfntSinhalaInputResult sizes{};
-    status=sfnt_sinhala_expand_cluster(input,{expanded,62},&sizes,limits.stage_work);if(status!=SfntStatus::ok)return status;
-    SfntClusterGlyph mapped[63];u32 count=0;
-    status=map_cluster(plan,cmap,input,expanded,sizes,rtl,mapped,count);if(status!=SfntStatus::ok)return status;
-    return use_shape::cluster(plan,cmap,{mapped,count},sizes.source_units,0xdca,em,storage,result,steps,limits,rtl,defer_output);
-}
-SfntStatus use_shape::cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> mapped,u32 units,
-    u32 halant_scalar,float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,
-    SfntShapeLimits limits,bool rtl,bool defer_output,const u16* control_glyphs) noexcept {
-    if(units>255)return SfntStatus::invalid_input;
-    Policy policy{&plan.gdef,{reinterpret_cast<Snapshot*>(storage.positions.data),storage.positions.count}};policy.units=static_cast<u8>(units);
-    if(control_glyphs){copy_bytes(policy.controls,control_glyphs,sizeof(policy.controls));policy.control_ids=true;}
-    bool pre=false;
-    for(u32 i=0;i<mapped.count;++i){const u8 r=mapped[i].glyph.reserved;
-        if(r&join_role)continue;
-        if(!(r&cgj_role))pre=(r&pre_role)!=0;
-        if(pre)++policy.pre_count;
-    }
-    auto status=SfntStatus::ok;
-    if(halant_scalar){status=sfnt_cmap_glyph(cmap,halant_scalar,0,&policy.halant);if(status!=SfntStatus::ok)return status;}
-    status=sfnt_cmap_glyph(cmap,0x20,0,&policy.space);if(status!=SfntStatus::ok)return status;
-    for(u32 i=0;i<steps.count;++i){if(steps[i].feature_mask)return SfntStatus::invalid_input;policy.has_reph|=steps[i].stage==1;policy.has_pref|=steps[i].stage==2;}
-    const u32 boundary=0;const SfntShapeStagePolicy stages{&policy,prepare,static_cast<u16>(SfntUseStage::count)};
-    const SfntShapeGlyphPolicy glyph_policy{&policy,finish,restore};
-    auto resolved=plan;resolved.retain_zero_positioning=true;
-    return sfnt_shape_run(resolved,mapped,units,{&boundary,units?1u:0u},rtl,em,storage,result,limits,steps,{},glyph_policy,nullptr,&stages,defer_output);
 }
 SfntStatus sfnt_sinhala_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,
     float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,bool rtl) noexcept {

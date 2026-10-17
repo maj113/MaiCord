@@ -146,8 +146,6 @@ struct GuildRailScene {
     UiWidgetHandle add_button;
 };
 
-// Rows plus the trailing "Add a server" button.
-float guild_rail_content_height(const NavigationView* view) noexcept;
 // The add button's laid-out rectangle; empty while it is not materialized.
 UiRect guild_rail_scene_add_rectangle(const GuildRailScene& scene) noexcept;
 bool guild_rail_scene_initialize(GuildRailScene* scene, Slice<GuildRailRowWidget> row_storage,

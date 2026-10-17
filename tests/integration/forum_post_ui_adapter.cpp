@@ -234,7 +234,10 @@ bool forum_post_ui_adapter_browser_create() noexcept {
         const auto target = ui_thread_browser_scene_target(*scene, widget);
         if (!ui_thread_browser_scene_target_current(*scene, target))
             return false;
-        const auto rectangle = ui_thread_browser_scene_rectangle(*scene, widget);
+        const auto* node = ui_widget_manager_layout_node(scene->widgets, widget);
+        if (!node)
+            return false;
+        const auto rectangle = node->rectangle;
         const auto point = MAKELPARAM(
             static_cast<u16>((rectangle.left + rectangle.right) * .5f * g_app.renderer.dpi / 96.f),
             static_cast<u16>((rectangle.top + rectangle.bottom) * .5f * g_app.renderer.dpi / 96.f));

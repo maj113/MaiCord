@@ -109,152 +109,25 @@ void write_tbs(Writer& w, const MlsKeyPackageView& v) noexcept {
     write(w, v.leaf);
     w.list(v.extensions, true);
 }
-void write(Writer& w, const MlsKeyPackageView& v) noexcept {
-    write_tbs(w, v);
-    w.vector(v.signature);
-}
-void write(Writer& w, const MlsGroupContextView& v) noexcept {
-    w.integer(v.version, 2);
-    w.integer(v.cipher_suite, 2);
-    w.vector(v.group_id);
-    w.integer(v.epoch, 8);
-    w.vector(v.tree_hash);
-    w.vector(v.confirmed_transcript_hash);
-    w.list(v.extensions, true);
-}
-void write(Writer& w, const MlsEncryptedGroupSecretsView& v) noexcept {
-    w.vector(v.new_member);
-    w.vector(v.kem_output);
-    w.vector(v.ciphertext);
-}
-void write(Writer& w, const MlsWelcomeView& v) noexcept {
-    w.integer(v.cipher_suite, 2);
-    w.vector(v.secrets);
-    if (!w.emit && w.error == MlsWireError::none) {
-        MlsReader entries{v.secrets};
-        while (entries.error == MlsWireError::none && entries.used < v.secrets.count) {
-            entries.vector();
-            entries.vector();
-            entries.vector();
-        }
-        if (entries.error != MlsWireError::none)
-            w.fail(entries.error);
-    }
-    w.vector(v.encrypted_group_info);
-}
-void write_tbs(Writer& w, const MlsGroupInfoView& v) noexcept {
-    write(w, v.context);
-    w.list(v.extensions, true);
-    w.vector(v.confirmation_tag);
-    w.integer(v.signer, 4);
-}
-void write(Writer& w, const MlsGroupInfoView& v) noexcept {
-    write_tbs(w, v);
-    w.vector(v.signature);
-}
-void write(Writer& w, const MlsMessageView& v) noexcept {
-    if (v.version != 1) {
-        w.fail(MlsWireError::unsupported_version);
-        return;
-    }
-    w.integer(v.version, 2);
-    w.integer(static_cast<u16>(v.format), 2);
-    switch (v.format) {
-    case MlsWireFormat::welcome:
-        write(w, v.welcome);
-        break;
-    case MlsWireFormat::group_info:
-        if (v.group_info.context.version != v.version) {
-            w.fail(MlsWireError::version_mismatch);
-            return;
-        }
-        write(w, v.group_info);
-        break;
-    case MlsWireFormat::key_package:
-        if (v.key_package.version != v.version) {
-            w.fail(MlsWireError::version_mismatch);
-            return;
-        }
-        write(w, v.key_package);
-        break;
-    default:
-        w.fail(MlsWireError::unsupported_wire_format);
-        break;
-    }
-}
-template <bool Tbs = false, typename T>
-MlsEncodeResult encode(const T& input, Slice<u8> output, bool size_only) noexcept {
+template <typename T> MlsEncodeResult encode_tbs(const T& input, Slice<u8> output) noexcept {
     if (!byte_range_valid({output.data, output.count}) ||
         byte_ranges_overlap({reinterpret_cast<const u8*>(&input), sizeof(T)}, {output.data, output.count}))
         return {0, MlsWireError::invalid_input};
     Writer check{output};
-    if constexpr (Tbs)
-        write_tbs(check, input);
-    else
-        write(check, input);
+    write_tbs(check, input);
     if (check.error != MlsWireError::none)
         return {0, check.error};
-    if (size_only)
-        return {check.used, MlsWireError::none};
     if (check.used > output.count)
         return {0, MlsWireError::output_capacity};
     Writer writer{output, 0, MlsWireError::none, true};
-    if constexpr (Tbs)
-        write_tbs(writer, input);
-    else
-        write(writer, input);
+    write_tbs(writer, input);
     return {writer.used, MlsWireError::none};
 }
 } // namespace
-MlsEncodeResult mls_encoded_size(const MlsLeafView& v) noexcept {
-    return encode(v, {}, true);
-}
-MlsEncodeResult mls_encoded_size(const MlsKeyPackageView& v) noexcept {
-    return encode(v, {}, true);
-}
-MlsEncodeResult mls_encoded_size(const MlsGroupContextView& v) noexcept {
-    return encode(v, {}, true);
-}
-MlsEncodeResult mls_encode(const MlsLeafView& v, Slice<u8> out) noexcept {
-    return encode(v, out, false);
-}
-MlsEncodeResult mls_encode(const MlsKeyPackageView& v, Slice<u8> out) noexcept {
-    return encode(v, out, false);
-}
-MlsEncodeResult mls_encode(const MlsGroupContextView& v, Slice<u8> out) noexcept {
-    return encode(v, out, false);
-}
 MlsEncodeResult mls_encode_tbs(const MlsLeafView& v, Slice<u8> out) noexcept {
-    return encode<true>(v, out, false);
+    return encode_tbs(v, out);
 }
 MlsEncodeResult mls_encode_tbs(const MlsKeyPackageView& v, Slice<u8> out) noexcept {
-    return encode<true>(v, out, false);
-}
-MlsEncodeResult mls_encoded_size(const MlsEncryptedGroupSecretsView& v) noexcept {
-    return encode(v, {}, true);
-}
-MlsEncodeResult mls_encoded_size(const MlsWelcomeView& v) noexcept {
-    return encode(v, {}, true);
-}
-MlsEncodeResult mls_encoded_size(const MlsGroupInfoView& v) noexcept {
-    return encode(v, {}, true);
-}
-MlsEncodeResult mls_encoded_size(const MlsMessageView& v) noexcept {
-    return encode(v, {}, true);
-}
-MlsEncodeResult mls_encode(const MlsEncryptedGroupSecretsView& v, Slice<u8> out) noexcept {
-    return encode(v, out, false);
-}
-MlsEncodeResult mls_encode(const MlsWelcomeView& v, Slice<u8> out) noexcept {
-    return encode(v, out, false);
-}
-MlsEncodeResult mls_encode(const MlsGroupInfoView& v, Slice<u8> out) noexcept {
-    return encode(v, out, false);
-}
-MlsEncodeResult mls_encode(const MlsMessageView& v, Slice<u8> out) noexcept {
-    return encode(v, out, false);
-}
-MlsEncodeResult mls_encode_tbs(const MlsGroupInfoView& v, Slice<u8> out) noexcept {
-    return encode<true>(v, out, false);
+    return encode_tbs(v, out);
 }
 } // namespace maicord

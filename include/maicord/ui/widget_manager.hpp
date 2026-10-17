@@ -94,6 +94,15 @@ constexpr UiWidgetHandle ui_widget_invalid_handle() noexcept {
     return UiWidgetHandle{kInvalidUiWidgetSlot, 0};
 }
 
+constexpr bool ui_widget_handle_equal(UiWidgetHandle left, UiWidgetHandle right) noexcept {
+    return left.slot == right.slot && left.generation == right.generation;
+}
+
+// Equal and issued: a zero-generation handle matches nothing.
+constexpr bool ui_widget_handle_matches(UiWidgetHandle handle, UiWidgetHandle target) noexcept {
+    return handle.generation && handle.slot == target.slot && handle.generation == target.generation;
+}
+
 struct UiWidgetReference {
     const UiWidgetManager* manager;
     UiWidgetHandle handle;
@@ -106,7 +115,6 @@ constexpr UiWidgetReference ui_widget_invalid_reference() noexcept {
 bool ui_widget_manager_initialize(UiWidgetManager* manager, Slice<UiWidget> widget_storage,
                                   Slice<UiLayoutNode> layout_storage) noexcept;
 void ui_widget_manager_reset(UiWidgetManager* manager) noexcept;
-bool ui_widget_manager_set_anchors(UiWidgetManager* manager, UiWidgetHandle handle, UiRect region) noexcept;
 bool ui_widget_manager_bind_growable_storage(UiWidgetManager* manager, UiWidgetStorageGrowCallback callback,
                                              void* context) noexcept;
 bool ui_widget_manager_reserve(UiWidgetManager* manager, u32 required_count) noexcept;

@@ -247,15 +247,6 @@ void reaction_preferences_release(ReactionPreferenceStore* store) noexcept {
     *store = ReactionPreferenceStore{};
 }
 
-bool reaction_preferences_recompute(ReactionPreferenceStore* store, u64 now_ms) noexcept {
-    if (!store || !store_valid(*store) || now_ms == 0) {
-        return false;
-    }
-    for (u32 kind = 0; kind < kReactionPreferenceKindCount; ++kind)
-        recompute_table(store->tables[kind], static_cast<ReactionPreferenceKind>(kind), now_ms);
-    return true;
-}
-
 ReactionPreferenceResult reaction_preferences_track_emoji(ReactionPreferenceStore* store,
                                                           ReactionPreferenceKind kind, ReactionEmojiRef emoji,
                                                           u64 timestamp_ms, u32 uses, bool pending) noexcept {
@@ -276,12 +267,6 @@ ReactionPreferenceResult reaction_preferences_track_emoji(ReactionPreferenceStor
                                     reaction_preferences_is_favorite_emoji(*store, emoji)};
 }
 
-ReactionPreferenceResult reaction_preferences_track(ReactionPreferenceStore* store, u16 catalog_index,
-                                                    u64 timestamp_ms, u32 uses) noexcept {
-    return reaction_preferences_track_emoji(store, ReactionPreferenceKind::reaction,
-                                            reaction_emoji_unicode(catalog_index), timestamp_ms, uses);
-}
-
 ReactionPreferenceResult reaction_preferences_toggle_favorite_emoji(ReactionPreferenceStore* store,
                                                                     ReactionEmojiRef emoji) noexcept {
     if (!store || !store_valid(*store) || !emoji.valid()) {
@@ -299,19 +284,10 @@ ReactionPreferenceResult reaction_preferences_toggle_favorite_emoji(ReactionPref
     return ReactionPreferenceResult{ReactionPreferenceError::none, true, favorite};
 }
 
-ReactionPreferenceResult reaction_preferences_toggle_favorite(ReactionPreferenceStore* store,
-                                                              u16 catalog_index) noexcept {
-    return reaction_preferences_toggle_favorite_emoji(store, reaction_emoji_unicode(catalog_index));
-}
-
 bool reaction_preferences_is_favorite_emoji(const ReactionPreferenceStore& store,
                                             ReactionEmojiRef emoji) noexcept {
     u32 index = 0;
     return store_valid(store) && emoji.valid() && favorite_index(store, emoji, &index);
-}
-
-bool reaction_preferences_is_favorite(const ReactionPreferenceStore& store, u16 catalog_index) noexcept {
-    return reaction_preferences_is_favorite_emoji(store, reaction_emoji_unicode(catalog_index));
 }
 
 ConstSlice<ReactionEmojiRef> reaction_preferences_favorites(const ReactionPreferenceStore& store) noexcept {

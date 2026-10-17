@@ -22,7 +22,7 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGsubSubtable* output
     if(!span(coverage_bytes,0,4))return SfntStatus::truncated;if(!spend(work,r16(coverage_bytes,2)))return SfntStatus::resource_limit;
     SfntCoverage coverage{};s=sfnt_coverage_open(coverage_bytes,limit,&coverage);if(s!=SfntStatus::ok)return s;
     if(!delta && coverage.covered_count!=count)return SfntStatus::malformed;
-    SfntGsubSubtable result{bytes,coverage,limit,type,format,1};
+    SfntGsubSubtable result{bytes,coverage,limit,type,format};
     if(delta){
         const u32 add=r16(bytes,4);
         if(limit<65536)for(u32 i=0;i<coverage.record_count;++i){const u32 first=coverage.format==1?r16(coverage.records,i*2):r16(coverage.records,i*6),last=coverage.format==1?first:r16(coverage.records,i*6+2);
@@ -36,7 +36,7 @@ SfntStatus open(ConstSlice<u8> bytes,u16 type,u32 limit,SfntGsubSubtable* output
             else {const u32 child_end=2+static_cast<u32>(n)*2;if(!span(child,0,child_end))return SfntStatus::truncated;if(!spend(work,n))return SfntStatus::resource_limit;
                 for(u32 k=0;k<n;++k){ConstSlice<u8> ligature{};s=tail(child,r16(child,2+k*2),child_end,&ligature);if(s!=SfntStatus::ok)return s;
                     if(!span(ligature,0,4))return SfntStatus::truncated;const u16 components=r16(ligature,2);if(!components || r16(ligature,0)>=limit)return SfntStatus::malformed;
-                    s=glyph_array(ligature,4,static_cast<u32>(components)-1,limit,work);if(s!=SfntStatus::ok)return s;result.max_inputs=maximum(result.max_inputs,components);}}
+                    s=glyph_array(ligature,4,static_cast<u32>(components)-1,limit,work);if(s!=SfntStatus::ok)return s;}}
         }
     }
     *output=result;return SfntStatus::ok;
@@ -105,25 +105,9 @@ SfntStatus sfnt_gsub_subtable_open(ConstSlice<u8> bytes,u16 type,u32 glyph_limit
     const WorkReport report{work,work,work_used};
     if(!output)return SfntStatus::invalid_input;return open(bytes,type,glyph_limit,output,&work,ignore_empty);
 }
-SfntStatus sfnt_gsub_lookup_prepare(const SfntLayout& layout,u16 index,const SfntGdef& gdef,u32 glyph_limit,Slice<SfntGsubSubtable> storage,SfntGsubLookup* output,u32 work) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(layout.kind!=SfntLayoutKind::substitution || !glyph_limit || glyph_limit>65536 || (gdef.table.data && gdef.glyph_limit!=glyph_limit))return SfntStatus::invalid_input;
-    SfntLookup lookup{};auto s=sfnt_layout_lookup(layout,index,&lookup);if(s!=SfntStatus::ok)return s;if(lookup.type<1 || lookup.type>4)return SfntStatus::unsupported;
-    if(storage.count<lookup.subtable_count)return SfntStatus::output_too_small;if(lookup.subtable_count && !storage.data)return SfntStatus::invalid_input;
-    if(!spend(&work,lookup.subtable_count))return SfntStatus::resource_limit;
-    SfntGsubLookup result{};s=sfnt_lookup_filter_prepare(gdef,lookup.flags,lookup.mark_set,&result.filter);if(s!=SfntStatus::ok)return s;
-    if((lookup.flags>>8) && !(lookup.flags&0x18) && !gdef.mark_classes.format)return SfntStatus::missing_table;
-    for(u32 i=0;i<lookup.subtable_count;++i){ConstSlice<u8> data{};s=sfnt_lookup_subtable(lookup,static_cast<u16>(i),&data);if(s!=SfntStatus::ok)return s;
-        s=open(data,lookup.type,glyph_limit,&storage.data[i],&work);if(s!=SfntStatus::ok)return s;result.max_inputs=maximum(result.max_inputs,storage.data[i].max_inputs);}
-    result.subtables={storage.data,lookup.subtable_count};*output=result;return SfntStatus::ok;
-}
 SfntStatus sfnt_gsub_subtable_match_view(const SfntGsubSubtable& sub,const SfntGdef& gdef,const SfntLookupFilter& filter,SfntGlyphView glyphs,u32 start,u32 alternate,Slice<u32> positions,SfntGsubMatch* output,u32 work,u32* work_used,u8 mask) noexcept {
     const WorkReport report{work,work,work_used};
     if(!output)return SfntStatus::invalid_input;*output={};if(!valid_input(glyphs,start,positions))return SfntStatus::invalid_input;return match(sub,gdef,filter,glyphs,start,alternate,positions,output,&work,mask);
-}
-SfntStatus sfnt_gsub_lookup_match_view(const SfntGsubLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,u32 start,u32 alternate,Slice<u32> positions,SfntGsubMatch* output,u32 work,u8 mask) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};if(!valid_input(glyphs,start,positions))return SfntStatus::invalid_input;
-    for(u32 i=0;i<lookup.subtables.count;++i){const auto s=match(lookup.subtables.data[i],gdef,lookup.filter,glyphs,start,alternate,positions,output,&work,mask);if(s!=SfntStatus::ok || output->matched)return s;}
-    return SfntStatus::ok;
 }
 SfntStatus sfnt_gsub_replacement(const SfntGsubMatch& match,u16 index,u16* glyph) noexcept {
     if(!glyph)return SfntStatus::invalid_input;*glyph=0;if(!match.matched || index>=match.output_count)return SfntStatus::invalid_input;

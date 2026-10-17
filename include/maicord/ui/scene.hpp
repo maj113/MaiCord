@@ -201,7 +201,6 @@ extern const UiBootstrapMetrics kDefaultUiBootstrapMetrics;
 
 bool ui_scene_initialize_bootstrap(UiScene* scene) noexcept;
 void ui_scene_release(UiScene* scene) noexcept;
-bool ui_scene_layout(UiScene* scene, float width, float height) noexcept;
 bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& metrics,
                                   float width, float height) noexcept;
 // Composer content width using layout's pane visibility and margins, without
@@ -209,10 +208,8 @@ bool ui_scene_layout_with_metrics(UiScene* scene, UiShellView view, const UiShel
 float ui_scene_composer_width(const UiShellLayoutMetrics& metrics, float width) noexcept;
 UiNodeHandle ui_scene_find(const UiScene& scene, UiSemantic semantic) noexcept;
 const UiNode* ui_scene_resolve(const UiScene& scene, UiNodeHandle handle) noexcept;
+const UiNode* ui_scene_resolve_semantic(const UiScene& scene, UiSemantic semantic) noexcept;
 UiRect ui_scene_content_rectangle(const UiScene& scene, UiSemantic semantic) noexcept;
 UiShellHeaderGeometry ui_scene_header_geometry(const UiScene& scene) noexcept;
-UiLayoutValidationResult ui_scene_validate(const UiScene& scene, Slice<UiLayoutDiagnostic> output) noexcept;
-UiVirtualRange ui_virtual_range(u32 item_count, float item_extent, float scroll_offset,
-                                float viewport_extent, u32 overscan) noexcept;
 
 } // namespace maicord

@@ -29,9 +29,6 @@ const UiLayoutNode* node(const UiAttachmentDraftList& list, u32 row, u32 p) noex
                ? ui_widget_manager_layout_node(*list.manager, list.parts[row][p])
                : nullptr;
 }
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.generation && a.slot == b.slot && a.generation == b.generation;
-}
 } // namespace
 bool ui_attachment_draft_list_build(UiAttachmentDraftList* list, UiWidgetManager* manager,
                                     UiWidgetHandle parent, ConstSlice<UiAttachmentDraftView> rows,
@@ -190,7 +187,7 @@ UiAttachmentDraftTarget ui_attachment_draft_list_target(const UiAttachmentDraftL
                                                         UiWidgetHandle h) noexcept {
     for (u32 r = 0; r < list.rows.count; ++r)
         for (u32 p = remove; p < kUiAttachmentDraftParts; ++p)
-            if (same(h, list.parts[r][p]))
+            if (ui_widget_handle_matches(h, list.parts[r][p]))
                 return {list.rows[r].id,
                         p == remove    ? UiAttachmentDraftAction::remove
                         : p == retry   ? UiAttachmentDraftAction::retry
@@ -274,7 +271,7 @@ bool ui_attachment_draft_list_paint(const UiAttachmentDraftList& list, const The
                 return false;
             if (!b->visible)
                 continue;
-            const bool focused = same(list.manager->focused, list.parts[r][p]) && focus_visible;
+            const bool focused = ui_widget_handle_matches(list.manager->focused, list.parts[r][p]) && focus_visible;
             ok = ui_background_paint_surface(paint, b->rectangle, theme, theme.surface_high,
                                              focused || (p == spoiler && view.spoiler) ? theme.tokens.border.focus
                                                                                        : theme.interactive,

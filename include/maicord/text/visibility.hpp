@@ -28,9 +28,6 @@ constexpr bool native_text_zero_width_control(u32 scalar) noexcept {
 // untouched. Returns 0 without writing when nothing needs hiding, the output
 // byte count otherwise, or ~0u when output is smaller than input.
 u32 text_hide_default_ignorables(Utf8View input,Slice<char> output) noexcept;
-// A UTF-8 lead byte that can start a scalar text_hide_default_ignorables hides
-// (or replaces); text without one is returned unchanged without decoding.
-constexpr bool text_hide_candidate_lead(u8 b) noexcept {return b==0xc2||b==0xd8||b==0xe1||b==0xe2||b==0xe3||b==0xef||b==0xf0||b==0xf3;}
 // Process-wide presentation policy, off by default. When enabled, callers hide
 // default-ignorables as browsers do and shape a same-length substitute rather
 // than failing an item the font cannot express. The shaping engine itself stays

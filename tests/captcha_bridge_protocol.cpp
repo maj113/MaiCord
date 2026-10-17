@@ -309,7 +309,7 @@ void presentation(Check check) noexcept {
         scene.submit_disabled = login_view_submit_disabled(view);
         scene.captcha_action = login_view_captcha_action(view);
         const bool laid_out = login_scene_layout(&scene, 480, 640) && login_view_matches_scene(view, &scene);
-        const auto submit = login_scene_control_rectangle(scene, LoginControl::submit);
+        const auto submit = login_scene_rectangle(scene, LoginElement::submit);
         const bool hit = login_scene_hit_test(scene, (submit.left + submit.right) / 2, (submit.top + submit.bottom) / 2) ==
                          (item.enabled ? LoginControl::submit : LoginControl::none);
         bool action = false, message = false, fallback = false;

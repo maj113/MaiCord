@@ -87,7 +87,6 @@ struct ForumPostScene {
     bool active;
 };
 bool forum_post_update(ForumPostScene*, const ForumPostContent&, UiRect, UiTextMeasureCache*) noexcept;
-void forum_post_close(ForumPostScene*) noexcept;
 void forum_post_release(ForumPostScene*) noexcept;
 const UiLayoutNode* forum_post_node(const ForumPostScene&, ForumPostElement) noexcept;
 ForumPostTarget forum_post_hit_test(const ForumPostScene&, float, float) noexcept;
@@ -100,6 +99,4 @@ bool forum_post_paint(const ForumPostScene&, const TextFormEditGeometry (&)[2], 
                       PaintStream*) noexcept;
 bool forum_post_text_output(const ForumPostScene&, const TextFormEditGeometry (&)[2], const Theme&,
                             UiTextOutput*) noexcept;
-bool forum_post_text(const ForumPostScene&, const TextFormEditGeometry (&)[2], const Theme&,
-                     UiTextCommandStream*) noexcept;
 } // namespace maicord

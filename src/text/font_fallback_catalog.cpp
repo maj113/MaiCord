@@ -26,16 +26,4 @@ SfntStatus native_font_catalog_fallback_order(const NativeFontCatalog& c,ConstSl
     u32 ordered=0,spent=0;const auto status=native_font_fallback_order({properties.data,n},requested,output,&ordered,work,&spent);work-=spent;
     if(status!=SfntStatus::ok)return status;for(u32 i=0;i<ordered;++i)output[i]=indices[output[i]];*count=ordered;return SfntStatus::ok;
 }
-SfntStatus native_font_catalog_fallback_select(const NativeFontCatalog& c,ConstSlice<u32> order,NativeFontProperties requested,
-    u32 scalar,NativeFallbackCoverage coverage,void* context,NativeFontCatalogMatch* output,u32 work,u32* used) noexcept {
-    const u32 initial=work;struct Report {u32 initial;u32& left;u32* used;~Report() noexcept{if(used)*used=initial-left;}} report{initial,work,used};
-    if(output)*output={native_fallback_missing,{},0};
-    if(!output||!valid(c)||!coverage||(order.count&&!order.data)||scalar>0x10ffff||(scalar>=0xd800&&scalar<=0xdfff)||
-       !requested.weight||requested.weight>1000||!requested.width||requested.width>9||requested.style>2)return SfntStatus::invalid_input;
-    for(u32 i=0;i<order.count;++i){if(!work)return SfntStatus::resource_limit;--work;const u32 candidate=order[i];if(candidate>=c.count.candidates)return SfntStatus::invalid_input;
-        bool covered=false;const auto status=coverage(context,candidate,scalar,&covered);if(status!=SfntStatus::ok)return status;if(!covered)continue;
-        NativeFontMatch match{};const auto selected=native_font_match({&c.candidates[candidate].properties,1},requested,&match);if(selected!=SfntStatus::ok)return selected;
-        *output={candidate,match.properties,match.simulations};return SfntStatus::ok;
-    }return SfntStatus::ok;
-}
 }

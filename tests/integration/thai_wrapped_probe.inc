@@ -91,7 +91,8 @@ bool probe_script_wrapped(WrappedProbeScript script) noexcept {
             valid=valid&&profile_scene_layout(&scene,viewport(),true);
             log_u64(LogLevel::info,tag,"laid_out",valid);
             UiTextCommand commands[320]{};UiTextCommandStream stream{};
-            valid=valid&&ui_text_command_stream_initialize(&stream,{commands,320})&&profile_scene_text(scene,kDefaultTheme,&stream);
+            UiTextOutput stream_output{&stream, nullptr};
+            valid=valid&&ui_text_command_stream_initialize(&stream,{commands,320})&&profile_scene_text_output(scene,kDefaultTheme,&stream_output, nullptr);
             bool found=false;
             for(u32 i=0;valid&&i<stream.count;++i){
                 const auto& command=commands[i];if(command.owner.handle.slot!=scene.bio_widget.slot)continue;

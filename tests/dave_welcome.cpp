@@ -1,4 +1,5 @@
 #include "maicord/app/dave_welcome.hpp"
+#include "maicord/protocol/mls_reader.hpp"
 #include <bcrypt.h>
 #include "test_output.hpp"
 
@@ -54,24 +55,30 @@ void group_secrets_cases(Check check, u8* buffer) noexcept {
         digest.number(view.has_path_secret ? 1 : 0, 1);
         digest.field(view.path_secret);
         digest.field(view.psks);
-        u32 used = 0;
-        while (used < view.psks.count) {
-            MlsPreSharedKeyIdView id{};
-            const auto result =
-                mls_psk_id_decode_prefix({view.psks.data + used, view.psks.count - used}, &id);
-            check(result.ok() && result.bytes, "GroupSecrets complete PSK ID iteration");
-            if (!result.ok() || !result.bytes)
-                break;
-            digest.number(id.type, 1);
-            digest.number(id.usage, 1);
-            digest.field(id.id);
-            digest.field(id.group_id);
-            digest.number(id.epoch, 8);
-            digest.field(id.nonce);
-            digest.field(id.serialized);
-            MlsPreSharedKeyIdView exact{};
-            check(mls_psk_id_decode(id.serialized, &exact).ok(), "PSK exact ID decode");
-            used += result.bytes;
+        // Independent walk of the validated PreSharedKeyID list.
+        MlsReader list{view.psks};
+        while (list.error == MlsWireError::none && list.used < view.psks.count) {
+            const u32 start = list.used;
+            const u8 type = static_cast<u8>(list.integer(1));
+            u8 usage = 0;
+            ConstSlice<u8> id{}, group_id{};
+            u64 epoch = 0;
+            if (type == 1) {
+                id = list.vector();
+            } else {
+                usage = static_cast<u8>(list.integer(1));
+                group_id = list.vector();
+                epoch = list.integer(8);
+            }
+            const auto nonce = list.vector();
+            check(list.error == MlsWireError::none, "GroupSecrets complete PSK ID iteration");
+            digest.number(type, 1);
+            digest.number(usage, 1);
+            digest.field(id);
+            digest.field(group_id);
+            digest.number(epoch, 8);
+            digest.field(nonce);
+            digest.field({view.psks.data + start, list.used - start});
         }
         digest.field(view.serialized);
         MlsGroupSecretsView unchanged;
@@ -83,8 +90,6 @@ void group_secrets_cases(Check check, u8* buffer) noexcept {
                   "GroupSecrets every truncation preserves prior view");
         }
         buffer[n] = 0xaa;
-        check(mls_group_secrets_decode_prefix({buffer, n + 1}, &unchanged).bytes == n,
-              "GroupSecrets prefix consumes exactly one object");
         memset(&unchanged, 0xa5, sizeof(unchanged));
         check(mls_group_secrets_decode({buffer, n + 1}, &unchanged).error == MlsWireError::trailing_data &&
                   filled(&unchanged, sizeof(unchanged), 0xa5),
@@ -95,12 +100,13 @@ void group_secrets_cases(Check check, u8* buffer) noexcept {
     check(BCryptFinishHash(hash, actual, 32, 0) >= 0 && bytes_equal(actual, expected, 32),
           "All 303 GroupSecrets cases match independent fields including PSK arms");
     BCryptDestroyHash(hash);
-    const u8 bad_optional[]{0, 2, 0}, bad_type[]{3, 0}, bad_usage[]{2, 0, 0};
+    // GroupSecrets {joiner_secret<V>, optional path_secret, psks<V>} with a bad
+    // optional tag, a bad PSK type and a bad resumption usage.
+    const u8 bad_optional[]{0, 2, 0}, bad_type[]{0, 0, 2, 3, 0}, bad_usage[]{0, 0, 3, 2, 0, 0};
     MlsGroupSecretsView view{};
-    MlsPreSharedKeyIdView id{};
     check(mls_group_secrets_decode({bad_optional, 3}, &view).error == MlsWireError::invalid_optional &&
-              mls_psk_id_decode({bad_type, 2}, &id).error == MlsWireError::invalid_psk_type &&
-              mls_psk_id_decode({bad_usage, 3}, &id).error == MlsWireError::invalid_psk_usage,
+              mls_group_secrets_decode({bad_type, 5}, &view).error == MlsWireError::invalid_psk_type &&
+              mls_group_secrets_decode({bad_usage, 6}, &view).error == MlsWireError::invalid_psk_usage,
           "GroupSecrets invalid optional and PSK union tags fail explicitly");
 }
 void crypto_cases(Check check, KdfSha256Workspace& workspace, const P256Key& init, ConstSlice<u8> reference,

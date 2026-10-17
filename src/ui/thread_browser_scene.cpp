@@ -339,9 +339,6 @@ void ui_thread_browser_scene_release(UiThreadBrowserScene* s) noexcept {
 bool ui_thread_browser_scene_contains(const UiThreadBrowserScene& s, float x, float y) noexcept {
     return current(s) && ui_rect_contains(s.panel, x, y);
 }
-UiRect ui_thread_browser_scene_rectangle(const UiThreadBrowserScene& s, UiWidgetHandle handle) noexcept {
-    return current(s) ? bounds(s, handle) : UiRect{};
-}
 bool ui_thread_browser_scene_target_current(const UiThreadBrowserScene& s, UiThreadBrowserTarget value) noexcept {
     return eligible(s, value) && value.widget.generation && value.widget.slot < kUiThreadBrowserWidgetCapacity &&
         ui_widget_manager_input_enabled(s.widgets, value.widget) &&

@@ -49,7 +49,7 @@ void test_voice_udp_handoff(void (*check)(bool, const char*) noexcept) noexcept 
                                         {utf8_literal("synthetic-token"), 0, false},
                                         {utf8_literal("127.0.0.1:65534"), 0, false},
                                         false};
-        check(voice_setup_bind(&setup, 3, session) == VoiceSetupResult::updated &&
+        check(voice_setup_bind_utf8(&setup, 3, session.encoded) == VoiceSetupResult::updated &&
                   voice_setup_begin(&setup, 1, 2, GetTickCount64()),
               "UDP handoff setup fixture");
         voice_setup_server(&setup, server);

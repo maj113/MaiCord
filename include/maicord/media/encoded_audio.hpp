@@ -129,9 +129,6 @@ inline u64 encoded_audio_duration_units(const EncodedAudioMetadata& source, u32 
     const u64 whole = seconds * units, fraction = (frames % rate) * units / rate;
     return fraction > ~u64{0} - whole ? ~u64{0} : whole + fraction;
 }
-inline u64 encoded_audio_duration_ms(const EncodedAudioMetadata& source) noexcept {
-    return encoded_audio_duration_units(source, 1000);
-}
 inline u64 encoded_audio_duration_us(const EncodedAudioMetadata& source) noexcept {
     return encoded_audio_duration_units(source, 1'000'000);
 }

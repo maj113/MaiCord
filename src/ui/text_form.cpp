@@ -256,9 +256,6 @@ Color shade(Color color, float amount) noexcept {
 bool button_enabled(const TextFormScene& scene, TextFormElement element) noexcept {
     return element == TextFormElement::accept ? scene.content.can_accept : scene.content.can_cancel;
 }
-bool widget_is(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.generation && a.slot == b.slot && a.generation == b.generation;
-}
 Color button_fill(const TextFormScene& scene, TextFormElement element, const Theme& theme) noexcept {
     const bool accept = element == TextFormElement::accept;
     const Color fill = accept ? (scene.content.danger ? theme.tokens.accent.danger : theme.tokens.emphasis.fill)
@@ -266,15 +263,11 @@ Color button_fill(const TextFormScene& scene, TextFormElement element, const The
     if (!button_enabled(scene, element))
         return ui_theme_color_alpha(fill, .5f);
     const auto handle = scene.elements[index(element)];
-    const bool hovered = widget_is(scene.widgets.hovered, handle);
-    const bool pressed = hovered && widget_is(scene.widgets.captured, handle);
+    const bool hovered = ui_widget_handle_matches(scene.widgets.hovered, handle);
+    const bool pressed = hovered && ui_widget_handle_matches(scene.widgets.captured, handle);
     if (!accept)
         return pressed || hovered ? theme.interactive_hover : fill;
     return pressed ? shade(fill, .82f) : hovered ? shade(fill, .9f) : fill;
-}
-UiRect intersect(UiRect a, UiRect b) noexcept {
-    return {maximum(a.left, b.left), maximum(a.top, b.top), minimum(a.right, b.right),
-            minimum(a.bottom, b.bottom)};
 }
 bool fill(PaintStream* stream, UiRect rectangle, Color color) noexcept {
     return !ui_rect_has_area(rectangle) || paint_stream_push(stream, rectangle.left, rectangle.top,
@@ -516,16 +509,6 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
     return true;
 }
 
-void text_form_close(TextFormScene* scene) noexcept {
-    if (!scene)
-        return;
-    scene->active = false;
-    scene->content = {};
-    scene->measure = nullptr;
-    ui_widget_manager_focus(&scene->widgets, ui_widget_invalid_handle());
-    ui_widget_manager_capture(&scene->widgets, ui_widget_invalid_handle());
-    ++scene->revision;
-}
 void text_form_release(TextFormScene* scene) noexcept {
     if (!scene)
         return;
@@ -695,9 +678,9 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
                              paint, {&scene.widgets, scene.elements[index(element)]}, node->rectangle,
                              UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap);
         if (element == TextFormElement::edit) {
-            const auto clip = intersect(node->content_rectangle, node->clip_rectangle);
+            const auto clip = ui_rect_overlap(node->content_rectangle, node->clip_rectangle);
             for (u32 i = 0; valid && i < edit.selections.count; ++i)
-                valid = fill(paint, intersect(edit.selections[i], clip), theme.interactive_hover);
+                valid = fill(paint, ui_rect_overlap(edit.selections[i], clip), theme.interactive_hover);
             for (u32 i = 0; valid && i < edit.composition.count; ++i) {
                 const auto& mark = edit.composition[i];
                 const bool targeted =
@@ -707,7 +690,7 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
                                                     targeted ? theme.accent : theme.text_primary);
             }
             if (valid && focused && scene.content.caret_visible)
-                valid = fill(paint, intersect(edit.caret, clip), theme.text_primary);
+                valid = fill(paint, ui_rect_overlap(edit.caret, clip), theme.text_primary);
         }
         valid = paint_stream_pop_clip(paint) && valid;
     }
@@ -727,7 +710,7 @@ bool text_form_text_output(const TextFormScene& scene, const TextFormEditGeometr
         const auto* node = text_form_node(scene, element);
         if (!node)
             return false;
-        const auto clip = intersect(node->content_rectangle, node->clip_rectangle);
+        const auto clip = ui_rect_overlap(node->content_rectangle, node->clip_rectangle);
         if (!ui_rect_has_area(clip))
             continue;
         const bool button = action(element);
@@ -761,13 +744,5 @@ bool text_form_text_output(const TextFormScene& scene, const TextFormEditGeometr
             return false;
     }
     return true;
-}
-} // namespace maicord
-
-namespace maicord {
-bool text_form_text(const TextFormScene& scene, const TextFormEditGeometry& edit, const Theme& theme,
-                    UiTextCommandStream* stream) noexcept {
-    UiTextOutput output{stream, nullptr};
-    return text_form_text_output(scene, edit, theme, &output);
 }
 } // namespace maicord

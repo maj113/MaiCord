@@ -400,56 +400,6 @@ MessageTextHit renderer_content_hit_test(const D3D11Renderer& renderer, i32 clie
     return MessageTextHit{};
 }
 
-MessageTextHit renderer_search_content_hit_test(const D3D11Renderer& renderer, i32 px, i32 py) noexcept {
-    if (!renderer.content_text || !renderer.dpi || px < 0 || py < 0 ||
-        !d3d11_renderer_search_visible(renderer) || !renderer.search_message_text ||
-        !renderer.search_message_text->active)
-        return {};
-    const float x = px * 96.f / renderer.dpi, y = py * 96.f / renderer.dpi;
-    const auto point = ui_search_scene_content_clip(*renderer.search_scene, {x, y, x + .01f, y + .01f});
-    if (!ui_rect_has_area(point))
-        return {};
-    const auto& text = *renderer.content_text;
-    MessageTextHit spoiler{};
-    for (u32 cursor = text.content_hit_region_count; cursor; --cursor) {
-        const auto& region = text.content_hit_regions[cursor - 1];
-        if (x < region.left || x >= region.right || y < region.top || y >= region.bottom ||
-            region.semantic_index >= text.content_semantic_count)
-            continue;
-        const auto& semantic = text.content_semantics[region.semantic_index];
-        if (!(semantic.reserved & kRendererSearchSemanticFlag))
-            continue;
-        const MessageTextHit hit{semantic.message_id,
-                                 semantic.target,
-                                 semantic.message_revision,
-                                 semantic.source_offset,
-                                 semantic.source_bytes,
-                                 semantic.kind,
-                                 true};
-        if (semantic.kind == MessageMarkdownSemanticKind::spoiler) {
-            if (!spoiler.valid)
-                spoiler = hit;
-            continue;
-        }
-        if (semantic.reserved & 2u)
-            continue;
-        return hit;
-    }
-    return spoiler;
-}
-
-RendererMessageTextPositionHit renderer_search_text_position_hit_test(D3D11Renderer& renderer, i32 px,
-                                                                      i32 py) noexcept {
-    if (!renderer.dpi || px < 0 || py < 0 || !d3d11_renderer_search_visible(renderer) ||
-        !renderer.search_message_text || !renderer.search_message_text->active)
-        return {};
-    const float x = px * 96.f / renderer.dpi, y = py * 96.f / renderer.dpi;
-    if (!ui_rect_has_area(ui_search_scene_content_clip(*renderer.search_scene, {x, y, x + .01f, y + .01f})))
-        return {};
-    return message_position_hit_test(&renderer.message_hit_test, *renderer.search_message_text,
-                                            renderer.glyph_text.system, renderer.dpi, px, py);
-}
-
 RendererMessageTextPositionHit renderer_message_text_position_hit_test(D3D11Renderer& renderer,
                                                                        i32 client_x_pixels,
                                                                        i32 client_y_pixels) noexcept {

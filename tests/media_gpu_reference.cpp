@@ -31,7 +31,9 @@ inline constexpr u16 kAtlasExtent = 512;
 // filter versus libjpeg-turbo's integer IDCT and fancy upsampling).
 inline constexpr u32 kJpegTolerance = 2;
 
+// VirtualAlloc'd: the decode workspace leads so it stays page (16-byte) aligned.
 struct State {
+    u8 workspace[4u << 20];
     JpegWorkspace jpeg;
     LossyWebpWorkspace lossy;
     Vp8lWorkspace lossless;
@@ -43,7 +45,6 @@ struct State {
     MediaAtlasGpu gpu;
     u8 surface[kAtlasExtent * kAtlasExtent * 4];
     u8 reference[kWebpDimensionMaximum * kWebpDimensionMaximum * 4];
-    u8 workspace[4u << 20];
 };
 State* g;
 ID3D11Device* g_device;

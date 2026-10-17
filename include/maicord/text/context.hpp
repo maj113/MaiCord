@@ -31,10 +31,6 @@ SfntStatus sfnt_context_open(ConstSlice<u8> bytes,SfntContextKind kind,u32 glyph
 SfntStatus sfnt_context_match_view(const SfntContext& context,const SfntGdef& gdef,const SfntLookupFilter& filter,
                              SfntGlyphView glyphs,u32 start,u32 input_end,Slice<u32> positions,
                              SfntContextMatch* output,u32 work_limit=1000000,u32* work_used=nullptr,u8 feature_mask=0,u32 first_coverage_index=sfnt_not_covered) noexcept;
-inline SfntStatus sfnt_context_match(const SfntContext& context,const SfntGdef& gdef,const SfntLookupFilter& filter,
-                                    ConstSlice<SfntGsubGlyph> glyphs,u32 start,u32 input_end,Slice<u32> positions,SfntContextMatch* output,u32 work_limit=1000000) noexcept {
-    return sfnt_context_match_view(context,gdef,filter,sfnt_glyph_view(glyphs),start,input_end,positions,output,work_limit);
-}
 SfntStatus sfnt_context_action(const SfntContextMatch& match,u32 index,SfntSequenceAction* output) noexcept;
 // GSUB type 8, format 1. The executor visits start positions in reverse order;
 // this function matches one position and excludes contexts from consumed input.
@@ -43,8 +39,4 @@ SfntStatus sfnt_gsub_reverse_open(ConstSlice<u8> bytes,u32 glyph_limit,Slice<Sfn
                                 SfntReverseSubstitution* output,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 SfntStatus sfnt_gsub_reverse_match_view(const SfntReverseSubstitution& reverse,const SfntGdef& gdef,const SfntLookupFilter& filter,
                                  SfntGlyphView glyphs,u32 start,SfntGsubMatch* output,u32 work_limit=1000000,u32* work_used=nullptr,u8 feature_mask=0) noexcept;
-inline SfntStatus sfnt_gsub_reverse_match(const SfntReverseSubstitution& reverse,const SfntGdef& gdef,const SfntLookupFilter& filter,
-                                        ConstSlice<SfntGsubGlyph> glyphs,u32 start,SfntGsubMatch* output,u32 work_limit=1000000) noexcept {
-    return sfnt_gsub_reverse_match_view(reverse,gdef,filter,sfnt_glyph_view(glyphs),start,output,work_limit);
-}
 }

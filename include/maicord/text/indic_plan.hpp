@@ -22,8 +22,15 @@ inline constexpr u8 sfnt_bengali_initial=sfnt_deva_nukta;
 using SfntIndicStage=SfntDevanagariStage;
 using SfntIndicForm=SfntDevanagariForm;
 // Modern script tags only, ENG then DefaultLangSys. Legacy script models and DFLT are
-// not substituted for a missing modern script table.
-// Uses the four-byte step and lookup_count u16 scratch layout.
+// not substituted for a missing modern script table. Both typography modes keep the
+// required Indic features, calt/rclt and kern; no ccmp/liga/clig/rlig/rvrn or
+// discretionary features are added.
+// GSUB reuses lookups across stages, deduplicates within a stage and reserves an
+// empty final-reorder stage. Required features join every executable stage with
+// that stage's eligibility. GPOS is one unmasked stage.
+// Scratch: lookup_count u16 cells. Output: four bytes per scheduled lookup.
+// Views are borrowed and disjoint. Work is shared across selection, counting and
+// emission. Short output reports capacity; any failure leaves output untouched.
 SfntStatus sfnt_indic_lookup_plan(const SfntLayout&,const SfntFeatureSubstitutions&,SfntIndicProfile,bool independent,
     Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult*,u64 work_limit=1000000,bool ordered_presentation=false) noexcept;
 // Malayalam's no-post-form fallback schedules presentation features in feature
@@ -31,6 +38,11 @@ SfntStatus sfnt_indic_lookup_plan(const SfntLayout&,const SfntFeatureSubstitutio
 // A shared contextual lookup runs once per feature; repeated IDs
 // inside a feature collapse. Select this only after resolving prepared font
 // forms; other profiles reject it.
+// Context-free font classification (form overload): locl plus exactly one of
+// reph/half/pre/below/post, merged in font lookup order into one unmasked stage.
+// Absent form features produce no roots (locl alone cannot establish form
+// availability). Required features unrelated to these tags are not classification
+// probes. The same storage, selection, variation and all-or-nothing output rules apply.
 SfntStatus sfnt_indic_form_lookup_plan(const SfntLayout&,const SfntFeatureSubstitutions&,SfntIndicProfile,SfntIndicForm,
     Slice<u16> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult*,u64 work_limit=1000000) noexcept;
 }

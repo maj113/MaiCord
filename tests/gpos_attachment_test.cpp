@@ -1,4 +1,4 @@
-#include "maicord/text/gpos_attachment.hpp"
+#include "gpos_lookup_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
 #include <Windows.h>
 namespace maicord {namespace {
@@ -34,12 +34,12 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
     for(u32 f=0;f<fonts;++f){u32 limit=0,size=0,gdsize=0,sc=0;ConstSlice<u8> raw{},gd{};
         if(!r.word(&limit)||!r.word(&size)||!r.word(&gdsize)||!r.word(&sc)||!limit||limit>65536||sc>100000||!r.take(size,&raw)||!r.take(gdsize,&gd))return false;
         SfntLayout layout{};SfntGdef gdef{};if(sfnt_layout_open(raw,SfntLayoutKind::positioning,&layout)!=SfntStatus::ok || (gdsize && sfnt_gdef_open(gd,limit,&gdef)!=SfntStatus::ok))return false;
-        u32 previous=0xffffffffu;SfntGposAttachmentLookup prepared{};
+        u32 previous=0xffffffffu;SfntGposExecutableLookup prepared{};
         for(u32 s=0;s<sc;++s){u32 li=0,si=0,offset=0,type=0,mc=0,tc=0,classes=0;
             if(!r.word(&li)||!r.word(&si)||!r.word(&offset)||!r.word(&type)||!r.word(&mc)||!r.word(&tc)||!r.word(&classes)||li>65535||offset>=size||mc>limit||tc>limit||classes>65535)return false;
-            if(li!=previous){const auto status=sfnt_gpos_attachment_lookup_prepare(layout,static_cast<u16>(li),gdef,limit,{storage,1024},&prepared);
-                if(status!=SfntStatus::ok){print(utf8_literal("prepare_font="));number(f);print(utf8_literal(" lookup="));number(li);print(utf8_literal(" status="));number(static_cast<u32>(status));print(utf8_literal("\n"));return false;}previous=li;}
-            if(si>=prepared.subtables.count)return false;const auto& sub=prepared.subtables.data[si];SfntLookup directory{};ConstSlice<u8> subbytes{};
+            if(li!=previous){const auto status=gpos_prepare_one(layout,static_cast<u16>(li),gdef,limit,{},{storage,1024},&prepared);
+                if(status!=SfntStatus::ok || prepared.type<3 || prepared.type>6){print(utf8_literal("prepare_font="));number(f);print(utf8_literal(" lookup="));number(li);print(utf8_literal(" status="));number(static_cast<u32>(status));print(utf8_literal("\n"));return false;}previous=li;}
+            if(si>=prepared.tables.attachment.count)return false;const auto& sub=prepared.tables.attachment.data[si];SfntLookup directory{};ConstSlice<u8> subbytes{};
             if(sfnt_layout_lookup(layout,static_cast<u16>(li),&directory)!=SfntStatus::ok || sfnt_lookup_subtable(directory,static_cast<u16>(si),&subbytes)!=SfntStatus::ok || subbytes.data!=raw.data+offset || sub.type!=type || sub.counts[0]!=mc || sub.counts[1]!=tc || sub.class_count!=classes)return false;
             u32 consumed=0;u16 next=0,expected_class=0;if(mc && (!r.half(&next)||!r.half(&expected_class)))return false;
             for(u32 glyph=0;glyph<limit;++glyph){const bool expected=consumed<mc && glyph==next;++glyph_queries;
@@ -120,11 +120,9 @@ bool units_guards() noexcept {
             if(i==2){const u32 array=byte_load_be16(originals[i].data+10),lig=array+byte_load_be16(originals[i].data+array+2);copy_bytes(changed,originals[i].data,originals[i].count);put(changed,lig,65535);
                 if(sfnt_gpos_attachment_open({changed,originals[i].count},5,5,&sub)!=SfntStatus::truncated || sub.type)return false;}}
     }
-    SfntGposAttachment pair_storage[2];SfntGposAttachmentLookup pair{};u32 first_success=0;
-    for(u32 budget=0;budget<1000;++budget){const auto status=sfnt_gpos_attachment_lookup_prepare(layout,8,{},5,{pair_storage,2},&pair,budget);++budget_checks;
-        if(status==SfntStatus::ok){first_success=budget;break;}if(status!=SfntStatus::resource_limit || pair.subtables.data)return false;}
-    if(!first_success || pair.subtables.count!=2 || pair.filter.flags!=1)return false;
-    if(sfnt_gpos_attachment_lookup_prepare(layout,8,{},5,{pair_storage,1},&pair)!=SfntStatus::output_too_small || pair.subtables.data)return false;
+    SfntGposAttachment pair_storage[2];SfntGposExecutableLookup pair{};
+    if(gpos_prepare_one(layout,8,{},5,{},{pair_storage,2},&pair)!=SfntStatus::ok || pair.tables.attachment.count!=2 || pair.filter.flags!=1)return false;
+    if(gpos_prepare_one(layout,8,{},5,{},{pair_storage,1},&pair)!=SfntStatus::output_too_small || pair.type)return false;
     SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!mem)return false;DWORD old=0;if(!VirtualProtect(mem+page,page,PAGE_NOACCESS,&old)){VirtualFree(mem,0,MEM_RELEASE);return false;}
     u32 random=0x879bad32;bool ok=true;
     for(u32 i=0;i<10000;++i){const auto original=originals[i%4];if(original.count>page){ok=false;break;}random^=random<<13;random^=random>>17;random^=random<<5;const u32 length=i<4?original.count:random%(original.count+1);u8* data=mem+page-length;copy_bytes(data,original.data,length);if(i>=4 && length)data[(random>>8)%length]^=static_cast<u8>(random>>16);

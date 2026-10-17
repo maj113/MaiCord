@@ -24,7 +24,6 @@ struct NativeArabicPlanView {const SfntShapePlan* shape;ConstSlice<SfntLookupSte
 NativeFontResult native_arabic_plan_acquire(NativeArabicPlanStore* store,NativeRunPlanHandle run,
     Arena* scratch,NativeArabicPlanHandle* output,u32 stage_work=1000000,usize state_limit=1024*1024) noexcept;
 NativeArabicPlanView native_arabic_plan_get(const NativeArabicPlanStore& store,NativeArabicPlanHandle handle,bool independent_letters=false) noexcept;
-bool native_arabic_plan_retain(NativeArabicPlanStore* store,NativeArabicPlanHandle handle) noexcept;
 bool native_arabic_plan_release(NativeArabicPlanStore* store,NativeArabicPlanHandle handle) noexcept;
 static_assert(sizeof(NativeArabicPlanHandle)==8);
 }

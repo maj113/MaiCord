@@ -17,7 +17,7 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
     UiThreadHeader header{};
     const auto style = ui_thread_header_style();
     const UiRect strip{312, 48, 632, 128}, clip{0, 0, 632, 480};
-    check(ui_scene_initialize_bootstrap(&shell) && ui_scene_layout(&shell, 632, 480) &&
+    check(ui_scene_initialize_bootstrap(&shell) && ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 632, 480) &&
         ui_thread_header_bind_shell(&header, &shell), "thread header: borrows six actual shell slots without another widget owner");
     if (!header.manager) { ui_scene_release(&shell); return; }
     const u32 shell_count = shell.widgets.count;
@@ -32,9 +32,8 @@ void test_thread_header(void (*check)(bool, const char*) noexcept) noexcept {
         ui_rect_equal(shell.nodes[header.widgets.root.slot].rectangle, header.geometry.rectangle) &&
         disjoint(header.geometry.status, header.geometry.primary) && disjoint(header.geometry.primary, header.geometry.overflow),
         "thread header: minimum content width projects distinct status and native controls into synchronized shell snapshots");
-    check(ui_thread_header_primary_action(view) == UiThreadAction::check_status &&
-        ui_thread_header_status_label(view).bytes == 0,
-        "thread header: an unknown current-user membership is never labeled unjoined");
+    check(ui_thread_header_primary_action(view) == UiThreadAction::check_status,
+        "thread header: an unknown current-user membership checks its status");
     const auto unknown = ui_thread_header_widget_target(header, header.widgets.primary);
     check(unknown.action == UiThreadAction::check_status && ui_thread_header_current(header, unknown),
         "thread header: Unknown uses a current native Refresh target");

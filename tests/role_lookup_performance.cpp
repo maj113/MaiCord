@@ -121,14 +121,6 @@ void test_role_lookup_performance(void (*check)(bool, const char*) noexcept) noe
     }
     check(displayed && !role_display_next(1, {state.roles, state.role_count}, previous),
           "role chooser: complete display traversal exceeds 256 roles and excludes mixed-guild backing records");
-    chat_state_store_clear(&state);
-    bool cleared = state.role_count == 0 && state.roles == records && state.role_capacity == 8192;
-    for (u32 index = 0; index < 8192; ++index) cleared = records[index].id == 0 && cleared;
-    cleared = cleared && !chat_state_store_find_role(state, 1, 259);
-    const bool reinserted = chat_state_store_upsert_role(&state, {role_key(255), guild_key(31), 42, {}});
-    const auto* reset_role = chat_state_store_find_role(state, guild_key(31), role_key(255));
-    check(cleared && reinserted && reset_role && reset_role->permissions == 42,
-          "role lookup: reset clears live/index state and permits late-key reuse");
 
     RoleRecord named_records[8]{};
     RoleFixture named{};

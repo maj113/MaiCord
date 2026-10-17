@@ -31,8 +31,15 @@ void test_gateway_self_status(void (*check)(bool, const char*) noexcept) noexcep
     u8 proto[128]{8,1,90,static_cast<u8>(sizeof(original_group))};
     copy_bytes(proto + 4, original_group, sizeof(original_group));
     u8 group[512]{};
+    // Settings arrive as base64; encode raw protobuf fixtures first.
+    const auto decode_raw = [](ConstSlice<u8> raw, Slice<u8> output, SelfStatusSettingsProjection* out) noexcept {
+        char text[256]{};
+        const auto base = base64_encode(raw, {text, sizeof(text)});
+        return base.ok() ? self_status_settings_decode_base64({text, base.bytes}, output, out)
+                         : SelfStatusSettingsError::input;
+    };
     SelfStatusSettingsProjection projection{};
-    check(self_status_settings_decode_proto({proto, 4 + sizeof(original_group)}, {group, sizeof(group)}, &projection) ==
+    check(decode_raw({proto, 4 + sizeof(original_group)}, {group, sizeof(group)}, &projection) ==
               SelfStatusSettingsError::none && projection.present && projection.known &&
               projection.status == GatewayUserStatus::online && projection.expires_at_ms == 1 &&
               projection.created_at_ms == 123 && projection.group_bytes == sizeof(original_group) &&
@@ -58,18 +65,18 @@ void test_gateway_self_status(void (*check)(bool, const char*) noexcept) noexcep
               contains(wrapper_unknown, sizeof(wrapper_unknown)),
           "self status: replacement group retains custom status/game visibility/unknown group and wrapper fields");
     const u8 missing[]{8,1}, empty[]{90,0}, invalid[]{90,2,10,5};
-    check(self_status_settings_decode_proto({missing, sizeof(missing)}, {group, sizeof(group)}, &projection) ==
+    check(decode_raw({missing, sizeof(missing)}, {group, sizeof(group)}, &projection) ==
               SelfStatusSettingsError::none && !projection.present && !projection.known &&
-          self_status_settings_decode_proto({empty, sizeof(empty)}, {group, sizeof(group)}, &projection) ==
+          decode_raw({empty, sizeof(empty)}, {group, sizeof(group)}, &projection) ==
               SelfStatusSettingsError::none && projection.present && !projection.known,
           "self status: missing and empty authoritative group remain unknown rather than fabricated Online");
     group[0] = 88; const auto prior = projection;
-    check(self_status_settings_decode_proto({invalid, sizeof(invalid)}, {group, sizeof(group)}, &projection) ==
+    check(decode_raw({invalid, sizeof(invalid)}, {group, sizeof(group)}, &projection) ==
               SelfStatusSettingsError::protobuf && group[0] == 88 && projection.present == prior.present &&
           self_status_settings_decode_base64(utf8_literal("*AAA"), {group, sizeof(group)}, &projection) ==
               SelfStatusSettingsError::base64,
           "self status: malformed protobuf/base64 cannot replace previous projection or opaque group");
-    check(self_status_settings_decode_proto({proto, 4 + sizeof(original_group)}, {group, 1}, &projection) ==
+    check(decode_raw({proto, 4 + sizeof(original_group)}, {group, 1}, &projection) ==
               SelfStatusSettingsError::capacity && group[0] == 88,
           "self status: bounded extraction reports capacity before copying any partial group");
 

@@ -42,10 +42,6 @@ StreamPreviewEntry* stream_preview_want(StreamPreviewCache* cache, const Gateway
     return entry;
 }
 
-const StreamPreviewEntry* stream_preview_find(const StreamPreviewCache& cache, const GatewayStreamKey& key) noexcept {
-    return find(const_cast<StreamPreviewCache&>(cache), key);
-}
-
 const StreamPreviewEntry* stream_preview_next_due(const StreamPreviewCache& cache, u64 now_ms) noexcept {
     const StreamPreviewEntry* best = nullptr;
     for (const auto& entry : cache.entries)

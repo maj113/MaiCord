@@ -10,9 +10,6 @@ namespace {
 constexpr float kHeaderHeight = 34, kRowHeight = 40, kTallRowHeight = 60, kColumnGap = 32, kCapHeight = 24,
                 kCapGap = 4, kChordGap = 14, kKeyEm = 12, kLabelEm = 15, kScrollGutter = 12;
 
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.generation && a.slot == b.slot && a.generation == b.generation;
-}
 bool current(const UiShortcutsScene& s) noexcept {
     return s.active && s.content && s.content->revision == s.content_revision &&
            s.content->rows.count == s.row_count;
@@ -94,9 +91,6 @@ void layout_rows(UiShortcutsScene& s) noexcept {
         u32 end = i + 1;
         while (end < rows.count && !rows[end].header)
             ++end;
-        float group = 0;
-        for (u32 j = i; j < end; ++j)
-            group += row_height(rows[j], column_width) + (rows[j].header && j ? 8.f : 0.f);
         const u32 column = s.columns == 2 && heights[1] < heights[0] ? 1 : 0;
         float y = heights[column] + (heights[column] > 0 && rows[i].header ? 12.f : 0.f);
         const float x = column * (column_width + kColumnGap);
@@ -235,7 +229,7 @@ bool ui_shortcuts_scene_set_hover(UiShortcutsScene* s, float x, float y, bool* c
     const auto hit = ui_widget_manager_hit_test(s->widgets, x, y), before = s->widgets.hovered;
     if (!ui_widget_manager_hover(&s->widgets, hit))
         return false;
-    const bool delta = !same(before, hit) && (before.generation || hit.generation);
+    const bool delta = !ui_widget_handle_matches(before, hit) && (before.generation || hit.generation);
     if (delta)
         ++s->revision;
     if (changed)
@@ -265,7 +259,7 @@ bool ui_shortcuts_scene_paint(const UiShortcutsScene& s, const Theme& t, PaintSt
                                &t.interactive_hover) &&
               ui_icon_paint(out, UiIcon::keyboard, {p.left + 24, p.top + 20, p.left + 44, p.top + 40},
                             ui_foreground_color(t, t.tokens.emphasis.outline));
-    if (ok && (same(s.widgets.hovered, s.close) || same(s.widgets.focused, s.close))) {
+    if (ok && (ui_widget_handle_matches(s.widgets.hovered, s.close) || ui_widget_handle_matches(s.widgets.focused, s.close))) {
         const auto c = s.close_rectangle;
         ok = ui_background_paint_surface(out, c, t, t.surface_high, t.interactive, t.scale.radius_md, 1, 1,
                                          UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest);

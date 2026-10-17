@@ -24,11 +24,6 @@ float clamp01(float value) noexcept {
 }
 } // namespace
 
-UiRect ui_switch_rect(const UiSettingsTokens& tokens, float right, float center_y) noexcept {
-    const float half = tokens.metric.switch_height * .5f;
-    return {right - tokens.metric.switch_width, center_y - half, right, center_y + half};
-}
-
 UiSwitchThumb ui_switch_thumb(const UiSettingsTokens& tokens, UiRect track, bool checked, float motion,
                               bool reduced_motion, bool pressed) noexcept {
     const float unit = ui_rect_height(track) / 24;

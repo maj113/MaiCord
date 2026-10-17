@@ -16,6 +16,7 @@ inline constexpr Utf8View kExtraLabels[] = {
 bool extra_geometry(PopupScene& popup, u32 first) noexcept {
     UiTextCommand commands[kMessageContextMaximumPopupItems]{};
     UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     if (!ui_text_command_stream_initialize(&text, {commands, kMessageContextMaximumPopupItems})) return false;
     for (u32 index = 0; index < kMessageContextMaximumExtraItems; ++index) {
         bool changed = false;
@@ -31,7 +32,7 @@ bool extra_geometry(PopupScene& popup, u32 first) noexcept {
             (visible.top + visible.bottom) * .5f);
         if (!hit.inside || hit.action != kExtraActionFirst + index || hit.enabled != (index != 2)) return false;
         ui_text_command_stream_reset(&text);
-        if (!popup_text_presentation_build(popup, kDefaultTheme, &text)) return false;
+        if (!popup_text_presentation_build_output(popup, kDefaultTheme, &text_output)) return false;
         bool found = false;
         for (u32 command = 0; command < text.count; ++command) {
             const auto& value = commands[command];
@@ -70,8 +71,9 @@ bool feedback_geometry(D3D11Renderer& renderer, UiRect viewport,
         !ui_settings_scene_update(&scene, &registry, viewport)) return false;
     renderer_bind_settings_scene(&renderer, &scene);
     UiTextCommand commands[16]{}; UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     if (!ui_text_command_stream_initialize(&text, {commands, 16}) ||
-        !ui_settings_scene_text(scene, kDefaultTheme, &text)) return false;
+        !ui_settings_scene_text_output(scene, kDefaultTheme, &text_output)) return false;
     bool readable = false;
     for (u32 i = 0; i < text.count; ++i) if (utf8_equal(commands[i].text, control.description)) {
         const auto visible = ui_rect_intersection(commands[i].rectangle, commands[i].clip);

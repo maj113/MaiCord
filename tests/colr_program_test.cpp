@@ -282,15 +282,17 @@ bool outline_capacity_cases() noexcept {
 }
 bool colr_program_tests() noexcept {
     constexpr auto vector=utf8_literal(R"({"w":320,"h":320,"layers":[{"ty":4,"ks":{"o":{"k":100}},"shapes":[{"ty":"gr","it":[{"ty":"rc","p":{"k":[160,160]},"s":{"k":[160,160]},"r":{"k":12}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}},{"ty":"tr","o":{"k":100}}]}]}]})");
-    ColrPaintProgram vector_program{};float vector_extent=0;
-    bool vector_ok=lottie_program_compile({reinterpret_cast<const u8*>(vector.data),vector.bytes},
-        &vector_program,0,128,&vector_extent) && vector_extent==1 && vector_program.mask_count==1 &&
+    ColrPaintProgram vector_program{};float vector_extent=0;LottieTiming timing{};
+    const auto compile=[&](auto json,u32 frame_index,float* extent=nullptr) noexcept {
+        return lottie_program_compile_frame({reinterpret_cast<const u8*>(json.data),json.bytes},frame_index,128,&timing,
+            +[](void* program) noexcept {return static_cast<ColrPaintProgram*>(program);},&vector_program,extent);
+    };
+    bool vector_ok=compile(vector,0,&vector_extent) && vector_extent==1 && vector_program.mask_count==1 &&
         vector_program.bounds.has_bounds && vector_program.bounds.maximum_x==1;
     constexpr auto moving=utf8_literal(R"({"w":320,"h":320,"fr":60,"ip":0,"op":11,"layers":[{"ty":4,"shapes":[{"ty":"rc","p":{"a":1,"k":[{"t":0,"s":[64,160],"e":[256,160],"o":{"x":0.333333,"y":0.333333},"i":{"x":0.666667,"y":0.666667}},{"t":10,"s":[256,160]}]},"s":{"k":[64,64]}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]})");
     i32 positions[3]{};
     for(u32 i=0;i<3 && vector_ok;++i){
-        vector_ok=lottie_program_compile({reinterpret_cast<const u8*>(moving.data),moving.bytes},&vector_program,
-            static_cast<float>(i*5),128);
+        vector_ok=compile(moving,i*5);
         if(vector_ok){const auto* node=reinterpret_cast<const ColrPaintNode*>(vector_program.storage.base+vector_program.first);
             const auto* mask=reinterpret_cast<const ColrMask*>(vector_program.storage.base+node->reserved);
             positions[i]=mask->left;}
@@ -299,8 +301,7 @@ bool colr_program_tests() noexcept {
         positions[2]>=88 && positions[2]<=90;
     constexpr auto invalid=utf8_literal(R"({"w":4097,"h":320,"layers":[]})");
     constexpr auto open_fill=utf8_literal(R"({"w":320,"h":320,"layers":[{"ty":4,"shapes":[{"ty":"sh","ks":{"k":{"c":false,"v":[[48,48],[272,48],[272,272]],"i":[[0,0],[0,0],[0,0]],"o":[[0,0],[0,0],[0,0]]}}},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]})");
-    vector_ok=vector_ok && lottie_program_compile(
-        {reinterpret_cast<const u8*>(open_fill.data),open_fill.bytes},&vector_program,0,128);
+    vector_ok=vector_ok && compile(open_fill,0);
     if(vector_ok) {
         const auto* node=reinterpret_cast<const ColrPaintNode*>(vector_program.storage.base+vector_program.first);
         const auto* mask=reinterpret_cast<const ColrMask*>(vector_program.storage.base+node->reserved);
@@ -309,21 +310,16 @@ bool colr_program_tests() noexcept {
         vector_ok=node->kind==8 && mask->segment_count==3;
     }
     constexpr auto empty_merge=utf8_literal(R"({"w":320,"h":320,"layers":[{"ty":4,"shapes":[{"ty":"gr","it":[{"ty":"rc","p":{"k":[160,160]},"s":{"k":[160,160]}},{"ty":"gr","it":[{"ty":"tr","p":{"k":[0,0]}}]},{"ty":"mm","mm":4},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]}]})");
-    vector_ok=vector_ok && lottie_program_compile(
-        {reinterpret_cast<const u8*>(empty_merge.data),empty_merge.bytes},&vector_program,0,128) &&
+    vector_ok=vector_ok && compile(empty_merge,0) &&
         vector_program.mask_count==1;
     constexpr auto empty_intersection=utf8_literal(R"({"w":320,"h":320,"layers":[{"ty":4,"shapes":[{"ty":"gr","it":[{"ty":"rc","p":{"k":[160,160]},"s":{"k":[160,160]}},{"ty":"gr","it":[{"ty":"rc","p":{"k":[64,64]},"s":{"k":[16,16]}},{"ty":"rc","p":{"k":[256,256]},"s":{"k":[16,16]}},{"ty":"mm","mm":4}]},{"ty":"mm","mm":4},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]}]})");
-    vector_ok=vector_ok && lottie_program_compile(
-        {reinterpret_cast<const u8*>(empty_intersection.data),empty_intersection.bytes},&vector_program,0,128) &&
+    vector_ok=vector_ok && compile(empty_intersection,0) &&
         vector_program.mask_count==0;
-    vector_ok=vector_ok && !lottie_program_compile({reinterpret_cast<const u8*>(invalid.data),invalid.bytes},
-        &vector_program,0,128);
+    vector_ok=vector_ok && !compile(invalid,0);
     constexpr auto scope=utf8_literal(R"({"w":320,"h":320,"layers":[{"ind":1,"ty":3,"ks":{"o":{"k":0}}},{"ind":2,"parent":1,"ty":4,"shapes":[{"ty":"gr","it":[{"ty":"rc","p":{"k":[160,160]},"s":{"k":[160,160]}}]},{"ty":"fl","c":{"k":[1,0,0,1]},"o":{"k":100}}]}]})");
-    vector_ok=vector_ok && lottie_program_compile({reinterpret_cast<const u8*>(scope.data),scope.bytes},
-        &vector_program,0,128) && vector_program.mask_count==1;
+    vector_ok=vector_ok && compile(scope,0) && vector_program.mask_count==1;
     constexpr auto cycle=utf8_literal(R"({"w":320,"h":320,"layers":[{"ind":1,"parent":1,"ty":4,"shapes":[]}]})");
-    vector_ok=vector_ok && !lottie_program_compile({reinterpret_cast<const u8*>(cycle.data),cycle.bytes},
-        &vector_program,0,128);
+    vector_ok=vector_ok && !compile(cycle,0);
     arena_release(&vector_program.storage);
     Source source{};ColrPaintSource callbacks{&source,first,next,parent,stops,outline};ColrPaintProgram program{};
     ColrPaintElement root{};root.kind=ColrPaintKind::layers;root.paint.layers.childCount=2;

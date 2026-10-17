@@ -143,23 +143,6 @@ bool message_search_fallback(MessageSearchController* controller,
     return true;
 }
 
-bool message_search_tab(MessageSearchController* controller, MessageSearchTab tab) noexcept {
-    if (!controller || !controller->token.account_id || tab > MessageSearchTab::pins ||
-        controller->token.generation == ~u64{0})
-        return false;
-    auto query = controller->query;
-    query.tab = tab;
-    query.offset = 0;
-    if (!message_search_query_valid(query))
-        return false;
-    const auto account = controller->token.account_id;
-    const bool fallback = controller->endpoint_fallback;
-    if (!message_search_begin(controller, account, query))
-        return false;
-    controller->endpoint_fallback = fallback;
-    return true;
-}
-
 u64 message_search_cancel(MessageSearchController* controller) noexcept {
     if (!controller) {
         return 0;

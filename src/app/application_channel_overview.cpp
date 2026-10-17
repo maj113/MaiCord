@@ -1014,13 +1014,6 @@ bool editable_hook(SettingsLayer*) noexcept {
 constexpr SettingsLayerHooks kHooks{editor_hook, edited_hook, activate_hook, choose_hook, close_hook, repaint_hook,
                                     nullptr, editable_hook};
 
-void focus(UiSettingsTarget target) noexcept {
-    settings_layer_focus(&owner->layer, target);
-}
-void activate(UiSettingsTarget target) noexcept {
-    if (owner)
-        settings_layer_activate_target(&owner->layer, target);
-}
 void request_close() noexcept {
     if (!owner)
         return;

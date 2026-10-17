@@ -69,14 +69,14 @@ bool family_cache(NativeFontSession* session) noexcept {
     struct Release {NativeTextCatalogs& c;Arena& a;~Release() noexcept{native_text_catalogs_release(&c);arena_release(&a);}} release{catalogs,scratch};
     const u16 family[]{'G','e','o','r','g','i','a'},lower[]{'g','e','o','r','g','i','a'};
     NativeTextFontQuery query{0,{family,7},{400,5,0}};NativeTextFontRange normal{},bold{},again{};
-    CHECK(native_text_catalog_family_range(&catalogs,query,session,&scratch,utf8_literal("a\xcb\x91"),&normal)&&normal.bytes==1&&normal.units==1);
-    CHECK(native_text_catalog_family_range(&catalogs,query,session,&scratch,utf8_literal("\xcb\x91\xcc\x81" "a"),&bold)&&bold.bytes==4&&bold.units==2&&normal.match.candidate!=bold.match.candidate&&!bold.match.simulations);
+    CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("a\xcb\x91"),&normal)&&normal.bytes==1&&normal.units==1);
+    CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xcb\x91\xcc\x81" "a"),&bold)&&bold.bytes==4&&bold.units==2&&normal.match.candidate!=bold.match.candidate&&!bold.match.simulations);
     const auto acquisitions=catalogs.coverage.acquisitions;const auto* order=catalogs.families;
     const auto mark=arena_mark(&scratch);auto* sentinel=arena_allocate<u64>(&scratch);CHECK(sentinel);*sentinel=0x7391257ee9234411ull;
     query.family={lower,7};
-    for(u32 i=0;i<64;++i)CHECK(native_text_catalog_family_range(&catalogs,query,session,&scratch,utf8_literal("\xcb\x91\xcc\x81" "a"),&again)&&again.bytes==bold.bytes&&again.units==bold.units&&again.match.candidate==bold.match.candidate);
+    for(u32 i=0;i<64;++i)CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xcb\x91\xcc\x81" "a"),&again)&&again.bytes==bold.bytes&&again.units==bold.units&&again.match.candidate==bold.match.candidate);
     CHECK(catalogs.families==order&&catalogs.coverage.acquisitions==acquisitions&&*sentinel==0x7391257ee9234411ull&&arena_rewind(&scratch,mark));
-    CHECK(!native_text_catalog_family_range(&catalogs,query,session,&scratch,utf8_literal("\xff"),&again)&&!again.bytes&&!again.units&&again.match.candidate==native_fallback_missing);
+    CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xff"),&again)&&!again.bytes&&!again.units&&again.match.candidate==native_fallback_missing);
     NativeFontInstanceHandle instance{};NativeFontSelection selected{};
     CHECK(native_text_catalog_select_face(&catalogs,0,bold.match.candidate,0,session,&scratch,&instance,&selected)&&instance.slot);
     CHECK(native_font_instance_release(native_font_session_instances(session),instance));
@@ -177,9 +177,9 @@ bool format_boundaries(NativeFontSession* session) noexcept {
     // The highest scope bit must cache failure independently from the system bit.
     catalogs.scopes[31].path=L"";
     const u16 family[]{'A'};NativeTextFontQuery query{31,{family,1},{400,5,0}};NativeTextFontRange result{};
-    CHECK(!native_text_catalog_family_range(&catalogs,query,session,&scratch,utf8_literal("A"),&result));
+    CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&result));
     CHECK(catalogs.attempted==0x80000000u&&catalogs.builds==1&&catalogs.failures==1);
-    CHECK(!native_text_catalog_family_range(&catalogs,query,session,&scratch,utf8_literal("A"),&result));
+    CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&result));
     CHECK(catalogs.attempted==0x80000000u&&catalogs.builds==1&&catalogs.failures==1);
     return true;
 }
@@ -198,7 +198,7 @@ bool stale_scope_signal(NativeFontSession* session,const wchar_t* path,u32 scope
     if(scope_index){u32 index=0;CHECK(native_text_catalog_register_path(&catalogs,path,&index)&&index==scope_index);}
     const u16 system_name[]{'S','e','g','o','e',' ','U','I'},private_name[]{'C','o','m','p','a','g','n','o','n'};
     const NativeTextFontQuery query{scope_index,scope_index?ConstSlice<u16>{private_name,9}:ConstSlice<u16>{system_name,8},{400,5,0}};
-    NativeTextFontRange range{};CHECK(native_text_catalog_family_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&range.match.candidate!=native_fallback_missing);
+    NativeTextFontRange range{};CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&range.match.candidate!=native_fallback_missing);
     CHECK(scope_index||catalogs.files);NativeFontSelection selected{};
     CHECK(native_text_catalog_select_query(&catalogs,query,session,&scratch,&retained,&selected)&&retained.slot&&!catalogs.stale_scopes);
     const auto* held=native_font_instance_get(*native_font_session_instances(session),retained);CHECK(held);
@@ -215,19 +215,19 @@ bool stale_scope_signal(NativeFontSession* session,const wchar_t* path,u32 scope
     stale_marker(&catalogs,scope_index,1);
     CHECK(native_font_instance_get(*native_font_session_instances(session),retained)==held);
     catalogs.stale_scopes=0;
-    CHECK(!native_text_catalog_family_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&!range.bytes&&catalogs.stale_scopes==bit);
+    CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&!range.bytes&&catalogs.stale_scopes==bit);
     stale_marker(&catalogs,scope_index,2);
     catalogs.stale_scopes=0;
     CHECK(!native_text_catalog_select_face(&catalogs,scope_index,candidate,0,session,&scratch,&rejected,&selected)&&!rejected.slot&&!selected.face.slot&&catalogs.stale_scopes==bit);
     stale_marker(&catalogs,scope_index,3);
     // Invalid requests must not request a catalog rebuild.
     catalogs.stale_scopes=0;
-    CHECK(!native_text_catalog_family_range(&catalogs,query,session,&scratch,utf8_literal("\xff"),&range)&&!catalogs.stale_scopes);
+    CHECK(!native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("\xff"),&range)&&!catalogs.stale_scopes);
     CHECK(!native_text_catalog_select_face(&catalogs,scope_index,candidate,4,session,&scratch,&rejected,&selected)&&!catalogs.stale_scopes);
     catalog.files=original;
-    CHECK(native_text_catalog_family_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&!catalogs.stale_scopes);
+    CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&!catalogs.stale_scopes);
     catalogs.stale_scopes=bit;
-    CHECK(native_text_catalog_family_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&catalogs.stale_scopes==bit);
+    CHECK(native_text_catalog_range(&catalogs,query,session,&scratch,utf8_literal("A"),&range)&&catalogs.stale_scopes==bit);
     CHECK(native_font_instance_get(*native_font_session_instances(session),retained)==held);
     return true;
 }

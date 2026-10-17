@@ -6,7 +6,6 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/ui/thread_header.hpp"
-#include "maicord/ui/layout_debug.hpp"
 #include "maicord/media/asset.hpp"
 #include "application_thread_header.hpp"
 
@@ -237,11 +236,6 @@ inline bool thread_membership_ui_probe(D3D11Renderer& renderer, UiTextMeasureCac
                 log_u64(LogLevel::error, "probe", "thread_membership_failed_layout_manager", index);
                 log_u64(LogLevel::error, "probe", "thread_membership_failed_layout_count", validation.count);
                 log_u64(LogLevel::error, "probe", "thread_membership_failed_layout_dropped", validation.dropped);
-                for (u32 entry = 0; entry < validation.count; ++entry) {
-                    char text[512]{};
-                    ui_widget_manager_format_diagnostic(*managers[index], diagnostics[entry], {text, sizeof(text)});
-                    log_write(LogLevel::error, "probe", text);
-                }
             }
             return false;
         }

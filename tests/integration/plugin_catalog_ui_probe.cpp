@@ -81,7 +81,8 @@ bool geometry(CatalogFixture& f, UiRect viewport, u32 target) noexcept {
     if (!ui_settings_target_equal(hit, row) || !ui_settings_scene_activation(f.scene, hit, false, &action) ||
         action.kind != UiSettingsControlKind::action) return failed(__LINE__);
     UiTextCommand commands[64]{}; UiTextCommandStream stream{};
-    if (!ui_text_command_stream_initialize(&stream, {commands, 64}) || !ui_settings_scene_text(f.scene, kDefaultTheme, &stream)) return failed(__LINE__);
+    UiTextOutput stream_output{&stream, nullptr};
+    if (!ui_text_command_stream_initialize(&stream, {commands, 64}) || !ui_settings_scene_text_output(f.scene, kDefaultTheme, &stream_output)) return failed(__LINE__);
     bool readable = false;
     for (u32 i = 0; i < stream.count; ++i) {
         const auto& command = commands[i];
@@ -194,8 +195,9 @@ bool browser_frame(CatalogFixture& f, D3D11Renderer& renderer, const PluginBrows
         if (!ui_settings_scene_update(&f.scene, &f.registry, viewport)) return failed(3);
     }
     UiTextCommandStream stream{};
+    UiTextOutput stream_output{&stream, nullptr};
     if (!ui_text_command_stream_initialize(&stream, {browser_commands, 1024}) ||
-        !ui_settings_scene_text(f.scene, kDefaultTheme, &stream)) return failed(4);
+        !ui_settings_scene_text_output(f.scene, kDefaultTheme, &stream_output)) return failed(4);
     bool drawn = false;
     for (u32 i = 0; i < stream.count; ++i)
         if (utf8_equal(browser_commands[i].text, readable))
@@ -298,8 +300,9 @@ bool plugin_catalog_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wcha
                 ui_settings_scene_activation(f.scene, hit, false, &activation) && activation.target.control_id == kApplicationPluginInstallAction;
         }
         UiTextCommand commands[64]{}; UiTextCommandStream text{};
+        UiTextOutput text_output{&text, nullptr};
         valid = valid && ui_text_command_stream_initialize(&text, {commands, 64}) &&
-            ui_settings_scene_text(f.scene, kDefaultTheme, &text);
+            ui_settings_scene_text_output(f.scene, kDefaultTheme, &text_output);
         bool readable = false;
         for (u32 j = 0; valid && j < text.count; ++j)
             if (utf8_equal(commands[j].text, i == 2 ? utf8_literal("Try again") : utf8_literal("Choose plugin")))

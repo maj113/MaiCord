@@ -22,11 +22,11 @@ void fixture() noexcept {
     p16(avar+34,3);pair(36,-16384,-16384);pair(40,0,0);pair(44,16384,16384);
 }
 bool metadata() noexcept {
-    fixture();FontAxes axes{};FontAxis a{};FontNamedInstance instance{};double value=0;
+    fixture();FontAxes axes{};FontAxis a{};FontNamedInstance instance{};
     if(font_axes_table_open({fvar,88},&axes)!=SfntStatus::ok || axes.axis_count!=2 || axes.axis_stride!=24 || axes.instance_count!=1)return false;
     if(font_axis(axes,1,&a)!=SfntStatus::ok || a.tag!=width || a.normal!=100*65536 || a.flags!=1 || a.name!=256)return false;
     if(font_named_instance(axes,0,&instance)!=SfntStatus::ok || instance.name!=260 || instance.postscript_name!=261 ||
-       font_instance_coordinate(instance,1,&value)!=SfntStatus::ok || value!=150)return false;
+       instance.coordinates.count!=8)return false;
     if(font_axis(axes,2,&a)!=SfntStatus::invalid_input || font_named_instance(axes,1,&instance)!=SfntStatus::invalid_input)return false;
     p16(fvar+14,12);
     if(font_axes_table_open({fvar,84},&axes)!=SfntStatus::ok || font_named_instance(axes,0,&instance)!=SfntStatus::ok || instance.postscript_name!=0xffff)return false;

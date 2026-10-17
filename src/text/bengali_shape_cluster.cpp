@@ -1,12 +1,4 @@
-#include "maicord/text/bengali_shape_cluster.hpp"
-#include "maicord/text/gujarati_shape_cluster.hpp"
-#include "maicord/text/gurmukhi_shape_cluster.hpp"
-#include "maicord/text/odia_shape_cluster.hpp"
-#include "maicord/text/telugu_shape_cluster.hpp"
-#include "maicord/text/kannada_shape_cluster.hpp"
-#include "maicord/text/malayalam_shape_cluster.hpp"
 #include "maicord/text/indic_input.hpp"
-#include "maicord/text/indic_clusters.hpp"
 #include "maicord/text/unicode.hpp"
 #include "indic_cluster.hpp"
 #include "indic_forms.hpp"
@@ -38,54 +30,4 @@ SfntStatus indic_scalar_cluster(SfntIndicProfile profile,const SfntShapePlan& pl
     return indic_shape_cluster(profile,plan,cmap,{mapped,sizes.scalar_count},{scalars,sizes.scalar_count},{forms,sizes.scalar_count},
         sizes.source_units,em,storage,result,steps,limits,followed_by_text,trailing_spacing,rtl,word_initial,defer_output);
 }
-namespace {
-SfntStatus checked_scalar_cluster(SfntIndicProfile profile,const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
-    bool word_initial,bool followed_by_text,float spacing,bool rtl,bool defer_output) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};
-    if(forms.count!=128||!forms.data)return SfntStatus::invalid_input;
-    if(input.count>31)return SfntStatus::unsupported_sequence;
-    u8 boundaries[31]{};auto status=sfnt_indic_cluster_boundaries(profile,input,{boundaries,31},limits.stage_work,(profile==SfntIndicProfile::telugu||profile==SfntIndicProfile::kannada||profile==SfntIndicProfile::malayalam)?forms:ConstSlice<u8>{});
-    if(status!=SfntStatus::ok)return status;
-    for(u32 i=1;i<input.count;++i)if(boundaries[i])return SfntStatus::unsupported_sequence;
-    return indic_scalar_cluster(profile,plan,cmap,input,forms,em,storage,result,steps,limits,word_initial,followed_by_text,spacing,rtl,defer_output);
-}
-}
-SfntStatus sfnt_bengali_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
-    bool word_initial,bool followed_by_text,float spacing,bool rtl,bool defer_output) noexcept {
-    return checked_scalar_cluster(SfntIndicProfile::bengali,plan,cmap,input,forms,em,storage,result,steps,limits,word_initial,followed_by_text,spacing,rtl,defer_output);
-}
-SfntStatus sfnt_gujarati_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
-    bool followed_by_text,float spacing,bool rtl,bool defer_output) noexcept {
-    return checked_scalar_cluster(SfntIndicProfile::gujarati,plan,cmap,input,forms,em,storage,result,steps,limits,false,followed_by_text,spacing,rtl,defer_output);
-}
-SfntStatus sfnt_gurmukhi_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
-    bool followed_by_text,float spacing,bool rtl,bool defer_output) noexcept {
-    return checked_scalar_cluster(SfntIndicProfile::gurmukhi,plan,cmap,input,forms,em,storage,result,steps,limits,false,followed_by_text,spacing,rtl,defer_output);
-}
-SfntStatus sfnt_odia_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
-    bool followed_by_text,float spacing,bool rtl,bool defer_output) noexcept {
-    auto resolved=plan;resolved.position_instance.source_mark_targets=true;
-    return checked_scalar_cluster(SfntIndicProfile::odia,resolved,cmap,input,forms,em,storage,result,steps,limits,false,followed_by_text,spacing,rtl,defer_output);
-}
-SfntStatus sfnt_telugu_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
-    bool followed_by_text,float spacing,bool rtl,bool defer_output) noexcept {
-    return checked_scalar_cluster(SfntIndicProfile::telugu,plan,cmap,input,forms,em,storage,result,steps,limits,false,followed_by_text,spacing,rtl,defer_output);
-}
-SfntStatus sfnt_kannada_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
-    bool followed_by_text,float spacing,bool rtl,bool defer_output) noexcept {
-    return checked_scalar_cluster(SfntIndicProfile::kannada,plan,cmap,input,forms,em,storage,result,steps,limits,false,followed_by_text,spacing,rtl,defer_output);
-}
-SfntStatus sfnt_malayalam_shape_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,ConstSlice<u8> forms,
-    float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,SfntShapeLimits limits,
-    bool followed_by_text,float spacing,bool rtl,bool defer_output) noexcept {
-    return checked_scalar_cluster(SfntIndicProfile::malayalam,plan,cmap,input,forms,em,storage,result,steps,limits,false,followed_by_text,spacing,rtl,defer_output);
-}
-
 }

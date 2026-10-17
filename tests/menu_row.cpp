@@ -176,6 +176,7 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
     PaintStream paint{};
     UiTextCommand commands[8]{};
     UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     // Initialize text independently so a paint assertion cannot invalidate
     // later color or narrow-avatar fixtures by leaving their stream unbound.
     const bool text_initialized = ui_text_command_stream_initialize(&text, {commands, 8});
@@ -183,7 +184,7 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
             popup_presentation_build(fixture.scene, kDefaultTheme, &paint) &&
             painted_slot(paint, ui_menu_row_slot_clip(first, first.icon)) &&
             painted_slot(paint, ui_menu_row_slot_clip(second, second.icon)) && text_initialized &&
-            popup_text_presentation_build(fixture.scene, kDefaultTheme, &text) && text.count == 4;
+            popup_text_presentation_build_output(fixture.scene, kDefaultTheme, &text_output) && text.count == 4;
     bool authoritative = valid;
     bool primary_seen = false, helper_seen = false, shortcut_seen = false;
     for (u32 index = 0; authoritative && index < text.count; ++index) {
@@ -222,7 +223,7 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
               first.icon.right <= mark.left && paint_stream_reset(&paint, 320, 240) &&
               popup_presentation_build(fixture.scene, kDefaultTheme, &paint) &&
               painted_slot(paint, ui_rect_intersection(mark, checked_layout.clip_rectangle)) &&
-              popup_text_presentation_build(fixture.scene, kDefaultTheme, &text) && text.count == 4,
+              popup_text_presentation_build_output(fixture.scene, kDefaultTheme, &text_output) && text.count == 4,
           "menu row: checked mark has a separate painted trailing slot after existing icon and shortcut");
     source[0].status = static_cast<u8>(UiPresence::offline);
     valid = popup_scene_open(&fixture.scene, PopupKind::context_menu, 7, {source, 2}, {10, 10, 11, 11},
@@ -254,7 +255,7 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
                 .ok();
     ui_text_command_stream_reset(&text);
     valid = valid && popup_scene_selected_action(fixture.scene) == 2 &&
-            popup_text_presentation_build(fixture.scene, kDefaultTheme, &text);
+            popup_text_presentation_build_output(fixture.scene, kDefaultTheme, &text_output);
     bool disabled_color = false;
     for (u32 index = 0; valid && index < text.count; ++index) {
         if (utf8_equal(commands[index].text, source[0].label)) {
@@ -322,7 +323,7 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
                                    {rows, kMessageContextMaximumItems},
                                    {widgets, 2 * kMessageContextMaximumItems + 2},
                                    {nodes, 2 * kMessageContextMaximumItems + 2}) &&
-            popup_scene_open(&complete, PopupKind::context_menu, 7, message_context_menu_items(context),
+            popup_scene_open(&complete, PopupKind::context_menu, 7, {context.items, context.count},
                              {10, 10, 11, 11}, {0, 0, 640, 1000}, 300)
                 .ok() &&
             paint_stream_initialize(&combined) && paint_stream_reset(&combined, 640, 1000);
@@ -387,7 +388,7 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
                 .ok() &&
             avatar.scene.active && popup_scene_menu_row_geometry(avatar.scene, 0, &avatar_geometry) &&
             !ui_rect_has_area(avatar_geometry.primary) &&
-            popup_text_presentation_build(avatar.scene, kDefaultTheme, &text) && text.count == 0 &&
+            popup_text_presentation_build_output(avatar.scene, kDefaultTheme, &text_output) && text.count == 0 &&
             popup_media_presentation_resolve(avatar.scene, 0, &avatar_media) ==
                 PopupMediaPresentationStatus::ready;
     check(valid, "menu row: narrow avatar autocomplete keeps media and safely omits empty text slots");
@@ -491,15 +492,6 @@ void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
               "authority");
     }
     {
-        // Official placement: pointer menus flip left of the cursor and shift up
-        // at the bottom edge; element-anchored menus still flip above.
-        const UiRect viewport{0, 0, 320, 240};
-        const UiRect right_edge = popup_scene_place({300, 10, 301, 11}, viewport, 100, 50, false);
-        const UiRect bottom_edge = popup_scene_place({10, 230, 11, 231}, viewport, 100, 50, false);
-        const UiRect element = popup_scene_place({10, 200, 90, 230}, viewport, 100, 50, false);
-        check(right_edge.left == 200 && right_edge.top == 11 && bottom_edge.top == 240 - kPopupOuterMargin - 50 &&
-                  bottom_edge.left == 10 && element.bottom == 200,
-              "popup placement: cursor menus flip horizontally and shift vertically; anchored menus flip above");
         // The server header popout stays below the header, shortened to the
         // space left and scrolled, instead of sliding up over the header.
         MenuFixture header{};

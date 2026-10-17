@@ -16,10 +16,6 @@ bool status_valid(GuildMemberStatus status) noexcept {
     return status >= GuildMemberStatus::unknown && status <= GuildMemberStatus::offline;
 }
 
-bool key_less(u64 guild_id, u64 user_id, const GuildMemberRecord& record) noexcept {
-    return guild_id < record.guild_id || (guild_id == record.guild_id && user_id < record.user_id);
-}
-
 u32 find_order(const GuildMemberStore& store, u64 guild_id, u64 user_id, bool* found) noexcept {
     u32 first = 0;
     u32 count = store.count;
@@ -821,16 +817,6 @@ void drop_scope(GuildMemberStore* store, u8 scope) noexcept {
     saturating_increment(store->revision);
 }
 } // namespace
-u64 guild_member_store_list_user(const GuildMemberStore& store, u64 guild_id, u64 list_id,
-                                 u32 index) noexcept {
-    const u8 scope = scope_slot(store, guild_id, list_id);
-    if (scope == kNoScope)
-        return 0;
-    for (const auto& entry : store.positions.entries)
-        if (entry.occupied && entry.scope_slot == scope && entry.index == index)
-            return entry.user_id;
-    return 0;
-}
 u32 guild_member_store_list_users(const GuildMemberStore& store, u64 guild_id, u64 list_id, u32 first,
                                   u32 last, Slice<u64> output) noexcept {
     const u8 scope = scope_slot(store, guild_id, list_id);
@@ -841,15 +827,6 @@ u32 guild_member_store_list_users(const GuildMemberStore& store, u64 guild_id, u
         if (entry.occupied && entry.scope_slot == scope && entry.index >= first && entry.index <= last &&
             count < output.count)
             output[count++] = entry.user_id;
-    return count;
-}
-u32 guild_member_store_list_position_count(const GuildMemberStore& store, u64 guild_id,
-                                           u64 list_id) noexcept {
-    const u8 scope = scope_slot(store, guild_id, list_id);
-    u32 count = 0;
-    if (scope != kNoScope)
-        for (const auto& entry : store.positions.entries)
-            count += entry.occupied && entry.scope_slot == scope ? 1u : 0u;
     return count;
 }
 bool guild_member_store_observe_list(GuildMemberStore* store, u64 guild_id, u64 list_id,

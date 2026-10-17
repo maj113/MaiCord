@@ -97,8 +97,6 @@ struct UserSettingsExtractResult {
     UserSettingsProtoError error;
     constexpr bool ok() const noexcept { return error == UserSettingsProtoError::none; }
 };
-UserSettingsExtractResult user_settings_proto_extract(ConstSlice<u8> proto, u32 mask, Utf8View session_hash,
-                                                      Slice<u8> output) noexcept;
 UserSettingsExtractResult user_settings_proto_extract_base64(Utf8View base64, u32 mask, Utf8View session_hash,
                                                              Slice<u8> output) noexcept;
 // True when an extracted message carries the partial-update marker.
@@ -110,7 +108,6 @@ ConstSlice<u8> user_settings_proto_group(ConstSlice<u8> extracted, u32 group) no
 // "required_data_version" when nonzero. The partial message may contain only
 // length-delimited top-level groups 2..31 other than status; guild folders
 // (group 14) travel alone, from their own owner.
-inline constexpr u32 kUserSettingsGuildFoldersGroup = 14;
 bool user_settings_proto_patch_valid(ConstSlice<u8> partial) noexcept;
 u32 user_settings_proto_write_patch_json(ConstSlice<u8> partial, u32 required_data_version,
                                          Slice<u8> output) noexcept;

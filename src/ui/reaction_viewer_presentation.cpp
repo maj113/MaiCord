@@ -168,13 +168,4 @@ bool reaction_viewer_text_presentation_build_output(const ReactionViewer& viewer
     }
     return true;
 }
-
-} // namespace maicord
-
-namespace maicord {
-bool reaction_viewer_text_presentation_build(const ReactionViewer& viewer, const Theme& theme,
-                                             UiTextCommandStream* text) noexcept {
-    UiTextOutput output{text, nullptr};
-    return reaction_viewer_text_presentation_build_output(viewer, theme, &output);
-}
 } // namespace maicord

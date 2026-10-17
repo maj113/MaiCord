@@ -29,21 +29,6 @@ GatewayCommandWriteResult encode_bounded(Utf8View value, u32 maximum, EncodedStr
     return GatewayCommandWriteResult{0, GatewayCommandError::none};
 }
 
-Utf8View user_status(GatewayUserStatus status) noexcept {
-    switch (status) {
-    case GatewayUserStatus::online:
-        return utf8_literal("online");
-    case GatewayUserStatus::idle:
-        return utf8_literal("idle");
-    case GatewayUserStatus::dnd:
-        return utf8_literal("dnd");
-    case GatewayUserStatus::invisible:
-        return utf8_literal("invisible");
-    default:
-        return {};
-    }
-}
-
 } // namespace
 
 GatewayCommandWriteResult gateway_write_voice_state(const GatewayVoiceStateUpdate& state,
@@ -175,7 +160,7 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     if (!properties.ok()) {
         return properties;
     }
-    const Utf8View status_view = user_status(identify.status);
+    const Utf8View status_view = gateway_user_status_name(identify.status);
     if (!status_view.data) {
         return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
     }

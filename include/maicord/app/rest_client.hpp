@@ -312,17 +312,10 @@ RestClientResult rest_client_start_public(RestClient* client,
                                           u32 response_capacity,
                                           RestSharedState* shared = nullptr) noexcept;
 
-// Starts a scoped OAuth2 Bearer client. The credential moves only on success;
-// the source remains intact on validation/allocation/thread failure.
-// Normal Discord user sessions use rest_client_start_user instead.
-RestClientResult rest_client_start_authorized(RestClient* client,
-                                              SecureBuffer* credential,
-                                              RestAuthorization authorization,
-                                              u32 response_capacity) noexcept;
-
 // Starts a normal-user client. Authorization is the session token with no
 // authorization-scheme prefix, and every request carries the copied public
-// client metadata.
+// client metadata. The credential moves only on success; the source remains
+// intact on validation/allocation/thread failure.
 RestClientResult rest_client_start_user(RestClient* client, SecureBuffer* credential,
                                         const RestUserConfiguration* configuration,
                                         u32 response_capacity,

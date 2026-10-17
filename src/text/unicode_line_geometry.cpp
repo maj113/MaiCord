@@ -1,11 +1,8 @@
 #include "unicode_line_geometry.hpp"
 #include "maicord/text/unicode.hpp"
 #include "maicord/text/base.hpp"
-#include <emmintrin.h>
-namespace maicord {namespace {
-float add(float a,float b) noexcept {return _mm_cvtss_f32(_mm_add_ss(_mm_set_ss(a),_mm_set_ss(b)));}
-bool finite(float value) noexcept {u32 bits=0;copy_bytes(&bits,&value,4);return (bits&0x7f800000u)!=0x7f800000u;}
-}
+#include "layout_float.hpp"
+namespace maicord {
 SfntStatus native_unicode_line_geometry(const SfntFontLayoutMetrics& metrics,Utf8View text,float em,const NativeAsciiLineStorage& s,NativeAsciiLineResult* output,bool paragraph_only) noexcept {
     auto& line=*output;if(!paragraph_only){const auto status=sfnt_single_font_line(metrics,em,&line.vertical);if(status!=SfntStatus::ok)return status;}
     const u32 units=line.run.source_units;
@@ -17,9 +14,9 @@ SfntStatus native_unicode_line_geometry(const SfntFontLayoutMetrics& metrics,Utf
         if(line.cluster_count==s.clusters.count)return SfntStatus::output_too_small;
         bool space=false;if(!paragraph_only){const auto first=utf8_decode_one(text.data+byte,text.bytes-byte);if(!first.valid)return SfntStatus::invalid_input;
             space=unicode_properties(first.codepoint)->has(UnicodeFlag::white_space);}float width=0;const float left=pen;
-        for(u32 i=glyph;i<glyph_end;++i){const float advance=s.run.placements[i].advance;width=add(width,advance);pen=add(pen,advance);if(space)tail_pen=add(tail_pen,advance);}
-        line.width_including_trailing=add(line.width_including_trailing,width);
-        if(!finite(pen)||!finite(width)||!finite(line.width_including_trailing)||!finite(tail_pen))return SfntStatus::resource_limit;
+        for(u32 i=glyph;i<glyph_end;++i){const float advance=s.run.placements[i].advance;width=layout_add(width,advance);pen=layout_add(pen,advance);if(space)tail_pen=layout_add(tail_pen,advance);}
+        line.width_including_trailing=layout_add(line.width_including_trailing,width);
+        if(!layout_finite(pen)||!layout_finite(width)||!layout_finite(line.width_including_trailing)||!layout_finite(tail_pen))return SfntStatus::resource_limit;
         s.clusters[line.cluster_count++]={end,left,width};if(width<0||pen<left)line.geometry_flags&=~native_line_ordered_x;
         if(!paragraph_only){
         if(space)line.trailing_source_units+=end-at;else{line.width=line.width_including_trailing;line.trailing_source_units=0;last_nonspace=pen;tail_pen=0;}
@@ -28,6 +25,6 @@ SfntStatus native_unicode_line_geometry(const SfntFontLayoutMetrics& metrics,Utf
         }
         at=end;
     }
-    line.caret_end=add(last_nonspace,tail_pen);return finite(line.caret_end)?SfntStatus::ok:SfntStatus::resource_limit;
+    line.caret_end=layout_add(last_nonspace,tail_pen);return layout_finite(line.caret_end)?SfntStatus::ok:SfntStatus::resource_limit;
 }
 }

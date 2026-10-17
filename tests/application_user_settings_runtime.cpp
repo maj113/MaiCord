@@ -162,6 +162,14 @@ void content_filter_cases(void (*check)(bool, const char*) noexcept, const Gatew
     application_user_settings_release();
     policy = saved_policy;
 }
+// Gateway settings arrive as base64; encode raw protobuf fixtures first.
+UserSettingsExtractResult extract_raw(ConstSlice<u8> proto, Slice<u8> output) noexcept {
+    char encoded[128]{};
+    const auto base = base64_encode(proto, {encoded, sizeof(encoded)});
+    return base.ok() ? user_settings_proto_extract_base64({encoded, base.bytes}, kUserSettingsStoredGroups,
+                                                          utf8_literal("cur"), output)
+                     : UserSettingsExtractResult{0, 0, UserSettingsProtoError::input};
+}
 } // namespace
 
 bool application_refresh_theme_consumers(bool, bool) noexcept {
@@ -194,8 +202,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     // READY: versions{data 5}, cozy, friend sources 6, 12-hour clock.
     const u8 proto[]{10, 2, 24, 5, 50, 3, 0x8A, 0x01, 0, 66, 4, 90, 2, 8, 6, 106, 2, 72, 1};
     u8 payload[256]{};
-    const auto extracted = user_settings_proto_extract({proto, sizeof(proto)}, kUserSettingsStoredGroups,
-                                                       utf8_literal("cur"), {payload, sizeof(payload)});
+    const auto extracted = extract_raw({proto, sizeof(proto)}, {payload, sizeof(payload)});
     GatewayClientEvent event{};
     event.kind = GatewayClientEventKind::dispatch;
     event.dispatch_kind = GatewayClientDispatchKind::user_settings;
@@ -394,8 +401,7 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     // media off (9), GIF autoplay off (11), reactions off (13), stickers never (15).
     const u8 chat[]{10,   2, 24,  7,   50,  20,  0x22, 8, 0x0A, 6, 'A', 'L', 'W', 'A',
                     'Y', 'S', 0x4A, 0, 0x5A, 0, 0x6A, 0, 0x7A, 2, 8,   2};
-    const auto chat_extracted = user_settings_proto_extract({chat, sizeof(chat)}, kUserSettingsStoredGroups,
-                                                            utf8_literal("cur"), {payload, sizeof(payload)});
+    const auto chat_extracted = extract_raw({chat, sizeof(chat)}, {payload, sizeof(payload)});
     application_user_settings_gateway(event, {payload, chat_extracted.bytes});
     const auto& shown = message_rich_display();
     check(chat_extracted.ok() && shown.spoilers == MessageSpoilerReveal::always && !shown.attachment_media &&

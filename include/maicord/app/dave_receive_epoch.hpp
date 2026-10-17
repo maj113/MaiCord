@@ -46,9 +46,6 @@ void dave_receive_epoch_release(DaveReceiveEpoch* epoch) noexcept;
 // Read-only check for parent controllers: reports whether a borrowed buffer
 // overlaps this epoch's storage, before cleanup or authentication can modify it.
 bool dave_receive_epoch_aliases(const DaveReceiveEpoch& epoch, ConstSlice<u8> span) noexcept;
-// A monotonic deadline can only shorten an epoch's lifetime. Expiry is strict
-// (now > deadline), matching libdave. An expired epoch must be released.
-void dave_receive_epoch_expire(DaveReceiveEpoch& epoch, u64 deadline_ms) noexcept;
 // Monotonic milliseconds, same clock as initialization. Parsed frame and ranges
 // are borrowed for the call. All caller spans must be outside this owner, its
 // locked allocations, and the worker KDF workspace. Frame output/scratch rules

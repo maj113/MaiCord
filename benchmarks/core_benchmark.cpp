@@ -134,7 +134,6 @@ bool benchmark_spsc_cross_thread(const Clock& clock) noexcept {
     constexpr u32 kIterations = 10'000'000;
     InterlockedExchange(&g_spsc_queue.read_sequence, 0);
     InterlockedExchange(&g_spsc_queue.write_sequence, 0);
-    InterlockedExchange(&g_spsc_queue.dropped, 0);
     g_spsc_start_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!g_spsc_start_event) {
         return false;

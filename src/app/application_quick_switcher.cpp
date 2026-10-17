@@ -96,9 +96,7 @@ UiPresence friend_presence(u64 user, bool* mobile) noexcept {
     const auto* relationships = application_friends_relationships();
     const auto* relation = relationships && user ? relationship_store_find(*relationships, user) : nullptr;
     if (!relation || relation->type != RelationshipType::friend_) return UiPresence::unknown;
-    const auto presence = relation->presence == RelationshipPresence::online ? UiPresence::online :
-        relation->presence == RelationshipPresence::idle ? UiPresence::idle :
-        relation->presence == RelationshipPresence::dnd ? UiPresence::busy : UiPresence::offline;
+    const auto presence = application_friends_presence(relation->presence, UiPresence::offline);
     *mobile = ui_presence_mobile(presence, user_store_client_status(g_app.account_ui->user_store, user));
     return presence;
 }

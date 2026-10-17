@@ -937,9 +937,10 @@ void run_settings_avatar_test(ApplicationMediaPump& pump) noexcept {
     const auto placeholder_paint = [&](bool* placeholder, bool* initials) noexcept {
         static UiTextCommand commands[256];
         UiTextCommandStream text{};
+        UiTextOutput text_output{&text, nullptr};
         PaintStream paint{};
         const bool ok = ui_text_command_stream_initialize(&text, {commands, 256}) &&
-                        ui_settings_scene_text(scene, kDefaultTheme, &text) && paint_stream_initialize(&paint) &&
+                        ui_settings_scene_text_output(scene, kDefaultTheme, &text_output) && paint_stream_initialize(&paint) &&
                         paint_stream_reset(&paint, 1280, 800) && ui_settings_scene_paint(scene, kDefaultTheme, &paint);
         const Color grey = kDefaultTheme.avatar_placeholder;
         *placeholder = *initials = false;

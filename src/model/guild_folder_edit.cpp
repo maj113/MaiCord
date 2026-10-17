@@ -178,16 +178,6 @@ Tree g_tree;
 GuildFolderSettings g_built;
 } // namespace
 
-u32 guild_folders_find_guild(const GuildFolderSettings& settings, u64 guild_id) noexcept {
-    for (u32 f = 0; f < settings.folder_count && f < kGuildFoldersMaximumFolders; ++f) {
-        const auto& record = settings.folders[f];
-        for (u32 g = 0; g < record.guild_count && record.first_guild + g < settings.guild_id_count; ++g)
-            if (settings.guild_ids[record.first_guild + g] == guild_id)
-                return f;
-    }
-    return ~0u;
-}
-
 u32 guild_folders_find_folder(const GuildFolderSettings& settings, u64 folder_id) noexcept {
     for (u32 f = 0; f < settings.folder_count && f < kGuildFoldersMaximumFolders; ++f)
         if (settings.folders[f].has_id && settings.folders[f].id == folder_id)

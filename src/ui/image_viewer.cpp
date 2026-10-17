@@ -8,10 +8,6 @@ bool zoom_group(u32 index) noexcept {
     return index == ui_image_viewer_fit || index == ui_image_viewer_zoom_in || index == ui_image_viewer_zoom_out;
 }
 constexpr float kChevronTarget = 44, kChevronInset = 16;
-UiRect lerp_rect(UiRect from, UiRect to, float t) noexcept {
-    return {from.left + (to.left - from.left) * t, from.top + (to.top - from.top) * t,
-            from.right + (to.right - from.right) * t, from.bottom + (to.bottom - from.bottom) * t};
-}
 void arrange(UiImageViewer* v) noexcept {
     // Images never upscale past their pixels; video fills the viewer.
     const float scale = minimum(ui_rect_width(v->body) / v->pixels.width, ui_rect_height(v->body) / v->pixels.height);
@@ -24,7 +20,7 @@ void arrange(UiImageViewer* v) noexcept {
     const float x = (v->body.left + v->body.right - width) * .5f + v->pan.x;
     const float y = (v->body.top + v->body.bottom - height) * .5f + v->pan.y;
     v->image = {x, y, x + width, y + height};
-    v->display = v->reveal < 1 && ui_rect_has_area(v->origin) ? lerp_rect(v->origin, v->image, v->reveal)
+    v->display = v->reveal < 1 && ui_rect_has_area(v->origin) ? ui_rect_lerp(v->origin, v->image, v->reveal)
                                                                 : v->image;
 }
 bool shown(const UiImageViewer& v, u32 index) noexcept {
@@ -338,12 +334,5 @@ bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme&, UiTextOut
     return ui_text_output_push(text, {Utf8View{v.footer, v.footer_bytes}, v.owner, footer, v.viewport, ink,
                                       text_style_none, UiTextAlignment::center, UiTextAlignment::center,
                                       UiTextWrapping::no_wrap, UiTextOverflow::ellipsis});
-}
-} // namespace maicord
-
-namespace maicord {
-bool ui_image_viewer_text(const UiImageViewer& v, const Theme& theme, UiTextCommandStream* text) noexcept {
-    UiTextOutput output{text, nullptr};
-    return ui_image_viewer_text_output(v, theme, &output);
 }
 } // namespace maicord

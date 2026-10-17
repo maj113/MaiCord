@@ -14,7 +14,6 @@ inline bool sfnt_glyph_feature_enabled(const SfntGsubGlyph& glyph,u8 mask) noexc
 struct SfntGlyphView {const SfntGsubGlyph* prefix;const SfntGsubGlyph* suffix;u32 prefix_count,suffix_count,record_size;};
 struct SfntGlyphBuffer {Slice<u8> storage;u32 record_size,capacity,gap_begin,gap_end;};
 struct SfntGlyphEdit {ConstSlice<u32> consumed;u32 start,old_count,new_count,replacement_count;u64 moved_records;};
-inline constexpr u32 sfnt_removed_position=0xffffffffu;
 static_assert(sizeof(SfntGsubGlyph)==4 && sizeof(SfntGlyphView)==32 && sizeof(SfntGlyphBuffer)==32 && sizeof(SfntGlyphEdit)==40);
 inline SfntGlyphView sfnt_glyph_view(ConstSlice<SfntGsubGlyph> glyphs) noexcept {return {glyphs.data,nullptr,glyphs.count,0,sizeof(SfntGsubGlyph)};}
 inline u32 sfnt_glyph_count(const SfntGlyphView& view) noexcept {return view.prefix_count+view.suffix_count;}
@@ -36,9 +35,6 @@ SfntStatus sfnt_glyph_buffer_seek(SfntGlyphBuffer* buffer,u32 position,u64 work_
 // borrows consumed; keep it alive while mapping indices.
 SfntStatus sfnt_glyph_buffer_replace(SfntGlyphBuffer* buffer,u32 start,ConstSlice<u32> consumed,
                                    ConstSlice<u8> replacements,SfntGlyphEdit* output,u64 work_limit=1000000) noexcept;
-// Maps surviving old slots to their new slots. Every consumed slot reports removed, even
-// the first one. Replacement positions are [edit.start, start+replacement_count).
-SfntStatus sfnt_glyph_edit_position(const SfntGlyphEdit& edit,u32 old_position,u32* new_position) noexcept;
 // Affinity matters when the old boundary equals the replacement/insertion start.
 SfntStatus sfnt_glyph_edit_boundary(const SfntGlyphEdit& edit,u32 old_boundary,bool after_insertion,u32* new_boundary) noexcept;
 }

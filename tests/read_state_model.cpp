@@ -206,13 +206,8 @@ void test_read_state_model(void (*check)(bool, const char*) noexcept) noexcept {
         "read model: hidden channel permissions initialize");
     f.guild.member_roles_known = true; f.state.self_user_id = 2;
     chat_state_store_recompute_guild_permissions(&f.state, 7);
-    check(!chat_state_store_channel_visible(f.state, *find(80)) && chat_state_store_mark_channel_read(&f.state, 80) &&
+    check(!chat_state_store_channel_visible(f.state, *find(80)) && read_state_mark_local(&f.state, 80, 100, 0, 0) &&
         find(80)->last_read_message_id == 100 && !f.guild.unread_channels && !f.guild.mention_count,
         "read model: explicit mark read updates hidden cursor independently of visible aggregate gating");
-    check(read_state_upsert(&f.state, entry(999, 900, 0), 20) && read_state_forget(&f.reads, 999) && !f.reads.count,
-        "read model: unknown-channel deletion can release unmatched authoritative read entry");
-    chat_state_store_clear(&f.state);
-    check(f.state.read_state == &f.reads && !f.reads.count && !f.reads.version,
-        "read model: state clear resets read lifecycle but retains caller-owned lazy storage binding");
 }
 } // namespace maicord

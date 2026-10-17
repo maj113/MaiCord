@@ -357,7 +357,7 @@ u32 run() noexcept {
     AccountPaths paths{};
     begin = clock_now();
     for (u32 iteration = 0; iteration < kPathIterations; ++iteration) {
-        if (!account_paths_build(L"C:\\Users\\Benchmark\\AppData\\Local", &paths).ok()) {
+        if (!account_paths_build_slot(L"C:\\Users\\Benchmark\\AppData\\Local", 0, &paths).ok()) {
             return 11;
         }
         checksum += static_cast<u64>(paths.profile[iteration & 31u]);

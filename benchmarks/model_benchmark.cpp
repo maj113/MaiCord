@@ -2,6 +2,7 @@
 #include "maicord/model/chat_state.hpp"
 #include "maicord/model/message_rich_store.hpp"
 #include "maicord/model/message_store.hpp"
+#include "maicord/model/read_state.hpp"
 
 #include <Windows.h>
 
@@ -282,8 +283,8 @@ int run() noexcept {
         }
         ++activity_operations;
         if ((iteration & 7u) == 7u) {
-            if (!chat_state_store_mark_channel_read(&permission_state,
-                                                       activity_channel_id)) {
+            if (!read_state_mark_local(&permission_state, activity_channel_id,
+                                       1'300'000'000'000'000'000ull + iteration, 0, 0)) {
                 return 11;
             }
             ++activity_operations;

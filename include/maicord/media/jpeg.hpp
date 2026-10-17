@@ -303,12 +303,9 @@ struct JpegThumbnailLayout {
 // samples is the smallest per-block reconstruction reaching target_extent.
 JpegParseResult jpeg_thumbnail_parse(ConstSlice<u8> encoded, u32 target_extent, JpegImage* image,
                                      JpegWorkspace* workspace, JpegThumbnailLayout* layout) noexcept;
-// scratch holds coefficient_bytes + plane_bytes (16-byte aligned); rgba holds rgba_bytes.
-JpegDecodeResult jpeg_thumbnail_decode(ConstSlice<u8> encoded, const JpegImage& image,
-                                       const JpegThumbnailLayout& layout, Slice<u8> scratch,
-                                       Slice<u8> rgba) noexcept;
 using JpegThumbnailRowSink = bool (*)(void* context, u32 row_index, const u8* rgba) noexcept;
-// The row holds width*4 bytes, with no alignment requirement. The synchronous
+// scratch holds coefficient_bytes + plane_bytes (16-byte aligned). The row
+// holds width*4 bytes, with no alignment requirement. The synchronous
 // sink consumes each row before the next row overwrites it. Rows start only
 // after entropy decode succeeds. A false callback stops output with sink error.
 JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegImage& image,

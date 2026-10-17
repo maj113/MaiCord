@@ -589,12 +589,13 @@ void run() noexcept {
         UiTextMeasureRecord header_measure_records[4]{};
         UiTextMeasureCache header_measure{};
         UiTextCommand header_text[4]{}; UiTextCommandStream header_stream{};
+        UiTextOutput header_stream_output{&header_stream, nullptr};
         const auto original_header_name = g_app.popup_scene.items[0].label;
         g_app.popup_scene.items[0].label = utf8_literal("/caf\xC3\xA9");
         bool measured_name = false, measured_description = false;
         const bool header_shaped = ui_text_measure_cache_initialize(&header_measure, {header_measure_records, 4},
             measure_header_name, nullptr) && ui_text_command_stream_initialize(&header_stream, {header_text, 4}) &&
-            popup_text_presentation_build(g_app.popup_scene, kDefaultTheme, &header_stream, &header_measure);
+            popup_text_presentation_build_output(g_app.popup_scene, kDefaultTheme, &header_stream_output, &header_measure);
         float name_right = 0, description_left = 0;
         for (u32 i = 0; header_shaped && i < header_stream.count; ++i) {
             const auto& item = header_text[i];
@@ -754,8 +755,9 @@ void run() noexcept {
         check(application_commands_key(VK_RETURN) && composer.bytes && g_app.popup_scene.active && calls == unchanged,
               "invalid arguments preserve editor and never submit");
         UiTextCommand command_text[96]{}; UiTextCommandStream stream{};
+        UiTextOutput stream_output{&stream, nullptr};
         ui_text_command_stream_initialize(&stream, {command_text, 96});
-        check(popup_text_presentation_build(g_app.popup_scene, kDefaultTheme, &stream) && stream.count,
+        check(popup_text_presentation_build_output(g_app.popup_scene, kDefaultTheme, &stream_output) && stream.count,
               "command error picker retains visible text commands");
 
         // Context menu commands (Apps): user (type 2) and message (type 3).

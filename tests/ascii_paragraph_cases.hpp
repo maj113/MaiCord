@@ -114,29 +114,17 @@ bool styled_paragraph_cases() noexcept {
         {2,3,2,1,2,(2u<<native_paragraph_style_shift)|native_paragraph_space},
         {3,4,3,1,5,(2u<<native_paragraph_style_shift)|native_paragraph_break_before}};
     SfntPlacement placements[]{{4,0,0},{3,0,0},{2,0,0},{5,0,0}};NativeParagraphRun runs[8];NativeParagraphLayout out{};
-    const auto build=[&](float width,u32 capacity=8) noexcept {return native_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},width,16,true,{runs,capacity},&out);};
+    const auto build=[&](float width,u32 capacity=8) noexcept {return native_prepared_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},width,16,true,{runs,capacity},&out);};
     CHECK(build(100)==SfntStatus::ok&&out.height==16&&out.line_count==1&&out.run_count==3&&out.width==14&&out.extent==14);
     CHECK(runs[0].baseline==10&&runs[1].baseline==10&&runs[2].baseline==10&&runs[0].x==0&&runs[1].x==4&&runs[2].x==7);
     CHECK(build(8)==SfntStatus::ok&&out.height==28&&out.line_count==2&&out.run_count==4&&out.width==7&&out.extent==9&&!out.flags);
     CHECK(runs[2].source_count==1&&runs[2].x==7&&runs[3].x==0&&runs[3].baseline==22);
     NativeParagraphLine lines[3];lines[2]={71,72,73,74,75};
-    CHECK(native_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{lines,2})==SfntStatus::ok);
+    CHECK(native_prepared_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{lines,2})==SfntStatus::ok);
     CHECK(lines[0].first_run==0&&lines[0].run_count==3&&lines[0].top==0&&lines[0].height==16&&lines[0].extent==9);
     CHECK(lines[1].first_run==3&&lines[1].run_count==1&&lines[1].top==16&&lines[1].height==12&&lines[1].extent==5&&lines[2].first_run==71&&lines[2].extent==75);
     const NativeParagraphGeometry geometry{{clusters,4},{placements,4},{runs,out.run_count},{lines,out.line_count},4,16};
-    NativeParagraphHitMetric ranges[3];ranges[2]={71,72,73,74,75,76};u32 range_count=0;
-    CHECK(native_paragraph_geometry_range(geometry,0,4,{ranges,2},&range_count)==SfntStatus::ok&&range_count==2);
-    CHECK(ranges[0].source_count==3&&ranges[0].left==0&&ranges[0].top==0&&ranges[0].width==9&&ranges[0].height==16);
-    CHECK(ranges[1].source_first==3&&ranges[1].source_count==1&&ranges[1].top==16&&ranges[1].width==5&&ranges[1].height==12&&ranges[2].source_first==71);
-    CHECK(native_paragraph_geometry_range(geometry,1,2,{ranges,2},&range_count)==SfntStatus::ok&&range_count==1&&ranges[0].left==4&&ranges[0].width==5);
-    CHECK(native_paragraph_geometry_range(geometry,2,0,{ranges,2},&range_count)==SfntStatus::ok&&range_count==1&&ranges[0].left==7&&!ranges[0].width&&!ranges[0].source_count);
-    CHECK(native_paragraph_geometry_range(geometry,4,0,{ranges,2},&range_count)==SfntStatus::ok&&range_count==1&&ranges[0].left==5&&ranges[0].top==16&&!ranges[0].source_count);
-    ranges[1]={71,72,73,74,75,76};
-    CHECK(native_paragraph_geometry_range(geometry,0,4,{ranges,1},&range_count)==SfntStatus::output_too_small&&range_count==2&&ranges[1].source_first==71);
-    CHECK(native_paragraph_geometry_range(geometry,0,4,{},&range_count)==SfntStatus::output_too_small&&range_count==2);
-    CHECK(native_paragraph_geometry_range(geometry,3,2,{ranges,2},&range_count)==SfntStatus::invalid_input&&!range_count);
-    CHECK(native_paragraph_geometry_range(geometry,0,1,{nullptr,2},&range_count)==SfntStatus::invalid_input&&!range_count);
-    CHECK(native_paragraph_geometry_range(geometry,0,1,{ranges,2},nullptr)==SfntStatus::invalid_input);
+    NativeParagraphHitMetric ranges[2];u32 range_count=0;
     struct Visitor {u32 calls;float width;bool accept;};Visitor visitor{};
     const NativeParagraphRangeSink sink{&visitor,[](void* opaque,const NativeParagraphHitMetric& value) noexcept {
         auto& state=*static_cast<Visitor*>(opaque);++state.calls;state.width+=value.width;return state.accept;}};
@@ -157,7 +145,7 @@ bool styled_paragraph_cases() noexcept {
     CHECK(native_paragraph_geometry_visit(geometry,0,4,terminal_sink,&range_count,true)==SfntStatus::ok&&range_count==2&&terminal.count==2&&terminal.values[1].width==5);
     NativeParagraphHitCluster hit_clusters[4];NativeParagraphHitLine hit_lines[2];float hit_advances[4];SfntFontLineParts hit_styles[4];
     hit_styles[3]={71,72};NativeParagraphHits hits{};NativeParagraphHitStorage hit_storage{{hit_clusters,4},{hit_lines,2},{hit_advances,4},&hits,{hit_styles,3}};
-    CHECK(native_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{},&hit_storage)==SfntStatus::ok);
+    CHECK(native_prepared_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{},&hit_storage)==SfntStatus::ok);
     CHECK(hits.style_count==3&&bytes_equal(hit_styles,styles,sizeof(styles))&&hit_styles[3].baseline==71);
     CHECK(hit_lines[0].ascent_style==1&&hit_lines[0].descent_style==2&&hit_clusters[2].style==2);
     NativeParagraphHitMetric caret{};float caret_x=0;
@@ -167,23 +155,21 @@ bool styled_paragraph_cases() noexcept {
     CHECK(native_paragraph_hit_position(hits,3,false,&caret,&caret_x)==SfntStatus::ok&&caret.top==16&&caret.height==12);
     CHECK(native_paragraph_hit_range(hits,0,3,0,0,{ranges,2},&range_count)==SfntStatus::ok&&range_count==1&&ranges[0].height==16&&ranges[0].top==0);
     hit_storage.styles.count=2;
-    CHECK(native_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{},&hit_storage)==SfntStatus::output_too_small&&!out.line_count&&!hits.lines.count);
+    CHECK(native_prepared_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{},&hit_storage)==SfntStatus::output_too_small&&!out.line_count&&!hits.lines.count);
     hit_storage.styles={nullptr,3};
-    CHECK(native_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{},&hit_storage)==SfntStatus::output_too_small&&!hits.lines.count);
-    CHECK(native_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{lines,1})==SfntStatus::output_too_small&&!out.line_count);
-    CHECK(native_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{nullptr,2})==SfntStatus::invalid_input&&!out.line_count);
+    CHECK(native_prepared_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{},&hit_storage)==SfntStatus::output_too_small&&!hits.lines.count);
+    CHECK(native_prepared_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{lines,1})==SfntStatus::output_too_small&&!out.line_count);
+    CHECK(native_prepared_styled_paragraph_layout(shape,{clusters,4},{placements,4},{styles,3},8,16,true,{runs,8},&out,{nullptr,2})==SfntStatus::invalid_input&&!out.line_count);
     CHECK(build(8,3)==SfntStatus::output_too_small&&!out.run_count&&!out.line_count);
-    clusters[1].flags=3u<<native_paragraph_style_shift;CHECK(build(100)==SfntStatus::invalid_input&&!out.run_count);clusters[1].flags=1u<<native_paragraph_style_shift;
-    CHECK(native_ordered_paragraph_layout(shape,{clusters,4},{placements,4},100,16,true,{runs,8},&out)==SfntStatus::invalid_input);
-    CHECK(native_styled_paragraph_layout(shape,{clusters,4},{placements,4},{},100,16,true,{runs,8},&out)==SfntStatus::invalid_input&&!out.run_count);
+    CHECK(native_prepared_styled_paragraph_layout(shape,{clusters,4},{placements,4},{},100,16,true,{runs,8},&out)==SfntStatus::invalid_input&&!out.run_count);
     const NativeParagraphShape large{65535,1,1,{10,7}};const NativeParagraphCluster wide{0,65535,0,1,4,0};
-    CHECK(native_ordered_paragraph_layout(large,{&wide,1},{placements,1},100,16,true,{runs,8},&out)==SfntStatus::ok&&runs[0].source_first==0&&runs[0].source_count==65535&&runs[0].width==4);
-    CHECK(native_ordered_paragraph_layout(large,{&wide,1},{placements,1},100,16,true,{runs,8},&out,&hit_storage)==SfntStatus::ok&&hit_clusters[0].source_end==65535&&!hits.style_count);
+    CHECK(native_prepared_paragraph_layout(large,{&wide,1},{placements,1},100,16,true,{runs,8},&out)==SfntStatus::ok&&runs[0].source_first==0&&runs[0].source_count==65535&&runs[0].width==4);
+    CHECK(native_prepared_paragraph_layout(large,{&wide,1},{placements,1},100,16,true,{runs,8},&out,&hit_storage)==SfntStatus::ok&&hit_clusters[0].source_end==65535&&!hits.style_count);
     CHECK(native_paragraph_hit_position(hits,65535,false,&caret,&caret_x)==SfntStatus::ok&&caret.source_first==65535&&!caret.source_count&&caret_x==4);
     const NativeParagraphShape leading{3,3,3,{10,7}};
     NativeParagraphCluster zeros[]{{0,1,0,1,0,0},{1,2,1,1,0,1u<<native_paragraph_style_shift},{2,3,2,1,4,2u<<native_paragraph_style_shift}};
     const SfntPlacement zero_placements[]{{0,0,0},{0,0,0},{4,0,0}};hit_storage.styles={hit_styles,3};NativeParagraphHitPoint point{};
-    const auto leading_hits=[&]() noexcept {return native_styled_paragraph_layout(leading,{zeros,3},{zero_placements,3},{styles,3},100,16,true,{runs,8},&out,{},&hit_storage);};
+    const auto leading_hits=[&]() noexcept {return native_prepared_styled_paragraph_layout(leading,{zeros,3},{zero_placements,3},{styles,3},100,16,true,{runs,8},&out,{},&hit_storage);};
     CHECK(leading_hits()==SfntStatus::ok&&native_paragraph_hit_point(hits,-1,5,&point)==SfntStatus::ok&&point.source_position==2&&!point.inside);
     zeros[1].flags=0;zeros[2].flags=0;
     CHECK(leading_hits()==SfntStatus::ok&&native_paragraph_hit_point(hits,-1,5,&point)==SfntStatus::ok&&!point.source_position&&!point.inside);
@@ -194,11 +180,11 @@ bool paragraph_cases() noexcept {
     const Utf8View input=utf8_literal("ab \t\r\n");
     NativeParagraphCluster clusters[]{
         {0,1,0,1,4,0},{1,2,1,1,4,0},{2,3,2,1,2,native_paragraph_space},
-        {3,4,3,0,0,native_paragraph_tab},{4,6,3,0,0,native_paragraph_newline}};
+        {3,4,3,0,0,native_paragraph_tab|native_paragraph_break_before},{4,6,3,0,0,native_paragraph_newline}};
     SfntPlacement placements[]{{4,0,0},{4,0,0},{2,0,0}};
     NativeParagraphRun runs[8]{};NativeParagraphLayout out{};
     const auto layout=[&](float width,float stop,bool wrap,u32 capacity=8) noexcept {
-        out={99,99,99,99,99,99};return native_ascii_paragraph_layout(input,shape,{clusters,5},{placements,3},width,stop,wrap,{runs,capacity},&out);};
+        out={99,99,99,99,99,99};return native_prepared_paragraph_layout(shape,{clusters,5},{placements,3},width,stop,wrap,{runs,capacity},&out);};
     CHECK(layout(100,16,true)==SfntStatus::ok&&out.line_count==2&&out.run_count==3&&out.width==16&&out.extent==16&&out.height==20&&!out.flags);
     CHECK(runs[0].source_count==3&&runs[0].glyph_count==3&&runs[1].x==10&&runs[1].source_first==3&&runs[2].x==16&&runs[2].source_count==2);
     CHECK(layout(5,16,true)==SfntStatus::ok&&out.line_count==3&&out.flags==native_paragraph_emergency_break&&out.height==30);
@@ -212,13 +198,10 @@ bool paragraph_cases() noexcept {
         CHECK(layout(100,v,true)==SfntStatus::invalid_input&&!out.line_count);}
     CHECK(layout(0,16,true)==SfntStatus::invalid_input&&!out.line_count);
     CHECK(layout(100,0,true)==SfntStatus::invalid_input&&!out.line_count);
-    clusters[1].source_first=0;CHECK(layout(100,16,true)==SfntStatus::invalid_input&&!out.line_count);clusters[1].source_first=1;
-    clusters[1].glyph_count=0xffffffff;CHECK(layout(100,16,true)==SfntStatus::invalid_input&&!out.line_count);clusters[1].glyph_count=1;
-    clusters[1].flags=3;CHECK(layout(100,16,true)==SfntStatus::invalid_input&&!out.line_count);clusters[1].flags=0;
     shape.vertical.height=3.0e38f;CHECK(layout(100,16,true)==SfntStatus::resource_limit&&!out.line_count);shape.vertical.height=10;
     const NativeParagraphShape empty{0,0,0,{10,7}};
-    CHECK(native_ascii_paragraph_layout({},empty,{}, {},100,16,true,{},&out)==SfntStatus::ok&&out.line_count==1&&!out.run_count&&out.height==10);
-    CHECK(native_ascii_paragraph_layout({},empty,{}, {},100,16,true,{},nullptr)==SfntStatus::invalid_input);
+    CHECK(native_prepared_paragraph_layout(empty,{},{},100,16,true,{},&out)==SfntStatus::ok&&out.line_count==1&&!out.run_count&&out.height==10);
+    CHECK(native_prepared_paragraph_layout(empty,{},{},100,16,true,{},nullptr)==SfntStatus::invalid_input);
     CHECK(!native_ascii_break_after({nullptr,2},1)&&!native_ascii_break_after(input,7));
     return true;
 }
@@ -235,7 +218,7 @@ bool ordered_paragraph_cases() noexcept {
     NativeParagraphHitCluster hc[8];NativeParagraphHitLine hl[8];float ha[8];
     NativeParagraphHitStorage storage{{hc,8},{hl,8},{ha,8},&hits};
     const auto build=[&](float width=14,bool wrap=true) noexcept {
-        return native_ordered_paragraph_layout(shape,{clusters,5},{placements,5},width,16,wrap,{runs,8},&out,&storage);};
+        return native_prepared_paragraph_layout(shape,{clusters,5},{placements,5},width,16,wrap,{runs,8},&out,&storage);};
     CHECK(build()==SfntStatus::ok&&out.line_count==3&&out.run_count==4&&!out.flags&&out.width==11&&out.extent==13&&out.height==30);
     CHECK(runs[0].source_first==0&&runs[0].source_count==4&&runs[0].glyph_count==3&&runs[0].baseline==7);
     CHECK(runs[1].source_first==4&&runs[1].source_count==1&&runs[1].x==11);
@@ -259,11 +242,6 @@ bool ordered_paragraph_cases() noexcept {
     CHECK(build(1)==SfntStatus::ok&&out.flags==native_paragraph_emergency_break&&out.line_count==4);
     CHECK(hc[0].source_end==2&&hc[1].source_first==2&&hc[1].source_end==4); // Atomic emergency clusters.
     CHECK(build(1,false)==SfntStatus::ok&&!out.flags&&out.line_count==2&&out.width==20);
-    const u32 invalid_flags[]{1u,3u,16u};
-    for(u32 invalid:invalid_flags){const u32 saved=clusters[0].flags;
-        clusters[0].flags=invalid==1?native_paragraph_break_before:invalid;
-        CHECK(build()==SfntStatus::invalid_input&&!out.line_count&&!hits.lines.count);clusters[0].flags=saved;}
-    clusters[1].source_first=1;CHECK(build()==SfntStatus::invalid_input&&!hits.lines.count);clusters[1].source_first=2;
     const auto saved=storage;storage.clusters.count=5;
     CHECK(build()==SfntStatus::output_too_small&&!out.line_count&&!hits.lines.count);storage=saved;
     CHECK(build()==SfntStatus::ok&&hits.lines.count==3);

@@ -39,13 +39,6 @@ struct VideoFrameGpu {
 HRESULT video_frame_gpu_present(VideoFrameGpu* gpu, ID3D11Device* device,
     ID3D11DeviceContext1* context, const GpuVideoFrame& frame,
     ID3D11UnorderedAccessView* destination, u32 x, u32 y, u32 step = 1) noexcept;
-// Timing variant of video_frame_gpu_present; the plain version has no timing calls.
-// ticks[] hold the time spent in validation, resources, lock/constants, copy,
-// binding, dispatch and cleanup, in that order.
-struct VideoFrameGpuTrace { i64 ticks[7]; };
-HRESULT video_frame_gpu_present_profiled(VideoFrameGpu* gpu, ID3D11Device* device,
-    ID3D11DeviceContext1* context, const GpuVideoFrame& frame,
-    ID3D11UnorderedAccessView* destination, u32 x, u32 y, VideoFrameGpuTrace* trace) noexcept;
 void video_frame_gpu_release(VideoFrameGpu* gpu) noexcept;
 
 static_assert(sizeof(VideoFrameGpu) == 80);

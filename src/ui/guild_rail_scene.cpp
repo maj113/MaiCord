@@ -183,10 +183,6 @@ GuildRailHit hit_of(const GuildRailRowWidget& row) noexcept {
 
 } // namespace
 
-float guild_rail_content_height(const NavigationView* view) noexcept {
-    return content_height(nullptr, view);
-}
-
 bool guild_rail_scene_initialize(GuildRailScene* scene, Slice<GuildRailRowWidget> row_storage,
                                  Slice<UiWidget> widget_storage,
                                  Slice<UiLayoutNode> layout_storage) noexcept {

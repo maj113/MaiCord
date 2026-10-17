@@ -110,9 +110,6 @@ UiWidgetHandle target_handle(const ForumPostScene& s, ForumPostTarget t) noexcep
         return t.tag < s.content.tags.count ? s.tags[t.tag] : ui_widget_invalid_handle();
     return idx(t.element) < kForumPostElements ? s.elements[idx(t.element)] : ui_widget_invalid_handle();
 }
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.generation && a.slot == b.slot && a.generation == b.generation;
-}
 bool build(ForumPostScene* s) noexcept {
     if (!s->storage.arena.base) {
         if (!ui_fixed_widget_storage_initialize(&s->storage,
@@ -235,10 +232,6 @@ bool build(ForumPostScene* s) noexcept {
             s->content.attachments, attachment_key_base, s->content.attachment_style))
         return false;
     return true;
-}
-UiRect intersect(UiRect a, UiRect b) noexcept {
-    return {maximum(a.left, b.left), maximum(a.top, b.top), minimum(a.right, b.right),
-            minimum(a.bottom, b.bottom)};
 }
 bool fill(PaintStream* p, UiRect r, Color c) noexcept {
     return !ui_rect_has_area(r) || paint_stream_push(p, r.left, r.top, r.right, r.bottom, c);
@@ -496,17 +489,6 @@ bool forum_post_update(ForumPostScene* s, const ForumPostContent& c, UiRect view
         return forum_post_focus(s, {c.editable ? ForumPostElement::title : ForumPostElement::cancel, 0});
     return true;
 }
-void forum_post_close(ForumPostScene* s) noexcept {
-    if (!s)
-        return;
-    s->active = false;
-    s->content = {};
-    s->attachment_list.rows = {};
-    s->measure = nullptr;
-    ui_widget_manager_focus(&s->widgets, ui_widget_invalid_handle());
-    ui_widget_manager_capture(&s->widgets, ui_widget_invalid_handle());
-    ++s->revision;
-}
 void forum_post_release(ForumPostScene* s) noexcept {
     if (s) {
         ui_fixed_widget_storage_release(&s->storage);
@@ -520,10 +502,10 @@ ForumPostTarget forum_post_hit_test(const ForumPostScene& s, float x, float y) n
         if (attachment.id)
             return {ForumPostElement::attachments, 0, attachment.id, attachment.action, attachment.widget};
         for (u32 i = 0; i < s.content.tags.count; ++i)
-            if (same(h, s.tags[i]))
+            if (ui_widget_handle_matches(h, s.tags[i]))
                 return {ForumPostElement::tags, i};
         for (u32 i = 0; i < kForumPostElements; ++i)
-            if (same(h, s.elements[i]))
+            if (ui_widget_handle_matches(h, s.elements[i]))
                 return {static_cast<ForumPostElement>(i), 0};
     }
     return {ForumPostElement::count, 0};
@@ -534,10 +516,10 @@ ForumPostTarget forum_post_focused(const ForumPostScene& s) noexcept {
         if (attachment.id)
             return {ForumPostElement::attachments, 0, attachment.id, attachment.action, attachment.widget};
         for (u32 i = 0; i < s.content.tags.count; ++i)
-            if (same(s.widgets.focused, s.tags[i]))
+            if (ui_widget_handle_matches(s.widgets.focused, s.tags[i]))
                 return {ForumPostElement::tags, i};
         for (u32 i = 0; i < kForumPostElements; ++i)
-            if (same(s.widgets.focused, s.elements[i]))
+            if (ui_widget_handle_matches(s.widgets.focused, s.elements[i]))
                 return {static_cast<ForumPostElement>(i), 0};
     }
     return {ForumPostElement::count, 0};
@@ -676,13 +658,13 @@ bool forum_post_paint(const ForumPostScene& s, const TextFormEditGeometry (&geom
                                          ui_layout_content_bounds_allow_overlap);
         if (edit(e)) {
             const auto& g = geometry[field_index(e)];
-            const auto clip = intersect(node->content_rectangle, node->clip_rectangle);
+            const auto clip = ui_rect_overlap(node->content_rectangle, node->clip_rectangle);
             for (u32 j = 0; ok && j < g.selections.count; ++j)
-                ok = fill(p, intersect(g.selections[j], clip), theme.interactive_hover);
+                ok = fill(p, ui_rect_overlap(g.selections[j], clip), theme.interactive_hover);
             for (u32 j = 0; ok && j < g.composition.count; ++j)
                 ok = text_composition_paint_mark(p, g.composition[j], clip, theme.accent);
             if (ok && has_focus && s.content.fields[field_index(e)].caret_visible)
-                ok = fill(p, intersect(g.caret, clip), theme.text_primary);
+                ok = fill(p, ui_rect_overlap(g.caret, clip), theme.text_primary);
         }
         ok = paint_stream_pop_clip(p) && ok;
     }
@@ -711,7 +693,7 @@ bool forum_post_text_output(const ForumPostScene& s, const TextFormEditGeometry 
         const auto* node = ui_widget_manager_layout_node(s.widgets, h);
         if (!node)
             return false;
-        const auto clip = intersect(node->content_rectangle, node->clip_rectangle);
+        const auto clip = ui_rect_overlap(node->content_rectangle, node->clip_rectangle);
         if (!ui_rect_has_area(clip))
             continue;
         const bool action = tag || button(e),
@@ -733,10 +715,5 @@ bool forum_post_text_output(const ForumPostScene& s, const TextFormEditGeometry 
             return false;
     }
     return ui_attachment_draft_list_text(s.attachment_list, theme, output);
-}
-bool forum_post_text(const ForumPostScene& s, const TextFormEditGeometry (&geometry)[2], const Theme& theme,
-                     UiTextCommandStream* stream) noexcept {
-    UiTextOutput output{stream, nullptr};
-    return forum_post_text_output(s, geometry, theme, &output);
 }
 } // namespace maicord

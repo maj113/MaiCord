@@ -241,8 +241,6 @@ UiCallHeaderLayout ui_call_header_layout(UiRect header, bool chat, float search_
 bool ui_call_scene_update(UiCallScene*, const UiCallContent&, UiRect viewport, u64 now_ms,
                           bool reduced_motion) noexcept;
 void ui_call_scene_release(UiCallScene*) noexcept;
-// Advances the morph; true when display rectangles changed.
-bool ui_call_scene_tick(UiCallScene*, u64 now_ms, bool reduced_motion) noexcept;
 u64 ui_call_scene_next_wake(const UiCallScene&, u64 now_ms, bool reduced_motion) noexcept;
 bool ui_call_scene_contains(const UiCallScene&, float x, float y) noexcept;
 UiCallHit ui_call_scene_hit_test(const UiCallScene&, float x, float y) noexcept;

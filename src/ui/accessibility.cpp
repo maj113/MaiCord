@@ -833,14 +833,6 @@ bool ui_access_event_state_initialize(UiAccessEventState* state, Slice<UiAccessO
     return true;
 }
 
-void ui_access_event_state_reset(UiAccessEventState* state) noexcept {
-    if (!state)
-        return;
-    state->current_count = state->previous_count = 0;
-    state->focus_key = 0;
-    state->primed = false;
-}
-
 bool ui_access_plan_events(UiAccessEventState* state, const UiAccessTree& tree, UiAccessEventPlan* plan) noexcept {
     if (!state || !plan || !tree.finished || !state->current.data)
         return false;

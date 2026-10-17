@@ -244,7 +244,7 @@ void reference(const Theme& theme, float position, float* rgb) noexcept {
         return;
     }
     Color colors[5]{};
-    ui_background_safe_palette(theme, colors);
+    ui_background_palette(theme, colors);
     if (theme.background.color_count == 1) {
         rgb[0] = colors[0].red;
         rgb[1] = colors[0].green;

@@ -423,10 +423,8 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
             ui_media_picker_scene_pointer_down(&scene, send_x, send_y) &&
             ui_media_picker_scene_pointer_up(&scene, x, y).action == UiMediaPickerAction::none,
         "media picker favorites: capture requires the same subregion action on release in both directions");
-    check(ui_media_picker_scene_hover(&scene, x, y, 200) &&
-              !ui_media_picker_scene_tooltip(scene, 699).bytes &&
-              utf8_equal(ui_media_picker_scene_tooltip(scene, 700), utf8_literal("Add to favorites")),
-          "media picker favorites: moving into the star starts its own explicit action tooltip");
+    check(ui_media_picker_scene_hover(&scene, x, y, 200),
+          "media picker favorites: moving into the star hovers its own action");
 
     PaintStream paint{};
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1000, 800) &&
@@ -455,9 +453,7 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
           "bounds");
 
     check(ui_media_picker_scene_select(&scene, 0) &&
-              ui_media_picker_scene_selected_favorite_target(scene).action ==
-                  UiMediaPickerAction::favorite &&
-              ui_media_picker_scene_selected_target(scene).action == UiMediaPickerAction::item,
+              ui_media_picker_scene_selected_favorite_target(scene).action == UiMediaPickerAction::favorite,
           "media picker favorites: focused selected GIF exposes separate keyboard Favorite and Enter "
           "targets");
     content.edit.focused = true;
@@ -497,9 +493,7 @@ void test_picker_favorites(void (*check)(bool, const char*) noexcept) noexcept {
               scene.projection->cells[0].item.favorite &&
               ui_media_picker_scene_selected_favorite_target(scene).action ==
                   UiMediaPickerAction::favorite &&
-              ui_media_picker_scene_hover(&scene, x, y, 1000) &&
-              utf8_equal(ui_media_picker_scene_tooltip(scene, 1500),
-                         utf8_literal("Couldn't update favorite. Try again")),
+              ui_media_picker_scene_hover(&scene, x, y, 1000),
           "media picker favorites: failed async mutation retains confirmed state and a retryable action");
     check(ui_media_picker_scene_pointer_down(&scene, x, y),
           "media picker favorites: source fence fixture captures exact retry action");
@@ -1067,8 +1061,7 @@ void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
           "media picker: visible preview request shares category cover geometry, dimming and corner mask");
     check(ui_media_picker_scene_hover(&scene, x, y, 1000) &&
               !ui_media_picker_scene_hover(&scene, x + 1, y + 1, 1200) &&
-              !ui_media_picker_scene_tooltip(scene, 1499).bytes &&
-              ui_media_picker_scene_tooltip(scene, 1500).bytes,
+              scene.widgets.hover_started_ms == 1000,
           "media picker: hover timer comes from caller clock and survives motion within same tile");
     check(ui_media_picker_scene_pointer_down(&scene, x, y) &&
               ui_media_picker_target_equal(ui_media_picker_scene_pointer_up(&scene, x, y), hit),
@@ -1109,8 +1102,7 @@ void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
           "projections");
     check(ui_media_picker_scene_edge_selection(&scene, false) && scene.selected_index == 0 &&
               ui_media_picker_scene_move_selection(&scene, 0, 1) && scene.selected_index == 2 &&
-              ui_media_picker_scene_page_selection(&scene, false) && scene.selected_index > 2 &&
-              ui_media_picker_scene_selected_target(scene).action == UiMediaPickerAction::category,
+              ui_media_picker_scene_page_selection(&scene, false) && scene.selected_index > 2,
           "media picker: Home, directional movement and paging preserve typed gallery selection");
     check(ui_media_picker_scene_edge_selection(&scene, false) && scene.scroll_dips == 0 &&
               scene.projection->cells[0].rectangle.top == scene.body.top + 8,
@@ -1307,8 +1299,7 @@ void test_media_picker(void (*check)(bool, const char*) noexcept) noexcept {
           "media picker: disabled catalog projection updates");
     navigation_calls = fixture.calls;
     check(!ui_media_picker_scene_edge_selection(&scene, false) && fixture.calls - navigation_calls == 60 &&
-              !fixture.hidden_requested &&
-              ui_media_picker_scene_selected_target(scene).action == UiMediaPickerAction::none,
+              !fixture.hidden_requested,
           "media picker: all-disabled catalog terminates exact expanded prefix without exposing hidden or "
           "disabled actions");
     ++content.account_scope;

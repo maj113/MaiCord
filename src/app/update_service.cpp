@@ -204,9 +204,6 @@ bool random_identity(UpdateGenerationIdentity* id) noexcept {
     }
     return false;
 }
-bool reverted(const UpdateGenerationState& s) noexcept {
-    return s.phase == UpdateGenerationPhase::stable && s.previous.present && s.previous.pair.version > s.active.pair.version;
-}
 bool hex_name(const wchar_t* name, const u8* digest) noexcept {
     constexpr wchar_t hex[] = L"0123456789abcdef";
     if (name[0] != L'g' || name[1] != L'-') return false;

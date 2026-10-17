@@ -117,10 +117,6 @@ void dave_receive_epoch_release(DaveReceiveEpoch* epoch) noexcept {
     }
     *epoch = {};
 }
-void dave_receive_epoch_expire(DaveReceiveEpoch& epoch, u64 expires) noexcept {
-    if (epoch.storage.data)
-        epoch.expiry_ms = minimum(epoch.expiry_ms, expires);
-}
 DaveEpochOpenResult dave_receive_epoch_open(DaveReceiveEpoch& epoch, KdfSha256Workspace& workspace,
                                             const DaveFrameView& view, u64 now, Slice<u8> scratch,
                                             Slice<u8> output) noexcept {

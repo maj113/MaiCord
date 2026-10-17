@@ -85,8 +85,6 @@ MessageContextMenuResult message_context_menu_build(
     bool can_mark_unread_authoritative = false, bool reply_target_deleted = false,
     bool can_create_thread_authoritative = false, bool developer_mode = true,
     MessageContextMenuExtras extras = {}) noexcept;
-ConstSlice<PopupItem> message_context_menu_items(
-    const MessageContextMenuModel& model) noexcept;
 bool message_context_menu_resolve_quick_reaction(
     const MessageContextMenuModel& model, u32 action,
     MessageContextQuickReaction* reaction) noexcept;

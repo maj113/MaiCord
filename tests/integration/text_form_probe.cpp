@@ -17,7 +17,9 @@ bool text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache) noexcep
     auto refresh = [&]() noexcept {
         u32 bytes = 0;
         SecureEditUtf16Selection selection{};
-        if (secure_edit_render_text(edit, {display, sizeof(display)}, &bytes) != SecureEditResult::unchanged ||
+        SecureEditRenderWindow window{};
+        if (secure_edit_render_window(edit, sizeof(display), {display, sizeof(display)}, &bytes, &window) !=
+                SecureEditResult::unchanged ||
             secure_edit_utf16_selection(edit, &selection) != SecureEditResult::unchanged) return false;
         const float scale = 96.0f / static_cast<float>(renderer.dpi);
         const TextFormContent content{utf8_literal("Attachment description"), utf8_literal("\xE6\x97\x85\xE8\xA1\x8C.png"),

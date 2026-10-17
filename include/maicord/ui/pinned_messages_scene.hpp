@@ -50,7 +50,7 @@ struct UiPinnedMessagesScene {
     UiWidgetManager widgets;
     const UiPinnedMessagesSource* source{};
     const UiPinnedMessagesContent* content{};
-    UiRect viewport{}, panel{}, header{}, body{}, footer{}, state_rectangle{}, status_rectangle{};
+    UiRect viewport{}, panel{}, header{}, body{}, footer{}, status_rectangle{};
     UiWidgetHandle root{}, body_owner{}, close{}, refresh{}, previous{}, next{}, retry{};
     UiWidgetHandle rows[kUiPinnedMessagesVisibleRows]{}, unpin[kUiPinnedMessagesVisibleRows]{};
     UiPinnedMessagesRow visible[kUiPinnedMessagesVisibleRows]{};

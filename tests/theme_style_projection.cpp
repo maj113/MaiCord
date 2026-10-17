@@ -142,7 +142,7 @@ void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noex
             ui_settings_scene_update(&settings, &registry, viewport) &&
             ui_settings_scene_control_geometry(settings, target, &current);
     check(valid && ui_rect_height(current.field) == 48 && settings.style.field_padding == 16 &&
-              !ui_settings_scene_control_geometry_current(settings, previous),
+              !ui_rect_equal(previous.field, current.field),
           "Theme settings field height uses bank and retires previous hit geometry");
     const auto settings_layout = settings.widgets.layout.revision;
     const auto settings_generation = settings.widgets.generation;

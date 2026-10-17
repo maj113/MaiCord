@@ -56,8 +56,8 @@ inline constexpr u32 kUnit = 60 * kUiExtentUnitsPerDip;
 bool initialize(SnapshotTimeline& t) noexcept {
     message_rich_store_release(&t.rich);
     return message_store_initialize(&t.store, {t.records, kRows}, {t.order, kRows}, {t.text, sizeof(t.text)}) &&
-           message_rich_store_initialize_owned(&t.rich, &t.rich_storage, kRows, {t.rich_order, kRows},
-                                               {t.rich_text, sizeof(t.rich_text)}) &&
+           message_rich_store_initialize_owned_sparse(&t.rich, &t.rich_storage, kRows, {t.rich_order, kRows},
+                                                      {t.rich_text, sizeof(t.rich_text)}) &&
            ui_variable_list_initialize(&t.list, {t.heights, kRows}, {t.sums, kRows}, 0, kUnit) &&
            message_timeline_initialize(&t.timeline, &t.store, &t.list, kUnit, ui_extent_units(600.0f), true) &&
            message_timeline_bind_rich_store(&t.timeline, &t.rich);

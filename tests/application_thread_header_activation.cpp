@@ -87,7 +87,7 @@ void test_application_thread_header_activation(void (*check)(bool, const char*) 
     f.host.membership = ApplicationThreadMembershipStatus::unknown;
     f.host.actions = thread_action_fetch;
     f.current = true; f.admission = ApplicationThreadActionEnqueueResult::accepted;
-    check(ui_scene_initialize_bootstrap(&f.shell) && ui_scene_layout(&f.shell, 632, 480) &&
+    check(ui_scene_initialize_bootstrap(&f.shell) && ui_scene_layout_with_metrics(&f.shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 632, 480) &&
         ui_thread_header_bind_shell(&f.header, &f.shell) &&
         popup_scene_initialize(&f.popup, {f.items, 8}, {f.rows, 8}, {f.popup_widgets, 18}, {f.popup_nodes, 18}) && project(),
         "thread activation: actual shell widgets and native popup bind the shared shipping dispatcher");

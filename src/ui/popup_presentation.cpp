@@ -444,13 +444,4 @@ PopupMediaPresentationStatus popup_media_presentation_resolve(const PopupScene& 
         command->rectangle = popup_avatar_rectangle(*layout.row);
     return PopupMediaPresentationStatus::ready;
 }
-
-} // namespace maicord
-
-namespace maicord {
-bool popup_text_presentation_build(const PopupScene& scene, const Theme& theme,
-                                   UiTextCommandStream* text, UiTextMeasureCache* measure) noexcept {
-    UiTextOutput output{text, nullptr};
-    return popup_text_presentation_build_output(scene, theme, &output, measure);
-}
 } // namespace maicord

@@ -164,8 +164,9 @@ void test_composer_edit_menu(void (*check)(bool, const char*) noexcept) noexcept
             g_app.popup_scene.item_count == 7 && g_app.popup_scene.owner_id == composer.document_identity,
             "composer context menu preserves selection and captures document identity");
         UiTextCommand commands[16]{}; UiTextCommandStream stream{};
+        UiTextOutput stream_output{&stream, nullptr};
         ui_text_command_stream_initialize(&stream, {commands, 16});
-        check(popup_text_presentation_build(g_app.popup_scene, kDefaultTheme, &stream) && stream.count == 14 &&
+        check(popup_text_presentation_build_output(g_app.popup_scene, kDefaultTheme, &stream_output) && stream.count == 14 &&
             commands[0].horizontal_alignment == UiTextAlignment::end && commands[0].rectangle.left > commands[1].rectangle.right,
             "edit menu shortcut and label columns have separate bounded text geometry");
         message_composer_restore(&composer, 7, utf8_literal("replacement"), 0, 11);

@@ -93,7 +93,6 @@ DesktopNotificationQueueCompletion desktop_notification_queue_complete(DesktopNo
 u32 desktop_notification_queue_purge_channel(DesktopNotificationQueue*, u64 profile, u64 generation, u64 channel) noexcept;
 u32 desktop_notification_queue_purge_message(DesktopNotificationQueue*, u64 profile, u64 generation,
     u64 channel, u64 message) noexcept;
-u32 desktop_notification_queue_purge_profile(DesktopNotificationQueue*, u64 profile) noexcept;
 u32 desktop_notification_queue_purge_all(DesktopNotificationQueue*) noexcept;
 // Packed layout: enqueue copies only new bytes; begin/purge move at most the
 // configured byte capacity plus header capacity, zeroing discarded private text.

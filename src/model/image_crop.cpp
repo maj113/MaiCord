@@ -176,18 +176,4 @@ ImageCropOutput image_crop_output(const ImageCropState& s) noexcept {
     return out;
 }
 
-void image_crop_unrotate(u16 rotation, float a, float b, float* p, float* q) noexcept {
-    float u = a, v = b;
-    switch (rotation) {
-    case 90: u = b, v = 1 - a; break;
-    case 180: u = 1 - a, v = 1 - b; break;
-    case 270: u = 1 - b, v = a; break;
-    default: break;
-    }
-    if (p)
-        *p = u;
-    if (q)
-        *q = v;
-}
-
 } // namespace maicord

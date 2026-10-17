@@ -224,7 +224,6 @@ struct LoginView {
     // edit window, not UTF-16 ACP positions.
     ConstSlice<TextCompositionSpan> edit_composition;
     bool edit_composition_active;
-    bool edit_composition_complete;
     LoginRemoteStatus remote_status;
     bool reset_mode;
     bool phone_code_ready;

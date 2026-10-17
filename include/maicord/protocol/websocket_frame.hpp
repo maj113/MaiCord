@@ -50,7 +50,6 @@ struct WebSocketFrame {
     u64 payload_bytes;
     u32 frame_bytes;
     u32 header_bytes;
-    u32 masking_key;
     WebSocketOpcode opcode;
     bool final;
     bool masked;

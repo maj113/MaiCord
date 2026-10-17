@@ -40,7 +40,7 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
         sample.background.colors[3] = 0xffffff;
         sample.background.colors[4] = 0;
         Color expected[5]{};
-        bool admitted = ui_background_safe_palette(sample, expected);
+        bool admitted = ui_background_palette(sample, expected);
         for (const auto intensity : intensities) {
             sample.background.intensity = intensity;
             Color current[5]{};
@@ -101,7 +101,7 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
     Color unchanged[5]{};
     copy_bytes(unchanged, sentinel, sizeof(sentinel));
     const auto invalid_surface = ui_background_surface_color(invalid_theme, invalid_theme.surface, .2f);
-    check(!ui_background_safe_palette(invalid_theme, sentinel) &&
+    check(!ui_background_palette(invalid_theme, sentinel) &&
               bytes_equal(unchanged, sentinel, sizeof(sentinel)) &&
               bytes_equal(&invalid_surface, &invalid_theme.surface, sizeof(Color)),
           "background palette: invalid descriptors leave caller colors and ordinary surfaces atomically "
@@ -203,19 +203,6 @@ void test_background_theme(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(role_data, "role colours: flat, gradient and holographic role colours pass through every theme type "
                      "unchanged (light themes dim only enhanced gradients by .85)");
-    const auto two = ui_role_gradient_effect(kDefaultTheme, gradient_role);
-    const auto three = ui_role_gradient_effect(kDefaultTheme, holographic_role);
-    const auto same_color = [](Color a, Color b) noexcept {
-        return near_phase(a.red, b.red) && near_phase(a.green, b.green) && near_phase(a.blue, b.blue);
-    };
-    const auto c1 = ui_role_color(0x9B59B6u), c2 = ui_role_color(0x1ABC9Cu), c3 = ui_role_color(0);
-    const Color mid{(c1.red + c2.red) * .5f, (c1.green + c2.green) * .5f, (c1.blue + c2.blue) * .5f, 1};
-    check(same_color(ui_role_gradient_sample(two, 0), c1) && same_color(ui_role_gradient_sample(two, 25), mid) &&
-              same_color(ui_role_gradient_sample(two, 50), c2) && same_color(ui_role_gradient_sample(two, 100), c1) &&
-              same_color(ui_role_gradient_sample(two, 150), c2) &&
-              same_color(ui_role_gradient_sample(three, 100.f / 3), c2) &&
-              same_color(ui_role_gradient_sample(three, 200.f / 3), c3),
-          "role colours: enhanced styles repeat c1,c2,c1 (holographic c1,c2,c3,c1) every 100 DIPs");
     auto contrast_preferences = client_preferences_defaults();
     contrast_preferences.theme = ClientTheme::custom_gradient;
     const auto dark_foreground = client_theme_projection(contrast_preferences);

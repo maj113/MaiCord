@@ -347,7 +347,4 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
     if(broken_reph!=nil&&broken_reph+1==n&&inserted_circle)move_order(order,0,n-1);
     *result=value;return SfntStatus::ok;
 }
-SfntStatus sfnt_devanagari_initial_order(ConstSlice<u32> scalars,ConstSlice<u8> forms,Slice<u32> order,Slice<u8> masks,SfntDevanagariOrderResult* result,u64 work) noexcept {
-    return indic_initial_order(SfntIndicProfile::devanagari,scalars,forms,order,masks,result,work);
-}
 }

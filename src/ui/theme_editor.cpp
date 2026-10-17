@@ -49,9 +49,6 @@ bool control(UiThemeEditorElement e) noexcept {
 bool slider(UiThemeEditorElement e) noexcept {
     return range(e) && e != UiThemeEditorElement::sv && e != UiThemeEditorElement::hue;
 }
-Color color(u32 rgb) noexcept {
-    return {((rgb >> 16) & 255) / 255.f, ((rgb >> 8) & 255) / 255.f, (rgb & 255) / 255.f, 1};
-}
 void rgb_hsv(UiThemeEditorScene& s, u32 rgb) noexcept {
     const float r = ((rgb >> 16) & 255) / 255.f, g = ((rgb >> 8) & 255) / 255.f, b = (rgb & 255) / 255.f;
     const float high = maximum(r, maximum(g, b)), low = minimum(r, minimum(g, b)), d = high - low;
@@ -668,19 +665,19 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
         } else if (e == UiThemeEditorElement::sv) {
             const float x = clamp(r.left + s.saturation * ui_rect_width(r), r.left + 6, r.right - 6);
             const float y = clamp(r.top + (1 - s.value) * ui_rect_height(r), r.top + 6, r.bottom - 6);
-            ok = paint_stream_push_sv_square(paint, r, color(ui_theme_editor_hsv_rgb(s.hue, 1, 1)),
+            ok = paint_stream_push_sv_square(paint, r, background_color_rgb24(ui_theme_editor_hsv_rgb(s.hue, 1, 1)),
                                              s.style.control_radius) &&
-                 paint_stream_push_rounded_border(paint, x - 5, y - 5, x + 5, y + 5, Color{}, color(0), 5,
+                 paint_stream_push_rounded_border(paint, x - 5, y - 5, x + 5, y + 5, Color{}, background_color_rgb24(0), 5,
                                                   2) &&
                  paint_stream_push_rounded_border(paint, x - 4, y - 4, x + 4, y + 4, Color{},
-                                                  color(0xffffff), 4, 1.5f);
+                                                  background_color_rgb24(0xffffff), 4, 1.5f);
         } else if (e == UiThemeEditorElement::hue) {
             const float x = clamp(r.left + s.hue * ui_rect_width(r), r.left + 4, r.right - 4);
             ok = paint_stream_push_hue_strip(paint, r, 4) &&
                  paint_stream_push_rounded_border(paint, x - 3, r.top + 1, x + 3, r.bottom - 1, Color{},
-                                                  color(0), 3, 2) &&
+                                                  background_color_rgb24(0), 3, 2) &&
                  paint_stream_push_rounded_border(paint, x - 2, r.top + 2, x + 2, r.bottom - 2, Color{},
-                                                  color(0xffffff), 2, 1);
+                                                  background_color_rgb24(0xffffff), 2, 1);
         } else if (slider(e)) {
             const auto t = track(r);
             const float fraction = e == UiThemeEditorElement::direction  ? s.draft.angle_degrees / 360.f
@@ -702,7 +699,7 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
                                                   theme.surface, 7, 1);
         } else if (e >= UiThemeEditorElement::stop0 && e <= UiThemeEditorElement::stop4) {
             const auto stop = i - at(UiThemeEditorElement::stop0);
-            const auto c = stop < s.draft.color_count ? color(s.draft.colors[stop]) : theme.base_low;
+            const auto c = stop < s.draft.color_count ? background_color_rgb24(s.draft.colors[stop]) : theme.base_low;
             ok = paint_stream_push_rounded_border(
                 paint, r.left, r.top, r.right, r.bottom, c,
                 stop == s.selected_stop ? theme.text_primary : theme.interactive, s.style.control_radius,

@@ -33,7 +33,7 @@ struct GifFavoriteRecord {
     Utf8View url, src;
     u32 width, height, order;
     GifFavoriteFormat format;
-    u32 entry_offset, entry_bytes, first_entry_offset;
+    u32 first_entry_offset;
 };
 struct GifFavoritesResult {
     u32 proto_bytes, group_bytes, entry_count, record_count, index_words;
@@ -58,7 +58,6 @@ constexpr u32 gif_favorites_write_scratch_bytes(u32 group_bytes, u32 entries) no
     const u32 index_bytes = gif_favorites_index_words(entries) * static_cast<u32>(sizeof(u32));
     return group_bytes + 6 > index_bytes ? group_bytes + 6 : index_bytes;
 }
-GifFavoritesResult gif_favorites_measure_proto(ConstSlice<u8>) noexcept;
 GifFavoritesResult gif_favorites_measure_base64(Utf8View) noexcept;
 // Validates and measures first, then copies the favorite group and writes the
 // records (last key wins, sorted by descending saved order) only once all
@@ -66,8 +65,6 @@ GifFavoritesResult gif_favorites_measure_base64(Utf8View) noexcept;
 // records and index_scratch from measure (group_bytes, entry_count,
 // index_words); all buffers must be disjoint. On failure only index_scratch
 // may have changed.
-GifFavoritesResult gif_favorites_decode_proto(ConstSlice<u8>, Slice<u8> owned_group,
-                                              Slice<GifFavoriteRecord>, Slice<u32> index_scratch) noexcept;
 GifFavoritesResult gif_favorites_decode_base64(Utf8View, Slice<u8> owned_group, Slice<GifFavoriteRecord>,
                                                Slice<u32> index_scratch) noexcept;
 // Decode leaves a hash index in index_scratch for gif_favorites_find. Hashes only

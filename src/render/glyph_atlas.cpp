@@ -734,7 +734,6 @@ u32 glyph_atlas_growth_trim(GlyphAtlasGrowth* growth, GlyphAtlasAllocator* atlas
         return 0;
     }
     growth->trim_pending = false;
-    growth->last_trim_ms = growth->now_ms;
     const u64 protect_after = glyph_atlas_growth_protect_after(*growth);
     // 1. Off-screen shelves not used within the protection window.
     for (u32 index = 0; index < atlas->row_count; ++index) {

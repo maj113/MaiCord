@@ -36,7 +36,7 @@ inline constexpr u32 native_paragraph_emergency_break=1;
 inline constexpr u32 native_paragraph_height_trimmed=2;
 struct NativeParagraphLayout {u32 run_count,line_count;float width,extent,height;u32 flags;};
 static_assert(sizeof(NativeParagraphCluster)==24&&sizeof(NativeParagraphRun)==24);
-// Borrowed geometry from a successful ordered/styled fit. Range queries reuse
+// Borrowed geometry from a successful prepared styled fit. Range queries reuse
 // complete run widths; only partial edge runs visit glyph advances. No second
 // per-cluster hit buffer or font object is needed for semantic ranges.
 struct NativeParagraphGeometry {
@@ -44,8 +44,6 @@ struct NativeParagraphGeometry {
     ConstSlice<NativeParagraphRun> runs;ConstSlice<NativeParagraphLine> lines;
     u32 source_units;float tab_stop;
 };
-SfntStatus native_paragraph_geometry_range(const NativeParagraphGeometry&,u32 first,u32 length,
-    Slice<NativeParagraphHitMetric>,u32* count) noexcept;
 struct NativeParagraphRangeSink {void* context;bool (*emit)(void*,const NativeParagraphHitMetric&) noexcept;};
 // Stream line rectangles without a temporary array. A rejected rectangle stops
 // callbacks but still counts the remaining regions, as a capacity query does.
@@ -66,25 +64,4 @@ bool native_ascii_break_after(Utf8View,u32 at) noexcept;
 // native_ascii_run. All buffers are caller-owned/disjoint and may change on error.
 SfntStatus native_ascii_paragraph_shape(const NativeRunPlanStore&,NativeRunPlanHandle,Utf8View,bool independent,float em,
     const NativeAsciiParagraphStorage&,NativeParagraphShape*,float trailing_spacing=0) noexcept;
-// Greedy wrapping over the cluster array, with emergency cluster breaks. Tabs
-// advance to the next positive stop; trailing ASCII spaces do not constrain fit.
-// Produces drawing runs (including zero-glyph controls) and paragraph metrics.
-SfntStatus native_ascii_paragraph_layout(Utf8View,const NativeParagraphShape&,ConstSlice<NativeParagraphCluster>,
-    ConstSlice<SfntPlacement>,float width,float tab_stop,bool wrap,Slice<NativeParagraphRun>,NativeParagraphLayout*,NativeParagraphHitStorage* hits=nullptr) noexcept;
-// Line fitter over ordered, nonnegative, left-to-right clusters with uniform
-// line metrics; needs no source text. Source coordinates are UTF-16 units. The
-// frontend supplies break_before only at legal, reshape-safe cluster
-// boundaries. Explicit newline clusters break even with wrap=false; emergency
-// wrapping never splits a cluster. No bidi or Unicode break analysis.
-// Buffers are caller-provided and disjoint. The layout result and hit view are
-// published only on success; runs and hit arrays may change on error.
-SfntStatus native_ordered_paragraph_layout(const NativeParagraphShape&,ConstSlice<NativeParagraphCluster>,
-    ConstSlice<SfntPlacement>,float width,float tab_stop,bool wrap,Slice<NativeParagraphRun>,NativeParagraphLayout*,NativeParagraphHitStorage* hits=nullptr) noexcept;
-// Font/style indices occupy the high 24 bits of cluster flags. The supplied
-// extents determine each fitted line's baseline/descent maxima. Run emission
-// stops at style changes; source/glyph coordinates remain paragraph-global.
-// Optional hit storage keeps compact style metrics for carets in mixed-style text.
-SfntStatus native_styled_paragraph_layout(const NativeParagraphShape&,ConstSlice<NativeParagraphCluster>,
-    ConstSlice<SfntPlacement>,ConstSlice<SfntFontLineParts>,float width,float tab_stop,bool wrap,
-    Slice<NativeParagraphRun>,NativeParagraphLayout*,Slice<NativeParagraphLine> lines={},NativeParagraphHitStorage* hits=nullptr) noexcept;
 }

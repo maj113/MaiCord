@@ -27,7 +27,6 @@ SfntStatus font_axes_table_open(ConstSlice<u8> table,FontAxes* output,u32 work_l
 SfntStatus font_axes_open(const SfntFace& face,FontAxes* output,u32 work_limit=1000000) noexcept;
 SfntStatus font_axis(const FontAxes& axes,u32 index,FontAxis* output) noexcept;
 SfntStatus font_named_instance(const FontAxes& axes,u32 index,FontNamedInstance* output) noexcept;
-SfntStatus font_instance_coordinate(const FontNamedInstance& instance,u32 axis,double* output) noexcept;
 // Supports avar v1. Missing required anchors disable the affected map as the
 // specification requires. Storage and mapped bytes must remain immutable/alive.
 SfntStatus font_axis_mappings_table_open(ConstSlice<u8> table,u16 axis_count,Slice<AxisSegmentMap> storage,

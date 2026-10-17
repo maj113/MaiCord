@@ -61,9 +61,5 @@ UiRect ui_image_viewer_button(const UiImageViewer& viewer, u32 index) noexcept;
 bool ui_image_viewer_paint(const UiImageViewer& viewer, const Theme& theme, PaintStream* paint) noexcept;
 // Gallery chevrons, painted above the media quad.
 bool ui_image_viewer_paint_overlay(const UiImageViewer& viewer, const Theme& theme, PaintStream* paint) noexcept;
-bool ui_image_viewer_text(const UiImageViewer& viewer, const Theme& theme, UiTextCommandStream* text) noexcept;
-}
-
-namespace maicord {
 bool ui_image_viewer_text_output(const UiImageViewer& v, const Theme& theme, UiTextOutput* text) noexcept;
 } // namespace maicord

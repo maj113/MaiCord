@@ -72,7 +72,6 @@ struct NativePluginBundleRecoveryResult {
 NativePluginBundleRecoveryResult native_plugin_bundle_recover(u64 owner_id, ConstSlice<wchar_t> destination,
     const NativePluginBundleKeep& keep) noexcept;
 NativePluginBundleInstallResult native_plugin_bundle_install_status(const NativePluginBundleInstall*) noexcept;
-bool native_plugin_bundle_install_manifest(const NativePluginBundleInstall*, NativePluginManifest*) noexcept;
 // Copies metadata only: the staged snapshot plus the committed row. Output
 // must be caller-owned disjoint storage with no pending catalog cleanup.
 bool native_plugin_bundle_install_catalog(const NativePluginBundleInstall*, NativePluginCatalog*,

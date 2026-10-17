@@ -73,9 +73,6 @@ NotificationAudioStatus notification_audio_status(const NotificationAudio*) noex
 // error the runtime, thread and handles stay attached and release can be retried.
 // Never calls TerminateThread; reset/submit are rejected once stopping begins.
 NotificationAudioResult notification_audio_release(NotificationAudio*,u32 timeout_ms) noexcept;
-// Metadata bytes of the attached runtime, including the two lazily created callbacks.
-// Excludes the COM-allocated endpoint ID, other OS COM allocations and stack pages.
-u32 notification_audio_owned_bytes(const NotificationAudio*) noexcept;
 // Counts the attached thread/event handles, including a callback's duplicate while
 // attached. A disarmed external COM callback can keep its own duplicate handle and
 // endpoint ID; neither refers to this object or the PCM.
@@ -83,7 +80,7 @@ u32 notification_audio_owned_handles(const NotificationAudio*) noexcept;
 
 // Offline source-rate mixer. No allocation/COM/device/thread.
 // The caller serializes these helpers. Voice descriptors stay valid even after
-// submission until played() confirms padding consumption; this permits rewind
+// submission until played_rate() confirms padding consumption; this permits rewind
 // on a default-device switch. Padding does not give the exact audible position.
 struct NotificationAudioVoice {NotificationAudioClip clip{};u64 start{};float gain{};};
 struct NotificationAudioMixer {
@@ -109,19 +106,14 @@ NotificationAudioResult notification_audio_prepare_request(const NotificationAud
     const NotificationAudioRequest&,NotificationAudioClip*,float*) noexcept;
 void notification_audio_mixer_reset(NotificationAudioMixer*,u64 epoch) noexcept;
 NotificationAudioResult notification_audio_mixer_add(NotificationAudioMixer*,u64 epoch,NotificationAudioClip,float gain) noexcept;
-u32 notification_audio_mixer_needed(const NotificationAudioMixer&) noexcept;
 // Mixes at most 512 frames per call, summing gain and saturating. Output must not
 // alias the mixer or any voice PCM. Invalid input changes nothing.
-NotificationAudioMixResult notification_audio_mixer_render(NotificationAudioMixer*,Slice<i16>) noexcept;
-// remaining_padding is source-format frames, per IAudioClient documentation.
-// Returns the number of finished voices; invalid/backwards padding leaves state unchanged.
-u32 notification_audio_mixer_played(NotificationAudioMixer*,u32 remaining_padding) noexcept;
-void notification_audio_mixer_rewind(NotificationAudioMixer*) noexcept;
-// Per-rate operations; the helpers above are the 44100 Hz versions. No
-// software interpolation/resampling: WASAPI handles hardware conversion.
+// No software interpolation/resampling: WASAPI handles hardware conversion.
 u32 notification_audio_mixer_voices_rate(const NotificationAudioMixer&,u32 sample_rate) noexcept;
 u32 notification_audio_mixer_needed_rate(const NotificationAudioMixer&,u32 sample_rate) noexcept;
 NotificationAudioMixResult notification_audio_mixer_render_rate(NotificationAudioMixer*,Slice<i16>,u32 sample_rate) noexcept;
+// padding is source-format frames, per IAudioClient documentation.
+// Returns the number of finished voices; invalid/backwards padding leaves state unchanged.
 u32 notification_audio_mixer_played_rate(NotificationAudioMixer*,u32 padding,u32 sample_rate) noexcept;
 void notification_audio_mixer_rewind_rate(NotificationAudioMixer*,u32 sample_rate) noexcept;
 #if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)

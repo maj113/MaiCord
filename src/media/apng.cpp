@@ -465,23 +465,5 @@ PngDecodeResult apng_decode_parsed_default(
                                        scanlines);
 }
 
-ApngDecodeResult apng_decode_frame(
-    ConstSlice<u8> encoded, u32 frame_index, ApngImage* image,
-    ApngWorkspace* workspace, DeflateWorkspace* deflate_workspace,
-    PngImage* frame_image, Slice<u8> scanlines) noexcept {
-    ApngDecodeResult result{};
-    result.parse = apng_parse(encoded, image, workspace);
-    if (!result.parse.ok()) {
-        result.error = result.parse.error;
-        return result;
-    }
-    const ApngParseResult parse = result.parse;
-    result = apng_decode_parsed_frame(
-        encoded, *image, frame_index, deflate_workspace, frame_image,
-        scanlines);
-    result.parse = parse;
-    return result;
-}
-
 } // namespace maicord
 

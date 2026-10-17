@@ -17,10 +17,6 @@ const UnicodeProperties* unicode_properties(u32 code_point) noexcept {
     }
     return &unicode_records[value&0x7fff];
 }
-u32 unicode_script_tag(UnicodeScript script) noexcept {
-    const u32 index=static_cast<u32>(script);
-    return index<sizeof(unicode_script_tags)/sizeof(unicode_script_tags[0])?unicode_script_tags[index]:0;
-}
 u32 unicode_bidi_mirror(u32 code_point) noexcept {
     u32 lo=0,hi=sizeof(unicode_mirrors)/sizeof(unicode_mirrors[0]);
     while(lo<hi) {
@@ -41,6 +37,6 @@ UnicodeBracket unicode_bidi_bracket(u32 code_point) noexcept {
 }
 usize unicode_property_data_bytes() noexcept {
     return sizeof(unicode_ascii)+sizeof(unicode_top)+sizeof(unicode_middle)+sizeof(unicode_leaves)+sizeof(unicode_records)+
-           sizeof(unicode_script_tags)+sizeof(unicode_mirrors)+sizeof(unicode_brackets);
+           sizeof(unicode_mirrors)+sizeof(unicode_brackets);
 }
 } // namespace maicord

@@ -17,7 +17,6 @@ inline Color ui_role_color(u32 rgb) noexcept {
 // holographic style), repeating every 100 DIPs from the name's left edge and
 // clipped to the glyphs.
 inline constexpr u8 kUiTextEffectRoleGradient = 9;
-inline constexpr float kUiRoleGradientPeriod = 100.0f;
 
 inline bool ui_role_gradient(const RoleRecord& role) noexcept {
     return role.color != 0 && role_color_present(role.secondary_color);
@@ -43,23 +42,5 @@ inline UiTextEffect ui_role_gradient_effect(const Theme& theme, const RoleRecord
     effect.kind = kUiTextEffectRoleGradient;
     effect.count = count;
     return effect;
-}
-
-// The role colour sample at x DIPs from the name's left edge; the
-// glyph shader evaluates the same stops per pixel.
-inline Color ui_role_gradient_sample(const UiTextEffect& effect, float x) noexcept {
-    if (effect.kind != kUiTextEffectRoleGradient || effect.count < 2 || effect.count > 3)
-        return ui_role_color(effect.colors[0]);
-    float period = x / kUiRoleGradientPeriod;
-    period -= static_cast<float>(static_cast<i32>(period));
-    if (period < 0)
-        period += 1;
-    const float segment = period * effect.count;
-    const u32 a = minimum(static_cast<u32>(segment), static_cast<u32>(effect.count) - 1u);
-    const u32 b = a + 1u < effect.count ? a + 1u : 0u;
-    const float t = segment - static_cast<float>(a);
-    const Color from = ui_role_color(effect.colors[a]), to = ui_role_color(effect.colors[b]);
-    return {from.red + (to.red - from.red) * t, from.green + (to.green - from.green) * t,
-            from.blue + (to.blue - from.blue) * t, 1.0f};
 }
 } // namespace maicord

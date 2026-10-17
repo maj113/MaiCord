@@ -158,21 +158,19 @@ extern "C" __declspec(noreturn) void WINAPI maicord_update_handoff_peer_entry() 
         if (!account_host_release(&account).ok()) code = 37;
         // The test parent stays alive while it awaits this peer's exit, so
         // the parent wait can only reach its deadline; keep that bound short.
-        if (locally_admitted) update_handoff_child_wait_parent(&child, 500);
+        if (locally_admitted) WaitForSingleObject(child.parent, 500);
     } else if (scenario == 1 || scenario == 2 || scenario == 6 || scenario == 7) {
         if (update_handoff_child_acknowledge(&child, false).error != UpdateHandoffError::acknowledgement) code = 22;
         if (scenario == 2) child.identity.transaction.bytes[0] ^= 0x80;
         if (scenario == 6) child.identity.document_sha256[0] ^= 0x80;
         if (scenario == 7) child.identity.installation.bytes[0] ^= 0x80;
         if (!update_handoff_child_acknowledge(&child, true).ok()) code = 23;
-        const auto parent = update_handoff_child_wait_parent(&child, 750);
-        if (!parent.ok() || parent.outcome != UpdateHandoffOutcome::deadline) code = 24;
+        if (WaitForSingleObject(child.parent, 750) != WAIT_TIMEOUT) code = 24;
     } else if (scenario == 3) {
-        const auto parent = update_handoff_child_wait_parent(&child, 750);
-        if (!parent.ok() || parent.outcome != UpdateHandoffOutcome::deadline) code = 25;
+        if (WaitForSingleObject(child.parent, 750) != WAIT_TIMEOUT) code = 25;
     } else if (scenario == 5) {
         if (!SetEvent(child.event)) code = 26;
-        update_handoff_child_wait_parent(&child, 750);
+        WaitForSingleObject(child.parent, 750);
     } else if (scenario != 4) code = 27;
     if (!update_handoff_child_release(&child).ok()) code = 28;
     if (!signed_validation.release()) code = 38;

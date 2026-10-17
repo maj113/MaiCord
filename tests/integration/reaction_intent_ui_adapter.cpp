@@ -97,7 +97,7 @@ bool reaction_intent_ui_adapter_begin(HWND window, bool (*native_refresh)(void*)
         chat_state_store_upsert_channel(&ui.chat_state,
                                            {70, 0, 0, utf8_literal("Reaction DM"), 0, 0, 1})
             .ok() &&
-        chat_state_store_bind_emojis(&ui.chat_state, {next->emojis, 2}, {next->emoji_roles, 1}) &&
+        chat_state_store_bind_emojis_sparse(&ui.chat_state, {next->emojis, 2}, {next->emoji_roles, 1}) &&
         message_store_initialize(&g_app.message_view.store, {next->records, 4}, {next->order, 4},
                                  {next->text, sizeof(next->text)}) &&
         message_rich_store_initialize(&ui.message_rich_store, {next->rich, 4}, {next->rich_order, 4},

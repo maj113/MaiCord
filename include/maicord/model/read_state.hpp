@@ -70,7 +70,6 @@ bool read_state_mark_unread_local(ChatStateStore* state, u64 channel_id,
 void read_state_leave_channel(ChatStateStore* state, u64 channel_id) noexcept;
 const ReadStateEntry* read_state_pending(const ReadStateStore& reads,
     u64 channel_id) noexcept;
-bool read_state_forget(ReadStateStore* reads, u64 channel_id) noexcept;
 // State insertion/removal hooks preserve aggregate accounting in the store.
 bool read_state_apply_pending(ChatStateStore* state, ChannelRecord* channel) noexcept;
 bool read_state_remove_channel(ChatStateStore* state, const ChannelRecord& channel) noexcept;

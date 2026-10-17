@@ -103,8 +103,9 @@ bool draw_grid(D3D11Renderer& renderer,PopupScene& scene,UiScene& title,u32 dpi,
     if (!popup_scene_open(&scene,PopupKind::popover,1,{items,item_count},{16,48,17,49},viewport,
                           popup_width).ok()) return fail(__LINE__);
     UiTextCommand commands[item_count]{};UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     if (!ui_text_command_stream_initialize(&text,{commands,item_count}) ||
-        !popup_text_presentation_build(scene,kDefaultTheme,&text)) return fail(__LINE__);
+        !popup_text_presentation_build_output(scene,kDefaultTheme,&text_output)) return fail(__LINE__);
     // Menu labels are ASCII; none of the four admitted flag
     // sequences may enter the text stream (including the subdivision tags).
     for (u32 i=0;i<text.count;++i) for (u32 flag=0;flag<4;++flag)

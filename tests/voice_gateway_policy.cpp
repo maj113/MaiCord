@@ -140,7 +140,7 @@ void reconnect_cases(Check check) noexcept {
     const auto session = text(utf8_literal("test-session"));
     const GatewayVoiceState state{10, 20, 30, session, 0, 0};
     const GatewayVoiceServer server{10, 0, text(utf8_literal("tok")), text({endpoint, 10 + digits}), false};
-    voice_setup_bind(&setup, 30, session);
+    voice_setup_bind_utf8(&setup, 30, session.encoded);
     voice_setup_begin(&setup, 10, 20, GetTickCount64());
     voice_setup_server(&setup, server);
     voice_setup_state(&setup, state);

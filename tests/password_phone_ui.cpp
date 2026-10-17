@@ -103,9 +103,9 @@ void test_password_phone_ui(void (*check)(bool, const char*) noexcept) noexcept 
         check(safe && digit_commands == 6, "six code characters occupy exact shared cell rectangles with clipped native copy");
         const auto a = login_phone_cell_rectangle(bounds, 1), b = login_phone_cell_rectangle(bounds, 2), c = login_phone_cell_rectangle(bounds, 3);
         check(c.left - b.right > b.left - a.right, "phone code has a larger midpoint spacer after digit three");
-        const auto back = login_scene_control_rectangle(scene, LoginControl::back);
-        const auto resend = login_scene_control_rectangle(scene, LoginControl::phone_resend);
-        const auto verify = login_scene_control_rectangle(scene, LoginControl::submit);
+        const auto back = login_scene_rectangle(scene, LoginElement::forgot_password);
+        const auto resend = login_scene_rectangle(scene, LoginElement::mfa_sms);
+        const auto verify = login_scene_rectangle(scene, LoginElement::submit);
         check(login_scene_hit_test(scene, back.left + 1, back.top + 1) == LoginControl::back &&
             login_control_action(LoginControl::back, status, {}) == LoginAction::back &&
             login_control_action(LoginControl::password, status, {}) == LoginAction::none &&

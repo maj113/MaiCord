@@ -1,4 +1,4 @@
-"""Bounded native Khmer cluster or scalar-run glyph/source/exact-placement comparison.
+"""Bounded native Khmer scalar-run glyph/source/exact-placement comparison of cluster or run cases.
 
 Unicode scalar cases within the observer capacity; no ownership, app or pixel claim.
 """
@@ -36,7 +36,7 @@ def worker(args):
     for s,_ in cases:payload+=struct.pack('<I',len(s))+struct.pack('<'+'I'*len(s),*s)
     native=subprocess.run([str(args.native)],input=payload,capture_output=True,timeout=2,
         env=dict(os.environ,MAICORD_KHMER_FONT=str(args.font),MAICORD_KHMER_INDEPENDENT=str(int(args.independent)),
-                 MAICORD_KHMER_RTL=str(int(args.rtl)),MAICORD_KHMER_RUN=str(int(args.run)),MAICORD_KHMER_OWNED=str(int(args.owned)),MAICORD_KHMER_COMPACT=str(int(args.compact))),creationflags=subprocess.CREATE_NO_WINDOW)
+                 MAICORD_KHMER_RTL=str(int(args.rtl)),MAICORD_KHMER_OWNED=str(int(args.owned)),MAICORD_KHMER_COMPACT=str(int(args.compact))),creationflags=subprocess.CREATE_NO_WINDOW)
     if native.returncode:raise RuntimeError(repr(native.stdout[-500:])+repr(native.stderr))
     actual=decode(native.stdout,cases,True)
     rows=[];exact_count=0

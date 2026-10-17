@@ -47,7 +47,6 @@ enum UiLayoutNodeFlag : u16 {
     ui_layout_node_text_content = 1u << 5,
     ui_layout_node_scroll_horizontal = 1u << 6,
     ui_layout_node_scroll_vertical = 1u << 7,
-    ui_layout_node_anchored = 1u << 8,
 };
 
 struct UiLayoutLength {
@@ -68,9 +67,6 @@ struct UiLayoutStyle {
     UiLayoutAlignment vertical_alignment;
     UiLayoutJustification justification;
     u16 flags;
-    // Engine-owned index into optional caller-owned anchor storage. Uses
-    // existing style padding; ordinary retained nodes pay no anchor-size cost.
-    u16 anchor_slot;
 };
 
 struct UiLayoutNodeSpec {
@@ -84,11 +80,6 @@ struct UiLayoutNodeSpec {
 struct UiLayoutNodeHandle {
     u16 slot;
     u16 generation;
-};
-
-struct UiLayoutAnchor {
-    UiLayoutNodeHandle owner;
-    UiRect region;
 };
 
 struct UiLayoutMeasureRequest {
@@ -156,7 +147,6 @@ enum class UiLayoutDiagnosticKind : u8 {
     invalid_content_owner,
     content_overflow,
     content_collision,
-    invalid_anchor,
 };
 
 enum class UiLayoutContentKind : u8 {
@@ -208,8 +198,6 @@ struct UiLayoutValidationResult {
 
 struct UiLayoutEngine {
     Slice<UiLayoutNode> storage;
-    Slice<UiLayoutAnchor> anchor_storage;
-    u32 anchor_count;
     u32 count;
     u32 revision;
     u32 rejected;
@@ -248,7 +236,6 @@ constexpr UiLayoutStyle ui_layout_style() noexcept {
         UiLayoutAlignment::start,
         UiLayoutJustification::start,
         ui_layout_node_visible,
-        0,
     };
 }
 
@@ -277,32 +264,11 @@ constexpr UiLayoutStyle ui_layout_spacer_style(float height) noexcept {
     return style;
 }
 
-// The anchor guide shares parent origin, padding and scroll coordinates with
-// arrangement. It may be a point/line, unlike a drawable child rectangle.
-constexpr UiRect ui_layout_anchor_rectangle(const UiLayoutNode& parent,
-                                            UiRect anchors) noexcept {
-    const auto& bounds = parent.content_rectangle;
-    const float x = bounds.left - parent.scroll_offset.x;
-    const float y = bounds.top - parent.scroll_offset.y;
-    const float width = ui_rect_width(bounds);
-    const float height = ui_rect_height(bounds);
-    return {x + width * anchors.left, y + height * anchors.top,
-            x + width * anchors.right, y + height * anchors.bottom};
-}
-
 constexpr UiLayoutNodeHandle ui_layout_invalid_handle() noexcept {
     return UiLayoutNodeHandle{kInvalidUiLayoutSlot, 0};
 }
 
 bool ui_layout_engine_initialize(UiLayoutEngine* engine, Slice<UiLayoutNode> storage) noexcept;
-// Bind before adding nodes. Storage outlives the engine; reset reuses it.
-bool ui_layout_engine_bind_anchors(UiLayoutEngine* engine, Slice<UiLayoutAnchor> storage) noexcept;
-// Normalized [0,1] overlay-parent content region. Equal edges form a point
-// anchor; alignment supplies its pivot. Anchored nodes do not size the parent.
-UiLayoutResult ui_layout_engine_set_anchors(UiLayoutEngine* engine, UiLayoutNodeHandle handle,
-                                           UiRect region) noexcept;
-const UiRect* ui_layout_engine_anchor_region(const UiLayoutEngine& engine,
-                                            UiLayoutNodeHandle handle) noexcept;
 void ui_layout_engine_reset(UiLayoutEngine* engine) noexcept;
 bool ui_layout_engine_set_measure_callback(UiLayoutEngine* engine, UiLayoutMeasureCallback callback,
                                            void* context) noexcept;

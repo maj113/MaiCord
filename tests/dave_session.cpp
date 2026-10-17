@@ -13,6 +13,26 @@ using Check = void (*)(bool, const char*) noexcept;
 
 constexpr u32 kNone = 0xffffffffu;
 
+// ExternalSender as the voice gateway serializes it (RFC 9420 varint vectors):
+// opaque signature_key<V> (65 bytes: two-byte length 0x4041), basic credential
+// type 1, opaque identity<V> (under 64 bytes: one-byte length).
+MlsStatus write_external_sender(const u8* signature_key, ConstSlice<u8> identity, Slice<u8> output,
+                                u32* written) noexcept {
+    const u32 bytes = 2 + 65 + 2 + 1 + identity.count;
+    if (!signature_key || signature_key[0] != 4 || !identity.count || identity.count > 63 || !written ||
+        output.count < bytes)
+        return MlsStatus::invalid_argument;
+    output[0] = 0x40;
+    output[1] = 65;
+    copy_bytes(output.data + 2, signature_key, 65);
+    output[67] = 0;
+    output[68] = 1;
+    output[69] = static_cast<u8>(identity.count);
+    copy_bytes(output.data + 70, identity.data, identity.count);
+    *written = bytes;
+    return MlsStatus::ok;
+}
+
 void tree_math(Check check) noexcept {
     bool relations = true;
     for (const auto& v : tree_math_vectors) {
@@ -285,7 +305,7 @@ void unmerged(Check check, KdfSha256Workspace& kdf) noexcept {
     const u8 identity[]{'d', 'a', 'v', 'e'};
     p256_generate(&gateway, P256Kind::ecdsa);
     p256_export_public(gateway, {gateway_public, 65});
-    mls_external_sender_write(gateway_public, {identity, 4}, {f->es, sizeof(f->es)}, &f->es_bytes);
+    write_external_sender(gateway_public, {identity, 4}, {f->es, sizeof(f->es)}, &f->es_bytes);
     Member& a = f->alice;
     Member& b = f->bob;
     Member& c = f->carol;
@@ -378,8 +398,8 @@ void session(Check check, KdfSha256Workspace& kdf) noexcept {
     const u8 identity[]{'d', 'a', 'v', 'e'};
     check(p256_generate(&gateway, P256Kind::ecdsa).ok() &&
               p256_export_public(gateway, {gateway_public, 65}).ok() &&
-              mls_external_sender_write(gateway_public, {identity, 4}, {f->es, sizeof(f->es)},
-                                        &f->es_bytes) == MlsStatus::ok,
+              write_external_sender(gateway_public, {identity, 4}, {f->es, sizeof(f->es)},
+                                    &f->es_bytes) == MlsStatus::ok,
           "DAVE test gateway ExternalSender");
     auto& alice = f->alice;
     auto& bob = f->bob;
@@ -644,7 +664,7 @@ void voice_signaling(Check check, KdfSha256Workspace& kdf) noexcept {
     const u8 identity[]{'d', 'a', 'v', 'e'};
     p256_generate(&gateway, P256Kind::ecdsa);
     p256_export_public(gateway, {gateway_public, 65});
-    mls_external_sender_write(gateway_public, {identity, 4}, {es, sizeof(es)}, &es_bytes);
+    write_external_sender(gateway_public, {identity, 4}, {es, sizeof(es)}, &es_bytes);
     c->dave_group_id = group;
     c->dave_user_id = 1111;
     c->socket.setup_generation = 9;
@@ -1018,7 +1038,7 @@ void reference_interop(Check check, KdfSha256Workspace& kdf) noexcept {
     const u8 identity[]{'d', 'a', 'v', 'e'};
     p256_generate(&gateway, P256Kind::ecdsa);
     p256_export_public(gateway, {gateway_public, 65});
-    mls_external_sender_write(gateway_public, {identity, 4}, {es, sizeof(es)}, &es_bytes);
+    write_external_sender(gateway_public, {identity, 4}, {es, sizeof(es)}, &es_bytes);
     c->dave_group_id = group;
     c->dave_user_id = self;
     c->socket.setup_generation = 3;

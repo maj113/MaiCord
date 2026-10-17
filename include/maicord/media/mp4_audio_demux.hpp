@@ -17,9 +17,6 @@ Mp4DemuxError mp4_audio_demux_initialize(Mp4AudioDemuxer*, ConstSlice<u8>, Mp4So
 ConstSlice<u8> mp4_audio_demux_asc(const Mp4AudioDemuxer&) noexcept;
 Mp4AccessUnit mp4_audio_demux_next(Mp4AudioDemuxer*) noexcept;
 void mp4_audio_demux_reset(Mp4AudioDemuxer*) noexcept;
-// Returns the packet at/before target. Decoder flush/preroll and sample-exact
-// PCM trimming are the playback code's responsibility, not an invented delay.
-Mp4DemuxError mp4_audio_demux_seek(Mp4AudioDemuxer*, i64 movie_time_us, Mp4SeekPoint*) noexcept;
 struct Mp4AudioSampleWindow {
     u64 first_source_frame{}, end_source_frame{}, leading_silence_frames{};
     i64 duration_100ns{};

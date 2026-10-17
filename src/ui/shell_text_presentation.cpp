@@ -19,10 +19,6 @@
 namespace maicord {
 namespace {
 
-const UiNode* resolve(const UiScene& scene, UiSemantic semantic) noexcept {
-    return ui_scene_resolve(scene, ui_scene_find(scene, semantic));
-}
-
 bool append_command(const UiWidgetManager& manager, UiWidgetHandle owner, Utf8View text,
                     const UiRect& rectangle, const UiRect& clip, const Color& color, UiTextOutput* stream,
                     UiTextAlignment horizontal_alignment = UiTextAlignment::start,
@@ -123,8 +119,8 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
         return false;
     }
     ui_text_output_reset(stream);
-    const UiNode* title = resolve(scene, UiSemantic::title_bar);
-    if (const auto* friends = resolve(scene, UiSemantic::friends_button)) {
+    const UiNode* title = ui_scene_resolve_semantic(scene, UiSemantic::title_bar);
+    if (const auto* friends = ui_scene_resolve_semantic(scene, UiSemantic::friends_button)) {
         if (!append_command(scene.widgets, friends->widget, utf8_literal("Friends"),
                             ui_scene_content_rectangle(scene, UiSemantic::friends_button),
                             friends->rectangle, theme.text_primary, stream, UiTextAlignment::start,
@@ -133,9 +129,9 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
             return false;
         }
     }
-    const UiNode* title_label = resolve(scene, UiSemantic::title_label);
-    const UiNode* channel_header = resolve(scene, UiSemantic::channel_header);
-    const UiNode* channel_navigation = resolve(scene, UiSemantic::channel_navigation);
+    const UiNode* title_label = ui_scene_resolve_semantic(scene, UiSemantic::title_label);
+    const UiNode* channel_header = ui_scene_resolve_semantic(scene, UiSemantic::channel_header);
+    const UiNode* channel_navigation = ui_scene_resolve_semantic(scene, UiSemantic::channel_navigation);
     if (!title) {
         reject_atomically(stream);
         return false;
@@ -196,7 +192,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                                                  : utf8_literal("Direct messages");
             // A guild header draws the name on its dropdown button, ahead of
             // the trailing chevron.
-            const UiNode* guild_menu = selected_guild ? resolve(scene, UiSemantic::guild_menu) : nullptr;
+            const UiNode* guild_menu = selected_guild ? ui_scene_resolve_semantic(scene, UiSemantic::guild_menu) : nullptr;
             const UiNode* owner = guild_menu ? guild_menu : channel_header;
             UiRect header_text_rectangle =
                 ui_scene_content_rectangle(scene, guild_menu ? UiSemantic::guild_menu : UiSemantic::channel_header);
@@ -227,7 +223,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
         }
     }
 
-    const auto* guild_navigation = resolve(scene, UiSemantic::guild_navigation);
+    const auto* guild_navigation = ui_scene_resolve_semantic(scene, UiSemantic::guild_navigation);
     if (guild_navigation && guild_scene && guild_scene->active) {
         for (u32 index = 0; index < guild_scene->count; ++index) {
             const auto& row = guild_scene->rows[index];
@@ -538,7 +534,7 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
             return false;
         }
     }
-    if (const auto* footer = resolve(scene, UiSemantic::channel_footer); footer && users) {
+    if (const auto* footer = ui_scene_resolve_semantic(scene, UiSemantic::channel_footer); footer && users) {
         const auto* self = user_store_find(*users, state.self_user_id);
         if (self) {
             auto r = footer->rectangle;

@@ -50,7 +50,6 @@ struct RemoteAuthDecodeResult {
     JsonScanError scan_error;
     JsonReadError read_error;
     Base64Error base64_error;
-    Base64UrlError base64url_error;
 
     constexpr bool ok() const noexcept {
         return error == RemoteAuthError::none;

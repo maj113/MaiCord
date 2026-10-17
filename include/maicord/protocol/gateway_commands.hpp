@@ -111,6 +111,21 @@ enum class GatewayUserStatus : u8 {
     dnd,
     invisible,
 };
+// Gateway/settings wire name; empty for an unknown value.
+constexpr Utf8View gateway_user_status_name(GatewayUserStatus status) noexcept {
+    switch (status) {
+    case GatewayUserStatus::online:
+        return utf8_literal("online");
+    case GatewayUserStatus::idle:
+        return utf8_literal("idle");
+    case GatewayUserStatus::dnd:
+        return utf8_literal("dnd");
+    case GatewayUserStatus::invisible:
+        return utf8_literal("invisible");
+    default:
+        return {};
+    }
+}
 
 // The client properties a user session reports, in the order the Windows
 // desktop client sends them. Identify and the X-Super-Properties header carry

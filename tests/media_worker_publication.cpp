@@ -121,7 +121,7 @@ void retained_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
     response.expires_at_seconds = 100;
     response.etag = {etag, sizeof(etag)};
     response.disposition = CdnResponseDisposition::accept_body;
-    auto admitted = cdn_media_pipeline_admit_ogg_opus(&pipeline, key, response, {bytes, count});
+    auto admitted = cdn_media_pipeline_admit_audio(&pipeline, key, response, {bytes, count});
     const u64 identity = admitted.lease.lookup.content_identity;
     const u16 generation = admitted.lease.generation;
     check(admitted.ready() && admitted.lease.acquired && identity &&
@@ -136,15 +136,15 @@ void retained_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
         ++*static_cast<u32*>(context);
         return true;
     };
-    auto cancelled_hit = cdn_media_pipeline_lookup_ogg_opus(&pipeline, key, 1, cancel, &cancellations);
-    auto cancelled_body = cdn_media_pipeline_admit_ogg_opus(&pipeline, key, response, {bytes, count}, {},
-                                                            cancel, &cancellations);
+    auto cancelled_hit = cdn_media_pipeline_lookup_audio(&pipeline, key, 1, cancel, &cancellations);
+    auto cancelled_body = cdn_media_pipeline_admit_audio(&pipeline, key, response, {bytes, count}, {},
+                                                         cancel, &cancellations);
     check(cancelled_hit.error == EncodedAudioError::cancelled && !cancelled_hit.lease.acquired &&
               cancelled_body.error == EncodedAudioError::cancelled && !cancelled_body.lease.acquired &&
               cancellations == 2 && encoded_media_cache_find(&cache, key, 1).content_identity == identity,
           "audio full validation observes worker cancellation and releases parse lease without erasing "
           "valid cache");
-    auto stale = cdn_media_pipeline_lookup_ogg_opus(&pipeline, key, 101);
+    auto stale = cdn_media_pipeline_lookup_audio(&pipeline, key, 101);
     check(stale.state == CdnEncodedAudioState::fetch_required && stale.etag.count == sizeof(etag) &&
               !stale.lease.acquired,
           "audio stale entry copies conditional metadata without a source lease");
@@ -153,10 +153,10 @@ void retained_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
     response.expires_at_seconds = 200;
     response.disposition = CdnResponseDisposition::not_modified;
     const u8 wrong[]{'"', 'b', '"'};
-    auto rejected = cdn_media_pipeline_admit_ogg_opus(&pipeline, key, response, {}, {wrong, sizeof(wrong)});
+    auto rejected = cdn_media_pipeline_admit_audio(&pipeline, key, response, {}, {wrong, sizeof(wrong)});
     check(rejected.state == CdnEncodedAudioState::uncorrelated_not_modified && !rejected.lease.acquired,
           "audio 304 rejects different ETag without publishing or retaining bytes");
-    auto refreshed = cdn_media_pipeline_admit_ogg_opus(&pipeline, key, response, {}, {etag, sizeof(etag)});
+    auto refreshed = cdn_media_pipeline_admit_audio(&pipeline, key, response, {}, {etag, sizeof(etag)});
     check(refreshed.ready() && refreshed.lease.lookup.content_identity == identity &&
               refreshed.lease.generation == generation &&
               encoded_audio_total_frames(refreshed.metadata) == 548,
@@ -196,13 +196,13 @@ void retained_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
     response.body_bytes = count;
     response.store_allowed = false;
     response.disposition = CdnResponseDisposition::accept_body;
-    auto transient = cdn_media_pipeline_admit_ogg_opus(&pipeline, key, response, {bytes, count});
+    auto transient = cdn_media_pipeline_admit_audio(&pipeline, key, response, {bytes, count});
     check(transient.ready() && transient.state == CdnEncodedAudioState::ready_transient &&
               !transient.lease.acquired && encoded_audio_bytes(transient.metadata).data == bytes &&
               !encoded_media_cache_find(&cache, key, 0).found(),
           "audio no-store response requires lane-owned copy and never publishes borrowed cache bytes");
     response.store_allowed = true;
-    auto stored_again = cdn_media_pipeline_admit_ogg_opus(&pipeline, key, response, {bytes, count});
+    auto stored_again = cdn_media_pipeline_admit_audio(&pipeline, key, response, {bytes, count});
     if (stored_again.lease.acquired)
         encoded_media_cache_release(&cache, &stored_again.lease);
     response.store_allowed = false;
@@ -211,7 +211,7 @@ void retained_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
     response.disposition = CdnResponseDisposition::not_modified;
     auto other_reader = encoded_media_cache_acquire(&cache, key, 0);
     auto no_store_304 =
-        cdn_media_pipeline_admit_ogg_opus(&pipeline, key, response, {}, {etag, sizeof(etag)});
+        cdn_media_pipeline_admit_audio(&pipeline, key, response, {}, {etag, sizeof(etag)});
     check(no_store_304.state == CdnEncodedAudioState::ready_transient && no_store_304.lease.acquired &&
               encoded_audio_bytes(no_store_304.metadata).data != bytes &&
               !encoded_media_cache_erase(&cache, key) &&
@@ -228,7 +228,7 @@ void retained_audio_checks(void (*check)(bool, const char*) noexcept) noexcept {
     response.body_bytes = count;
     response.disposition = CdnResponseDisposition::accept_body;
     bytes[119] ^= 1;
-    auto invalid = cdn_media_pipeline_admit_ogg_opus(&pipeline, key, response, {bytes, count});
+    auto invalid = cdn_media_pipeline_admit_audio(&pipeline, key, response, {bytes, count});
     check(invalid.state == CdnEncodedAudioState::decode_rejected &&
               !encoded_media_cache_find(&cache, key, 0).found(),
           "audio bad Ogg CRC fails before cache admission");

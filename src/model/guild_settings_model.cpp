@@ -123,20 +123,8 @@ u32 guild_sticker_slots(u8 premium_tier, u64 features) noexcept {
     return (features & guild_feature_more_stickers) && tier == 3 ? 120u : slots[tier];
 }
 
-bool guild_banner_available(u8 premium_tier, u64 features) noexcept {
-    return premium_tier >= 2 || (features & guild_feature_banner);
-}
-
-bool guild_animated_banner_available(u8 premium_tier, u64 features) noexcept {
-    return premium_tier >= 3 || (features & guild_feature_animated_banner);
-}
-
 bool guild_role_icons_available(u8 premium_tier, u64 features) noexcept {
     return premium_tier >= 2 || (features & guild_feature_role_icons);
-}
-
-bool guild_animated_icon_available(u8 premium_tier, u64 features) noexcept {
-    return premium_tier >= 1 || (features & guild_feature_animated_icon);
 }
 
 GuildEmojiCounts guild_emoji_counts(const ChatStateStore& store, u64 guild_id) noexcept {

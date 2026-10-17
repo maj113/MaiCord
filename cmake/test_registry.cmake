@@ -1221,10 +1221,6 @@ maicord_test(MaiCordBidiTests ENTRY maicord_bidi_tests_entry
     SOURCES tests/bidi_test.cpp
     LIBS maicord_core maicord_unicode kernel32
     TEST maicord_native_bidi)
-maicord_test(MaiCordWordTests ENTRY maicord_word_tests_entry
-    SOURCES tests/word_test.cpp
-    LIBS maicord_core maicord_unicode kernel32
-    TEST maicord_native_words)
 # Real Windows spell checker (read-only); CI may pass -ExcludeTestLabels system_spellcheck.
 maicord_test(MaiCordSystemSpellcheckTests ENTRY maicord_system_spellcheck_entry
     SOURCES tests/system_spellcheck.cpp
@@ -1830,10 +1826,6 @@ maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_style_cluster_parity --style-clusters
     TEST maicord_native_style_continuity_pixelify --continuity-profile
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Pixelify.ttf" 400)
-maicord_test(MaiCordNominalRangeTests ENTRY maicord_nominal_ranges_entry
-    SOURCES tests/nominal_ranges_test.cpp
-    LIBS maicord_core maicord_font kernel32
-    TEST maicord_native_nominal_ranges)
 maicord_test(MaiCordCursiveDeferredTests ENTRY maicord_cursive_deferred_entry
     SOURCES tests/cursive_deferred_test.cpp
     LIBS maicord_core maicord_font kernel32

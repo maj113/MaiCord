@@ -1,4 +1,4 @@
-#include "maicord/text/gsub.hpp"
+#include "maicord/text/gsub_execute.hpp"
 #include "maicord/core/byte_order.hpp"
 
 #include "glyph_view_check.hpp"
@@ -21,42 +21,42 @@ bool units() noexcept {
     u8 b[80]{};const u16 one[]{1,6,65535,1,2,0,2};u32 size=words(b,{one,7});SfntGsubSubtable sub{};SfntGsubMatch result{};u32 positions[8]{};u16 out=0;
     if(sfnt_gsub_subtable_open({b,size},1,65536,&sub)!=SfntStatus::ok)return false;
     SfntGsubGlyph input[]{{0,SfntGlyphClass::mark,0},{4,SfntGlyphClass::mark,0},{2,SfntGlyphClass::base,0},{3,SfntGlyphClass::base,0}};SfntLookupFilter filter{{},8};
-    if(sfnt_gsub_subtable_match(sub,{},filter,{input,1},0,0,{positions,8},&result)!=SfntStatus::ok || !result.matched || sfnt_gsub_replacement(result,0,&out)!=SfntStatus::ok || out!=65535)return false;
+    if(sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,1}),0,0,{positions,8},&result)!=SfntStatus::ok || !result.matched || sfnt_gsub_replacement(result,0,&out)!=SfntStatus::ok || out!=65535)return false;
     if(sfnt_gsub_subtable_open({b,size},1,4,&sub)!=SfntStatus::malformed || sub.table.data)return false;
     // A compact coverage range validates modular output without expanding it.
     const u16 range[]{1,6,2,2,1,65534,65535,0};size=words(b,{range,8});input[0].glyph=65535;
-    if(sfnt_gsub_subtable_open({b,size},1,65536,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match(sub,{},filter,{input,1},0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=1)return false;
+    if(sfnt_gsub_subtable_open({b,size},1,65536,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,1}),0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=1)return false;
     const u16 two[]{2,10,2,2,3,1,2,1,4};size=words(b,{two,9});input[0].glyph=4;
-    if(sfnt_gsub_subtable_open({b,size},1,8,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match(sub,{},filter,{input,1},0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=3)return false;
+    if(sfnt_gsub_subtable_open({b,size},1,8,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,1}),0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=3)return false;
     const u16 sequence[]{1,8,1,14,1,1,1,3,2,3,4};size=words(b,{sequence,11});input[0].glyph=1;
-    if(sfnt_gsub_subtable_open({b,size},2,8,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match(sub,{},filter,{input,1},0,0,{positions,8},&result)!=SfntStatus::ok || result.output_count!=3)return false;
+    if(sfnt_gsub_subtable_open({b,size},2,8,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,1}),0,0,{positions,8},&result)!=SfntStatus::ok || result.output_count!=3)return false;
     for(u16 i=0;i<3;++i)if(sfnt_gsub_replacement(result,i,&out)!=SfntStatus::ok || out!=i+2)return false;
-    if(sfnt_gsub_subtable_open({b,size},3,8,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match(sub,{},filter,{input,1},0,1,{positions,8},&result)!=SfntStatus::ok || result.single!=3)return false;
-    if(sfnt_gsub_subtable_match(sub,{},filter,{input,1},0,3,{positions,8},&result)!=SfntStatus::ok || result.matched)return false;
-    put(b,14,0);if(sfnt_gsub_subtable_open({b,size},2,8,&sub)!=SfntStatus::malformed || sfnt_gsub_subtable_open({b,size},3,8,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match(sub,{},filter,{input,1},0,0,{positions,8},&result)!=SfntStatus::ok || result.matched)return false;
+    if(sfnt_gsub_subtable_open({b,size},3,8,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,1}),0,1,{positions,8},&result)!=SfntStatus::ok || result.single!=3)return false;
+    if(sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,1}),0,3,{positions,8},&result)!=SfntStatus::ok || result.matched)return false;
+    put(b,14,0);if(sfnt_gsub_subtable_open({b,size},2,8,&sub)!=SfntStatus::malformed || sfnt_gsub_subtable_open({b,size},3,8,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,1}),0,0,{positions,8},&result)!=SfntStatus::ok || result.matched)return false;
     SfntGsubSubtable peers[2]{};u8 second[32];copy_bytes(second,b,size);put(second,14,1);put(second,16,5);
-    if(sfnt_gsub_subtable_open({b,size},2,8,peers,1000000,nullptr,true)!=SfntStatus::ok||sfnt_gsub_subtable_match(peers[0],{},filter,{input,1},0,0,{positions,8},&result)!=SfntStatus::ok||result.matched)return false;
+    if(sfnt_gsub_subtable_open({b,size},2,8,peers,1000000,nullptr,true)!=SfntStatus::ok||sfnt_gsub_subtable_match_view(peers[0],{},filter,sfnt_glyph_view({input,1}),0,0,{positions,8},&result)!=SfntStatus::ok||result.matched)return false;
     if(sfnt_gsub_subtable_open({second,size},2,8,peers+1)!=SfntStatus::ok)return false;
-    SfntGsubLookup empty_then_valid{};empty_then_valid.subtables={peers,2};empty_then_valid.filter=filter;
-    if(sfnt_gsub_lookup_match(empty_then_valid,{}, {input,1},0,0,{positions,8},&result)!=SfntStatus::ok||!result.matched||result.output_count!=1||sfnt_gsub_replacement(result,0,&out)!=SfntStatus::ok||out!=5)return false;
-    size=ligature_fixture(b);if(sfnt_gsub_subtable_open({b,size},4,8,&sub)!=SfntStatus::ok || sub.max_inputs!=3)return false;
-    if(sfnt_gsub_subtable_match(sub,{},filter,{input,4},0,0,{positions,8},&result)!=SfntStatus::ok || !result.matched || result.single!=7 || result.input_count!=3 || result.last_input!=3 || positions[0]!=0 || positions[1]!=2 || positions[2]!=3)return false;
-    if(sfnt_gsub_subtable_match(sub,{},filter,{input,4},0,0,{positions,2},&result)!=SfntStatus::output_too_small || result.matched || result.input_count!=3 || result.replacements.data)return false;
-    if(sfnt_gsub_subtable_match(sub,{},filter,{input,4},0,0,{positions,8},&result,2)!=SfntStatus::resource_limit || result.matched)return false;
-    filter.flags=0;if(sfnt_gsub_subtable_match(sub,{},filter,{input,4},0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=5 || result.input_count!=1)return false;
+    if(sfnt_gsub_subtable_match_view(peers[1],{},filter,sfnt_glyph_view({input,1}),0,0,{positions,8},&result)!=SfntStatus::ok||!result.matched||result.output_count!=1||sfnt_gsub_replacement(result,0,&out)!=SfntStatus::ok||out!=5)return false;
+    size=ligature_fixture(b);if(sfnt_gsub_subtable_open({b,size},4,8,&sub)!=SfntStatus::ok)return false;
+    if(sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,4}),0,0,{positions,8},&result)!=SfntStatus::ok || !result.matched || result.single!=7 || result.input_count!=3 || result.last_input!=3 || positions[0]!=0 || positions[1]!=2 || positions[2]!=3)return false;
+    if(sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,4}),0,0,{positions,2},&result)!=SfntStatus::output_too_small || result.matched || result.input_count!=3 || result.replacements.data)return false;
+    if(sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,4}),0,0,{positions,8},&result,2)!=SfntStatus::resource_limit || result.matched)return false;
+    filter.flags=0;if(sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,4}),0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=5 || result.input_count!=1)return false;
     // Prefer the first matching record, even when a later record is longer.
-    put(b,16,16);put(b,18,8);filter.flags=8;if(sfnt_gsub_subtable_open({b,size},4,8,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match(sub,{},filter,{input,4},0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=6 || result.input_count!=2 || result.last_input!=2)return false;
+    put(b,16,16);put(b,18,8);filter.flags=8;if(sfnt_gsub_subtable_open({b,size},4,8,&sub)!=SfntStatus::ok || sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,4}),0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=6 || result.input_count!=2 || result.last_input!=2)return false;
     size=ligature_fixture(b);if(sfnt_gsub_subtable_open({b,size},4,8,&sub)!=SfntStatus::ok)return false;
     u8 gd[36]{};put(gd,0,1);put(gd,2,2);put(gd,10,14);put(gd,12,22);put(gd,14,1);put(gd,16,4);put(gd,18,1);put(gd,20,2);put(gd,22,1);put(gd,24,1);byte_store_be32(gd+26,8);put(gd,30,1);put(gd,32,1);put(gd,34,3);SfntGdef gdef{};
     if(sfnt_gdef_open({gd,36},8,&gdef)!=SfntStatus::ok)return false;
     const u16 flags[]{0x100,0x200,0x210,0x208};const u16 wanted[]{7,5,7,7};
-    for(u32 i=0;i<4;++i)if(sfnt_lookup_filter_prepare(gdef,flags[i],0,&filter)!=SfntStatus::ok || sfnt_gsub_subtable_match(sub,gdef,filter,{input,4},0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=wanted[i])return false;
-    for(u32 extension=0;extension<2;++extension){size=lookup_fixture(b,extension!=0);SfntLayout layout{};SfntGsubSubtable storage[2];SfntGsubLookup lookup{};
-        if(sfnt_layout_open({b,size},SfntLayoutKind::substitution,&layout)!=SfntStatus::ok || sfnt_gsub_lookup_prepare(layout,0,{},8,{storage,1},&lookup)!=SfntStatus::output_too_small || lookup.subtables.data)return false;
-        if(sfnt_gsub_lookup_prepare(layout,0,{},8,{storage,2},&lookup)!=SfntStatus::ok || sfnt_gsub_lookup_match(lookup,{}, {input,1},0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=2)return false;
-        if(sfnt_gsub_lookup_match(lookup,{}, {input,1},0,0,{},&result)!=SfntStatus::output_too_small || result.input_count!=1)return false;
-        // An identity substitution is still a match and stops the lookup.
-        put(b,extension?38:30,0);if(sfnt_layout_open({b,size},SfntLayoutKind::substitution,&layout)!=SfntStatus::ok || sfnt_gsub_lookup_prepare(layout,0,{},8,{storage,2},&lookup)!=SfntStatus::ok || sfnt_gsub_lookup_match(lookup,{}, {input,1},0,0,{positions,8},&result)!=SfntStatus::ok || !result.matched || result.single!=1)return false;
+    for(u32 i=0;i<4;++i)if(sfnt_lookup_filter_prepare(gdef,flags[i],0,&filter)!=SfntStatus::ok || sfnt_gsub_subtable_match_view(sub,gdef,filter,sfnt_glyph_view({input,4}),0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=wanted[i])return false;
+    // Lookup preparation resolves extension subtables; the first subtable maps glyph 1.
+    for(u32 extension=0;extension<2;++extension){size=lookup_fixture(b,extension!=0);SfntLayout layout{};SfntGsubExecutableSubtable storage[2];SfntGsubExecutableLookup lookup{};
+        if(sfnt_layout_open({b,size},SfntLayoutKind::substitution,&layout)!=SfntStatus::ok || sfnt_gsub_prepare_lookup(layout,0,{},8,{{storage,1},{},{}},&lookup)!=SfntStatus::output_too_small || lookup.type)return false;
+        if(sfnt_gsub_prepare_lookup(layout,0,{},8,{{storage,2},{},{}},&lookup)!=SfntStatus::ok || lookup.subtables.count!=2 || sfnt_gsub_subtable_match_view(lookup.subtables[0].basic,{},lookup.filter,sfnt_glyph_view({input,1}),0,0,{positions,8},&result)!=SfntStatus::ok || result.single!=2)return false;
+        if(sfnt_gsub_subtable_match_view(lookup.subtables[0].basic,{},lookup.filter,sfnt_glyph_view({input,1}),0,0,{},&result)!=SfntStatus::output_too_small || result.input_count!=1)return false;
+        // An identity substitution is still a match.
+        put(b,extension?38:30,0);if(sfnt_layout_open({b,size},SfntLayoutKind::substitution,&layout)!=SfntStatus::ok || sfnt_gsub_prepare_lookup(layout,0,{},8,{{storage,2},{},{}},&lookup)!=SfntStatus::ok || sfnt_gsub_subtable_match_view(lookup.subtables[0].basic,{},lookup.filter,sfnt_glyph_view({input,1}),0,0,{positions,8},&result)!=SfntStatus::ok || !result.matched || result.single!=1)return false;
     }
     size=ligature_fixture(b);put(b,24,0);if(sfnt_gsub_subtable_open({b,size},4,8,&sub)!=SfntStatus::malformed)return false;
     size=ligature_fixture(b);put(b,28,8);if(sfnt_gsub_subtable_open({b,size},4,8,&sub)!=SfntStatus::malformed)return false;
@@ -99,7 +99,7 @@ bool guards() noexcept {
     u8 seeds[3][80]{};const u16 single[]{2,10,2,2,3,1,2,1,4},sequence[]{1,8,1,14,1,1,1,3,2,3,4};
     const u32 sizes[]{words(seeds[0],{single,9}),words(seeds[1],{sequence,11}),ligature_fixture(seeds[2])};u32 random=0xf3629ee3;SfntGsubGlyph input[]{{1,SfntGlyphClass::base,0},{4,SfntGlyphClass::mark,0},{2,SfntGlyphClass::base,0},{3,SfntGlyphClass::base,0}};u32 positions[4];SfntLookupFilter filter{{},8};
     for(u32 i=0;i<20000;++i){random^=random<<13;random^=random>>17;random^=random<<5;const u32 seed=i%3,total=sizes[seed],size=i<123?minimum(i/3,total):random%(total+1);u8* b=mem+page-size;for(u32 j=0;j<size;++j)b[j]=seeds[seed][j];if(i>=123 && size)b[(random>>8)%size]^=static_cast<u8>(random>>16);
-        for(u16 type=1;type<=4;++type){SfntGsubSubtable sub{};const auto status=sfnt_gsub_subtable_open({b,size},type,8,&sub,1000);observe(status);if(status==SfntStatus::ok){SfntGsubMatch result{};observe(sfnt_gsub_subtable_match(sub,{},filter,{input,4},0,random%4,{positions,4},&result,100));if(result.matched)for(u16 k=0;k<result.output_count;++k){u16 glyph=0;observe(sfnt_gsub_replacement(result,k,&glyph));observations=observations+glyph;}}}
+        for(u16 type=1;type<=4;++type){SfntGsubSubtable sub{};const auto status=sfnt_gsub_subtable_open({b,size},type,8,&sub,1000);observe(status);if(status==SfntStatus::ok){SfntGsubMatch result{};observe(sfnt_gsub_subtable_match_view(sub,{},filter,sfnt_glyph_view({input,4}),0,random%4,{positions,4},&result,100));if(result.matched)for(u16 k=0;k<result.output_count;++k){u16 glyph=0;observe(sfnt_gsub_replacement(result,k,&glyph));observations=observations+glyph;}}}
     }
     VirtualFree(mem,0,MEM_RELEASE);return true;
 }
@@ -107,22 +107,22 @@ struct Reader {const u8* data;u32 size,at;
     bool word(u32* v) noexcept {if(size-at<4)return false;*v=byte_load_le32(data+at);at+=4;return true;}
     bool take(u32 n,const u8** v) noexcept {if(n>size-at)return false;*v=data+at;at+=n;return true;}
 };
-u32 mapping[65536];SfntGsubGlyph glyphs[65536];u32 consumed[65536];SfntGsubSubtable lookup_storage[65535];
+u32 mapping[65536];SfntGsubGlyph glyphs[65536];u32 consumed[65536];SfntGsubExecutableSubtable lookup_storage[65535];
 bool corpus(const wchar_t* path) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;LARGE_INTEGER len{};
     if(!GetFileSizeEx(file,&len) || len.QuadPart<12 || len.QuadPart>0xffffffffll){CloseHandle(file);return false;}HANDLE map=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!map){CloseHandle(file);return false;}
     auto* bytes=static_cast<const u8*>(MapViewOfFile(map,FILE_MAP_READ,0,0,0));Reader r{bytes,static_cast<u32>(len.QuadPart),8};u32 fonts=0,failures=0,type_counts[5]{};u64 queries=0,replacements=0,ligature_queries=0,prepared_lookups=0,coverage_checks=0;
     bool ok=bytes && bytes_equal(bytes,"MCGSUB1",8) && r.word(&fonts) && fonts>0;
     for(u32 font=0;font<fonts && ok;++font){u32 limit=0,size=0,gdef_size=0,count=0;const u8 *raw=nullptr,*gd=nullptr;ok=r.word(&limit)&&r.word(&size)&&r.word(&gdef_size)&&r.word(&count)&&limit>0&&limit<=65536&&count<=1000000&&r.take(size,&raw)&&r.take(gdef_size,&gd);if(!ok)break;
-        SfntLayout layout{};SfntGdef gdef{};bool match=sfnt_layout_open({raw,size},SfntLayoutKind::substitution,&layout)==SfntStatus::ok && (!gdef_size || sfnt_gdef_open({gd,gdef_size},limit,&gdef)==SfntStatus::ok);if(!match && !count)++failures;u32 last_lookup=0xffffffff;SfntGsubLookup prepared{};
+        SfntLayout layout{};SfntGdef gdef{};bool match=sfnt_layout_open({raw,size},SfntLayoutKind::substitution,&layout)==SfntStatus::ok && (!gdef_size || sfnt_gdef_open({gd,gdef_size},limit,&gdef)==SfntStatus::ok);if(!match && !count)++failures;u32 last_lookup=0xffffffff;SfntGsubExecutableLookup prepared{};
         for(u32 record=0;record<count && ok;++record){u32 type=0,offset=0,li=0,si=0,flags=0,markset=0,n=0;ok=r.word(&type)&&r.word(&offset)&&r.word(&li)&&r.word(&si)&&r.word(&flags)&&r.word(&markset)&&r.word(&n)&&type>=1&&type<=4&&offset<size&&li<=65535&&si<=65535&&flags<=65535&&markset<=65535&&n<=limit;if(!ok)break;
             for(u32 gid=0;gid<limit;++gid)mapping[gid]=0xffffffff;
             for(u32 i=0;i<n && ok;++i){u32 gid=0,outputs=0;ok=r.word(&gid)&&gid<limit&&mapping[gid]==0xffffffff;if(!ok)break;mapping[gid]=r.at;
                 if(type<4){ok=r.word(&outputs)&&outputs<=65535&&(type!=1 || outputs==1)&&(type!=2 || outputs>0);const u8* values=nullptr;ok=ok&&r.take(outputs*4,&values);if(ok)for(u32 j=0;j<outputs;++j)if(byte_load_le32(values+j*4)>=limit)ok=false;}}
             SfntGsubSubtable sub{};const auto status=sfnt_gsub_subtable_open({raw+offset,size-offset},static_cast<u16>(type),limit,&sub);if(status!=SfntStatus::ok || sub.coverage.covered_count!=n)match=false;
             SfntLookupFilter filter{};if(sfnt_lookup_filter_prepare(gdef,static_cast<u16>(flags),static_cast<u16>(markset),&filter)!=SfntStatus::ok)match=false;
-            if(li!=last_lookup){if(sfnt_gsub_lookup_prepare(layout,static_cast<u16>(li),gdef,limit,{lookup_storage,65535},&prepared)!=SfntStatus::ok)match=false;last_lookup=li;++prepared_lookups;}
-            if(si>=prepared.subtables.count || prepared.subtables.data[si].table.data!=raw+offset || prepared.subtables.data[si].type!=type || prepared.filter.flags!=flags)match=false;
+            if(li!=last_lookup){if(sfnt_gsub_prepare_lookup(layout,static_cast<u16>(li),gdef,limit,{{lookup_storage,65535},{},{}},&prepared)!=SfntStatus::ok)match=false;last_lookup=li;++prepared_lookups;}
+            if(si>=prepared.subtables.count || prepared.subtables.data[si].basic.table.data!=raw+offset || prepared.subtables.data[si].basic.type!=type || prepared.filter.flags!=flags)match=false;
             if(status==SfntStatus::ok)for(u32 gid=0;gid<limit;++gid){const bool covered=mapping[gid]!=0xffffffff;if((sfnt_coverage_index(sub.coverage,static_cast<u16>(gid))!=sfnt_not_covered)!=covered)match=false;++coverage_checks;if(type==4 && covered)continue;const u32 outputs=covered?byte_load_le32(bytes+mapping[gid]):0;
                 const u32 choices=type==3 && covered?outputs+1:1;glyphs[0]={static_cast<u16>(gid),SfntGlyphClass::unassigned,0};
                 for(u32 choice=0;choice<choices;++choice){SfntGsubMatch result{};const bool expected_match=covered && (type!=3 || choice<outputs);const u32 expected_count=expected_match?(type==2?outputs:1):0;

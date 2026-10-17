@@ -69,7 +69,6 @@ bool plugin_call_end(PluginCallLedger*, PluginCallTicket) noexcept;
 bool plugin_call_ledger_disable_requested(const PluginCallLedger*, u64 owner_id) noexcept;
 // Returns one owner whose disable is pending and clears its request, or zero.
 u64 plugin_call_ledger_take_disable(PluginCallLedger*) noexcept;
-const PluginCallLedgerEntry* plugin_call_ledger_find(const PluginCallLedger&, u64 owner_id) noexcept;
 // Fresh accounting for an owner that was enabled again.
 void plugin_call_ledger_forget(PluginCallLedger*, u64 owner_id) noexcept;
 

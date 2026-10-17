@@ -597,9 +597,12 @@ void test_detail_store() noexcept {
     const bool third = guild_detail_store_apply(&store, input);
     const auto* one = guild_detail_store_find(store, 1);
     const auto* two = guild_detail_store_find(store, 2);
+    const auto description = [&](const GuildDetailRecord& record) noexcept {
+        return Utf8View{store.text + record.text_offset, record.description_bytes};
+    };
     check(first && second && third && one && two &&
-              utf8_equal(guild_detail_store_description(store, *one), utf8_literal("cccccccccccccccccccccc")) &&
-              utf8_equal(guild_detail_store_description(store, *two), utf8_literal("bbbbbbbbbbbbbbb")) &&
+              utf8_equal(description(*one), utf8_literal("cccccccccccccccccccccc")) &&
+              utf8_equal(description(*two), utf8_literal("bbbbbbbbbbbbbbb")) &&
               store.text_used == 37,
           "detail store: a rewrite that no longer fits compacts the bank and keeps every text");
     constexpr u8 names[] = "\x0A" "VANITY_URL";
@@ -612,7 +615,7 @@ void test_detail_store() noexcept {
     check(guild_detail_store_apply(&store, input) && (two = guild_detail_store_find(store, 2)) &&
               two->features == guild_feature_vanity_url && !two->feature_names_kept &&
               !(two->known & guild_detail_features) &&
-              utf8_equal(guild_detail_store_description(store, *two), utf8_literal("bbbbbbbbbbbbbbb")),
+              utf8_equal(description(*two), utf8_literal("bbbbbbbbbbbbbbb")),
           "detail store: names that cannot fit are dropped first, keeping the bits and the description");
     input.feature_count = 2;
     check(!guild_detail_store_apply(&store, input), "detail store: a miscounted name run is refused");

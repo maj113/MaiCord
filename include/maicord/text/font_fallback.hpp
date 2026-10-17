@@ -45,12 +45,5 @@ constexpr SfntStatus native_fallback_cascade_open(ConstSlice<NativeFallbackRange
 // missing; invalid input/errors clear output. Work counts binary comparisons.
 SfntStatus native_fallback_cascade_find(const NativeFallbackCascade&,u32 scalar,u32* range_index,
     u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
-// Only use an unchanged successful open result. Invalid scalars are rejected.
-// Returns the first available token covering the scalar, or missing on a normal
-// miss; errors also clear output to missing. Budget counts range comparisons and
-// callback attempts, not callback internals. Variation-selector attachment belongs
-// to the range stage.
-SfntStatus native_fallback_cascade_select(const NativeFallbackCascade&,u32 scalar,NativeFallbackCoverage,void* context,
-    u32* token,u32 work_limit=1000000,u32* work_used=nullptr) noexcept;
 static_assert(sizeof(NativeFallbackRange)==8&&sizeof(NativeFallbackCascade)==40);
 }

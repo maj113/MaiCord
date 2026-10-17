@@ -502,8 +502,9 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
     check(primary && blend && veil, "profile_theme_paints_gradient_border_and_dark_overlay");
     UiTextCommand profile_commands[256]{};
     UiTextCommandStream profile_text{};
+    UiTextOutput profile_text_output{&profile_text, nullptr};
     bool local_foreground = ui_text_command_stream_initialize(&profile_text, {profile_commands, 256}) &&
-                            profile_scene_text(scene, kLightTheme, &profile_text);
+                            profile_scene_text_output(scene, kLightTheme, &profile_text_output, nullptr);
     bool has_profile_text = false, has_light_text = false;
     for (u32 i = 0; local_foreground && i < profile_text.count; ++i) {
         has_profile_text |= profile_commands[i].color.red == kDefaultTheme.tokens.profile.text.red &&
@@ -634,12 +635,13 @@ void test_profile_appearance(void (*check)(bool, const char*) noexcept) noexcept
         scene.measure = &cache;
         UiTextCommand commands[320]{};
         UiTextCommandStream text{};
+        UiTextOutput text_output{&text, nullptr};
         bool contained = profile_scene_layout(&scene, label_viewport, true) && scene.part_count > 5 &&
             utf8_equal(scene.bio_display.view(), utf8_literal("About me unavailable")) &&
             scene.bio_style_count == 1 && !scene.bio_semantic_count && !scene.bio_signature &&
             utf8_equal(profile.bio.view(), biography) &&
             ui_text_command_stream_initialize(&text, {commands, 320}) &&
-            profile_scene_text(scene, kDefaultTheme, &text) && text.count;
+            profile_scene_text_output(scene, kDefaultTheme, &text_output, nullptr) && text.count;
         bool biography_command = false;
         for (u32 i = 0; i < text.count; ++i)
             biography_command |= commands[i].owner.handle.slot == scene.bio_widget.slot &&
@@ -1046,11 +1048,12 @@ void test_profile_theme_preview(Check check) noexcept {
     }
     UiTextCommand commands[128]{};
     UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     check(ok && s.rectangle.left == 50 && s.rectangle.top == 60 && ui_rect_width(s.rectangle) == 300 &&
               s.preview_height == ui_rect_height(s.rectangle) && s.preview_height > 140 && !controls && bio &&
               s.themed && !s.edit.active && !profile_scene_hit_test(s, 100, 100).generation &&
               ui_text_command_stream_initialize(&text, {commands, 128}) &&
-              profile_scene_text(s, kDefaultTheme, &text, nullptr) && text.count > 2,
+              profile_scene_text_output(s, kDefaultTheme, &text_output, nullptr) && text.count > 2,
           "profile preview: popout card at the anchor, clamped bio, no controls, height published");
     bool avatar = false, banner = false;
     for (u32 i = 0; i < s.part_count; ++i) {
@@ -1107,8 +1110,9 @@ void test_profile_theme_preview(Check check) noexcept {
              layer.clip.bottom == s.effect_area.bottom;
     UiTextCommand scrolled[128]{};
     UiTextCommandStream scrolled_text{};
+    UiTextOutput scrolled_text_output{&scrolled_text, nullptr};
     inside = inside && ui_text_command_stream_initialize(&scrolled_text, {scrolled, 128}) &&
-             profile_scene_text(s, kDefaultTheme, &scrolled_text, nullptr);
+             profile_scene_text_output(s, kDefaultTheme, &scrolled_text_output, nullptr);
     for (u32 i = 0; inside && i < scrolled_text.count; ++i)
         inside = !ui_rect_has_area(scrolled[i].clip) || scrolled[i].clip.top >= page.top;
     check(inside && media_count >= 2,

@@ -96,7 +96,7 @@ GatewayReconnectDelay gateway_reconnect_next(GatewayReconnectBackoff* backoff, u
         ceiling = 30'000;
     }
     saturating_increment(backoff->attempt);
-    return GatewayReconnectDelay{scale_inclusive(random, ceiling), ceiling};
+    return GatewayReconnectDelay{scale_inclusive(random, ceiling)};
 }
 
 void gateway_reconnect_reset(GatewayReconnectBackoff* backoff) noexcept {

@@ -2,17 +2,7 @@
 #include "maicord/ui/widget_manager.hpp"
 
 namespace maicord {
-bool ui_widget_manager_set_anchors(UiWidgetManager* manager, UiWidgetHandle handle,
-                                   UiRect region) noexcept {
-    const auto* widget = ui_widget_manager_resolve(manager, handle);
-    return widget && ui_layout_engine_set_anchors(&manager->layout, widget->layout, region).ok();
-}
-
 namespace {
-
-bool handle_equal(UiWidgetHandle left, UiWidgetHandle right) noexcept {
-    return left.slot == right.slot && left.generation == right.generation;
-}
 
 bool widget_focusable(const UiWidgetManager& manager, const UiWidget& widget) noexcept {
     if (!(widget.flags & ui_widget_focusable))

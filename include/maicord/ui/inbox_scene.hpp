@@ -104,6 +104,4 @@ bool ui_inbox_scene_text_output(const UiInboxScene&, const Theme&, UiTextOutput*
 // Unreads: a channel row's check button paints only while the row or the
 // button is hovered or focused; it stays hit-testable and in the focus order.
 bool ui_inbox_scene_channel_action_visible(const UiInboxScene&, u32 slot) noexcept;
-// Visible slot's mark-read button (server "Mark all read" or channel check).
-UiRect ui_inbox_scene_action_rectangle(const UiInboxScene&, u32 slot) noexcept;
 } // namespace maicord

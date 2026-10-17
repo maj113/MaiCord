@@ -1201,8 +1201,6 @@ void application_notifications_message(void* context,const GatewayClientEvent& e
     input.everyone_mention=(event.message.mention_flags&gateway_client_message_mention_everyone)!=0;
     input.focused=focused(*a,n);
     input.selected=policy_channel->id==state.selected_channel_id;
-    input.desktop_enabled=has_popup_sink;
-    input.sound_enabled=n.audio_preference && audio_sink(n);
     // Account host currently exports no local RTCConnectionStore channel fact.
     // Do not mistake self voice states from another client for this process.
     input.current_voice_channel_known=false;

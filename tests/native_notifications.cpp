@@ -179,7 +179,7 @@ void test_native_notifications(void (*check)(bool,const char*) noexcept) noexcep
         check(queued&&FAILED(callback->Activate(L"MaiCord.Probe.Unit",args,nullptr,0)),"toast callback accepts8 and explicitly refuses overflow");
         args[6]=L'0';bool copied=true;for(u32 i=0;i<8;++i){DesktopNotificationActivation a{};copied=copied&&desktop_notifications_take_activation(&owner,&a)&&a.profile_id==target.profile_id&&a.channel_id==target.channel_id&&a.message_id==target.message_id;}
         check(copied&&!desktop_notifications_take_activation(&owner,&parsed),"toast queue owns copied records and drains exactly8");
-        check(!desktop_notifications_show(&owner,p).ok(),"toast nonenrolled probe cannot emit an OS notification");
+        check(!desktop_notifications_show_once(&owner,p).result.ok(),"toast nonenrolled probe cannot emit an OS notification");
         copy_bytes(args,original,sizeof(args));callback->Activate(L"MaiCord.Probe.Unit",args,nullptr,0);desktop_notifications_discard_activations(&owner);
         check(!desktop_notifications_take_activation(&owner,&parsed),"toast profile switch discards pending copied activation");
     }

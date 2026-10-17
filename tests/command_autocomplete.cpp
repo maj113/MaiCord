@@ -54,9 +54,9 @@ void test_command_autocomplete(void (*check)(bool, const char*) noexcept) noexce
 
     CommandAutocomplete state{};
     check(command_autocomplete_observe(&state, {7, 100, 10}, 1000) &&
-              command_autocomplete_next_wake(state) == 1150 &&
+              state.phase == CommandAutocompletePhase::debounce && state.due_at == 1150 &&
               !command_autocomplete_begin(&state, 1, 1149) && command_autocomplete_begin(&state, 1, 1150) &&
-              command_autocomplete_next_wake(state) == 6150,
+              state.phase == CommandAutocompletePhase::waiting && state.deadline == 6150,
           "autocomplete debounce and response deadlines are explicit");
     check(command_autocomplete_observe(&state, {7, 100, 11}, 1200) && state.nonce == 0 &&
               !command_autocomplete_accept(
@@ -76,8 +76,7 @@ void test_command_autocomplete(void (*check)(bool, const char*) noexcept) noexce
     check(state.phase == CommandAutocompletePhase::ready && state.suggestions.count == 2 &&
               utf8_equal(state.suggestions.choices[0].name, utf8_literal("New \xc3\xa9")) &&
               utf8_equal(state.suggestions.choices[0].value, utf8_literal("quote\"value")) &&
-              state.suggestions.choices[1].kind == JsonValueKind::number &&
-              !command_autocomplete_next_wake(state),
+              state.suggestions.choices[1].kind == JsonValueKind::number && !state.deadline,
           "suggestions retain decoded text and typed values with no idle wake");
     check(!command_autocomplete_transport(&state, 2, false) &&
               state.phase == CommandAutocompletePhase::ready,
@@ -92,7 +91,7 @@ void test_command_autocomplete(void (*check)(bool, const char*) noexcept) noexce
               &state, utf8_literal(R"({"nonce":"3","choices":[{"name":"bad","value":{}}]})"),
               {scratch, 2048}) &&
               !command_autocomplete_tick(&state, 6549) && command_autocomplete_tick(&state, 6550) &&
-              state.phase == CommandAutocompletePhase::failed && !command_autocomplete_next_wake(state),
+              state.phase == CommandAutocompletePhase::failed && !state.deadline,
           "invalid responses time out without a polling loop");
     command_autocomplete_observe(&state, {8, 100, 12}, 7000);
     command_autocomplete_begin(&state, 4, 7150);
@@ -115,7 +114,7 @@ void test_command_autocomplete(void (*check)(bool, const char*) noexcept) noexce
               state.suggestions.storage.base == previous_storage && !state.suggestions.count,
           "over-limit suggestions are rejected transactionally");
     command_autocomplete_cancel(&state);
-    check(!command_autocomplete_next_wake(state) && !state.suggestions.storage.base &&
+    check(state.phase == CommandAutocompletePhase::idle && !state.suggestions.storage.base &&
               !command_autocomplete_accept(&state, utf8_literal(R"({"nonce":"4","choices":[]})"),
                                            {scratch, 2048}),
           "closing picker cancels delayed replies and releases result storage");

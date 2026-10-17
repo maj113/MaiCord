@@ -490,7 +490,7 @@ void run() noexcept {
               parent.type == 15 && parent.flags == 16 && parent.fields == 7 &&
               parent.default_auto_archive_duration == 1440 && parent.tag_count == 2 &&
               parent.tags[0].id == 100 && !parent.tags[0].moderated && parent.tags[1].moderated &&
-              utf8_equal(forum_parent_name_view(parent), utf8_literal("Forum \xE6\x97\xA5")) &&
+              utf8_equal(Utf8View{parent.name, parent.name_bytes}, utf8_literal("Forum \xE6\x97\xA5")) &&
               utf8_equal(forum_tag_name_view(parent.tags[0]), utf8_literal("Help")),
           "forum post: exact owning fresh forum metadata and moderated inventory");
     const auto owned_parent = parent;

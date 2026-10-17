@@ -17,7 +17,7 @@ struct NotificationRetention {
     u32 count{};
 };
 enum class NotificationRetentionError : u8 {
-    none, invalid_input, full_channels, output_too_small
+    none, invalid_input, full_channels
 };
 struct NotificationRetentionRoom {
     NotificationRetentionError error{};
@@ -29,11 +29,6 @@ struct NotificationRetentionAppend {
     NotificationRetentionError error{};
     u64 evicted_ticket{};
     bool evicted{};
-    bool ok() const noexcept { return error == NotificationRetentionError::none; }
-};
-struct NotificationRetentionTake {
-    NotificationRetentionError error{};
-    u32 count{};
     bool ok() const noexcept { return error == NotificationRetentionError::none; }
 };
 // One owning event-loop thread. No allocation, clock, OS calls, account policy,
@@ -53,10 +48,5 @@ NotificationRetentionRoom notification_retention_room(const NotificationRetentio
 // The 21st success returns the oldest ticket after retiring it from metadata.
 NotificationRetentionAppend notification_retention_append(NotificationRetention*, u64 channel, u64 ticket) noexcept;
 bool notification_retention_ticket(const NotificationRetention*, u64 channel, u32 ordinal, u64* ticket) noexcept;
-// Copies FIFO tickets and deletes the channel before returning, so external
-// close calls never borrow storage and cannot leave a half-retired channel.
-NotificationRetentionTake notification_retention_remove_channel(NotificationRetention*, u64 channel, Slice<u64>) noexcept;
 NotificationRetentionError notification_retention_discard_channel(NotificationRetention*, u64 channel) noexcept;
-// Retains caller storage, clears all metadata. Caller owns account/lifetime rules.
-NotificationRetentionError notification_retention_reset(NotificationRetention*) noexcept;
 } // namespace maicord

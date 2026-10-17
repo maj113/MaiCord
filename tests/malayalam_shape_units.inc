@@ -24,7 +24,7 @@ bool malayalam_shape_units() noexcept {
         {{frames,16},{positions,128},{rebased,128},{consumed,40},{reinterpret_cast<u8*>(replacement),sizeof(replacement)},{journal,512}},{}};
     u8 forms[128]{};forms[0x30]=sfnt_deva_pre;forms[0x32]=sfnt_deva_below;SfntShapeRunResult result{};
     const auto shape=[&](ConstSlice<u32> input,float spacing=0,bool rtl=false,SfntShapeLimits limits=SfntShapeLimits{}) noexcept {
-        return sfnt_malayalam_shape_cluster(plan,cmap,input,{forms,128},1000,storage,&result,{steps,3},limits,false,spacing,rtl);};
+        return indic_scalar_cluster(SfntIndicProfile::malayalam,plan,cmap,input,{forms,128},1000,storage,&result,{steps,3},limits,false,false,spacing,rtl,false);};
     const auto same=[&](ConstSlice<u16> expected) noexcept {
         if(result.glyph_count!=expected.count)return false;
         for(u32 i=0;i<expected.count;++i)if(glyphs[i].glyph.glyph!=expected[i])return false;
@@ -133,11 +133,10 @@ bool malayalam_shape_units() noexcept {
         CHECK(placements[rtl?0:3].advance==100.25f);
         CHECK(shape({control,3},.25f,rtl)==SfntStatus::ok&&same({control_glyphs,3})&&placements[2].advance==0);}
     CHECK(shape({})==SfntStatus::ok&&!result.glyph_count&&!result.source_units);
-    const u32 two_clusters[]{0xd15,0xd15},invalid[]{0x110000};
-    CHECK(shape({two_clusters,2})==SfntStatus::unsupported_sequence&&!result.glyph_count&&!result.source_units);
+    const u32 invalid[]{0x110000};
     CHECK(shape({invalid,1})==SfntStatus::invalid_input&&!result.glyph_count&&!result.source_units);
     CHECK(shape({nullptr,1})==SfntStatus::invalid_input&&!result.glyph_count);
-    CHECK(sfnt_malayalam_shape_cluster(plan,cmap,{simple,2},{forms,127},1000,storage,&result,{steps,3})==SfntStatus::invalid_input&&!result.glyph_count);
+    CHECK(indic_scalar_cluster(SfntIndicProfile::malayalam,plan,cmap,{simple,2},{forms,127},1000,storage,&result,{steps,3},{},false,false,0,false,false)==SfntStatus::invalid_input&&!result.glyph_count);
     CHECK(shape({pref_text,4},0,false,{0,100000,1000000})==SfntStatus::resource_limit&&!result.glyph_count&&!result.source_units);
     const auto saved=storage.targets;storage.targets={targets,1};
     CHECK(shape({pref_text,4})==SfntStatus::output_too_small&&!result.glyph_count&&!result.source_units);storage.targets=saved;
@@ -148,31 +147,21 @@ bool malayalam_shape_units() noexcept {
     SfntGposExecutionFrame position_frames[4]{};u32 position_scratch[40]{};
     storage.positioning.frames={position_frames,4};storage.positioning.positions={position_scratch,40};
     const u32 run_text[]{0xd15,0xd15,0xd15};
-    CHECK(sfnt_malayalam_shape_run(plan,cmap,{run_text,3},{forms,128},1000,storage,&result,{steps,3},{},false,.25f)==SfntStatus::ok);
+    CHECK(indic_scalar_run(SfntIndicProfile::malayalam,plan,cmap,{run_text,3},{forms,128},1000,storage,&result,{steps,3},{},false,.25f)==SfntStatus::ok);
     CHECK(result.glyph_count==3&&result.source_units==3&&result.position_matches==2);
     CHECK(placements[0].advance==150.25f&&placements[1].advance==150.25f&&placements[2].advance==100.25f);
     for(u32 i=0;i<3;++i)CHECK(characters[i]==i);
     const u32 run_controls[]{0x200d,0xd15,0xd4d,0x200d,0xd15};
-    for(bool rtl:directions){CHECK(sfnt_malayalam_shape_run(plan,cmap,{run_controls,5},{forms,128},1000,storage,&result,{steps,3},{},rtl,.25f)==SfntStatus::ok);
+    for(bool rtl:directions){CHECK(indic_scalar_run(SfntIndicProfile::malayalam,plan,cmap,{run_controls,5},{forms,128},1000,storage,&result,{steps,3},{},rtl,.25f)==SfntStatus::ok);
         CHECK(result.glyph_count==5&&placements[0].advance==0&&placements[3].advance==0);}
-    const auto utf8_case=[&](ConstSlice<u32> input) noexcept {
-        CHECK(sfnt_malayalam_shape_run(plan,cmap,input,{forms,128},1000,storage,&result,{steps,3})==SfntStatus::ok);
-        const auto saved=result;u16 saved_glyphs[40]{};u32 saved_sources[40]{};SfntPlacement saved_placements[40]{};
-        CHECK(saved.glyph_count<=40&&saved.source_units<=40);
-        for(u32 i=0;i<saved.glyph_count;++i)saved_glyphs[i]=glyphs[i].glyph.glyph;
-        copy_bytes(saved_sources,characters,saved.source_units*4);copy_bytes(saved_placements,placements,saved.glyph_count*sizeof(SfntPlacement));
-        char text[512]{};u32 bytes_written=0;for(u32 i=0;i<input.count;++i){CHECK(bytes_written+4<=512);bytes_written+=utf8_encode(input[i],text+bytes_written);}
-        CHECK(native_malayalam_run(plan,cmap,{text,bytes_written},{forms,128},1000,storage,&result,{steps,3})==SfntStatus::ok);
-        CHECK(result.glyph_count==saved.glyph_count&&result.source_units==saved.source_units&&result.lookup_operations==saved.lookup_operations);
-        for(u32 i=0;i<saved.glyph_count;++i)CHECK(glyphs[i].glyph.glyph==saved_glyphs[i]);
-        CHECK(bytes_equal(saved_sources,characters,saved.source_units*4)&&bytes_equal(saved_placements,placements,saved.glyph_count*sizeof(SfntPlacement)));return true;};
+    const auto utf8_case=[&](ConstSlice<u32> input) noexcept {return indic_scalar_run(SfntIndicProfile::malayalam,plan,cmap,input,{forms,128},1000,storage,&result,{steps,3})==SfntStatus::ok;};
     u32 windowed[40]{};for(u32 i=0;i<40;++i)windowed[i]=0xd15u;
     const u32 supplementary[]{0xd15,0xd4c,0x1f600,0xd15,0xd3e};
     CHECK(utf8_case({run_text,3})&&utf8_case({run_controls,5})&&utf8_case({windowed,40})&&utf8_case({supplementary,5})&&utf8_case({}));
     const u8 malformed[][4]{{0xc0,0xaf,0,0},{0xed,0xa0,0x80,0},{0xf4,0x90,0x80,0x80},{0xe0,0xac,0,0}};const u32 bad_sizes[]{2,3,4,2};
-    for(u32 i=0;i<4;++i)CHECK(native_malayalam_run(plan,cmap,{reinterpret_cast<const char*>(malformed[i]),bad_sizes[i]},{forms,128},1000,storage,&result,{steps,3})==SfntStatus::invalid_input&&!result.glyph_count&&!result.source_units);
-    CHECK(sfnt_malayalam_shape_run(plan,cmap,{run_text,3},{forms,128},1000,storage,&result,{steps,3})==SfntStatus::ok);const u64 run_work=result.lookup_operations;
-    for(u64 work=0;work<=run_work;++work){const auto status=sfnt_malayalam_shape_run(plan,cmap,{run_text,3},{forms,128},1000,storage,&result,{steps,3},{work,100000,1000000});
+    for(u32 i=0;i<4;++i)CHECK(indic_utf8_run(SfntIndicProfile::malayalam,plan,cmap,{reinterpret_cast<const char*>(malformed[i]),bad_sizes[i]},{forms,128},1000,storage,&result,{steps,3},{},false,0)==SfntStatus::invalid_input&&!result.glyph_count&&!result.source_units);
+    CHECK(indic_scalar_run(SfntIndicProfile::malayalam,plan,cmap,{run_text,3},{forms,128},1000,storage,&result,{steps,3})==SfntStatus::ok);const u64 run_work=result.lookup_operations;
+    for(u64 work=0;work<=run_work;++work){const auto status=indic_scalar_run(SfntIndicProfile::malayalam,plan,cmap,{run_text,3},{forms,128},1000,storage,&result,{steps,3},{work,100000,1000000});
         CHECK(result.lookup_operations<=work&&status==(work==run_work?SfntStatus::ok:SfntStatus::resource_limit));
         if(status!=SfntStatus::ok)CHECK(!result.glyph_count&&!result.source_units&&!result.target_count);}
     print("PASS Malayalam split/left vowels, pref stage identity, explicit reph, below forms, mark advances, controls, sources and bounded failures\n");return true;

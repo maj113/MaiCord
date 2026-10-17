@@ -23,11 +23,6 @@ SfntStatus font_named_instance(const FontAxes& axes,u32 index,FontNamedInstance*
     *output={{p+4,size},r16(p),axes.instance_stride>=size+6?r16(p+4+size):static_cast<u16>(0xffff)};
     return SfntStatus::ok;
 }
-SfntStatus font_instance_coordinate(const FontNamedInstance& instance,u32 axis,double* output) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output=0;
-    if(!instance.coordinates.data || axis>=instance.coordinates.count/4)return SfntStatus::invalid_input;
-    *output=fixed(instance.coordinates.data+axis*4)/65536.0;return SfntStatus::ok;
-}
 SfntStatus font_axes_table_open(ConstSlice<u8> table,FontAxes* output,u32 work) noexcept {
     if(!output)return SfntStatus::invalid_input;*output={};
     if(!span(table,0,16))return SfntStatus::truncated;

@@ -478,10 +478,6 @@ ConstSlice<u8> secure_edit_view(const SecureEdit& edit) noexcept {
     return secure_buffer_view(edit.storage);
 }
 
-bool secure_edit_has_selection(const SecureEdit& edit) noexcept {
-    return edit.anchor != edit.caret;
-}
-
 SecureEditResult secure_edit_utf16_length(const SecureEdit& edit, u32* units) noexcept {
     if (!units || !ready(&edit)) {
         return SecureEditResult::invalid_input;
@@ -622,37 +618,6 @@ SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end,
     ++edit->revision;
     secure_edit_history_finish(edit);
     return SecureEditResult::changed;
-}
-
-SecureEditResult secure_edit_render_text(const SecureEdit& edit, Slice<char> output,
-                                         u32* output_bytes) noexcept {
-    if (!output_bytes || (!output.data && output.count != 0) || !ready(&edit)) {
-        return SecureEditResult::invalid_input;
-    }
-    *output_bytes = 0;
-    if (!edit.password) {
-        if (edit.storage.bytes > output.count) {
-            return SecureEditResult::capacity;
-        }
-        copy_bytes(output.data, edit.storage.data, edit.storage.bytes);
-        *output_bytes = edit.storage.bytes;
-        return SecureEditResult::unchanged;
-    }
-    const Utf8Validation validation =
-        utf8_validate(Utf8View{reinterpret_cast<const char*>(edit.storage.data), edit.storage.bytes});
-    if (!validation.valid) {
-        return SecureEditResult::invalid_utf8;
-    }
-    if (validation.codepoints > output.count / 3u) {
-        return SecureEditResult::capacity;
-    }
-    for (u32 index = 0; index < validation.codepoints; ++index) {
-        output.data[index * 3u] = static_cast<char>(0xE2u);
-        output.data[index * 3u + 1u] = static_cast<char>(0x80u);
-        output.data[index * 3u + 2u] = static_cast<char>(0xA2u);
-    }
-    *output_bytes = validation.codepoints * 3u;
-    return SecureEditResult::unchanged;
 }
 
 SecureEditResult secure_edit_render_window(const SecureEdit& edit, u32 maximum_codepoints,

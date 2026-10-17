@@ -50,9 +50,6 @@ Color mix(Color a, Color b, float t) noexcept {
     return {a.red + (b.red - a.red) * t, a.green + (b.green - a.green) * t, a.blue + (b.blue - a.blue) * t,
             a.alpha + (b.alpha - a.alpha) * t};
 }
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.slot == b.slot && a.generation == b.generation;
-}
 bool interactive(const ProfileScene& s) noexcept {
     return s.presentation != ProfilePresentation::preview;
 }
@@ -1239,7 +1236,6 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
         !place(s, s->body, {0, body_top, W, maximum(body_top + 1, body_bottom)}))
         return false;
     s->scroll_viewport = absolute({0, body_top, W, body_bottom});
-    s->media_viewport = s->rectangle;
     s->content_height = body_content;
     s->scroll = minimum(s->scroll, maximum(0.f, s->content_height - ui_rect_height(s->scroll_viewport)));
     if (!scroll_container(s, s->body, s->scroll))
@@ -1630,7 +1626,6 @@ bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
     s->scroll = maximum(0.f, minimum(s->scroll, maximum(0.f, s->content_height - ui_rect_height(s->scroll_viewport))));
     if (!scroll_container(s, s->body, s->scroll))
         return false;
-    s->media_viewport = s->card;
     // Right: the tab panel beside the card (gutter 32).
     s->secondary_viewport = {};
     s->secondary_height = 0;
@@ -1658,7 +1653,7 @@ const ProfilePart* profile_scene_part(const ProfileScene& scene, UiWidgetHandle 
     if (!widget || widget->id < 2 || widget->id - 2 >= scene.part_count)
         return nullptr;
     const auto& part = scene.parts[widget->id - 2];
-    return same(part.widget, handle) ? &part : nullptr;
+    return ui_widget_handle_equal(part.widget, handle) ? &part : nullptr;
 }
 float profile_scene_intro_offset(const ProfileScene& s, u64 now) noexcept {
     if (s.presentation != ProfilePresentation::popout || s.reduced_motion || !s.opened_ms || now < s.opened_ms)
@@ -1805,7 +1800,7 @@ void profile_scene_publish_text_hit(const ProfileScene& scene, UiWidgetReference
     if (!node || !ui_rect_equal(node->rectangle, layout))
         return;
     u32 slot = 0;
-    while (slot < scene.text_hit_count && !same(scene.text_hits[slot].owner, owner.handle))
+    while (slot < scene.text_hit_count && !ui_widget_handle_equal(scene.text_hits[slot].owner, owner.handle))
         ++slot;
     if (slot == sizeof(scene.text_hits) / sizeof(scene.text_hits[0]))
         return;
@@ -1823,7 +1818,7 @@ UiWidgetHandle profile_scene_hit_test(const ProfileScene& scene, float x, float 
     const auto* node = ui_widget_manager_layout_node(scene.widgets, target);
     for (u32 i = 0; node && i < scene.text_hit_count; ++i) {
         const auto& hit = scene.text_hits[i];
-        if (same(hit.owner, target) && ui_rect_equal(node->rectangle, hit.layout) &&
+        if (ui_widget_handle_equal(hit.owner, target) && ui_rect_equal(node->rectangle, hit.layout) &&
             ui_rect_contains(ui_rect_intersection(hit.ink, node->clip_rectangle), x, y))
             return target;
     }
@@ -1835,7 +1830,7 @@ ProfileAction profile_scene_action(const ProfileScene& s, UiWidgetHandle widget)
 }
 namespace {
 bool hovered(const ProfileScene& s, const ProfilePart& p) noexcept {
-    return p.action != ProfileAction::none && same(s.widgets.hovered, p.widget);
+    return p.action != ProfileAction::none && ui_widget_handle_equal(s.widgets.hovered, p.widget);
 }
 // The rounded-top banner fill (its bottom corners square).
 bool banner_fill(PaintStream* paint, UiRect r, float radius, Color color) noexcept {
@@ -2129,7 +2124,7 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
                 continue;
             const bool hot = hovered(s, p);
             // The note button shows only while the card is hovered or focused.
-            if (p.action == ProfileAction::open_note && !s.hovered && !same(s.widgets.focused, p.widget))
+            if (p.action == ProfileAction::open_note && !s.hovered && !ui_widget_handle_equal(s.widgets.focused, p.widget))
                 continue;
             ok = paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom);
             Color glyph = tone_color(c, theme, p);
@@ -2178,10 +2173,10 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
         const auto clip = ui_rect_intersection(s.rectangle, n->clip_rectangle);
         if (!ui_rect_has_area(ui_rect_intersection(r, clip)))
             continue;
-        const bool name = same(p.widget, s.name_widget);
+        const bool name = ui_widget_handle_equal(p.widget, s.name_widget);
         const auto* style = name ? appearance(s, appearance_name) : nullptr;
         const bool underline = p.look == ProfileLook::plain && hovered(s, p);
-        const bool bio = same(p.widget, s.bio_widget);
+        const bool bio = ui_widget_handle_equal(p.widget, s.bio_widget);
         if (!ui_text_output_push(
                 text, {p.text,
                        {&s.widgets, p.widget},
@@ -2204,10 +2199,5 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
         return true;
     return ui_edit_field_text_output(text, {&s.widgets, s.message_field}, s.edit_content, s.edit, edit,
                                      s.message_placeholder.view(), local);
-}
-bool profile_scene_text(const ProfileScene& s, const Theme& theme, UiTextCommandStream* text,
-                        const UiEditGeometry* edit) noexcept {
-    UiTextOutput output{text, nullptr};
-    return profile_scene_text_output(s, theme, &output, edit);
 }
 } // namespace maicord

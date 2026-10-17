@@ -64,15 +64,13 @@ bool standalone(const AccountVideoSession& s) noexcept {
     return s.status.kind != AccountPlaybackKind::mp4;
 }
 const OggOpusDemuxer* opus_source(const AccountVideoSession& s) noexcept {
-    return s.legacy_opus_metadata ? s.opus_metadata
-                                  : s.encoded_metadata ? &s.encoded_metadata->opus : nullptr;
+    return s.encoded_metadata ? &s.encoded_metadata->opus : nullptr;
 }
 u32 source_rate(const AccountVideoSession& s) noexcept {
-    return s.legacy_opus_metadata ? kOggOpusSampleRate : encoded_audio_rate(*s.encoded_metadata);
+    return encoded_audio_rate(*s.encoded_metadata);
 }
 u64 source_total_frames(const AccountVideoSession& s) noexcept {
-    return s.legacy_opus_metadata ? s.opus_metadata->total_frames
-                                  : encoded_audio_total_frames(*s.encoded_metadata);
+    return encoded_audio_total_frames(*s.encoded_metadata);
 }
 MediaAudio* audio_owner(AccountVideoSession& s) noexcept {
     if (!s.workspace)
@@ -1095,31 +1093,6 @@ AccountVideoResult account_video_session_initialize(AccountVideoSession* s, Mp4D
     s->status.has_audio = error == Mp4DemuxError::none;
     s->status.playback_epoch = s->playback_epoch = 1;
     s->qpc_frequency = static_cast<u64>(frequency.QuadPart);
-    s->thread_id = GetCurrentThreadId();
-    s->initialized = true;
-    return result(AccountVideoError::none, 0, true, true);
-}
-AccountVideoResult account_video_session_initialize_opus(AccountVideoSession* s,
-                                                         const OggOpusDemuxer* demux,
-                                                         const AccountVideoIdentity& id,
-                                                         HANDLE event) noexcept {
-    u64 duration{};
-    if (!s || s->initialized || s->workspace || !demux || !demux->ready || !demux->encoded.data ||
-        !demux->encoded.count || (demux->channels != 1 && demux->channels != 2) || !identity_valid(id) ||
-        !event || !media_audio_clock_time(demux->total_frames, kOggOpusSampleRate, &duration) ||
-        duration > static_cast<u64>(kLimit))
-        return result(AccountVideoError::invalid_input);
-    const auto identity = id;
-    *s = {};
-    s->opus_metadata = demux;
-    s->legacy_opus_metadata = true;
-    s->lane_event = event;
-    s->status.identity = identity;
-    s->status.kind = AccountPlaybackKind::ogg_opus;
-    s->status.duration_100ns = static_cast<i64>(duration);
-    s->status.has_audio = true;
-    s->status.playback_epoch = s->playback_epoch = 1;
-    s->video_eof = true;
     s->thread_id = GetCurrentThreadId();
     s->initialized = true;
     return result(AccountVideoError::none, 0, true, true);

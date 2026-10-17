@@ -41,7 +41,6 @@ struct VoiceConnectionSetup {
 
 // Fresh READY binding invalidates the previous call. Resuming the same Gateway
 // session must not call bind. A zero-initialized owner requires release at teardown.
-VoiceSetupResult voice_setup_bind(VoiceConnectionSetup* setup, u64 user_id, JsonString session) noexcept;
 VoiceSetupResult voice_setup_bind_utf8(VoiceConnectionSetup* setup, u64 user_id, Utf8View session) noexcept;
 // Call only for a serialized, submitted Opcode 4 join/move request. Mute/deafen
 // changes in the same channel do not begin another negotiation. The Gateway has no
@@ -53,7 +52,6 @@ void voice_setup_leave(VoiceConnectionSetup* setup) noexcept;
 void voice_setup_release(VoiceConnectionSetup* setup) noexcept;
 VoiceSetupResult voice_setup_state(VoiceConnectionSetup* setup, const GatewayVoiceState& event) noexcept;
 VoiceSetupResult voice_setup_server(VoiceConnectionSetup* setup, const GatewayVoiceServer& event) noexcept;
-bool voice_setup_expire(VoiceConnectionSetup* setup, u64 now_ms) noexcept;
 // Go Live watch: the stream's voice server credentials arrive as STREAM_CREATE
 // (rtc_server_id, rtc_channel_id) and STREAM_SERVER_UPDATE (token, endpoint).
 // No voice state is involved; the bound login session identifies the viewer.

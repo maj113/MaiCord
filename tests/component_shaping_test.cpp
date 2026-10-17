@@ -1,5 +1,5 @@
 // Manual: --backtrack-cost measures the backtracking context cost; the registered run is the check.
-#include "maicord/text/gsub_execute.hpp"
+#include "gsub_program_fixture.hpp"
 #include "maicord/text/gpos_ligature_execute.hpp"
 #include "maicord/text/gpos_cursive_execute.hpp"
 #include "maicord/text/gpos_program.hpp"
@@ -7,7 +7,6 @@
 #include "maicord/text/run_plan.hpp"
 #include "maicord/text/grapheme.hpp"
 #include "maicord/core/byte_order.hpp"
-#include "../src/text/substitution_selection.hpp"
 #include "../src/text/run_profile.hpp"
 #include "maicord/text/nominal_participation.hpp"
 #include <Windows.h>
@@ -126,7 +125,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
     for(u32 f=0;f<fonts;++f){u32 size=0,input_count=0,units=0,n=0,cc=0;ConstSlice<u8> raw{},scalars{},characters{},expected_glyphs{},configs{};
         if(!r.word(&size)||!r.word(&input_count)||!r.word(&units)||!r.word(&n)||!r.word(&cc)||!input_count||input_count>64||!units||units>128||!n||n>64||cc>10000||!r.take(size,&raw)||!r.take(input_count*4,&scalars)||!r.take(units*4,&characters)||!r.take(n*4,&expected_glyphs)||!r.take(cc*(8+24*n),&configs))return false;
         SfntFace face{};SfntCmap cmap{};SfntHorizontalMetrics metrics{};SfntGdef gdef{};SfntLayout gs{},gp{};ConstSlice<u8> table{};SfntGsubProgram program{};
-        if(sfnt_open(raw,0,&face)!=SfntStatus::ok || sfnt_cmap_open(face,&cmap)!=SfntStatus::ok || sfnt_horizontal_metrics_open(face,&metrics)!=SfntStatus::ok || sfnt_table(face,sfnt_tag('G','D','E','F'),&table)!=SfntStatus::ok || sfnt_gdef_open(table,metrics.glyph_count,&gdef)!=SfntStatus::ok || sfnt_table(face,sfnt_tag('G','S','U','B'),&table)!=SfntStatus::ok || sfnt_layout_open(table,SfntLayoutKind::substitution,&gs)!=SfntStatus::ok || sfnt_gsub_program_prepare(gs,gdef,metrics.glyph_count,{{gsub_lookups,32},{gsub_subtables,64},{coverages,256},{classes,64}},&program)!=SfntStatus::ok || sfnt_table(face,sfnt_tag('G','P','O','S'),&table)!=SfntStatus::ok || sfnt_layout_open(table,SfntLayoutKind::positioning,&gp)!=SfntStatus::ok)return error(f,0,utf8_literal("font prepare"));
+        if(sfnt_open(raw,0,&face)!=SfntStatus::ok || sfnt_cmap_open(face,&cmap)!=SfntStatus::ok || sfnt_horizontal_metrics_open(face,&metrics)!=SfntStatus::ok || sfnt_table(face,sfnt_tag('G','D','E','F'),&table)!=SfntStatus::ok || sfnt_gdef_open(table,metrics.glyph_count,&gdef)!=SfntStatus::ok || sfnt_table(face,sfnt_tag('G','S','U','B'),&table)!=SfntStatus::ok || sfnt_layout_open(table,SfntLayoutKind::substitution,&gs)!=SfntStatus::ok || prepare_gsub_program(gs,gdef,metrics.glyph_count,{{gsub_lookups,32},{gsub_subtables,64},{coverages,256},{classes,64}},&program)!=SfntStatus::ok || sfnt_table(face,sfnt_tag('G','P','O','S'),&table)!=SfntStatus::ok || sfnt_layout_open(table,SfntLayoutKind::positioning,&gp)!=SfntStatus::ok)return error(f,0,utf8_literal("font prepare"));
         SfntFeature gs_feature{},gp_feature{};u32 tag=0;
         if(sfnt_layout_feature(gs,0,{},&tag,&gs_feature)!=SfntStatus::ok || tag!=sfnt_tag('r','l','i','g') || sfnt_layout_feature(gp,0,{},&tag,&gp_feature)!=SfntStatus::ok || tag!=sfnt_tag('t','e','s','t') || gp_feature.lookup_indices.count>16)return false;
         const u32 lc=gp_feature.lookup_indices.count/2;SfntGposProgram position_program{};
@@ -135,11 +134,6 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         if(contextual && !gpos_prepare_units(gp,gdef,metrics.glyph_count))return error(f,0,utf8_literal("GPOS prepare units"));
         if(!coordinated(cmap,metrics,gdef,program,position_program,gs_feature,gp_feature,scalars,units,n,characters,expected_glyphs,configs,cc))return error(f,0,utf8_literal("coordinated run"));
         u16 roots[32],queue[32];u64 selected=0;SfntLookupSelectionResult selection{};
-        const u32 substitutions=gs_feature.lookup_indices.count/2;if(substitutions>32)return false;
-        for(u32 i=0;i<substitutions;++i)roots[i]=byte_load_be16(gs_feature.lookup_indices.data+i*2);
-        if(sfnt_lookup_selection(gs,{roots,substitutions},{&selected,1},{queue,32},&selection)!=SfntStatus::ok||
-           sfnt_gsub_program_prepare(gs,gdef,metrics.glyph_count,{{gsub_lookups,32},{gsub_subtables,64},{coverages,256},{classes,64}},&program,1000000,1000000,false,false,{&selected,1})!=SfntStatus::ok||
-           !coordinated(cmap,metrics,gdef,program,position_program,gs_feature,gp_feature,scalars,units,n,characters,expected_glyphs,configs,cc))return error(f,0,utf8_literal("selected GSUB run"));
         for(u32 i=0;i<lc;++i)roots[i]=byte_load_be16(gp_feature.lookup_indices.data+i*2);
         if(sfnt_lookup_selection(gp,{roots,lc},{&selected,1},{queue,32},&selection)!=SfntStatus::ok||
            sfnt_gpos_program_prepare(gp,gdef,metrics.glyph_count,{{gpos_lookups,32},{basic_storage,64},{attachment_storage,64},{context_storage,64},{gpos_coverages,256},{gpos_classes,64}},&position_program,1000000,1000000,{&selected,1})!=SfntStatus::ok)return error(f,0,utf8_literal("selected GPOS prepare"));

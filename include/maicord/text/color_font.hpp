@@ -6,15 +6,12 @@ namespace maicord {
 
 struct CpalColor { u8 red, green, blue, alpha; };
 struct CpalFont {
-    ConstSlice<u8> colors, starts, types, labels, entry_labels;
+    ConstSlice<u8> colors, starts;
     u16 version, palette_count, entry_count;
 };
-struct CpalPaletteInfo { u32 flags; u16 name_id; };
 
 SfntStatus cpal_open(const SfntFace& face, CpalFont* output) noexcept;
 SfntStatus cpal_color(const CpalFont& font, u16 palette, u16 entry, CpalColor* output) noexcept;
-SfntStatus cpal_palette_info(const CpalFont& font, u16 palette, CpalPaletteInfo* output) noexcept;
-SfntStatus cpal_entry_label(const CpalFont& font, u16 entry, u16* name_id) noexcept;
 
 struct ColrFont {
     CpalFont palette;

@@ -355,10 +355,6 @@ bool rectangle(UiRect bounds) noexcept {
            paint_coordinate_valid(bounds.right) && paint_coordinate_valid(bounds.bottom) &&
            bounds.right > bounds.left && bounds.bottom > bounds.top;
 }
-UiRect intersection(UiRect a, UiRect b) noexcept {
-    return {maximum(a.left, b.left), maximum(a.top, b.top), minimum(a.right, b.right),
-            minimum(a.bottom, b.bottom)};
-}
 bool contains(UiRect bounds, UiPoint point) noexcept {
     return paint_coordinate_valid(point.x) && paint_coordinate_valid(point.y) && point.x >= bounds.left &&
            point.x < bounds.right && point.y >= bounds.top && point.y < bounds.bottom;
@@ -373,7 +369,7 @@ bool eligible(const UiAudioScene& scene, UiAudioControl id, bool require_visible
     const auto* descriptor = ui_audio_controls_find(scene.projection, id);
     return scene_current(scene) && descriptor && descriptor->enabled &&
            (!require_visible || descriptor->visible) &&
-           rectangle(intersection(descriptor->bounds, scene.clip));
+           rectangle(ui_rect_overlap(descriptor->bounds, scene.clip));
 }
 void expand_volume(UiAudioScene& scene) noexcept {
     auto& projection = scene.projection;
@@ -391,7 +387,7 @@ bool captured_action(const UiAudioScene& scene, UiPoint point, UiAudioAction* ou
     if (!eligible(scene, scene.capture) || !descriptor || descriptor->kind != UiAudioControlKind::range ||
         !paint_coordinate_valid(point.x) || !paint_coordinate_valid(point.y))
         return false;
-    const auto visible = intersection(descriptor->bounds, scene.clip);
+    const auto visible = ui_rect_overlap(descriptor->bounds, scene.clip);
     point.x = maximum(visible.left, minimum(visible.right, point.x));
     return ui_audio_controls_range_action(scene.projection, scene.capture, point, out);
 }
@@ -413,13 +409,13 @@ bool ui_audio_scene_project(UiAudioScene* scene, const UiAudioPlaybackState& sta
     if (!widget || !(widget->flags & ui_widget_enabled) || (widget->flags & ui_widget_block_input) ||
         static_cast<u32>(surface) > static_cast<u32>(UiAudioSourceSurface::forward) || !rectangle(clip) ||
         !ui_audio_controls_project(state, bounds, style, theme, &projection) ||
-        !rectangle(intersection(projection.geometry.bounds, clip))) {
+        !rectangle(ui_rect_overlap(projection.geometry.bounds, clip))) {
         *scene = {};
         return false;
     }
     const auto old_focus = scene->focus, old_hover = scene->hover, old_capture = scene->capture;
     const bool keyboard_focus = scene->keyboard_focus;
-    const UiRect effective = intersection(projection.geometry.bounds, clip);
+    const UiRect effective = ui_rect_overlap(projection.geometry.bounds, clip);
     const bool same_geometry =
         same_source && ui_rect_equal(scene->clip, effective) &&
         ui_rect_equal(scene->projection.geometry.bounds, projection.geometry.bounds) &&

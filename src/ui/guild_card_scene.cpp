@@ -71,10 +71,6 @@ UiSize measure(UiTextMeasureCache* cache, Utf8View text, u32 style, float width,
 UiRect offset(UiRect r, float dx, float dy) noexcept {
     return ui_rect_has_area(r) ? UiRect{r.left + dx, r.top + dy, r.right + dx, r.bottom + dy} : UiRect{};
 }
-Color fade(Color color, float opacity) noexcept {
-    color.alpha *= opacity;
-    return color;
-}
 float opacity(const UiGuildCardScene& s) noexcept {
     return s.progress < 0 ? 0.f : s.progress > 1 ? 1.f : s.progress;
 }
@@ -429,8 +425,8 @@ bool ui_guild_card_paint(const UiGuildCardScene& s, const Theme& theme, PaintStr
     if (!paint)
         return false;
     const float a = opacity(s);
-    const Color fill = fade(theme.tokens.background.floating, a);
-    const Color border = fade(theme.tokens.border.subtle, a);
+    const Color fill = ui_theme_color_alpha(theme.tokens.background.floating, a);
+    const Color border = ui_theme_color_alpha(theme.tokens.border.subtle, a);
     bool ok = ui_surface_paint(paint, s.panel, theme, UiElevation::popover, kRadius, &fill, &border);
     if (!ok || !paint_stream_push_clip(paint, s.panel.left, s.panel.top, s.panel.right, s.panel.bottom))
         return false;
@@ -438,7 +434,7 @@ bool ui_guild_card_paint(const UiGuildCardScene& s, const Theme& theme, PaintStr
     // bottom centre, its top corners rounded with the card and its bottom
     // edge square. A custom banner picture (media) covers it.
     const auto banner = at(s, s.banner);
-    const Color top = s.has_brand_color ? packed(s.brand_color, a) : fade(theme.tokens.accent.brand, a);
+    const Color top = s.has_brand_color ? packed(s.brand_color, a) : ui_theme_color_alpha(theme.tokens.accent.brand, a);
     const Color bottom = ui_guild_card_banner_highlight(top);
     ok = paint_stream_push_clip(paint, banner.left, banner.top, banner.right, banner.bottom) &&
          paint_stream_push_gradient(paint, {banner.left, banner.top, banner.right, banner.bottom + kRadius}, top, bottom,
@@ -453,7 +449,7 @@ bool ui_guild_card_paint_foreground(const UiGuildCardScene& s, const Theme& them
     if (!paint)
         return false;
     const float a = opacity(s);
-    const Color fill = fade(theme.tokens.background.floating, a);
+    const Color fill = ui_theme_color_alpha(theme.tokens.background.floating, a);
     bool ok = paint_stream_push_clip(paint, s.panel.left, s.panel.top, s.panel.right, s.panel.bottom);
     if (!ok)
         return false;
@@ -461,29 +457,29 @@ bool ui_guild_card_paint_foreground(const UiGuildCardScene& s, const Theme& them
     const auto ring = at(s, s.icon_ring), icon = at(s, s.icon);
     ok = ok && paint_stream_push_rounded(paint, ring.left, ring.top, ring.right, ring.bottom, fill, theme.scale.radius_xl + kRing) &&
          paint_stream_push_rounded(paint, icon.left, icon.top, icon.right, icon.bottom,
-                                   fade(theme.surface_high, a), theme.scale.radius_xl);
+                                   ui_theme_color_alpha(theme.surface_high, a), theme.scale.radius_xl);
     if (ok && s.phase == UiGuildCardPhase::loading) {
         const auto spinner = at(s, s.status_icon);
-        ok = ui_spinner_paint(paint, spinner, fade(theme.tokens.text.normal, a), s.spinner_phase);
+        ok = ui_spinner_paint(paint, spinner, ui_theme_color_alpha(theme.tokens.text.normal, a), s.spinner_phase);
     }
     if (ok && (s.phase == UiGuildCardPhase::private_profile || s.phase == UiGuildCardPhase::failed))
         ok = ui_icon_paint(paint, s.phase == UiGuildCardPhase::private_profile ? UiIcon::lock : UiIcon::warning,
-                           at(s, s.status_icon), fade(theme.tokens.text.muted, a));
+                           at(s, s.status_icon), ui_theme_color_alpha(theme.tokens.text.muted, a));
     if (ok && ui_rect_has_area(s.tag_chip)) {
         const auto chip = at(s, s.tag_chip);
         ok = paint_stream_push_rounded_border(paint, chip.left, chip.top, chip.right, chip.bottom, Color{},
-                                              fade(theme.tokens.border.strong, a), theme.scale.radius_md, 1);
+                                              ui_theme_color_alpha(theme.tokens.border.strong, a), theme.scale.radius_md, 1);
     }
     if (ok && ui_rect_has_area(s.online_dot)) {
         const auto on = at(s, s.online_dot), off = at(s, s.members_dot);
-        ok = paint_stream_push_rounded(paint, on.left, on.top, on.right, on.bottom, fade(theme.tokens.status.online, a),
+        ok = paint_stream_push_rounded(paint, on.left, on.top, on.right, on.bottom, ui_theme_color_alpha(theme.tokens.status.online, a),
                                        theme.scale.radius_full) &&
              paint_stream_push_rounded(paint, off.left, off.top, off.right, off.bottom,
-                                       fade(theme.tokens.status.offline, a), theme.scale.radius_full);
+                                       ui_theme_color_alpha(theme.tokens.status.offline, a), theme.scale.radius_full);
     }
     for (u32 i = 0; ok && i < s.trait_count; ++i) {
         const auto r = at(s, s.traits[i]);
-        ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, fade(theme.surface_high, a), theme.scale.radius_md);
+        ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, ui_theme_color_alpha(theme.surface_high, a), theme.scale.radius_md);
     }
     if (ok && ui_rect_has_area(s.button)) {
         Color button = theme.tokens.accent.brand;
@@ -493,7 +489,7 @@ bool ui_guild_card_paint_foreground(const UiGuildCardScene& s, const Theme& them
         button.blue *= shade;
         const auto b = at(s, s.button);
         ok = paint_stream_push_rounded(paint, b.left, b.top, b.right, b.bottom,
-                                       fade(button, s.action == UiGuildCardAction::joining ? a * .5f : a), theme.scale.radius_md);
+                                       ui_theme_color_alpha(button, s.action == UiGuildCardAction::joining ? a * .5f : a), theme.scale.radius_md);
     }
     return paint_stream_pop_clip(paint) && ok;
 }
@@ -504,7 +500,7 @@ bool ui_guild_card_text_output(const UiGuildCardScene& s, const Theme& theme, Ui
     if (!text)
         return false;
     const float a = opacity(s);
-    const Color strong = fade(theme.tokens.text.normal, a), muted = fade(theme.tokens.text.muted, a);
+    const Color strong = ui_theme_color_alpha(theme.tokens.text.normal, a), muted = ui_theme_color_alpha(theme.tokens.text.muted, a);
     bool ok = true;
     if (!media_asset_key_valid(s.icon_key) && s.phase == UiGuildCardPhase::ready) {
         char initials[8];
@@ -540,7 +536,7 @@ bool ui_guild_card_text_output(const UiGuildCardScene& s, const Theme& theme, Ui
                        strong, text_style_subtext);
     }
     if (ok && ui_rect_has_area(s.button))
-        ok = push_text(text, s, action_label(s.action), at(s, s.button), fade(theme.tokens.text.on_accent, a),
+        ok = push_text(text, s, action_label(s.action), at(s, s.button), ui_theme_color_alpha(theme.tokens.text.on_accent, a),
                        text_style_bold, UiTextAlignment::center);
     return ok;
 }

@@ -77,8 +77,6 @@ PollControllerResult poll_controller_queue_vote(PollController*, u16 desired_mas
                                                 u64 now_ms, u64 unix_now_ms) noexcept;
 // Opening a different answer may supersede an old read. Its copied in-flight
 // request finishes before the latest selected page can go to the REST worker.
-PollControllerResult poll_controller_queue_voters(PollController*, u32 answer_id, bool more,
-                                                  u32 limit, u64 now_ms) noexcept;
 PollControllerResult poll_controller_queue_voter_page(PollController*, u32 answer_id,
     u64 after_user_id, u32 limit, u64 now_ms) noexcept;
 PollControllerResult poll_controller_queue_refresh(PollController*, u64 now_ms) noexcept;

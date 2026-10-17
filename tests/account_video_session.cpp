@@ -249,10 +249,10 @@ void opus_session(void (*check)(bool, const char*) noexcept, const AccountVideoI
     EncodedAudioMetadata generic{demux};
     const auto generic_initialized = account_video_session_initialize_audio(&session, &generic, id, event);
     check(generic_initialized.completed && session.encoded_metadata == &generic &&
-              !session.legacy_opus_metadata && session.status.kind == AccountPlaybackKind::ogg_opus &&
+              session.status.kind == AccountPlaybackKind::ogg_opus &&
               !session.workspace && account_video_session_release(&session, 0).completed,
           "Opus session: generic retained source preserves legacy audio kind and metadata-only release");
-    const auto initialized = account_video_session_initialize_opus(&session, &demux, id, event);
+    const auto initialized = account_video_session_initialize_audio(&session, &generic, id, event);
     check(initialized.completed && session.status.kind == AccountPlaybackKind::ogg_opus &&
               session.status.has_audio && session.status.duration_100ns == 158333 && !session.video &&
               !session.workspace && !session.status.frame_pending,
@@ -313,7 +313,7 @@ void opus_session(void (*check)(bool, const char*) noexcept, const AccountVideoI
     check(!cancelled_seek.ok() && stop_checks && session.status.error == AccountVideoError::demux &&
               session.status.native_error == static_cast<u32>(OggOpusError::cancelled) &&
               account_video_session_owned_bytes(&session) == retained_bytes &&
-              session.opus_metadata == &demux,
+              session.encoded_metadata == &generic,
           "Opus session: lane-stop cancels demux scan and retains source/decoder storage until release");
     check(account_video_session_release(&session, 0).completed && !session.initialized &&
               !session.workspace && !account_video_session_owned_bytes(&session),

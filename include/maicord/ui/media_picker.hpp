@@ -278,7 +278,6 @@ bool ui_media_picker_scene_select(UiMediaPickerScene*, u32 source_index) noexcep
 bool ui_media_picker_scene_move_selection(UiMediaPickerScene*, i32 horizontal, i32 vertical) noexcept;
 bool ui_media_picker_scene_page_selection(UiMediaPickerScene*, bool reverse) noexcept;
 bool ui_media_picker_scene_edge_selection(UiMediaPickerScene*, bool last) noexcept;
-UiMediaPickerTarget ui_media_picker_scene_selected_target(const UiMediaPickerScene&) noexcept;
 // Reuses a cell's widget and returns only the visible inset button hit region.
 // Pending remains visible but cannot activate or fall through to item Send.
 bool ui_media_picker_scene_favorite(const UiMediaPickerScene&, u32 visible_cell, UiRect* rectangle,
@@ -292,5 +291,4 @@ ConstSlice<UiMediaPickerCell> ui_media_picker_scene_cells(const UiMediaPickerSce
 // to native media drawing and any missing-image surface.
 bool ui_media_picker_scene_media(const UiMediaPickerScene&, u32 visible_cell,
                                  UiMediaPickerMediaSlot* output) noexcept;
-Utf8View ui_media_picker_scene_tooltip(const UiMediaPickerScene&, u64 now_ms, u64 delay_ms = 500) noexcept;
 } // namespace maicord

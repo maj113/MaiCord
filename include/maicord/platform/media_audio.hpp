@@ -19,9 +19,8 @@ bool media_audio_ring_initialize(MediaAudioRing*,Slice<float>,u32 rate,u32 chann
 u32 media_audio_ring_free(const MediaAudioRing&) noexcept;
 MediaAudioResult media_audio_ring_write(MediaAudioRing*,u64 epoch,ConstSlice<float>) noexcept;
 // Copies up to capacity available frames, applying validated gain. Advances submitted
-// only; the data stays in the ring until played confirms native padding consumption.
+// only; the data stays in the ring until confirmed native padding consumption.
 u32 media_audio_ring_render(MediaAudioRing*,Slice<float>,float gain) noexcept;
-bool media_audio_ring_played(MediaAudioRing*,u32 padding) noexcept;
 // True when padding and confirmed consumption both show the submitted native
 // queue is empty, even if the producer has written later, unsubmitted PCM.
 bool media_audio_ring_native_queue_empty(const MediaAudioRing&,u32 padding) noexcept;
@@ -73,7 +72,4 @@ MediaAudioStatus media_audio_status(const MediaAudio*) noexcept;
 // A successful join means the PCM/context is no longer in use. On timeout or handle
 // failure the runtime stays attached. No idle polling, forced termination or device open in default tests.
 MediaAudioResult media_audio_release(MediaAudio*,u32 timeout_ms) noexcept;
-u32 media_audio_owned_bytes(const MediaAudio*) noexcept;
-// Counts only this module's runtime/callback metadata, not the caller ring,
-// worker stack, endpoint ID, or native COM/audio allocations.
 } // namespace maicord

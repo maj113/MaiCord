@@ -121,7 +121,7 @@ struct Profile {
         const DWORD length = GetTempPathW(MAX_PATH, temporary);
         ready = length && length < MAX_PATH && GetTempFileNameW(temporary, L"MCI", 0, base) &&
                 DeleteFileW(base) && CreateDirectoryW(base, nullptr);
-        return ready && account_paths_build(base, &root).ok();
+        return ready && account_paths_build_slot(base, 0, &root).ok();
     }
     bool slot(u32 index, AccountPaths* paths) const noexcept {
         return account_paths_build_slot(base, index, paths).ok();

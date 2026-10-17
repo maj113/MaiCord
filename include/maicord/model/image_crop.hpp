@@ -77,8 +77,5 @@ ImageCropRect image_crop_mask_rect(const ImageCropState& state) noexcept;
 // The source rectangle under the mask, rounded and clamped inside the image,
 // and the output size capped per axis for the use (never upscaled).
 ImageCropOutput image_crop_output(const ImageCropState& state) noexcept;
-// Maps a point in the output (visual) image, normalised to [0,1], to the
-// unrotated crop rectangle, normalised to [0,1].
-void image_crop_unrotate(u16 rotation, float a, float b, float* p, float* q) noexcept;
 
 } // namespace maicord

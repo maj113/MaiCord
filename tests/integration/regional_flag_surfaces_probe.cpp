@@ -555,8 +555,9 @@ bool regional_flag_surfaces_ui_probe(RegionalFlagSurfacesProbeContext c) noexcep
             {0,0,c.renderer.width*96.f/c.renderer.dpi,c.renderer.height*96.f/c.renderer.dpi}).ok() ||
         !renderer_bind_reaction_viewer(&c.renderer,&viewer) || !paint(c)) return fail(__LINE__);
     UiTextCommand viewer_commands[32]{};UiTextCommandStream viewer_stream{};
+    UiTextOutput viewer_stream_output{&viewer_stream, nullptr};
     if (!ui_text_command_stream_initialize(&viewer_stream,{viewer_commands,32}) ||
-        !reaction_viewer_text_presentation_build(viewer,kDefaultTheme,&viewer_stream)) return fail(__LINE__);
+        !reaction_viewer_text_presentation_build_output(viewer,kDefaultTheme,&viewer_stream_output)) return fail(__LINE__);
     for (u32 i=0;i<viewer_stream.count;++i)
         if (utf8_equal(viewer_commands[i].text,tj) || utf8_equal(viewer_commands[i].text,tk)) return fail(__LINE__);
     for (u32 i=0;i<2;++i) {
@@ -597,8 +598,9 @@ bool regional_flag_surfaces_ui_probe(RegionalFlagSurfacesProbeContext c) noexcep
     if (!surface || !popup_scene_open(&c.popup,PopupKind::autocomplete,channel,{&item,1},surface->rectangle,
         viewport,ui_rect_width(surface->rectangle),true).ok() || !paint(c)) return fail(__LINE__);
     UiTextCommand autocomplete_text[4]{};UiTextCommandStream autocomplete_stream{};
+    UiTextOutput autocomplete_stream_output{&autocomplete_stream, nullptr};
     if (!ui_text_command_stream_initialize(&autocomplete_stream,{autocomplete_text,4}) ||
-        !popup_text_presentation_build(c.popup,kDefaultTheme,&autocomplete_stream) ||
+        !popup_text_presentation_build_output(c.popup,kDefaultTheme,&autocomplete_stream_output) ||
         autocomplete_stream.count!=1 || !utf8_equal(autocomplete_text[0].text,expected_alias)) return fail(__LINE__);
     PopupMediaCommand media{};
     if (popup_media_presentation_resolve(c.popup,0,&media)!=PopupMediaPresentationStatus::ready ||

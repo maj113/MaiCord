@@ -206,7 +206,7 @@ void policy_cases(Check check) noexcept {
 
     static VoiceState records[8];
     VoiceStateStore store{};
-    voice_state_store_initialize(&store, {records, 8});
+    voice_state_store_initialize_sparse(&store, {records, 8});
     voice_state_store_apply(&store, 5, 7, 1, 0);                                            // speaker
     voice_state_store_apply(&store, 5, 7, 2, voice_suppress | voice_request_to_speak, 300); // hand at 300
     voice_state_store_apply(&store, 5, 7, 3, voice_suppress);                               // audience
@@ -422,7 +422,7 @@ void dave_cases(Check check) noexcept {
     static GatewayVoiceControl control;
     control = {};
     const JsonString session{utf8_literal("stage-session"), 0, false};
-    check(voice_setup_bind(&control.setup, 3, session) == VoiceSetupResult::updated,
+    check(voice_setup_bind_utf8(&control.setup, 3, session.encoded) == VoiceSetupResult::updated,
           "stage DAVE: voice control binds the session");
     gateway_voice_request(&control, {5, 7, false, false, false, true});
     GatewayVoiceStateUpdate command{};

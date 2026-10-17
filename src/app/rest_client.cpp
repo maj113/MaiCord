@@ -1619,8 +1619,6 @@ RestClientResult start_client(RestClient* client, SecureBuffer* credential,
           user_auth_secure_bytes(response_capacity, request_capacity) == 0)) ||
         (authorization == RestAuthorization::none && credential) ||
         (authorization != RestAuthorization::none && !credential) ||
-        (authorization != RestAuthorization::none &&
-         authorization != RestAuthorization::bearer && !normal_user) ||
         (normal_user != (user_configuration != nullptr)) ||
         (user_configuration && !valid_user_configuration(*user_configuration)) ||
         (credential && (!credential->data || !credential->locked || credential->bytes == 0 ||
@@ -1804,18 +1802,6 @@ void rest_client_set_trace(RestTraceFunction trace) noexcept { g_trace = trace; 
 RestClientResult rest_client_start_public(RestClient* client,
                                           u32 response_capacity, RestSharedState* shared) noexcept {
     return start_client(client, nullptr, RestAuthorization::none, nullptr, response_capacity, false, shared);
-}
-
-RestClientResult rest_client_start_authorized(RestClient* client,
-                                              SecureBuffer* credential,
-                                              RestAuthorization authorization,
-                                              u32 response_capacity) noexcept {
-    if (authorization != RestAuthorization::bearer) {
-        RestClientResult invalid{};
-        invalid.error = RestClientError::invalid_input;
-        return invalid;
-    }
-    return start_client(client, credential, authorization, nullptr, response_capacity, false);
 }
 
 RestClientResult rest_client_start_user(RestClient* client, SecureBuffer* credential,

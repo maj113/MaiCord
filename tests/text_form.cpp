@@ -113,10 +113,11 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
     for (const auto& theme : cancel_themes) {
         UiTextCommand commands[16]{};
         UiTextCommandStream text{};
+        UiTextOutput text_output{&text, nullptr};
         bool disabled_cancel = false;
         const auto* field = text_form_node(scene, TextFormElement::edit);
         if (field && ui_text_command_stream_initialize(&text, {commands, 16}) &&
-            text_form_text(scene, {field->content_rectangle, {}, {}, {}}, theme, &text)) {
+            text_form_text_output(scene, {field->content_rectangle, {}, {}, {}}, theme, &text_output)) {
             for (u32 i = 0; i < text.count; ++i) {
                 const auto& command = text.storage[i];
                 if (command.owner.handle.slot == cancel_handle.slot)
@@ -185,9 +186,10 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
     const auto* name_field = text_form_node(scene, TextFormElement::edit);
     UiTextCommand name_commands[16]{};
     UiTextCommandStream name_text{};
+    UiTextOutput name_text_output{&name_text, nullptr};
     bool name_no_wrap = false;
     if (name_field && ui_text_command_stream_initialize(&name_text, {name_commands, 16}) &&
-        text_form_text(scene, {name_field->content_rectangle, {}, {}, {}}, kDefaultTheme, &name_text)) {
+        text_form_text_output(scene, {name_field->content_rectangle, {}, {}, {}}, kDefaultTheme, &name_text_output)) {
         for (u32 i = 0; i < name_text.count; ++i)
             if (name_text.storage[i].owner.handle.slot ==
                 scene.elements[static_cast<u32>(TextFormElement::edit)].slot)
@@ -198,13 +200,8 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
           "text_form_single_line_unicode_name_has_native44dip_field_and_no_wrap_text");
     content.single_line = false;
     content.text = prior_text;
-    text_form_close(&scene);
-    check(!scene.active && text_form_hit_test(scene, 50, 50) == TextFormElement::count &&
-              text_form_focused(scene) == TextFormElement::count && !scene.content.text.data,
-          "text_form_close_drops_borrowed_views_and_input");
-    check(text_form_update(&scene, content, viewport, &cache) && scene.storage.arena.base == storage &&
-              text_form_focused(scene) == TextFormElement::edit,
-          "text_form_reopen_reuses_storage");
+    check(text_form_update(&scene, content, viewport, &cache) && scene.storage.arena.base == storage,
+          "text_form_update_reuses_storage");
     text_form_release(&scene);
     check(!scene.storage.arena.base && !scene.active && !scene.widgets.count, "text_form_release");
 
@@ -261,10 +258,11 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
         for (const auto& theme : action_themes) {
             UiTextCommand commands[16]{};
             UiTextCommandStream text{};
+            UiTextOutput text_output{&text, nullptr};
             bool no_wrap_disabled = false;
             const auto* edit = text_form_node(actions, TextFormElement::edit);
             if (ui_text_command_stream_initialize(&text, {commands, 16}) &&
-                text_form_text(actions, {edit->content_rectangle, {}, {}, {}}, theme, &text)) {
+                text_form_text_output(actions, {edit->content_rectangle, {}, {}, {}}, theme, &text_output)) {
                 for (u32 i = 0; i < text.count; ++i) {
                     const auto& command = text.storage[i];
                     if (command.owner.handle.slot ==
@@ -286,7 +284,7 @@ void test_text_form(void (*check)(bool, const char*) noexcept) noexcept {
                   actions.widgets.layout.revision == action_layout &&
                   cache.backend_calls == action_measurements,
               "text_form_dynamic_action_64_unchanged_updates_retain_geometry_and_measurements");
-        text_form_close(&actions);
+        text_form_release(&actions);
     }
     text_form_release(&actions);
 

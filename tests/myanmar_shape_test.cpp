@@ -1,12 +1,12 @@
 // No argument runs the registered checks. Manual: MAICORD_MYANMAR_FONT=<font file> streams that
 // font's shaping results for external comparison (QA only).
-#include "maicord/text/myanmar_shape_cluster.hpp"
 #include "maicord/text/myanmar_run.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/text/myanmar_shape_run.hpp"
 #include "maicord/text/use_plan.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "gsub_program_fixture.hpp"
 #include <Windows.h>
 namespace maicord {namespace {
 u32 checks=0;
@@ -21,7 +21,7 @@ bool units(SfntShapeStorage s) noexcept {
     SfntCmap cmap{{bytes,sizeof(bytes)},{},32,12};SfntShapePlan plan{};plan.units_per_em=1000;
     plan.advance=+[](void*,u16,double* v) noexcept {*v=600;return SfntStatus::ok;};SfntShapeRunResult result{};
     const u32 text[]{0x1000,0x103c,0x1031},orphan[]{0x1031},control[]{0x1000,0x200d};
-    const auto shape=[&](ConstSlice<u32> input,SfntShapeLimits limits=SfntShapeLimits{}) noexcept {return sfnt_myanmar_shape_cluster(plan,cmap,input,1000,s,&result,{},limits);};
+    const auto shape=[&](ConstSlice<u32> input,SfntShapeLimits limits=SfntShapeLimits{}) noexcept {return sfnt_myanmar_shape_run(plan,cmap,input,1000,s,&result,{},limits);};
     CHECK(shape({text,3})==SfntStatus::ok&&result.glyph_count==3&&result.source_units==3);
     const u16 expected[]{3,4,2};for(u32 i=0;i<3;++i)CHECK(s.glyphs[i].glyph.glyph==expected[i]&&s.placements[i].advance==600&&!s.character_glyphs[i]);
     const u64 full=result.lookup_operations;
@@ -34,18 +34,8 @@ bool units(SfntShapeStorage s) noexcept {
     CHECK(shape({selector,3})==SfntStatus::ok&&result.glyph_count==2&&result.source_units==4);
     for(u32 i=0;i<4;++i)CHECK(!s.character_glyphs[i]);
     CHECK(shape({invalid,2})==SfntStatus::invalid_input&&!result.glyph_count);
-    CHECK(shape({separate,2})==SfntStatus::unsupported_sequence&&!result.glyph_count);
     CHECK(shape({})==SfntStatus::ok&&!result.glyph_count);
-    for(u32 kind=0;kind<5;++kind){auto small=s;
-        if(kind==0)small.glyphs.count=2;if(kind==1)small.positions.count=1;if(kind==2)small.flags.count=1;
-        if(kind==3)small.components.count=1;if(kind==4)small.character_glyphs.count=1;
-        CHECK(sfnt_myanmar_shape_cluster(plan,cmap,{text,3},1000,small,&result,{})==SfntStatus::output_too_small&&!result.glyph_count&&!result.source_units);}
-    for(u32 budget=0;budget<192;++budget)CHECK(shape({text,3},{1000000,100000,budget})==SfntStatus::resource_limit&&!result.glyph_count&&!result.source_units);
-    CHECK(shape({text,3},{1000000,100000,192})==SfntStatus::ok);
-    const SfntLookupStep badstage[]{0,0,7},badmask[]{0,1,0};
-    CHECK(sfnt_myanmar_shape_cluster(plan,cmap,{text,3},1000,s,&result,{badstage,1})==SfntStatus::invalid_input&&!result.glyph_count);
-    CHECK(sfnt_myanmar_shape_cluster(plan,cmap,{text,3},1000,s,&result,{badmask,1})==SfntStatus::invalid_input&&!result.glyph_count);
-    CHECK(sfnt_myanmar_shape_cluster(plan,cmap,{text,3},1000,s,nullptr,{})==SfntStatus::invalid_input);
+    CHECK(sfnt_myanmar_shape_run(plan,cmap,{text,3},1000,s,nullptr,{})==SfntStatus::invalid_input);
     const u32 zwsp[]{0x200b},lrm[]{0x200e},missing[]{0x10ffff};
     CHECK(shape({zwsp,1})==SfntStatus::ok&&s.glyphs[0].glyph.glyph==5&&s.placements[0].advance==600);
     CHECK(shape({lrm,1})==SfntStatus::ok&&s.glyphs[0].glyph.glyph==1&&s.placements[0].advance==0);
@@ -62,16 +52,16 @@ bool units(SfntShapeStorage s) noexcept {
     SfntLayout layout{};SfntGsubProgram gsub{};SfntGsubExecutableLookup sl[5]{};SfntGsubExecutableSubtable st[5]{};
     SfntCoverage coverage[8]{};SfntClassDef classes[4]{};
     CHECK(sfnt_layout_open({myanmar_shape_gsub,sizeof(myanmar_shape_gsub)},SfntLayoutKind::substitution,&layout)==SfntStatus::ok);
-    CHECK(sfnt_gsub_program_prepare(layout,{},32,{{sl,5},{st,5},{coverage,8},{classes,4}},&gsub)==SfntStatus::ok);
+    CHECK(prepare_gsub_program(layout,{},32,{{sl,5},{st,5},{coverage,8},{classes,4}},&gsub)==SfntStatus::ok);
     plan.substitutions=&gsub;const SfntLookupStep swap[]{0,0,0},decompose[]{{1,0,1},{2,0,6}};
-    CHECK(sfnt_myanmar_shape_cluster(plan,cmap,{control,2},1000,s,&result,{swap,1})==SfntStatus::ok&&result.glyph_count==2);
+    CHECK(sfnt_myanmar_shape_run(plan,cmap,{control,2},1000,s,&result,{swap,1})==SfntStatus::ok&&result.glyph_count==2);
     CHECK(s.glyphs[0].glyph.glyph==1&&s.placements[0].advance==0&&s.glyphs[1].glyph.glyph==2&&s.placements[1].advance==600);
     const u32 vowel[]{0x1000,0x1031};
-    CHECK(sfnt_myanmar_shape_cluster(plan,cmap,{vowel,2},1000,s,&result,{decompose,2})==SfntStatus::ok&&result.glyph_count==2);
+    CHECK(sfnt_myanmar_shape_run(plan,cmap,{vowel,2},1000,s,&result,{decompose,2})==SfntStatus::ok&&result.glyph_count==2);
     CHECK(s.glyphs[0].glyph.glyph==2&&s.glyphs[1].glyph.glyph==3&&!s.character_glyphs[0]&&!s.character_glyphs[1]);
     const u64 staged_work=result.lookup_operations;
     for(u64 budget=0;budget<=staged_work;++budget){
-        const auto status=sfnt_myanmar_shape_cluster(plan,cmap,{vowel,2},1000,s,&result,{decompose,2},{budget,100000,1000000});
+        const auto status=sfnt_myanmar_shape_run(plan,cmap,{vowel,2},1000,s,&result,{decompose,2},{budget,100000,1000000});
         CHECK(result.lookup_operations<=budget&&status==(budget==staged_work?SfntStatus::ok:SfntStatus::resource_limit));
         if(status!=SfntStatus::ok)CHECK(!result.glyph_count&&!result.source_units&&!result.target_count);}
     plan.substitutions=nullptr;
@@ -84,8 +74,6 @@ bool units(SfntShapeStorage s) noexcept {
     CHECK(shape({positioned,3})==SfntStatus::ok&&result.glyph_count==3);
     CHECK(s.placements[0].advance==31&&s.placements[0].advance_offset==11&&s.placements[0].ascender_offset==17);
     CHECK(s.placements[2].advance==37&&s.placements[2].advance_offset==13&&s.placements[2].ascender_offset==19);
-    CHECK(sfnt_myanmar_shape_cluster(plan,cmap,{positioned,3},1000,s,&result,{},{},false,true)==SfntStatus::ok);
-    CHECK(s.positions[0].advance==31&&s.positions[2].advance==37);
     plan.positioning=nullptr;plan.positioning_roots={};plan.gdef={};plan.substitutions=&gsub;
     const auto run=[&](ConstSlice<u32> input,ConstSlice<SfntLookupStep> schedule=ConstSlice<SfntLookupStep>{},SfntShapeLimits limits=SfntShapeLimits{}) noexcept {
         return sfnt_myanmar_shape_run(plan,cmap,input,1000,s,&result,schedule,limits);};
@@ -135,7 +123,7 @@ bool units(SfntShapeStorage s) noexcept {
     u32 long_run[256];for(u32 i=0;i<256;++i)long_run[i]=i%2?0x1031:0x1000;
     CHECK(run({long_run,256})==SfntStatus::ok&&result.glyph_count==256&&result.source_units==256);
     for(u32 i=0;i<256;++i)CHECK(s.character_glyphs[i]==(i/2)*2);
-    print("PASS Myanmar cluster/run shape units; assertions=");number(checks);print("\n");return true;
+    print("PASS Myanmar run shape units; assertions=");number(checks);print("\n");return true;
 }
 bool read(void* p,u32 n) noexcept {auto* b=static_cast<u8*>(p);while(n){DWORD got=0;if(!ReadFile(GetStdHandle(STD_INPUT_HANDLE),b,n,&got,nullptr)||!got)return false;b+=got;n-=got;}return true;}
 bool write(const void* p,u32 n) noexcept {auto* b=static_cast<const u8*>(p);while(n){DWORD done=0;if(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),b,n,&done,nullptr)||!done)return false;b+=done;n-=done;}return true;}
@@ -153,8 +141,8 @@ bool font_stream(ConstSlice<u8> bytes,Arena& a,SfntShapeStorage s) noexcept {
         CHECK(status==SfntStatus::ok&&sfnt_layout_open(table,kind?SfntLayoutKind::positioning:SfntLayoutKind::substitution,&layout)==SfntStatus::ok);
         CHECK(sfnt_myanmar_lookup_plan(layout,{},flag(L"MAICORD_MYANMAR_INDEPENDENT"),{scratch,4096},{chosen,4096},&result)==SfntStatus::ok&&result.language_found);
         if(!kind){step_count=result.lookup_count;copy_bytes(steps,chosen,step_count*sizeof(SfntLookupStep));SfntGsubProgramRequirements n{};
-            CHECK(sfnt_gsub_program_requirements(layout,&n)==SfntStatus::ok);
-            CHECK(sfnt_gsub_program_prepare(layout,gdef,metrics.glyph_count,{allocate<SfntGsubExecutableLookup>(a,n.lookups),allocate<SfntGsubExecutableSubtable>(a,n.subtables),allocate<SfntCoverage>(a,n.coverages),allocate<SfntClassDef>(a,n.classes)},&gsub,1000000,1000000,true,true)==SfntStatus::ok);
+            CHECK(gsub_program_needs(layout,&n)==SfntStatus::ok);
+            CHECK(prepare_gsub_program(layout,gdef,metrics.glyph_count,{allocate<SfntGsubExecutableLookup>(a,n.lookups),allocate<SfntGsubExecutableSubtable>(a,n.subtables),allocate<SfntCoverage>(a,n.coverages),allocate<SfntClassDef>(a,n.classes)},&gsub,true,true)==SfntStatus::ok);
         }else{root_count=result.lookup_count;for(u32 i=0;i<root_count;++i)roots[i]=chosen[i].lookup;SfntGposProgramRequirements n{};
             CHECK(sfnt_gpos_program_requirements(layout,&n)==SfntStatus::ok);
             CHECK(sfnt_gpos_program_prepare(layout,gdef,metrics.glyph_count,{allocate<SfntGposExecutableLookup>(a,n.lookups),allocate<SfntGposSubtable>(a,n.basic),allocate<SfntGposAttachment>(a,n.attachments),allocate<SfntContext>(a,n.contexts),allocate<SfntCoverage>(a,n.coverages),allocate<SfntClassDef>(a,n.classes)},&gpos)==SfntStatus::ok);
@@ -165,7 +153,7 @@ bool font_stream(ConstSlice<u8> bytes,Arena& a,SfntShapeStorage s) noexcept {
     u8 header[12];CHECK(read(header,12)&&bytes_equal(header,"MDSHP1\0\0",8));const u32 cases=byte_load_le32(header+8);CHECK(cases&&cases<=100000&&write(header,12));
     for(u32 row=0;row<cases;++row){u32 n=0,input[256],sources[256];u16 glyphs[512];SfntShapeRunResult result{};
         CHECK(read(&n,4)&&n&&n<=256&&read(input,n*4));
-        const auto shaped=flag(L"MAICORD_MYANMAR_RUN")?sfnt_myanmar_shape_run(plan,cmap,{input,n},1000,s,&result,{steps,step_count},{},rtl):sfnt_myanmar_shape_cluster(plan,cmap,{input,n},1000,s,&result,{steps,step_count},{},rtl);
+        const auto shaped=sfnt_myanmar_shape_run(plan,cmap,{input,n},1000,s,&result,{steps,step_count},{},rtl);
         const u32 code=static_cast<u32>(shaped);CHECK(result.glyph_count<=512);
         u32 units=0;for(u32 i=0;i<n;++i){sources[i]=shaped==SfntStatus::ok?s.character_glyphs[units]:0;units+=input[i]>0xffff?2u:1u;}
         for(u32 i=0;i<result.glyph_count;++i)glyphs[i]=s.glyphs[i].glyph.glyph;

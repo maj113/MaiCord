@@ -29,7 +29,7 @@ SfntStatus system_coverage(SystemMapping& m,const NativeFontCatalog& catalog,u32
 SfntStatus system_family_faces(SystemMapping& m,const FamilyOrder& family,u32 cp,u32* output) noexcept {
     *output=native_fallback_missing;if(!family.order.count)return SfntStatus::ok;
     // family_order already validated the immutable catalog, request and order.
-    // Range scanning needs only the first covered candidate; catalog_range
+    // Range scanning needs only the first covered candidate; native_text_catalog_range
     // resolves its properties/simulations once, after the map completes.
     const auto& catalog=*family.catalog;
     for(u32 i=0;i<family.order.count;++i){
@@ -87,29 +87,17 @@ SfntStatus system_cover(void* context,u32 font,u32 cp,bool* output) noexcept {
     return catalog?system_coverage(m,*catalog,candidate,font,cp,output,scope):SfntStatus::invalid_input;
 }
 }
-namespace {
-bool catalog_range(bool routed,NativeTextCatalogs* owner,const NativeTextFontQuery& query,NativeFontSession* session,Arena* scratch,Utf8View text,NativeTextFontRange* output) noexcept {
+bool native_text_catalog_range(NativeTextCatalogs* owner,const NativeTextFontQuery& query,NativeFontSession* session,Arena* scratch,Utf8View text,NativeTextFontRange* output) noexcept {
     if(output)*output={{native_fallback_missing,{},0},0,0,native_fallback_missing};
     if(!owner||!output||!session||!scratch||!scratch->base||query.scope>=owner->count||!query.family.data||!query.family.count||query.family.count>32767||!text.data||!text.bytes)return false;
     const auto props=query.properties;
-    if(routed&&(props.width!=5||(props.weight!=400&&props.weight!=600)||(props.style!=0&&props.style!=2)))return false;
+    if(props.width!=5||(props.weight!=400&&props.weight!=600)||(props.style!=0&&props.style!=2))return false;
     const FamilyOrder* family=nullptr;if(!coverage_ready(*owner,session)||!family_order(*owner,query,*scratch,&family))return false;
-    if(!routed&&!family->order.count)return false;
     SystemMapping mapping{owner,scratch,props,family};NativeFallbackRangeResult range{};
-    const auto status=routed?native_font_fallback_map(text,system_base,system_route,system_font,system_cover,&mapping,&range):
-        native_font_fallback_range(text,[](void* context,u32 cp,NativeFallbackChoice* choice) noexcept {
-            choice->policy=0;return system_base(context,cp,&choice->font);},system_cover,&mapping,&range);
-    if(status!=SfntStatus::ok)return false;
+    if(native_font_fallback_map(text,system_base,system_route,system_font,system_cover,&mapping,&range)!=SfntStatus::ok)return false;
     NativeTextFontRange result{{native_fallback_missing,{},0},range.bytes,range.units,native_fallback_missing};
     if(range.choice.font!=native_fallback_missing){const u32 scope=range.choice.font>>21,global=range.choice.font&fallback_candidate_mask;u32 candidate=global;const auto* selected=candidate_catalog(*owner,scope,&candidate);if(!selected)return false;const auto& catalog=*selected;
         NativeFontMatch match{};if(native_font_match({&catalog.candidates[candidate].properties,1},props,&match)!=SfntStatus::ok)return false;
         result.match={global,match.properties,match.simulations};result.scope=scope;
     }*output=result;return true;
-}
-}
-bool native_text_catalog_range(NativeTextCatalogs* owner,const NativeTextFontQuery& query,NativeFontSession* session,Arena* scratch,Utf8View text,NativeTextFontRange* output) noexcept {
-    return catalog_range(true,owner,query,session,scratch,text,output);
-}
-bool native_text_catalog_family_range(NativeTextCatalogs* owner,const NativeTextFontQuery& query,NativeFontSession* session,Arena* scratch,Utf8View text,NativeTextFontRange* output) noexcept {
-    return catalog_range(false,owner,query,session,scratch,text,output);
 }

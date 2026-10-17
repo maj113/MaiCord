@@ -86,22 +86,6 @@ double curve_velocity(const UiSmoothScroll& scroll, u64 now_us) noexcept {
 
 } // namespace
 
-i64 ui_wheel_accumulate(i64* remainder, i32 wheel_delta, i64 units_per_notch) noexcept {
-    if (!remainder || units_per_notch <= 0) {
-        return 0;
-    }
-    constexpr i64 kWheelDelta = 120;
-    constexpr i64 kMaximumInputMagnitude = 32'768;
-    constexpr i64 kMaximumUnitsPerNotch = static_cast<i64>(~0ull >> 1u) / kMaximumInputMagnitude;
-    *remainder %= kWheelDelta;
-    const i64 bounded_delta = minimum<i64>(maximum<i64>(wheel_delta, -kMaximumInputMagnitude),
-                                           kMaximumInputMagnitude - 1);
-    const i64 units = minimum(units_per_notch, kMaximumUnitsPerNotch);
-    const i64 numerator = *remainder + bounded_delta * units;
-    *remainder = numerator % kWheelDelta;
-    return numerator / kWheelDelta;
-}
-
 bool ui_smooth_scroll_queue(UiSmoothScroll* scroll, double delta, u64 now_us,
                             double units_per_pixel) noexcept {
     if (!scroll || !finite_delta(delta) || !finite_delta(units_per_pixel) ||
@@ -138,7 +122,6 @@ bool ui_smooth_scroll_queue(UiSmoothScroll* scroll, double delta, u64 now_us,
     scroll->remaining = queued;
     scroll->segment_distance = queued;
     scroll->segment_emitted = 0.0;
-    scroll->units_per_pixel = static_cast<float>(units_per_pixel);
     scroll->initial_slope = static_cast<float>(
         duration_us == 0 ? 0.0
                          : minimum(maximum(prior_velocity * duration_us / queued, -1'000.0), 1'000.0));

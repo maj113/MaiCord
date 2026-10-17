@@ -211,7 +211,7 @@ void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexc
               ui_rect_equal(wide.search_field, {944, 8, 1224, 40}) && ui_rect_equal(wide.inbox, {1228, 8, 1264, 40}) &&
               ui_rect_equal(wide.pins, {856, 8, 892, 40}) && wide.label.right <= wide.pins.left - 8 &&
               ui_widget_manager_hit_test(shell.widgets, 872, 24).slot == pins->widget.slot &&
-              ui_scene_validate(shell, {diagnostics, 32}).clean(),
+              ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 32}).clean(),
           "pins launcher: distinct pin target preserves wide member/search anchors and title clearance");
     const u32 rebuilds = shell.layout_rebuilds;
     check(ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, 640, 800) &&
@@ -222,7 +222,7 @@ void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexc
               ui_scene_header_geometry(shell).pins.left >= ui_scene_header_geometry(shell).title.left &&
               ui_scene_header_geometry(shell).pins.right < ui_scene_header_geometry(shell).member_toggle.left &&
               ui_scene_header_geometry(shell).member_toggle.right < ui_scene_header_geometry(shell).search_field.left &&
-              ui_scene_validate(shell, {diagnostics, 32}).clean(),
+              ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 32}).clean(),
           "pins launcher: narrow native header bounds all controls without overlapping hit regions");
     check(ui_scene_layout_with_metrics(&shell, UiShellView::guild_channel, metrics, 632, 800) &&
               ui_rect_width(ui_scene_header_geometry(shell).label) == 72.f &&
@@ -230,7 +230,7 @@ void test_pinned_messages_scene(void (*check)(bool, const char*) noexcept) noexc
               ui_scene_header_geometry(shell).label.right + 8.f == ui_scene_header_geometry(shell).pins.left &&
               ui_scene_header_geometry(shell).pins.right + 8.f == ui_scene_header_geometry(shell).member_toggle.left &&
               ui_scene_header_geometry(shell).member_toggle.right + 8.f == ui_scene_header_geometry(shell).search_field.left &&
-              ui_scene_validate(shell, {diagnostics, 32}).clean(),
+              ui_layout_engine_validate(shell.widgets.layout, {diagnostics, 32}).clean(),
           "pins launcher: minimum message width retains readable channel label and keyboard-sized search");
     metrics.flags &= static_cast<u16>(~ui_shell_layout_pins);
     ++metrics.revision;

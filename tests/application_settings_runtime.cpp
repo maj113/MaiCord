@@ -2044,7 +2044,8 @@ void test_controller() noexcept {
     // The production shell dispatcher previously activated the settings gear
     // from hover and omitted click. Exercise real layout and hit testing here.
     check(ui_scene_initialize_bootstrap(&g_app.shell_scene) &&
-              ui_scene_layout(&g_app.shell_scene, 1280, 700),
+              ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
+                                           kGuildChannelShellLayoutMetrics, 1280, 700),
           "shell: actual bootstrap scene lays out settings gear, member toggle and account footer");
     const auto* gear =
         ui_scene_resolve(g_app.shell_scene, ui_scene_find(g_app.shell_scene, UiSemantic::settings));

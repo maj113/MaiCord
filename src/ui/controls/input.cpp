@@ -31,10 +31,6 @@ bool ui_select_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect 
                          ui_settings_color_alpha(tokens.color.text_strong, state.enabled ? 1.f : .5f));
 }
 
-float ui_settings_button_height(const UiSettingsTokens& tokens, UiSettingsButtonSize size) noexcept {
-    return size == UiSettingsButtonSize::compact ? tokens.metric.button_small : tokens.metric.button_medium;
-}
-
 float ui_settings_button_width(const UiSettingsTokens& tokens, UiSettingsButtonSize size,
                                float label_width) noexcept {
     const bool compact = size == UiSettingsButtonSize::compact;

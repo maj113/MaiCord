@@ -9,7 +9,6 @@ namespace maicord {
 //                  UInt64Value color = 4; }
 inline constexpr u32 kGuildFoldersSettingsField = 14;
 inline constexpr u32 kGuildFoldersMaximumGroupBytes = 64 * 1024;
-inline constexpr u32 kGuildFoldersMaximumProtoBytes = 16 * 1024 * 1024;
 inline constexpr u32 kGuildFoldersMaximumFolders = 256;
 inline constexpr u32 kGuildFoldersMaximumGuilds = 512;
 inline constexpr u32 kGuildFoldersMaximumPositions = 256;
@@ -41,8 +40,6 @@ struct GuildFolderSettings {
 // Validates the outer message before writing output.
 GuildFoldersError guild_folders_extract_base64(Utf8View settings, Slice<u8> group, u32* bytes,
                                                bool* present) noexcept;
-GuildFoldersError guild_folders_extract_proto(ConstSlice<u8> settings, Slice<u8> group, u32* bytes,
-                                              bool* present) noexcept;
 // Decodes a GuildFolders message. Unknown fields are skipped; malformed known
 // fields reject the whole group and leave output untouched.
 GuildFoldersError guild_folders_decode(ConstSlice<u8> group, GuildFolderSettings* output) noexcept;

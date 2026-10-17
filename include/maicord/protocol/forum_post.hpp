@@ -133,7 +133,6 @@ GatewayMessageAttachment forum_post_attachment_view(const ForumPostMediaSnapshot
 // passes a freshly resolved MANAGE_THREADS permission.
 bool forum_post_selection_valid(const ForumParentSnapshot&, ConstSlice<u64> selected,
                                 bool manage_threads) noexcept;
-Utf8View forum_parent_name_view(const ForumParentSnapshot&) noexcept;
 Utf8View forum_tag_name_view(const ForumTagSnapshot&) noexcept;
 Utf8View forum_post_content_view(const ForumPostSnapshot&) noexcept;
 static_assert(sizeof(ForumPostRequest) == 144);

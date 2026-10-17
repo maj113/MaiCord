@@ -90,9 +90,9 @@ void initial_and_transcripts(Check check, KdfSha256Workspace& workspace) noexcep
               bytes_equal(interim, answer, 32),
           "MLS initial interim transcript includes the serialized confirmation-tag length");
     test_unhex(next_confirmed, answer);
-    check(mls_transcript_confirm(workspace, {interim, 32},
-                                 {reinterpret_cast<const u8*>(content), sizeof(content) - 1},
-                                 {confirmed, 48})
+    const ConstSlice<u8> confirmed_parts[]{{interim, 32},
+                                           {reinterpret_cast<const u8*>(content), sizeof(content) - 1}};
+    check(sha256(workspace, {confirmed_parts, 2}, {confirmed, 48})
                   .ok() &&
               bytes_equal(confirmed, answer, 32),
           "MLS confirmed transcript hashes previous interim and serialized content input");
@@ -168,8 +168,6 @@ void failures(Check check, KdfSha256Workspace& workspace) noexcept {
                   mls_transcript_interim(workspace, {}, {tag, 32}, {input, size}).error ==
                       KdfError::output_capacity,
               "MLS confirmation never accepts a truncated tag and transcript never truncates output");
-    check(mls_transcript_confirm(workspace, {input, 31}, {}, {tag, 32}).error == KdfError::invalid_input,
-          "MLS confirmed transcript requires complete predecessor hash");
     mls_epoch_clear(&output);
 }
 void guards(Check check, KdfSha256Workspace& workspace) noexcept {

@@ -154,7 +154,7 @@ void scene_cases(Check check) noexcept {
               !ui_rect_equal(scene.tiles[0].display, scene.tiles[0].target) &&
               ui_rect_equal(scene.tiles[0].from, grid_rect) && ui_call_scene_next_wake(scene, 3000, false),
           "call scene: a focus change morphs from the grid rectangle");
-    check(ui_call_scene_tick(&scene, 3000 + kUiCallMorphMs + 50, false) &&
+    check(ui_call_scene_update(&scene, content, viewport, 3000 + kUiCallMorphMs + 50, false) &&
               ui_rect_equal(scene.tiles[0].display, scene.tiles[0].target) && !scene.morph.active &&
               !ui_call_scene_next_wake(scene, 3500, false),
           "call scene: the morph settles on the target layout");
@@ -390,7 +390,7 @@ void roster_cases(Check check) noexcept {
     VoiceStateStore states{};
     const CallVideoTarget cameras[3]{{2, 201, 0, false}, {3, 301, 0, false}, {2, 202, 0, false}};
     u64 users[4]{};
-    bool valid = voice_state_store_initialize(&states, {records, 8});
+    bool valid = voice_state_store_initialize_sparse(&states, {records, 8});
     check(valid && call_video_unlisted_users(states, 10, {cameras, 3}, {users, 4}) == 2 && users[0] == 2 &&
               users[1] == 3,
           "call roster: cameras announced before any voice state of the channel still get tiles");

@@ -29,9 +29,10 @@ void test_controls(Check check) noexcept {
               ui_settings_modal_entrance(tokens.duration, enter / 2) > .97f &&
               ui_settings_modal_entrance(tokens.duration, enter) == 1.f,
           "settings controls: modal and dialog entrances follow one spring timeline");
-    const auto track = ui_switch_rect(tokens, 500, 100);
-    check(close_to(ui_rect_width(track), 48) && close_to(ui_rect_height(track), 24) && close_to(track.right, 500),
-          "settings controls: switch track is a 48 x 24 pill aligned to the row edge");
+    const UiRect track{500 - tokens.metric.switch_width, 100 - tokens.metric.switch_height * .5f, 500,
+                       100 + tokens.metric.switch_height * .5f};
+    check(close_to(tokens.metric.switch_width, 48) && close_to(tokens.metric.switch_height, 24),
+          "settings controls: switch track is a 48 x 24 pill");
     const auto off = ui_switch_thumb(tokens, track, false, 1, false, false);
     const auto on = ui_switch_thumb(tokens, track, true, 1, false, false);
     check(close_to(ui_rect_width(off.box), 16) && close_to(off.box.left, track.left + 4) && close_to(on.box.right, track.right - 4) &&
@@ -67,7 +68,7 @@ void test_controls(Check check) noexcept {
     check(ui_swatch_columns(tokens, 700) >= 7 && ui_swatch_columns(tokens, 100) == 1 &&
               close_to(ui_rect_width(ui_swatch_rect(tokens, {0, 0, 700, 400}, 1, 8)), 60),
           "settings controls: theme swatches are 60 DIP tiles wrapped by available width");
-    check(close_to(ui_settings_button_height(tokens, UiSettingsButtonSize::compact), 32) &&
+    check(close_to(tokens.metric.button_small, 32) &&
               close_to(ui_settings_button_width(tokens, UiSettingsButtonSize::regular, 10), 100) &&
               close_to(ui_settings_button_width(tokens, UiSettingsButtonSize::compact, 200), 224),
           "settings controls: buttons honour the official minimum widths and padding");
@@ -340,11 +341,12 @@ void test_modal_scene(Check check) noexcept {
     PaintStream paint{};
     UiTextCommand commands[96]{};
     UiTextCommandStream text{};
+    UiTextOutput text_output{&text, nullptr};
     UiSettingsPaintRanges ranges{};
     bool painted = paint_stream_initialize(&paint) && paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
                    ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, &ranges) &&
                    ui_text_command_stream_initialize(&text, {commands, 96}) &&
-                   ui_settings_scene_text(scene, kDefaultTheme, &text);
+                   ui_settings_scene_text_output(scene, kDefaultTheme, &text_output);
     check(painted && ranges.modal_first_quad > 0 && ranges.modal_first_quad <= ranges.page_first_quad &&
               ranges.page_first_quad < ranges.page_end_quad && ranges.page_end_quad <= ranges.modal_end_quad &&
               ranges.modal_end_quad <= paint.count && !paint.rejected && paint.batch_count < kMaxPaintBatches / 2 &&
@@ -425,9 +427,9 @@ void test_layer_scene(Check check) noexcept {
               ui_settings_target_equal(hit.target, name_target) &&
               !ui_settings_scene_editor_hit(scene, center(name_geometry.clip).x, name_geometry.field.top - 4, &hit),
           "settings layer: editors keep 40 and 160 DIP fields with exact field hits");
-    check(ui_settings_scene_focus(&scene, name_target) && !ui_settings_scene_control_geometry_current(scene, name_geometry) &&
+    check(ui_settings_scene_focus(&scene, name_target) && name_geometry.scene_revision != scene.revision &&
               ui_settings_scene_control_geometry(scene, name_target, &name_geometry) &&
-              ui_settings_scene_control_geometry_current(scene, name_geometry),
+              name_geometry.scene_revision == scene.revision,
           "settings layer: geometry is fenced by scene revision");
     check(ui_settings_scene_focus(&scene, {UiSettingsTargetKind::control, key, 4}) &&
               ui_settings_scene_move_focus(&scene, false) && scene.focus.kind == UiSettingsTargetKind::reset &&

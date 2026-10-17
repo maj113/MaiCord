@@ -366,10 +366,5 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
               observations.count == 1 &&
               message_poll_store_metrics(observations).commit_count == full_costs.commit_count,
           "poll model: record-capacity failure preserves the live poll and committed budget");
-    message_poll_store_reset(&observations);
-    check(!observations.count && !observations.text_used && !message_poll_store_find(observations, 30) &&
-              message_poll_store_metrics(observations).committed_bytes == full_costs.committed_bytes,
-          "poll model: account reset erases publications and observers while retaining reusable page "
-          "backing");
 }
 } // namespace maicord

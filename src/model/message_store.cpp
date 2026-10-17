@@ -360,37 +360,6 @@ Utf8View message_store_content(const MessageStore& store, MessageHandle handle) 
                   : Utf8View{};
 }
 
-bool message_store_compact(MessageStore* store, Slice<u8> scratch) noexcept {
-    if (!store || !store->records || !store->order || !store->text || !scratch.data ||
-        scratch.data == store->text) {
-        if (store) {
-            ++store->rejected;
-        }
-        return false;
-    }
-    const u32 live_bytes = store->text_used - store->text_wasted;
-    const u64 text_begin = reinterpret_cast<u64>(store->text);
-    const u64 text_end = text_begin + store->text_capacity;
-    const u64 scratch_begin = reinterpret_cast<u64>(scratch.data);
-    const u64 scratch_end = scratch_begin + scratch.count;
-    if (scratch.count < live_bytes || (scratch_begin < text_end && scratch_end > text_begin)) {
-        ++store->rejected;
-        return false;
-    }
-    u32 write_offset = 0;
-    for (u32 index = 0; index < store->count; ++index) {
-        MessageRecord& record = store->records[store->order[index]];
-        copy_bytes(scratch.data + write_offset, store->text + record.content_offset, record.content_bytes);
-        record.content_offset = write_offset;
-        write_offset += record.content_bytes;
-    }
-    copy_bytes(store->text, scratch.data, write_offset);
-    store->text_used = write_offset;
-    store->text_wasted = 0;
-    ++store->compactions;
-    return true;
-}
-
 bool message_store_compact_in_place(MessageStore* store) noexcept {
     if (!store || !store->records || !store->order || !store->text ||
         store->text_wasted > store->text_used) {

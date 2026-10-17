@@ -106,13 +106,14 @@ mc_status MC_CALL inproc_query(const mc_host_info* info, mc_plugin_definition* d
 struct InprocPlugin {
     NativePluginSdkBinding* binding;
     bool enabled;
+    u64 owner;
 };
 InprocPlugin start_inproc(u64 owner, u64 permissions, u64 approved, void (*during_start)() noexcept = nullptr) noexcept {
     g_inproc.owner = owner;
     g_inproc.permissions = permissions;
     g_inproc.during_start = during_start;
     g_inproc.binding = nullptr;
-    InprocPlugin plugin{native_plugin_sdk_create(&g_runtime, approved), false};
+    InprocPlugin plugin{native_plugin_sdk_create(&g_runtime, approved), false, owner};
     NativePluginDefinition adapter{};
     if (!plugin.binding || native_plugin_sdk_query(plugin.binding, inproc_query, owner, &adapter) != NativePluginSdkQueryError::none)
         return plugin;
@@ -121,7 +122,7 @@ InprocPlugin start_inproc(u64 owner, u64 permissions, u64 approved, void (*durin
     return plugin;
 }
 void stop_inproc(InprocPlugin& plugin) noexcept {
-    if (plugin.enabled) native_plugin_host_disable(&g_host.host, native_plugin_sdk_owner(plugin.binding));
+    if (plugin.enabled) native_plugin_host_disable(&g_host.host, plugin.owner);
     native_plugin_sdk_destroy(plugin.binding);
     plugin = {};
 }
@@ -586,7 +587,9 @@ void test_time_budget() noexcept {
     for (u32 i = 0; i < 2; ++i) native_plugin_sdk_run_command(&g_runtime, {1, 0, 0, utf8_literal("/slow")});
     check(!plugin_call_ledger_disable_requested(&g_ledger, kSlowOwner), "two overruns are tolerated");
     native_plugin_sdk_run_command(&g_runtime, {1, 0, 0, utf8_literal("/slow")});
-    const auto* entry = plugin_call_ledger_find(g_ledger, kSlowOwner);
+    const PluginCallLedgerEntry* entry = nullptr;
+    for (const auto& candidate : g_ledger.entries)
+        if (candidate.owner_id == kSlowOwner) entry = &candidate;
     check(plugin_call_ledger_disable_requested(&g_ledger, kSlowOwner) && entry && entry->overruns == 3 &&
               entry->worst_us >= 10'000,
           "the third overrun requests a disable after the call returned");
@@ -649,7 +652,7 @@ void test_marker(const wchar_t* marker) noexcept {
     check(native_plugin_preferences_set_flags(&preferences, leftover.owner_id ? leftover.owner_id : 0x7777,
                                               native_plugin_preference_crashed) &&
               !native_plugin_preferences_restorable(preferences, manifest) &&
-              native_plugin_preferences_has(preferences, manifest),
+              native_plugin_preferences_find(preferences, manifest),
           "the crashed plugin stays remembered but off");
     check(native_plugin_preferences_enable(&preferences, manifest, MC_PERM_COMMANDS | MC_PERM_STORE).ok() &&
               preferences.entries[0].flags == 0 && native_plugin_preferences_restorable(preferences, manifest),

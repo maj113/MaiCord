@@ -32,7 +32,7 @@ constexpr Utf8View labels[]{utf8_literal("1"), utf8_literal("12"), utf8_literal(
     utf8_literal("1k+"), utf8_literal("9k+")};
 bool initialize() noexcept {
     auto& f = fixture;
-    if (!ui_scene_initialize_bootstrap(&f.shell) || !ui_scene_layout(&f.shell, 1280, 800) ||
+    if (!ui_scene_initialize_bootstrap(&f.shell) || !ui_scene_layout_with_metrics(&f.shell, UiShellView::guild_channel, kGuildChannelShellLayoutMetrics, 1280, 800) ||
         !chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1},
             {f.channels, 6}, {f.channel_order, 6}, {f.names, sizeof(f.names)}) ||
         !chat_state_store_upsert_guild(&f.state, {7, utf8_literal("Guild"), GuildMutationKind::create, 1}).ok() ||

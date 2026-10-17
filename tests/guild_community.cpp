@@ -890,12 +890,8 @@ void test_gateway() noexcept {
               !guild_rules_gate(guild_record_onboarding, guild_self_member_pending, true) &&
               guild_rules_gate(guild_record_onboarding | guild_record_verification_gate, guild_self_member_pending,
                                true) &&
-              !guild_rules_gate(guild_record_verification_gate, guild_self_member_pending, false) &&
-              guild_onboarding_due(guild_record_onboarding, guild_self_member_onboarding_started, true) &&
-              !guild_onboarding_due(guild_record_onboarding,
-                                    guild_self_member_onboarding_started | guild_self_member_onboarding_completed,
-                                    true),
-          "community: gate policy follows the screening feature and the onboarding flags");
+              !guild_rules_gate(guild_record_verification_gate, guild_self_member_pending, false),
+          "community: rules gate follows the screening and onboarding features");
 }
 
 void test_navigation() noexcept {

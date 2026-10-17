@@ -138,40 +138,6 @@ u64 clipboard_image_build_dib(const u8* rgba, u32 width, u32 height, u32 stride,
     }
     return total;
 }
-bool clipboard_image_parse_dib(ConstSlice<u8> dib, Slice<u8> rgba, u32* width, u32* height) noexcept {
-    if (!width || !height || !dib.data || dib.count < sizeof(BITMAPINFOHEADER) || !rgba.data)
-        return false;
-    BITMAPV5HEADER header{};
-    copy_bytes(&header, dib.data, minimum<u32>(dib.count, sizeof(header)));
-    if (header.bV5Size < sizeof(BITMAPINFOHEADER) || header.bV5Size > dib.count || header.bV5BitCount != 32 ||
-        header.bV5Width <= 0 || header.bV5Height == 0 ||
-        (header.bV5Compression != BI_RGB && header.bV5Compression != BI_BITFIELDS))
-        return false;
-    const u32 w = static_cast<u32>(header.bV5Width);
-    const bool top_down = header.bV5Height < 0;
-    const u32 h = static_cast<u32>(top_down ? -static_cast<i64>(header.bV5Height) : header.bV5Height);
-    // A V3 header with bitfields carries its three masks after the header.
-    const u64 offset = header.bV5Size + (header.bV5Size == sizeof(BITMAPINFOHEADER) &&
-                                                 header.bV5Compression == BI_BITFIELDS
-                                             ? 12u
-                                             : 0u);
-    if (!extent_valid(w, h) || offset + u64{w} * h * 4 > dib.count || u64{w} * h * 4 > rgba.count)
-        return false;
-    const u8* pixels = dib.data + offset;
-    for (u32 y = 0; y < h; ++y) {
-        const u8* source = pixels + u64{top_down ? y : h - 1 - y} * w * 4;
-        u8* target = rgba.data + u64{y} * w * 4;
-        for (u32 x = 0; x < w; ++x) {
-            target[x * 4 + 0] = source[x * 4 + 2];
-            target[x * 4 + 1] = source[x * 4 + 1];
-            target[x * 4 + 2] = source[x * 4 + 0];
-            target[x * 4 + 3] = source[x * 4 + 3];
-        }
-    }
-    *width = w;
-    *height = h;
-    return true;
-}
 
 namespace {
 // ---- Paste conversion -------------------------------------------------------

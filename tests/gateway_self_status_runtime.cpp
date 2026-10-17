@@ -274,7 +274,8 @@ void run() noexcept {
     check(decoded.ok() && decoded.bytes > 2 && proto[0] == 90 &&
               self_status_settings_read_custom({proto + 2, decoded.bytes - 2}, &sent) &&
               self_custom_status_equal(sent, away) &&
-              self_status_settings_decode_proto({proto, decoded.bytes}, {group, sizeof(group)}, &kept) ==
+              self_status_settings_decode_base64({reinterpret_cast<const char*>(submitted_body + 13), submitted_bytes - 15},
+                                                 {group, sizeof(group)}, &kept) ==
                   SelfStatusSettingsError::none &&
               kept.status == GatewayUserStatus::dnd,
           "custom status runtime: body replaces the custom status and keeps the saved status");

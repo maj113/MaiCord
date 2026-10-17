@@ -1,4 +1,4 @@
-#include "maicord/text/gpos.hpp"
+#include "gpos_lookup_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
 #include <Windows.h>
 namespace maicord {namespace {
@@ -12,17 +12,22 @@ bool units() noexcept {
     u8 store_bytes[32]{};put(store_bytes,0,1);byte_store_be32(store_bytes+2,12);put(store_bytes,6,1);byte_store_be32(store_bytes+8,22);put(store_bytes,12,1);put(store_bytes,14,1);put(store_bytes,18,16384);put(store_bytes,20,16384);put(store_bytes,22,1);put(store_bytes,24,1);put(store_bytes,26,1);put(store_bytes,30,40);
     ItemVariationStore store{};VariationInstance instance{};double coordinate=.5,scalar=0;if(item_variation_store_open({store_bytes,32},0,&store)!=SfntStatus::ok || variation_instance_prepare(store,{&coordinate,1},{&scalar,1},&instance)!=SfntStatus::ok)return false;
     const i16 design[]{-32768,32767,-1,17},pixels[]{-2,7,-5,0};
-    for(u16 mask=0;mask<256;++mask){u8 p[128]{};u32 at=16,end=16;for(u32 bit=0;bit<8;++bit)if(mask&(1u<<bit))end+=2;u32 child=end;
+    // Value records come from a SinglePos format 1 subtable: value at 6, then
+    // coverage for glyph 1, then device tables.
+    for(u16 mask=0;mask<256;++mask){u8 p[128]{};u32 at=6,end=6;for(u32 bit=0;bit<8;++bit)if(mask&(1u<<bit))end+=2;const u32 cov=end;u32 child=cov+6;
+        put(p,0,1);put(p,2,static_cast<u16>(cov));put(p,4,mask);put(p,cov,1);put(p,cov+2,1);put(p,cov+4,1);
         for(u32 bit=0;bit<8;++bit)if(mask&(1u<<bit)){if(bit<4)put(p,at,static_cast<u16>(design[bit]));else {put(p,at,static_cast<u16>(child));const u32 d=bit-4;
                 if(d==3){put(p,child+4,0x8000);child+=6;}else {put(p,child,d==1?9:16);put(p,child+2,d==1?9:16);put(p,child+4,static_cast<u16>(d+1));put(p,child+6,d==0?0x8000:d==1?0x7000:0xfb00);child+=8;}}at+=2;}
-        SfntValueRecord record{};SfntPositionValue value{};u32 used=0;if(sfnt_position_value_size(mask)!=end-16 || sfnt_value_record_open({p,child},16,mask,end,&record,100,&used)!=SfntStatus::ok || !used || sfnt_value_record_read(record,&value)!=SfntStatus::ok)return false;
+        SfntGposSubtable single{};SfntGposMatch matched{};const SfntGsubGlyph covered{1,SfntGlyphClass::base,0};SfntPositionValue value{};u32 used=0;
+        if(sfnt_position_value_size(mask)!=end-6 || sfnt_gpos_subtable_open({p,child},1,5,&single,100,&used)!=SfntStatus::ok || !used ||
+           sfnt_gpos_subtable_match_view(single,{},{},sfnt_glyph_view({&covered,1}),0,1,&matched)!=SfntStatus::ok || !matched.matched || sfnt_value_record_read(matched.values[0],&value)!=SfntStatus::ok)return false;
         for(u32 i=0;i<4;++i)if(value.design[i]!=(mask&(1u<<i)?design[i]:0) || value.devices[i].format!=(mask&(16u<<i)?(i==3?0x8000:i+1):0))return false;
         SfntPositionAdjustment adjusted{};if(sfnt_position_value_resolve(value,{nullptr,16,9,false,VariationArithmetic::wide},&adjusted)!=SfntStatus::ok)return false;
         for(u32 i=0;i<4;++i)if(adjusted.design[i]!=value.design[i] || adjusted.pixels[i]!=(mask&(16u<<i)?pixels[i]:0))return false;
         if(sfnt_position_value_resolve(value,{&instance,16,9,true,VariationArithmetic::wide},&adjusted)!=SfntStatus::ok)return false;
         for(u32 i=0;i<4;++i)if(adjusted.pixels[i] || adjusted.design[i]!=value.design[i]+((i==3 && (mask&128))?20:0))return false;
         if(sfnt_position_value_resolve(value,{nullptr,16,9,true,VariationArithmetic::wide},&adjusted)!=((mask&128)?SfntStatus::missing_table:SfntStatus::ok))return false;
-        if(sfnt_value_record_open({p,child},16,mask,end,&record,0)!=SfntStatus::resource_limit || record.parent.data)return false;
+        if(sfnt_gpos_subtable_open({p,child},1,5,&single,0)!=SfntStatus::resource_limit || single.table.data)return false;
     }
     if(sfnt_position_value_size(256)!=0xffff)return false;
     SfntPositionValue sentinel{};sentinel.design[0]=23;sentinel.devices[0]={{},65535,65535,0x8000};SfntPositionAdjustment no_delta{};
@@ -37,8 +42,9 @@ bool units() noexcept {
         SfntGposSubtable sub{};if(sfnt_gpos_subtable_open({p,static_cast<u32>(cov)+6},2,5,&sub)!=SfntStatus::ok || sfnt_gpos_subtable_match_view(sub,{},{{},8},sfnt_glyph_view({glyphs,3}),0,3,&match)!=SfntStatus::ok || !match.matched || match.second_input!=2 || match.next_input!=2+present)return false;
         if(sfnt_gpos_subtable_match_view(sub,{},{{},8},sfnt_glyph_view({glyphs,3}),0,2,&match)!=SfntStatus::ok || match.matched)return false;}
     // A matching empty single adjustment stops the lookup before a later adjustment.
-    u8 zero[]{0,1,0,6,0,0,0,1,0,1,0,1},nonzero[]{0,1,0,8,0,4,0xff,0xe2,0,1,0,1,0,1};SfntGposSubtable sequence[2];
-    if(sfnt_gpos_subtable_open({zero,sizeof(zero)},1,5,&sequence[0])!=SfntStatus::ok || sfnt_gpos_subtable_open({nonzero,sizeof(nonzero)},1,5,&sequence[1])!=SfntStatus::ok || sfnt_gpos_lookup_match_view({{sequence,2},{}},{},sfnt_glyph_view({glyphs,3}),0,3,&match)!=SfntStatus::ok || !match.matched || match.values[0].format)return false;
+    u8 zero[]{0,1,0,6,0,0,0,1,0,1,0,1},nonzero[]{0,1,0,8,0,4,0xff,0xe2,0,1,0,1,0,1};SfntGposSubtable sequence[2];SfntPosition positions[3]{};SfntPositionExecution executed{};
+    if(sfnt_gpos_subtable_open({zero,sizeof(zero)},1,5,&sequence[0])!=SfntStatus::ok || sfnt_gpos_subtable_open({nonzero,sizeof(nonzero)},1,5,&sequence[1])!=SfntStatus::ok ||
+       sfnt_position_execute_lookup({{sequence,2},{}},{},sfnt_glyph_view({glyphs,3}),{positions,3},0,1,false,{},&executed)!=SfntStatus::ok || executed.matches!=1 || positions[0].advance!=0)return false;
     for(u16 format=1;format<=3;++format){u8 a[24]{};put(a,0,format);put(a,2,65506);put(a,4,100);put(a,6,format==2?65535:10);if(format==3){put(a,10,16);put(a,12,16);put(a,14,1);put(a,16,0x4000);}
         SfntAnchor anchor{};SfntAnchorValue value{};if(sfnt_anchor_open({a,format==1?6u:format==2?8u:18u},&anchor)!=SfntStatus::ok || sfnt_anchor_read(anchor,&value)!=SfntStatus::ok || value.format!=format || value.x!=-30 || value.y!=100 || value.point!=(format==2?65535:0) || value.devices[0].format!=(format==3?1:0))return false;}
     return true;
@@ -91,14 +97,15 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         SfntLayout layout{};SfntGdef gdef{};if(sfnt_layout_open(raw,SfntLayoutKind::positioning,&layout)!=SfntStatus::ok || (gdsize && sfnt_gdef_open(gd,limit,&gdef)!=SfntStatus::ok))return false;
         for(u32 i=0;i<vc;++i){value_records[i]=r.data.data+r.at;u32 parent=0,offset=0,format=0,minimum=0;
             if(!r.word(&parent)||!r.word(&offset)||!r.word(&format)||!r.word(&minimum)||parent>size||format>65535)return false;
-            SfntValueRecord record{};SfntPositionValue value{};const auto status=sfnt_value_record_open({raw.data+parent,size-parent},offset,static_cast<u16>(format),minimum,&record);
-            if(status!=SfntStatus::ok || sfnt_value_record_read(record,&value)!=SfntStatus::ok || !check_value(r,value)){print(utf8_literal("value_table="));number(table);print(utf8_literal(" index="));number(i);print(utf8_literal(" status="));number(static_cast<u32>(status));print(utf8_literal("\n"));return false;}}
+            const ConstSlice<u8> owner{raw.data+parent,size-parent};const u16 value_bytes=sfnt_position_value_size(static_cast<u16>(format));if(value_bytes==0xffff || offset>owner.count || value_bytes>owner.count-offset)return false;
+            const SfntValueRecord record{owner,offset,static_cast<u16>(format),value_bytes};SfntPositionValue value{};
+            if(sfnt_value_record_read(record,&value)!=SfntStatus::ok || !check_value(r,value)){print(utf8_literal("value_table="));number(table);print(utf8_literal(" index="));number(i);print(utf8_literal("\n"));return false;}}
         for(u32 i=0;i<ac;++i){u32 at=0;u16 format=0,x=0,y=0,point=0;if(!r.word(&at)||!r.half(&format)||!r.half(&x)||!r.half(&y)||!r.half(&point)||at>=size)return false;
             SfntAnchor anchor{};SfntAnchorValue value{};if(sfnt_anchor_open({raw.data+at,size-at},&anchor)!=SfntStatus::ok || sfnt_anchor_read(anchor,&value)!=SfntStatus::ok || value.format!=format || value.x!=static_cast<i16>(x) || value.y!=static_cast<i16>(y) || value.point!=point || !check_device(r,value.devices[0]) || !check_device(r,value.devices[1]))return false;++anchor_checks;}
-        u32 previous=0xffffffffu;SfntGposLookup prepared{};
+        u32 previous=0xffffffffu;SfntGposExecutableLookup prepared{};
         for(u32 i=0;i<sc;++i){u32 li=0,si=0,offset=0,type=0,format=0,qc=0;if(!r.word(&li)||!r.word(&si)||!r.word(&offset)||!r.word(&type)||!r.word(&format)||!r.word(&qc)||li>65535||qc>10000000)return false;
-            if(previous!=li){const auto s=sfnt_gpos_lookup_prepare(layout,static_cast<u16>(li),gdef,limit,{subtables,1024},&prepared);if(s!=SfntStatus::ok){print(utf8_literal("prepare_table="));number(table);print(utf8_literal(" lookup="));number(li);print(utf8_literal(" status="));number(static_cast<u32>(s));print(utf8_literal("\n"));return false;}previous=li;}
-            if(si>=prepared.subtables.count)return false;const auto& sub=prepared.subtables.data[si];if(sub.table.data!=raw.data+offset || sub.type!=type || sub.format!=format)return false;
+            if(previous!=li){const auto s=gpos_prepare_one(layout,static_cast<u16>(li),gdef,limit,{subtables,1024},{},&prepared);if(s!=SfntStatus::ok || prepared.type>2){print(utf8_literal("prepare_table="));number(table);print(utf8_literal(" lookup="));number(li);print(utf8_literal(" status="));number(static_cast<u32>(s));print(utf8_literal("\n"));return false;}previous=li;}
+            if(si>=prepared.tables.basic.count)return false;const auto& sub=prepared.tables.basic.data[si];if(sub.table.data!=raw.data+offset || sub.type!=type || sub.format!=format)return false;
             for(u32 q=0;q<qc;++q){u32 n=0,start=0,end=0,matched=0,second=0,next=0,refs[2]{};if(!r.word(&n)||!r.word(&start)||!r.word(&end)||!r.word(&matched)||!r.word(&second)||!r.word(&next)||!r.word(&refs[0])||!r.word(&refs[1])||!n||n>8||start>=end||end>n||matched>1)return false;
                 ConstSlice<u8> record{};if(!r.take(n*4,&record))return false;copy_bytes(input,record.data,record.count);SfntGposMatch result{};
                 const auto status=sfnt_gpos_subtable_match_view(sub,gdef,prepared.filter,sfnt_glyph_view({input,n}),start,end,&result);bool pass=status==SfntStatus::ok && result.matched==(matched!=0);
@@ -107,8 +114,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
                         if(refs[v]==0xffffffffu){for(u32 k=0;k<4;++k)if(value.design[k] || value.devices[k].format)pass=false;}
                         else {if(refs[v]>=vc)return false;const u8* expected=value_records[refs[v]];const u32 parent=byte_load_le32(expected),at=byte_load_le32(expected+4),mask=byte_load_le32(expected+8);
                             if(result.values[v].parent.data!=raw.data+parent || result.values[v].offset!=at || result.values[v].format!=mask)pass=false;
-                            Reader value_reader{bytes,static_cast<u32>(expected+16-bytes.data)};if(!check_value(value_reader,value))pass=false;}}
-                    if(!si){SfntGposMatch whole{};if(sfnt_gpos_lookup_match_view(prepared,gdef,sfnt_glyph_view({input,n}),start,end,&whole)!=SfntStatus::ok || !same(whole,result))pass=false;}}
+                            Reader value_reader{bytes,static_cast<u32>(expected+16-bytes.data)};if(!check_value(value_reader,value))pass=false;}}}
                 for(u32 split=0;split<=n;++split){for(u32 k=0;k<16;++k)cells[k]={{65535,static_cast<SfntGlyphClass>(255),255},{0xdddddddd,0xaaaaaaaa,0xeeeeeeee}};
                     for(u32 k=0;k<n;++k)cells[k<split?k:k+3].glyph=input[k];SfntGposMatch gap{};SfntGlyphView view{&cells[0].glyph,&cells[split+3].glyph,split,n-split,sizeof(Cell)};
                     if(sfnt_gpos_subtable_match_view(sub,gdef,prepared.filter,view,start,end,&gap)!=SfntStatus::ok || !same(result,gap))pass=false;++gap_queries;}

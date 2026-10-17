@@ -10,9 +10,6 @@
 
 namespace maicord {
 namespace {
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.generation && a.slot == b.slot && a.generation == b.generation;
-}
 bool current(const UiMessageForwardScene& s) noexcept {
     return s.active && s.content && s.content->revision == s.content_revision &&
         (!s.source || (s.source->revision == s.source_revision && s.source->count == s.accepted_count &&
@@ -332,14 +329,14 @@ bool ui_message_forward_scene_contains(const UiMessageForwardScene& s, float x, 
 }
 UiMessageForwardTarget ui_message_forward_scene_target(const UiMessageForwardScene& s, UiWidgetHandle handle) noexcept {
     if (!current(s)) return {};
-    if (same(handle, s.close)) return {UiMessageForwardAction::close};
-    if (same(handle, s.cancel)) return {s.content->sending || s.content->committed ?
+    if (ui_widget_handle_matches(handle, s.close)) return {UiMessageForwardAction::close};
+    if (ui_widget_handle_matches(handle, s.cancel)) return {s.content->sending || s.content->committed ?
         UiMessageForwardAction::cancel_pending : UiMessageForwardAction::close};
-    if (same(handle, s.send)) return {footer_action(s)};
-    if (same(handle, s.edit)) return !s.content->committed && s.content->edit.active && !s.content->sending ? UiMessageForwardTarget{UiMessageForwardAction::edit} : UiMessageForwardTarget{};
-    if (same(handle, s.caption)) return !s.content->committed && s.content->caption.active && !s.content->sending ? UiMessageForwardTarget{UiMessageForwardAction::caption} : UiMessageForwardTarget{};
-    for (u32 i = 0; i < s.count; ++i) if (same(handle, s.rows[i])) return row_target(s, s.first + i);
-    for (u32 i = 0; i < s.content->selected_count; ++i) if (same(handle, s.targets[i]) && s.receipts_visible && !s.content->sending) {
+    if (ui_widget_handle_matches(handle, s.send)) return {footer_action(s)};
+    if (ui_widget_handle_matches(handle, s.edit)) return !s.content->committed && s.content->edit.active && !s.content->sending ? UiMessageForwardTarget{UiMessageForwardAction::edit} : UiMessageForwardTarget{};
+    if (ui_widget_handle_matches(handle, s.caption)) return !s.content->committed && s.content->caption.active && !s.content->sending ? UiMessageForwardTarget{UiMessageForwardAction::caption} : UiMessageForwardTarget{};
+    for (u32 i = 0; i < s.count; ++i) if (ui_widget_handle_matches(handle, s.rows[i])) return row_target(s, s.first + i);
+    for (u32 i = 0; i < s.content->selected_count; ++i) if (ui_widget_handle_matches(handle, s.targets[i]) && s.receipts_visible && !s.content->sending) {
         const auto& r = s.content->selected[i];
         if (r.state == UiMessageForwardState::failed && s.content->committed)
             return {UiMessageForwardAction::retry, r.channel_id, i, s.source_revision};
@@ -399,8 +396,8 @@ bool ui_message_forward_scene_set_hover(UiMessageForwardScene* s, float x, float
     const auto hit = ui_widget_manager_hit_test(s->widgets, x, y), before = s->widgets.hovered;
     const auto selected = s->selected;
     if (!ui_widget_manager_hover(&s->widgets, hit)) return false;
-    for (u32 i = 0; i < s->count; ++i) if (same(hit, s->rows[i])) ui_message_forward_scene_select(s, s->first + i, false);
-    const bool delta = !same(before, hit) && (before.generation || hit.generation);
+    for (u32 i = 0; i < s->count; ++i) if (ui_widget_handle_matches(hit, s->rows[i])) ui_message_forward_scene_select(s, s->first + i, false);
+    const bool delta = !ui_widget_handle_matches(before, hit) && (before.generation || hit.generation);
     if (delta) ++s->revision;
     if (changed) *changed = delta || selected != s->selected;
     return true;
@@ -459,7 +456,7 @@ bool ui_message_forward_scene_paint(const UiMessageForwardScene& s, const Theme&
         ui_icon_paint(out, UiIcon::search, {s.field.left + 10, s.field.top + 10, s.field.left + 30, s.field.top + 30}, t.text_secondary) &&
         ui_edit_field_paint(out, s.caption_field, s.caption_text, caption_view, caption, t.base_lowest, edit_theme, dpi, 8);
     const auto* close = ui_widget_manager_layout_node(s.widgets, s.close);
-    if (ok && (same(s.widgets.hovered, s.close) || same(s.widgets.focused, s.close)))
+    if (ok && (ui_widget_handle_matches(s.widgets.hovered, s.close) || ui_widget_handle_matches(s.widgets.focused, s.close)))
         ok = surface(out, close->rectangle, t, t.surface_high, t.surface_high, 6);
     ok = ok && ui_icon_paint(out, UiIcon::close, {p.right - 38, p.top + 14, p.right - 18, p.top + 34}, t.text_secondary);
     bool body_clip = false;
@@ -468,7 +465,7 @@ bool ui_message_forward_scene_paint(const UiMessageForwardScene& s, const Theme&
         const auto r = s.row_rectangles[i]; const auto* picked = find_selection(s, s.visible[i].channel_id);
         const bool selected = !s.content->committed && s.first + i == s.selected;
         const auto card = UiRect{r.left, r.top + 2, r.right, r.bottom - 2};
-        if (selected || picked || same(s.widgets.hovered, s.rows[i])) ok = surface(out, card, t,
+        if (selected || picked || ui_widget_handle_matches(s.widgets.hovered, s.rows[i])) ok = surface(out, card, t,
             picked ? t.surface_high : t.base_low, selected ? accent : t.surface_high, 7);
         const UiRect avatar = destination_tile(r);
         ok = ok && surface(out, avatar, t, t.base_lowest, t.base_lowest, kDestinationTileRadius) &&
@@ -501,10 +498,10 @@ bool ui_message_forward_scene_paint(const UiMessageForwardScene& s, const Theme&
             state == UiMessageForwardState::sending ? UiIcon::sending : UiIcon::close, icon, color);
     }
     const bool enabled = footer_action(s) != UiMessageForwardAction::none;
-    if (ok) ok = surface(out, s.cancel_rectangle, t, same(s.widgets.hovered, s.cancel) ? t.surface_high : t.base_low,
-        same(s.widgets.focused, s.cancel) ? accent : t.interactive, 7) &&
+    if (ok) ok = surface(out, s.cancel_rectangle, t, ui_widget_handle_matches(s.widgets.hovered, s.cancel) ? t.surface_high : t.base_low,
+        ui_widget_handle_matches(s.widgets.focused, s.cancel) ? accent : t.interactive, 7) &&
         surface(out, s.send_rectangle, t, enabled ? t.tokens.emphasis.fill : t.surface_high,
-            same(s.widgets.focused, s.send) ? t.text_primary : enabled ? t.tokens.emphasis.fill : t.surface_high, 7) &&
+            ui_widget_handle_matches(s.widgets.focused, s.send) ? t.text_primary : enabled ? t.tokens.emphasis.fill : t.surface_high, 7) &&
         ui_icon_paint(out, s.content->committed ? has_failed(s) ? UiIcon::retry : UiIcon::check : UiIcon::forwarded,
             {s.send_rectangle.left + 12, s.send_rectangle.top + 11,
             s.send_rectangle.left + 30, s.send_rectangle.top + 29}, enabled ? ui_surface_foreground(t, t.tokens.emphasis.fill) : t.text_secondary);

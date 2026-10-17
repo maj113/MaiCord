@@ -91,7 +91,7 @@ void test_voice_media_dispatch(Check check) noexcept {
     Capture saved{&connection};
     if (ok) {
         const JsonString session{utf8_literal("synthetic-session"), 0, false};
-        voice_setup_bind(&setup, 3, session);
+        voice_setup_bind_utf8(&setup, 3, session.encoded);
         voice_setup_begin(&setup, 1, 2, 1000);
         voice_setup_server(&setup, {1,
                                     0,

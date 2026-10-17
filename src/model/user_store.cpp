@@ -164,29 +164,6 @@ bool user_store_initialize_sparse(UserStore* store, Slice<UserRecord> records, S
     return initialize_store(store, records, order, double_buffered_names, true);
 }
 
-void user_store_clear(UserStore* store) noexcept {
-    if (!store || !store->records || !store->order) {
-        return;
-    }
-    UserRecord* records = store->records;
-    u32* order = store->order;
-    u8* names = store->names;
-    const u32 capacity = store->capacity;
-    const u32 name_bank_bytes = store->name_bank_bytes;
-    user_appearance_release(&store->appearance);
-    user_activity_release(&store->activities);
-    *store = UserStore{};
-    store->records = records;
-    store->order = order;
-    store->names = names;
-    store->capacity = capacity;
-    store->name_bank_bytes = name_bank_bytes;
-    for (u32 index = 0; index < capacity; ++index) {
-        records[index] = UserRecord{};
-        order[index] = ~0u;
-    }
-}
-
 // Only occupied records can be pinned (removal resets a record), so the
 // ordered prefix covers them without touching unused slots.
 void user_store_clear_pins(UserStore* store) noexcept {

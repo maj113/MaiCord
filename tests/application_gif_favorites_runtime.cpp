@@ -721,7 +721,10 @@ void run() noexcept {
               g_app.gif_favorites->queue[0].src_bytes == 2048 && application_gif_favorites_submit(201, 1),
           "full catalog 2048 byte key survives copied queue and bounded patch planning");
     const auto long_patch = patch_proto(&required);
-    check(required == 60 && gif_favorites_measure_proto(long_patch.view()).ok() && is_free(transient_base),
+    static char long_text[base64_encoded_size(sizeof(long_patch.bytes))];
+    const auto long_encoded = base64_encode(long_patch.view(), {long_text, sizeof(long_text)});
+    check(required == 60 && long_encoded.ok() &&
+              gif_favorites_measure_base64({long_text, long_encoded.bytes}).ok() && is_free(transient_base),
           "full catalog key emits complete valid protobuf and releases derived transient storage");
     application_gif_favorites_release();
     // A fetch required by an explicit queued change is account-owned, even if

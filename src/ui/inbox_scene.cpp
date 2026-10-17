@@ -44,14 +44,11 @@ UiRect bounds(const UiInboxScene& s, UiWidgetHandle handle) noexcept {
     const auto* node = ui_widget_manager_layout_node(s.widgets, handle);
     return node ? node->rectangle : UiRect{};
 }
-bool same(UiWidgetHandle a, UiWidgetHandle b) noexcept {
-    return a.generation && a.generation == b.generation && a.slot == b.slot;
-}
 bool focused(const UiInboxScene& s, UiWidgetHandle handle) noexcept {
-    return same(s.widgets.focused, handle);
+    return ui_widget_handle_matches(s.widgets.focused, handle);
 }
 bool hovered(const UiInboxScene& s, UiWidgetHandle handle) noexcept {
-    return same(s.widgets.hovered, handle);
+    return ui_widget_handle_matches(s.widgets.hovered, handle);
 }
 UiWidgetHandle add(UiInboxScene& s, UiRect r, UiInboxTarget target, Utf8View name, bool enabled,
                    UiWidgetHandle parent) noexcept {
@@ -224,9 +221,6 @@ UiRect badge_rectangle(const UiInboxScene& s, u32 slot) noexcept {
 bool ui_inbox_scene_channel_action_visible(const UiInboxScene& s, u32 slot) noexcept {
     return current(s) && slot < s.count && s.visible[slot].kind == UiInboxRowKind::channel &&
            s.actions[slot].generation && row_hot(s, slot);
-}
-UiRect ui_inbox_scene_action_rectangle(const UiInboxScene& s, u32 slot) noexcept {
-    return current(s) && slot < s.count && s.actions[slot].generation ? bounds(s, s.actions[slot]) : UiRect{};
 }
 
 bool ui_inbox_scene_current(const UiInboxScene& s) noexcept {

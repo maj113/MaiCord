@@ -2065,10 +2065,6 @@ bool uia_host_window_message(UiaProviderHost* host, UINT message, WPARAM wparam,
     return true;
 }
 
-bool uia_host_loaded(const UiaProviderHost& host) noexcept {
-    return host.runtime != nullptr;
-}
-
 bool uia_host_listening(const UiaProviderHost& host) noexcept {
     return host.runtime && host.connected && host.runtime->clients_are_listening() != FALSE;
 }

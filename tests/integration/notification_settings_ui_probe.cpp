@@ -36,7 +36,8 @@ bool visible_page(const UiTextCommandStream& text,u32 index) noexcept {
 bool geometry(Fixture& f) noexcept {
     if(!ui_page_key_equal(f.scene.selected_page,notification_page)||f.scene.content.controls.count!=6)return false;
     UiTextCommand commands[64]{};UiTextCommandStream text{};
-    if(!ui_text_command_stream_initialize(&text,{commands,64})||!ui_settings_scene_text(f.scene,kDefaultTheme,&text))return false;
+    UiTextOutput text_output{&text, nullptr};
+    if(!ui_text_command_stream_initialize(&text,{commands,64})||!ui_settings_scene_text_output(f.scene,kDefaultTheme,&text_output))return false;
     if(!visible_text(text,utf8_literal("USER SETTINGS"),f.scene.viewport)||!visible_text(text,f.contents[4].title,f.scene.viewport)||
         (f.contents[4].description.bytes&&!visible_text(text,f.contents[4].description,f.scene.viewport)))return false;
     for(u32 i=0;i<5;++i)if(!visible_text(text,f.pages[i].label,f.scene.viewport)||!visible_page(text,i))return false;

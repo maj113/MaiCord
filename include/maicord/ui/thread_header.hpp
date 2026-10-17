@@ -67,7 +67,6 @@ struct UiThreadMenuActions {
 float ui_thread_header_height(const UiThreadHeaderView&, const UiThreadHeaderStyle&) noexcept;
 UiThreadAction ui_thread_header_primary_action(const UiThreadHeaderView&) noexcept;
 Utf8View ui_thread_action_label(UiThreadAction) noexcept;
-Utf8View ui_thread_header_status_label(const UiThreadHeaderView&) noexcept;
 bool ui_thread_header_project(const UiThreadHeaderView&, const UiThreadHeaderStyle&, UiRect rectangle,
     UiRect clip, UiThreadHeaderGeometry*) noexcept;
 // Bind six caller-created shell widgets. No allocation or independent manager.

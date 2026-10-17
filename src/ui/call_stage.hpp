@@ -1,9 +1,18 @@
 #pragma once
+#include "maicord/core/memory.hpp"
 #include "maicord/ui/call_scene.hpp"
 #include "maicord/ui/icon.hpp"
 
 // Stage-channel parts of the call view (internal to call_scene.cpp).
 namespace maicord::call_stage {
+// Helpers shared with call_scene.cpp.
+// Copies at most capacity bytes without splitting a UTF-8 sequence.
+u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept;
+UiRect centered(float x, float y, float width, float height) noexcept;
+// Single-line, vertically centred, ellipsized call text; skipped when clipped away.
+bool push_text(UiTextOutput* text, const UiCallScene& s, Utf8View value, UiRect rectangle, UiRect clip,
+               Color color, u32 style, UiTextAlignment horizontal = UiTextAlignment::start) noexcept;
+
 // Copies content.stage into the scene; clears every stage field when inactive.
 void copy(UiCallScene& s, const UiCallStage& stage) noexcept;
 // Splits the stage area into banner, hand raises, audience band and the

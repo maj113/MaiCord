@@ -85,7 +85,6 @@ struct Parser {
     u32 input_offset;
     u32 output_bytes;
     u32 depth;
-    u32 peak;
     u32 transformations;
     u32 syntax_tokens;
     u32 syntax_styled_bytes;
@@ -451,7 +450,6 @@ bool push_delimiter(Parser* parser, u32 style, u8 marker_bytes, DelimiterKind ki
     }
     parser->delimiters[parser->depth++] =
         Delimiter{parser->input_offset, parser->output_bytes, style, marker_bytes, kind, 0xFF};
-    parser->peak = maximum(parser->peak, parser->depth);
     if (parser->replay_cache && parser->replay_cache->cache_count < kDelimiterCapacity) {
         const u32 index = parser->replay_cache->cache_count++;
         parser->replay_cache->cache[index] = {parser->input_offset, {}};
@@ -1689,7 +1687,6 @@ MessageMarkdownResult finish(Parser* parser) noexcept {
     result.text = Utf8View{parser->output.data, parser->output_bytes};
     result.span_count = span_count;
     result.transformations = parser->transformations;
-    result.delimiter_peak = parser->peak;
     result.syntax_tokens = parser->syntax_tokens;
     result.syntax_styled_bytes = parser->syntax_styled_bytes;
     result.resolved_entities = parser->resolved_entities;
@@ -2064,12 +2061,9 @@ bool message_markdown_url_valid(Utf8View value) noexcept {
 }
 
 namespace {
-char invite_lower(char c) noexcept {
-    return c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c;
-}
 bool invite_starts(Utf8View input, u32 at, const char* text) noexcept {
     for (u32 i = 0; text[i]; ++i)
-        if (at + i >= input.bytes || invite_lower(input.data[at + i]) != text[i])
+        if (at + i >= input.bytes || ascii_lower(input.data[at + i]) != text[i])
             return false;
     return true;
 }

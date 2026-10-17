@@ -258,7 +258,8 @@ bool initialize() noexcept {
                                             {90, 8, 0, utf8_literal("foreign-channel"), 0, 0, 0})
              .ok() ||
         !ui_scene_initialize_bootstrap(&g_app.shell_scene) ||
-        !ui_scene_layout(&g_app.shell_scene, 1280, 720)) {
+        !ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
+                                      kGuildChannelShellLayoutMetrics, 1280, 720)) {
         return false;
     }
     ui.chat_state.self_user_id = 5;

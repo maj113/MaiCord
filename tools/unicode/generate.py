@@ -269,7 +269,6 @@ def main():
     data += cpp_array('u16', 'unicode_top', top) + cpp_array('u16', 'unicode_middle', middle) + cpp_array('u16', 'unicode_leaves', leaves)
     data += 'static constexpr UnicodeProperties unicode_records[] = {\n'
     data += '\n'.join('    {{' + ','.join(f'0x{(v>>(32*i))&0xffffffff:08x}u' for i in range(words)) + '}},' for v in records) + '\n};\n'
-    data += cpp_array('u32', 'unicode_script_tags', (f'0x{int.from_bytes(v.encode("ascii"),"big"):08x}u' for v in scripts), 8)
     data += 'static constexpr MirrorEntry unicode_mirrors[] = {\n' + '\n'.join(f'    {{{cp},{value}}},' for cp, value in mirrors) + '\n};\n'
     data += 'static constexpr BracketEntry unicode_brackets[] = {\n' + '\n'.join(f'    {{{cp},{value},{kind}}},' for cp, value, kind in brackets) + '\n};\n'
     hpath = args.repo / 'include/maicord/text/generated/unicode_data.hpp'
@@ -279,7 +278,7 @@ def main():
     gpath = args.repo / 'tests/generated/grapheme_break_test.inc'
     gpath.parent.mkdir(parents=True, exist_ok=True)
     gpath.write_text(notice + f'static constexpr u32 grapheme_vector_count={grapheme_count};\n' + cpp_array('u32','grapheme_vectors',graphemes), encoding='utf-8')
-    auxiliary_bytes = 256 + len(scripts)*4 + len(mirrors)*8 + len(brackets)*12
+    auxiliary_bytes = 256 + len(mirrors)*8 + len(brackets)*12
     report = {'unicode_version': '17.0.0', 'ucd_sha256': digest(args.ucd.read_bytes()), 'sources': used_sources,
               'fields': [{'ucd': k, 'getter': g, 'enum': e, 'values': enumerations.get(k), 'offset': offsets[i], 'width': widths[i]}
                          for i, (k,e,g,*_) in enumerate(FIELDS)],

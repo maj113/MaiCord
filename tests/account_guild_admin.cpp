@@ -856,33 +856,22 @@ void test_decoders() noexcept {
               !profile.visibility_known,
           "guild admin decode: the server profile's visibility is read, null leaves it unknown");
 
-    GuildAdminRole roles[4]{};
-    const auto role_list = guild_admin_decode_roles(
-        utf8_literal(R"([{"id":"10","name":"@everyone","permissions":"1024","position":0,"color":0,"hoist":false,)"
-                     R"("managed":false,"mentionable":false,"icon":null,"unicode_emoji":null,"flags":0},)"
-                     R"({"id":"30","name":"Mods","permissions":"1099511627778","position":4,"color":3368703,)"
-                     R"("hoist":true,"managed":false,"mentionable":true,"icon":"0123456789abcdef0123456789abcdef",)"
-                     R"("unicode_emoji":"⭐","flags":1,"tags":{}}])"),
-        {scratch, 4096}, {roles, 4});
-    check(role_list.ok() && role_list.count == 2 && roles[1].permissions == 1'099'511'627'778ull &&
-              roles[1].mentionable && roles[1].hoist && roles[1].icon_bytes == 32 && roles[1].emoji_bytes == 3 &&
-              roles[1].flags == 1 && roles[1].color == 0x3366FF,
-          "guild admin decode: role lists carry decimal permissions, icons, emoji and flags");
-    check(guild_admin_decode_roles(utf8_literal(R"([{"id":"30","name":"a","permissions":"1","position":1},)"
-                                                R"({"id":"30","name":"b","permissions":"1","position":2}])"),
-                                   {scratch, 4096}, {roles, 4})
-                  .error == GuildAdminError::duplicate &&
-              guild_admin_decode_roles(utf8_literal(R"([{"id":"30","name":"a","position":1}])"), {scratch, 4096},
-                                       {roles, 4})
+    GuildAdminRole role{};
+    check(guild_admin_decode_role(
+              utf8_literal(R"({"id":"30","name":"Mods","permissions":"1099511627778","position":4,"color":3368703,)"
+                           R"("hoist":true,"managed":false,"mentionable":true,"icon":"0123456789abcdef0123456789abcdef",)"
+                           R"("unicode_emoji":"⭐","flags":1,"tags":{}})"),
+              {scratch, 4096}, &role)
+                  .ok() &&
+              role.permissions == 1'099'511'627'778ull && role.mentionable && role.hoist && role.icon_bytes == 32 &&
+              role.emoji_bytes == 3 && role.flags == 1 && role.color == 0x3366FF,
+          "guild admin decode: roles carry decimal permissions, icons, emoji and flags");
+    check(guild_admin_decode_role(utf8_literal(R"({"id":"30","name":"a","position":1})"), {scratch, 4096}, &role)
                       .error == GuildAdminError::identity &&
-              guild_admin_decode_roles(utf8_literal(R"([{"id":"30","name":"a","permissions":1,"position":1}])"),
-                                       {scratch, 4096}, {roles, 4})
-                      .error == GuildAdminError::field &&
-              guild_admin_decode_roles(utf8_literal(R"([{"id":"1","name":"a","permissions":"1","position":1},)"
-                                                    R"({"id":"2","name":"a","permissions":"1","position":1}])"),
-                                       {scratch, 4096}, {roles, 1})
-                      .error == GuildAdminError::capacity,
-          "guild admin decode: duplicate roles, missing permissions, numeric bitfields and overflow are refused");
+              guild_admin_decode_role(utf8_literal(R"({"id":"30","name":"a","permissions":1,"position":1})"),
+                                      {scratch, 4096}, &role)
+                      .error == GuildAdminError::field,
+          "guild admin decode: missing permissions and numeric bitfields are refused");
     GuildAdminRole single{};
     check(guild_admin_decode_role(utf8_literal(R"( {"id":"31","name":"New","permissions":"0","position":1} )"),
                                   {scratch, 4096}, &single)

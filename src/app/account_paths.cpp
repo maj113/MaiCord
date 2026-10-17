@@ -58,11 +58,6 @@ u32 account_paths_selected_slot() noexcept {
     return g_selected_slot;
 }
 
-AccountPathsResult account_paths_build(const wchar_t* local_application_data,
-                                       AccountPaths* paths) noexcept {
-    return account_paths_build_slot(local_application_data, 0, paths);
-}
-
 AccountPathsResult account_paths_resolve_slot(u32 slot, AccountPaths* paths) noexcept {
     if (!paths) {
         return failure(AccountPathsError::invalid_input);

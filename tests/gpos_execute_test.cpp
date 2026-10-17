@@ -1,4 +1,4 @@
-#include "maicord/text/gpos_execute.hpp"
+#include "gpos_lookup_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
 #include <Windows.h>
 #ifdef MAICORD_MARK_POSITION_TESTS
@@ -75,20 +75,20 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
         for(u32 i=0;i<n;++i){const u8* p=records.data+i*4;glyphs[i]={static_cast<u16>(p[0]|(static_cast<u16>(p[1])<<8)),static_cast<SfntGlyphClass>(p[2]),0};flags[i]=p[3];SfntGlyphMetrics m{};
             if(sfnt_horizontal_metrics(metrics,glyphs[i].glyph,&m)!=SfntStatus::ok)return false;advances[i]=m.advance;}
         SfntFeature feature{};u32 tag=0;if(sfnt_layout_feature(layout,0,{},&tag,&feature)!=SfntStatus::ok || tag!=sfnt_tag('t','e','s','t') || feature.lookup_indices.count!=lc*2)return false;
-        for(u32 i=0;i<lc;++i){u16 index=0;if(!r.half(&index)||index!=byte_load_be16(feature.lookup_indices.data+i*2))return false;lookups[i]={};
+        for(u32 i=0;i<lc;++i){u16 index=0;if(!r.half(&index)||index!=byte_load_be16(feature.lookup_indices.data+i*2))return false;lookups[i]={};SfntGposExecutableLookup prepared{};
 #ifdef MAICORD_MARK_POSITION_TESTS
             SfntLookup directory{};if(sfnt_layout_lookup(layout,index,&directory)!=SfntStatus::ok)return false;mark_lookup[i]=directory.type==4 || directory.type==6;
 #ifdef MAICORD_CURSIVE_POSITION_TESTS
 #ifdef MAICORD_LIGATURE_POSITION_TESTS
             ligature_lookup[i]=directory.type==5;
-            if(ligature_lookup[i]){if(sfnt_gpos_attachment_lookup_prepare(layout,index,gdef,metrics.glyph_count,{mark_storage[i],32},&mark_lookups[i])!=SfntStatus::ok)return false;continue;}
+            if(ligature_lookup[i]){if(gpos_prepare_one(layout,index,gdef,metrics.glyph_count,{},{mark_storage[i],32},&prepared)!=SfntStatus::ok)return false;mark_lookups[i]={prepared.tables.attachment,prepared.filter};continue;}
 #endif
             cursive_lookup[i]=directory.type==3;
-            if(cursive_lookup[i]){if(sfnt_gpos_attachment_lookup_prepare(layout,index,gdef,metrics.glyph_count,{mark_storage[i],32},&mark_lookups[i])!=SfntStatus::ok)return false;continue;}
+            if(cursive_lookup[i]){if(gpos_prepare_one(layout,index,gdef,metrics.glyph_count,{},{mark_storage[i],32},&prepared)!=SfntStatus::ok)return false;mark_lookups[i]={prepared.tables.attachment,prepared.filter};continue;}
 #endif
-            if(mark_lookup[i]){if(sfnt_gpos_attachment_lookup_prepare(layout,index,gdef,metrics.glyph_count,{mark_storage[i],32},&mark_lookups[i])!=SfntStatus::ok)return false;continue;}
+            if(mark_lookup[i]){if(gpos_prepare_one(layout,index,gdef,metrics.glyph_count,{},{mark_storage[i],32},&prepared)!=SfntStatus::ok)return false;mark_lookups[i]={prepared.tables.attachment,prepared.filter};continue;}
 #endif
-            if(sfnt_gpos_lookup_prepare(layout,index,gdef,metrics.glyph_count,{sub_storage[i],32},&lookups[i])!=SfntStatus::ok)return false;}
+            if(gpos_prepare_one(layout,index,gdef,metrics.glyph_count,{sub_storage[i],32},{},&prepared)!=SfntStatus::ok || prepared.type>2)return false;lookups[i]={prepared.tables.basic,prepared.filter};}
         if(!tested_pair && lc && lookups[0].subtables.count && lookups[0].subtables.data[0].type==2 && n>=2){
             SfntPosition complete[16];SfntPositionExecution completed{};if(sfnt_position_initialize({advances,n},{flags,n},false,{complete,n})!=SfntStatus::ok || sfnt_position_execute_lookup(lookups[0],gdef,sfnt_glyph_view({glyphs,n}),{complete,n},0,2,false,{},&completed)!=SfntStatus::ok || completed.matches!=1)return false;
             for(u32 budget=0;budget<1000;++budget){SfntPosition state[16],before[16];if(sfnt_position_initialize({advances,n},{flags,n},false,{state,n})!=SfntStatus::ok)return false;copy_bytes(before,state,n*sizeof(SfntPosition));SfntPositionExecution result{};

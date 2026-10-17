@@ -87,10 +87,6 @@ bool record_content(PaintStream* stream, const UiWidgetManager& manager, UiWidge
     return paint_stream_record_content(stream, UiWidgetReference{&manager, owner}, rectangle, kind, flags);
 }
 
-const UiNode* resolve(const UiScene& scene, UiSemantic semantic) noexcept {
-    return ui_scene_resolve(scene, ui_scene_find(scene, semantic));
-}
-
 // Drag-and-drop reorder: a 2-DIP accent drop line between rows, or an accent
 // ring around the row a drop combines with.
 bool paint_drag_visual(PaintStream* stream, const NavigationDragVisual& drag, const Theme& theme,
@@ -273,20 +269,20 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         viewport_width <= 0.0f || viewport_height <= 0.0f) {
         return false;
     }
-    const UiNode* root = resolve(scene, UiSemantic::root);
-    const UiNode* guild = resolve(scene, UiSemantic::guild_rail);
-    const UiNode* guild_navigation = resolve(scene, UiSemantic::guild_navigation);
-    const UiNode* home = resolve(scene, UiSemantic::home_button);
-    const UiNode* channels = resolve(scene, UiSemantic::channel_sidebar);
-    const UiNode* channel_header = resolve(scene, UiSemantic::channel_header);
-    const UiNode* channel_navigation = resolve(scene, UiSemantic::channel_navigation);
-    const UiNode* channel_footer = resolve(scene, UiSemantic::channel_footer);
-    const UiNode* title = resolve(scene, UiSemantic::title_bar);
-    const UiNode* member_toggle = resolve(scene, UiSemantic::member_toggle);
-    const UiNode* content = resolve(scene, UiSemantic::content);
-    const UiNode* messages = resolve(scene, UiSemantic::message_view);
-    const UiNode* composer = resolve(scene, UiSemantic::composer);
-    const UiNode* members = resolve(scene, UiSemantic::member_sidebar);
+    const UiNode* root = ui_scene_resolve_semantic(scene, UiSemantic::root);
+    const UiNode* guild = ui_scene_resolve_semantic(scene, UiSemantic::guild_rail);
+    const UiNode* guild_navigation = ui_scene_resolve_semantic(scene, UiSemantic::guild_navigation);
+    const UiNode* home = ui_scene_resolve_semantic(scene, UiSemantic::home_button);
+    const UiNode* channels = ui_scene_resolve_semantic(scene, UiSemantic::channel_sidebar);
+    const UiNode* channel_header = ui_scene_resolve_semantic(scene, UiSemantic::channel_header);
+    const UiNode* channel_navigation = ui_scene_resolve_semantic(scene, UiSemantic::channel_navigation);
+    const UiNode* channel_footer = ui_scene_resolve_semantic(scene, UiSemantic::channel_footer);
+    const UiNode* title = ui_scene_resolve_semantic(scene, UiSemantic::title_bar);
+    const UiNode* member_toggle = ui_scene_resolve_semantic(scene, UiSemantic::member_toggle);
+    const UiNode* content = ui_scene_resolve_semantic(scene, UiSemantic::content);
+    const UiNode* messages = ui_scene_resolve_semantic(scene, UiSemantic::message_view);
+    const UiNode* composer = ui_scene_resolve_semantic(scene, UiSemantic::composer);
+    const UiNode* members = ui_scene_resolve_semantic(scene, UiSemantic::member_sidebar);
     if (!root || !guild || !guild_navigation || !home || !title || !messages) {
         return false;
     }
@@ -589,7 +585,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         (members && !ui_background_paint_canvas(stream, members->rectangle, theme, theme.base_lower))) {
         return false;
     }
-    if (const UiNode* title_label = resolve(scene, UiSemantic::title_label); title_label && title) {
+    if (const UiNode* title_label = ui_scene_resolve_semantic(scene, UiSemantic::title_label); title_label && title) {
         UiRect line = title_label->rectangle;
         line.top = title->rectangle.top;
         line.bottom = title->rectangle.bottom;
@@ -608,21 +604,21 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
             return false;
         }
     }
-    if (const auto* pins = resolve(scene, UiSemantic::pins_toggle)) {
+    if (const auto* pins = ui_scene_resolve_semantic(scene, UiSemantic::pins_toggle)) {
         if (!ui_button_icon_paint(stream, scene.widgets, pins->widget, UiIcon::pin, theme, false, false,
                                   UiButtonSurface::palette) ||
             !record_content(stream, scene.widgets, pins->widget, pins->rectangle,
                             UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap))
             return false;
     }
-    if (const auto* inbox = resolve(scene, UiSemantic::inbox_toggle)) {
+    if (const auto* inbox = ui_scene_resolve_semantic(scene, UiSemantic::inbox_toggle)) {
         if (!ui_button_icon_paint(stream, scene.widgets, inbox->widget, UiIcon::inbox, theme, false, false,
                                   UiButtonSurface::palette) ||
             !record_content(stream, scene.widgets, inbox->widget, inbox->rectangle,
                             UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap))
             return false;
     }
-    if (const auto* settings = resolve(scene, UiSemantic::settings)) {
+    if (const auto* settings = ui_scene_resolve_semantic(scene, UiSemantic::settings)) {
         if (!ui_button_icon_paint(stream, scene.widgets, settings->widget, UiIcon::settings, theme) ||
             !record_content(stream, scene.widgets, settings->widget, settings->rectangle,
                             UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap))
@@ -633,14 +629,14 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
         UiIcon icon;
     } private_buttons[]{{UiSemantic::private_add, UiIcon::user_plus}, {UiSemantic::private_call, UiIcon::phone}};
     for (const auto& item : private_buttons) {
-        if (const auto* button = resolve(scene, item.semantic);
+        if (const auto* button = ui_scene_resolve_semantic(scene, item.semantic);
             button && (!ui_button_icon_paint(stream, scene.widgets, button->widget, item.icon, theme, false, false,
                                              UiButtonSurface::palette) ||
                        !record_content(stream, scene.widgets, button->widget, button->rectangle,
                                        UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap)))
             return false;
     }
-    if (const auto* create = resolve(scene, UiSemantic::private_create)) {
+    if (const auto* create = ui_scene_resolve_semantic(scene, UiSemantic::private_create)) {
         const bool hovered = scene.widgets.hovered.slot == create->widget.slot &&
                              scene.widgets.hovered.generation == create->widget.generation;
         const UiRect r = create->rectangle;
@@ -652,7 +648,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
     }
     // Server header dropdown: hover (and open) fill, then the chevron that
     // becomes an X while the popout is open.
-    if (const auto* menu = resolve(scene, UiSemantic::guild_menu);
+    if (const auto* menu = ui_scene_resolve_semantic(scene, UiSemantic::guild_menu);
         menu && navigation && navigation->selected_guild_id &&
         !shell_presentation_guild_banner_visible(scene, channel_scene)) {
         const bool hovered = scene.widgets.hovered.slot == menu->widget.slot &&
@@ -703,7 +699,7 @@ bool shell_presentation_build_chrome(const UiScene& scene, const NavigationView*
                 return false;
         }
     }
-    if (const auto* friends = resolve(scene, UiSemantic::friends_button)) {
+    if (const auto* friends = ui_scene_resolve_semantic(scene, UiSemantic::friends_button)) {
         const bool hovered = scene.widgets.hovered.slot == friends->widget.slot &&
                              scene.widgets.hovered.generation == friends->widget.generation;
         if (!push_rounded(stream, friends->rectangle.left, friends->rectangle.top, friends->rectangle.right,
@@ -983,8 +979,8 @@ bool shell_presentation_build_composer_overlay(const MessageComposerScene* scene
 }
 
 bool shell_presentation_guild_banner_visible(const UiScene& scene, const ShellNavigationScene* channel_scene) noexcept {
-    const UiNode* channels = resolve(scene, UiSemantic::channel_sidebar);
-    const UiNode* header = resolve(scene, UiSemantic::channel_header);
+    const UiNode* channels = ui_scene_resolve_semantic(scene, UiSemantic::channel_sidebar);
+    const UiNode* header = ui_scene_resolve_semantic(scene, UiSemantic::channel_header);
     return channel_scene && channel_scene->banner_inset > 0 && channels && header &&
            ui_guild_banner_geometry(channels->rectangle, header->rectangle, channel_scene->scroll_dips, false).visible;
 }
@@ -994,8 +990,8 @@ bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const N
                                                    PaintStream* stream) noexcept {
     if (!stream)
         return false;
-    const UiNode* channels = resolve(scene, UiSemantic::channel_sidebar);
-    const UiNode* header = resolve(scene, UiSemantic::channel_header);
+    const UiNode* channels = ui_scene_resolve_semantic(scene, UiSemantic::channel_sidebar);
+    const UiNode* header = ui_scene_resolve_semantic(scene, UiSemantic::channel_header);
     if (!channel_scene || channel_scene->banner_inset <= 0 || !channels || !header)
         return true;
     const auto banner = ui_guild_banner_geometry(channels->rectangle, header->rectangle, channel_scene->scroll_dips,
@@ -1018,7 +1014,7 @@ bool shell_presentation_build_guild_banner_overlay(const UiScene& scene, const N
     if (edge.alpha > 0 && !paint_stream_push(stream, bar.left, bar.bottom, bar.right, bar.bottom + 1, edge))
         return false;
     // The dropdown over the banner: hover fill, then the white chevron (or X).
-    const auto* menu = resolve(scene, UiSemantic::guild_menu);
+    const auto* menu = ui_scene_resolve_semantic(scene, UiSemantic::guild_menu);
     if (!menu || !navigation || !navigation->selected_guild_id)
         return true;
     const bool hovered = scene.widgets.hovered.slot == menu->widget.slot &&
@@ -1104,8 +1100,8 @@ bool shell_presentation_build_guild_rail_overlay(const UiScene& scene, const Gui
                                                  const Theme& theme, PaintStream* stream) noexcept {
     if (!stream)
         return false;
-    const UiNode* guild = resolve(scene, UiSemantic::guild_rail);
-    const UiNode* navigation = resolve(scene, UiSemantic::guild_navigation);
+    const UiNode* guild = ui_scene_resolve_semantic(scene, UiSemantic::guild_rail);
+    const UiNode* navigation = ui_scene_resolve_semantic(scene, UiSemantic::guild_navigation);
     if (!guild_scene || !guild_scene->active || !guild || !navigation)
         return true;
     if (!paint_stream_push_clip(stream, navigation->rectangle.left, navigation->rectangle.top,

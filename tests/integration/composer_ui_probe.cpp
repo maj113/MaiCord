@@ -191,13 +191,14 @@ bool initialize(HWND window) noexcept {
         return false;
     if (!require(
             message_view_runtime_initialize(&g_app.message_view, ui_extent_units(80), 1, false).ok() &&
-                message_rich_store_initialize_owned(&ui.message_rich_store, &ui.message_rich_record_storage,
-                                                    kMessageViewItemCapacity,
-                                                    {ui.message_rich_order, kMessageViewItemCapacity},
-                                                    {ui.message_rich_text, kMessageRichTextCapacity}) &&
+                message_rich_store_initialize_owned_sparse(&ui.message_rich_store, &ui.message_rich_record_storage,
+                                                           kMessageViewItemCapacity,
+                                                           {ui.message_rich_order, kMessageViewItemCapacity},
+                                                           {ui.message_rich_text, kMessageRichTextCapacity}) &&
                 message_view_runtime_bind_rich_store(&g_app.message_view, &ui.message_rich_store).ok() &&
                 ui_scene_initialize_bootstrap(&g_app.shell_scene) &&
-                ui_scene_layout(&g_app.shell_scene, 632, 600) &&
+                ui_scene_layout_with_metrics(&g_app.shell_scene, UiShellView::guild_channel,
+                                             kGuildChannelShellLayoutMetrics, 632, 600) &&
                 guild_rail_scene_initialize(&g_app.guild_rail_scene, {fixture->rail_rows, 2},
                                             {fixture->rail_widgets, 4}, {fixture->rail_nodes, 4}) &&
                 shell_navigation_scene_initialize(
