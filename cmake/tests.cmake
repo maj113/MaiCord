@@ -127,14 +127,6 @@ foreach(maicord_long_test
     endif()
     math(EXPR maicord_test_rank "${maicord_test_rank} - 1")
 endforeach()
-set_tests_properties(maicord_ui_probe maicord_post_resize_pacing_probe
-    maicord_unread_boundary_probe maicord_rich_search_probe
-    maicord_reaction_intent_probe maicord_thread_membership_probe
-    maicord_reply_draft_probe maicord_forum_media_probe
-    maicord_hangul_render_probe maicord_standard_render_probe
-    maicord_message_link_ui_probe maicord_composer_ui_probe
-    maicord_account_logout_ui_probe maicord_scoped_read_ui_probe
-    PROPERTIES RESOURCE_LOCK native_gpu COST 60)
 # Keep the complete serialized GPU chain ahead of the CPU matrices,
 # including reference tests and newly registered probes. Independent display,
 # GPU and text-render probes follow the ranked CPU jobs but precede the short

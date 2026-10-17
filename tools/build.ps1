@@ -1,7 +1,6 @@
 #requires -Version 5.1
 [CmdletBinding()]
 param(
-    [ValidateSet('Release')][string]$Configuration = 'Release',
     [Alias('Tests')][switch]$Test,
     # Emit link maps for in-run size analysis; finalization removes them.
     [switch]$LinkMaps,
@@ -163,11 +162,15 @@ function Write-AudioPlaybackDiagnostics {
         '(?ms)^\d+/\d+ Testing: maicord_account_audio_playback\r?\n.*?^Output:\r?\n-+\r?\n(.*?)^<end of output>')
     if ($match.Success) { Write-Host $match.Groups[1].Value.TrimEnd() }
 }
-function Invoke-WholeTestSuite {
+function Read-TestCatalog([string]$Context) {
     $catalogText = & ctest --test-dir $cacheRoot --show-only=json-v1
-    if ($LASTEXITCODE -ne 0) { throw 'Cannot read the complete CTest catalog.' }
+    if ($LASTEXITCODE -ne 0) { throw "Cannot read the complete CTest catalog$Context." }
     $catalog = ($catalogText -join "`n") | ConvertFrom-Json
     if (!$catalog.tests.Count) { throw 'The complete CTest catalog is empty.' }
+    return $catalog
+}
+function Invoke-WholeTestSuite {
+    $catalog = Read-TestCatalog
     $executedCount = if ($selectedTestNames.Count) { $selectedTestNames.Count } else { $catalog.tests.Count }
     $start = [Diagnostics.ProcessStartInfo]::new((Get-Command ctest -ErrorAction Stop).Source)
     $start.UseShellExecute = $false
@@ -350,10 +353,7 @@ try {
                 & (Join-Path $PSScriptRoot 'perf\run_perf.ps1') @perfArguments
             }
             if ($Test) {
-            $catalogText = & ctest --test-dir $cacheRoot --show-only=json-v1
-            if ($LASTEXITCODE -ne 0) { throw 'Cannot read the complete CTest catalog before building tests.' }
-            $catalog = ($catalogText -join "`n") | ConvertFrom-Json
-            if (!$catalog.tests.Count) { throw 'The complete CTest catalog is empty.' }
+            $catalog = Read-TestCatalog ' before building tests'
             foreach ($name in $selectedTestNames) {
                 if (!@($catalog.tests | Where-Object name -CEQ $name).Count) { throw "Unknown registered test: $name" }
             }

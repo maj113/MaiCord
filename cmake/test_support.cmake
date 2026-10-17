@@ -70,6 +70,67 @@ function(maicord_add_tests target)
     endforeach()
 endfunction()
 
+# maicord_font_test(<target> <entry> <source> [UNICODE] [<maicord_test argument>...])
+# A tests/<source>.cpp executable linking maicord_core, maicord_font (then
+# maicord_unicode with UNICODE) and kernel32.
+function(maicord_font_test target entry source)
+    set(libs maicord_core maicord_font)
+    if(ARGC GREATER 3 AND ARGV3 STREQUAL "UNICODE")
+        list(APPEND libs maicord_unicode)
+        list(REMOVE_AT ARGN 0)
+    endif()
+    maicord_test(${target} ENTRY ${entry} SOURCES tests/${source}.cpp LIBS ${libs} kernel32 ${ARGN})
+endfunction()
+
+# maicord_native_profile_tests(<timeout> <profile> <family>)
+# MaiCordNativeAppLineTests --<profile>-profile (an -app suffix is dropped
+# from the option) under <family>, Segoe UI and the bundled BioRhyme, as
+# maicord_native_<profile>[_default|_private], labelled native-text-<profile>.
+function(maicord_native_profile_tests timeout profile family)
+    string(REPLACE "-" "_" test "maicord_native_${profile}")
+    string(REGEX REPLACE "-app-profile$" "-profile" option "--${profile}-profile")
+    maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT ${timeout} LABELS native-text-${profile}
+        TEST ${test} ${option} --family "${family}" 400
+        TEST ${test}_default ${option} --family "Segoe UI" 400
+        TEST ${test}_private ${option} "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BioRhyme.ttf")
+endfunction()
+
+# maicord_indic_plan_tests(<script> <mode>...)
+# MaiCordDevanagariPlanTests --<script>-<mode> as maicord_native_<script>_<mode>,
+# labelled native-text-<script>-plan.
+function(maicord_indic_plan_tests script)
+    set(rows)
+    foreach(mode IN LISTS ARGN)
+        string(REPLACE "_" "-" option "--${script}-${mode}")
+        list(APPEND rows TEST maicord_native_${script}_${mode} ${option})
+    endforeach()
+    maicord_add_tests(MaiCordDevanagariPlanTests TIMEOUT 5 LABELS native-text-${script}-plan ${rows})
+endfunction()
+
+# maicord_ui_probe_test(<test> <variable> [BOOTSTRAP] [<maicord_add_tests property>...])
+# MaiCordUiProbe with MAICORD_<variable>=1, the native bootstrap when
+# BOOTSTRAP is given, and GPU metrics.
+function(maicord_ui_probe_test test variable)
+    cmake_parse_arguments(PARSE_ARGV 2 ARG "BOOTSTRAP" "" "")
+    set(environment MAICORD_${variable}=1)
+    if(ARG_BOOTSTRAP)
+        list(APPEND environment MAICORD_NATIVE_BOOTSTRAP_PROBE=1)
+    endif()
+    maicord_add_tests(MaiCordUiProbe ${ARG_UNPARSED_ARGUMENTS} ENV ${environment} MAICORD_GPU_METRICS=1
+        TEST ${test})
+endfunction()
+
+# maicord_c_plugin(<target> <entry> <source>...)
+# A plain C plugin DLL against the public SDK header, freestanding like the
+# client: no CRT, no stack cookies, runtime helpers from maicord_runtime.
+function(maicord_c_plugin target entry)
+    add_library(${target} SHARED ${ARGN} $<TARGET_OBJECTS:maicord_runtime>)
+    target_link_libraries(${target} PRIVATE maicord_compile_contract kernel32)
+    target_compile_options(${target} PRIVATE /Zl /GS- /W4 /WX /utf-8 $<$<CONFIG:Release>:/GL>)
+    target_link_options(${target} PRIVATE /ENTRY:${entry} /SUBSYSTEM:WINDOWS,6.02)
+    set_target_properties(${target} PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON)
+endfunction()
+
 # Tests that exercise the shipping pair itself (update staging, the account
 # DLL's exports) depend on it, unless the caller supplies that pair: CI hands
 # the client job's binaries to the test job, and a local run can keep using a
@@ -175,6 +236,9 @@ endfunction()
 # implicit export definitions and position-independent compilation separate.
 # Called after the codegen twins.
 function(maicord_share_test_objects target_list_variable)
+    set(properties INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FLAGS COMPILE_FEATURES
+        PRECOMPILE_HEADERS CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS MSVC_RUNTIME_LIBRARY
+        POSITION_INDEPENDENT_CODE CXX_VISIBILITY_PRESET VISIBILITY_INLINES_HIDDEN)
     set(signatures)
     set(compilations 0)
     foreach(target IN LISTS ${target_list_variable})
@@ -216,9 +280,7 @@ function(maicord_share_test_objects target_list_variable)
             continue()
         endif()
         set(signature)
-        foreach(property IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FLAGS
-                COMPILE_FEATURES PRECOMPILE_HEADERS CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS
-                MSVC_RUNTIME_LIBRARY POSITION_INDEPENDENT_CODE CXX_VISIBILITY_PRESET VISIBILITY_INLINES_HIDDEN)
+        foreach(property IN LISTS properties)
             get_target_property(value ${target} ${property})
             string(APPEND signature "${property}=${value}|")
         endforeach()
@@ -270,9 +332,7 @@ function(maicord_share_test_objects target_list_variable)
         set(library maicord_test_shared_${index})
         list(GET users_${key} 0 first)
         add_library(${library} OBJECT "${path_${key}}")
-        foreach(property IN ITEMS INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FLAGS
-                COMPILE_FEATURES PRECOMPILE_HEADERS CXX_STANDARD CXX_STANDARD_REQUIRED CXX_EXTENSIONS
-                MSVC_RUNTIME_LIBRARY POSITION_INDEPENDENT_CODE CXX_VISIBILITY_PRESET VISIBILITY_INLINES_HIDDEN)
+        foreach(property IN LISTS properties)
             get_target_property(value ${first} ${property})
             if(NOT value STREQUAL "value-NOTFOUND")
                 set_property(TARGET ${library} PROPERTY ${property} "${value}")
@@ -333,37 +393,8 @@ endfunction()
 function(maicord_add_test_precompiled_headers target_list_variable)
     set(win_header "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pch.hpp")
     set(app_header "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_app_pch.hpp")
-    # Headers that include application_state.hpp, by file name.
-    file(GLOB headers "${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.hpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*/*.hpp")
-    set(app_headers application_state.hpp)
-    set(pending)
-    foreach(header IN LISTS headers)
-        cmake_path(GET header FILENAME name)
-        file(STRINGS "${header}" lines REGEX "^[ \t]*#[ \t]*include[ \t]*\"")
-        set(includes_${name})
-        foreach(line IN LISTS lines)
-            if(line MATCHES "\"([^\"]+)\"")
-                cmake_path(GET CMAKE_MATCH_1 FILENAME included)
-                list(APPEND includes_${name} ${included})
-            endif()
-        endforeach()
-        list(APPEND pending ${name})
-    endforeach()
-    set(changed TRUE)
-    while(changed)
-        set(changed FALSE)
-        foreach(name IN LISTS pending)
-            foreach(included IN LISTS includes_${name})
-                if(included IN_LIST app_headers)
-                    list(APPEND app_headers ${name})
-                    list(REMOVE_ITEM pending ${name})
-                    set(changed TRUE)
-                    break()
-                endif()
-            endforeach()
-        endforeach()
-    endwhile()
+    maicord_application_state_headers(app_headers "${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/*.hpp" "${CMAKE_CURRENT_SOURCE_DIR}/tests/*/*.hpp")
     set(consumers)
     set(runtimes)
     foreach(target IN LISTS ${target_list_variable})
@@ -401,7 +432,7 @@ function(maicord_add_test_precompiled_headers target_list_variable)
             foreach(mode IN ITEMS O2 Os)
                 set(provider maicord_test_pch_${level}_${mode}_${runtime})
                 set(stub "${directory}/${provider}.cpp")
-                file(CONFIGURE OUTPUT "${stub}" CONTENT "#include \"${${level}_header}\"\n")
+                maicord_pch_stub("${stub}" "${${level}_header}" "${directory}/${provider}.pch" ${mode})
                 set_property(GLOBAL APPEND PROPERTY MAICORD_OWNED_OUTPUTS
                     "file|${stub}\n" "file|${directory}/${provider}.pch\n")
                 add_library(${provider} OBJECT "${stub}")
@@ -410,12 +441,6 @@ function(maicord_add_test_precompiled_headers target_list_variable)
                 if(runtime STREQUAL "MT")
                     set_target_properties(${provider} PROPERTIES MSVC_RUNTIME_LIBRARY MultiThreaded)
                 endif()
-                set(stub_options "/Yc${${level}_header}" "/Fp${directory}/${provider}.pch")
-                if(mode STREQUAL "Os")
-                    # Same position as the cold sources' own per-source option.
-                    list(PREPEND stub_options "$<$<CONFIG:Release>:/Os>")
-                endif()
-                set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${stub_options}")
                 list(APPEND providers ${provider})
                 list(APPEND provider_objects "$<TARGET_OBJECTS:${provider}>")
             endforeach()
@@ -455,22 +480,9 @@ function(maicord_add_test_precompiled_headers target_list_variable)
             if(source_options MATCHES "/Os")
                 set(mode Os)
             endif()
-            # Application level only when the source reaches application_state.hpp
-            # before any #define, #undef or #pragma of its own.
             set(app FALSE)
             if(NOT source_definitions)
-                file(STRINGS "${path}" lines REGEX "^[ \t]*#[ \t]*(include|define|undef|pragma)")
-                foreach(line IN LISTS lines)
-                    if(line MATCHES "^[ \t]*#[ \t]*include[ \t]*\"([^\"]+)\"")
-                        cmake_path(GET CMAKE_MATCH_1 FILENAME included)
-                        if(included IN_LIST app_headers)
-                            set(app TRUE)
-                            break()
-                        endif()
-                    elseif(NOT line MATCHES "^[ \t]*#[ \t]*(include|pragma[ \t]+once)")
-                        break()
-                    endif()
-                endforeach()
+                maicord_reaches_application_state(app "${path}" ${app_headers})
             endif()
             if(app)
                 set(level "$<IF:${app_target},app,win>")

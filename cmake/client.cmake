@@ -392,19 +392,11 @@ maicord_compact_sources(
         src/app/https_file_upload.cpp src/app/https_file_download.cpp
         src/media/h264_parameters.cpp src/media/hevc_parameters.cpp src/media/h264_configuration.cpp)
 
-# MaiCord's application sources share a precompiled header (src/app/
-# application_pch.hpp: <Windows.h> and application_state.hpp), most of each
-# source's front-end time. A /Yu object also leaves the header's inline code
-# to the PCH object, which shrinks the LTCG link input. One PCH per
-# optimization mode, since cold sources carry /Os and MSVC rejects a PCH built
-# with other options. A source qualifies when it reaches application_state.hpp
-# (directly or through another src/app header) before any #define, #undef or
-# #pragma of its own and has no definitions of its own, so the PCH holds only
-# declarations it already includes. The options apply only to targets with
-# MAICORD_APPLICATION_PCH, never to test targets compiling the same sources.
-function(maicord_precompile_application_sources target)
-    set(header "${CMAKE_CURRENT_SOURCE_DIR}/src/app/application_pch.hpp")
-    file(GLOB headers "${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.hpp")
+# maicord_application_state_headers(<variable> <glob>...): the file names of
+# application_state.hpp and of the globbed headers that include it, directly
+# or through another of them.
+function(maicord_application_state_headers variable)
+    file(GLOB headers ${ARGN})
     set(app_headers application_state.hpp)
     set(pending)
     foreach(path IN LISTS headers)
@@ -433,12 +425,61 @@ function(maicord_precompile_application_sources target)
             endforeach()
         endforeach()
     endwhile()
+    set(${variable} ${app_headers} PARENT_SCOPE)
+endfunction()
+
+# maicord_reaches_application_state(<variable> <source> <header>...): whether
+# <source> includes one of the <header> file names before any #define, #undef
+# or #pragma of its own.
+function(maicord_reaches_application_state variable source)
+    set(app_headers ${ARGN})
+    set(app FALSE)
+    file(STRINGS "${source}" lines REGEX "^[ \t]*#[ \t]*(include|define|undef|pragma)")
+    foreach(line IN LISTS lines)
+        if(line MATCHES "^[ \t]*#[ \t]*include[ \t]*\"([^\"]+)\"")
+            cmake_path(GET CMAKE_MATCH_1 FILENAME included)
+            if(included IN_LIST app_headers)
+                set(app TRUE)
+                break()
+            endif()
+        elseif(NOT line MATCHES "^[ \t]*#[ \t]*(include|pragma[ \t]+once)")
+            break()
+        endif()
+    endforeach()
+    set(${variable} ${app} PARENT_SCOPE)
+endfunction()
+
+# maicord_pch_stub(<stub> <header> <pch> <O2|Os> [<source property> <value>...])
+# Writes <stub>, which includes <header>, and creates <pch> from it (/Yc). The
+# Os stub carries /Os first, the position of the cold sources' own option.
+function(maicord_pch_stub stub header pch mode)
+    file(CONFIGURE OUTPUT "${stub}" CONTENT "#include \"${header}\"\n")
+    set(options "/Yc${header}" "/Fp${pch}")
+    if(mode STREQUAL "Os")
+        list(PREPEND options "$<$<CONFIG:Release>:/Os>")
+    endif()
+    set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options}" ${ARGN})
+endfunction()
+
+# MaiCord's application sources share a precompiled header (src/app/
+# application_pch.hpp: <Windows.h> and application_state.hpp), most of each
+# source's front-end time. A /Yu object also leaves the header's inline code
+# to the PCH object, which shrinks the LTCG link input. One PCH per
+# optimization mode, since cold sources carry /Os and MSVC rejects a PCH built
+# with other options. A source qualifies when it reaches application_state.hpp
+# (directly or through another src/app header) before any #define, #undef or
+# #pragma of its own and has no definitions of its own, so the PCH holds only
+# declarations it already includes. The options apply only to targets with
+# MAICORD_APPLICATION_PCH, never to test targets compiling the same sources.
+function(maicord_precompile_application_sources target)
+    set(header "${CMAKE_CURRENT_SOURCE_DIR}/src/app/application_pch.hpp")
+    maicord_application_state_headers(app_headers "${CMAKE_CURRENT_SOURCE_DIR}/src/app/*.hpp")
     set(directory "${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/${target}.dir")
     set(enabled "$<BOOL:$<TARGET_PROPERTY:MAICORD_APPLICATION_PCH>>")
     set(modes)
     get_target_property(sources ${target} SOURCES)
     foreach(source IN LISTS sources)
-        if(source MATCHES "^\$<" OR NOT source MATCHES "\.cpp$")
+        if(source MATCHES "^\\$<" OR NOT source MATCHES "\\.cpp$")
             continue()
         endif()
         set(path "${source}")
@@ -447,19 +488,7 @@ function(maicord_precompile_application_sources target)
         if(definitions)
             continue()
         endif()
-        set(app FALSE)
-        file(STRINGS "${path}" lines REGEX "^[ \t]*#[ \t]*(include|define|undef|pragma)")
-        foreach(line IN LISTS lines)
-            if(line MATCHES "^[ \t]*#[ \t]*include[ \t]*\"([^\"]+)\"")
-                cmake_path(GET CMAKE_MATCH_1 FILENAME included)
-                if(included IN_LIST app_headers)
-                    set(app TRUE)
-                    break()
-                endif()
-            elseif(NOT line MATCHES "^[ \t]*#[ \t]*(include|pragma[ \t]+once)")
-                break()
-            endif()
-        endforeach()
+        maicord_reaches_application_state(app "${path}" ${app_headers})
         if(NOT app)
             continue()
         endif()
@@ -481,13 +510,7 @@ function(maicord_precompile_application_sources target)
     foreach(mode IN LISTS modes)
         set(stub "${directory}/application_pch_${mode}.cpp")
         set(pch "${directory}/application_pch_${mode}.pch")
-        file(CONFIGURE OUTPUT "${stub}" CONTENT "#include \"${header}\"\n")
-        set(options "/Yc${header}" "/Fp${pch}")
-        if(mode STREQUAL "Os")
-            # Same position as the cold sources' own per-source option.
-            list(PREPEND options "$<$<CONFIG:Release>:/Os>")
-        endif()
-        set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options}" OBJECT_OUTPUTS "${pch}")
+        maicord_pch_stub("${stub}" "${header}" "${pch}" ${mode} OBJECT_OUTPUTS "${pch}")
         # The PCH object holds the header's code; every image using the PCH links it.
         target_sources(${target} PRIVATE "${stub}")
     endforeach()

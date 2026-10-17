@@ -1,7 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Executable,
-    [switch]$RequireD3D11,
     [switch]$RequireD3D11Only,
     [switch]$ForbidMediaFoundation,
     [switch]$ForbidDirectWrite,
@@ -126,11 +125,7 @@ foreach ($name in $forbidden) {
 }
 
 $required = @('KERNEL32.dll')
-if ($RequireD3D11) {
-    $required += @('USER32.dll', 'D3D11.dll')
-} elseif ($RequireD3D11Only) {
-    $required += @('D3D11.dll')
-}
+if ($RequireD3D11Only) { $required += 'D3D11.dll' }
 foreach ($name in $required) {
     if (!@($staticDlls | Where-Object { $_ -ieq $name }).Count) {
         throw "Expected static platform import missing: $name"
@@ -159,5 +154,5 @@ $size = (Get-Item -LiteralPath $resolved).Length
     CrtFree = $true
     DirectEntry = $true
     Mitigations = 'ASLR, HighEntropyVA, NX, CET-compatible'
-    HasHardwareD3D11Import = if ($RequireD3D11 -or $RequireD3D11Only) { $true } else { 'not required' }
+    HasHardwareD3D11Import = if ($RequireD3D11Only) { $true } else { 'not required' }
 } | Format-List

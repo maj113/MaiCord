@@ -15,7 +15,6 @@ maicord_library(maicord_media_core
     src/media/regional_flag_svg.cpp src/ui/regional_flag.cpp
     LIBS maicord_core)
 
-# maiopus keeps MaiCord's existing target names until the extern/maiopus move.
 set(MAIOPUS_DECODER_TARGET maicord_opus_decoder)
 set(MAIOPUS_ENCODER_TARGET maicord_opus_encoder)
 set(MAIOPUS_LINK_CONTRACT maicord_link_contract)
@@ -35,12 +34,10 @@ maicord_library(maicord_media_codec
     src/media/png_stream.cpp src/media/png_encode.cpp src/media/png_common.cpp src/media/vp8.cpp
     src/media/webp.cpp src/media/webp_thumbnail.cpp src/media/webp_alpha.cpp src/media/animated_webp.cpp
     src/media/yuv_convert.cpp src/media/yuv_convert_avx2.cpp
-    # Video receive in voice calls: the H.264/H.265 RTP depacketizers (Annex B,
-    # 4-byte start codes for DAVE).
     src/media/rtp_h264.cpp src/media/rtp_h265.cpp
-    LIBS maicord_core maicord_compression maicord_opus_decoder ntdll)
+    LIBS maicord_core maicord_compression maicord_opus_decoder ntdll
+    INCLUDES third_party/minimp3)
 set_source_files_properties(src/media/yuv_convert_avx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
-target_include_directories(maicord_media_codec PRIVATE third_party/minimp3)
 
 # Voice send encoder; linked only into MaiCordAccount, never the client EXE.
 maicord_library(maicord_voice_encoder src/media/opus_encoder.cpp LIBS maicord_core maicord_opus_encoder)
@@ -124,20 +121,12 @@ maicord_library(maicord_protocol
     src/protocol/self_status_settings.cpp src/protocol/guild_folders.cpp src/protocol/guild_invite.cpp
     src/protocol/user_settings_proto.cpp src/protocol/account_settings.cpp src/protocol/emoji_preferences.cpp
     src/protocol/gif_favorites.cpp src/protocol/channel_overview.cpp src/protocol/guild_admin.cpp
-    src/protocol/guild_assets.cpp
-    # Profile editor: Main/Per-server profile PATCH bodies, loads, collectibles and errors.
-    src/protocol/profile_edit.cpp
-    # Video receive in voice calls: signaling (op 1 codecs, op 14, op 15) and
-    # RTCP feedback.
-    src/protocol/voice_video_signaling.cpp src/protocol/rtcp_feedback.cpp
-    # Soundboard: sound lists, sends and edits.
-    src/protocol/soundboard.cpp
-    src/protocol/notification_settings.cpp src/protocol/user_guild_settings.cpp
+    src/protocol/guild_assets.cpp src/protocol/profile_edit.cpp src/protocol/voice_video_signaling.cpp
+    src/protocol/rtcp_feedback.cpp src/protocol/soundboard.cpp src/protocol/notification_settings.cpp
+    src/protocol/user_guild_settings.cpp
     # Icon hash check kept apart from cdn_url.cpp: the client keeps it (Gateway
     # user records) while it forwards every other CDN URL function to the module.
-    src/protocol/cdn_icon_hash.cpp
-    # Members search, bulk ban and ban search bodies and replies.
-    src/protocol/guild_moderation.cpp
+    src/protocol/cdn_icon_hash.cpp src/protocol/guild_moderation.cpp
     LIBS maicord_core maicord_compression maicord_media_core)
 
 maicord_library(maicord_webauthn src/platform/webauthn.cpp LIBS maicord_core maicord_platform maicord_protocol)
@@ -184,24 +173,14 @@ maicord_library(maicord_app_core
     src/app/update_fetch.cpp src/app/update_https.cpp src/app/update_service.cpp src/app/search_recent.cpp
     src/app/link_trust.cpp src/app/voice_dave_route.cpp src/app/voice_jitter_buffer.cpp src/app/voice_mixer.cpp
     src/app/voice_playback.cpp src/app/voice_receive.cpp src/app/gateway_stream_session.cpp
-    # Video receive in voice calls: RTP reorder/RTX/frame assembly, video SSRC
-    # routing, per-frame DAVE and the decoder boundary (video_frame_sink.hpp).
     src/app/video_rtp_receive.cpp src/app/voice_video_sink.cpp
     # Voice send: capture, gating, encoding and RTP. Executables pull the encoder
     # only when they reference the send path (the account module and voice tests).
-    src/app/voice_transmit.cpp src/app/voice_send.cpp
-    # Soundboard CDN fetch, decoded-clip cache and effect mixer calls; voice
-    # messages (composer flow, waveform, Opus/Ogg recorder, capture/preview owner).
-    src/app/soundboard_audio.cpp src/app/account_soundboard.cpp src/app/voice_message_flow.cpp
-    src/app/voice_message_recorder.cpp src/app/account_voice_message.cpp
-    # Call view video bookkeeping and Go Live preview cache/backoff and stream state.
+    src/app/voice_transmit.cpp src/app/voice_send.cpp src/app/soundboard_audio.cpp src/app/account_soundboard.cpp
+    src/app/voice_message_flow.cpp src/app/voice_message_recorder.cpp src/app/account_voice_message.cpp
     src/app/call_video_presenter.cpp src/app/stream_preview_cache.cpp src/app/stream_watch_view.cpp
-    # Durable floor records shared by update_acceptance and the plugin catalog.
-    src/app/acceptance_record.cpp
-    # Server details carried in guild create/update records.
-    src/app/gateway_guild_details.cpp
-    # Members search, bulk ban and ban search on DETAILS.
-    src/app/account_guild_moderation.cpp
+    # acceptance_record.cpp: durable floor records shared by update_acceptance and the plugin catalog.
+    src/app/acceptance_record.cpp src/app/gateway_guild_details.cpp src/app/account_guild_moderation.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_media_core
         maicord_voice_encoder)
 
@@ -212,9 +191,9 @@ maicord_library(maicord_account_media
     src/platform/hevc_gpu_decoder.cpp src/platform/h264_gpu_configuration.cpp
     src/platform/h264_gpu_stream_decoder.cpp src/app/video_stream_decoders.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_media_core maicord_media_codec
-        maicord_cdn_media maicord_paint_program d3d11 dxguid maicord_compression)
-add_dependencies(maicord_account_media maicord_regional_flag_data)
-target_include_directories(maicord_account_media PRIVATE "${MAICORD_GENERATED_DIRECTORY}")
+        maicord_cdn_media maicord_paint_program d3d11 dxguid maicord_compression
+    INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
+    DEPENDS maicord_regional_flag_data)
 
 maicord_library(maicord_unicode
     src/text/arabic_joining.cpp src/text/line_break.cpp src/text/line_break_windows.cpp
@@ -329,14 +308,13 @@ maicord_library(maicord_ui
     src/ui/download_scene.cpp src/ui/shortcuts_scene.cpp src/ui/media_picker.cpp
     src/ui/media_picker_presentation.cpp src/ui/search_query.cpp src/ui/search_filter_context.cpp
     src/ui/voice_channel_rows.cpp src/ui/voice_panel.cpp
-    # Call view: participant grid, focus/filmstrip, controls.
     src/ui/call_scene.cpp src/ui/call_stage.cpp src/ui/stream_card_scene.cpp src/ui/guild_card_scene.cpp
     src/ui/guild_banner.cpp
     # The spell tokenizer classifies letters with the Unicode property tables;
     # deflate.cpp checks gzip members with png_crc32 from maicord_media_codec.
-    LIBS maicord_core maicord_model maicord_media_core maicord_unicode maicord_compression maicord_media_codec)
-add_dependencies(maicord_ui maicord_emoji_catalog_data maicord_icon_pack_data)
-target_include_directories(maicord_ui PRIVATE "${MAICORD_GENERATED_DIRECTORY}")
+    LIBS maicord_core maicord_model maicord_media_core maicord_unicode maicord_compression maicord_media_codec
+    INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
+    DEPENDS maicord_emoji_catalog_data maicord_icon_pack_data)
 
 # UI Automation server over accessibility snapshots. UIAutomationCore and
 # OleAut32 load on the first WM_GETOBJECT, so neither is a static import.
@@ -352,10 +330,6 @@ maicord_library(maicord_plugin_modules
     src/app/plugin_module_loader.cpp src/app/plugin_manifest.cpp src/app/plugin_catalog.cpp
     src/app/plugin_bundle_install.cpp src/app/plugin_preferences.cpp
     LIBS maicord_core maicord_plugin_host kernel32 bcrypt)
-# Plugin catalog: the signed index verifier, its pure policy, the provider,
-# floor, state and journal records of the plugin manager, the check service
-# the journaled install orchestration, startup gating, applying indexes to
-# installed plugins and the browser snapshot.
 maicord_library(maicord_plugin_manager
     src/app/plugin_index.cpp src/app/plugin_index_policy.cpp src/app/plugin_index_acceptance.cpp
     src/app/plugin_providers.cpp src/app/plugin_manager_state.cpp src/app/plugin_index_service.cpp
@@ -382,13 +356,8 @@ maicord_library(maicord_model
     src/model/scheduled_event_store.cpp src/model/message_composer.cpp
     src/model/message_composer_input_target.cpp src/model/message_draft_store.cpp
     src/model/reaction_preferences.cpp src/model/message_store.cpp src/model/message_search.cpp
-    src/model/message_notifications.cpp src/model/voice_state_store.cpp
-    # Stage channels: live stage instances and speaker/audience/moderator policy.
-    src/model/stage_instance_store.cpp src/model/stage_policy.cpp
-    # Profile editor: the official avatar/banner cropper geometry and the Profiles
-    # page policy (changes, Nitro gates, the partial PATCH bodies of a save).
-    src/model/image_crop.cpp src/model/profile_editor.cpp
-    # MLS/DAVE group state.
+    src/model/message_notifications.cpp src/model/voice_state_store.cpp src/model/stage_instance_store.cpp
+    src/model/stage_policy.cpp src/model/image_crop.cpp src/model/profile_editor.cpp
     src/app/mls_tree_math.cpp src/app/mls_ratchet_tree.cpp src/app/mls_tree_validate.cpp src/app/mls_tree_edit.cpp
     src/app/mls_treekem.cpp src/app/mls_group_context.cpp src/app/mls_proposal.cpp src/app/mls_commit.cpp
     src/app/mls_welcome.cpp src/app/mls_group.cpp src/app/dave_session.cpp src/app/voice_connection_dave.cpp
@@ -396,9 +365,7 @@ maicord_library(maicord_model
     src/model/desktop_notification_queue.cpp src/model/notification_sound_policy.cpp
     src/model/notification_sound_admission.cpp src/model/notification_retention.cpp
     src/model/permission_grid.cpp src/model/guild_settings_model.cpp src/model/channel_settings_model.cpp
-    src/model/guild_detail_store.cpp
-    # The Members page's chunked search and local paging.
-    src/model/guild_member_search.cpp
+    src/model/guild_detail_store.cpp src/model/guild_member_search.cpp
     LIBS maicord_core maicord_edit_history maicord_protocol)
 
 maicord_library(maicord_message_runtime
@@ -420,8 +387,8 @@ maicord_library(maicord_message_media
 
 # deflate.cpp checks gzip members with png_crc32 from maicord_media_codec.
 maicord_library(maicord_shader_bytecode src/render/shader_bytecode.cpp "${MAICORD_SHADER_PACK_INCLUDE}"
-    LIBS maicord_core maicord_compression maicord_media_codec d3d11)
-target_include_directories(maicord_shader_bytecode PRIVATE "${MAICORD_GENERATED_DIRECTORY}")
+    LIBS maicord_core maicord_compression maicord_media_codec d3d11
+    INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
 
 maicord_library(maicord_atlas_gpu
     src/render/video_frame_gpu.cpp "${MAICORD_VIDEO_FRAME_HEADER}" src/render/glyph_atlas_gpu.cpp
@@ -432,8 +399,8 @@ maicord_library(maicord_atlas_gpu
     "${MAICORD_GLYPH_COMPUTE_HEADER}" "${MAICORD_PNG_COMPUTE_HEADER}" "${MAICORD_VP8_RECONSTRUCT_HEADER}"
     "${MAICORD_VP8_FILTER_HEADER}" "${MAICORD_VP8_ATLAS_HEADER}" "${MAICORD_JPEG_IDCT_HEADER}"
     "${MAICORD_JPEG_ATLAS_HEADER}"
-    LIBS maicord_core maicord_render_core maicord_text maicord_shader_bytecode d3d11)
-target_include_directories(maicord_atlas_gpu PRIVATE "${MAICORD_GENERATED_DIRECTORY}")
+    LIBS maicord_core maicord_render_core maicord_text maicord_shader_bytecode d3d11
+    INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
 
 maicord_library(maicord_renderer
     src/render/animation_frame_cache_gpu.cpp src/render/content_text_retention.cpp
@@ -448,6 +415,6 @@ maicord_library(maicord_renderer
     src/render/layer_presentation.cpp src/render/renderer_media_draw_storage.cpp "${MAICORD_UI_VERTEX_HEADER}"
     "${MAICORD_UI_PIXEL_HEADER}" "${MAICORD_GLYPH_VERTEX_HEADER}" "${MAICORD_GLYPH_PIXEL_HEADER}"
     "${MAICORD_MEDIA_VERTEX_HEADER}" "${MAICORD_MEDIA_PIXEL_HEADER}"
-    LIBS maicord_media_core maicord_font maicord_paint_program maicord_shader_bytecode)
-add_dependencies(maicord_renderer maicord_atlas_gpu)
-target_include_directories(maicord_renderer PRIVATE "${MAICORD_GENERATED_DIRECTORY}")
+    LIBS maicord_media_core maicord_font maicord_paint_program maicord_shader_bytecode
+    INCLUDES "${MAICORD_GENERATED_DIRECTORY}"
+    DEPENDS maicord_atlas_gpu)

@@ -12,21 +12,20 @@ endif()
 maicord_program(MaiCordChannelNamePreflightBenchmark ENTRY maicord_channel_name_preflight_benchmark_entry
     SOURCES tests/bench/channel_name_preflight.cpp tests/bench/channel_name_preflight_observer.cpp
     LIBS maicord_core maicord_protocol maicord_model kernel32)
-set_source_files_properties(tests/bench/channel_name_preflight_observer.cpp PROPERTIES COMPILE_OPTIONS "/GL-")
 maicord_program(MaiCordGuildChannelValidationBenchmark ENTRY maicord_guild_channel_validation_benchmark_entry
     SOURCES tests/bench/guild_channel_validation.cpp tests/bench/guild_channel_validation_observer.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_message_runtime
         kernel32)
-set_source_files_properties(tests/bench/guild_channel_validation_observer.cpp PROPERTIES COMPILE_OPTIONS "/GL-")
 maicord_program(MaiCordGuildRolePayloadBenchmark ENTRY maicord_guild_role_payload_benchmark_entry
     SOURCES tests/bench/guild_role_payload.cpp tests/bench/guild_role_payload_observer.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core kernel32)
-set_source_files_properties(tests/bench/guild_role_payload_observer.cpp PROPERTIES COMPILE_OPTIONS "/GL-")
 maicord_program(MaiCordTextProjectionBenchmark ENTRY maicord_text_projection_benchmark_entry
     SOURCES tests/bench/text_projection.cpp tests/bench/text_projection_observer.cpp
     LIBS maicord_core maicord_platform maicord_ui maicord_ui_input maicord_model maicord_protocol
         maicord_app_core maicord_text kernel32 user32 crypt32 dwrite)
-set_source_files_properties(tests/bench/text_projection_observer.cpp PROPERTIES COMPILE_OPTIONS "/GL-")
+set_source_files_properties(tests/bench/channel_name_preflight_observer.cpp
+    tests/bench/guild_channel_validation_observer.cpp tests/bench/guild_role_payload_observer.cpp
+    tests/bench/text_projection_observer.cpp PROPERTIES COMPILE_OPTIONS "/GL-")
 maicord_program(MaiCordProcessBenchmark ENTRY maicord_process_benchmark_entry
     SOURCES benchmarks/process_benchmark.cpp
     LIBS maicord_core kernel32)
@@ -43,22 +42,14 @@ maicord_program(MaiCordResolverPublicationProbe ENTRY maicord_resolver_publicati
     SOURCES tests/resolver_publication.cpp
     LIBS maicord_core kernel32 ws2_32
     DEFINES MAICORD_RESOLVER_PUBLICATION_PROBE=1)
-maicord_program(MaiCordJsonNumberBenchmark ENTRY maicord_json_number_entry
-    SOURCES tests/json_string_decode.cpp
-    LIBS maicord_core kernel32
-    DEFINES MAICORD_JSON_NUMBER_BENCHMARK=1)
-maicord_program(MaiCordJsonIntegerBenchmark ENTRY maicord_json_integer_entry
-    SOURCES tests/json_string_decode.cpp
-    LIBS maicord_core kernel32
-    DEFINES MAICORD_JSON_INTEGER_BENCHMARK=1)
-maicord_program(MaiCordJsonAsciiBenchmark ENTRY maicord_json_ascii_entry
-    SOURCES tests/json_string_decode.cpp
-    LIBS maicord_core kernel32
-    DEFINES MAICORD_JSON_ASCII_BENCHMARK=1)
-maicord_program(MaiCordJsonStringBenchmark ENTRY maicord_json_string_entry
-    SOURCES tests/json_string_decode.cpp
-    LIBS maicord_core kernel32
-    DEFINES MAICORD_JSON_STRING_BENCHMARK=1)
+foreach(maicord_json_mode IN ITEMS Number Integer Ascii String)
+    string(TOLOWER "${maicord_json_mode}" maicord_json_name)
+    string(TOUPPER "${maicord_json_mode}" maicord_json_define)
+    maicord_program(MaiCordJson${maicord_json_mode}Benchmark ENTRY maicord_json_${maicord_json_name}_entry
+        SOURCES tests/json_string_decode.cpp
+        LIBS maicord_core kernel32
+        DEFINES MAICORD_JSON_${maicord_json_define}_BENCHMARK=1)
+endforeach()
 maicord_program(MaiCordReadyUsersBenchmark ENTRY maicord_ready_users_entry
     SOURCES tests/gateway_ready_users.cpp src/model/user_profile.cpp
     LIBS maicord_app_core maicord_core maicord_platform maicord_protocol maicord_media_codec maicord_model

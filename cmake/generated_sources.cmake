@@ -95,13 +95,15 @@ set_source_files_properties(config/maicord.rc PROPERTIES
     OBJECT_DEPENDS "${MAICORD_APP_ICON}"
     COMPILE_OPTIONS "/I${MAICORD_GENERATED_DIRECTORY}")
 
-# maicord_shader(<variable> <header> <profile> <entry> <symbol> <source> [<define>...])
+# maicord_shader(<variable> <header> <profile> <entry> <symbol> <source> [PACK <name>] [<define>...])
 # Compiles <source> with fxc into generated/<header>, a byte array named
-# <symbol>, and stores the header path in <variable>.
+# <symbol>, and stores the header path in <variable>. PACK adds it, in call
+# order, to the shipped shader pack under <name>.
 function(maicord_shader variable header profile entry symbol source)
+    cmake_parse_arguments(PARSE_ARGV 6 ARG "" "PACK" "")
     set(output "${MAICORD_GENERATED_DIRECTORY}/${header}")
     set(defines)
-    foreach(define IN LISTS ARGN)
+    foreach(define IN LISTS ARG_UNPARSED_ARGUMENTS)
         list(APPEND defines /D ${define})
     endforeach()
     add_custom_command(
@@ -114,74 +116,62 @@ function(maicord_shader variable header profile entry symbol source)
         DEPENDS ${source}
         VERBATIM)
     set(${variable} "${output}" PARENT_SCOPE)
+    if(ARG_PACK)
+        set(MAICORD_PACKED_SHADERS ${MAICORD_PACKED_SHADERS} "${ARG_PACK}=${output}" PARENT_SCOPE)
+        set(MAICORD_PACKED_SHADER_HEADERS ${MAICORD_PACKED_SHADER_HEADERS} "${output}" PARENT_SCOPE)
+    endif()
 endfunction()
-
-set(maicord_shaders src/render/shaders)
-maicord_shader(MAICORD_VIDEO_FRAME_HEADER video_frame_cs.hpp cs_5_0 cs_main g_maicord_video_frame_shader
-    ${maicord_shaders}/video_frame.hlsl)
-maicord_shader(MAICORD_UI_VERTEX_HEADER maicord_ui_vs.hpp vs_4_0 ui_vertex g_maicord_ui_vertex_shader
-    ${maicord_shaders}/ui.hlsl)
-maicord_shader(MAICORD_UI_PIXEL_HEADER maicord_ui_ps.hpp ps_4_0 ui_pixel g_maicord_ui_pixel_shader
-    ${maicord_shaders}/ui.hlsl)
-maicord_shader(MAICORD_GLYPH_COMPUTE_HEADER maicord_glyph_cs.hpp cs_5_0 glyph_coverage g_maicord_glyph_compute_shader
-    ${maicord_shaders}/glyph_atlas.hlsl)
-maicord_shader(MAICORD_COLR_COMPUTE_HEADER maicord_colr_cs.hpp cs_5_0 colr_paint g_maicord_colr_compute_shader
-    ${maicord_shaders}/colr_paint.hlsl COLR_GENERAL=1)
-maicord_shader(MAICORD_COLR_WIDE_HEADER maicord_colr_wide_cs.hpp cs_5_0 colr_paint g_maicord_colr_wide_compute_shader
-    ${maicord_shaders}/colr_paint.hlsl COLR_STACK_SIZE=64 COLR_GENERAL=1)
-maicord_shader(MAICORD_COLR_LAYERS_HEADER maicord_colr_layers_cs.hpp cs_5_0 colr_paint g_maicord_colr_layers_compute_shader
-    ${maicord_shaders}/colr_paint.hlsl COLR_LAYERS=1 COLR_GENERAL=1)
-maicord_shader(MAICORD_GLYPH_VERTEX_HEADER maicord_glyph_vs.hpp vs_4_0 glyph_vertex g_maicord_glyph_vertex_shader
-    ${maicord_shaders}/glyph_draw.hlsl)
-maicord_shader(MAICORD_GLYPH_PIXEL_HEADER maicord_glyph_ps.hpp ps_4_0 glyph_pixel g_maicord_glyph_pixel_shader
-    ${maicord_shaders}/glyph_draw.hlsl)
-# Background effect pass: canvas vertex shader and the built-in Stars/Comets
-# effect, a ps_5_0 program against the public mc.fx@1 constant buffer.
-maicord_shader(MAICORD_FX_VERTEX_HEADER maicord_fx_vs.hpp vs_5_0 fx_vertex g_maicord_fx_vertex_shader
-    ${maicord_shaders}/background_fx.hlsl FX_VERTEX=1)
-maicord_shader(MAICORD_FX_PIXEL_HEADER maicord_fx_ps.hpp ps_5_0 fx_builtin g_maicord_fx_pixel_shader
-    ${maicord_shaders}/background_fx.hlsl)
-maicord_shader(MAICORD_MEDIA_VERTEX_HEADER maicord_media_vs.hpp vs_4_0 media_vertex g_maicord_media_vertex_shader
-    ${maicord_shaders}/media_draw.hlsl)
-maicord_shader(MAICORD_MEDIA_PIXEL_HEADER maicord_media_ps.hpp ps_4_0 media_pixel g_maicord_media_pixel_shader
-    ${maicord_shaders}/media_draw.hlsl)
-maicord_shader(MAICORD_PNG_COMPUTE_HEADER maicord_png_cs.hpp cs_5_0 png_expand g_maicord_png_compute_shader
-    ${maicord_shaders}/png_atlas.hlsl)
-maicord_shader(MAICORD_VP8_RECONSTRUCT_HEADER maicord_vp8_reconstruct_cs.hpp cs_5_0 vp8_reconstruct
-    g_maicord_vp8_reconstruct_shader ${maicord_shaders}/vp8_reconstruct_tiled.hlsl)
-maicord_shader(MAICORD_VP8_IDCT_HEADER maicord_vp8_idct_cs.hpp cs_5_0 vp8_inverse_dct g_maicord_vp8_idct_shader
-    ${maicord_shaders}/vp8_reconstruct.hlsl)
-maicord_shader(MAICORD_VP8_FILTER_HEADER maicord_vp8_filter_cs.hpp cs_5_0 vp8_filter g_maicord_vp8_filter_shader
-    ${maicord_shaders}/vp8_filter.hlsl)
-maicord_shader(MAICORD_VP8_ATLAS_HEADER maicord_vp8_atlas_cs.hpp cs_5_0 vp8_to_atlas g_maicord_vp8_atlas_shader
-    ${maicord_shaders}/vp8_atlas.hlsl)
-maicord_shader(MAICORD_JPEG_IDCT_HEADER maicord_jpeg_idct_cs.hpp cs_5_0 jpeg_idct g_maicord_jpeg_idct_shader
-    ${maicord_shaders}/jpeg.hlsl)
-maicord_shader(MAICORD_JPEG_ATLAS_HEADER maicord_jpeg_atlas_cs.hpp cs_5_0 jpeg_to_atlas g_maicord_jpeg_atlas_shader
-    ${maicord_shaders}/jpeg.hlsl)
 
 # Every shipped shader is deflate-packed (one zlib stream each; the wide COLR
 # variant is a sparse byte patch on the normal COLR stream) and inflated into
 # exact-size stack scratch just before its D3D11 Create* call. The first-frame UI/glyph/media
 # set (~60 KB raw, ~13 KB packed) inflates in well under 0.1 ms at startup.
+set(MAICORD_PACKED_SHADERS)
+set(MAICORD_PACKED_SHADER_HEADERS)
+set(maicord_shaders src/render/shaders)
+maicord_shader(MAICORD_UI_VERTEX_HEADER maicord_ui_vs.hpp vs_4_0 ui_vertex g_maicord_ui_vertex_shader
+    ${maicord_shaders}/ui.hlsl PACK ui_vertex)
+maicord_shader(MAICORD_UI_PIXEL_HEADER maicord_ui_ps.hpp ps_4_0 ui_pixel g_maicord_ui_pixel_shader
+    ${maicord_shaders}/ui.hlsl PACK ui_pixel)
+maicord_shader(MAICORD_GLYPH_VERTEX_HEADER maicord_glyph_vs.hpp vs_4_0 glyph_vertex g_maicord_glyph_vertex_shader
+    ${maicord_shaders}/glyph_draw.hlsl PACK glyph_vertex)
+maicord_shader(MAICORD_GLYPH_PIXEL_HEADER maicord_glyph_ps.hpp ps_4_0 glyph_pixel g_maicord_glyph_pixel_shader
+    ${maicord_shaders}/glyph_draw.hlsl PACK glyph_pixel)
+maicord_shader(MAICORD_MEDIA_VERTEX_HEADER maicord_media_vs.hpp vs_4_0 media_vertex g_maicord_media_vertex_shader
+    ${maicord_shaders}/media_draw.hlsl PACK media_vertex)
+maicord_shader(MAICORD_MEDIA_PIXEL_HEADER maicord_media_ps.hpp ps_4_0 media_pixel g_maicord_media_pixel_shader
+    ${maicord_shaders}/media_draw.hlsl PACK media_pixel)
+maicord_shader(MAICORD_GLYPH_COMPUTE_HEADER maicord_glyph_cs.hpp cs_5_0 glyph_coverage g_maicord_glyph_compute_shader
+    ${maicord_shaders}/glyph_atlas.hlsl PACK glyph_compute)
+maicord_shader(MAICORD_COLR_COMPUTE_HEADER maicord_colr_cs.hpp cs_5_0 colr_paint g_maicord_colr_compute_shader
+    ${maicord_shaders}/colr_paint.hlsl PACK colr_compute COLR_GENERAL=1)
+maicord_shader(MAICORD_COLR_WIDE_HEADER maicord_colr_wide_cs.hpp cs_5_0 colr_paint g_maicord_colr_wide_compute_shader
+    ${maicord_shaders}/colr_paint.hlsl PACK colr_wide_compute COLR_STACK_SIZE=64 COLR_GENERAL=1)
+maicord_shader(MAICORD_COLR_LAYERS_HEADER maicord_colr_layers_cs.hpp cs_5_0 colr_paint g_maicord_colr_layers_compute_shader
+    ${maicord_shaders}/colr_paint.hlsl PACK colr_layers_compute COLR_LAYERS=1 COLR_GENERAL=1)
+maicord_shader(MAICORD_PNG_COMPUTE_HEADER maicord_png_cs.hpp cs_5_0 png_expand g_maicord_png_compute_shader
+    ${maicord_shaders}/png_atlas.hlsl PACK png_compute)
+maicord_shader(MAICORD_VP8_RECONSTRUCT_HEADER maicord_vp8_reconstruct_cs.hpp cs_5_0 vp8_reconstruct
+    g_maicord_vp8_reconstruct_shader ${maicord_shaders}/vp8_reconstruct_tiled.hlsl PACK vp8_reconstruct)
+maicord_shader(MAICORD_VP8_IDCT_HEADER maicord_vp8_idct_cs.hpp cs_5_0 vp8_inverse_dct g_maicord_vp8_idct_shader
+    ${maicord_shaders}/vp8_reconstruct.hlsl PACK vp8_idct)
+maicord_shader(MAICORD_VP8_FILTER_HEADER maicord_vp8_filter_cs.hpp cs_5_0 vp8_filter g_maicord_vp8_filter_shader
+    ${maicord_shaders}/vp8_filter.hlsl PACK vp8_filter)
+maicord_shader(MAICORD_VP8_ATLAS_HEADER maicord_vp8_atlas_cs.hpp cs_5_0 vp8_to_atlas g_maicord_vp8_atlas_shader
+    ${maicord_shaders}/vp8_atlas.hlsl PACK vp8_atlas)
+maicord_shader(MAICORD_JPEG_IDCT_HEADER maicord_jpeg_idct_cs.hpp cs_5_0 jpeg_idct g_maicord_jpeg_idct_shader
+    ${maicord_shaders}/jpeg.hlsl PACK jpeg_idct)
+maicord_shader(MAICORD_JPEG_ATLAS_HEADER maicord_jpeg_atlas_cs.hpp cs_5_0 jpeg_to_atlas g_maicord_jpeg_atlas_shader
+    ${maicord_shaders}/jpeg.hlsl PACK jpeg_atlas)
+maicord_shader(MAICORD_VIDEO_FRAME_HEADER video_frame_cs.hpp cs_5_0 cs_main g_maicord_video_frame_shader
+    ${maicord_shaders}/video_frame.hlsl PACK video_frame)
+# Background effect pass: canvas vertex shader and the built-in Stars/Comets
+# effect, a ps_5_0 program against the public mc.fx@1 constant buffer.
+maicord_shader(MAICORD_FX_VERTEX_HEADER maicord_fx_vs.hpp vs_5_0 fx_vertex g_maicord_fx_vertex_shader
+    ${maicord_shaders}/background_fx.hlsl PACK fx_vertex FX_VERTEX=1)
+maicord_shader(MAICORD_FX_PIXEL_HEADER maicord_fx_ps.hpp ps_5_0 fx_builtin g_maicord_fx_pixel_shader
+    ${maicord_shaders}/background_fx.hlsl PACK fx_builtin)
 set(MAICORD_SHADER_PACK_INCLUDE "${MAICORD_GENERATED_DIRECTORY}/maicord_shader_pack.inc")
-set(MAICORD_PACKED_SHADERS
-    "ui_vertex=${MAICORD_UI_VERTEX_HEADER}" "ui_pixel=${MAICORD_UI_PIXEL_HEADER}"
-    "glyph_vertex=${MAICORD_GLYPH_VERTEX_HEADER}" "glyph_pixel=${MAICORD_GLYPH_PIXEL_HEADER}"
-    "media_vertex=${MAICORD_MEDIA_VERTEX_HEADER}" "media_pixel=${MAICORD_MEDIA_PIXEL_HEADER}"
-    "glyph_compute=${MAICORD_GLYPH_COMPUTE_HEADER}"
-    "colr_compute=${MAICORD_COLR_COMPUTE_HEADER}" "colr_wide_compute=${MAICORD_COLR_WIDE_HEADER}"
-    "colr_layers_compute=${MAICORD_COLR_LAYERS_HEADER}" "png_compute=${MAICORD_PNG_COMPUTE_HEADER}"
-    "vp8_reconstruct=${MAICORD_VP8_RECONSTRUCT_HEADER}" "vp8_idct=${MAICORD_VP8_IDCT_HEADER}"
-    "vp8_filter=${MAICORD_VP8_FILTER_HEADER}" "vp8_atlas=${MAICORD_VP8_ATLAS_HEADER}"
-    "jpeg_idct=${MAICORD_JPEG_IDCT_HEADER}" "jpeg_atlas=${MAICORD_JPEG_ATLAS_HEADER}"
-    "video_frame=${MAICORD_VIDEO_FRAME_HEADER}"
-    "fx_vertex=${MAICORD_FX_VERTEX_HEADER}" "fx_builtin=${MAICORD_FX_PIXEL_HEADER}")
-set(MAICORD_PACKED_SHADER_HEADERS "")
-foreach(entry IN LISTS MAICORD_PACKED_SHADERS)
-    string(REGEX REPLACE "^[a-z0-9_]+=" "" header "${entry}")
-    list(APPEND MAICORD_PACKED_SHADER_HEADERS "${header}")
-endforeach()
 add_custom_command(
     OUTPUT "${MAICORD_SHADER_PACK_INCLUDE}"
     COMMAND "${Python3_EXECUTABLE}" -B
