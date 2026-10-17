@@ -339,12 +339,9 @@ bool ui_download_scene_paint(const UiDownloadScene& s, const Theme& t, PaintStre
                     {card.left + 12,card.top + 12,card.left + 32,card.top + 32},color);
             const UiRect track{card.left + 12,card.bottom - 42,card.right - 12,card.bottom - 38};
             ok = ok && paint_stream_push_rounded(out,track.left,track.top,track.right,track.bottom,t.interactive,t.scale.radius_xs);
-            if (!terminal(r.phase) && (r.indeterminate || !r.total)) {
-                for (u32 segment = 0; ok && segment < 3; ++segment) {
-                    const float center = track.left + ui_rect_width(track) * (.25f + .25f * segment);
-                    ok = paint_stream_push_rounded(out,center - 5,track.top,center + 5,track.bottom,color,t.scale.radius_xs);
-                }
-            } else if (r.total && r.bytes) {
+            // A row still waiting (choosing a location, refreshing the link)
+            // shows the bare track: there is no progress to draw yet.
+            if ((terminal(r.phase) || !r.indeterminate) && r.total && r.bytes) {
                 const float ratio = static_cast<float>(minimum(1.,static_cast<double>(r.bytes) / static_cast<double>(r.total)));
                 ok = ok && paint_stream_push_rounded(out,track.left,track.top,
                     track.left + ui_rect_width(track) * ratio,track.bottom,color,t.scale.radius_xs);

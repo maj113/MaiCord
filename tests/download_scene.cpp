@@ -148,6 +148,36 @@ void test_download_scene(void (*check)(bool,const char*) noexcept) noexcept {
         }
     }
     check(visual,"downloads: all pages stay usable at minimum narrow wide dark light bright-accent and 144 DPI layouts");
+    // Quads drawn on a card's progress track: the track itself plus any fill.
+    const auto track_quads = [&](UiRect card) noexcept {
+        const UiRect track{card.left + 12, card.bottom - 42, card.right - 12, card.bottom - 38};
+        u32 found = 0;
+        for (u32 i = 0; i < paint.count; ++i) {
+            const auto& q = paint.quads[i];
+            found += q.top == track.top && q.bottom == track.bottom && q.left >= track.left &&
+                     q.right <= track.right;
+        }
+        return found;
+    };
+    paint_stream_reset(&paint, viewport.right, viewport.bottom);
+    const bool waiting_painted = ui_download_scene_update(&s, &source, &content, viewport) &&
+                                 ui_download_scene_page(&s, 0) &&
+                                 ui_download_scene_paint(s, kDefaultTheme, &paint, 96) && s.count == 3;
+    check(
+        waiting_painted && track_quads(s.cards[2]) == 1 && track_quads(s.cards[1]) == 1,
+        "downloads: a row still preparing or queued shows a bare progress track without placeholder marks");
+    fixture.first_phase = UiDownloadPhase::downloading;
+    ++source.revision;
+    ++content.revision;
+    paint_stream_reset(&paint, viewport.right, viewport.bottom);
+    check(ui_download_scene_update(&s, &source, &content, viewport) &&
+              ui_download_scene_paint(s, kDefaultTheme, &paint, 96) && track_quads(s.cards[0]) == 2,
+          "downloads: a downloading row fills its track to the received fraction");
+    fixture.first_phase = UiDownloadPhase::saved;
+    ++source.revision;
+    ++content.revision;
+    check(ui_download_scene_update(&s, &source, &content, sizes[3]),
+          "downloads: the saved fixture republishes");
     const UiWidgetReference attachment_owner{&s.widgets,s.close};
     const auto* attachment_node = ui_widget_manager_layout_node(s.widgets,s.close);
     const UiRect attachment = attachment_node ? attachment_node->rectangle : UiRect{};
