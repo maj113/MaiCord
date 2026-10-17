@@ -262,6 +262,19 @@ bool rest_client_cancel_logout(RestClient* client, u64 request_id) noexcept;
 RestClientTakeResult rest_client_take_logout_response(
     RestClient* client, u64 request_id, RestClientResponse* response) noexcept;
 
+inline constexpr u32 kRestEndpointGateCapacity = 32;
+// Only counted fingerprints of the path before '?' are retained, never target
+// text, query values or bodies. Fingerprint aliases conservatively share a floor.
+struct RestEndpointGateEntry {
+    u64 key_low, key_high, retry_at_ms;
+    u32 path_bytes;
+    u16 generation, in_flight;
+};
+static_assert(sizeof(RestEndpointGateEntry) == 32);
+struct RestEndpointGate {
+    RestEndpointGateEntry entries[kRestEndpointGateCapacity];
+};
+
 // One account-wide scheduler shared by two independent connections. The lock
 // only covers scheduling and committing results, never DNS, TLS, HTTP, decoding
 // or waiting.
@@ -274,6 +287,9 @@ struct RestSharedState {
     RestClient* mutation_owner;
     volatile LONG authentication_rejected;
     volatile LONG required_action;
+    // Future-admission floors are separate from Discord rate-limit buckets.
+    // Preserve these across individual worker replacement, until account reset.
+    RestEndpointGate endpoint_gate;
 };
 
 // Choose shared scheduling at startup to avoid allocating unused private tables.

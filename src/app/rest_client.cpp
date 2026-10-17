@@ -5,6 +5,7 @@
 
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/deadline.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/trace_record.hpp"
@@ -67,8 +68,120 @@ enum RequestState : LONG {
     request_state_publishing = 7,
 };
 
+struct RestEndpointKey {
+    u64 key_low, key_high;
+    u32 path_bytes;
+};
+struct RestEndpointLease {
+    u16 index, generation; // generation zero means no reservation
+};
+enum class EndpointGateKind : u8 {
+    acquired,
+    waiting,
+    busy,
+    error
+};
+struct EndpointGateResult {
+    EndpointGateKind kind;
+    u64 wait_until_ms;
+};
+
+RestEndpointKey endpoint_key(ConstSlice<u8> target) noexcept {
+    if (!target.data || !target.count)
+        return {};
+    u32 bytes = 0;
+    while (bytes < target.count && target[bytes] != '?')
+        ++bytes;
+    return {hash64_counted_bytes(kHash64Seed, target.data, bytes),
+            hash64_counted_bytes(~kHash64Seed, target.data, bytes), bytes};
+}
+
+RestEndpointGateEntry* endpoint_entry(RestEndpointGate* gate, RestEndpointLease lease) noexcept {
+    if (!gate || !lease.generation || lease.index >= kRestEndpointGateCapacity)
+        return nullptr;
+    auto& entry = gate->entries[lease.index];
+    return entry.generation == lease.generation && entry.in_flight ? &entry : nullptr;
+}
+
+EndpointGateResult endpoint_gate_acquire(RestEndpointGate* gate, RestEndpointKey key, u64 now_ms,
+                                         RestEndpointLease* lease) noexcept {
+    if (!gate || !key.path_bytes || !lease || lease->generation)
+        return {EndpointGateKind::error, 0};
+    u32 available = kRestEndpointGateCapacity;
+    u64 reclaim_at_ms = 0;
+    for (u32 i = 0; i < kRestEndpointGateCapacity; ++i) {
+        auto& entry = gate->entries[i];
+        if (entry.generation && entry.path_bytes == key.path_bytes && entry.key_low == key.key_low &&
+            entry.key_high == key.key_high) {
+            if (entry.retry_at_ms > now_ms)
+                return {EndpointGateKind::waiting, entry.retry_at_ms};
+            // After an outage, release one probe at a time. Requests already
+            // admitted before the floor was observed may still be completing.
+            if (entry.retry_at_ms && entry.in_flight)
+                return {EndpointGateKind::busy, 0};
+            if (entry.in_flight == 0xffffu)
+                return {EndpointGateKind::error, 0};
+            if (!entry.in_flight) {
+                const u16 generation = static_cast<u16>(entry.generation + 1);
+                entry.generation = generation ? generation : static_cast<u16>(1);
+            }
+            ++entry.in_flight;
+            *lease = {static_cast<u16>(i), entry.generation};
+            return {EndpointGateKind::acquired, 0};
+        }
+        if (!entry.in_flight) {
+            if ((!entry.generation || entry.retry_at_ms <= now_ms) &&
+                available == kRestEndpointGateCapacity)
+                available = i;
+            else if (entry.retry_at_ms > now_ms)
+                reclaim_at_ms = earliest_deadline(reclaim_at_ms, entry.retry_at_ms);
+        }
+    }
+    if (available == kRestEndpointGateCapacity)
+        return reclaim_at_ms ? EndpointGateResult{EndpointGateKind::waiting, reclaim_at_ms}
+                             : EndpointGateResult{EndpointGateKind::busy, 0};
+    auto& entry = gate->entries[available];
+    const u16 generation = static_cast<u16>(entry.generation + 1);
+    entry = {
+        key.key_low, key.key_high, 0, key.path_bytes, generation ? generation : static_cast<u16>(1), 1};
+    *lease = {static_cast<u16>(available), entry.generation};
+    return {EndpointGateKind::acquired, 0};
+}
+
+EndpointGateResult endpoint_gate_recheck(RestEndpointGate* gate, RestEndpointLease lease,
+                                         u64 now_ms) noexcept {
+    const auto* entry = endpoint_entry(gate, lease);
+    if (!entry)
+        return {EndpointGateKind::error, 0};
+    return entry->retry_at_ms > now_ms ? EndpointGateResult{EndpointGateKind::waiting, entry->retry_at_ms}
+                                       : EndpointGateResult{EndpointGateKind::acquired, 0};
+}
+
+bool endpoint_gate_observe(RestEndpointGate* gate, RestEndpointLease lease, u64 deadline_ms) noexcept {
+    auto* entry = endpoint_entry(gate, lease);
+    if (!entry)
+        return false;
+    entry->retry_at_ms = maximum(entry->retry_at_ms, deadline_ms);
+    return true;
+}
+
+bool endpoint_gate_release(RestEndpointGate* gate, RestEndpointLease* lease, u64 now_ms,
+                           bool settled = true) noexcept {
+    if (!lease)
+        return false;
+    auto* entry = endpoint_entry(gate, *lease);
+    *lease = {};
+    if (!entry)
+        return false;
+    --entry->in_flight;
+    if (settled && !entry->in_flight && entry->retry_at_ms <= now_ms)
+        entry->retry_at_ms = 0;
+    return true;
+}
+
 struct RestClientCommand {
     RestRouteKey route;
+    RestEndpointKey endpoint_key;
     u64 request_id;
     i64 submitted_counter;
     u32 target_bytes;
@@ -87,6 +200,7 @@ struct RestLocalRates {
     RestRateScheduler scheduler;
     RestRateBucket buckets[kRateBucketCount];
     RestRateBinding bindings[kRateBindingCount];
+    RestEndpointGate endpoint_gate;
 };
 
 struct RestClientRuntime {
@@ -98,6 +212,8 @@ struct RestClientRuntime {
     RestResponse response;
     RestResponseStep response_step;
     RestRateScheduler* scheduler;
+    RestEndpointGate* endpoint_gate;
+    RestEndpointLease endpoint_lease;
     RestTransaction transaction;
     RestClientCommand command;
     RestClientResponse completed;
@@ -202,10 +318,14 @@ void rate_changed(RestClientRuntime* runtime) noexcept {
 
 void cancel_rate_lease(RestClientRuntime* runtime) noexcept {
     RateLock guard(runtime);
+    bool changed = endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease,
+                                         clock_monotonic_milliseconds());
     if (runtime->transaction.lease.active) {
         rest_rate_cancel(rate_scheduler(runtime), &runtime->transaction.lease);
-        rate_changed(runtime);
+        changed = true;
     }
+    if (changed)
+        rate_changed(runtime);
 }
 
 bool authentication_rejected(const RestClient* client) noexcept {
@@ -267,10 +387,12 @@ void assign_storage(RestClientRuntime* runtime, RestSharedState* shared = nullpt
     u8* cursor = reinterpret_cast<u8*>(runtime) + sizeof(RestClientRuntime);
     if (shared) {
         runtime->scheduler = &shared->scheduler;
+        runtime->endpoint_gate = &shared->endpoint_gate;
     } else {
         auto* local = reinterpret_cast<RestLocalRates*>(cursor);
         cursor += sizeof(RestLocalRates);
         runtime->scheduler = &local->scheduler;
+        runtime->endpoint_gate = &local->endpoint_gate;
         rest_rate_scheduler_initialize(runtime->scheduler, {local->buckets, kRateBucketCount},
                                        {local->bindings, kRateBindingCount});
     }
@@ -710,10 +832,9 @@ void publish_completed(RestClient* client, RestClientRuntime* runtime,
         cancelled = true;
         active_cancel = prior == request_state_cancel_active;
     }
+    if (runtime->transaction.lease.active || runtime->endpoint_lease.generation)
+        cancel_rate_lease(runtime);
     if (cancelled) {
-        if (runtime->transaction.lease.active) {
-            cancel_rate_lease(runtime);
-        }
         rest_transaction_cancel(&runtime->transaction);
         erase_response_storage(runtime);
         response = RestClientResponse{};
@@ -891,17 +1012,32 @@ TlsStreamEvent begin_request_send(RestClient* client, RestClientRuntime* runtime
     // Recheck after DNS/TLS or a rate wait: a request can be accepted before a Gateway restriction applies.
     if (reject_restricted_request(client, runtime))
         return {0, TlsStreamEventKind::drained};
-    if (client->shared) {
+    bool invalid_endpoint = false;
+    bool deferred = false;
+    {
         RateLock guard(runtime);
-        const u64 reset = client->shared->scheduler.global_reset_at_ms;
-        if (reset > clock_monotonic_milliseconds()) {
+        const u64 now_ms = clock_monotonic_milliseconds();
+        const auto endpoint =
+            endpoint_gate_recheck(runtime->endpoint_gate, runtime->endpoint_lease, now_ms);
+        const u64 reset = maximum(rate_scheduler(runtime)->global_reset_at_ms, endpoint.wait_until_ms);
+        invalid_endpoint = endpoint.kind == EndpointGateKind::error;
+        if (invalid_endpoint || reset > now_ms) {
             rest_rate_cancel(rate_scheduler(runtime), &runtime->transaction.lease);
+            endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms,
+                                  invalid_endpoint);
             rate_changed(runtime);
             runtime->transaction = {};
             runtime->rate_wait_until_ms = reset;
-            publish_worker_phase(client, runtime, RestClientPhase::rate_wait);
-            return {0, TlsStreamEventKind::drained};
+            runtime->waiting_for_peer = false;
+            deferred = true;
         }
+    }
+    if (deferred) {
+        if (invalid_endpoint)
+            publish_request_error(client, runtime, RestClientError::request, 0);
+        else
+            publish_worker_phase(client, runtime, RestClientPhase::rate_wait);
+        return {0, TlsStreamEventKind::drained};
     }
     u32 head_bytes = runtime->command.head_bytes;
     if (!runtime->user_auth_mode) {
@@ -977,6 +1113,16 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
                        const RestResponseStep& step, u64 now_ms) noexcept {
     if (!step.ok() || step.state != RestResponseState::complete || step.extra_bytes != 0) {
         return false;
+    }
+    const auto& head = runtime->response.parsed_head;
+    if (head.head.status_code == 503 && (head.rate.fields & rate_limit_field_retry_after) &&
+        head.rate.retry_after_ms) {
+        // A trusted delay remains authoritative even when decoding its body
+        // fails. Terminal cleanup releases the reservation and wakes peers.
+        RateLock guard(runtime);
+        if (!endpoint_gate_observe(runtime->endpoint_gate, runtime->endpoint_lease,
+                                   deadline_after(now_ms, head.rate.retry_after_ms)))
+            return false;
     }
     struct SessionRejection {
         RestClient* client;
@@ -1079,6 +1225,7 @@ bool finalize_response(RestClient* client, RestClientRuntime* runtime,
         observation = rest_rate_observe(rate_scheduler(runtime), &runtime->transaction.lease,
                                         runtime->response.parsed_head, rate_body_pointer, now_ms,
                                         clock_unix_milliseconds());
+        endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms);
         rate_changed(runtime);
     }
     if (!observation.ok() || !rest_transaction_complete(&runtime->transaction)) {
@@ -1207,25 +1354,38 @@ bool acquire_request(RestClient* client, RestClientRuntime* runtime, NetworkLoop
     if (reject_restricted_request(client, runtime))
         return true;
     RestRateAcquireResult acquired{};
+    bool endpoint_wait = false;
     {
         RateLock guard(runtime);
         auto* shared = client->shared;
         const bool mutation = runtime->command.route.method != RestMethod::get &&
                               runtime->command.route.method != RestMethod::head;
-        if (shared && mutation && shared->mutation_owner) {
+        const auto endpoint = endpoint_gate_acquire(runtime->endpoint_gate, runtime->command.endpoint_key,
+                                                    now_ms, &runtime->endpoint_lease);
+        if (endpoint.kind != EndpointGateKind::acquired) {
+            endpoint_wait = true;
+            acquired.kind = endpoint.kind == EndpointGateKind::waiting ? RestRateAcquireKind::waiting
+                            : endpoint.kind == EndpointGateKind::busy  ? RestRateAcquireKind::busy
+                                                                       : RestRateAcquireKind::error;
+            acquired.wait_until_ms = endpoint.wait_until_ms;
+        } else if (shared && mutation && shared->mutation_owner) {
             acquired.kind = RestRateAcquireKind::busy;
         } else {
             acquired = rest_rate_acquire(rate_scheduler(runtime), runtime->command.route, now_ms);
             if (shared && mutation && acquired.acquired_request())
                 shared->mutation_owner = client;
         }
+        // This reservation was never visible outside the locked admission
+        // attempt, so releasing it needs no peer wake (which could ping-pong).
+        if (!acquired.acquired_request())
+            endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms, false);
     }
     const bool peer_wait = acquired.kind == RestRateAcquireKind::busy;
     if (g_trace && (peer_wait || acquired.kind == RestRateAcquireKind::waiting) &&
         (!runtime->rate_wait_until_ms || runtime->waiting_for_peer != peer_wait)) {
         TraceRecord line("gate_wait");
         trace_identity(line, runtime, runtime->trace_request_id);
-        line.field("reason", peer_wait ? "peer_or_mutation" : "rate_limit");
+        line.field("reason", endpoint_wait ? "endpoint" : peer_wait ? "peer_or_mutation" : "rate_limit");
         line.field("wait_ms", acquired.wait_until_ms > now_ms ? acquired.wait_until_ms - now_ms : 0);
         g_trace(line.text);
     }
@@ -1255,6 +1415,7 @@ bool acquire_request(RestClient* client, RestClientRuntime* runtime, NetworkLoop
         {
             RateLock guard(runtime);
             rest_rate_cancel(rate_scheduler(runtime), &lease);
+            endpoint_gate_release(runtime->endpoint_gate, &runtime->endpoint_lease, now_ms);
             rate_changed(runtime);
         }
         publish_request_error(client, runtime, RestClientError::request, 0);
@@ -1383,7 +1544,8 @@ NetworkWorkerStep worker_handler(void* opaque, NetworkLoop* loop,
                    event.poll.completion.signal_value == kCancelSignalValue) {
             cancel_request(client, runtime);
         } else if (event.poll.completion.signal == &runtime->rate_signal &&
-                   event.poll.completion.signal_value == kRateSignalValue && runtime->waiting_for_peer &&
+                   event.poll.completion.signal_value == kRateSignalValue && runtime->rate_wait_until_ms &&
+                   runtime->transaction.phase == RestTransactionPhase::idle &&
                    InterlockedCompareExchange(&client->request_state, 0, 0) == request_state_active) {
             acquire_request(client, runtime, loop, event.now_ms);
         }
@@ -1763,6 +1925,7 @@ static RestClientSubmitResult submit_request(RestClient* client, const RestClien
     runtime->busy_count = runtime->busy_since_ms = 0;
     runtime->command.submitted_counter = clock_now();
     runtime->command.route = request.route;
+    runtime->command.endpoint_key = endpoint_key(request.target);
     runtime->command.request_id = request.request_id;
     runtime->command.target_bytes = request.target.count;
     runtime->command.body_bytes = request.body.count;
@@ -1928,6 +2091,9 @@ RestClientSubmitResult rest_client_submit_user_auth(
     }
 
     runtime->command.route = route;
+    const auto auth_target = user_auth_target(request.operation);
+    runtime->command.endpoint_key =
+        endpoint_key({reinterpret_cast<const u8*>(auth_target.data), auth_target.bytes});
     runtime->command.request_id = request.request_id;
     runtime->command.body_bytes = request.body->bytes;
     runtime->command.head_bytes = head.bytes;

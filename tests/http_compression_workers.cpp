@@ -1,8 +1,30 @@
 #include "maicord/media/deflate.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/hash.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
 #include "maicord/core/time.hpp"
 namespace maicord {
+namespace {
+HANDLE endpoint_wait_event;
+volatile LONG endpoint_waits;
+void observe_endpoint_wait(const char* record) noexcept {
+    constexpr char event[] = "gate_wait ";
+    constexpr char reason[] = " reason=endpoint ";
+    for (u32 i = 0; i < sizeof(event) - 1; ++i)
+        if (record[i] != event[i])
+            return;
+    for (u32 i = 0; record[i]; ++i) {
+        u32 j = 0;
+        while (j < sizeof(reason) - 1 && record[i + j] == reason[j])
+            ++j;
+        if (j == sizeof(reason) - 1) {
+            if (InterlockedIncrement(&endpoint_waits) == 2)
+                SetEvent(endpoint_wait_event);
+            return;
+        }
+    }
+}
+} // namespace
 void test_http_compression_workers(void (*check)(bool, const char*) noexcept) noexcept {
     constexpr u8 raw[] = {123, 34,  99, 111, 110, 116, 101, 110, 116, 34, 58,  34,  72,  101, 108,
                           108, 111, 44, 32,  101, 109, 111, 106, 105, 32, 240, 159, 152, 128, 34,
@@ -87,6 +109,10 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
     account.state.phase = UserAccountCoordinatorPhase::running;
     RestClient* clients[2]{&account.rest, &account.details};
     auto& shared = account.rest_shared;
+    endpoint_wait_event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    InterlockedExchange(&endpoint_waits, 0);
+    check(endpoint_wait_event != nullptr, "shared endpoint wait observation event initializes");
+    rest_client_set_trace(observe_endpoint_wait);
     bool started = true;
     for (auto& client : clients)
         started = rest_client_start_public(client, 4096, &shared).ok() && started;
@@ -104,13 +130,12 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
         ReleaseSRWLockExclusive(shared.lock.native());
         constexpr char target[] = "/api/v10/gateway";
         for (u32 n = 0; n < 2; ++n) {
-            RestClientRequest request{
-                {reinterpret_cast<const u8*>(target), sizeof(target) - 1},
-                {},
-                {n + 1, 0, RestMethod::get, RestMajorParameter::none},
-                n + 1,
-                1000,
-                false};
+            RestClientRequest request{{reinterpret_cast<const u8*>(target), sizeof(target) - 1},
+                                      {},
+                                      {n + 1, 0, RestMethod::get, RestMajorParameter::none},
+                                      n + 1,
+                                      1000,
+                                      false};
             check(rest_client_submit(clients[n], request).ok(),
                   "independent owners admit bounded reads concurrently");
         }
@@ -127,6 +152,61 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
                       rest_client_status(clients[n]).connections == 0,
                   "cancelled completions retain ownership and global limit prevents DNS/TLS");
         }
+        // The global limit remains an offline safety backstop. The trace barrier
+        // proves both real workers entered the endpoint gate before that limit.
+        constexpr char endpoint[] = "/api/v10/channels/1/messages";
+        constexpr char history[] = "/api/v10/channels/1/messages?before=2";
+        constexpr char message[] = "/api/v10/channels/1/messages?nonce=3";
+        const u64 floor = clock_monotonic_milliseconds() + 120000;
+        AcquireSRWLockExclusive(shared.lock.native());
+        shared.endpoint_gate.entries[0] = {
+            hash64_counted_bytes(kHash64Seed, endpoint, sizeof(endpoint) - 1),
+            hash64_counted_bytes(~kHash64Seed, endpoint, sizeof(endpoint) - 1),
+            floor,
+            sizeof(endpoint) - 1,
+            1,
+            0};
+        const u32 acquired_before = shared.scheduler.acquired;
+        ReleaseSRWLockExclusive(shared.lock.native());
+        ResetEvent(endpoint_wait_event);
+        InterlockedExchange(&endpoint_waits, 0);
+        const RestClientRequest requests[]{{{reinterpret_cast<const u8*>(history), sizeof(history) - 1},
+                                            {},
+                                            {101, 1, RestMethod::get, RestMajorParameter::channel},
+                                            101,
+                                            1000,
+                                            false},
+                                           {{reinterpret_cast<const u8*>(message), sizeof(message) - 1},
+                                            {},
+                                            {102, 1, RestMethod::post, RestMajorParameter::channel},
+                                            102,
+                                            1000,
+                                            true}};
+        bool submitted = true;
+        for (u32 n = 0; n < 2; ++n)
+            submitted = rest_client_submit(clients[n], requests[n]).ok() && submitted;
+        const bool gated = submitted && endpoint_wait_event &&
+                           WaitForSingleObject(endpoint_wait_event, 3000) == WAIT_OBJECT_0;
+        AcquireSRWLockExclusive(shared.lock.native());
+        const bool no_leases = shared.scheduler.acquired == acquired_before && !shared.mutation_owner &&
+                               shared.endpoint_gate.entries[0].retry_at_ms == floor &&
+                               shared.endpoint_gate.entries[0].in_flight == 0;
+        ReleaseSRWLockExclusive(shared.lock.native());
+        check(gated && no_leases && rest_client_status(clients[0]).connections == 0 &&
+                  rest_client_status(clients[1]).connections == 0 &&
+                  rest_client_status(clients[0]).requests == 0 &&
+                  rest_client_status(clients[1]).requests == 0,
+              "shared endpoint floor blocks GET and POST query variants before any lease, DNS or send");
+        for (u32 n = 0; n < 2; ++n) {
+            RestClientResponse response{};
+            const bool cancelled =
+                rest_client_cancel(clients[n], n + 101) && rest_client_wait_response(clients[n], 3000).ok();
+            const auto taken = user_account_coordinator_take(&account, &response, {output, sizeof(output)});
+            check(cancelled && taken.ok() && response.request_id == n + 101 &&
+                      response.error == RestClientError::cancelled &&
+                      shared.endpoint_gate.entries[0].retry_at_ms == floor,
+                  "each endpoint-gated worker cancels without clearing the shared server floor");
+        }
         InterlockedExchange(&shared.authentication_rejected, 1);
         check(rest_client_status(clients[0]).authentication_rejected &&
                   rest_client_status(clients[1]).authentication_rejected,
@@ -138,12 +218,18 @@ void test_http_compression_workers(void (*check)(bool, const char*) noexcept) no
     check(!shared.clients[0] && !shared.clients[1] && !clients[0]->runtime && !clients[1]->runtime,
           "shared worker teardown unregisters peers before releasing storage");
     const u64 reset = shared.scheduler.global_reset_at_ms;
+    const auto endpoint_floor = shared.endpoint_gate.entries[0];
     RestClient replacement{};
     const auto restarted = rest_client_start_public(&replacement, 4096, &shared);
     check(restarted.ok() && shared.clients[0] == &replacement &&
               shared.scheduler.global_reset_at_ms == reset &&
+              bytes_equal(&shared.endpoint_gate.entries[0], &endpoint_floor, sizeof(endpoint_floor)) &&
               rest_client_status(&replacement).authentication_rejected,
-          "replacement worker retains shared rate limits and authentication rejection");
-    if (replacement.worker.thread) rest_client_stop(&replacement, 3000);
+          "replacement worker retains shared rate limits, endpoint floors and authentication rejection");
+    if (replacement.worker.thread)
+        rest_client_stop(&replacement, 3000);
+    rest_client_set_trace(nullptr);
+    if (endpoint_wait_event) CloseHandle(endpoint_wait_event);
+    endpoint_wait_event = nullptr;
 }
 } // namespace maicord

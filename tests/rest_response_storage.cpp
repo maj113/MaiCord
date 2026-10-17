@@ -5,6 +5,8 @@
 #include "fixtures/rest_gzip_fixtures.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/thread_browser.hpp"
+#include "maicord/protocol/message_history.hpp"
+#include "maicord/protocol/message_create.hpp"
 #if defined(MAICORD_REST_STORAGE_BENCHMARK)
 #include <psapi.h>
 #endif
@@ -40,9 +42,20 @@ struct RestStorageProbe {
         if (client.response_event) CloseHandle(client.response_event);
         destroy_client_storage(&client, nullptr);
     }
-    bool begin_request(bool reusable, u32 request_bytes = 0) noexcept {
+    bool begin_request(bool reusable, u32 request_bytes = 0, ConstSlice<u8> target = {}) noexcept {
         runtime->transport.state = TlsStreamState::ready;
-        const RestRouteKey route{1, 0, request_bytes ? RestMethod::post : RestMethod::get, RestMajorParameter::none};
+        constexpr auto default_target = utf8_literal("/api/v10/channels/123/messages?limit=50");
+        if (!target.count)
+            target = {reinterpret_cast<const u8*>(default_target.data), default_target.bytes};
+        runtime->command.target_bytes = target.count;
+        copy_bytes(runtime->request_target, target.data, target.count);
+        runtime->command.endpoint_key = endpoint_key(target);
+        if (endpoint_gate_acquire(runtime->endpoint_gate, runtime->command.endpoint_key, 1,
+                                  &runtime->endpoint_lease)
+                .kind != EndpointGateKind::acquired)
+            return false;
+        const RestRouteKey route{1, 0, request_bytes ? RestMethod::post : RestMethod::get,
+                                 RestMajorParameter::none};
         const auto acquired = rest_rate_acquire(runtime->scheduler, route, 1);
         runtime->transaction = {};
         if (!acquired.acquired_request() ||
@@ -83,7 +96,30 @@ struct RestStorageProbe {
         if (corrupt) runtime->response_body[fixture.bytes - 8] ^= 1; // CRC failure after output was produced.
         return true;
     }
-    bool finish() noexcept { return finalize_response(&client, runtime, runtime->response_step, 1); }
+    bool finish(u64 now_ms = 1) noexcept {
+        return finalize_response(&client, runtime, runtime->response_step, now_ms);
+    }
+    bool respond(u16 status, Utf8View body, Utf8View retry_header = {}, u64 now_ms = 1) noexcept {
+        u8 head[256]{};
+        ProtocolWriter writer{{head, sizeof(head)}, 0};
+        if (!protocol_writer_append_literal(&writer, "HTTP/1.1 ") ||
+            !protocol_writer_append_u64(&writer, status) ||
+            !protocol_writer_append_literal(
+                &writer, " Response\r\nContent-Type: application/json\r\nContent-Length: ") ||
+            !protocol_writer_append_u64(&writer, body.bytes) ||
+            (retry_header.bytes &&
+             !protocol_writer_append_bytes(
+                 &writer, {reinterpret_cast<const u8*>(retry_header.data), retry_header.bytes})) ||
+            !protocol_writer_append_literal(&writer, "\r\n\r\n"))
+            return false;
+        const auto received = response_plaintext_received(runtime, {head, writer.used}, false);
+        return (body.bytes ? received == TlsStreamReadAction::continue_read &&
+                                 response_plaintext_received(
+                                     runtime, {reinterpret_cast<const u8*>(body.data), body.bytes},
+                                     false) == TlsStreamReadAction::complete
+                           : received == TlsStreamReadAction::complete) &&
+               finish(now_ms);
+    }
     bool correct(const RestGzipFixture& fixture) noexcept {
         if (runtime->completed.body_bytes != fixture.decoded_bytes || client.request_state != request_state_ready) return false;
         for (u32 i = 0; i < fixture.decoded_bytes; ++i) {
@@ -122,6 +158,392 @@ NetworkWorkerStep publish_stop_rate_receipt(void* context, NetworkLoop*,
 } // namespace
 
 void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexcept {
+    {
+        u8 targets[3][96]{};
+        const MessageHistoryQuery queries[]{{0, 50, MessageHistoryPosition::latest},
+                                            {987, 25, MessageHistoryPosition::before},
+                                            {654, 100, MessageHistoryPosition::after}};
+        RestEndpointKey keys[3]{};
+        bool valid = true;
+        for (u32 i = 0; i < 3; ++i) {
+            const auto written =
+                write_message_history_target(123, queries[i], {targets[i], sizeof(targets[i])});
+            valid = valid && written.ok();
+            keys[i] = endpoint_key({targets[i], written.bytes});
+        }
+        u8 post_target[96]{};
+        const auto post_written = write_message_create_target(123, {post_target, sizeof(post_target)});
+        valid = valid && post_written.ok();
+        const auto post = endpoint_key({post_target, post_written.bytes});
+        constexpr auto other_path = utf8_literal("/api/v10/channels/124/messages");
+        const auto other = endpoint_key({reinterpret_cast<const u8*>(other_path.data), other_path.bytes});
+        for (const auto key : keys)
+            valid = valid && key.key_low == post.key_low && key.key_high == post.key_high &&
+                    key.path_bytes == post_written.bytes;
+        valid = valid && (other.key_low != post.key_low || other.key_high != post.key_high);
+        check(valid, "rest503_endpoint_keys_share_real_history_queries_and_post_path_but_isolate_channels");
+
+        RestEndpointGate gate{};
+        RestEndpointLease first{}, peer{}, waiting{}, isolated{};
+        valid = valid &&
+                endpoint_gate_acquire(&gate, keys[0], 1, &first).kind == EndpointGateKind::acquired &&
+                endpoint_gate_acquire(&gate, keys[1], 1, &peer).kind == EndpointGateKind::acquired &&
+                endpoint_gate_observe(&gate, first, 101) && endpoint_gate_observe(&gate, peer, 201) &&
+                endpoint_gate_observe(&gate, first, 151) && endpoint_gate_release(&gate, &first, 2) &&
+                endpoint_gate_release(&gate, &peer, 2);
+        const auto blocked = endpoint_gate_acquire(&gate, keys[2], 200, &waiting);
+        valid = valid && blocked.kind == EndpointGateKind::waiting && blocked.wait_until_ms == 201 &&
+                !waiting.generation &&
+                endpoint_gate_acquire(&gate, other, 2, &isolated).kind == EndpointGateKind::acquired &&
+                endpoint_gate_release(&gate, &isolated, 2) &&
+                endpoint_gate_acquire(&gate, post, 201, &first).kind == EndpointGateKind::acquired &&
+                endpoint_gate_acquire(&gate, keys[0], 201, &waiting).kind == EndpointGateKind::busy &&
+                endpoint_gate_release(&gate, &first, 201, false) &&
+                endpoint_gate_acquire(&gate, keys[1], 201, &first).kind == EndpointGateKind::acquired &&
+                endpoint_gate_observe(&gate, first, 301) && endpoint_gate_release(&gate, &first, 202);
+        const auto extended = endpoint_gate_acquire(&gate, post, 300, &waiting);
+        valid = valid && extended.kind == EndpointGateKind::waiting && extended.wait_until_ms == 301 &&
+                endpoint_gate_acquire(&gate, keys[0], 301, &first).kind == EndpointGateKind::acquired;
+        const RestEndpointLease stale = first;
+        valid = valid && endpoint_gate_release(&gate, &first, 301) &&
+                endpoint_gate_acquire(&gate, post, 301, &first).kind == EndpointGateKind::acquired &&
+                endpoint_gate_acquire(&gate, keys[2], 301, &peer).kind == EndpointGateKind::acquired;
+        auto stale_copy = stale;
+        valid = valid && !endpoint_gate_release(&gate, &stale_copy, 302) &&
+                !endpoint_gate_observe(&gate, stale, 999) &&
+                endpoint_gate_recheck(&gate, first, 302).kind == EndpointGateKind::acquired &&
+                endpoint_gate_release(&gate, &first, 302) && endpoint_gate_release(&gate, &peer, 302);
+        check(valid,
+              "rest503_gate_max_floor_single_recovery_probe_temporary_deferral_and_stale_lease_safety");
+    }
+    {
+        RestEndpointGate gate{};
+        RestEndpointLease leases[kRestEndpointGateCapacity]{};
+        bool valid = true;
+        for (u32 i = 0; i < kRestEndpointGateCapacity; ++i) {
+            u8 target[96]{};
+            ProtocolWriter writer{{target, sizeof(target)}, 0};
+            protocol_writer_append_literal(&writer, "/api/v10/channels/");
+            protocol_writer_append_u64(&writer, i + 1);
+            protocol_writer_append_literal(&writer, "/messages");
+            valid = valid &&
+                    endpoint_gate_acquire(&gate, endpoint_key({target, writer.used}), 1, &leases[i]).kind ==
+                        EndpointGateKind::acquired;
+        }
+        constexpr auto extra_path = utf8_literal("/api/v10/channels/999/messages");
+        const auto extra = endpoint_key({reinterpret_cast<const u8*>(extra_path.data), extra_path.bytes});
+        RestEndpointLease newcomer{};
+        valid = valid && endpoint_gate_acquire(&gate, extra, 1, &newcomer).kind == EndpointGateKind::busy;
+        for (u32 i = 0; i < kRestEndpointGateCapacity; ++i)
+            valid = valid && endpoint_gate_observe(&gate, leases[i], 100 + i) &&
+                    endpoint_gate_release(&gate, &leases[i], 2);
+        const auto full = endpoint_gate_acquire(&gate, extra, 99, &newcomer);
+        valid = valid && full.kind == EndpointGateKind::waiting && full.wait_until_ms == 100 &&
+                !newcomer.generation &&
+                endpoint_gate_acquire(&gate, extra, 100, &newcomer).kind == EndpointGateKind::acquired;
+        if (valid) {
+            auto& entry = gate.entries[newcomer.index];
+            entry.in_flight = static_cast<u16>(~u16{0});
+            RestEndpointLease overflow{};
+            valid =
+                endpoint_gate_acquire(&gate, extra, 100, &overflow).kind != EndpointGateKind::acquired &&
+                entry.in_flight == static_cast<u16>(~u16{0}) && !overflow.generation;
+            entry.in_flight = 1;
+            valid = valid && endpoint_gate_release(&gate, &newcomer, 100);
+        }
+        check(valid,
+              "rest503_gate_capacity_never_evicts_floors_or_inflight_entries_and_counts_do_not_wrap");
+    }
+    {
+        RestSharedState shared{};
+        RestStorageProbe probe;
+        bool valid = rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
+                                                    {shared.bindings, kRateBindingCount}) &&
+                     probe.initialize(4096, false, &shared);
+        RestEndpointLease active{};
+        for (u32 i = 0; valid && i < kRestEndpointGateCapacity; ++i) {
+            u8 target[96]{};
+            ProtocolWriter writer{{target, sizeof(target)}, 0};
+            protocol_writer_append_literal(&writer, "/api/v10/channels/");
+            protocol_writer_append_u64(&writer, i + 1);
+            protocol_writer_append_literal(&writer, "/messages");
+            RestEndpointLease lease{};
+            valid =
+                endpoint_gate_acquire(&shared.endpoint_gate, endpoint_key({target, writer.used}), 1, &lease)
+                    .kind == EndpointGateKind::acquired;
+            if (i + 1 == kRestEndpointGateCapacity)
+                active = lease;
+            else
+                valid = valid && endpoint_gate_observe(&shared.endpoint_gate, lease, 1000 + i) &&
+                        endpoint_gate_release(&shared.endpoint_gate, &lease, 2);
+        }
+        if (valid) {
+            auto* r = probe.runtime;
+            constexpr auto target = utf8_literal("/api/v10/channels/999/messages?limit=50");
+            r->command.endpoint_key =
+                endpoint_key({reinterpret_cast<const u8*>(target.data), target.bytes});
+            r->command.target_bytes = target.bytes;
+            copy_bytes(r->request_target, target.data, target.bytes);
+            r->command.route = {99, 999, RestMethod::get, RestMajorParameter::channel};
+            r->command.request_id = 92;
+            r->command.timeout_ms = 5000;
+            probe.client.request_state = request_state_active;
+            shared.scheduler.global_reset_at_ms = 500;
+            valid = acquire_request(&probe.client, r, nullptr, 2) && r->rate_wait_until_ms == 1000 &&
+                    !r->waiting_for_peer && !r->endpoint_lease.generation && !r->transaction.lease.active &&
+                    !shared.scheduler.acquired && !shared.scheduler.waited &&
+                    endpoint_gate_release(&shared.endpoint_gate, &active, 3);
+            NetworkWorkerEvent event{};
+            event.kind = NetworkWorkerEventKind::completion;
+            event.now_ms = 3;
+            event.poll.completion.kind = NetworkOperationKind::signal;
+            event.poll.completion.signal = &r->rate_signal;
+            event.poll.completion.signal_value = kRateSignalValue;
+            event.poll.completion.succeeded = true;
+            const auto step = worker_handler(&probe.client, nullptr, event);
+            valid = valid && !step.exit && r->rate_wait_until_ms == 500 && !r->waiting_for_peer &&
+                    r->transaction.phase == RestTransactionPhase::idle && !r->transaction.lease.active &&
+                    !r->endpoint_lease.generation && !shared.mutation_owner && !shared.scheduler.acquired &&
+                    shared.scheduler.waited == 1 && !probe.client.requests && !probe.client.responses;
+            probe.client.request_state = request_state_cancel_active;
+            cancel_request(&probe.client, r);
+            valid = valid && r->completed.error == RestClientError::cancelled &&
+                    probe.client.request_state == request_state_ready && !r->request_target[0];
+        }
+        check(valid, "rest503_capacity_timer_wait_reacts_to_peer_release_signal_and_rechecks_global_floor_"
+                     "without_send");
+    }
+    {
+        const struct {
+            u16 status;
+            Utf8View body;
+            Utf8View header;
+            bool auth;
+            bool floor;
+            bool action = false;
+            u32 retry_ms = 1250;
+        } responses[]{
+            {503, utf8_literal("{}"), utf8_literal("\r\nRetry-After: 1.25"), false, true},
+            {503, utf8_literal("{}"), {}, false, false},
+            {503, utf8_literal("{}"), utf8_literal("\r\nRetry-After: 0"), false, false, false, 0},
+            {200, utf8_literal("{}"), utf8_literal("\r\nRetry-After: 1.25"), false, false},
+            {403, utf8_literal(R"({"code":50001})"), utf8_literal("\r\nRetry-After: 1.25"), false, false},
+            {503,
+             utf8_literal(
+                 R"({"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic"})"),
+             utf8_literal("\r\nRetry-After: 1.25"), false, true, true},
+            {503,
+             utf8_literal(R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"totp"}]}})"),
+             utf8_literal("\r\nRetry-After: 1.25"), false, true},
+            {503, utf8_literal(R"({"code":40002})"), utf8_literal("\r\nRetry-After: 1.25"), false, true,
+             true},
+            {503, utf8_literal("{}"), utf8_literal("\r\nRetry-After: 1.25"), true, true}};
+        for (const auto& response : responses) {
+            RestStorageProbe probe;
+            bool valid = probe.initialize(4096) && probe.begin_request(true);
+            if (valid) {
+                const auto key = probe.runtime->command.endpoint_key;
+                const auto route = probe.runtime->command.route;
+                probe.runtime->user_auth_mode = response.auth;
+                valid =
+                    probe.respond(response.status, response.body, response.header) &&
+                    probe.client.request_state == request_state_ready &&
+                    probe.runtime->completed.transport_ok() &&
+                    probe.runtime->completed.status_code == response.status &&
+                    !probe.runtime->completed.rate_limited && !probe.runtime->completed.global_rate_limit &&
+                    api_rejection_requires_action(probe.runtime->completed.rejection) == response.action &&
+                    probe.runtime->completed.retry_at_ms == (response.action         ? 0
+                                                             : response.header.bytes ? 1 + response.retry_ms
+                                                                                     : 0) &&
+                    ((probe.runtime->completed.rate.fields & rate_limit_field_retry_after) != 0) ==
+                        (response.header.bytes != 0) &&
+                    probe.runtime->completed.rate.retry_after_ms ==
+                        (response.header.bytes ? response.retry_ms : 0) &&
+                    !probe.runtime->scheduler->global_reset_at_ms &&
+                    !probe.runtime->endpoint_lease.generation && !probe.runtime->transaction.lease.active &&
+                    probe.runtime->completed.body_bytes == response.body.bytes &&
+                    bytes_equal(probe.runtime->response_body, response.body.data, response.body.bytes) &&
+                    !probe.runtime->command.target_bytes && !probe.client.requests &&
+                    probe.client.responses == 1;
+                const auto acquired = endpoint_gate_acquire(probe.runtime->endpoint_gate, key, 2,
+                                                            &probe.runtime->endpoint_lease);
+                valid = valid &&
+                        acquired.kind ==
+                            (response.floor ? EndpointGateKind::waiting : EndpointGateKind::acquired) &&
+                        (!response.floor || acquired.wait_until_ms == 1251);
+                if (!response.floor)
+                    valid = valid && endpoint_gate_release(probe.runtime->endpoint_gate,
+                                                           &probe.runtime->endpoint_lease, 2);
+                if (valid) {
+                    auto rate = rest_rate_acquire(probe.runtime->scheduler, route, 2);
+                    valid =
+                        rate.acquired_request() && rest_rate_cancel(probe.runtime->scheduler, &rate.lease);
+                }
+            }
+            check(valid, "rest503_shipping_finalizer_gates_future_admission_including_challenges_and_auth_"
+                         "without_replay");
+        }
+    }
+    {
+        RestSharedState shared{};
+        RestEndpointKey retained{};
+        bool valid = rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
+                                                    {shared.bindings, kRateBindingCount});
+        {
+            RestStorageProbe original;
+            valid = valid && original.initialize(4096, false, &shared) && original.begin_request(true);
+            if (valid) {
+                retained = original.runtime->command.endpoint_key;
+                const u32 target_bytes = original.runtime->command.target_bytes;
+                valid = original.respond(503, utf8_literal("{}"), utf8_literal("\r\nRetry-After: 1.25")) &&
+                        original.runtime->completed.retry_at_ms == 1251;
+                for (u32 i = 0; valid && i < target_bytes; ++i)
+                    valid = original.runtime->request_target[i] == 0;
+                original.consume();
+            }
+        }
+        RestStorageProbe replacement;
+        valid = valid && replacement.initialize(4096, false, &shared);
+        if (valid) {
+            auto* r = replacement.runtime;
+            constexpr auto target = utf8_literal("/api/v10/channels/123/messages?before=777&limit=25");
+            r->command.endpoint_key =
+                endpoint_key({reinterpret_cast<const u8*>(target.data), target.bytes});
+            r->command.target_bytes = target.bytes;
+            copy_bytes(r->request_target, target.data, target.bytes);
+            r->command.route = {77, 123, RestMethod::post, RestMajorParameter::channel};
+            r->command.request_id = 91;
+            r->command.timeout_ms = 1000;
+            r->command.body_bytes = 6;
+            memset(r->request_body, 0xA5, 6);
+            replacement.client.request_state = request_state_active;
+            valid = r->endpoint_gate == &shared.endpoint_gate &&
+                    r->command.endpoint_key.key_low == retained.key_low &&
+                    r->command.endpoint_key.key_high == retained.key_high &&
+                    acquire_request(&replacement.client, r, nullptr, 2) &&
+                    replacement.client.request_state == request_state_active &&
+                    replacement.client.phase == static_cast<LONG>(RestClientPhase::rate_wait) &&
+                    r->rate_wait_until_ms == 1251 && !r->waiting_for_peer && !r->transaction.lease.active &&
+                    !r->endpoint_lease.generation && !shared.mutation_owner &&
+                    !replacement.client.requests && !replacement.client.responses &&
+                    r->request_body[5] == 0xA5 && bytes_equal(r->request_target, target.data, target.bytes);
+            replacement.client.request_state = request_state_cancel_active;
+            cancel_request(&replacement.client, r);
+            valid = valid && r->completed.request_id == 91 &&
+                    r->completed.error == RestClientError::cancelled && !r->completed.body_bytes &&
+                    replacement.client.request_state == request_state_ready &&
+                    !r->transaction.lease.active && !r->endpoint_lease.generation &&
+                    !shared.mutation_owner && !replacement.client.requests &&
+                    replacement.client.responses == 1;
+            for (u32 i = 0; valid && i < target.bytes; ++i)
+                valid = r->request_target[i] == 0;
+            for (u32 i = 0; valid && i < 6; ++i)
+                valid = r->request_body[i] == 0;
+            RestEndpointLease lease{};
+            const auto blocked = endpoint_gate_acquire(&shared.endpoint_gate, retained, 3, &lease);
+            valid = valid && blocked.kind == EndpointGateKind::waiting && blocked.wait_until_ms == 1251;
+        }
+        check(valid, "rest503_shared_floor_survives_worker_replacement_and_gated_post_cancel_has_no_send_"
+                     "lease_or_mutation");
+    }
+    {
+        RestSharedState shared{};
+        RestStorageProbe sender;
+        bool valid = rest_rate_scheduler_initialize(&shared.scheduler, {shared.buckets, kRateBucketCount},
+                                                    {shared.bindings, kRateBindingCount}) &&
+                     sender.initialize(4096, false, &shared) && sender.begin_request(true, 6);
+        if (valid) {
+            auto* r = sender.runtime;
+            RestEndpointLease peer{};
+            valid = endpoint_gate_acquire(&shared.endpoint_gate, r->command.endpoint_key, 1, &peer).kind ==
+                        EndpointGateKind::acquired &&
+                    endpoint_gate_observe(&shared.endpoint_gate, peer, ~u64{0}) &&
+                    endpoint_gate_release(&shared.endpoint_gate, &peer, 2);
+            // The lane already reserved its rate slot before another response
+            // installed the floor while DNS/TLS was in progress.
+            r->transaction.phase = RestTransactionPhase::acquired;
+            memset(r->request_body, 0xA5, 6);
+            shared.mutation_owner = &sender.client;
+            const auto sent = begin_request_send(&sender.client, r);
+            valid = valid && sent.kind == TlsStreamEventKind::drained &&
+                    r->transaction.phase == RestTransactionPhase::idle && !r->transaction.lease.active &&
+                    !r->endpoint_lease.generation && !shared.mutation_owner &&
+                    r->rate_wait_until_ms == ~u64{0} && !sender.client.requests &&
+                    !sender.client.responses && r->request_body[5] == 0xA5 && r->command.target_bytes != 0;
+            sender.client.request_state = request_state_cancel_active;
+            cancel_request(&sender.client, r);
+            valid = valid && r->completed.error == RestClientError::cancelled &&
+                    sender.client.request_state == request_state_ready && !r->request_body[5];
+        }
+        check(valid,
+              "rest503_presend_recheck_defers_reserved_post_before_any_plaintext_send_and_cancels_cleanly");
+    }
+    {
+        RestStorageProbe saturated;
+        bool valid = saturated.initialize(4096) && saturated.begin_request(true);
+        if (valid) {
+            const auto key = saturated.runtime->command.endpoint_key;
+            valid = saturated.respond(503, utf8_literal("{}"), utf8_literal("\r\nRetry-After: 1.25"),
+                                      ~u64{0} - 10) &&
+                    saturated.runtime->completed.retry_at_ms == ~u64{0};
+            RestEndpointLease lease{};
+            const auto blocked =
+                endpoint_gate_acquire(saturated.runtime->endpoint_gate, key, ~u64{0} - 1, &lease);
+            valid = valid && blocked.kind == EndpointGateKind::waiting && blocked.wait_until_ms == ~u64{0};
+        }
+        check(valid, "rest503_numeric_retry_deadline_saturates_without_wrap_or_early_admission");
+    }
+    {
+        RestStorageProbe malformed;
+        bool valid = malformed.initialize(4096) && malformed.begin_request(true);
+        if (valid) {
+            const auto key = malformed.runtime->command.endpoint_key;
+            const auto& fixture = rest_gzip_fixtures[0];
+            u8 head[256]{};
+            ProtocolWriter writer{{head, sizeof(head)}, 0};
+            protocol_writer_append_literal(
+                &writer, "HTTP/1.1 503 Service Unavailable\r\nContent-Type: application/json\r\n"
+                         "Content-Encoding: gzip\r\nRetry-After: 1.25\r\nContent-Length: ");
+            protocol_writer_append_u64(&writer, fixture.bytes);
+            protocol_writer_append_literal(&writer, "\r\n\r\n");
+            valid = response_plaintext_received(malformed.runtime, {head, writer.used}, false) ==
+                        TlsStreamReadAction::continue_read &&
+                    response_plaintext_received(malformed.runtime, {fixture.encoded, fixture.bytes},
+                                                false) == TlsStreamReadAction::complete;
+            malformed.runtime->response_body[fixture.bytes - 8] ^= 1;
+            valid = valid && !malformed.finish(~u64{0} - 10);
+            cancel_rate_lease(malformed.runtime);
+            RestEndpointLease lease{};
+            const auto blocked =
+                endpoint_gate_acquire(malformed.runtime->endpoint_gate, key, ~u64{0} - 1, &lease);
+            valid = valid && blocked.kind == EndpointGateKind::waiting &&
+                    blocked.wait_until_ms == ~u64{0} && !malformed.runtime->endpoint_lease.generation &&
+                    !malformed.runtime->transaction.lease.active && !malformed.client.requests &&
+                    !malformed.client.responses;
+        }
+        check(valid, "rest503_valid_retry_header_floor_survives_gzip_decode_failure_and_lease_release");
+    }
+    {
+        constexpr Utf8View invalid_headers[]{utf8_literal("\r\nRetry-After: later"),
+                                             utf8_literal("\r\nRetry-After: -1"),
+                                             utf8_literal("\r\nRetry-After: NaN")};
+        for (const auto header : invalid_headers) {
+            RestStorageProbe malformed;
+            bool valid = malformed.initialize(4096) && malformed.begin_request(true);
+            if (valid) {
+                const auto key = malformed.runtime->command.endpoint_key;
+                valid = !malformed.respond(503, utf8_literal("{}"), header);
+                cancel_rate_lease(malformed.runtime);
+                RestEndpointLease lease{};
+                valid = valid &&
+                        endpoint_gate_acquire(malformed.runtime->endpoint_gate, key, 2, &lease).kind ==
+                            EndpointGateKind::acquired &&
+                        endpoint_gate_release(malformed.runtime->endpoint_gate, &lease, 2) &&
+                        !malformed.client.requests && !malformed.client.responses;
+            }
+            check(valid, "rest503_invalid_retry_header_never_invents_an_endpoint_floor");
+        }
+    }
     {
         constexpr auto mfa =
             utf8_literal(R"({"code":60003,"mfa":{"ticket":"synthetic","methods":[{"type":"totp"}]}})");
@@ -201,59 +623,6 @@ void test_rest_response_storage(void (*check)(bool, const char*) noexcept) noexc
             }
             check(valid, "rest401_mfa_elevation_preserves_session_plain_and_gzip_while_invalid_decode_"
                          "failures_and_existing_peer_rejections_stay_latched_without_replay");
-        }
-    }
-    {
-        const struct {
-            u16 status;
-            Utf8View body;
-            bool challenge;
-        } responses[]{
-            {503, utf8_literal("{}"), false},
-            {200, utf8_literal("{}"), false},
-            {403, utf8_literal(R"({"code":50001})"), false},
-            {503,
-             utf8_literal(
-                 R"({"captcha_key":["required"],"captcha_service":"hcaptcha","captcha_sitekey":"synthetic"})"),
-             true}};
-        for (const auto& response : responses) {
-            RestStorageProbe probe;
-            bool valid = probe.initialize(4096) && probe.begin_request(true);
-            if (valid) {
-                const RestRouteKey route = probe.runtime->command.route;
-                u8 head[256]{};
-                ProtocolWriter writer{{head, sizeof(head)}, 0};
-                valid = protocol_writer_append_literal(&writer, "HTTP/1.1 ") &&
-                        protocol_writer_append_u64(&writer, response.status) &&
-                        protocol_writer_append_literal(
-                            &writer, " Response\r\nContent-Type: application/json\r\nContent-Length: ") &&
-                        protocol_writer_append_u64(&writer, response.body.bytes) &&
-                        protocol_writer_append_literal(&writer, "\r\nRetry-After: 60\r\n\r\n") &&
-                        response_plaintext_received(probe.runtime, {head, writer.used}, false) ==
-                            TlsStreamReadAction::continue_read &&
-                        response_plaintext_received(
-                            probe.runtime,
-                            {reinterpret_cast<const u8*>(response.body.data), response.body.bytes},
-                            false) == TlsStreamReadAction::complete &&
-                        probe.finish() && probe.runtime->completed.transport_ok() &&
-                        probe.runtime->completed.status_code == response.status &&
-                        probe.runtime->completed.retry_at_ms == (response.challenge ? 0 : 60'001) &&
-                        !probe.runtime->completed.rate_limited &&
-                        !probe.runtime->completed.global_rate_limit &&
-                        api_rejection_requires_action(probe.runtime->completed.rejection) ==
-                            response.challenge &&
-                        probe.runtime->completed.rate.retry_after_ms == 60'000 &&
-                        (probe.runtime->completed.rate.fields & rate_limit_field_retry_after) &&
-                        !probe.runtime->scheduler->global_reset_at_ms && probe.client.requests == 0 &&
-                        probe.client.responses == 1;
-                if (valid) {
-                    auto acquired = rest_rate_acquire(probe.runtime->scheduler, route, 2);
-                    valid = acquired.acquired_request() &&
-                            rest_rate_cancel(probe.runtime->scheduler, &acquired.lease);
-                }
-            }
-            check(valid, "rest_non429_retry_floor_survives_transport_without_enabling_rate_replay_"
-                         "and_challenges_clear_the_floor");
         }
     }
     {

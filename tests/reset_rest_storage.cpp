@@ -11,8 +11,10 @@ u32 storage_failures;
 u32 storage_normal_owner_commit;
 u32 storage_normal_secret_commit;
 RestClient storage_restart_owner_snapshot;
-u8 storage_restart_runtime_snapshot[sizeof(RestClientRuntime) + sizeof(RestLocalRates) +
-                                    kHandshakeOutputBytes + 4096];
+// Snapshot the complete page-rounded owner, including its immutable metadata.
+u8 storage_restart_runtime_snapshot[(sizeof(RestClientRuntime) + sizeof(RestLocalRates) +
+                                     kHandshakeOutputBytes + kUserClientMetadataBytes + 4095) &
+                                    ~usize{4095}];
 u8 storage_restart_secret_snapshot[user_auth_secure_fixed_storage_bytes(kUserAuthResetRequestBodyBytes)];
 u8 storage_metadata_snapshot[kUserClientMetadataBytes];
 
