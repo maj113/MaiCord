@@ -100,6 +100,8 @@ struct ApplicationDownloads {
     u64 scope, profile, self, warning_id, wake_at;
     u32 active_job, picker_job, revision;
     bool active, captured, closing, menu_valid, inline_capture, close_window;
+    // A save failed or needs confirmation: the next pump opens the panel.
+    bool reveal;
 };
 namespace {
 bool account_current(const ApplicationDownloads& q) noexcept {
@@ -436,10 +438,20 @@ void revoke_capture(ApplicationDownloads& q) noexcept {
     if (owned && GetCapture() == g_app.window)
         ReleaseCapture();
 }
+// Why a save failed, without its path or URL.
+void log_failure(const HttpsFileDownloadResult& transfer) noexcept {
+    log_u64(LogLevel::warning, "download", "failed_error", static_cast<u64>(transfer.error));
+    if (transfer.native_error)
+        log_u64(LogLevel::warning, "download", "failed_native_error", transfer.native_error);
+    if (transfer.status_code)
+        log_u64(LogLevel::warning, "download", "failed_status", transfer.status_code);
+}
 void fail_job(ApplicationDownloads& q, DownloadJob& j, HttpsFileDownloadError error) noexcept {
     j.phase = JobPhase::failed;
     j.transfer.error = error;
     j.resolution = {};
+    log_failure(j.transfer);
+    q.reveal = true;
     changed(q);
 }
 void cancel_job(ApplicationDownloads& q, u32 index) noexcept {
@@ -483,10 +495,19 @@ bool begin_source(const DownloadSource& source) noexcept {
             j.source.fingerprint == source.fingerprint && (j.admitted || source_current(j.source)))
             return application_downloads_open();
     }
+    // Saves finish without the panel, so their receipts pile up unseen: a new
+    // save reuses the oldest finished one rather than asking for a dismissal.
+    if (slot == kNoDownload)
+        for (u32 i = 0; i < kDownloadJobs; ++i) {
+            const auto& j = q->jobs[i];
+            if (terminal(j.phase) && !j.admitted && q->picker_job != i &&
+                (slot == kNoDownload || j.id < q->jobs[slot].id))
+                slot = i;
+        }
     if (slot == kNoDownload || g_app.downloads_lifetime_serial == ~u64{0})
         return application_downloads_open();
     auto& j = q->jobs[slot];
-    j = {};
+    retire_job(j);
     j.occupied = true;
     j.source = source;
     j.id = ++g_app.downloads_lifetime_serial;
@@ -497,7 +518,9 @@ bool begin_source(const DownloadSource& source) noexcept {
     changed(*q);
     if (g_app.window)
         PostMessageW(g_app.window, WM_NULL, 0, 0);
-    return application_downloads_open();
+    // Like the official client, saving goes straight to the save dialog; only
+    // a risky file type first asks for confirmation in the panel.
+    return !source.risky || application_downloads_open();
 }
 } // namespace
 bool application_downloads_available(u64 message, u64 attachment, bool snapshot) noexcept {
@@ -661,6 +684,7 @@ void picker_complete(ApplicationDownloads& q) noexcept {
                     if (j.after_choice_warning) {
                         j.approved = false;
                         q.warning_id = j.id;
+                        q.reveal = true;
                     }
                 }
             }
@@ -1093,6 +1117,10 @@ bool application_downloads_pump() noexcept {
                                   : state.transfer.error == HttpsFileDownloadError::cancelled
                                       ? JobPhase::cancelled
                                       : JobPhase::failed;
+                        if (j.phase == JobPhase::failed) {
+                            log_failure(state.transfer);
+                            q->reveal = true;
+                        }
                         changed(*q);
                     }
                 }
@@ -1111,97 +1139,104 @@ bool application_downloads_pump() noexcept {
             PostMessageW(g_app.window, WM_CLOSE, 0, 0);
         return true;
     }
-    if (q->active_job == kNoDownload && q->picker_job == kNoDownload) {
-        for (u32 i = 0; i < kDownloadJobs; ++i) {
-            auto& j = q->jobs[i];
-            if (!j.occupied || terminal(j.phase))
-                continue;
-            if (!source_current(j.source) || !source_media_allowed(j.source)) {
-                fail_job(*q, j, HttpsFileDownloadError::invalid_input);
-                continue;
-            }
-            if (j.phase == JobPhase::warning) {
-                if (!q->warning_id) {
-                    q->warning_id = j.id;
-                    changed(*q);
-                }
-                continue;
-            }
-            if (j.phase == JobPhase::queued) {
-                const auto error = native_file_picker_save_start(
-                    &q->picker, g_app.window, {j.source.filename, j.source.filename_bytes},
-                    utf8_literal("Save attachment"));
-                if (error != NativeFilePickerError::none) {
-                    fail_job(*q, j, HttpsFileDownloadError::file_open);
-                    continue;
-                }
-                q->picker_job = i;
-                j.phase = JobPhase::choosing;
-                changed(*q);
-                break;
-            }
-            if (j.phase != JobPhase::resolving || !j.approved || !j.path)
-                continue;
-            const ReceivedAttachmentOpenIdentity identity{
-                j.source.scope,      j.source.channel,  j.source.message,
-                j.source.attachment, j.source.revision, j.source.snapshot ? j.source.origin_channel : 0};
-            Utf8View ready{};
-            const Utf8View original{j.source.url, j.source.url_bytes};
-            const auto result =
-                j.resolution.pending
-                    ? received_attachment_open_resume(&j.resolution, identity, original, &g_app.media_urls,
-                                                      clock_monotonic_milliseconds(),
-                                                      clock_unix_milliseconds() / 1000, &ready)
-                    : received_attachment_open_begin(&j.resolution, identity, original, &g_app.media_urls,
-                                                     clock_monotonic_milliseconds(),
-                                                     clock_unix_milliseconds() / 1000, &ready,
-                                                     j.force_refresh);
-            if (result == ReceivedAttachmentOpenResult::pending)
-                break;
-            if (result != ReceivedAttachmentOpenResult::ready || !source_current(j.source) ||
-                !source_media_allowed(j.source) ||
-                !url_current(ready, j.source.origin_channel, j.source.attachment)) {
-                fail_job(*q, j,
-                         result == ReceivedAttachmentOpenResult::stale
-                             ? HttpsFileDownloadError::invalid_input
-                             : HttpsFileDownloadError::http);
-                continue;
-            }
-            AccountDownloadRequest request{};
-            request.url = ready;
-            request.path = {j.path, j.path_units};
-            request.source_channel_id = j.source.origin_channel;
-            request.attachment_id = j.source.attachment;
-            request.expected_bytes = j.source.bytes;
-            request.destination = j.destination;
-            request.destination_exists = j.destination_exists;
-            request.overwrite_authorized = j.overwrite_authorized;
-            const auto started = g_app.account.api.download(
-                g_app.account.instance, AccountDownloadOperation::start, j.id, &request);
-            if (started.submit_error != HttpsFileDownloadError::none || started.id != j.id) {
-                if (!started.released && started.id == j.id) {
-                    j.admitted = true;
-                    j.phase = JobPhase::transferring;
-                    j.transfer = started.transfer;
-                    j.transfer.error = started.submit_error;
-                    q->active_job = i;
-                    changed(*q);
-                    break;
-                }
-                fail_job(*q, j,
-                         started.submit_error == HttpsFileDownloadError::none
-                             ? HttpsFileDownloadError::worker
-                             : started.submit_error);
-                continue;
-            }
-            j.force_refresh = false;
-            j.admitted = true;
-            j.phase = JobPhase::transferring;
-            j.transfer = started.transfer;
-            q->active_job = i;
-            changed(*q);
-            break;
+    // The save dialog and a transfer run side by side, one of each at a time, so
+    // a save chosen during another download asks for its location at once.
+    bool resolution_pending = false;
+    for (u32 i = 0; i < kDownloadJobs; ++i) {
+        auto& j = q->jobs[i];
+        if (!j.occupied || terminal(j.phase) || i == q->picker_job || i == q->active_job)
+            continue;
+        if (!source_current(j.source) || !source_media_allowed(j.source)) {
+            fail_job(*q, j, HttpsFileDownloadError::invalid_input);
+            continue;
         }
+        if (j.phase == JobPhase::warning) {
+            if (!q->warning_id) {
+                q->warning_id = j.id;
+                changed(*q);
+            }
+            continue;
+        }
+        if (j.phase == JobPhase::queued) {
+            if (q->picker_job != kNoDownload)
+                continue;
+            const auto error = native_file_picker_save_start(&q->picker, g_app.window,
+                                                             {j.source.filename, j.source.filename_bytes},
+                                                             utf8_literal("Save attachment"));
+            if (error != NativeFilePickerError::none) {
+                fail_job(*q, j, HttpsFileDownloadError::file_open);
+                continue;
+            }
+            q->picker_job = i;
+            j.phase = JobPhase::choosing;
+            changed(*q);
+            continue;
+        }
+        if (j.phase != JobPhase::resolving || !j.approved || !j.path || q->active_job != kNoDownload ||
+            resolution_pending)
+            continue;
+        const ReceivedAttachmentOpenIdentity identity{
+            j.source.scope,      j.source.channel,  j.source.message,
+            j.source.attachment, j.source.revision, j.source.snapshot ? j.source.origin_channel : 0};
+        Utf8View ready{};
+        const Utf8View original{j.source.url, j.source.url_bytes};
+        const auto result =
+            j.resolution.pending
+                ? received_attachment_open_resume(&j.resolution, identity, original, &g_app.media_urls,
+                                                  clock_monotonic_milliseconds(),
+                                                  clock_unix_milliseconds() / 1000, &ready)
+                : received_attachment_open_begin(&j.resolution, identity, original, &g_app.media_urls,
+                                                 clock_monotonic_milliseconds(),
+                                                 clock_unix_milliseconds() / 1000, &ready, j.force_refresh);
+        if (result == ReceivedAttachmentOpenResult::pending) {
+            resolution_pending = true;
+            continue;
+        }
+        if (result != ReceivedAttachmentOpenResult::ready || !source_current(j.source) ||
+            !source_media_allowed(j.source) ||
+            !url_current(ready, j.source.origin_channel, j.source.attachment)) {
+            fail_job(*q, j,
+                     result == ReceivedAttachmentOpenResult::stale ? HttpsFileDownloadError::invalid_input
+                                                                   : HttpsFileDownloadError::http);
+            continue;
+        }
+        AccountDownloadRequest request{};
+        request.url = ready;
+        request.path = {j.path, j.path_units};
+        request.source_channel_id = j.source.origin_channel;
+        request.attachment_id = j.source.attachment;
+        request.expected_bytes = j.source.bytes;
+        request.destination = j.destination;
+        request.destination_exists = j.destination_exists;
+        request.overwrite_authorized = j.overwrite_authorized;
+        const auto started = g_app.account.api.download(g_app.account.instance,
+                                                        AccountDownloadOperation::start, j.id, &request);
+        if (started.submit_error != HttpsFileDownloadError::none || started.id != j.id) {
+            if (!started.released && started.id == j.id) {
+                j.admitted = true;
+                j.phase = JobPhase::transferring;
+                j.transfer = started.transfer;
+                j.transfer.error = started.submit_error;
+                q->active_job = i;
+                changed(*q);
+                continue;
+            }
+            fail_job(*q, j,
+                     started.submit_error == HttpsFileDownloadError::none ? HttpsFileDownloadError::worker
+                                                                          : started.submit_error);
+            continue;
+        }
+        j.force_refresh = false;
+        j.admitted = true;
+        j.phase = JobPhase::transferring;
+        j.transfer = started.transfer;
+        q->active_job = i;
+        changed(*q);
+    }
+    if (q->reveal) {
+        q->reveal = false;
+        if (!q->active)
+            application_downloads_open();
     }
     q->wake_at = q->picker_job != kNoDownload || (q->active && q->active_job != kNoDownload)
                      ? deadline_after(clock_monotonic_milliseconds(), 100)

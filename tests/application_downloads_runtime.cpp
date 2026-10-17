@@ -857,6 +857,53 @@ void run() noexcept {
     application_downloads_open();
     finish();
     dismiss_all();
+    // Saving goes straight to the save dialog, as in the official client; the
+    // panel opens only for a confirmation or a failure.
+    application_downloads_close();
+    picker_ready = false;
+    check(application_downloads_begin(500, 600) && !application_downloads_active(),
+          "Downloads ordinary Save opens no panel");
+    application_downloads_pump();
+    check(q->picker_job != kNoDownload && !application_downloads_active(),
+          "Downloads ordinary Save goes straight to the chooser");
+    picker_ready = true;
+    application_downloads_pump();
+    const u32 first_save = q->active_job, transfers_before_second = starts;
+    picker_ready = false;
+    application_downloads_begin(502, 602, true);
+    application_downloads_pump();
+    check(first_save != kNoDownload && q->active_job == first_save && q->picker_job != kNoDownload &&
+              q->picker_job != first_save && starts == transfers_before_second &&
+              !application_downloads_active(),
+          "Downloads a second Save asks for its location while the first transfer runs");
+    finish(HttpsFileDownloadError::file_commit);
+    check(q->jobs[first_save].phase == JobPhase::failed && application_downloads_active(),
+          "Downloads a failed save opens the panel so its Retry is reachable");
+    picker_ready = true;
+    application_downloads_pump();
+    check(starts == transfers_before_second + 1 && q->active_job != kNoDownload,
+          "Downloads the waiting save starts its transfer once the first one drains");
+    finish();
+    dismiss_all();
+    for (u32 i = 0; i < kDownloadJobs; ++i) {
+        application_downloads_begin(501, 601);
+        if (q->warning_id)
+            activate(*q, {UiDownloadAction::cancel_confirmation, q->warning_id});
+    }
+    u32 finished = 0;
+    for (const auto& j : q->jobs)
+        finished += j.occupied && j.phase == JobPhase::cancelled;
+    const u64 newest_before = q->jobs[kDownloadJobs - 1].id;
+    check(finished == kDownloadJobs && application_downloads_begin(500, 600) &&
+              q->jobs[0].source.message == 500 && q->jobs[0].phase == JobPhase::queued &&
+              q->jobs[0].id > newest_before && q->jobs[1].phase == JobPhase::cancelled,
+          "Downloads a Save with every slot finished reuses the oldest finished receipt");
+    application_downloads_open();
+    application_downloads_pump();
+    application_downloads_pump();
+    finish();
+    check(q->jobs[0].phase == JobPhase::saved, "Downloads the reused receipt saves normally");
+    dismiss_all();
     check(message_store_initialize(&search_store, {search_records, 4}, {search_order, 4},
                                    {search_text, sizeof(search_text)}) &&
               message_rich_store_initialize(&search_rich, {search_rich_records, 8}, {search_rich_order, 4},
