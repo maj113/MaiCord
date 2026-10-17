@@ -538,6 +538,7 @@ bool chat_state_store_bind_backing(ChatStateStore* store, ChatStateBackingReserv
     store->backing_context = context;
     store->channel_backed_count = 0;
     store->name_backed_bytes[0] = store->name_backed_bytes[1] = 0;
+    store->emoji_backed_count = store->emoji_role_backed_count = 0;
     return true;
 }
 

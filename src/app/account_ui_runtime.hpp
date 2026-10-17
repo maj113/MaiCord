@@ -30,8 +30,9 @@ inline constexpr u32 kChatStateGuildCapacity = 256;
 inline constexpr u32 kChatStateChannelCapacity = 65'535;
 inline constexpr u32 kChatStateRoleCapacity = 65'535;
 inline constexpr u32 kChatStateOverwriteCapacity = 65'535;
-inline constexpr u32 kChatStateEmojiCapacity = 4'096;
-inline constexpr u32 kChatStateEmojiRoleCapacity = 16'384;
+// Room for 200 servers of 500 emojis, committed as servers bring them.
+inline constexpr u32 kChatStateEmojiCapacity = 131'072;
+inline constexpr u32 kChatStateEmojiRoleCapacity = 262'144;
 // Two banks of guild, channel and role names, committed as they fill.
 inline constexpr u32 kChatStateNameBytes = 16 * 1024 * 1024;
 // The channel list shows one server (or the conversation list) at a time.
@@ -110,6 +111,8 @@ struct AccountProjectionScratch {
 struct AccountDemandCommit {
     u32 channel_slots;
     u32 name_bytes[2];
+    u32 emoji_records;
+    u32 emoji_roles;
     u32 unused;
 };
 
@@ -211,8 +214,6 @@ struct AccountUiRuntime {
     GuildRecord guild_record_storage[kChatStateGuildCapacity];
     GuildDetailRecord guild_detail_records[kChatStateGuildCapacity];
     char guild_detail_text[kGuildDetailTextBytes];
-    CustomEmojiRecord emoji_record_storage[kChatStateEmojiCapacity];
-    u64 emoji_role_storage[kChatStateEmojiRoleCapacity];
     UserRecord user_record_storage[kUserCapacity];
     GuildMemberRecord guild_member_record_storage[kGuildMemberCapacity];
     TypingRecord typing_record_storage[kTypingRecordCapacity];
@@ -305,6 +306,8 @@ struct AccountUiRuntime {
     // Indexed by channel slot; committed with the channel records.
     u8 navigation_visibility[kChatStateChannelCapacity];
     u8 chat_state_name_storage[kChatStateNameBytes];
+    CustomEmojiRecord emoji_record_storage[kChatStateEmojiCapacity];
+    u64 emoji_role_storage[kChatStateEmojiRoleCapacity];
 };
 
 // Includes fixed-capacity identity, member, message, glyph and media stores.
@@ -336,8 +339,9 @@ inline constexpr u32 kAccountUiMarkdownCacheBytes = 16 + sizeof(MessageMarkdownC
 inline constexpr usize kAccountUiFixedBytes = offsetof(AccountUiRuntime, channel_record_storage);
 // Measurements were 808 bytes and guild records 120 when the base was taken;
 // the appearance and activity stores were then two StableStorage + 16 each.
-// The base held 4,096 channel records and orders and a 256 KiB name bank,
-// which moved to the demand tail, and a 288-byte chat state store.
+// The base held 4,096 channel records and orders, a 256 KiB name bank, 4,096
+// emojis and 16,384 emoji role IDs, which moved to the demand tail, and a
+// 288-byte chat state store.
 static_assert(kAccountUiFixedBytes ==
               4'261'240 - 128 * 1024 + kAccountUiEventScratchBytes + kAccountUiMarkdownCacheBytes +
                   sizeof(MemberMediaCache) +
@@ -347,8 +351,8 @@ static_assert(kAccountUiFixedBytes ==
                   (sizeof(UserActivityStore) - 2 * sizeof(StableStorage) - 16) +
                   sizeof(MemberListPositionTable) + sizeof(GuildDetailStore) +
                   kChatStateGuildCapacity * sizeof(GuildDetailRecord) + kGuildDetailTextBytes -
-                  4'096 * (sizeof(ChannelRecord) + sizeof(u16)) - 256 * 1024 + sizeof(AccountDemandCommit) +
-                  (sizeof(ChatStateStore) - 288));
+                  4'096 * (sizeof(ChannelRecord) + sizeof(u16) + sizeof(CustomEmojiRecord)) - 256 * 1024 -
+                  16'384 * sizeof(u64) + sizeof(AccountDemandCommit) + (sizeof(ChatStateStore) - 288));
 
 inline bool application_history_decode_storage_initialize(AccountUiRuntime& ui) noexcept {
     return stable_storage_initialize(&ui.history_decode_storage,

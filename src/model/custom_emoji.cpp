@@ -51,6 +51,18 @@ bool roles_valid(ConstSlice<u8> roles, u32 role_count) noexcept {
     return true;
 }
 
+// Backs the first `required` entries of an emoji array before use.
+bool back_emojis(const ChatStateStore& store, ChatStateBacking backing, u32& backed, u32 capacity,
+                 u32 required) noexcept {
+    if (required <= backed)
+        return true;
+    if (required > capacity || !store.backing_reserve ||
+        !store.backing_reserve(store.backing_context, backing, 0, required))
+        return false;
+    backed = required;
+    return true;
+}
+
 u32 resident_emoji_count(const ChatStateStore& store, u64 guild_id) noexcept {
     u32 count = 0;
     for (u32 index = 0; index < store.emoji_count; ++index) {
@@ -82,6 +94,9 @@ bool chat_state_store_bind_emojis_sparse(ChatStateStore* store, Slice<CustomEmoj
     store->emoji_roles = emoji_roles.data;
     store->emoji_capacity = emojis.count;
     store->emoji_role_capacity = emoji_roles.count;
+    // Under on-demand backing the arrays start uncommitted.
+    store->emoji_backed_count = store->backing_reserve ? 0 : emojis.count;
+    store->emoji_role_backed_count = store->backing_reserve ? 0 : emoji_roles.count;
     return true;
 }
 
@@ -130,9 +145,15 @@ ChatStateStoreError chat_state_store_guild_emoji_admission(const ChatStateStore&
         return ChatStateStoreError::invalid_input;
     const u32 old_emojis = resident_emoji_count(store, guild_id);
     const u32 old_roles = resident_role_count(store, guild_id);
-    if (emoji_count > store.emoji_capacity - (store.emoji_count - old_emojis))
+    // A replacement removes the guild's emojis before appending, so each array
+    // peaks at its final count; back both before admitting.
+    if (emoji_count > store.emoji_capacity - (store.emoji_count - old_emojis) ||
+        !back_emojis(store, ChatStateBacking::emojis, store.emoji_backed_count, store.emoji_capacity,
+                     store.emoji_count - old_emojis + emoji_count))
         return ChatStateStoreError::emoji_capacity;
-    if (role_count > store.emoji_role_capacity - (store.emoji_role_count - old_roles))
+    if (role_count > store.emoji_role_capacity - (store.emoji_role_count - old_roles) ||
+        !back_emojis(store, ChatStateBacking::emoji_roles, store.emoji_role_backed_count,
+                     store.emoji_role_capacity, store.emoji_role_count - old_roles + role_count))
         return ChatStateStoreError::emoji_role_capacity;
     return ChatStateStoreError::none;
 }

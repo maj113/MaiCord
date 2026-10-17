@@ -62,6 +62,7 @@ namespace {
 // few hundred channels or 64 KiB of names.
 constexpr u32 kChannelCommitStep = 256;
 constexpr u32 kNameCommitStep = 64 * 1024;
+constexpr u32 kEmojiCommitStep = 1'024;
 
 u32 commit_step(u32 required, u32 step, u32 limit) noexcept {
     return minimum(limit, (required + step - 1) / step * step);
@@ -88,6 +89,22 @@ bool commit_chat_state_backing(void* context, ChatStateBacking backing, u32 bank
             !commit_bytes(ui.navigation_visibility, from, slots))
             return false;
         committed.channel_slots = slots;
+        return true;
+    }
+    if (backing == ChatStateBacking::emojis || backing == ChatStateBacking::emoji_roles) {
+        const bool records = backing == ChatStateBacking::emojis;
+        u32& done = records ? committed.emoji_records : committed.emoji_roles;
+        const u32 limit = records ? kChatStateEmojiCapacity : kChatStateEmojiRoleCapacity;
+        const usize size = records ? sizeof(CustomEmojiRecord) : sizeof(u64);
+        if (required <= done)
+            return true;
+        if (required > limit)
+            return false;
+        const u32 count = commit_step(required, kEmojiCommitStep, limit);
+        void* const base = records ? static_cast<void*>(ui.emoji_record_storage) : ui.emoji_role_storage;
+        if (!commit_bytes(base, done * size, count * size))
+            return false;
+        done = count;
         return true;
     }
     constexpr u32 bank_bytes = kChatStateNameBytes / 2;
