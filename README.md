@@ -11,6 +11,7 @@ No Electron, no browser engine, nothing to install. About 7 MB.
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078D6)](#requirements)
 [![License](https://img.shields.io/badge/license-MPL--2.0-brightgreen)](LICENSE)
 
+[Website](https://maicord.com/) ·
 [Download](https://github.com/maj113/MaiCord/releases/latest) ·
 [Features](#features) ·
 [Build from source](#building-from-source) ·

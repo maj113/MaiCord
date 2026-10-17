@@ -107,8 +107,8 @@ gh attestation verify MaiCord-0.2.0-windows-x64.zip -R maj113/MaiCord
   redirect the manifests away from it, stopping updates for every installed
   client. The same goes for a custom domain on a `<owner>.github.io` user
   site, which project sites inherit. The website lives in its own repository,
-  [maj113/maicord-site](https://github.com/maj113/maicord-site), which may
-  have one. In Settings > Environments >
+  [maj113/MaiCord-Site](https://github.com/maj113/MaiCord-Site), which
+  serves maicord.com. In Settings > Environments >
   `github-pages`, allow the tag pattern `v*` to deploy, because `release.yml`
   runs on tags.
 - **Immutable releases**: Settings > General > Releases. Neither workflow
