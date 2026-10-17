@@ -1285,13 +1285,128 @@ void test_vxtwitter_embeds(Check check) noexcept {
     }
     const auto& items = row ? row->rich_item_layout : MessageRichItemLayout{};
     const float column = (400.0f - kMessageEmbedGalleryGap) * 0.5f;
-    check(row && message.embeds.count == 4 && images == 4 && covered && items.embed_media_widths[0] == 400 &&
-              items.embed_media_heights[0] == 300 && items.heights[kMessageRichEmbedItemOffset + 1] == 0 &&
-              items.heights[kMessageRichEmbedItemOffset + 3] == 0 && close_to(ui_rect_width(tiles[0]), column) &&
-              close_to(ui_rect_height(tiles[0]), 148) && close_to(tiles[1].left, tiles[0].right + 4) &&
-              close_to(tiles[2].top, tiles[0].bottom + 4) && close_to(tiles[3].left, tiles[1].left) &&
-              close_to(tiles[3].top, tiles[2].top),
+    check(row && message.embeds.count == 4 && images == 4 && covered &&
+              items.embed_media_widths[0] == 400 && items.embed_media_heights[0] == 300 &&
+              items.heights[kMessageRichEmbedItemOffset + 1] == 0 &&
+              items.heights[kMessageRichEmbedItemOffset + 3] == 0 &&
+              close_to(ui_rect_width(tiles[0]), column) && close_to(ui_rect_height(tiles[0]), 148) &&
+              close_to(tiles[1].left, tiles[0].right + 4) && close_to(tiles[2].top, tiles[0].bottom + 4) &&
+              close_to(tiles[3].left, tiles[1].left) && close_to(tiles[3].top, tiles[2].top),
           "vxtwitter_four_photo_post_paints_one_gallery_card");
+    if (row) {
+        GatewayMessageEmbed members[4]{};
+        for (u32 member = 0; member < 4; ++member) {
+            members[member] = message.embeds[member];
+            members[member].flags = member == 1 || member == 2 ? kGatewayMediaExplicitFlag : 0;
+        }
+        message.embeds = {members, 4};
+        const auto publish_members = [&]() noexcept {
+            const auto applied = message_rich_store_apply(&f.rich, 1, f.record[0].revision, message);
+            return applied.ok() && !applied.storage_truncated;
+        };
+        ChatStateStore state{};
+        NavigationView navigation{};
+        const MessageTextCoordinatorRequest request{
+            &f.scene,       &f.presentation, &f.cache, &state,        nullptr, &navigation,
+            &kDefaultTheme, finish,          nullptr,  1'791'600'000, 1};
+        const auto repaint_gallery = [&]() noexcept {
+            message_scene_invalidate_geometry(&f.scene);
+            return message_scene_update(&f.scene, {0, 0, 900, 4000}).ok() &&
+                   message_text_coordinator_converge(request).ok() &&
+                   paint_stream_reset(&f.paint, 900, 4000) &&
+                   message_media_command_stream_initialize(&media, {f.media, 32}) &&
+                   message_presentation_build(f.scene, kDefaultTheme, &f.paint, &media, &painted);
+        };
+        const auto media_members = [&](u32 clear, u32 blurred) noexcept {
+            u32 seen = 0;
+            for (u32 index = 0; index < media.count; ++index) {
+                const auto& image = media.storage[index];
+                if (image.kind != MessageMediaCommandKind::embed)
+                    continue;
+                if (image.embed_index >= 4)
+                    return false;
+                const u32 bit = 1u << image.embed_index;
+                const auto expected =
+                    blurred & bit ? MessageMediaObscure::explicit_content : MessageMediaObscure::none;
+                if ((seen & bit) || !((clear | blurred) & bit) ||
+                    image.obscure != static_cast<u8>(expected) || !image.cover ||
+                    !ui_rect_equal(image.rectangle, tiles[image.embed_index]))
+                    return false;
+                seen |= bit;
+            }
+            return seen == (clear | blurred);
+        };
+        const auto labels = [&](MessageMediaObscure obscure, u32 expected) noexcept {
+            u32 seen = 0, count = 0, wanted = 0;
+            for (u32 member = 0; member < 4; ++member)
+                wanted += (expected >> member) & 1u;
+            for (u32 index = 0; index < f.presentation.command_count; ++index) {
+                const auto& label = f.presentation.commands[index];
+                if (!same(label.text, message_media_obscure_label(obscure)))
+                    continue;
+                if (message_media_obscure_notice(obscure)
+                        ? label.styles.count != 0
+                        : label.styles.count != 1 || label.styles[0].flags != text_style_bold)
+                    return false;
+                ++count;
+                for (u32 member = 0; member < 4; ++member) {
+                    const auto cell = tiles[member];
+                    const auto box = label.rectangle;
+                    const bool fits = message_media_obscure_notice(obscure)
+                                          ? box.left >= cell.left && box.right <= cell.right &&
+                                                close_to(box.top, cell.top) &&
+                                                close_to(box.bottom, cell.bottom) &&
+                                                close_to(box.left + box.right, cell.left + cell.right)
+                                          : ui_rect_equal(box, message_media_obscure_pill(cell, obscure));
+                    if (fits)
+                        seen |= 1u << member;
+                }
+            }
+            return count == wanted && seen == expected;
+        };
+        const auto notices = [&]() noexcept {
+            u32 seen = 0;
+            for (u32 index = 0; index < f.paint.count; ++index) {
+                const auto& notice = f.paint.quads[index];
+                if (notice.radius != kDefaultTheme.scale.radius_sm || !notice.border_width)
+                    continue;
+                for (u32 member = 0; member < 4; ++member)
+                    if (ui_rect_equal({notice.left, notice.top, notice.right, notice.bottom},
+                                      tiles[member]))
+                        seen |= 1u << member;
+            }
+            return seen;
+        };
+        message_scene_set_explicit_filter(&f.scene, MessageExplicitFilter::blur);
+        check(publish_members() && repaint_gallery() && media_members(0b1001, 0b0110) &&
+                  labels(MessageMediaObscure::explicit_content, 0b0110),
+              "gallery_filters_blur_only_flagged_members_and_place_each_label_in_its_cell");
+        check(message_scene_reveal_media(&f.scene,
+                                         message_media_reveal_key(1, MessageMediaSource::embed, 1)) &&
+                  repaint_gallery() && media_members(0b1011, 0b0100) &&
+                  labels(MessageMediaObscure::explicit_content, 0b0100),
+              "gallery_reveal_key_opens_one_member_and_keeps_flagged_sibling_obscured");
+        message_scene_set_explicit_filter(&f.scene, MessageExplicitFilter::block);
+        const bool block_ready = repaint_gallery();
+        check(block_ready, "gallery_block_converges_and_paints");
+        if (block_ready) {
+            check(media_members(0b1001, 0), "gallery_block_omits_only_flagged_media");
+            check(notices() == 0b0110, "gallery_block_paints_notice_in_each_flagged_cell");
+            check(labels(MessageMediaObscure::blocked, 0b0110),
+                  "gallery_block_places_label_in_each_flagged_cell");
+        }
+        members[0].flags = kGatewayMediaExplicitFlag;
+        members[1].flags = members[2].flags = 0;
+        const bool host_ready = publish_members() && repaint_gallery();
+        check(host_ready, "gallery_flagged_host_converges_and_paints");
+        if (host_ready) {
+            check(media_members(0b1110, 0), "gallery_flagged_host_does_not_block_clear_members");
+            check(notices() == 0b0001, "gallery_flagged_host_paints_notice_only_in_host_cell");
+            check(labels(MessageMediaObscure::blocked, 0b0001),
+                  "gallery_flagged_host_places_label_only_in_host_cell");
+        }
+        paint_stream_release(&f.paint);
+    }
     message_scene_release(&f.scene);
 }
 
@@ -1303,7 +1418,8 @@ Utf8View c_text(const char* value) noexcept {
 }
 // One MESSAGE_CREATE through the client's dispatch pack/unpack, both stores and
 // a converged text pass. Returns message 1's row; the caller releases the scene.
-const MessageSceneRowWidget* converge_message(Utf8View payload, GatewayMessageEvent* decoded = nullptr) noexcept {
+const MessageSceneRowWidget* converge_message(Utf8View payload,
+                                              GatewayMessageEvent* decoded = nullptr) noexcept {
     auto& f = fixture;
     static u32 structurals[4096];
     static char packed_text[32768];

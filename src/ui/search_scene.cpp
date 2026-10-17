@@ -26,7 +26,7 @@ struct UiSearchItem {
     u16 rich_index;
     UiSearchItemKind kind;
     MediaEmbedResource resource;
-    bool snapshot, spoiler;
+    bool snapshot;
 };
 struct UiSearchRichProjection {
     MessageScene scene;
@@ -166,6 +166,7 @@ bool bind_rich(UiSearchScene& s) noexcept {
         p.source_revision = s.source->revision;
     }
     message_scene_bind_theme_styles(&p.scene, s.theme_styles);
+    message_scene_set_media_policy(&p.scene, s.media_policy);
     // Item layouts own their scroll; the hidden message projection stays at the top.
     const bool items = s.layout != UiSearchLayout::list;
     if (!message_scene_bind_poll_source(&p.scene, s.source->polls) ||
@@ -409,6 +410,29 @@ const MessageRichEmbed* item_embed(const UiSearchScene& s, const UiSearchItem& i
     const auto* rich = item.kind == UiSearchItemKind::embed ? item_rich(s, item) : nullptr;
     return rich && item.rich_index < rich->embed_count ? &rich->embeds[item.rich_index] : nullptr;
 }
+MessageMediaObscure item_obscure(const UiSearchScene& s, const UiSearchItem& item) noexcept {
+    const auto& timeline = *s.source->rich_timeline;
+    const auto* record = message_store_resolve(*timeline.store, source_handle(s, item.source_index));
+    if (!record || !s.rich_projection)
+        return MessageMediaObscure::none;
+    bool spoiler = false, explicit_media = false;
+    MessageMediaSource source{};
+    if (const auto* attachment = item_attachment(s, item)) {
+        source = MessageMediaSource::attachment;
+        spoiler = message_rich_attachment_spoiler(*timeline.rich_store, *attachment);
+        explicit_media = message_rich_attachment_explicit(*attachment);
+    } else if (const auto* embed = item_embed(s, item)) {
+        source = MessageMediaSource::embed;
+        explicit_media = message_rich_embed_explicit(*embed);
+    } else {
+        return MessageMediaObscure::none;
+    }
+    return message_scene_media_obscure(
+        s.rich_projection->scene,
+        message_media_owner(*record, message_rich_store_find(*timeline.rich_store, record->id)), record->id,
+        message_media_reveal_key(record->id, source, item.rich_index, item.snapshot), spoiler,
+        explicit_media);
+}
 UiSearchLayout layout_for(const UiSearchSource* source, const UiSearchContent& content) noexcept {
     if (!source || !source->rich_timeline || !content.tabs || !content.panel)
         return UiSearchLayout::list;
@@ -501,8 +525,7 @@ bool build_items(UiSearchScene& s) noexcept {
                         !message_rich_attachment_audio_supported(store, attachment);
                     if (!attachment.url.bytes || (s.layout == UiSearchLayout::grid && !media))
                         continue;
-                    if (auto* item = push(UiSearchItemKind::attachment, a, scope != 0))
-                        item->spoiler = (attachment.flags & 8u) != 0;
+                    push(UiSearchItemKind::attachment, a, scope != 0);
                 }
             for (u32 e = 0; e < rich->embed_count; ++e) {
                 MessageRichEmbedMediaSelection selected{};
@@ -581,8 +604,9 @@ UiSearchTarget item_target(const UiSearchScene& s, const UiSearchItem& item, boo
     target.source_revision = s.source_revision;
     target.source_index = item.source_index;
     // Files open by jumping; their secondary action saves. Links open their embed,
-    // or jump when the link only lives in message text. Spoilered media jumps.
-    const bool rich = s.layout == UiSearchLayout::grid    ? primary && !item.spoiler
+    // or jump when the link only lives in message text. Media activation first
+    // passes through the host's reveal/block decision.
+    const bool rich = s.layout == UiSearchLayout::grid    ? primary
                       : s.layout == UiSearchLayout::files ? !primary
                                                           : primary && item.kind == UiSearchItemKind::embed;
     if (rich) {
@@ -913,12 +937,13 @@ bool paint_items(const UiSearchScene& s, const Theme& theme, PaintStream* out,
         const auto clip = overlay_clip(s, screen);
         const bool hover = hovered_widget(s, p.primary[v]), focus = focused_widget(s, p.primary[v]);
         if (s.layout == UiSearchLayout::grid) {
+            const MessageMediaObscure obscure = item_obscure(s, item);
             // Tiles round with the card radius token; media quads are masked to the same corners.
             const float tile_radius = theme.scale.radius_md;
             if (!paint_stream_push_rounded(out, screen.left, screen.top, screen.right, screen.bottom,
                                            theme.surface_high, tile_radius))
                 return false;
-            if (item.spoiler) {
+            if (message_media_obscure_notice(obscure)) {
                 const float cx = (screen.left + screen.right) * .5f,
                             cy = (screen.top + screen.bottom) * .5f;
                 if (!ui_icon_paint(out, UiIcon::eye_off, {cx - 12, cy - 12, cx + 12, cy + 12},
@@ -936,23 +961,26 @@ bool paint_items(const UiSearchScene& s, const Theme& theme, PaintStream* out,
                 command.snapshot = item.snapshot;
                 command.search_result = true;
                 command.tile_radius = static_cast<u8>(minimum(tile_radius, 255.f));
+                command.obscure = static_cast<u8>(obscure);
                 if (const auto* attachment = item_attachment(s, item)) {
                     const auto format = message_rich_attachment_format(store, *attachment);
                     command.id = attachment->id;
                     command.kind = MessageMediaCommandKind::attachment;
                     command.format = static_cast<u8>(format);
-                    command.ordinary_video = format == MediaAttachmentFormat::mp4;
+                    command.ordinary_video =
+                        format == MediaAttachmentFormat::mp4 && obscure == MessageMediaObscure::none;
                 } else if (const auto* embed = item_embed(s, item)) {
                     MessageRichEmbedMediaSelection selected{};
                     if (message_rich_embed_resource_select(store, *embed, item.resource, &selected)) {
                         command.id = item.message_id;
                         command.kind = MessageMediaCommandKind::embed;
                         command.format = static_cast<u8>(selected.format);
-                        command.animated = selected.animated;
+                        command.animated = selected.animated && obscure == MessageMediaObscure::none;
                         command.embed_index = static_cast<u8>(item.rich_index);
                         command.embed_resource = static_cast<u8>(item.resource);
                         command.ordinary_video = selected.format == MediaAttachmentFormat::mp4 &&
-                                                 embed->type != GatewayMessageEmbedType::gifv;
+                                                 embed->type != GatewayMessageEmbedType::gifv &&
+                                                 obscure == MessageMediaObscure::none;
                     }
                 }
                 if (command.id && record)
@@ -960,10 +988,9 @@ bool paint_items(const UiSearchScene& s, const Theme& theme, PaintStream* out,
             }
             // Media quads draw above this paint, so the ring sits in the gap around the tile.
             if ((hover || focus) &&
-                !paint_stream_push_rounded_border(out, screen.left - 2, screen.top - 2, screen.right + 2,
-                                                  screen.bottom + 2, Color{},
-                                                  focus ? theme.tokens.border.focus : theme.interactive,
-                                                  tile_radius + 2, 2))
+                !paint_stream_push_rounded_border(
+                    out, screen.left - 2, screen.top - 2, screen.right + 2, screen.bottom + 2, Color{},
+                    focus ? theme.tokens.border.focus : theme.interactive, tile_radius + 2, 2))
                 return false;
             continue;
         }
@@ -1364,6 +1391,17 @@ bool ui_search_scene_bind_theme_styles(UiSearchScene* scene, const UiResolvedThe
         scene->rich_projection && message_scene_bind_theme_styles(&scene->rich_projection->scene, styles);
     return changed || geometry;
 }
+bool ui_search_scene_set_media_policy(UiSearchScene* scene, const MessageMediaPolicy& policy) noexcept {
+    if (!scene ||
+        (scene->media_policy.context == policy.context && scene->media_policy.query == policy.query &&
+         scene->media_policy.revision == policy.revision))
+        return false;
+    scene->media_policy = policy;
+    scene->media_policy_dirty = true;
+    if (scene->rich_projection)
+        message_scene_set_media_policy(&scene->rich_projection->scene, policy);
+    return true;
+}
 MessageScene* ui_search_scene_message_scene(UiSearchScene* scene) noexcept {
     return scene ? const_cast<MessageScene*>(ui_search_scene_message_scene(*scene)) : nullptr;
 }
@@ -1498,7 +1536,13 @@ UiSearchTarget ui_search_scene_rich_widget_target(const UiSearchScene& s, UiWidg
                     const auto& store = *scene->timeline->rich_store;
                     const auto* rich = child ? message_rich_store_snapshot(store, record->id)
                                              : message_rich_store_find(store, record->id);
-                    if (rich && index < rich->embed_count && !rich->embeds[index].url.bytes) {
+                    MessageRichEmbedGallery gallery{};
+                    if (rich && message_rich_embed_gallery(store, *rich, index, &gallery)) {
+                        MessageRichEmbedMediaSelection selected{};
+                        target.rich_index = gallery.members[0];
+                        if (message_rich_embed_gallery_select(store, rich->embeds[target.rich_index], &selected))
+                            target.resource = selected.resource;
+                    } else if (rich && index < rich->embed_count && !rich->embeds[index].url.bytes) {
                         MessageRichEmbedMediaSelection selected{};
                         if (message_rich_embed_media_select(store, rich->embeds[index], &selected))
                             target.resource = selected.resource;
@@ -1552,7 +1596,7 @@ bool ui_search_scene_rich_preview_geometry(const UiSearchScene& s, UiSearchTarge
     if (tiled(s)) {
         u32 slot = 0;
         const auto* item = current(s) ? target_item(s, target, &slot) : nullptr;
-        if (!item || item->spoiler || s.layout != UiSearchLayout::grid ||
+        if (!item || s.layout != UiSearchLayout::grid ||
             (item->kind == UiSearchItemKind::embed && target.resource != item->resource) ||
             !ui_search_scene_target_current(s, target))
             return false;
@@ -1697,15 +1741,16 @@ bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, cons
         return false;
     }
     const bool same_choices = same_publication && s->choice_geometry_revision == geometry_revision;
-    if (same_choices && s->active && s->source == source && s->content == content &&
-        s->source_revision == (source ? source->revision : 0) && s->content_revision == content->revision &&
-        ui_rect_equal(s->viewport, viewport) && ui_rect_equal(s->field, field) && ui_rect_equal(s->text, text_area))
+    if (!s->media_policy_dirty && same_choices && s->active && s->source == source &&
+        s->content == content && s->source_revision == (source ? source->revision : 0) &&
+        s->content_revision == content->revision && ui_rect_equal(s->viewport, viewport) &&
+        ui_rect_equal(s->field, field) && ui_rect_equal(s->text, text_area))
         return true;
-    if (same_choices && s->active && s->source == source &&
+    if (!s->media_policy_dirty && same_choices && s->active && s->source == source &&
         s->source_revision == (source ? source->revision : 0) && s->content_layout == menu_layout &&
-        ui_rect_equal(s->viewport, viewport) && ui_rect_equal(s->field, field) && ui_rect_equal(s->text, text_area) &&
-        s->pagination_total == content->total && s->pagination_offset == content->offset &&
-        s->pagination_page_size == content->page_size) {
+        ui_rect_equal(s->viewport, viewport) && ui_rect_equal(s->field, field) &&
+        ui_rect_equal(s->text, text_area) && s->pagination_total == content->total &&
+        s->pagination_offset == content->offset && s->pagination_page_size == content->page_size) {
         s->content = content;
         s->content_revision = content->revision;
         count_label(*s);
@@ -1790,6 +1835,7 @@ bool ui_search_scene_update(UiSearchScene* s, const UiSearchSource* source, cons
     }
     s->scroll_dips = maximum(0.f, minimum(s->scroll_dips, ui_search_scene_scroll_maximum(*s)));
     s->active = true;
+    s->media_policy_dirty = false;
     return rebuild(*s);
 }
 void ui_search_scene_release(UiSearchScene* s) noexcept {
@@ -1948,6 +1994,26 @@ UiSearchTarget ui_search_scene_hit_test(const UiSearchScene& s, float x, float y
                         return {};
                 }
                 if (item_kind == MessageSceneRichItemKind::embed) {
+                    MessageRichEmbedGallery gallery{};
+                    const auto& store = *rich_scene->timeline->rich_store;
+                    if (message_rich_embed_gallery(store, *rich, index, &gallery)) {
+                        const auto block = message_rich_embed_media_rect(
+                            row->rich_item_layout, index, node->content_rectangle,
+                            message_rich_embed_media_only(rich->embeds[index]));
+                        for (u32 tile = 0; tile < gallery.count && tile < kMessageEmbedGalleryDrawn; ++tile) {
+                            const auto cell = message_rich_embed_gallery_tile(block, gallery.count, tile);
+                            if (!ui_rect_contains(rich_item_clip(s, cell, node->clip_rectangle), x, y))
+                                continue;
+                            MessageRichEmbedMediaSelection selected{};
+                            result.rich_index = gallery.members[tile];
+                            if (message_rich_embed_gallery_select(store, rich->embeds[result.rich_index], &selected))
+                                result.resource = selected.resource;
+                            return result;
+                        }
+                        if (ui_rect_contains(rich_item_clip(s, block, node->clip_rectangle), x, y))
+                            return {};
+                        return result;
+                    }
                     UiRect preview{}, preview_clip{};
                     result.resource = MediaEmbedResource::thumbnail;
                     if (!ui_search_scene_rich_preview_geometry(s, result, &preview, &preview_clip) ||
@@ -2266,8 +2332,9 @@ bool ui_search_scene_text_output(const UiSearchScene& s, const Theme& theme, UiT
                 const auto r = projection.screens[v];
                 const auto owner = projection.primary[v];
                 if (s.layout == UiSearchLayout::grid) {
-                    if (item.spoiler &&
-                        !text(out, s, owner, utf8_literal("Spoiler"),
+                    const MessageMediaObscure obscure = item_obscure(s, item);
+                    if (obscure != MessageMediaObscure::none &&
+                        !text(out, s, owner, message_media_obscure_label(obscure),
                               {r.left + 4, r.bottom - 28, r.right - 4, r.bottom - 6}, theme.text_secondary,
                               text_style_subtext, UiTextWrapping::no_wrap, UiTextAlignment::center))
                         return false;

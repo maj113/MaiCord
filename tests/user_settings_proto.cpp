@@ -9,7 +9,8 @@ namespace {
 using K = UserSettingsKind;
 constexpr UserSettingsField compact{6, 17, 0, K::boolean}, embeds{6, 12, 0, K::boolean},
     emoticons{6, 21, 0, K::boolean}, explicit_guilds{6, 29, 1, K::enumeration},
-    explicit_friends{6, 29, 2, K::enumeration}, friend_flags{8, 11, 0, K::uint32},
+    explicit_friends{6, 29, 2, K::enumeration}, legacy_explicit{6, 19, 0, K::uint32},
+    friend_flags{8, 11, 0, K::uint32},
     hour_cycle{13, 9, 0, K::enumeration}, locale{12, 1, 0, K::string}, theme{13, 1, 0, K::enumeration};
 // versions{1,5,42}, guilds (not stored), text_and_images (two occurrences),
 // privacy, status (not stored), appearance{theme 3, hour cycle 2}.
@@ -67,6 +68,12 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
           "user settings: malformed input and short output are rejected");
 
     UserSettingsValue v{};
+    const u8 legacy_zero[]{0x9A, 0x01, 0}, legacy_all[]{0x9A, 0x01, 2, 8, 2};
+    check(!user_settings_proto_read({}, legacy_explicit, &v) &&
+              user_settings_proto_read({legacy_zero, sizeof(legacy_zero)}, legacy_explicit, &v) &&
+              v.present && v.number == 0 &&
+              user_settings_proto_read({legacy_all, sizeof(legacy_all)}, legacy_explicit, &v) && v.number == 2,
+          "user settings: legacy explicit filter distinguishes missing from present zero UInt32Value");
     check(user_settings_proto_read(text, embeds, &v) && v.number == 1 &&
               user_settings_proto_read(text, compact, &v) && v.number == 0 &&
               user_settings_proto_read(text, emoticons, &v) && v.number == 0 &&

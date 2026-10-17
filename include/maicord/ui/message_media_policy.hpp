@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/core/slice.hpp"
+#include "maicord/model/content_policy.hpp"
 #include "maicord/ui/geometry.hpp"
 
 namespace maicord {
@@ -9,10 +10,45 @@ struct MessageRichStore;
 struct MessageRichAttachment;
 struct MessageRichEmbed;
 struct MessageRichComponent;
+struct MessageRecord;
+struct MessageRichRecord;
 
 // Explicit content redaction (text_and_images.explicit_content_settings):
 // 1 SHOW, 2 BLUR, 3 BLOCK; unset resolves per context in the settings host.
-enum class MessageExplicitFilter : u8 { show, blur, block };
+enum class MessageExplicitFilter : u8 {
+    show,
+    blur,
+    block
+};
+
+enum class MessageMediaContext : u8 {
+    guild,
+    friend_dm,
+    other_dm
+};
+MessageExplicitFilter message_explicit_filter_resolve(MessageMediaContext context, u64 explicit_value,
+                                                      u64 legacy_value,
+                                                      const AccountContentPolicy& account) noexcept;
+
+// The destination channel is retained for forwards; the host resolves the
+// referenced source author from its accepted cache, with zero meaning unknown.
+struct MessageMediaOwner {
+    u64 channel_id;
+    u64 author_id;
+    u64 source_channel_id;
+    u64 source_message_id;
+    bool forwarded;
+};
+struct MessageMediaPolicyResult {
+    MessageExplicitFilter filter;
+    bool explicit_reveal_allowed;
+};
+struct MessageMediaPolicy {
+    const void* context;
+    MessageMediaPolicyResult (*query)(const void*, const MessageMediaOwner&) noexcept;
+    u64 revision;
+};
+MessageMediaOwner message_media_owner(const MessageRecord&, const MessageRichRecord* outer_rich) noexcept;
 
 // Why a received media item is not shown as-is.
 enum class MessageMediaObscure : u8 {
@@ -43,10 +79,13 @@ struct MessageMediaReveals {
     u32 revision;
 };
 
-constexpr u64 message_media_reveal_key(u64 message_id, MessageMediaSource source, u32 index) noexcept {
+constexpr u64 message_media_reveal_key(u64 message_id, MessageMediaSource source, u32 index,
+                                       bool snapshot = false) noexcept {
     u64 value = message_id * 0x9E3779B97F4A7C15ull;
     value ^= (static_cast<u64>(source) + 1u) << 56u;
     value ^= static_cast<u64>(index + 1u) * 0xBF58476D1CE4E5B9ull;
+    if (snapshot)
+        value ^= 0x94D049BB133111EBull;
     return value ? value : 1u;
 }
 
@@ -58,10 +97,12 @@ bool message_media_reveal(MessageMediaReveals* reveals, u64 key) noexcept;
 // ALWAYS). Explicit filtering wins over a spoiler: blocked media stays hidden.
 MessageMediaObscure message_media_obscure(const MessageMediaReveals& reveals, u64 key, bool spoiler,
                                           bool explicit_media, MessageExplicitFilter filter,
-                                          bool spoilers_always) noexcept;
+                                          bool spoilers_always,
+                                          bool explicit_reveal_allowed = true) noexcept;
 
 // Spoiler bit: attachment flags IS_SPOILER or the SPOILER_ filename prefix.
-bool message_rich_attachment_spoiler(const MessageRichStore& store, const MessageRichAttachment& attachment) noexcept;
+bool message_rich_attachment_spoiler(const MessageRichStore& store,
+                                     const MessageRichAttachment& attachment) noexcept;
 bool message_rich_attachment_explicit(const MessageRichAttachment& attachment) noexcept;
 bool message_rich_embed_explicit(const MessageRichEmbed& embed) noexcept;
 bool message_rich_component_spoiler(const MessageRichComponent& component) noexcept;

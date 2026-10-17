@@ -666,7 +666,67 @@ bool capture(const wchar_t* filename) noexcept {
     return true;
 }
 
+bool gallery_activation() noexcept {
+    if (!seed({}))
+        return false;
+    auto& scene = g_app.message_scene;
+    auto& store = g_app.account_ui->message_rich_store;
+    const auto found = message_store_find(g_app.message_view.store, kSourceMessage);
+    const auto* record = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    GatewayMessageEmbed embeds[3]{};
+    for (auto& embed : embeds) {
+        embed.type = GatewayMessageEmbedType::rich;
+        embed.url = utf8_literal("https://gallery.example/post");
+        embed.image.width = 400;
+        embed.image.height = 300;
+    }
+    embeds[0].description = utf8_literal("Gallery caption");
+    embeds[0].image.url = utf8_literal("https://gallery.example/clear.png");
+    embeds[1].image.url = utf8_literal("https://gallery.example/first.png");
+    embeds[2].image.url = utf8_literal("https://gallery.example/second.png");
+    embeds[1].flags = embeds[2].flags = kGatewayMediaExplicitFlag;
+    GatewayMessageEvent event{};
+    event.id = kSourceMessage;
+    event.fields = gateway_message_field_embeds;
+    event.embeds = {embeds, 3};
+    if (!record || !message_rich_store_apply(&store, record->id, record->revision, event).ok())
+        return false;
+    message_scene_set_explicit_filter(&scene, MessageExplicitFilter::blur);
+    if (!project())
+        return false;
+    const auto* row = message_scene_find_row(scene, 0);
+    const auto* node = row ? message_scene_rich_item_layout_node(scene, *row, MessageSceneRichItemKind::embed, 0)
+                           : nullptr;
+    if (!node)
+        return false;
+    const auto block = message_rich_embed_media_rect(row->rich_item_layout, 0, node->content_rectangle, false);
+    UiRect cells[3]{};
+    for (u32 tile = 0; tile < 3; ++tile)
+        cells[tile] = ui_rect_intersection(message_rich_embed_gallery_tile(block, 3, tile),
+                                           ui_rect_intersection(node->clip_rectangle, scene.viewport));
+    const auto activate = [&](u32 tile) noexcept {
+        return application_message_media_reveal_at((cells[tile].left + cells[tile].right) * .5f,
+                                                    (cells[tile].top + cells[tile].bottom) * .5f);
+    };
+    const auto first_key = message_media_reveal_key(kSourceMessage, MessageMediaSource::embed, 1),
+               second_key = message_media_reveal_key(kSourceMessage, MessageMediaSource::embed, 2);
+    bool ok = ui_rect_has_area(cells[0]) && ui_rect_has_area(cells[1]) && ui_rect_has_area(cells[2]) &&
+              activate(1) && message_media_revealed(scene.media_reveals, first_key) &&
+              !message_media_revealed(scene.media_reveals, second_key) && !activate(1) && !activate(0) &&
+              !application_message_media_reveal_at((cells[0].right + cells[1].left) * .5f,
+                                                    (cells[1].top + cells[1].bottom) * .5f);
+    message_scene_set_explicit_filter(&scene, MessageExplicitFilter::block);
+    const auto reveals = scene.media_reveals.count;
+    ok = ok && activate(2) && scene.media_reveals.count == reveals &&
+         !message_media_revealed(scene.media_reveals, second_key) && !activate(0);
+    message_scene_set_explicit_filter(&scene, MessageExplicitFilter::show);
+    scene.media_reveals = {};
+    return ok;
+}
+
 bool scenarios() noexcept {
+    if (!require(gallery_activation(), 11))
+        return false;
     constexpr auto ordinary = utf8_literal(
         R"({"id":"70","guild_id":"10","type":0,"name":"release-notes","permission_overwrites":[]})");
     constexpr auto child = utf8_literal(
@@ -992,6 +1052,7 @@ bool application_pinned_messages_toggle() noexcept {
 bool refresh_account_frame(bool) noexcept {
     return true;
 }
+void application_user_settings_request_content_confirmation() noexcept {}
 bool application_voice_join(u64, u64) noexcept {
     return true;
 }

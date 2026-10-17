@@ -255,9 +255,11 @@ struct MessageScene {
     float highlight_level;
     u32 highlight_revision;
     MessageSceneDisplay display;
-    // Received media policy: session reveals and the channel's explicit filter.
+    // Session reveals and a borrowed per-author policy. The explicit filter is
+    // the fallback for scenes without a policy query.
     MessageMediaReveals media_reveals;
     MessageExplicitFilter explicit_filter;
+    MessageMediaPolicy media_policy;
     MessageSceneInteraction interaction;
     u32 interaction_revision;
     // Borrowed invite resolutions; null hosts show no invite cards.
@@ -318,6 +320,14 @@ bool message_scene_bind_scheduled_events(MessageScene* scene, const ScheduledEve
 // applies a plugin media verdict (attachments and embeds); zero ignores it.
 MessageMediaObscure message_scene_media_obscure(const MessageScene& scene, u64 message_id, u64 reveal_key,
                                                 bool spoiler, bool explicit_media) noexcept;
+MessageMediaPolicyResult message_scene_media_policy(const MessageScene&, const MessageMediaOwner&) noexcept;
+bool message_scene_set_media_policy(MessageScene*, const MessageMediaPolicy&) noexcept;
+MessageMediaObscure message_scene_media_obscure(const MessageScene&, const MessageMediaOwner&,
+                                                u64 plugin_message_id, u64 reveal_key, bool spoiler,
+                                                bool explicit_media) noexcept;
+MessageMediaObscure message_scene_media_obscure(const MessageScene&, MessageMediaPolicyResult,
+                                                u64 plugin_message_id, u64 reveal_key, bool spoiler,
+                                                bool explicit_media) noexcept;
 // Cached plugin decoration of a message revision (never runs plugin code).
 inline bool message_scene_plugin_decoration(const MessageScene& scene, u64 message_id, u32 revision,
                                             UiPluginRenderDecoration* output) noexcept {

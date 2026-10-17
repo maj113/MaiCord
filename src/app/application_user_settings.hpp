@@ -2,6 +2,7 @@
 #include "maicord/app/account_module_api.hpp"
 #include "maicord/protocol/user_settings_proto.hpp"
 #include "maicord/ui/settings_scene.hpp"
+#include "maicord/ui/message_media_policy.hpp"
 #include "settings_catalog.hpp"
 
 namespace maicord::app_detail {
@@ -20,6 +21,11 @@ void application_user_settings_release() noexcept;
 void application_user_settings_apply_display() noexcept;
 // Chat "Show spoiler content" for a channel: always, or where you moderate.
 bool application_user_settings_reveal_spoilers(u64 channel_id) noexcept;
+// Context defaults and stored overrides share one account/revision cache.
+MessageExplicitFilter application_user_settings_explicit_filter(MessageMediaContext) noexcept;
+bool application_user_settings_content_confirmation_required() noexcept;
+// Explains how to confirm age in Discord; never changes account eligibility.
+void application_user_settings_request_content_confirmation() noexcept;
 
 // Reusable group API for other settings owners (reaction preferences etc.):
 // typed reads and optimistic writes of any field in a stored group.

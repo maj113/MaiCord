@@ -39,10 +39,51 @@ u8 search_rich_text[4096];
 u32 search_publication = 100, search_closes;
 bool search_panel;
 u64 search_channel_generation;
+MessageTimeline search_timeline{};
+UiVariableList search_list{};
+u32 search_heights[4]{};
+u64 search_fenwick[4]{};
+UiSearchSource search_source{};
+UiSearchContent search_content{};
+UiSearchScene search_scene{};
+u32 confirmations, media_refreshes;
+MessageExplicitFilter media_filter = MessageExplicitFilter::show;
+bool media_reveal_allowed = true;
+MessageMediaOwner queried_owner{};
 char draft[256];
 UiRect fixture_viewport{0, 0, 1200, 900};
 void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);
+}
+MessageMediaPolicyResult query_media(const void*, const MessageMediaOwner& owner) noexcept {
+    queried_owner = owner;
+    return {media_filter, media_reveal_allowed};
+}
+bool publish_search() noexcept {
+    if (!ui_variable_list_initialize(&search_list, {search_heights, 4}, {search_fenwick, 4},
+                                     search_store.count, ui_extent_units(57)) ||
+        !message_timeline_initialize(&search_timeline, &search_store, &search_list, ui_extent_units(57),
+                                     ui_extent_units(900), false) ||
+        !message_timeline_bind_rich_store(&search_timeline, &search_rich))
+        return false;
+    search_source.count = search_store.count;
+    search_source.revision = search_publication;
+    search_source.rich_timeline = &search_timeline;
+    search_source.current = +[](void*) noexcept {
+        return search_panel && search_source.revision == search_publication;
+    };
+    search_source.resolve = +[](void*, u32 index, UiSearchRow* row) noexcept {
+        if (index || !row)
+            return false;
+        *row = {101, 800, utf8_literal("Fixture author"), utf8_literal("#fixture"), {}, {}, true, true};
+        return true;
+    };
+    search_content.edit.active = search_content.panel = true;
+    search_content.phase = UiSearchPhase::ready;
+    search_content.revision = search_publication;
+    ui_search_scene_set_media_policy(&search_scene, {nullptr, query_media, search_publication});
+    return ui_search_scene_update(&search_scene, &search_source, &search_content, fixture_viewport,
+                                  {0, 0, 1200, 48});
 }
 bool seed_into(MessageStore& source, MessageRichStore& rich, u64 id, u64 attachment, Utf8View filename,
                bool snapshot) noexcept {
@@ -497,6 +538,66 @@ void dismiss_all() noexcept {
         if (j.occupied && terminal(j.phase))
             activate(*q, {UiDownloadAction::dismiss, j.id});
 }
+void media_admission_tests() noexcept {
+    check(seed(500, 600, utf8_literal("original.bin")), "Downloads policy source seeds");
+    auto* rich = const_cast<MessageRichRecord*>(
+        message_rich_store_find(g_app.account_ui->message_rich_store, 500));
+    if (!rich)
+        return;
+    MessageTimeline timeline{};
+    timeline.store = &g_app.message_view.store;
+    auto& scene = g_app.message_scene;
+    scene.timeline = &timeline;
+    scene.media_policy = {nullptr, query_media, 1};
+    const u32 dialogs_before = picker_starts, transfers_before = starts,
+              confirmations_before = confirmations, refreshes_before = media_refreshes;
+    rich->attachments[0].flags |= kGatewayMediaExplicitFlag;
+    media_filter = MessageExplicitFilter::block;
+    check(application_downloads_begin(500, 600) && !g_app.downloads &&
+              picker_starts == dialogs_before && starts == transfers_before,
+          "Downloads blocked Save is consumed before allocating a download owner or job");
+    check(open_menu(500, 600) && application_downloads_context_action(row_action("Save File")) &&
+              g_app.downloads && !g_app.downloads->jobs[0].occupied,
+          "Downloads context Save obeys the same blocked media policy");
+    auto* q = g_app.downloads;
+    if (!q) {
+        scene = {};
+        return;
+    }
+    rich->attachments[0].flags = 0;
+    check(application_downloads_begin(500, 600) && q->jobs[0].phase == JobPhase::queued &&
+              q->jobs[0].occupied,
+          "Downloads ordinary unflagged files remain saveable under explicit BLOCK");
+    cancel_job(*q, 0);
+    dismiss_all();
+    scene.plugin_decorations = true;
+    g_ui_plugin_render_query = +[](u64, u32, UiPluginRenderDecoration* output) noexcept {
+        *output = {};
+        output->media = ui_plugin_media_hide;
+        return true;
+    };
+    check(application_downloads_begin(500, 600) && !q->jobs[0].occupied &&
+              !scene.media_reveals.count && confirmations == confirmations_before,
+          "Downloads plugin-hidden Save neither admits nor reveals nor asks for age confirmation");
+    g_ui_plugin_render_query = nullptr;
+    scene.plugin_decorations = false;
+    rich->attachments[0].flags |= kGatewayMediaExplicitFlag;
+    media_filter = MessageExplicitFilter::show;
+    picker_ready = false;
+    application_downloads_begin(500, 600);
+    media_filter = MessageExplicitFilter::blur;
+    media_reveal_allowed = false;
+    application_downloads_pump();
+    check(q->jobs[0].phase == JobPhase::failed && picker_starts == dialogs_before &&
+              starts == transfers_before && confirmations == confirmations_before &&
+              media_refreshes == refreshes_before && !scene.media_reveals.count,
+          "Downloads queued policy change stops before chooser without asynchronous reveal or prompt");
+    check(application_downloads_release(), "Downloads policy fixture releases its pending owner");
+    rich->attachments[0].flags = 0;
+    media_filter = MessageExplicitFilter::show;
+    media_reveal_allowed = true;
+    scene = {};
+}
 void run() noexcept {
     g_app.window = CreateWindowExW(0, L"STATIC", L"Save isolated fixture", WS_POPUP, 0, 0, 1200, 900,
                                    nullptr, nullptr, nullptr, nullptr);
@@ -769,6 +870,37 @@ void run() noexcept {
               !application_downloads_available(800, 900, true) &&
               application_downloads_search_available(search_ticket, 900, true),
           "Downloads Search attachment authority does not publish or borrow the live timeline");
+    const u32 before_search_policy_dialogs = picker_starts, before_search_policy_starts = starts;
+    check(application_downloads_begin_search(search_ticket, 900, true) && !q->jobs[0].occupied,
+          "Downloads Search Save cannot fall back to the main scene without an accepted native scene");
+    check(publish_search(), "Downloads Search policy binds the real accepted native rich scene");
+    auto* native_media = ui_search_scene_message_scene(&search_scene);
+    auto* policy_child = const_cast<MessageRichRecord*>(message_rich_store_snapshot(search_rich, 800));
+    check(native_media && policy_child, "Downloads Search media policy fixture resolves its snapshot");
+    if (!native_media || !policy_child)
+        return;
+    policy_child->attachments[0].flags |= kGatewayMediaExplicitFlag;
+    media_filter = MessageExplicitFilter::block;
+    check(application_downloads_begin_search(search_ticket, 900, true) && !q->jobs[0].occupied &&
+              !native_media->media_reveals.count && !confirmations,
+          "Downloads blocked Search Save creates no job, reveal or confirmation");
+    media_filter = MessageExplicitFilter::blur;
+    media_reveal_allowed = false;
+    check(application_downloads_begin_search(search_ticket, 900, true) && !q->jobs[0].occupied &&
+              confirmations == 1 && !native_media->media_reveals.count && queried_owner.forwarded &&
+              queried_owner.author_id == 0 && queried_owner.channel_id == 101 &&
+              queried_owner.source_channel_id == 777 && queried_owner.source_message_id == 888,
+          "Downloads age-gated Search Save uses outer forwarding ownership before native confirmation");
+    media_reveal_allowed = true;
+    const auto child_key = message_media_reveal_key(800, MessageMediaSource::attachment, 0, true),
+               outer_key = message_media_reveal_key(800, MessageMediaSource::attachment, 0);
+    g_app.frame_pending = false;
+    check(application_downloads_begin_search(search_ticket, 900, true) && !q->jobs[0].occupied &&
+              message_media_revealed(native_media->media_reveals, child_key) &&
+              !message_media_revealed(native_media->media_reveals, outer_key) &&
+              g_app.frame_pending && !media_refreshes &&
+              picker_starts == before_search_policy_dialogs && starts == before_search_policy_starts,
+          "Downloads first Search Save only reveals its scoped snapshot and never opens a chooser");
     const u32 search_dialogs = picker_starts, search_transfers = starts,
               closed_before_overlay = search_closes;
     picker_ready = false;
@@ -777,6 +909,8 @@ void run() noexcept {
     check(search_panel && search_closes == closed_before_overlay && q->jobs[0].source.search_result &&
               q->picker_job == 0,
           "Downloads overlay retains the accepted Search source beneath the Save chooser");
+    policy_child->attachments[0].flags = 0;
+    media_filter = MessageExplicitFilter::show;
     const u32 before_picker_cancel = picker_cancels;
     ++search_publication;
     application_downloads_pump();
@@ -787,6 +921,7 @@ void run() noexcept {
           "transfer admission");
     dismiss_all();
     search_ticket.publication_revision = search_publication;
+    check(publish_search(), "Downloads replacement Search publication binds its native scene");
     picker_ready = false;
     application_downloads_begin_search(search_ticket, 900, true);
     application_downloads_pump();
@@ -795,6 +930,7 @@ void run() noexcept {
     check(q->jobs[0].admitted && submitted_origin == 777 && submitted_attachment == 900 &&
               submitted_bytes == 7 && starts == search_transfers + 1 && picker_starts == search_dialogs + 2,
           "Downloads Search snapshot Save preserves exact original CDN owner size and attachment identity");
+    media_filter = MessageExplicitFilter::block;
     search_panel = false;
     ++search_publication;
     message_store_delete(&search_store, 800);
@@ -806,10 +942,12 @@ void run() noexcept {
     check(q->jobs[0].phase == JobPhase::saved && q->jobs[0].path && !q->jobs[0].admitted,
           "Downloads Search receipt retains only its owned path after independent transfer drain");
     dismiss_all();
+    media_filter = MessageExplicitFilter::show;
     search_panel = true;
     check(seed_into(search_store, search_rich, 800, 900, utf8_literal("search-forward.bin"), true),
           "Downloads Search source republishes");
     search_ticket.publication_revision = search_publication;
+    check(publish_search(), "Downloads republished Search source binds its native scene");
     const u32 before_search_close = picker_starts;
     application_downloads_begin_search(search_ticket, 900, true);
     application_search_close_panel();
@@ -821,6 +959,7 @@ void run() noexcept {
     search_panel = true;
     ++search_publication;
     search_ticket.publication_revision = search_publication;
+    check(publish_search(), "Downloads latest Search authority binds its native scene");
     const u32 old_actions = channel->actions;
     channel->actions &= ~channel_action_read_history;
     check(!application_downloads_search_available(search_ticket, 900, true),
@@ -870,6 +1009,8 @@ void run() noexcept {
     attachment_menu_tests();
     check(application_downloads_release() && !application_downloads_owner_bytes(),
           "Downloads attachment menu owner releases cleanly");
+    media_admission_tests();
+    ui_search_scene_release(&search_scene);
     message_composer_release(&g_app.message_composer);
     DestroyWindow(g_app.window);
     g_app.window = nullptr;
@@ -995,6 +1136,9 @@ bool application_search_source_resolve(const ApplicationSearchSourceTicket& tick
     out->snapshot = snapshot;
     return true;
 }
+UiSearchScene* application_search_scene() noexcept {
+    return &downloads_runtime_test::search_scene;
+}
 void application_pinned_messages_close() noexcept {
 }
 bool application_pinned_messages_active() noexcept {
@@ -1029,6 +1173,13 @@ void set_popup_owner(PopupOwnerKind kind) noexcept {
 }
 bool refresh_account_text(bool) noexcept {
     return true;
+}
+bool refresh_account_frame(bool) noexcept {
+    ++downloads_runtime_test::media_refreshes;
+    return true;
+}
+void application_user_settings_request_content_confirmation() noexcept {
+    ++downloads_runtime_test::confirmations;
 }
 bool open_message_media_context_popup(u64 message_id, UiRect, ConstSlice<PopupItem> media,
                                       const ApplicationPluginMenuExtra* plugin) noexcept {

@@ -5,6 +5,7 @@
 #include "application_channel_authority.hpp"
 #include "application_composer_text_input.hpp"
 #include "application_content_input.hpp"
+#include "application_media_policy.hpp"
 #include "application_shell_input.hpp"
 #include "application_video.hpp"
 #include "maicord/core/time.hpp"
@@ -33,6 +34,40 @@ bool current_video() noexcept {
     const auto* item = current_item();
     return item && item->video;
 }
+MessageScene* viewer_media_scene(bool searched) noexcept {
+    if (!searched)
+        return &g_app.message_scene;
+    auto* scene = application_search_scene();
+    return scene && scene == g_app.renderer.search_scene ? ui_search_scene_message_scene(scene) : nullptr;
+}
+MessageMediaObscure viewer_obscure(const ApplicationSearchSourceView& source, bool snapshot,
+                                   MessageMediaSource kind, u32 index, bool spoiler,
+                                   bool explicit_media) noexcept {
+    auto* scene = viewer_media_scene(g_app.image_viewer.search_result);
+    if (!scene || !source.message || !source.rich_store)
+        return MessageMediaObscure::blocked;
+    return message_scene_media_obscure(
+        *scene,
+        message_media_owner(*source.message,
+                            message_rich_store_find(*source.rich_store, source.message->id)),
+        source.message->id, message_media_reveal_key(source.message->id, kind, index, snapshot), spoiler,
+        explicit_media);
+}
+bool viewer_item_visible(const ApplicationSearchSourceView& source,
+                         const ApplicationMediaViewerItem& item) noexcept {
+    const bool attachment = item.kind == MessageSceneRichItemKind::attachment;
+    if (!source.rich || !source.rich_store ||
+        (attachment ? item.index >= source.rich->attachment_count : item.index >= source.rich->embed_count))
+        return false;
+    return viewer_obscure(
+               source, g_app.image_viewer.attachment_snapshot,
+               attachment ? MessageMediaSource::attachment : MessageMediaSource::embed, item.index,
+               attachment && message_rich_attachment_spoiler(*source.rich_store,
+                                                             source.rich->attachments[item.index]),
+               attachment ? message_rich_attachment_explicit(source.rich->attachments[item.index])
+                          : message_rich_embed_explicit(source.rich->embeds[item.index])) ==
+           MessageMediaObscure::none;
+}
 MediaAssetKey attachment_key(const ApplicationImageViewer& viewer, u64 id, MediaAttachmentFormat format,
                              MediaResolutionTier tier) noexcept {
     return viewer.search_result ? media_asset_search_attachment(id, format, tier, viewer.search_source.publication_revision,
@@ -47,8 +82,15 @@ u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, 
     const auto& viewer = g_app.image_viewer;
     const u32 dpi = g_app.renderer.dpi;
     u32 count = 0;
+    ApplicationSearchSourceView source{};
+    if (!application_image_viewer_source(&source))
+        return 0;
     for (u32 i = 0; i < rich.attachment_count && count < kApplicationMediaViewerItems; ++i) {
         const auto& attachment = rich.attachments[i];
+        if (viewer_obscure(source, embed_snapshot, MessageMediaSource::attachment, i,
+                           message_rich_attachment_spoiler(store, attachment),
+                           message_rich_attachment_explicit(attachment)) != MessageMediaObscure::none)
+            continue;
         const auto format = message_rich_attachment_format(store, attachment);
         if (format == MediaAttachmentFormat::unknown || format == MediaAttachmentFormat::lottie ||
             media_attachment_format_audio_supported(format))
@@ -77,6 +119,9 @@ u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, 
         }
     }
     for (u32 i = 0; i < rich.embed_count && count < kApplicationMediaViewerItems; ++i) {
+        if (viewer_obscure(source, embed_snapshot, MessageMediaSource::embed, i, false,
+                           message_rich_embed_explicit(rich.embeds[i])) != MessageMediaObscure::none)
+            continue;
         MessageRichEmbedMediaSelection selected{};
         // Gallery images (all of them, as the official client's viewer) in gallery order;
         // a merged embed outside a shown gallery draws nothing.
@@ -126,6 +171,9 @@ void select_item(u32 index) noexcept {
     auto& viewer = g_app.image_viewer;
     if (index >= viewer.item_count)
         return;
+    ApplicationSearchSourceView source{};
+    if (!application_image_viewer_source(&source) || !viewer_item_visible(source, viewer.items[index]))
+        return;
     const bool was_video = current_video();
     viewer.item_index = static_cast<u8>(index);
     auto& item = viewer.items[index];
@@ -157,7 +205,7 @@ void navigate(i32 direction) noexcept {
 Utf8View current_url() noexcept {
     ApplicationSearchSourceView source{};
     const auto* item = current_item();
-    if (!item || !application_image_viewer_source(&source))
+    if (!item || !application_image_viewer_source(&source) || !viewer_item_visible(source, *item))
         return {};
     Utf8View url{};
     if (item->kind == MessageSceneRichItemKind::attachment) {
@@ -201,6 +249,13 @@ bool copy_image() noexcept {
     return copied;
 }
 void activate(u32 index) noexcept {
+    ApplicationSearchSourceView guarded_source{};
+    const auto* guarded_item = current_item();
+    if (!guarded_item || !application_image_viewer_source(&guarded_source) ||
+        !viewer_item_visible(guarded_source, *guarded_item)) {
+        application_image_viewer_close();
+        return;
+    }
     auto& scene = g_app.image_viewer.scene;
     switch (index) {
     case ui_image_viewer_save: {
@@ -392,8 +447,12 @@ u32 application_image_viewer_request_keys(MediaAssetKey* keys, u32 capacity) noe
     const auto& viewer = g_app.image_viewer;
     if (!keys || !capacity || !viewer.scene.active || viewer.closing)
         return 0;
+    ApplicationSearchSourceView source{};
+    if (!application_image_viewer_source(&source))
+        return 0;
     u32 count = 0;
-    if (!current_video() && media_asset_key_valid(viewer.key))
+    if (!current_video() && current_item() && viewer_item_visible(source, *current_item()) &&
+        media_asset_key_valid(viewer.key))
         keys[count++] = viewer.key;
     // One neighbour on each side keeps arrow navigation instant without
     // letting a large gallery evict the preview atlas.
@@ -403,8 +462,8 @@ u32 application_image_viewer_request_keys(MediaAssetKey* keys, u32 capacity) noe
             break;
         const u32 index = static_cast<u32>((viewer.item_index + viewer.item_count + step) % viewer.item_count);
         const auto& item = viewer.items[index];
-        if (index == viewer.item_index || item.video || !media_asset_key_valid(item.key) ||
-            (count && media_asset_key_equal(keys[count - 1], item.key)))
+        if (index == viewer.item_index || item.video || !viewer_item_visible(source, item) ||
+            !media_asset_key_valid(item.key) || (count && media_asset_key_equal(keys[count - 1], item.key)))
             continue;
         keys[count++] = item.key;
     }
@@ -430,6 +489,10 @@ bool application_image_viewer_synchronize() noexcept {
         return renderer_rebuild_content_text(&g_app.renderer, application_theme());
     }
     auto* item = viewer.item_index < viewer.item_count ? &viewer.items[viewer.item_index] : nullptr;
+    if (item && !viewer_item_visible(source, *item)) {
+        application_image_viewer_close();
+        return renderer_rebuild_content_text(&g_app.renderer, application_theme());
+    }
     UiSize pixels = scene.pixels;
     if (item && item->kind == MessageSceneRichItemKind::attachment) {
         for (u32 i = 0; i < source.rich->attachment_count; ++i) {
@@ -515,7 +578,16 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
                                  node->rectangle.top + height};
             if (!ui_rect_contains(preview, x, y))
                 continue;
+            const auto owner = message_media_owner(*message, message_rich_store_find(store, message->id));
+            const auto key = message_media_reveal_key(message->id, MessageMediaSource::attachment, index,
+                                                      content_scope != 0);
             if (probe)
+                return !message_media_obscure_notice(message_scene_media_obscure(
+                    scene, owner, message->id, key, message_rich_attachment_spoiler(store, attachment),
+                    message_rich_attachment_explicit(attachment)));
+            if (application_media_activation_consumed(g_app.message_scene, owner, message->id, key,
+                                                      message_rich_attachment_spoiler(store, attachment),
+                                                      message_rich_attachment_explicit(attachment)))
                 return true;
             auto& viewer = g_app.image_viewer;
             if (!ui_image_viewer_open(
@@ -560,7 +632,15 @@ bool application_image_viewer_open_at(float x, float y, bool probe) noexcept {
             const float width = ui_rect_width(preview), height = ui_rect_height(preview);
             if (!ui_rect_has_area(preview) || !ui_rect_contains(preview, x, y))
                 continue;
+            const auto owner = message_media_owner(*message, message_rich_store_find(store, message->id));
+            const auto key = message_media_reveal_key(message->id, MessageMediaSource::embed, member,
+                                                      content_scope != 0);
             if (probe)
+                return !message_media_obscure_notice(
+                    message_scene_media_obscure(scene, owner, message->id, key, false,
+                                                message_rich_embed_explicit(rich->embeds[member])));
+            if (application_media_activation_consumed(g_app.message_scene, owner, message->id, key, false,
+                                                      message_rich_embed_explicit(rich->embeds[member])))
                 return true;
             auto& viewer = g_app.image_viewer;
             if (!ui_image_viewer_open(&viewer.scene, viewport(),
@@ -597,6 +677,9 @@ bool application_image_viewer_open_search(const ApplicationSearchSourceTicket& t
         source.message->delivery != MessageDeliveryState::authoritative || source.rich->message_revision != source.message->revision) return false;
     const auto& store = *source.rich_store;
     const auto& rich = *source.rich;
+    auto* policy_scene = viewer_media_scene(true);
+    if (!policy_scene)
+        return false;
     const float width = ui_rect_width(painted_preview), height = ui_rect_height(painted_preview);
     MediaAttachmentFormat format{}; MediaAssetKey key{}, fallback{}; UiSize pixels{};
     MessageRichEmbedMediaSelection selected{};
@@ -630,6 +713,27 @@ bool application_image_viewer_open_search(const ApplicationSearchSourceTicket& t
             media_preview_extent_cap(format) > 512 ? MediaResolutionTier::px2048 : MediaResolutionTier::px512, snapshot);
     } else return false;
     if (!media_asset_key_valid(key) || !media_asset_key_valid(fallback)) return false;
+    if (kind == MessageSceneRichItemKind::attachment && index < rich.attachment_count) {
+        const auto& attachment = rich.attachments[index];
+        if (application_media_activation_consumed(
+                *policy_scene,
+                message_media_owner(*source.message, message_rich_store_find(store, source.message->id)),
+                source.message->id,
+                message_media_reveal_key(source.message->id, MessageMediaSource::attachment, index,
+                                         snapshot),
+                message_rich_attachment_spoiler(store, attachment),
+                message_rich_attachment_explicit(attachment)))
+            return true;
+    } else if (kind == MessageSceneRichItemKind::embed && index < rich.embed_count) {
+        if (application_media_activation_consumed(
+                *policy_scene,
+                message_media_owner(*source.message, message_rich_store_find(store, source.message->id)),
+                source.message->id,
+                message_media_reveal_key(source.message->id, MessageMediaSource::embed, index, snapshot),
+                false, message_rich_embed_explicit(rich.embeds[index])))
+            return true;
+    }
+
     auto& viewer = g_app.image_viewer;
     if (!ui_image_viewer_open(&viewer.scene, viewport(), pixels)) return false;
     viewer.search_source = ticket; viewer.search_result = true;
@@ -664,6 +768,22 @@ bool application_image_viewer_open_video(u64 message_id, u32 revision, bool embe
     }
     if (!message || message->id != message_id || message->revision != revision ||
         !application_channel_readable(g_app, message->channel_id))
+        return false;
+    const auto* store = search ? source.rich_store : &g_app.account_ui->message_rich_store;
+    const auto* outer = store ? message_rich_store_find(*store, message_id) : nullptr;
+    const auto* rich = snapshot && store ? message_rich_store_snapshot(*store, message_id) : outer;
+    auto* policy_scene = viewer_media_scene(search != nullptr);
+    if (!policy_scene || !rich || rich->message_revision != revision ||
+        (embed ? index >= rich->embed_count : index >= rich->attachment_count))
+        return false;
+    if (application_media_activation_consumed(
+            *policy_scene, message_media_owner(*message, outer), message_id,
+            message_media_reveal_key(message_id,
+                                     embed ? MessageMediaSource::embed : MessageMediaSource::attachment,
+                                     index, snapshot),
+            !embed && message_rich_attachment_spoiler(*store, rich->attachments[index]),
+            embed ? message_rich_embed_explicit(rich->embeds[index])
+                  : message_rich_attachment_explicit(rich->attachments[index])))
         return false;
     auto& viewer = g_app.image_viewer;
     if (!ui_image_viewer_open(&viewer.scene, viewport(), {16, 9}))

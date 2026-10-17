@@ -7,6 +7,7 @@
 #include "application_composer_text_input.hpp"
 #include "application_composer.hpp"
 #include "application_content_input.hpp"
+#include "application_media_policy.hpp"
 #include "application_message_interaction.hpp"
 #include "application_account_menu.hpp"
 #include "application_image_viewer.hpp"
@@ -232,6 +233,53 @@ bool source_current(const DownloadSource& s) noexcept {
            bytes_equal(live.url, s.url, s.url_bytes) && live.filename_bytes == s.filename_bytes &&
            bytes_equal(live.filename, s.filename, s.filename_bytes);
 }
+bool source_media_allowed(const DownloadSource& source, bool activation = false) noexcept {
+    const MessageRecord* message{};
+    const MessageRichStore* store{};
+    const MessageRichRecord* outer{};
+    const MessageRichRecord* rich{};
+    MessageScene* scene{};
+    if (source.search_result) {
+        ApplicationSearchSourceView view{}, child{};
+        if (!application_search_source_resolve(source.search_source, false, &view) ||
+            (source.snapshot &&
+             !application_search_source_resolve(source.search_source, true, &child)))
+            return false;
+        message = view.message;
+        store = view.rich_store;
+        outer = view.rich;
+        rich = source.snapshot ? child.rich : outer;
+        scene = ui_search_scene_message_scene(application_search_scene());
+    } else {
+        message = message_store_resolve(g_app.message_view.store, source.handle);
+        store = &g_app.account_ui->message_rich_store;
+        outer = message_rich_store_find(*store, source.message);
+        rich = source.snapshot ? message_rich_store_snapshot(*store, source.message) : outer;
+        scene = &g_app.message_scene;
+    }
+    if (!message || !store || !outer || !rich || !scene || message->id != source.message ||
+        message->revision != source.revision || outer->message_revision != source.revision ||
+        rich->message_revision != source.revision)
+        return false;
+    for (u32 index = 0; index < rich->attachment_count; ++index) {
+        const auto& attachment = rich->attachments[index];
+        if (attachment.id != source.attachment)
+            continue;
+        const auto owner = message_media_owner(*message, outer);
+        const auto key = message_media_reveal_key(source.message, MessageMediaSource::attachment,
+                                                  index, source.snapshot);
+        const bool spoiler = message_rich_attachment_spoiler(*store, attachment),
+                   explicit_media = message_rich_attachment_explicit(attachment);
+        // Only a user activation may reveal or request age confirmation. Pending
+        // admission rechecks policy without creating either side effect.
+        return activation
+                   ? !application_media_activation_consumed(*scene, owner, source.message, key,
+                                                             spoiler, explicit_media)
+                   : message_scene_media_obscure(*scene, owner, source.message, key, spoiler,
+                                                  explicit_media) == MessageMediaObscure::none;
+    }
+    return false;
+}
 void changed(ApplicationDownloads& q) noexcept {
     ++q.revision;
     if (!q.revision)
@@ -412,7 +460,7 @@ void cancel_job(ApplicationDownloads& q, u32 index) noexcept {
     changed(q);
 }
 bool begin_source(const DownloadSource& source) noexcept {
-    if (!source_current(source))
+    if (!source_current(source) || !source_media_allowed(source, true))
         return true;
     auto* q = ensure_owner();
     if (!q)
@@ -576,7 +624,7 @@ void picker_complete(ApplicationDownloads& q) noexcept {
     if (j.phase == JobPhase::choosing) {
         if (j.cancel_requested || result.error == NativeFilePickerError::cancelled || q.closing)
             j.phase = JobPhase::cancelled;
-        else if (!source_current(j.source))
+        else if (!source_current(j.source) || !source_media_allowed(j.source))
             fail_job(q, j, HttpsFileDownloadError::invalid_input);
         else {
             NativeFileSaveSelection selected{};
@@ -647,6 +695,8 @@ void activate(ApplicationDownloads& q, UiDownloadTarget target) noexcept {
         cancel_job(q, index);
     else if (target.action == UiDownloadAction::confirm && q.warning_id == j->id &&
              j->phase == JobPhase::warning) {
+        if (source_current(j->source) && !source_media_allowed(j->source, true))
+            return;
         if (!source_current(j->source))
             fail_job(q, *j, HttpsFileDownloadError::invalid_input);
         else {
@@ -658,6 +708,8 @@ void activate(ApplicationDownloads& q, UiDownloadTarget target) noexcept {
     } else if (target.action == UiDownloadAction::retry && terminal(j->phase) &&
                j->phase != JobPhase::saved && !j->admitted && q.picker_job != index &&
                source_current(j->source)) {
+        if (!source_media_allowed(j->source, true))
+            return;
         j->force_refresh =
             j->force_refresh || j->transfer.status_code == 403 || j->transfer.status_code == 404;
         release_path(*j);
@@ -1014,7 +1066,7 @@ bool application_downloads_pump() noexcept {
     if (!q->closing && q->picker_job != kNoDownload) {
         auto& choosing = q->jobs[q->picker_job];
         if (choosing.phase == JobPhase::choosing && !choosing.cancel_requested &&
-            !source_current(choosing.source)) {
+            (!source_current(choosing.source) || !source_media_allowed(choosing.source))) {
             choosing.cancel_requested = true;
             fail_job(*q, choosing, HttpsFileDownloadError::invalid_input);
             native_file_picker_cancel(&q->picker);
@@ -1064,7 +1116,7 @@ bool application_downloads_pump() noexcept {
             auto& j = q->jobs[i];
             if (!j.occupied || terminal(j.phase))
                 continue;
-            if (!source_current(j.source)) {
+            if (!source_current(j.source) || !source_media_allowed(j.source)) {
                 fail_job(*q, j, HttpsFileDownloadError::invalid_input);
                 continue;
             }
@@ -1107,6 +1159,7 @@ bool application_downloads_pump() noexcept {
             if (result == ReceivedAttachmentOpenResult::pending)
                 break;
             if (result != ReceivedAttachmentOpenResult::ready || !source_current(j.source) ||
+                !source_media_allowed(j.source) ||
                 !url_current(ready, j.source.origin_channel, j.source.attachment)) {
                 fail_job(*q, j,
                          result == ReceivedAttachmentOpenResult::stale

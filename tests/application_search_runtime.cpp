@@ -25,6 +25,8 @@ u32 forced_account_repaints;
 u32 overlay_repaints;
 u32 navigations;
 u32 search_saves;
+u32 content_confirmations;
+MessageMediaPolicyResult media_policy{MessageExplicitFilter::show, true};
 u32 content_retirements;
 u32 navigation_releases;
 ApplicationSearchSourceTicket saved_search_ticket;
@@ -688,7 +690,7 @@ void rich_publication() noexcept {
           "search rich publication: real role and overwrite model establishes source read permission "
           "before actions");
     constexpr auto body = utf8_literal(
-        R"search({"total_results":2,"messages":[[{"id":"600","channel_id":"70","guild_id":"7","author":{"id":"3","username":"Rich original"},"content":"Outer **bold** [original](https://example.invalid/source)","timestamp":"2026-01-01T00:00:00Z","hit":true,"attachments":[{"id":"100","filename":"original.bin","size":17,"url":"https://cdn.discordapp.com/attachments/70/100/original.bin"}],"message_reference":{"type":1,"message_id":"500","channel_id":"70","guild_id":"7"},"message_snapshots":[{"message":{"type":0,"content":"Forwarded original","attachments":[{"id":"101","filename":"original.png","size":17,"content_type":"image/png","width":320,"height":200,"url":"https://cdn.discordapp.com/attachments/70/101/original.png"}]}}]}],[{"id":"600","channel_id":"70","guild_id":"7","author":{"id":"3","username":"Rich original"},"content":"Outer **bold** [original](https://example.invalid/source)","timestamp":"2026-01-01T00:00:00Z","hit":true,"attachments":[{"id":"100","filename":"original.bin","size":17,"url":"https://cdn.discordapp.com/attachments/70/100/original.bin"}],"message_reference":{"type":1,"message_id":"500","channel_id":"70","guild_id":"7"},"message_snapshots":[{"message":{"type":0,"content":"Forwarded original","attachments":[{"id":"101","filename":"original.png","size":17,"content_type":"image/png","width":320,"height":200,"url":"https://cdn.discordapp.com/attachments/70/101/original.png"}]}}]}]]})search");
+        R"search({"total_results":2,"messages":[[{"id":"600","channel_id":"70","guild_id":"7","author":{"id":"3","username":"Rich original"},"content":"Outer **bold** [original](https://example.invalid/source)","timestamp":"2026-01-01T00:00:00Z","hit":true,"attachments":[{"id":"100","filename":"original.bin","flags":16,"size":17,"url":"https://cdn.discordapp.com/attachments/70/100/original.bin"}],"message_reference":{"type":1,"message_id":"500","channel_id":"70","guild_id":"7"},"message_snapshots":[{"message":{"type":0,"content":"Forwarded original","attachments":[{"id":"101","filename":"original.png","size":17,"content_type":"image/png","width":320,"height":200,"url":"https://cdn.discordapp.com/attachments/70/101/original.png"}]}}]}],[{"id":"600","channel_id":"70","guild_id":"7","author":{"id":"3","username":"Rich original"},"content":"Outer **bold** [original](https://example.invalid/source)","timestamp":"2026-01-01T00:00:00Z","hit":true,"attachments":[{"id":"100","filename":"original.bin","flags":16,"size":17,"url":"https://cdn.discordapp.com/attachments/70/100/original.bin"}],"message_reference":{"type":1,"message_id":"500","channel_id":"70","guild_id":"7"},"message_snapshots":[{"message":{"type":0,"content":"Forwarded original","attachments":[{"id":"101","filename":"original.png","size":17,"content_type":"image/png","width":320,"height":200,"url":"https://cdn.discordapp.com/attachments/70/101/original.png"}]}}]}]]})search");
     const bool queued = query(utf8_literal("rich original"));
     const bool submitted = queued && application_search_submit(950, 1);
     const bool received = submitted && response(950, 200, body);
@@ -746,6 +748,28 @@ void rich_publication() noexcept {
               saved_search_attachment == 100 && !saved_search_snapshot,
           "search rich publication: native focused file CtrlS submits the exact current bank ticket and "
           "outer attachment");
+    auto guarded = native ? ui_search_scene_rich_widget_target(g_app.search->scene, file) : UiSearchTarget{};
+    guarded.save = true;
+    const auto saves_before_policy = search_saves;
+    const auto reveals_before_policy = native ? native->media_reveals.count : 0;
+    media_policy = {MessageExplicitFilter::block, true};
+    const bool blocked = native && activate(*g_app.search, guarded) && activate(*g_app.search, guarded);
+    check(blocked && search_saves == saves_before_policy && native->media_reveals.count == reveals_before_policy,
+          "search media policy: blocked explicit file cannot Save or reveal through controller activation");
+    media_policy = {MessageExplicitFilter::blur, true};
+    const auto reveal_key = message_media_reveal_key(ticket.message_id, MessageMediaSource::attachment, 0);
+    const bool revealed = native && activate(*g_app.search, guarded);
+    check(revealed && search_saves == saves_before_policy &&
+              message_media_revealed(native->media_reveals, reveal_key) &&
+              activate(*g_app.search, guarded) && search_saves == saves_before_policy + 1,
+          "search media policy: first Save gesture only reveals and second Save uses the exact attachment");
+    media_policy = {MessageExplicitFilter::blur, false};
+    const auto confirms_before_policy = content_confirmations;
+    const auto gated_reveals = native ? native->media_reveals.revision : 0;
+    check(native && activate(*g_app.search, guarded) && content_confirmations == confirms_before_policy + 1 &&
+              search_saves == saves_before_policy + 1 && native->media_reveals.revision == gated_reveals,
+          "search media policy: eligibility confirmation prevents Save without changing prior reveal state");
+    media_policy = {MessageExplicitFilter::show, true};
     if (native) {
         UiWidgetHandle last{};
         for (u32 i = 0; i < native->widgets.count; ++i) {
@@ -1960,6 +1984,15 @@ bool text_edit_layout_hit_test(const TextEditLayoutOwner&, float, float, u32* po
     return true;
 }
 namespace app_detail {
+MessageMediaPolicy application_message_media_policy() noexcept {
+    return {nullptr, [](const void*, const MessageMediaOwner&) noexcept {
+        return search_runtime_test::media_policy;
+    }, 1};
+}
+void application_user_settings_request_content_confirmation() noexcept {
+    ++search_runtime_test::content_confirmations;
+}
+bool refresh_account_frame(bool force) noexcept { return refresh_account_text(force); }
 bool application_poll_search_state(u64 id, u32 publication, Slice<UiPollAnswer>, UiPollState*,
                                    ApplicationPollSource*) noexcept {
     ++search_runtime_test::poll_projection_calls;

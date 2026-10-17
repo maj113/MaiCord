@@ -14,6 +14,7 @@ bool application_guild_folders_response(const RestClientResponse&, Utf8View) noe
     return false;
 }
 const ApplicationTextFormRequest* settings_runtime_text_form() noexcept;
+u32 settings_runtime_link_opens(Utf8View*, bool*) noexcept;
 namespace {
 u32 theme_refreshes = 0;
 AccountSettingsRequest captured{};
@@ -41,6 +42,125 @@ Utf8View body_of(u8* storage, u32 capacity, u8* target, u32 target_capacity, Utf
         return {};
     *path = {reinterpret_cast<const char*>(target), written.target_bytes};
     return {reinterpret_cast<const char*>(storage), written.body_bytes};
+}
+void content_filter_cases(void (*check)(bool, const char*) noexcept, const GatewayClientEvent& event) noexcept {
+    auto& policy = g_app.account_ui->chat_state.content_policy;
+    const auto saved_policy = policy;
+    UiSettingsControl control{};
+    UiSettingsControlPresentation presentation{};
+    const auto project = [&](SettingBinding binding) noexcept {
+        control = {};
+        presentation = {};
+        return application_user_settings_project(binding, &control, &presentation);
+    };
+    const auto agrees = [&](MessageMediaContext context, u64 explicit_value, u64 legacy_value) noexcept {
+        return application_user_settings_explicit_filter(context) ==
+               message_explicit_filter_resolve(context, explicit_value, legacy_value, policy);
+    };
+    policy = {};
+    const u32 calls_before = captured_calls;
+    check(agrees(MessageMediaContext::guild, 0, 1) && agrees(MessageMediaContext::friend_dm, 0, 1) &&
+              agrees(MessageMediaContext::other_dm, 0, 1) && project(SettingBinding::explicit_guilds) &&
+              control.selected_choice == 0 && control.choices.count == 2 && control.enabled &&
+              project(SettingBinding::explicit_others) && control.selected_choice == 2 &&
+              control.choices.count == 3,
+          "content policy: missing preferences share service defaults and context-specific choices");
+    const u8 legacy_zero[]{50, 3, 0x9A, 0x01, 0};
+    application_user_settings_gateway(event, {legacy_zero, sizeof(legacy_zero)});
+    check(application_user_settings_explicit_filter(MessageMediaContext::other_dm) == MessageExplicitFilter::show &&
+              agrees(MessageMediaContext::other_dm, 0, 0),
+          "content policy: a present empty legacy wrapper means Show instead of the missing-field default");
+    const u8 legacy_all[]{50, 5, 0x9A, 0x01, 2, 8, 2};
+    application_user_settings_gateway(event, {legacy_all, sizeof(legacy_all)});
+    check(agrees(MessageMediaContext::guild, 0, 2) && agrees(MessageMediaContext::friend_dm, 0, 2) &&
+              agrees(MessageMediaContext::other_dm, 0, 2) &&
+              application_user_settings_explicit_filter(MessageMediaContext::friend_dm) == MessageExplicitFilter::block,
+          "content policy: legacy all-DM filtering changes both DM contexts without changing guild defaults");
+    const u8 invalid_explicit[]{50, 9, 0xEA, 0x01, 6, 8, 4, 16, 4, 24, 4};
+    application_user_settings_gateway(event, {invalid_explicit, sizeof(invalid_explicit)});
+    policy.flags = account_content_teen_defaults;
+    check(agrees(MessageMediaContext::guild, 4, 1) && agrees(MessageMediaContext::friend_dm, 4, 1) &&
+              agrees(MessageMediaContext::other_dm, 4, 1) && project(SettingBinding::explicit_friends) &&
+              control.choices.count == 3 && control.selected_choice == 1 && control.enabled,
+          "content policy: invalid explicit values use regional defaults without inventing option restrictions");
+    policy = {AccountContentEligibility::restricted, AccountAgeVerification::unknown, 0};
+    check(project(SettingBinding::explicit_friends) && control.choices.count == 2 &&
+              utf8_equal(control.choices[0], utf8_literal("Blur")) && control.selected_choice == 0 && control.enabled &&
+              project(SettingBinding::explicit_guilds) && control.choices.count == 1 &&
+              control.selected_choice == 0 && !control.enabled &&
+              !application_user_settings_activate(SettingBinding::explicit_guilds, false, 0),
+          "content policy: restricted accounts choose Blur or Block in DMs and cannot change guild Blur");
+    const u8 saved_unsupported[]{50, 9, 0xEA, 0x01, 6, 8, 3, 16, 1, 24, 2};
+    application_user_settings_gateway(event, {saved_unsupported, sizeof(saved_unsupported)});
+    const u64 saved_revision = application_user_settings_revision();
+    check(agrees(MessageMediaContext::guild, 3, 1) && agrees(MessageMediaContext::friend_dm, 1, 1) &&
+              project(SettingBinding::explicit_friends) && control.selected_choice == kUiSettingsNoChoice &&
+              control.description.bytes && control.enabled && project(SettingBinding::explicit_guilds) &&
+              control.selected_choice == kUiSettingsNoChoice && control.description.bytes && !control.enabled &&
+              application_user_settings_revision() == saved_revision && !application_user_settings_next_wake() &&
+              captured_calls == calls_before,
+          "content policy: valid unsupported saved values remain effective and honestly unselected without a PATCH");
+    policy = {AccountContentEligibility::allowed, AccountAgeVerification::unknown, account_content_parent_managed};
+    check(project(SettingBinding::explicit_friends) && !control.enabled &&
+              !application_user_settings_activate(SettingBinding::explicit_friends, false, 1) &&
+              project(SettingBinding::explicit_others) && !control.enabled &&
+              !application_user_settings_activate(SettingBinding::explicit_others, false, 2) &&
+              project(SettingBinding::explicit_guilds) && !control.enabled &&
+              !application_user_settings_activate(SettingBinding::explicit_guilds, false, 0) &&
+              application_user_settings_revision() == saved_revision,
+          "content policy: parent-managed settings cannot be changed through any native filter control");
+    const u8 saved_blur[]{50, 9, 0xEA, 0x01, 6, 8, 2, 16, 2, 24, 2};
+    application_user_settings_gateway(event, {saved_blur, sizeof(saved_blur)});
+    policy = {AccountContentEligibility::allowed, AccountAgeVerification::unverified, account_content_age_confirmation};
+    const u64 gated_revision = application_user_settings_revision();
+    check(application_user_settings_content_confirmation_required() &&
+              application_user_settings_activate(SettingBinding::explicit_friends, false, 0),
+          "content policy: gated Show opens an account age confirmation explanation");
+    const auto* confirmation = settings_runtime_text_form();
+    const u32 links_before = settings_runtime_link_opens(nullptr, nullptr);
+    auto stale_owner = confirmation ? confirmation->owner : TextFormOwnerKey{};
+    ++stale_owner.item;
+    check(confirmation && !confirmation->save(stale_owner, {}) &&
+              settings_runtime_link_opens(nullptr, nullptr) == links_before,
+          "content policy: stale account confirmation cannot open an external link");
+    check(confirmation && confirmation->confirmation_only &&
+              utf8_equal(confirmation->title, utf8_literal("Confirm your age in Discord")) &&
+              utf8_equal(confirmation->accept, utf8_literal("Open Discord account status")) &&
+              utf8_equal(confirmation->cancel, utf8_literal("Close")) &&
+              application_user_settings_revision() == gated_revision && !application_user_settings_next_wake() &&
+              confirmation->save(confirmation->owner, {}) && application_user_settings_content_confirmation_required() &&
+              application_user_settings_explicit_filter(MessageMediaContext::friend_dm) == MessageExplicitFilter::blur,
+          "content policy: opening account status supplies no proof and writes no setting");
+    Utf8View opened_url{};
+    bool opened_trusted = false;
+    check(settings_runtime_link_opens(&opened_url, &opened_trusted) == links_before + 1 && opened_trusted &&
+              utf8_equal(opened_url, utf8_literal("https://discord.com/settings/account-status")) &&
+              !settings_runtime_text_form(),
+          "content policy: confirmation closes before opening the official account-status page");
+    policy.age_verification = AccountAgeVerification::verified_teen;
+    check(application_user_settings_content_confirmation_required(),
+          "content policy: verified teen status does not authorize sensitive-media Show");
+    policy.age_verification = AccountAgeVerification::verified_adult;
+    check(!application_user_settings_content_confirmation_required() &&
+              application_user_settings_activate(SettingBinding::explicit_friends, false, 0) &&
+              application_user_settings_explicit_filter(MessageMediaContext::friend_dm) == MessageExplicitFilter::show &&
+              application_user_settings_submit(9900, clock_monotonic_milliseconds() + 2000),
+          "content policy: authoritative adult status permits an ordinary optimistic Show edit");
+    application_user_settings_response(reply(9900, 500), {});
+    check(application_user_settings_explicit_filter(MessageMediaContext::friend_dm) == MessageExplicitFilter::blur,
+          "content policy: rejected filter edits invalidate the cache and restore the accepted value");
+    policy.age_verification = AccountAgeVerification::inferred_adult;
+    check(!application_user_settings_content_confirmation_required(),
+          "content policy: authoritative inferred-adult status satisfies account confirmation");
+    application_user_settings_release();
+    policy = {};
+    check(!application_user_settings_ready() &&
+              application_user_settings_explicit_filter(MessageMediaContext::guild) == MessageExplicitFilter::show &&
+              application_user_settings_explicit_filter(MessageMediaContext::friend_dm) == MessageExplicitFilter::show &&
+              application_user_settings_explicit_filter(MessageMediaContext::other_dm) == MessageExplicitFilter::block,
+          "content policy: releasing settings discards cached overrides and restores account defaults");
+    application_user_settings_release();
+    policy = saved_policy;
 }
 } // namespace
 
@@ -97,6 +217,9 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
               !project(SettingBinding::user_settings_notice) &&
               utf8_equal(application_user_settings_session_hash(), utf8_literal("cur")),
           "user settings runtime: READY snapshot drives bindings, the clock and the session hash");
+    content_filter_cases(check, event);
+    application_user_settings_gateway(event, {payload, extracted.bytes});
+    application_user_settings_synchronize();
     const u64 now = clock_monotonic_milliseconds();
     const u32 refreshes = theme_refreshes;
     check(application_user_settings_activate(SettingBinding::time_format, false, 2) &&

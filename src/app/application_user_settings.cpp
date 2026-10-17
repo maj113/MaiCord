@@ -1,6 +1,8 @@
 #include "application_user_settings.hpp"
 #include "application_guild_folders.hpp"
 #include "application_state.hpp"
+#include "application_text_form.hpp"
+#include "application_link_trust.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
@@ -22,6 +24,8 @@ constexpr UserSettingsField kCompact{6, 17, 0, K::boolean}, kNsfwCommands{6, 23,
     kInlineEmbed{6, 10, 0, K::boolean}, kGifAutoPlay{6, 11, 0, K::boolean}, kRenderEmbeds{6, 12, 0, K::boolean},
     kRenderReactions{6, 13, 0, K::boolean}, kAnimateEmoji{6, 14, 0, K::boolean},
     kAnimateStickers{6, 15, 0, K::uint32}, kConvertEmoticons{6, 21, 0, K::boolean};
+constexpr UserSettingsField kLegacyExplicit{6, 19, 0, K::uint32};
+constexpr Utf8View kExplicitChoices[]{utf8_literal("Show"), utf8_literal("Blur"), utf8_literal("Block")};
 // privacy.restricted_guild_ids, message_request_restricted_guild_ids,
 // activity_restricted_guild_ids, activity_joining_restricted_guild_ids.
 // Membership is absolute, not an exception to a default: the defaults only
@@ -51,6 +55,10 @@ struct Owner {
     Utf8View status;
     u8 attempts;
     bool fetching, failed;
+    u64 explicit_revision;
+    AccountContentPolicy explicit_policy;
+    MessageExplicitFilter explicit_filters[3];
+    bool explicit_cached;
 };
 Owner g_owner{};
 
@@ -64,6 +72,21 @@ UserSettingsStore* store() noexcept {
 }
 bool loaded() noexcept {
     return store() && store()->loaded;
+}
+AccountContentPolicy content_policy() noexcept {
+    return g_app.account_ui ? g_app.account_ui->chat_state.content_policy : AccountContentPolicy{};
+}
+bool content_confirmation_valid(TextFormOwnerKey key) noexcept {
+    return online() && key.scope == reinterpret_cast<u64>(g_app.account.instance) &&
+           key.collection == g_app.account.status.profile_id &&
+           key.item == g_app.account_ui->chat_state.self_user_id &&
+           account_content_confirmation_required(content_policy());
+}
+bool content_confirmation_open(TextFormOwnerKey key, Utf8View) noexcept {
+    if (!content_confirmation_valid(key))
+        return false;
+    application_text_form_close();
+    return application_link_open(utf8_literal("https://discord.com/settings/account-status"), true);
 }
 void release_bank() noexcept {
     if (!g_owner.bank)
@@ -87,6 +110,7 @@ void scope() noexcept {
     const u64 self = g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0;
     if (g_owner.profile_id == profile && g_owner.self_user_id == self)
         return;
+    application_text_form_cancel_owner(content_confirmation_valid);
     if (g_owner.request_id && g_app.account.api.account_settings && g_app.account.instance)
         g_app.account.api.account_settings(g_app.account.instance, nullptr, g_owner.request_id);
     release_bank();
@@ -99,6 +123,26 @@ void scope() noexcept {
 u64 read_number(UserSettingsField field, u64 fallback) noexcept {
     UserSettingsValue value{};
     return store() && user_settings_store_read(*store(), field, &value) ? value.number : fallback;
+}
+struct ExplicitOptions {
+    u32 first, count;
+    bool enabled;
+};
+ExplicitOptions explicit_options(SettingBinding binding) noexcept {
+    const auto policy = content_policy();
+    const bool restricted = policy.eligibility == AccountContentEligibility::restricted;
+    const bool guild = binding == SettingBinding::explicit_guilds;
+    return {restricted ? 1u : 0u, guild ? (restricted ? 1u : 2u) : (restricted ? 2u : 3u),
+            !(policy.flags & account_content_parent_managed) && !(guild && restricted)};
+}
+MessageMediaContext explicit_context(SettingBinding binding) noexcept {
+    return binding == SettingBinding::explicit_friends ? MessageMediaContext::friend_dm
+           : binding == SettingBinding::explicit_others ? MessageMediaContext::other_dm
+                                                        : MessageMediaContext::guild;
+}
+UserSettingsField explicit_field(SettingBinding binding) noexcept {
+    return binding == SettingBinding::explicit_friends ? kExplicitFriends
+           : binding == SettingBinding::explicit_others ? kExplicitOthers : kExplicitGuilds;
 }
 bool present(UserSettingsField field) noexcept {
     UserSettingsValue value{};
@@ -313,6 +357,7 @@ u64 application_user_settings_next_wake() noexcept {
 }
 
 void application_user_settings_release() noexcept {
+    application_text_form_cancel_owner(content_confirmation_valid);
     release_bank();
     g_owner = {};
     message_scene_set_display(&g_app.message_scene, {g_app.preferences.message_group_spacing, false});
@@ -356,6 +401,50 @@ bool application_user_settings_reveal_spoilers(u64 channel_id) noexcept {
     default:
         return false;
     }
+}
+
+MessageExplicitFilter application_user_settings_explicit_filter(MessageMediaContext context) noexcept {
+    scope();
+    const u32 index = static_cast<u32>(context);
+    if (index >= 3)
+        return MessageExplicitFilter::block;
+    const u64 revision = store() ? store()->revision : 0;
+    const auto policy = content_policy();
+    if (!g_owner.explicit_cached || g_owner.explicit_revision != revision ||
+        !bytes_equal(&g_owner.explicit_policy, &policy, sizeof(policy))) {
+        const u64 legacy = read_number(kLegacyExplicit, 1);
+        g_owner.explicit_filters[0] = message_explicit_filter_resolve(
+            MessageMediaContext::guild, read_number(kExplicitGuilds, 0), legacy, policy);
+        g_owner.explicit_filters[1] = message_explicit_filter_resolve(
+            MessageMediaContext::friend_dm, read_number(kExplicitFriends, 0), legacy, policy);
+        g_owner.explicit_filters[2] = message_explicit_filter_resolve(
+            MessageMediaContext::other_dm, read_number(kExplicitOthers, 0), legacy, policy);
+        g_owner.explicit_revision = revision;
+        g_owner.explicit_policy = policy;
+        g_owner.explicit_cached = true;
+    }
+    return g_owner.explicit_filters[index];
+}
+
+bool application_user_settings_content_confirmation_required() noexcept {
+    return account_content_confirmation_required(content_policy());
+}
+
+void application_user_settings_request_content_confirmation() noexcept {
+    if (!online() || !application_user_settings_content_confirmation_required())
+        return;
+    ApplicationTextFormRequest request{};
+    request.title = utf8_literal("Confirm your age in Discord");
+    request.context = utf8_literal("To show sensitive media, open Discord and go to User Settings > Account Status, "
+                                   "then choose Confirm Age. Return here after Discord updates your account.");
+    request.accept = utf8_literal("Open Discord account status");
+    request.cancel = utf8_literal("Close");
+    request.owner = {reinterpret_cast<u64>(g_app.account.instance), g_app.account.status.profile_id,
+                     g_app.account_ui->chat_state.self_user_id};
+    request.valid = content_confirmation_valid;
+    request.save = content_confirmation_open;
+    request.confirmation_only = true;
+    application_text_form_open(request);
 }
 
 bool application_user_settings_read(UserSettingsField field, UserSettingsValue* value) noexcept {
@@ -432,13 +521,28 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
     case SettingBinding::explicit_friends:
     case SettingBinding::explicit_others:
     case SettingBinding::explicit_guilds: {
-        // Unset: friends show, everything else blurs.
-        const u64 fallback = binding == SettingBinding::explicit_friends ? 1 : 2;
-        const u64 value = read_number(binding == SettingBinding::explicit_friends  ? kExplicitFriends
-                                      : binding == SettingBinding::explicit_others ? kExplicitOthers
-                                                                                   : kExplicitGuilds,
-                                      fallback);
-        control->selected_choice = static_cast<u32>((value >= 1 && value <= 3 ? value : fallback) - 1);
+        const auto options = explicit_options(binding);
+        const auto value = application_user_settings_explicit_filter(explicit_context(binding));
+        const u32 selected = static_cast<u32>(value);
+        control->choices = {kExplicitChoices + options.first, options.count};
+        control->enabled = ready && options.enabled;
+        control->selected_choice = selected >= options.first && selected - options.first < options.count
+                                       ? selected - options.first : kUiSettingsNoChoice;
+        if (content_policy().flags & account_content_parent_managed)
+            control->description = value == MessageExplicitFilter::show
+                ? utf8_literal("Current setting: Show. Managed by your parent or guardian.")
+                : value == MessageExplicitFilter::blur
+                    ? utf8_literal("Current setting: Blur. Managed by your parent or guardian.")
+                    : utf8_literal("Current setting: Block. Managed by your parent or guardian.");
+        else if (control->selected_choice == kUiSettingsNoChoice)
+            control->description = binding == SettingBinding::explicit_guilds &&
+                                           content_policy().eligibility == AccountContentEligibility::restricted
+                ? (value == MessageExplicitFilter::show
+                       ? utf8_literal("Current setting: Show. Changes to server filtering are restricted for this account.")
+                       : utf8_literal("Current setting: Block. Changes to server filtering are restricted for this account."))
+                : value == MessageExplicitFilter::show
+                    ? utf8_literal("Current setting: Show. This account can choose Blur or Block.")
+                    : utf8_literal("Current setting: Block. Server channels support Show or Blur.");
         return true;
     }
     case SettingBinding::friend_everyone:
@@ -496,11 +600,17 @@ bool application_user_settings_activate(SettingBinding binding, bool checked, u3
         return choice < 3 && write(kSpam, user_settings_number(kSpamValues[choice]));
     case SettingBinding::explicit_friends:
     case SettingBinding::explicit_others:
-    case SettingBinding::explicit_guilds:
-        return choice < 3 && write(binding == SettingBinding::explicit_friends  ? kExplicitFriends
-                                   : binding == SettingBinding::explicit_others ? kExplicitOthers
-                                                                                : kExplicitGuilds,
-                                   user_settings_number(choice + 1));
+    case SettingBinding::explicit_guilds: {
+        const auto options = explicit_options(binding);
+        if (!options.enabled || choice >= options.count)
+            return false;
+        const u32 value = options.first + choice + 1;
+        if (value == 1 && application_user_settings_content_confirmation_required()) {
+            application_user_settings_request_content_confirmation();
+            return true;
+        }
+        return write(explicit_field(binding), user_settings_number(value));
+    }
     case SettingBinding::friend_everyone:
     case SettingBinding::friend_mutual_friends:
     case SettingBinding::friend_mutual_guilds: {

@@ -462,6 +462,7 @@ bool application_pinned_messages_toggle() noexcept {
 bool refresh_account_frame(bool) noexcept {
     return true;
 }
+void application_user_settings_request_content_confirmation() noexcept {}
 bool application_voice_join(u64, u64) noexcept {
     return true;
 }

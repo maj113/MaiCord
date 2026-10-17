@@ -6,18 +6,30 @@
 
 namespace maicord::search_content_test {
 bool target_current(const UiSearchScene&, UiSearchTarget) noexcept;
+MessageScene* native_scene(UiSearchScene*) noexcept;
 }
 #define ui_search_scene_target_current ::maicord::search_content_test::target_current
+#define ui_search_scene_message_scene ::maicord::search_content_test::native_scene
 #include "../src/app/application_search_content.cpp"
 #undef ui_search_scene_target_current
+#undef ui_search_scene_message_scene
 
 namespace maicord::search_content_test {
 using namespace app_detail;
 enum class Mutation : u8 { none, account, profile, self, permission, publication, release, resolver };
 u32 failures{}, launches{}, notices{}, navigations{};
+u32 account_refreshes{}, confirmations{};
 u32 publication = 1000;
 u32 layout_revision = 700;
 UiSearchScene scene{};
+MessageScene media_scene{};
+MessageMediaPolicyResult media_policy{MessageExplicitFilter::show, true};
+MessageMediaOwner last_media_owner{};
+MessageMediaPolicyResult query_media(const void*, const MessageMediaOwner& owner) noexcept {
+    last_media_owner = owner;
+    return media_policy;
+}
+MessageScene* native_scene(UiSearchScene*) noexcept { return &media_scene; }
 bool allowed = true, visible_link = true, friend_dm = true, last_trusted_text{};
 Mutation mutation{};
 u8 account_marker{};
@@ -47,10 +59,14 @@ void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);
 }
 bool seed(Utf8View content = utf8_literal("[masked](https://example.test/accepted)"),
-          Utf8View file = fresh_file) noexcept {
+          Utf8View file = fresh_file, u32 flags = 0, u32 child_flags = 0) noexcept {
     application_search_content_release();
     allowed = visible_link = friend_dm = true; mutation = Mutation::none;
     layout_revision = 700;
+    media_scene = {};
+    g_app.frame_pending = false;
+    media_scene.media_policy = {nullptr, query_media, 1};
+    media_policy = {MessageExplicitFilter::show, true};
     g_app.plugin_account_scope_serial = 7; g_app.account.status.profile_id = 4;
     g_app.account_ui->chat_state.self_user_id = 3; g_app.account_ui->active_channel_id = 999;
     g_app.account.instance = &account_marker; g_app.account.stop_failed = false; g_app.login.visible = false;
@@ -62,7 +78,9 @@ bool seed(Utf8View content = utf8_literal("[masked](https://example.test/accepte
     records[inserted.handle.slot].revision = publication;
     GatewayMessageAttachment attachment{}; attachment.id = 900; attachment.filename = utf8_literal("report.pdf");
     attachment.url = file; attachment.size = 17;
+    attachment.flags = flags;
     auto child = attachment; child.id = 901; child.filename = utf8_literal("child.pdf"); child.url = child_file;
+    child.flags = child_flags;
     GatewayMessageEmbed embed{}; embed.title = utf8_literal("Embed title");
     embed.url = utf8_literal("https://example.test/embed");
     auto child_embed = embed; child_embed.url = utf8_literal("https://example.test/child-embed");
@@ -175,6 +193,70 @@ void run() noexcept {
     seed(); before = launches; application_search_content_activate(ticket(), target());
     check(launches == before + 1 && !content_owner.intent.pending && !last_trusted_text,
         "Search current signed original file admits distinct layout and publication receipts without a resolver owner");
+    seed({}, fresh_file, kGatewayMediaExplicitFlag, kGatewayMediaExplicitFlag);
+    media_policy = {MessageExplicitFilter::blur, true};
+    before = launches;
+    const auto outer_key = message_media_reveal_key(800, MessageMediaSource::attachment, 0);
+    const auto child_key = message_media_reveal_key(800, MessageMediaSource::attachment, 0, true);
+    application_search_content_activate(ticket(), target());
+    check(launches == before && !content_owner.intent.pending && g_app.frame_pending && !account_refreshes &&
+        message_media_revealed(media_scene.media_reveals, outer_key) &&
+        !message_media_revealed(media_scene.media_reveals, child_key),
+        "Search direct explicit file activation reveals only the outer key without external launch");
+    g_app.frame_pending = false;
+    application_search_content_activate(ticket(), target());
+    check(launches == before + 1 && !g_app.frame_pending && !account_refreshes,
+        "Search direct second activation opens the previously revealed original once");
+    g_app.frame_pending = false;
+    application_search_content_activate(ticket(), target(true));
+    check(launches == before + 1 && g_app.frame_pending && !account_refreshes &&
+        message_media_revealed(media_scene.media_reveals, child_key) &&
+        last_media_owner.channel_id == 101 && last_media_owner.author_id == 0 &&
+        last_media_owner.source_channel_id == 777 && last_media_owner.source_message_id == 888 &&
+        last_media_owner.forwarded,
+        "Search forwarded file has its own reveal key and uses the outer destination policy owner");
+    g_app.frame_pending = false;
+    application_search_content_activate(ticket(), target(true));
+    check(launches == before + 2 && !g_app.frame_pending && !account_refreshes && opened_is(child_file.data),
+        "Search forwarded file opens only after its separate reveal gesture");
+    seed({}, fresh_file, kGatewayMediaExplicitFlag);
+    media_policy = {MessageExplicitFilter::block, true};
+    before = launches;
+    application_search_content_activate(ticket(), target());
+    application_search_content_activate(ticket(), target());
+    check(launches == before && !media_scene.media_reveals.count && !content_owner.intent.pending &&
+        !g_app.frame_pending,
+        "Search direct blocked file never reveals or launches after repeated activation");
+    media_policy = {MessageExplicitFilter::blur, false};
+    const auto confirmation_before = confirmations;
+    application_search_content_activate(ticket(), target());
+    check(launches == before && confirmations == confirmation_before + 1 &&
+        !media_scene.media_reveals.count && !content_owner.intent.pending && !g_app.frame_pending,
+        "Search direct eligibility gate requests confirmation without reveal or external activation");
+    seed({}, fresh_file, kGatewayAttachmentSpoilerFlag);
+    before = launches;
+    application_search_content_activate(ticket(), target());
+    check(launches == before && message_media_revealed(media_scene.media_reveals, outer_key),
+        "Search direct file respects spoiler flags even with explicit media set to show");
+    application_search_content_activate(ticket(), target());
+    check(launches == before + 1, "Search direct spoiler file opens on its second gesture");
+    const MessageMediaPolicyResult refresh_policies[]{{MessageExplicitFilter::blur, true},
+        {MessageExplicitFilter::blur, false}};
+    bool refresh_fenced = true;
+    for (const auto policy : refresh_policies) {
+        seed({}, unsigned_file, kGatewayMediaExplicitFlag);
+        application_search_content_activate(ticket(), target());
+        const bool pending = content_owner.intent.pending && refreshed();
+        media_policy = policy;
+        before = launches; const auto confirms = confirmations;
+        g_app.frame_pending = false;
+        application_search_content_pump();
+        refresh_fenced = pending && launches == before && confirmations == confirms && !g_app.frame_pending &&
+            !media_scene.media_reveals.count && !content_owner.intent.pending && refresh_fenced;
+    }
+    check(refresh_fenced,
+        "Search deferred file cancels newly obscured media without async reveal or eligibility confirmation");
+    seed();
     auto embed_target = target(); embed_target.rich_kind = MessageSceneRichItemKind::embed;
     before = launches; application_search_content_activate(ticket(), embed_target);
     check(launches == before + 1 && opened_is("https://example.test/embed") && !last_trusted_text,
@@ -237,12 +319,15 @@ void run() noexcept {
     application_search_content_activate(ticket(), stale);
     stale = target(); ++stale.source_index; application_search_content_activate(ticket(), stale);
     check(launches == before, "Search attachment actions reject stale layout receipt and result index before opening");
+    check(!account_refreshes, "Search content activation never refreshes the unrelated account timeline");
     application_search_content_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE); g_app.account_ui = nullptr;
 }
 } // namespace maicord::search_content_test
 
 namespace maicord::app_detail {
+bool refresh_account_frame(bool) noexcept { ++search_content_test::account_refreshes; return true; }
+void application_user_settings_request_content_confirmation() noexcept { ++search_content_test::confirmations; }
 UiSearchScene* application_search_scene() noexcept { return &search_content_test::scene; }
 bool application_search_source_resolve(const ApplicationSearchSourceTicket& id, bool snapshot,
                                        ApplicationSearchSourceView* output) noexcept {

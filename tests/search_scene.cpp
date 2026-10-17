@@ -308,6 +308,8 @@ void search_overlay_materials(void (*check)(bool, const char*) noexcept) noexcep
 } // namespace
 namespace {
 struct RichSearchFixture {
+    MessageMediaPolicyResult media_policy;
+    mutable MessageMediaOwner last_media_owner;
     MessageRecord records[30];
     u32 order[30];
     u8 model_text[8192];
@@ -332,6 +334,12 @@ struct RichSearchFixture {
     u32 scratch[8192];
 };
 RichSearchFixture rich_search_fixture;
+MessageMediaPolicyResult rich_search_media_policy(const void* context,
+                                                  const MessageMediaOwner& owner) noexcept {
+    const auto& fixture = *static_cast<const RichSearchFixture*>(context);
+    fixture.last_media_owner = owner;
+    return fixture.media_policy;
+}
 bool rich_search_row(void* opaque, u32 index, UiSearchRow* output) noexcept {
     auto& f = *static_cast<RichSearchFixture*>(opaque);
     ++f.resolves;
@@ -452,6 +460,55 @@ void search_tab_layouts(void (*check)(bool, const char*) noexcept, UiSearchScene
     check(tab_target.action == UiSearchAction::tab && tab_target.source_index == 2,
           "search tabs: each tab is a pointer target carrying its tab index");
 
+    auto& fixture = rich_search_fixture;
+    auto policy = search.media_policy;
+    const auto repaint_media = [&]() noexcept {
+        return message_media_command_stream_initialize(&media, {commands, 16}) &&
+               paint_stream_reset(&paint, 1200, 800) &&
+               ui_search_scene_paint(search, kDefaultTheme, &paint, nullptr, 96, &media);
+    };
+    fixture.media_policy = {MessageExplicitFilter::blur, true};
+    ++policy.revision;
+    ready = ui_search_scene_set_media_policy(&search, policy) &&
+            ui_search_scene_update(&search, &source, &content, viewport, title);
+    check(ready && repaint_media() && media.count == 2 &&
+              commands[0].obscure == static_cast<u8>(MessageMediaObscure::explicit_content) &&
+              commands[1].obscure == static_cast<u8>(MessageMediaObscure::explicit_content) &&
+              fixture.last_media_owner.forwarded && fixture.last_media_owner.channel_id == 72 &&
+              !fixture.last_media_owner.author_id && fixture.last_media_owner.source_channel_id == 777 &&
+              fixture.last_media_owner.source_message_id == 888,
+          "search media policy: grid forwards retain destination and source context for outer and child "
+          "media");
+    auto* media_scene = ui_search_scene_message_scene(&search);
+    check(media_scene &&
+              message_scene_reveal_media(
+                  media_scene, message_media_reveal_key(129, MessageMediaSource::attachment, 0)) &&
+              repaint_media() && media.count == 2 && !commands[0].obscure &&
+              commands[1].obscure == static_cast<u8>(MessageMediaObscure::explicit_content),
+          "search media policy: grid shares native reveals without revealing the forwarded child");
+    fixture.media_policy.explicit_reveal_allowed = false;
+    ++policy.revision;
+    ready = ui_search_scene_set_media_policy(&search, policy) &&
+            ui_search_scene_update(&search, &source, &content, viewport, title);
+    check(ready && repaint_media() && media.count == 2 &&
+              commands[0].obscure == static_cast<u8>(MessageMediaObscure::explicit_content),
+          "search media policy: changed eligibility re-obscures already revealed media on an unchanged "
+          "publication");
+    fixture.media_policy.filter = MessageExplicitFilter::block;
+    ++policy.revision;
+    ready = ui_search_scene_set_media_policy(&search, policy) &&
+            ui_search_scene_update(&search, &source, &content, viewport, title);
+    check(
+        ready && repaint_media() && !media.count &&
+            text_emitted(search, utf8_literal("Explicit content blocked")) &&
+            ui_search_scene_hit_test(search, (clip.left + clip.right) * .5f, (clip.top + clip.bottom) * .5f)
+                    .action == UiSearchAction::rich_item,
+        "search media policy: blocked grid omits all media while preserving a consumed activation target");
+    fixture.media_policy = {MessageExplicitFilter::show, true};
+    ++policy.revision;
+    ui_search_scene_set_media_policy(&search, policy);
+    ready = ui_search_scene_update(&search, &source, &content, viewport, title);
+
     content.tab = content.result_tab = 2;
     ++content.revision;
     ready = ui_search_scene_update(&search, &source, &content, viewport, title);
@@ -495,6 +552,7 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     auto& f = rich_search_fixture;
     f.resolves = 0;
     f.current = true;
+    f.media_policy = {MessageExplicitFilter::show, true};
     constexpr auto body =
         utf8_literal("**Outer source** ||outer secret|| [outer](https://outer.example/path)");
     bool ready = message_store_initialize(&f.store, {f.records, 30}, {f.order, 30},
@@ -511,6 +569,7 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     const auto* first = message_store_resolve(f.store, f.display_order[0]);
     GatewayMessageAttachment image{}, file{}, quoted{};
     image.id = 500;
+    image.flags = kGatewayMediaExplicitFlag;
     image.size = 128;
     image.filename = utf8_literal("original.png");
     image.content_type = utf8_literal("image/png");
@@ -530,7 +589,11 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     GatewayMessageAttachment attachments[]{image, file};
     GatewayMessageEvent event{};
     event.id = 129;
-    event.fields = gateway_message_field_attachments | gateway_message_field_message_snapshots;
+    event.fields = gateway_message_field_attachments | gateway_message_field_message_snapshots |
+                   gateway_message_field_message_reference;
+    event.reference.type = 1;
+    event.reference.channel_id = 777;
+    event.reference.message_id = 888;
     event.attachments = {attachments, 2};
     event.snapshot.present = true;
     event.snapshot.content =
@@ -554,6 +617,9 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     content.total = 32;
     content.revision = 1;
     UiSearchScene search{};
+    check(ui_search_scene_set_media_policy(&search, {&f, rich_search_media_policy, 1}) &&
+              !search.rich_projection,
+          "search media policy: binding precedes lazy native projection");
     ready =
         ready && ui_search_scene_update(&search, &source, &content, {0, 0, 1200, 800}, {0, 0, 1200, 48});
     auto* native = ui_search_scene_message_scene(&search);
@@ -717,11 +783,100 @@ void rich_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(!search.rich_projection && !search.rich_projection_storage.base,
           "search rich: release retires the single lazy projection and all borrowed source pointers");
 }
+void rich_search_gallery(void (*check)(bool, const char*) noexcept) noexcept {
+    auto& f = rich_search_fixture;
+    f.current = true;
+    f.media_policy = {MessageExplicitFilter::blur, true};
+    bool ready = message_store_initialize(&f.store, {f.records, 30}, {f.order, 30},
+                                          {f.model_text, sizeof(f.model_text)}) &&
+                 message_rich_store_initialize(&f.rich, {f.rich_records, 60}, {f.rich_order, 60},
+                                               {f.rich_text, sizeof(f.rich_text)});
+    const auto inserted = message_store_upsert(&f.store, {129, 72, 9, 0, 0, {}});
+    const auto* record = inserted.ok() ? message_store_resolve(f.store, inserted.handle) : nullptr;
+    GatewayMessageEmbed embeds[3]{};
+    for (auto& embed : embeds) {
+        embed.type = GatewayMessageEmbedType::rich;
+        embed.url = utf8_literal("https://gallery.example/post");
+    }
+    embeds[0].description = utf8_literal("Gallery caption");
+    embeds[1].image.url = utf8_literal("https://gallery.example/explicit.png");
+    embeds[1].image.width = embeds[1].image.height = 300;
+    embeds[1].flags = kGatewayMediaExplicitFlag;
+    embeds[2].image.url = utf8_literal("https://gallery.example/clear.png");
+    embeds[2].image.width = embeds[2].image.height = 300;
+    GatewayMessageEvent event{};
+    event.id = 129;
+    event.fields = gateway_message_field_embeds | gateway_message_field_message_reference |
+                   gateway_message_field_message_snapshots;
+    event.embeds = {embeds, 3};
+    event.reference.type = 1;
+    event.reference.channel_id = 777;
+    event.reference.message_id = 888;
+    event.snapshot.present = true;
+    event.snapshot.fields = gateway_message_field_embeds;
+    event.snapshot.embeds = {embeds, 3};
+    ready = ready && record && message_rich_store_apply(&f.rich, 129, record->revision, event).ok() &&
+            ui_variable_list_initialize(&f.list, {f.heights, 32}, {f.fenwick, 32}, 1, ui_extent_units(57)) &&
+            message_timeline_initialize(&f.timeline, &f.store, &f.list, ui_extent_units(57),
+                                        ui_extent_units(1600), false) &&
+            message_timeline_bind_rich_store(&f.timeline, &f.rich);
+    f.display_order[0] = inserted.handle;
+    UiSearchSource source{&f, 1, 1, rich_search_row};
+    source.rich_timeline = &f.timeline;
+    source.rich_order = {f.display_order, 1};
+    UiSearchContent content{};
+    content.edit.active = content.panel = true;
+    content.phase = UiSearchPhase::ready;
+    content.revision = 1;
+    UiSearchScene search{};
+    ui_search_scene_set_media_policy(&search, {&f, rich_search_media_policy, 1});
+    ready = ready && ui_search_scene_update(&search, &source, &content, {0, 0, 1200, 1600},
+                                           {0, 0, 1200, 48});
+    auto* native = ui_search_scene_message_scene(&search);
+    const auto* outer = native ? message_scene_find_row(*native, 0) : nullptr;
+    bool members = ready && outer, keyboard = members, gaps = members;
+    for (u32 scope = 0; members && scope < 2; ++scope) {
+        const auto* row = scope ? message_scene_snapshot_row(*native, *outer) : outer;
+        keyboard = keyboard && row;
+        if (!row) {
+            members = false;
+            break;
+        }
+        const auto host_widget = message_scene_rich_item_widget(*row, MessageSceneRichItemKind::embed, 0);
+        keyboard = keyboard && ui_widget_manager_focus(&native->widgets, host_widget);
+        const auto focused = ui_search_scene_rich_widget_target(search, native->widgets.focused);
+        keyboard = keyboard && focused.rich_index == 1 && focused.snapshot == (scope != 0) &&
+                   focused.resource == MediaEmbedResource::image;
+        UiRect cells[2]{};
+        for (u32 tile = 0; tile < 2; ++tile) {
+            UiSearchTarget target{UiSearchAction::rich_item, 72, 129};
+            target.source_revision = 1;
+            target.source_index = 0;
+            target.rich_kind = MessageSceneRichItemKind::embed;
+            target.rich_index = static_cast<u16>(tile + 1);
+            target.snapshot = scope != 0;
+            target.resource = MediaEmbedResource::image;
+            UiRect clip{};
+            const bool geometry = ui_search_scene_rich_preview_geometry(search, target, &cells[tile], &clip);
+            const auto hit = ui_search_scene_hit_test(search, (clip.left + clip.right) * .5f,
+                                                     (clip.top + clip.bottom) * .5f);
+            members = members && geometry && ui_rect_has_area(clip) && ui_search_target_equal(hit, target);
+        }
+        const auto gap = ui_search_scene_hit_test(search, (cells[0].right + cells[1].left) * .5f,
+                                                 (cells[0].top + cells[0].bottom) * .5f);
+        gaps = gaps && gap.action == UiSearchAction::none;
+    }
+    check(members, "search gallery: pointer and preview geometry preserve each merged member and snapshot");
+    check(keyboard, "search gallery: keyboard host targets the first actual image of an imageless host");
+    check(gaps, "search gallery: spacing gaps cannot activate an image or fall through to the host URL");
+    ui_search_scene_release(&search);
+}
 } // namespace
 void test_search_scene(void (*check)(bool, const char*) noexcept) noexcept {
     search_overlay_materials(check);
     search_filter_choices(check);
     rich_search_scene(check);
+    rich_search_gallery(check);
     UiSearchScene scene{};
     SearchSceneFixture fixture{};
     UiSearchSource source{&fixture, 125, 1, resolve_search_scene, +[](void* opaque) noexcept {

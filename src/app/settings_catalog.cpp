@@ -314,7 +314,7 @@ constexpr UiSettingsSchemaNode content_nodes[]{
          utf8_literal("explicit nsfw blur filter"), SettingBinding::explicit_others, {explicit_choices, 3}, none,
          {}, dynamic),
     node(utf8_literal("content.explicit_guilds"), K::choice, utf8_literal("Server channels"), {},
-         utf8_literal("explicit nsfw blur filter"), SettingBinding::explicit_guilds, {explicit_choices, 3}, none,
+         utf8_literal("explicit nsfw blur filter"), SettingBinding::explicit_guilds, {explicit_choices, 2}, none,
          {}, dynamic),
     node(utf8_literal("content.friend_requests"), K::category, utf8_literal("Friend requests"),
          utf8_literal("Who can send you a friend request."), {}),

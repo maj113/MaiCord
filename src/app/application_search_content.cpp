@@ -1,5 +1,6 @@
 #include "application_search_content.hpp"
 #include "application_link_trust.hpp"
+#include "application_media_policy.hpp"
 #include "application_search_navigation.hpp"
 #include "application_state.hpp"
 #include "maicord/app/received_attachment_open.hpp"
@@ -36,6 +37,27 @@ SearchContentRequest capture_request(const ApplicationSearchSourceTicket& ticket
 }
 void notice(const SearchContentRequest& owner, Utf8View text) noexcept {
     application_search_source_notice(owner.ticket, text);
+}
+bool attachment_media_allowed(const SearchContentRequest& owner, bool activate) noexcept {
+    ApplicationSearchSourceView view{}, outer{};
+    auto* search = application_search_scene();
+    auto* scene = search ? ui_search_scene_message_scene(search) : nullptr;
+    if (!scene || !resolve(owner, owner.target.snapshot, &view) || !view.rich || !view.rich_store ||
+        owner.target.rich_index >= view.rich->attachment_count || !resolve(owner, false, &outer))
+        return false;
+    const auto& attachment = view.rich->attachments[owner.target.rich_index];
+    const auto media_owner = message_media_owner(*outer.message, outer.rich);
+    const auto key = message_media_reveal_key(owner.ticket.message_id, MessageMediaSource::attachment,
+        owner.target.rich_index, owner.target.snapshot);
+    const bool spoiler = message_rich_attachment_spoiler(*view.rich_store, attachment);
+    const bool explicit_media = message_rich_attachment_explicit(attachment);
+    if (activate)
+        return !application_media_activation_consumed(*scene, media_owner, owner.ticket.message_id,
+            key, spoiler, explicit_media);
+    // Deferred refresh completion can only open already admitted media. It
+    // must never reveal an item or request confirmation without a new gesture.
+    return message_scene_media_obscure(*scene, media_owner, owner.ticket.message_id,
+        key, spoiler, explicit_media) == MessageMediaObscure::none;
 }
 bool attachment_source(const SearchContentRequest& owner,
                        const ReceivedAttachmentOpenIdentity& identity, Utf8View* source) noexcept {
@@ -102,7 +124,8 @@ bool confirm(const SearchContentRequest& owner, Utf8View url, const ReceivedAtta
 }
 void attachment_ready(const SearchContentRequest& owner, const ReceivedAttachmentOpenIdentity& identity,
                       Utf8View ready) noexcept {
-    confirm(owner, ready, &identity, false);
+    if (attachment_media_allowed(owner, false))
+        confirm(owner, ready, &identity, false);
 }
 void attachment_notice(const SearchContentRequest& owner, ReceivedAttachmentOpenResult result) noexcept {
     if (result == ReceivedAttachmentOpenResult::pending)
@@ -141,6 +164,7 @@ bool application_search_content_activate(const ApplicationSearchSourceTicket& ti
         attachment.id, ticket.publication_revision, view.source_channel_id};
     Utf8View source{}, ready{};
     if (!attachment_source(owner, identity, &source)) return true;
+    if (!attachment_media_allowed(owner, true)) return true;
     content_owner.request = owner;
     ++content_owner.generation;
     const auto result = received_attachment_open_begin(&content_owner.intent, identity, source, &g_app.media_urls,
@@ -170,7 +194,7 @@ void application_search_content_pump() noexcept {
     const auto owner = content_owner.request;
     const auto identity = content_owner.intent.identity;
     Utf8View source{}, ready{};
-    if (!attachment_source(owner, identity, &source)) {
+    if (!attachment_source(owner, identity, &source) || !attachment_media_allowed(owner, false)) {
         content_owner.intent = {};
         return;
     }

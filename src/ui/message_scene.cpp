@@ -1258,16 +1258,47 @@ void message_scene_invalidate_geometry(MessageScene* scene) noexcept {
 
 MessageMediaObscure message_scene_media_obscure(const MessageScene& scene, u64 message_id, u64 reveal_key,
                                                 bool spoiler, bool explicit_media) noexcept {
-    const MessageMediaObscure obscure =
-        message_media_obscure(scene.media_reveals, reveal_key, spoiler, explicit_media, scene.explicit_filter,
-                              message_rich_display().spoilers == MessageSpoilerReveal::always);
+    return message_scene_media_obscure(scene, MessageMediaPolicyResult{scene.explicit_filter, true},
+                                       message_id, reveal_key, spoiler, explicit_media);
+}
+
+MessageMediaPolicyResult message_scene_media_policy(const MessageScene& scene,
+                                                    const MessageMediaOwner& owner) noexcept {
+    return scene.media_policy.query ? scene.media_policy.query(scene.media_policy.context, owner)
+                                    : MessageMediaPolicyResult{scene.explicit_filter, true};
+}
+
+bool message_scene_set_media_policy(MessageScene* scene, const MessageMediaPolicy& policy) noexcept {
+    if (!scene ||
+        (scene->media_policy.context == policy.context && scene->media_policy.query == policy.query &&
+         scene->media_policy.revision == policy.revision))
+        return false;
+    scene->media_policy = policy;
+    invalidate_geometry(scene);
+    return true;
+}
+
+MessageMediaObscure message_scene_media_obscure(const MessageScene& scene, const MessageMediaOwner& owner,
+                                                u64 message_id, u64 reveal_key, bool spoiler,
+                                                bool explicit_media) noexcept {
+    return message_scene_media_obscure(scene, message_scene_media_policy(scene, owner), message_id,
+                                       reveal_key, spoiler, explicit_media);
+}
+
+MessageMediaObscure message_scene_media_obscure(const MessageScene& scene, MessageMediaPolicyResult policy,
+                                                u64 message_id, u64 reveal_key, bool spoiler,
+                                                bool explicit_media) noexcept {
+    const MessageMediaObscure obscure = message_media_obscure(
+        scene.media_reveals, reveal_key, spoiler, explicit_media, policy.filter,
+        message_rich_display().spoilers == MessageSpoilerReveal::always, policy.explicit_reveal_allowed);
     if (obscure == MessageMediaObscure::blocked || !message_id || !scene.plugin_decorations ||
         !g_ui_plugin_render_query || !scene.timeline || !scene.timeline->store)
         return obscure;
     // Plugin media verdicts: hide replaces the preview like blocked media,
     // blur obscures it like explicit content until clicked.
     const MessageStoreResult found = message_store_find(*scene.timeline->store, message_id);
-    const MessageRecord* record = found.ok() ? message_store_resolve(*scene.timeline->store, found.handle) : nullptr;
+    const MessageRecord* record =
+        found.ok() ? message_store_resolve(*scene.timeline->store, found.handle) : nullptr;
     UiPluginRenderDecoration decoration{};
     if (!record || !message_scene_plugin_decoration(scene, record->id, record->revision, &decoration))
         return obscure;

@@ -38,6 +38,25 @@
 namespace maicord::app_detail {
 namespace {
 
+// Admission concerns preview decoding only. Blurred media still needs its
+// preview; notices must not fetch, refresh URLs, or retain animated visibility.
+bool preview_media_allowed(const Application& application, const MessageRecord& message,
+                           const MessageRichStore& store, bool search, MessageMediaSource source, u32 index,
+                           bool snapshot, bool spoiler, bool explicit_media) noexcept {
+    const MessageScene* scene = &application.message_scene;
+    if (search) {
+        scene = application.renderer.search_scene
+                    ? ui_search_scene_message_scene(*application.renderer.search_scene)
+                    : nullptr;
+        if (!scene)
+            return false;
+    }
+    const auto owner = message_media_owner(message, message_rich_store_find(store, message.id));
+    return !message_media_obscure_notice(message_scene_media_obscure(
+        *scene, owner, message.id, message_media_reveal_key(message.id, source, index, snapshot), spoiler,
+        explicit_media));
+}
+
 bool preview_decoder_animation(Application& application, const MediaAtlasResult& resident,
                                MediaAssetKey key) noexcept {
     const bool published = animation_timeline_find(&application.animations.timeline, key).ok();
@@ -1462,6 +1481,26 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
     const auto& store = search_store ? *search_store : application.account_ui->message_rich_store;
     if (!application_channel_readable(application, message.channel_id))
         return true;
+    bool snapshot = search_snapshot;
+    if (!search_store)
+        if (const auto* child = message_rich_store_snapshot(store, message.id))
+            for (u32 index = 0; index < child->attachment_count; ++index)
+                if (&child->attachments[index] == &attachment)
+                    snapshot = true;
+    const auto* rich = snapshot ? message_rich_store_snapshot(store, message.id)
+                                : message_rich_store_find(store, message.id);
+    u32 attachment_index = 0;
+    if (rich)
+        for (u32 index = 0; index < rich->attachment_count; ++index)
+            if (rich->attachments[index].id == attachment.id) {
+                attachment_index = index;
+                break;
+            }
+    if (!preview_media_allowed(application, message, store, search_store != nullptr,
+                               MessageMediaSource::attachment, attachment_index, snapshot,
+                               message_rich_attachment_spoiler(store, attachment),
+                               message_rich_attachment_explicit(attachment)))
+        return true;
     const MediaAttachmentFormat format = message_media_supported_attachment_format(store, attachment);
     if (format == MediaAttachmentFormat::unknown) {
         return true;
@@ -1611,6 +1650,10 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
     if (!application_channel_readable(application, message.channel_id))
         return true;
     const auto& store = search_store ? *search_store : application.account_ui->message_rich_store;
+    if (!preview_media_allowed(application, message, store, search_store != nullptr,
+                               MessageMediaSource::embed, embed_index, rich.forwarded_snapshot_child, false,
+                               message_rich_embed_explicit(rich.embeds[embed_index])))
+        return true;
     MessageRichEmbedGalleryPlace place{};
     const bool tile = !thumbnail && message_rich_embed_gallery_place(store, rich, embed_index, &place);
     if (!(thumbnail ? message_rich_embed_resource_select(store, rich.embeds[embed_index],

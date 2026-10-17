@@ -46,6 +46,7 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
             if (!row)
                 continue;
             const auto* message = message_store_resolve(g_app.message_view.store, row->message);
+            const auto* outer_rich = message ? message_rich_store_find(store, message->id) : nullptr;
             const auto* rich = message ? (content_scope ? message_rich_store_snapshot(store, message->id)
                                                         : message_rich_store_find(store, message->id))
                                        : nullptr;
@@ -64,12 +65,13 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                 if (!node || (owner.generation && !same(widget, owner)) ||
                     message_rich_attachment_format(store, attachment) != MediaAttachmentFormat::gif ||
                     message_scene_media_obscure(
-                        scene, rich->message_id,
-                        message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, i),
+                        scene, message_media_owner(*message, outer_rich), rich->message_id,
+                        message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, i,
+                                                 content_scope != 0),
                         message_rich_attachment_spoiler(store, attachment),
                         message_rich_attachment_explicit(attachment)) != MessageMediaObscure::none ||
-                    !message_rich_attachment_preview_extent(store, attachment, ui_rect_width(node->content_rectangle),
-                                                            &width, &height))
+                    !message_rich_attachment_preview_extent(
+                        store, attachment, ui_rect_width(node->content_rectangle), &width, &height))
                     continue;
                 const UiRect preview{node->rectangle.left, node->rectangle.top, node->rectangle.left + width,
                                      node->rectangle.top + height};
@@ -89,11 +91,13 @@ bool find(UiWidgetHandle owner, float x, float y, GifStar* out) noexcept {
                 if (!node || (owner.generation && !same(widget, owner)) ||
                     message_rich_embed_gallery_place(store, *rich, i, &place) ||
                     !message_rich_embed_media_select(store, embed, &selected) || !selected.media ||
-                    (embed.type != GatewayMessageEmbedType::gifv && selected.format != MediaAttachmentFormat::gif) ||
-                    message_scene_media_obscure(scene, message->id,
-                                                message_media_reveal_key(message->id, MessageMediaSource::embed, i),
-                                                false, message_rich_embed_explicit(embed)) !=
-                        MessageMediaObscure::none)
+                    (embed.type != GatewayMessageEmbedType::gifv &&
+                     selected.format != MediaAttachmentFormat::gif) ||
+                    message_scene_media_obscure(
+                        scene, message_media_owner(*message, outer_rich), message->id,
+                        message_media_reveal_key(message->id, MessageMediaSource::embed, i,
+                                                 content_scope != 0),
+                        false, message_rich_embed_explicit(embed)) != MessageMediaObscure::none)
                     continue;
                 const UiRect preview = message_rich_embed_media_rect(row->rich_item_layout, i, node->content_rectangle,
                                                                      message_rich_embed_media_only(embed));

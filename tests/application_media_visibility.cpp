@@ -1292,6 +1292,17 @@ void run_forward_identity_test(AccountUiRuntime& ui, ApplicationMediaPump& pump)
     ui.chat_state = saved;
 }
 
+struct PreviewAdmissionPolicy {
+    MessageMediaPolicyResult result;
+    mutable MessageMediaOwner owner;
+};
+MessageMediaPolicyResult preview_admission_policy(const void* context,
+                                                  const MessageMediaOwner& owner) noexcept {
+    const auto& policy = *static_cast<const PreviewAdmissionPolicy*>(context);
+    policy.owner = owner;
+    return policy.result;
+}
+
 void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
                            ApplicationMediaPump& pump) noexcept {
     MessageRecord record[1]{};
@@ -1299,7 +1310,7 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
     u8 text[64]{};
     MessageRichRecord rich_records[2]{};
     u16 rich_order[1]{};
-    u8 rich_text[1024]{};
+    u8 rich_text[2048]{};
     MessageStore store{};
     MessageRichStore rich{};
     UiVariableList list{};
@@ -1320,21 +1331,31 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
         "fixture.png?ex=ffffffff&is=1&hm=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     outer.width = outer.height = 64;
     outer.has_width = outer.has_height = true;
+    outer.flags = kGatewayMediaExplicitFlag | kGatewayAttachmentSpoilerFlag;
     auto child = outer;
     child.width = child.height = 0;
     child.has_width = child.has_height = false;
+    GatewayMessageEmbed embed{};
+    embed.flags = kGatewayMediaExplicitFlag;
+    embed.image.url = outer.url;
+    embed.image.content_type = outer.content_type;
+    embed.image.width = embed.image.height = 64;
+    embed.image.has_width = embed.image.has_height = true;
     GatewayMessageEvent event{};
     event.id = 880;
-    event.fields = gateway_message_field_attachments | gateway_message_field_message_snapshots |
-                   gateway_message_field_message_reference;
+    event.fields = gateway_message_field_attachments | gateway_message_field_embeds |
+                   gateway_message_field_message_snapshots | gateway_message_field_message_reference;
     event.attachments = {&outer, 1};
+    event.embeds = {&embed, 1};
     event.reference.type = 1;
     event.reference.channel_id = 99;
     event.reference.message_id = 990;
     event.snapshot.present = true;
-    event.snapshot.fields = gateway_message_field_attachments;
+    event.snapshot.fields = gateway_message_field_attachments | gateway_message_field_embeds;
     event.snapshot.attachments = {&child, 1};
-    valid = valid && message_rich_store_apply(&rich, 880, 73, event).ok() &&
+    event.snapshot.embeds = {&embed, 1};
+    const auto seeded = message_rich_store_apply(&rich, 880, 73, event);
+    valid = valid && seeded.ok() && !seeded.storage_truncated &&
             ui_variable_list_initialize(&list, {heights, 1}, {fenwick, 1}, 1, ui_extent_units(57)) &&
             message_timeline_initialize(&timeline, &store, &list, ui_extent_units(57), ui_extent_units(600),
                                         false) &&
@@ -1419,6 +1440,77 @@ void run_search_media_test(VisibilityFixture& fixture, AccountUiRuntime& ui,
                   attachment_requests == requests + 1 && last_attachment_message == 880 &&
                   last_attachment_revision == 73 && media_asset_search_snapshot(last_attachment_key),
               "search media: actual shared media lane receives exact accepted publication and child key");
+        PreviewAdmissionPolicy policy{{MessageExplicitFilter::block, true}, {}};
+        MessageMediaPolicy binding{&policy, preview_admission_policy, 1};
+        ui_search_scene_set_media_policy(&scene, binding);
+        content.tabs = true;
+        content.tab = content.result_tab = 1;
+        ++content.revision;
+        const bool grid =
+            ui_search_scene_update(&scene, &source, &content, {0, 0, 1200, 800}, {0, 0, 1200, 48}) &&
+            ui_search_scene_visible_tile_count(scene) == 4 && pump.search_media_visible();
+        const u32 before_policy = attachment_requests;
+        check(grid && pump.request_search_previews(1000, 1100, &uploads, &repaint, &stop) && !stop &&
+                  attachment_requests == before_policy && policy.owner.channel_id == 88 &&
+                  policy.owner.forwarded && !policy.owner.author_id &&
+                  policy.owner.source_channel_id == 99 && policy.owner.source_message_id == 990,
+              "search preview admission: blocked outer and forwarded attachment/embed tiles fetch nothing "
+              "using destination/source policy");
+        policy.result = {MessageExplicitFilter::blur, false};
+        ++binding.revision;
+        ui_search_scene_set_media_policy(&scene, binding);
+        check(pump.request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, 1000, 1100,
+                                              &uploads, &repaint, &stop, &rich, true) &&
+                  pump.request_visible_embed_media(record[0], *snapshot, 0, 64, 64, 1000, 1100, &uploads,
+                                                   &repaint, &stop, false, &rich) &&
+                  attachment_requests == before_policy + 2 &&
+                  media_asset_search_snapshot(last_attachment_key),
+              "search preview admission: explicit blur still decodes attachment and embed previews before "
+              "reveal eligibility");
+        policy.result = {MessageExplicitFilter::show, false};
+        ++binding.revision;
+        ui_search_scene_set_media_policy(&scene, binding);
+        check(pump.request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, 1000, 1100,
+                                              &uploads, &repaint, &stop, &rich, true) &&
+                  attachment_requests == before_policy + 3,
+              "search preview admission: spoiler previews remain fetchable");
+        auto* native = ui_search_scene_message_scene(&scene);
+        const auto saved_plugin_query = g_ui_plugin_render_query;
+        const bool saved_plugin_decorations = native && native->plugin_decorations;
+        if (native)
+            native->plugin_decorations = true;
+        g_ui_plugin_render_query = +[](u64 id, u32 revision, UiPluginRenderDecoration* output) noexcept {
+            if (id != 880 || revision != 73)
+                return false;
+            *output = {};
+            output->media = ui_plugin_media_hide;
+            return true;
+        };
+        check(grid && native && pump.request_search_previews(1000, 1100, &uploads, &repaint, &stop) &&
+                  !stop && attachment_requests == before_policy + 3,
+              "search preview admission: plugin-hidden previews fetch no attachment or embed even from "
+              "visible tiles");
+        g_ui_plugin_render_query = saved_plugin_query;
+        if (native)
+            native->plugin_decorations = saved_plugin_decorations;
+        const u32 before_retirement = attachment_requests;
+        g_app.renderer.search_scene = nullptr;
+        const bool absent =
+            pump.request_visible_attachment(record[0], snapshot->attachments[0], 80, 40, 1000, 1100,
+                                            &uploads, &repaint, &stop, &rich, true);
+        g_app.renderer.search_scene = &scene;
+        fixture_search_current = false;
+        const bool retired = pump.request_visible_embed_media(record[0], *snapshot, 0, 64, 64, 1000, 1100,
+                                                              &uploads, &repaint, &stop, false, &rich);
+        fixture_search_current = true;
+        check(
+            absent && retired && attachment_requests == before_retirement,
+            "search preview admission: absent or retired Search cannot borrow timeline policy or reveals");
+        ui_search_scene_set_media_policy(&scene, {});
+        content.tabs = false;
+        ++content.revision;
+        check(ui_search_scene_update(&scene, &source, &content, {0, 0, 1200, 800}, {0, 0, 1200, 48}),
+              "search preview admission: fixture restores ordinary list policy");
         MessageTextSemantic semantics[5]{};
         TextHitRegion regions[6]{};
         RendererTextStorage renderer_text{};

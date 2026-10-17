@@ -2,6 +2,7 @@
 // Search authority and Save boundaries are deterministic; no network is used.
 #include "../src/app/application_image_viewer.cpp"
 #include "maicord/core/memory.hpp"
+#include "../src/app/application_media_context.hpp"
 #include "test_output.hpp"
 
 namespace maicord::image_viewer_runtime_test {
@@ -31,6 +32,46 @@ char opened_url[256];
 void check(bool value, const char* label) noexcept {
     test_check(&failures, value, label);
 }
+u32 confirmations, media_refreshes;
+MessageExplicitFilter media_filter = MessageExplicitFilter::show;
+bool media_reveal_allowed = true;
+MessageMediaOwner queried_owner{};
+MessageTimeline search_timeline{};
+UiVariableList search_list{};
+u32 search_heights[4]{};
+u64 search_fenwick[4]{};
+UiSearchSource search_source{};
+UiSearchContent search_content{};
+UiSearchScene search_scene{};
+MessageMediaPolicyResult query_media(const void*, const MessageMediaOwner& owner) noexcept {
+    queried_owner = owner;
+    return {media_filter, media_reveal_allowed};
+}
+bool publish_search() noexcept {
+    if (!ui_variable_list_initialize(&search_list, {search_heights, 4}, {search_fenwick, 4}, bank.count,
+                                     ui_extent_units(57)) ||
+        !message_timeline_initialize(&search_timeline, &bank, &search_list, ui_extent_units(57),
+                                     ui_extent_units(900), false) ||
+        !message_timeline_bind_rich_store(&search_timeline, &rich))
+        return false;
+    search_source.count = bank.count;
+    search_source.revision = publication;
+    search_source.rich_timeline = &search_timeline;
+    search_source.current = +[](void*) noexcept { return panel; };
+    search_source.resolve = +[](void*, u32 index, UiSearchRow* row) noexcept {
+        if (index || !row)
+            return false;
+        *row = {101, 800, utf8_literal("Fixture author"), utf8_literal("#fixture"), {}, {}, true, true};
+        return true;
+    };
+    search_content.edit.active = search_content.panel = true;
+    search_content.phase = UiSearchPhase::ready;
+    search_content.revision = publication;
+    g_app.renderer.search_scene = &search_scene;
+    return ui_search_scene_set_media_policy(&search_scene, {nullptr, query_media, publication}) &&
+           ui_search_scene_update(&search_scene, &search_source, &search_content, {0, 0, 1200, 900},
+                                  {0, 0, 1200, 48});
+}
 bool seed() noexcept {
     if (!message_store_initialize(&bank, {records, 4}, {order, 4}, {text, sizeof(text)}) ||
         !message_rich_store_initialize(&rich, {rich_records, 8}, {rich_order, 4}, {rich_text, sizeof(rich_text)})) return false;
@@ -57,7 +98,7 @@ bool seed() noexcept {
     event.reference.channel_id = 777; event.reference.message_id = 888;
     event.snapshot.present = true; event.snapshot.fields = gateway_message_field_attachments | gateway_message_field_embeds;
     event.snapshot.attachments = {&child, 1}; event.snapshot.embeds = {&embed, 1};
-    return message_rich_store_apply(&rich, 800, publication, event).ok();
+    return message_rich_store_apply(&rich, 800, publication, event).ok() && publish_search();
 }
 // The same source message as a Tenor-style GIFV link: a looping MP4 shown as an image.
 bool seed_gifv() noexcept {
@@ -80,7 +121,7 @@ bool seed_gifv() noexcept {
     gif.thumbnail.has_width = gif.thumbnail.has_height = gif.video.has_width = gif.video.has_height = true;
     GatewayMessageEvent event{}; event.id = 800;
     event.fields = gateway_message_field_embeds; event.embeds = {&gif, 1};
-    return message_rich_store_apply(&rich, 800, publication, event).ok();
+    return message_rich_store_apply(&rich, 800, publication, event).ok() && publish_search();
 }
 bool seed_authority() noexcept {
     auto& state = g_app.account_ui->chat_state;
@@ -95,7 +136,63 @@ bool seed_authority() noexcept {
     chat_state_store_recompute_guild_permissions(&state,7);
     return application_channel_readable(g_app,101) && application_channel_readable(g_app,999);
 }
+void check_media_context() noexcept {
+    ChatStateStore state{};
+    GuildRecord context_guilds[1]{};
+    ChannelRecord context_channels[3]{};
+    u16 context_guild_order[1]{}, context_channel_order[3]{};
+    u8 context_names[128]{};
+    RelationshipRecord friends[1]{};
+    RelationshipStore relationships{};
+    MessageStore live{}, accepted{};
+    MessageRecord live_rows[1]{}, accepted_rows[1]{};
+    u32 live_indices[1]{}, accepted_indices[1]{};
+    u8 live_bytes[8]{}, accepted_bytes[8]{};
+    const bool ready =
+        chat_state_store_initialize(&state, {context_guilds, 1}, {context_guild_order, 1},
+                                    {context_channels, 3}, {context_channel_order, 3},
+                                    {context_names, 128}) &&
+        chat_state_store_upsert_channel(&state, {10, 0, 0, utf8_literal("DM"), 0, 0, 1}).ok() &&
+        chat_state_store_upsert_channel(&state, {11, 0, 0, utf8_literal("Group"), 0, 0, 3}).ok() &&
+        chat_state_store_upsert_channel(&state, {12, 7, 0, utf8_literal("Guild"), 0, 0, 0}).ok() &&
+        relationship_store_initialize(&relationships, {friends, 1}) &&
+        message_store_initialize(&live, {live_rows, 1}, {live_indices, 1}, {live_bytes, 8}) &&
+        message_store_initialize(&accepted, {accepted_rows, 1}, {accepted_indices, 1}, {accepted_bytes, 8});
+    RelationshipRecord friend_record{};
+    friend_record.user_id = 4;
+    friend_record.type = RelationshipType::friend_;
+    check(ready && relationship_store_upsert(&relationships, friend_record).ok(),
+          "media context fixtures initialize accepted ownership stores");
+    const auto resolve = [&](MessageMediaOwner owner) noexcept {
+        return application_media_context_resolve(owner, 3, &state, &relationships, &live, &accepted);
+    };
+    check(resolve({10, 4}).context == MessageMediaContext::friend_dm &&
+              resolve({11, 4}).context == MessageMediaContext::friend_dm &&
+              resolve({11, 5}).context == MessageMediaContext::other_dm,
+          "DM and group DM policy context follows the actual author's current friendship");
+    check(resolve({12, 4}).context == MessageMediaContext::guild &&
+              resolve({99, 4}).context == MessageMediaContext::other_dm && resolve({10, 3}).self_authored,
+          "guild context wins over friendship, unknown channels stay conservative, and self identity is "
+          "explicit");
+    check(!resolve({10, 3, 77, 80, true}).self_authored && resolve({10, 3, 77, 80, true}).author_id == 0,
+          "uncached forwards never inherit their self-authored forwarder's identity");
+    check(message_store_upsert(&live, {80, 78, 3, 0, 0, {}}).ok() &&
+              message_store_upsert(&accepted, {80, 77, 4, 0, 0, {}}).ok() &&
+              resolve({10, 3, 77, 80, true}).context == MessageMediaContext::friend_dm &&
+              resolve({10, 3, 77, 80, true}).author_id == 4,
+          "forwarded source channel mismatch in live cache falls through to the validated accepted Search "
+          "bank");
+    live_rows[0].channel_id = 77;
+    check(resolve({11, 4, 77, 80, true}).self_authored && resolve({11, 4, 77, 80, true}).author_id == 3,
+          "validated live source takes precedence and can establish the forwarded author's self identity");
+    live_rows[0].author_id = 5;
+    check(resolve({11, 4, 77, 80, true}).context == MessageMediaContext::other_dm &&
+              !resolve({11, 4, 77, 80, true}).self_authored &&
+              resolve({12, 4, 77, 80, true}).context == MessageMediaContext::guild,
+          "nonfriend forwarded author remains other DM while the destination guild still wins");
+}
 void run() noexcept {
+    check_media_context();
     g_app.account_ui = static_cast<AccountUiRuntime*>(VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     g_app.window = CreateWindowExW(0, L"STATIC", L"Search image fixture", WS_POPUP, 0, 0, 1200, 900, nullptr, nullptr, nullptr, nullptr);
     check(g_app.account_ui && g_app.window, "Search viewer fixture owns a hidden native account window");
@@ -110,6 +207,78 @@ void run() noexcept {
         "Search viewer fixture retains same message id in an independent live and accepted page bank");
     const UiRect preview{10, 10, 330, 250};
     ApplicationSearchSourceTicket ticket{800, publication, 0};
+    g_app.renderer.search_scene = nullptr;
+    check(!application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 0, false, preview) &&
+              !g_app.image_viewer.scene.active,
+          "Search activation cannot borrow the selected conversation's policy or reveal memory");
+    g_app.renderer.search_scene = &search_scene;
+    auto* native_media = ui_search_scene_message_scene(&search_scene);
+    auto* outer = const_cast<MessageRichRecord*>(message_rich_store_find(rich, 800));
+    auto* child = const_cast<MessageRichRecord*>(message_rich_store_snapshot(rich, 800));
+    check(native_media && outer && child, "Search image activation uses its actual native media scene");
+    if (!native_media || !outer || !child)
+        return;
+    outer->attachments[0].flags |= kGatewayMediaExplicitFlag;
+    child->attachments[0].flags |= kGatewayMediaExplicitFlag;
+    media_filter = MessageExplicitFilter::block;
+    const auto activate_outer = [&]() noexcept {
+        return application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 0, false,
+                                                    preview);
+    };
+    check(activate_outer() && !g_app.image_viewer.scene.active && !native_media->media_reveals.count &&
+              !confirmations,
+          "blocked image activation neither opens nor reveals nor requests age confirmation");
+    media_filter = MessageExplicitFilter::blur;
+    media_reveal_allowed = false;
+    check(activate_outer() && !g_app.image_viewer.scene.active && confirmations == 1 &&
+              !native_media->media_reveals.count && queried_owner.forwarded &&
+              queried_owner.author_id == 0 && queried_owner.channel_id == 101 &&
+              queried_owner.source_channel_id == 777 && queried_owner.source_message_id == 888,
+          "age gated image uses outer forwarding ownership and requests honest native confirmation before "
+          "reveal");
+    media_reveal_allowed = true;
+    const u64 outer_key = message_media_reveal_key(800, MessageMediaSource::attachment, 0);
+    const u64 child_key = message_media_reveal_key(800, MessageMediaSource::attachment, 0, true);
+    check(activate_outer() && !g_app.image_viewer.scene.active &&
+              message_media_revealed(native_media->media_reveals, outer_key) &&
+              !message_media_revealed(native_media->media_reveals, child_key) && media_refreshes == 0 &&
+              activate_outer() && g_app.image_viewer.scene.active,
+          "Search image reveals stay scoped to native Search without refreshing unrelated timeline text");
+    media_filter = MessageExplicitFilter::block;
+    check(application_image_viewer_synchronize() && !g_app.image_viewer.scene.active,
+          "a newly blocked policy closes an already open image viewer");
+    media_filter = MessageExplicitFilter::blur;
+    check(application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 0, true,
+                                               preview) &&
+              !g_app.image_viewer.scene.active &&
+              message_media_revealed(native_media->media_reveals, child_key),
+          "forwarded child activation reveals its own scoped key without opening");
+    outer->attachments[0].flags = 0;
+    native_media->media_reveals = {};
+    native_media->plugin_decorations = true;
+    media_reveal_allowed = false;
+    g_ui_plugin_render_query = +[](u64, u32, UiPluginRenderDecoration* output) noexcept {
+        *output = {};
+        output->media = ui_plugin_media_hide;
+        return true;
+    };
+    check(activate_outer() && !g_app.image_viewer.scene.active && native_media->media_reveals.count == 0 &&
+              confirmations == 1,
+          "plugin hidden image consumes activation without reveal or age confirmation");
+    g_ui_plugin_render_query = +[](u64, u32, UiPluginRenderDecoration* output) noexcept {
+        *output = {};
+        output->media = ui_plugin_media_blur;
+        return true;
+    };
+    check(activate_outer() && !g_app.image_viewer.scene.active &&
+              message_media_revealed(native_media->media_reveals, outer_key) && confirmations == 1,
+          "plugin-only blur reveals normally without requesting explicit-content age confirmation");
+    g_ui_plugin_render_query = nullptr;
+    native_media->plugin_decorations = false;
+    media_reveal_allowed = true;
+    outer->attachments[0].flags = child->attachments[0].flags = 0;
+    native_media->media_reveals = {};
+    media_filter = MessageExplicitFilter::show;
     auto retired = ticket; --retired.publication_revision;
     check(!application_image_viewer_open_search(retired, MessageSceneRichItemKind::attachment, 0, false, preview) &&
         !application_image_viewer_open_search(ticket, MessageSceneRichItemKind::attachment, 1, false, preview),
@@ -256,7 +425,11 @@ void run() noexcept {
         media_asset_embed_format(g_app.image_viewer.key) == MediaAttachmentFormat::mp4 &&
         (g_app.image_viewer.key.flags & media_asset_flag_animated) && !g_app.image_viewer.scene.can_save,
         "Search viewer opens a GIFV embed full screen as the looping animation it plays inline");
-    application_image_viewer_close(); DestroyWindow(g_app.window); g_app.window = nullptr;
+    application_image_viewer_close();
+    ui_search_scene_release(&search_scene);
+    g_app.renderer.search_scene = nullptr;
+    DestroyWindow(g_app.window);
+    g_app.window = nullptr;
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE); g_app.account_ui = nullptr; g_app.account.instance = nullptr;
 }
 } // namespace maicord::image_viewer_runtime_test
@@ -265,6 +438,14 @@ namespace maicord {
 bool renderer_rebuild_content_text(D3D11Renderer*, const Theme&) noexcept { ++image_viewer_runtime_test::rebuilds; return true; }
 bool renderer_read_media_rgba(D3D11Renderer*, MediaAssetKey, Slice<u8>, u32*, u32*) noexcept { return false; }
 namespace app_detail {
+UiSearchScene* application_search_scene() noexcept { return &image_viewer_runtime_test::search_scene; }
+bool refresh_account_frame(bool) noexcept {
+    ++image_viewer_runtime_test::media_refreshes;
+    return true;
+}
+void application_user_settings_request_content_confirmation() noexcept {
+    ++image_viewer_runtime_test::confirmations;
+}
 bool application_open_content_url(Utf8View url) noexcept {
     using namespace image_viewer_runtime_test;
     ++opened_urls; opened_bytes = minimum<u32>(url.bytes, sizeof(opened_url));

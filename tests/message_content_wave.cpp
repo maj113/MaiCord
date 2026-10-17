@@ -157,11 +157,24 @@ void test_system_text(Check check) noexcept {
     check(!message_system_text_build(input, {tiny, 4}, &text), "system_text_rejects_small_output");
 }
 
+struct MediaPolicyFixture {
+    MessageMediaPolicyResult result;
+    mutable MessageMediaOwner last_owner;
+    mutable u32 calls;
+};
+MessageMediaPolicyResult query_media_policy(const void* context, const MessageMediaOwner& owner) noexcept {
+    const auto& fixture = *static_cast<const MediaPolicyFixture*>(context);
+    fixture.last_owner = owner;
+    ++fixture.calls;
+    return fixture.result;
+}
+
 void test_media_policy(Check check) noexcept {
     MessageMediaReveals reveals{};
     const u64 key = message_media_reveal_key(42, MessageMediaSource::attachment, 0);
     check(key != message_media_reveal_key(42, MessageMediaSource::embed, 0) &&
-              key != message_media_reveal_key(42, MessageMediaSource::attachment, 1),
+              key != message_media_reveal_key(42, MessageMediaSource::attachment, 1) &&
+              key != message_media_reveal_key(42, MessageMediaSource::attachment, 0, true),
           "media_reveal_keys_distinguish_items");
     check(message_media_obscure(reveals, key, true, false, MessageExplicitFilter::show, false) ==
                   MessageMediaObscure::spoiler &&
@@ -180,8 +193,95 @@ void test_media_policy(Check check) noexcept {
               message_media_obscure(reveals, key, true, true, MessageExplicitFilter::block, false) ==
                   MessageMediaObscure::blocked,
           "media_reveal_is_sticky_but_block_wins");
+    check(message_media_obscure(reveals, key, false, true, MessageExplicitFilter::blur, false, false) ==
+              MessageMediaObscure::explicit_content,
+          "media_explicit_confirmation_revokes_prior_reveal");
+
+    AccountContentPolicy account{};
+    constexpr MessageMediaContext contexts[]{MessageMediaContext::guild, MessageMediaContext::friend_dm,
+                                             MessageMediaContext::other_dm};
+    constexpr MessageExplicitFilter adult[3][3]{
+        {MessageExplicitFilter::show, MessageExplicitFilter::show, MessageExplicitFilter::show},
+        {MessageExplicitFilter::show, MessageExplicitFilter::show, MessageExplicitFilter::block},
+        {MessageExplicitFilter::show, MessageExplicitFilter::block, MessageExplicitFilter::block}};
+    constexpr MessageExplicitFilter teen[3][3]{
+        {MessageExplicitFilter::blur, MessageExplicitFilter::blur, MessageExplicitFilter::blur},
+        {MessageExplicitFilter::blur, MessageExplicitFilter::blur, MessageExplicitFilter::block},
+        {MessageExplicitFilter::blur, MessageExplicitFilter::block, MessageExplicitFilter::block}};
+    bool defaults = true, overrides = true;
+    for (u32 legacy = 0; legacy < 3; ++legacy)
+        for (u32 context = 0; context < 3; ++context) {
+            account.eligibility = AccountContentEligibility::unknown;
+            defaults &= message_explicit_filter_resolve(contexts[context], 0, legacy, account) ==
+                        adult[legacy][context];
+            account.eligibility = AccountContentEligibility::restricted;
+            defaults &= message_explicit_filter_resolve(contexts[context], 9, legacy, account) ==
+                        teen[legacy][context];
+            account.eligibility = AccountContentEligibility::unknown;
+            account.flags = account_content_teen_defaults;
+            defaults &= message_explicit_filter_resolve(contexts[context], 0, legacy, account) ==
+                        (context == 2 ? MessageExplicitFilter::block : MessageExplicitFilter::blur);
+            for (u64 value = 1; value <= 3; ++value)
+                overrides &= message_explicit_filter_resolve(contexts[context], value, legacy, account) ==
+                             (value == 1   ? MessageExplicitFilter::show
+                              : value == 2 ? MessageExplicitFilter::blur
+                                           : MessageExplicitFilter::block);
+            account.flags = 0;
+        }
+    check(defaults && overrides, "media_explicit_settings_adult_teen_region_and_legacy_table");
+
+    MessageScene scene{};
+    scene.explicit_filter = MessageExplicitFilter::block;
+    MessageRecord record{};
+    record.id = 42;
+    record.channel_id = 17;
+    record.author_id = 19;
+    const MessageMediaOwner normal = message_media_owner(record, nullptr);
+    check(normal.channel_id == 17 && normal.author_id == 19 && !normal.forwarded &&
+              message_scene_media_policy(scene, normal).filter == MessageExplicitFilter::block &&
+              message_scene_media_policy(scene, normal).explicit_reveal_allowed,
+          "media_owner_and_unbound_scene_keep_existing_filter");
+    MessageRichRecord forward{};
+    forward.reference.type = 1;
+    forward.reference.channel_id = 71;
+    forward.reference.message_id = 73;
+    forward.reference.author_id = 999; // A reference label is not cached source-author authority.
+    const MessageMediaOwner owner = message_media_owner(record, &forward);
+    record.type = message_type_channel_pinned_message;
+    const auto system_owner = message_media_owner(record, &forward);
+    record.type = 0;
+    forward.system.message_type = message_type_channel_pinned_message;
+    const auto rich_system_owner = message_media_owner(record, &forward);
+    forward.system.message_type = 0;
+    check(!system_owner.forwarded && system_owner.author_id == 19 && !rich_system_owner.forwarded &&
+              rich_system_owner.author_id == 19,
+          "media_system_reference_action_is_not_a_forward");
+    MediaPolicyFixture fixture{{MessageExplicitFilter::blur, true}, {}, 0};
+    MessageMediaPolicy policy{&fixture, query_media_policy, 1};
+    check(owner.forwarded && owner.channel_id == 17 && !owner.author_id && owner.source_channel_id == 71 &&
+              owner.source_message_id == 73 && message_scene_set_media_policy(&scene, policy) &&
+              !message_scene_set_media_policy(&scene, policy) &&
+              message_scene_media_obscure(scene, owner, 0, key, false, true) ==
+                  MessageMediaObscure::explicit_content &&
+              fixture.last_owner.channel_id == 17 && fixture.last_owner.source_message_id == 73 &&
+              fixture.calls == 1,
+          "media_forward_policy_retains_destination_and_queries_source_without_plugin_identity");
+    message_scene_reveal_media(&scene, key);
+    check(message_scene_media_obscure(scene, owner, 0, key, false, true) == MessageMediaObscure::none &&
+              message_scene_media_obscure(
+                  scene, owner, 0, message_media_reveal_key(42, MessageMediaSource::attachment, 0, true),
+                  false, true) == MessageMediaObscure::explicit_content,
+          "media_snapshot_reveal_is_independent");
+    fixture.result.explicit_reveal_allowed = false;
+    ++policy.revision;
+    scene.dirty = false;
+    check(message_scene_set_media_policy(&scene, policy) && scene.dirty &&
+              message_scene_media_obscure(scene, owner, 0, key, false, true) ==
+                  MessageMediaObscure::explicit_content,
+          "media_policy_revision_invalidates_geometry_and_revokes_explicit_reveal");
     for (u32 i = 1; i <= kMessageMediaRevealMaximum; ++i)
-        message_media_reveal(&reveals, message_media_reveal_key(1000 + i, MessageMediaSource::component, i));
+        message_media_reveal(&reveals,
+                             message_media_reveal_key(1000 + i, MessageMediaSource::component, i));
     check(!message_media_revealed(reveals, key) && reveals.count == kMessageMediaRevealMaximum,
           "media_reveal_ring_is_bounded");
     check(equal(message_media_obscure_label(MessageMediaObscure::spoiler), utf8_literal("Spoiler")) &&
@@ -865,18 +965,24 @@ void test_plugin_decorations(Check check) noexcept {
     check(profile.user_id == 11, "plugin_render_cozy_name_hit");
     // Media verdicts through the scene funnel; zero ignores the plugin.
     const u64 key = message_media_reveal_key(first.id, MessageMediaSource::attachment, 0);
-    check(message_scene_media_obscure(f.scene, first.id, key, false, false) == MessageMediaObscure::explicit_content &&
+    MediaPolicyFixture media_policy{{MessageExplicitFilter::blur, false}, {}, 0};
+    message_scene_set_media_policy(&f.scene, {&media_policy, query_media_policy, 1});
+    const MessageMediaOwner media_owner{first.channel_id, first.author_id, 0, 0, false};
+    check(message_scene_media_obscure(f.scene, first.id, key, false, false) ==
+                  MessageMediaObscure::explicit_content &&
               message_scene_media_obscure(f.scene, 0, key, false, false) == MessageMediaObscure::none,
           "plugin_render_media_blur");
     decorated.media = ui_plugin_media_hide;
-    check(message_scene_media_obscure(f.scene, first.id, key, false, false) == MessageMediaObscure::plugin_hidden &&
+    check(message_scene_media_obscure(f.scene, first.id, key, false, false) ==
+                  MessageMediaObscure::plugin_hidden &&
               equal(message_media_obscure_label(MessageMediaObscure::plugin_hidden),
                     utf8_literal("Media hidden by a plugin")),
           "plugin_render_media_hide");
     decorated.media = ui_plugin_media_blur;
     check(message_scene_reveal_media(&f.scene, key) &&
-              message_scene_media_obscure(f.scene, first.id, key, false, false) == MessageMediaObscure::none,
+              message_scene_media_obscure(f.scene, media_owner, first.id, key, false, false) == MessageMediaObscure::none,
           "plugin_render_blur_reveals_on_click");
+    message_scene_set_media_policy(&f.scene, {});
     PaintStream paint{};
     MessageMediaCommand media_storage[64];
     MessageMediaCommandStream media{};

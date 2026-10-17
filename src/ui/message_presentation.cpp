@@ -311,6 +311,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         return true;
     }
 
+    const MessageMediaPolicyResult media_policy = message_scene_media_policy(
+        scene, message_media_owner(*record, rich_store ? message_rich_store_find(*rich_store, record->id)
+                                                       : nullptr));
     const float text_left = body->content_rectangle.left;
     if (row.forwarded_snapshot) {
         const UiWidgetReference owner{&scene.widgets, row.widget};
@@ -411,8 +414,11 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                                           &preview_width, &preview_height)) {
             const UiRect preview{left, top, left + preview_width, top + preview_height};
             const MessageMediaObscure obscure = message_scene_media_obscure(
-                scene, rich->message_id, message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, index),
-                message_rich_attachment_spoiler(*rich_store, attachment), message_rich_attachment_explicit(attachment));
+                scene, media_policy, rich->message_id,
+                message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, index,
+                                         row.forwarded_snapshot),
+                message_rich_attachment_spoiler(*rich_store, attachment),
+                message_rich_attachment_explicit(attachment));
             if (message_media_obscure_notice(obscure)) {
                 if (!push_blocked(paint, owner, preview, theme))
                     return false;
@@ -422,8 +428,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                             UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap) ||
                 !append_media(media, attachment.id, MessageMediaCommandKind::attachment,
                               static_cast<u8>(format), false, preview, row_clip, owner, 0, 0, 0,
-                              format == MediaAttachmentFormat::mp4 && obscure == MessageMediaObscure::none, false,
-                              obscure)) {
+                              format == MediaAttachmentFormat::mp4 && obscure == MessageMediaObscure::none,
+                              row.forwarded_snapshot, obscure)) {
                 return false;
             }
             media->storage[media->count - 1].gif =
@@ -525,17 +531,19 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             message_rich_embed_gallery(*rich_store, *rich, index, &gallery)) {
             const UiRect block = message_rich_embed_media_rect(row.rich_item_layout, index,
                                                                item_layout->content_rectangle, media_only);
-            const MessageMediaObscure obscure = message_scene_media_obscure(
-                scene, record->id, message_media_reveal_key(record->id, MessageMediaSource::embed, index), false,
-                message_rich_embed_explicit(embed));
-            if (message_media_obscure_notice(obscure)) {
-                if (!push_blocked(paint, owner, block, theme))
-                    return false;
-                continue;
-            }
             for (u32 tile = 0; tile < gallery.count && tile < kMessageEmbedGalleryDrawn; ++tile) {
                 const u32 member = gallery.members[tile];
                 const UiRect cell = message_rich_embed_gallery_tile(block, gallery.count, tile);
+                const auto obscure = message_scene_media_obscure(
+                    scene, media_policy, record->id,
+                    message_media_reveal_key(record->id, MessageMediaSource::embed, member,
+                                             row.forwarded_snapshot),
+                    false, message_rich_embed_explicit(rich->embeds[member]));
+                if (message_media_obscure_notice(obscure)) {
+                    if (!push_blocked(paint, owner, cell, theme))
+                        return false;
+                    continue;
+                }
                 if (!push_owned(paint, owner, cell, theme.surface_high, theme.surface_high, 0.0f, 0.0f,
                                 UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap))
                     return false;
@@ -554,9 +562,11 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 item_layout->content_rectangle.top + row.rich_item_layout.embed_media_tops[index];
             const float media_left = item_layout->content_rectangle.left + message_rich_embed_media_left(media_only);
             const UiRect preview{media_left, media_top, media_left + media_width, media_top + media_height};
-            const MessageMediaObscure obscure = message_scene_media_obscure(
-                scene, record->id, message_media_reveal_key(record->id, MessageMediaSource::embed, index), false,
-                message_rich_embed_explicit(embed));
+            const MessageMediaObscure obscure =
+                message_scene_media_obscure(scene, media_policy, record->id,
+                                            message_media_reveal_key(record->id, MessageMediaSource::embed,
+                                                                     index, row.forwarded_snapshot),
+                                            false, message_rich_embed_explicit(embed));
             if (message_media_obscure_notice(obscure)) {
                 if (!push_blocked(paint, owner, preview, theme))
                     return false;
@@ -722,10 +732,13 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
             MessageComponentMedia resolved{};
             if (record && message_component_media_resolve(*rich_store, component, &resolved)) {
                 const MessageMediaObscure obscure = message_scene_media_obscure(
-                    scene, 0, message_media_reveal_key(record->id, MessageMediaSource::component, index),
+                    scene, media_policy, 0,
+                    message_media_reveal_key(record->id, MessageMediaSource::component, index,
+                                             row.forwarded_snapshot),
                     message_rich_component_spoiler(component), false);
-                if (!append_media(media, resolved.key.id, MessageMediaCommandKind::component, resolved.format, false,
-                                  control, row_clip, owner, 0, 0, 0, false, row.forwarded_snapshot, obscure))
+                if (!append_media(media, resolved.key.id, MessageMediaCommandKind::component,
+                                  resolved.format, false, control, row_clip, owner, 0, 0, 0, false,
+                                  row.forwarded_snapshot, obscure))
                     return false;
             } else if (!ui_icon_paint(paint, UiIcon::image,
                                       {(control.left + control.right) * 0.5f - 12.0f,

@@ -2435,7 +2435,22 @@ void application_surface_motion_retire(RendererLayerSurface) noexcept {
 }
 void application_plugins_actions_install(NativePluginSdkRuntime& runtime) noexcept { runtime.actions = {}; }
 // Account settings open the service's web pages through the link flow.
-bool application_link_open(Utf8View, bool) noexcept { return true; }
+namespace {
+u32 settings_link_opens{};
+Utf8View settings_link_url{};
+bool settings_link_trusted{};
+}
+bool application_link_open(Utf8View url, bool trusted) noexcept {
+    ++settings_link_opens;
+    settings_link_url = url;
+    settings_link_trusted = trusted;
+    return true;
+}
+u32 settings_runtime_link_opens(Utf8View* url, bool* trusted) noexcept {
+    if (url) *url = settings_link_url;
+    if (trusted) *trusted = settings_link_trusted;
+    return settings_link_opens;
+}
 void application_tooltip_clear() noexcept {
 }
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept {

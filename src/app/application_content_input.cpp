@@ -10,6 +10,7 @@
 #include "application_gif_favorite_star.hpp"
 #include "application_profile.hpp"
 #include "application_content_input.hpp"
+#include "application_media_policy.hpp"
 #include "application_guild_card.hpp"
 #include "application_guild_lifecycle.hpp"
 #include "application_navigation_drag.hpp"
@@ -83,6 +84,13 @@ bool received_attachment_source(const ReceivedAttachmentOpenIdentity& id, Utf8Vi
         const auto& attachment = rich->attachments[i];
         if (attachment.id == id.attachment_id &&
             message_rich_attachment_format(store, attachment) == MediaAttachmentFormat::unknown) {
+            if (message_scene_media_obscure(
+                    g_app.message_scene, message_media_owner(*message, outer), message->id,
+                    message_media_reveal_key(message->id, MessageMediaSource::attachment, i,
+                                             id.source_channel_id != 0),
+                    message_rich_attachment_spoiler(store, attachment),
+                    message_rich_attachment_explicit(attachment)) != MessageMediaObscure::none)
+                return false;
             *source = message_rich_store_string(store, attachment.url);
             return true;
         }
@@ -536,6 +544,26 @@ bool handle_message_action_bar_click(LPARAM lparam) noexcept {
 // external-link confirmation. False when the source is no longer current.
 static bool begin_received_attachment_open(const MessageRecord& record, u64 attachment_id,
                                            u64 snapshot_origin_channel) noexcept {
+    const auto& rich_store = g_app.account_ui->message_rich_store;
+    const auto* outer_rich = message_rich_store_find(rich_store, record.id);
+    const auto* media_rich =
+        snapshot_origin_channel ? message_rich_store_snapshot(rich_store, record.id) : outer_rich;
+    if (!media_rich || media_rich->message_revision != record.revision ||
+        (snapshot_origin_channel && (!outer_rich || outer_rich->reference.type != 1 ||
+                                     outer_rich->reference.channel_id != snapshot_origin_channel)))
+        return false;
+    for (u32 i = 0; i < media_rich->attachment_count; ++i) {
+        const auto& attachment = media_rich->attachments[i];
+        if (attachment.id == attachment_id &&
+            message_rich_attachment_format(rich_store, attachment) == MediaAttachmentFormat::unknown &&
+            application_media_activation_consumed(
+                g_app.message_scene, message_media_owner(record, outer_rich), record.id,
+                message_media_reveal_key(record.id, MessageMediaSource::attachment, i,
+                                         snapshot_origin_channel != 0),
+                message_rich_attachment_spoiler(rich_store, attachment),
+                message_rich_attachment_explicit(attachment)))
+            return true;
+    }
     const ReceivedAttachmentOpenIdentity identity{received_attachment_account_scope(),
                                                   record.channel_id,
                                                   record.id,
@@ -738,40 +766,68 @@ bool application_message_media_reveal_at(float x, float y) noexcept {
     const auto* row = hit.message_id ? message_scene_find_row(scene, hit.source_index) : nullptr;
     const auto* record = row ? message_store_resolve(g_app.message_view.store, row->message) : nullptr;
     const auto& store = g_app.account_ui->message_rich_store;
-    const auto* rich = record ? message_rich_store_find(store, record->id) : nullptr;
-    if (!rich || rich->message_revision != record->revision || !hit.widget.generation)
+    const auto* outer_rich = record ? message_rich_store_find(store, record->id) : nullptr;
+    if (!outer_rich || outer_rich->message_revision != record->revision || !hit.widget.generation)
         return false;
-    const auto same = [&](MessageSceneRichItemKind kind, u32 index) noexcept {
-        const auto widget = message_scene_rich_item_widget(*row, kind, index);
-        return widget.generation && widget.slot == hit.widget.slot && widget.generation == hit.widget.generation;
-    };
-    u64 key = 0;
-    MessageMediaObscure obscure = MessageMediaObscure::none;
-    for (u32 i = 0; !key && i < rich->attachment_count && i < row->attachment_item_count; ++i)
-        if (same(MessageSceneRichItemKind::attachment, i)) {
-            key = message_media_reveal_key(record->id, MessageMediaSource::attachment, i);
-            obscure = message_scene_media_obscure(scene, record->id, key, message_rich_attachment_spoiler(store, rich->attachments[i]),
-                                                  message_rich_attachment_explicit(rich->attachments[i]));
-        }
-    for (u32 i = 0; !key && i < rich->embed_count && i < row->embed_item_count; ++i)
-        if (same(MessageSceneRichItemKind::embed, i)) {
-            key = message_media_reveal_key(record->id, MessageMediaSource::embed, i);
-            obscure = message_scene_media_obscure(scene, record->id, key, false, message_rich_embed_explicit(rich->embeds[i]));
-        }
-    for (u32 i = 0; !key && i < rich->component_count && i < row->component_item_count; ++i)
-        if (same(MessageSceneRichItemKind::component, i)) {
-            key = message_media_reveal_key(record->id, MessageMediaSource::component, i);
-            obscure = message_scene_media_obscure(scene, 0, key, message_rich_component_spoiler(rich->components[i]),
-                                                  false);
-        }
-    if (obscure != MessageMediaObscure::spoiler && obscure != MessageMediaObscure::explicit_content)
-        return false;
-    SetFocus(g_app.window);
-    if (message_scene_reveal_media(&scene, key)) {
-        refresh_account_text(true);
-        application_request_frame();
+    const auto* outer_row = row;
+    for (u32 scope = 0; scope < 2; ++scope) {
+        row = scope ? message_scene_snapshot_row(scene, *outer_row) : outer_row;
+        const auto* rich = scope ? message_rich_store_snapshot(store, record->id) : outer_rich;
+        if (!row || !rich || rich->message_revision != record->revision)
+            continue;
+        const auto same = [&](MessageSceneRichItemKind kind, u32 index) noexcept {
+            const auto widget = message_scene_rich_item_widget(*row, kind, index);
+            return widget.generation && widget.slot == hit.widget.slot &&
+                   widget.generation == hit.widget.generation;
+        };
+        u64 key = 0;
+        bool spoiler = false, explicit_media = false;
+        u64 plugin_message_id = record->id;
+        for (u32 i = 0; !key && i < rich->attachment_count && i < row->attachment_item_count; ++i)
+            if (same(MessageSceneRichItemKind::attachment, i)) {
+                key = message_media_reveal_key(record->id, MessageMediaSource::attachment, i, scope != 0);
+                spoiler = message_rich_attachment_spoiler(store, rich->attachments[i]);
+                explicit_media = message_rich_attachment_explicit(rich->attachments[i]);
+            }
+        for (u32 i = 0; !key && i < rich->embed_count && i < row->embed_item_count; ++i)
+            if (same(MessageSceneRichItemKind::embed, i)) {
+                u32 member = i;
+                MessageRichEmbedGallery gallery{};
+                if (message_rich_embed_gallery(store, *rich, i, &gallery)) {
+                    const auto* node = message_scene_rich_item_layout_node(
+                        scene, *row, MessageSceneRichItemKind::embed, i);
+                    if (!node)
+                        return false;
+                    const auto block = message_rich_embed_media_rect(
+                        row->rich_item_layout, i, node->content_rectangle,
+                        message_rich_embed_media_only(rich->embeds[i]));
+                    bool found = false;
+                    for (u32 tile = 0; tile < gallery.count && tile < kMessageEmbedGalleryDrawn; ++tile)
+                        if (ui_rect_contains(ui_rect_intersection(
+                                                 message_rich_embed_gallery_tile(block, gallery.count, tile),
+                                                 node->clip_rectangle),
+                                             x, y)) {
+                            member = gallery.members[tile];
+                            found = true;
+                            break;
+                        }
+                    if (!found)
+                        return false;
+                }
+                key = message_media_reveal_key(record->id, MessageMediaSource::embed, member, scope != 0);
+                explicit_media = message_rich_embed_explicit(rich->embeds[member]);
+            }
+        for (u32 i = 0; !key && i < rich->component_count && i < row->component_item_count; ++i)
+            if (same(MessageSceneRichItemKind::component, i)) {
+                key = message_media_reveal_key(record->id, MessageMediaSource::component, i, scope != 0);
+                plugin_message_id = 0;
+                spoiler = message_rich_component_spoiler(rich->components[i]);
+            }
+        if (key)
+            return application_media_activation_consumed(scene, message_media_owner(*record, outer_rich),
+                                                         plugin_message_id, key, spoiler, explicit_media);
     }
-    return true;
+    return false;
 }
 
 bool handle_content_click(LPARAM lparam) noexcept {

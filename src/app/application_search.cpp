@@ -15,6 +15,8 @@
 #include "application_pinned_messages.hpp"
 #include "application_downloads.hpp"
 #include "application_image_viewer.hpp"
+#include "application_media_policy.hpp"
+#include "application_message_components.hpp"
 #include "application_video.hpp"
 #include "application_search_content.hpp"
 #include "application_search_navigation.hpp"
@@ -1675,6 +1677,34 @@ bool activate(ApplicationSearch& s, UiSearchTarget target) noexcept {
             ticket.message_id != target.message_id ||
             !application_search_source_resolve(ticket, target.snapshot, &view))
             return true;
+        const bool attachment_media = target.rich_kind == MessageSceneRichItemKind::attachment;
+        const bool embed_media = target.rich_kind == MessageSceneRichItemKind::embed &&
+                                 target.resource != MediaEmbedResource::none;
+        if (attachment_media || embed_media) {
+            ApplicationSearchSourceView outer{};
+            auto* media_scene = ui_search_scene_message_scene(&s.scene);
+            if (!view.rich || !view.rich_store || !media_scene ||
+                !application_search_source_resolve(ticket, false, &outer))
+                return true;
+            bool spoiler = false, explicit_media = false;
+            if (attachment_media) {
+                if (target.rich_index >= view.rich->attachment_count)
+                    return true;
+                const auto& item = view.rich->attachments[target.rich_index];
+                spoiler = message_rich_attachment_spoiler(*view.rich_store, item);
+                explicit_media = message_rich_attachment_explicit(item);
+            } else {
+                if (target.rich_index >= view.rich->embed_count)
+                    return true;
+                explicit_media = message_rich_embed_explicit(view.rich->embeds[target.rich_index]);
+            }
+            const auto key = message_media_reveal_key(ticket.message_id,
+                attachment_media ? MessageMediaSource::attachment : MessageMediaSource::embed,
+                target.rich_index, target.snapshot);
+            if (application_media_activation_consumed(*media_scene,
+                    message_media_owner(*outer.message, outer.rich), ticket.message_id, key, spoiler, explicit_media))
+                return true;
+        }
         if (target.save) {
             if (target.rich_kind != MessageSceneRichItemKind::attachment || !view.rich ||
                 target.rich_index >= view.rich->attachment_count)
@@ -2403,6 +2433,7 @@ bool application_search_synchronize() noexcept {
     if (!scene_source && s->bank)
         return false;
     ui_search_scene_bind_theme_styles(&s->scene, application_theme().styles);
+    ui_search_scene_set_media_policy(&s->scene, application_message_media_policy());
     if (!ui_search_scene_update(&s->scene, scene_source, &s->content, viewport, title, &header))
         return false;
     if (measure_rows(*s) &&

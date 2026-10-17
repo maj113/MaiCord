@@ -153,6 +153,8 @@ struct UiSearchContent {
     u8 recent_count = 0;
 };
 struct UiSearchScene {
+    MessageMediaPolicy media_policy;
+    bool media_policy_dirty;
     const UiResolvedThemeStyles* theme_styles{};
     const UiSearchFilterChoiceSource* choice_source{};
     const UiSearchFilterChoiceView* choice_rows{};
@@ -192,6 +194,7 @@ struct UiSearchScene {
     UiSearchRichProjection* rich_projection = nullptr;
 };
 bool ui_search_scene_bind_theme_styles(UiSearchScene*, const UiResolvedThemeStyles*) noexcept;
+bool ui_search_scene_set_media_policy(UiSearchScene*, const MessageMediaPolicy&) noexcept;
 // Wide windows get room for the five tabs; the minimum window keeps its 360-DIP pane.
 // The shell reserves this width beside the chat column while the pane is open.
 constexpr float ui_search_panel_width(float viewport_width) noexcept {

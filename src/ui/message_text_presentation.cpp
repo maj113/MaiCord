@@ -1840,13 +1840,16 @@ bool append_obscure_label(MessageTextPresentation* presentation, MessageMediaObs
     const UiRect visible = ui_rect_intersection(clip, box);
     if (!ui_rect_has_area(box) || !ui_rect_has_area(visible) || box.right - box.left < 8.0f)
         return true;
-    if (presentation->style_count >= presentation->styles.count)
-        return fail(presentation, MessageTextPresentationError::capacity);
-    auto& style = presentation->styles[presentation->style_count++];
-    style = {0, label.bytes, notice ? text_style_none : text_style_bold};
-    return append_command(presentation, label, {&style, 1}, {}, owner, box, visible,
-                          notice ? ui_background_muted_text_color(theme)
-                                                                  : theme.tokens.text.on_accent,
+    ConstSlice<TextStyleSpan> styles{};
+    if (!notice) {
+        if (presentation->style_count >= presentation->styles.count)
+            return fail(presentation, MessageTextPresentationError::capacity);
+        auto& style = presentation->styles[presentation->style_count++];
+        style = {0, label.bytes, text_style_bold};
+        styles = {&style, 1};
+    }
+    return append_command(presentation, label, styles, {}, owner, box, visible,
+                          notice ? ui_background_muted_text_color(theme) : theme.tokens.text.on_accent,
                           record.id, record.revision, measurement, MessageTextMeasurementKind::notice, 0.0f, 0.0f,
                           false, UiTextAlignment::center, UiTextAlignment::center, UiTextWrapping::no_wrap, 0,
                           UiTextOverflow::ellipsis);
@@ -2368,6 +2371,10 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
     }
     if (collapsed)
         rich = nullptr; // the scene built no rich widgets for this row
+    const MessageMediaPolicyResult media_policy =
+        rich ? message_scene_media_policy(
+                   scene, message_media_owner(*record, message_rich_store_find(*rich_store, record->id)))
+             : MessageMediaPolicyResult{scene.explicit_filter, true};
     if (forwarded) {
         if (!rich)
             return fail(presentation, MessageTextPresentationError::model);
@@ -2750,7 +2757,9 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             } else if (preview) {
                 required_extent = preview_height + 6.0f;
                 const MessageMediaObscure obscure = message_scene_media_obscure(
-                    scene, rich->message_id, message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, index),
+                    scene, media_policy, rich->message_id,
+                    message_media_reveal_key(rich->message_id, MessageMediaSource::attachment, index,
+                                             row.forwarded_snapshot),
                     message_rich_attachment_spoiler(*rich_store, attachment),
                     message_rich_attachment_explicit(attachment));
                 const UiRect media{item_left, item_layout->rectangle.top, item_left + preview_width,
@@ -2945,15 +2954,24 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
                 measured_items.embed_media_tops[index] = ui_text_flow_required_height(flow);
                 measured_items.embed_media_widths[index] = media_width;
                 measured_items.embed_media_heights[index] = media_height;
-                const MessageMediaObscure obscure = message_scene_media_obscure(
-                    scene, record->id, message_media_reveal_key(record->id, MessageMediaSource::embed, index), false,
-                    message_rich_embed_explicit(embed));
                 const float media_left = embed_left + message_rich_embed_media_left(media_only);
                 const UiRect media_box{media_left, flow.cursor_y, media_left + media_width,
                                        flow.cursor_y + media_height};
-                if (!append_obscure_label(presentation, obscure, media_box, owner, embed_clip, theme, *record,
-                                          measurement_index))
-                    return false;
+                const u32 labels = gallery.count ? minimum<u32>(gallery.count, kMessageEmbedGalleryDrawn) : 1;
+                for (u32 tile = 0; tile < labels; ++tile) {
+                    const u32 member = gallery.count ? gallery.members[tile] : index;
+                    const auto obscure = message_scene_media_obscure(
+                        scene, media_policy, record->id,
+                        message_media_reveal_key(record->id, MessageMediaSource::embed, member,
+                                                 row.forwarded_snapshot),
+                        false, message_rich_embed_explicit(rich->embeds[member]));
+                    const UiRect cell = gallery.count
+                                            ? message_rich_embed_gallery_tile(media_box, gallery.count, tile)
+                                            : media_box;
+                    if (!append_obscure_label(presentation, obscure, cell, owner, embed_clip, theme, *record,
+                                              measurement_index))
+                        return false;
+                }
                 if (!ui_text_flow_advance(&flow, media_height)) {
                     return fail(presentation, MessageTextPresentationError::layout);
                 }
@@ -3093,10 +3111,12 @@ bool append_row(MessageTextPresentation* presentation, const MessageScene& scene
             if (!text_leaf) {
                 if (kind == MessageComponentKind::thumbnail || kind == MessageComponentKind::gallery_item) {
                     const MessageMediaObscure obscure = message_scene_media_obscure(
-                        scene, 0, message_media_reveal_key(record->id, MessageMediaSource::component, index),
+                        scene, media_policy, 0,
+                        message_media_reveal_key(record->id, MessageMediaSource::component, index,
+                                                 row.forwarded_snapshot),
                         message_rich_component_spoiler(component), false);
-                    const UiLayoutNode* media =
-                        message_scene_rich_item_layout_node(scene, row, MessageSceneRichItemKind::component, index);
+                    const UiLayoutNode* media = message_scene_rich_item_layout_node(
+                        scene, row, MessageSceneRichItemKind::component, index);
                     if (media && obscure != MessageMediaObscure::none &&
                         !append_obscure_label(
                             presentation, obscure, media->rectangle,

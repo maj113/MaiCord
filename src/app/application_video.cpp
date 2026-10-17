@@ -9,6 +9,7 @@
 #include "application_composer_text_input.hpp"
 #include "application_search.hpp"
 #include "application_image_viewer.hpp"
+#include "application_media_policy.hpp"
 #include "application_cursor.hpp"
 #include "maicord/media/presentation_policy.hpp"
 #include "maicord/core/memory.hpp"
@@ -655,6 +656,13 @@ bool set_video_expanded(ApplicationVideo& video, bool expanded) noexcept {
     application_request_frame();
     return true;
 }
+enum class InlineMediaPolicyUse : u8 {
+    activate,
+    cursor,
+    retain
+};
+bool inline_media_activation_consumed(const InlineMediaSource& source,
+                                      InlineMediaPolicyUse use = InlineMediaPolicyUse::activate) noexcept;
 void dispatch_video_event(ApplicationVideo& video, const UiVideoSceneResult& event) noexcept {
     if (event.request_capture)
         SetCapture(g_app.window);
@@ -663,6 +671,8 @@ void dispatch_video_event(ApplicationVideo& video, const UiVideoSceneResult& eve
     if (event.handled)
         application_request_frame();
     if (!event.action_requested || !ui_video_action_current(project_video_playback(video), event.action))
+        return;
+    if (inline_media_activation_consumed(video.source))
         return;
     const auto& action = event.action;
     switch (action.control) {
@@ -717,7 +727,57 @@ bool start_video_session(const InlineMediaSource& source) noexcept {
     application_request_frame();
     return true;
 }
+bool inline_media_activation_consumed(const InlineMediaSource& source, InlineMediaPolicyUse use) noexcept {
+    // Missing sources keep the pump's existing pause/retirement path. Retention
+    // changes only when a current media item has an obscuring policy verdict.
+    if (!g_app.account_ui)
+        return use != InlineMediaPolicyUse::retain;
+    ApplicationSearchSourceView searched{};
+    const bool search = source.search_source.publication_revision != 0;
+    const MessageRecord* message = nullptr;
+    const MessageRichStore* store = &g_app.account_ui->message_rich_store;
+    if (search) {
+        if (!application_search_source_resolve(source.search_source, false, &searched))
+            return use != InlineMediaPolicyUse::retain;
+        message = searched.message;
+        store = searched.rich_store;
+    } else {
+        const auto found = message_store_find(g_app.message_view.store, source.message_id);
+        message = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    }
+    auto* searched_scene = search ? application_search_scene() : nullptr;
+    auto* scene = search ? (searched_scene && searched_scene == g_app.renderer.search_scene
+                               ? ui_search_scene_message_scene(searched_scene)
+                               : nullptr)
+                        : &g_app.message_scene;
+    const auto* outer = message && store ? message_rich_store_find(*store, message->id) : nullptr;
+    const auto* rich =
+        source.snapshot && store ? message_rich_store_snapshot(*store, source.message_id) : outer;
+    if (!scene || !message || !rich || message->revision != source.revision ||
+        rich->message_revision != source.revision)
+        return use != InlineMediaPolicyUse::retain;
+    const auto owner = message_media_owner(*message, outer);
+    const auto kind = source.embed ? MessageMediaSource::embed : MessageMediaSource::attachment;
+    if ((source.embed && source.index >= rich->embed_count) ||
+        (!source.embed && source.index >= rich->attachment_count))
+        return use != InlineMediaPolicyUse::retain;
+    const auto key = message_media_reveal_key(message->id, kind, source.index, source.snapshot);
+    const bool spoiler =
+        !source.embed && message_rich_attachment_spoiler(*store, rich->attachments[source.index]);
+    const bool explicit_media = source.embed
+                                    ? message_rich_embed_explicit(rich->embeds[source.index])
+                                    : message_rich_attachment_explicit(rich->attachments[source.index]);
+    if (use != InlineMediaPolicyUse::activate) {
+        const auto obscure =
+            message_scene_media_obscure(*scene, owner, message->id, key, spoiler, explicit_media);
+        return use == InlineMediaPolicyUse::retain ? obscure != MessageMediaObscure::none
+                                                   : message_media_obscure_notice(obscure);
+    }
+    return application_media_activation_consumed(*scene, owner, message->id, key, spoiler, explicit_media);
+}
 bool activate_inline_source(const InlineMediaSource& source) noexcept {
+    if (inline_media_activation_consumed(source))
+        return true;
     auto* video = g_app.video;
     if (video && media_asset_key_equal(source.key, video->source.key) &&
         source.audio == video->source.audio && source.snapshot == video->source.snapshot &&
@@ -756,6 +816,8 @@ void dispatch_audio_event(ApplicationVideo& video, const UiAudioSceneResult& eve
         current.owner.manager != video.ui.audio.owner.manager ||
         current.owner.handle.slot != video.ui.audio.owner.handle.slot ||
         current.owner.handle.generation != video.ui.audio.owner.handle.generation)
+        return;
+    if (inline_media_activation_consumed(current))
         return;
     switch (event.action.control) {
     case UiAudioControl::play_pause:
@@ -972,6 +1034,16 @@ bool application_video_open_viewer_item(u64 message_id, u32 revision, bool embed
                                         MediaAssetKey* key) noexcept {
     if (!key || !video_session_available() || !ui_rect_has_area(preview))
         return false;
+    InlineMediaSource candidate{};
+    candidate.message_id = message_id;
+    candidate.revision = revision;
+    candidate.embed = embed;
+    candidate.index = index;
+    candidate.snapshot = snapshot;
+    if (search)
+        candidate.search_source = *search;
+    if (inline_media_activation_consumed(candidate))
+        return false;
     auto* video = g_app.video;
     if (video && !video->source.audio && video->source.message_id == message_id &&
         video->source.revision == revision && video->source.embed == embed && video->source.index == index &&
@@ -1077,6 +1149,10 @@ bool application_video_pump(bool* repaint) noexcept {
                                        : nullptr;
     if (!message || !application_channel_readable(g_app, message->channel_id) ||
         message->revision != video->source.revision) {
+        application_video_close();
+        return true;
+    }
+    if (inline_media_activation_consumed(video->source, InlineMediaPolicyUse::retain)) {
         application_video_close();
         return true;
     }
@@ -1437,6 +1513,8 @@ bool application_video_pointer(UINT message, LPARAM lparam) noexcept {
                                                      kind != 0, static_cast<u8>(item_index), &source,
                                                      content_scope != 0) &&
                         ui_rect_contains(source.clip, point.x, point.y)) {
+                        if (inline_media_activation_consumed(source))
+                            return true;
                         if (source.audio) {
                             UiAudioControlsProjection controls{};
                             if (!ui_audio_attachment_project(
@@ -1514,6 +1592,8 @@ bool application_video_cursor(UiPoint point, UiCursor* cursor) noexcept {
         !ui_rect_contains(g_app.message_scene.viewport, point.x, point.y))
         return false;
     const auto* video = g_app.video;
+    if (video && inline_media_activation_consumed(video->source, InlineMediaPolicyUse::cursor))
+        return false;
     if (video && video->source.audio && video->ui.audio.active &&
         ui_rect_contains(ui_rect_intersection(video->ui.audio.projection.geometry.bounds, video->ui.audio.clip),
                          point.x, point.y)) {
@@ -1549,6 +1629,8 @@ bool application_video_cursor(UiPoint point, UiCursor* cursor) noexcept {
                                                       static_cast<u8>(item_index), &source, content_scope != 0) ||
                         !ui_rect_contains(source.clip, point.x, point.y))
                         continue;
+                    if (inline_media_activation_consumed(source, InlineMediaPolicyUse::cursor))
+                        return false;
                     if (!source.audio) {
                         *cursor = UiCursor::hand;
                         return true;

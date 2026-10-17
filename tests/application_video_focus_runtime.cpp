@@ -10,6 +10,14 @@
 #include "test_output.hpp"
 
 namespace maicord::video_focus_runtime_test {
+u32 confirmations, media_refreshes;
+UiSearchScene* mutable_search_scene;
+MessageExplicitFilter media_filter = MessageExplicitFilter::show;
+bool media_reveal_allowed = true;
+MessageMediaPolicyResult query_media(const void*, const MessageMediaOwner&) noexcept {
+    return {media_filter, media_reveal_allowed};
+}
+
 using namespace app_detail;
 
 struct AccountFixture {
@@ -302,6 +310,7 @@ void run_search_video() noexcept {
     UiSearchScene scene{};
     const bool ready = initialized && ui_search_scene_update(&scene, &source, &content, {0, 0, 1400, 1200},
                                                              {0, 0, 1400, 48});
+    mutable_search_scene = &scene;
     g_app.renderer.search_scene = &scene;
     UiSearchTarget target{};
     target.action = UiSearchAction::rich_item;
@@ -420,6 +429,7 @@ void run_search_video() noexcept {
         ui_thread_browser_scene_release(&browser);
     }
     application_video_close();
+    mutable_search_scene = nullptr;
     g_app.renderer.search_scene = nullptr;
     ui_search_scene_release(&scene);
     search_current = false;
@@ -471,6 +481,7 @@ void run_search_audio(MediaAttachmentFormat format = MediaAttachmentFormat::ogg_
     UiSearchScene scene{};
     const bool ready = initialized && ui_search_scene_update(&scene, &source, &content, {0, 0, 1400, 1200},
                                                              {0, 0, 1400, 48});
+    mutable_search_scene = &scene;
     g_app.renderer.search_scene = &scene;
     UiSearchTarget target{};
     target.action = UiSearchAction::rich_item;
@@ -520,6 +531,7 @@ void run_search_audio(MediaAttachmentFormat format = MediaAttachmentFormat::ogg_
               "released");
     }
     application_video_close();
+    mutable_search_scene = nullptr;
     g_app.renderer.search_scene = nullptr;
     ui_search_scene_release(&scene);
     search_view = {};
@@ -816,11 +828,35 @@ void run() noexcept {
     }
     const LPARAM preview_point = MAKELPARAM(static_cast<short>(node->rectangle.left + 160),
                                             static_cast<short>(node->rectangle.top + 40));
+    fixture.rich_record[0].attachments[0].flags |= kGatewayMediaExplicitFlag;
+    check(message_scene_set_media_policy(&g_app.message_scene, {nullptr, query_media, 1}),
+          "video policy fixture binds the actual native scene query");
+    media_filter = MessageExplicitFilter::block;
+    UiCursor guarded_cursor{};
+    check(application_video_pointer(WM_LBUTTONDOWN, preview_point) && !g_app.video && !account.selections &&
+              !account.network_requests &&
+              !application_video_cursor({static_cast<float>(static_cast<i16>(LOWORD(preview_point))),
+                                         static_cast<float>(static_cast<i16>(HIWORD(preview_point)))},
+                                        &guarded_cursor),
+          "blocked inline video consumes activation without selection, network request or hand cursor");
+    media_filter = MessageExplicitFilter::blur;
+    media_reveal_allowed = false;
+    check(application_video_pointer(WM_LBUTTONDOWN, preview_point) && !g_app.video && confirmations == 1 &&
+              !g_app.message_scene.media_reveals.count,
+          "age gated video activation requests confirmation without selecting or revealing");
+    media_reveal_allowed = true;
+    check(application_video_pointer(WM_LBUTTONDOWN, preview_point) && !g_app.video &&
+              media_refreshes == 1 &&
+              message_media_revealed(g_app.message_scene.media_reveals,
+                                     message_media_reveal_key(1, MessageMediaSource::attachment, 0)),
+          "inline video first activation reveals only and leaves decoder selection for the next gesture");
     check(application_video_pointer(WM_LBUTTONDOWN, preview_point) && pump() && account.selections == 1 &&
               GetFocus() == g_app.window && g_app.renderer.video_scene &&
               !g_app.renderer.video_scene->keyboard_focus &&
               g_app.renderer.video_scene->controls_transition.value == 0 && !application_video_next_wake(),
           "video focus runtime: real mouse selection off-hover does not pin controls or an idle wake");
+    fixture.rich_record[0].attachments[0].flags &= ~kGatewayMediaExplicitFlag;
+    media_filter = MessageExplicitFilter::show;
     if (!g_app.renderer.video_scene) {
         release();
         return;
@@ -921,6 +957,7 @@ void run() noexcept {
     search_scene.content = &search_content;
     search_scene.panel = {(original_clip.left + original_clip.right) * .5f, original_clip.top,
                           original_clip.right + 40, original_clip.bottom};
+    mutable_search_scene = &search_scene;
     g_app.renderer.search_scene = &search_scene;
     check(pump() && g_app.renderer.video_scene &&
               g_app.renderer.video_scene->clip.right == search_scene.panel.left &&
@@ -933,6 +970,7 @@ void run() noexcept {
     search_scene.panel.left = original_clip.left;
     check(pump() && !g_app.renderer.video_scene && !application_video_next_wake(),
           "video focus runtime: a fully occluded preview retires its controls and visual deadline");
+    mutable_search_scene = nullptr;
     g_app.renderer.search_scene = nullptr;
     check(pump() && dormant(),
           "video focus runtime: search dismissal restores geometry without stale keyboard focus");
@@ -1280,6 +1318,13 @@ void run() noexcept {
               "video refresh runtime: terminal refresh stays idle across 64 frames without reselection or "
               "expired requests");
     }
+    fixture.rich_record[0].attachments[0].flags |= kGatewayMediaExplicitFlag;
+    media_filter = MessageExplicitFilter::block;
+    const u32 selections_before_policy = account.selections;
+    check(message_scene_set_media_policy(&g_app.message_scene, {nullptr, query_media, 2}) && pump() &&
+              !g_app.video && !g_app.renderer.video_scene && account.selections == selections_before_policy,
+          "newly blocked video policy retires an existing decoder owner without reselection or reveal");
+    media_filter = MessageExplicitFilter::show;
     release();
     check(!g_app.video && !g_app.renderer.video_scene && !application_video_next_wake(),
           "video focus runtime: release removes the selected owner and every deadline");
@@ -1314,6 +1359,14 @@ MediaAtlasGpuResult renderer_present_video_frame(D3D11Renderer*, MediaAssetKey,
     return {{}, E_FAIL, MediaAtlasGpuError::invalid_input};
 }
 namespace app_detail {
+UiSearchScene* application_search_scene() noexcept { return video_focus_runtime_test::mutable_search_scene; }
+bool refresh_account_frame(bool) noexcept {
+    ++video_focus_runtime_test::media_refreshes;
+    return true;
+}
+void application_user_settings_request_content_confirmation() noexcept {
+    ++video_focus_runtime_test::confirmations;
+}
 bool application_image_viewer_open_video(u64, u32, bool, u8, bool, const ApplicationSearchSourceTicket*,
                                          MediaAssetKey, UiRect) noexcept {
     if (!video_focus_runtime_test::viewer_allowed)

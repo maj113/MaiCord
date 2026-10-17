@@ -3,6 +3,7 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/widget_manager.hpp"
+#include "maicord/ui/message_media_policy.hpp"
 
 namespace maicord::app_detail {
 // Message components (buttons, selects) and the modals they open. One
@@ -26,6 +27,9 @@ bool application_message_components_response(const RestClientResponse& response,
 void application_message_components_tick(u64 now_ms) noexcept;
 u64 application_message_components_next_wake() noexcept;
 void application_message_components_release() noexcept;
+// Shared by the timeline, search results and media opened from either scene.
+// The borrowed callback remains valid for the application lifetime.
+MessageMediaPolicy application_message_media_policy() noexcept;
 
 // Frame time: age-restricted channels show their content only after the
 // "Age-restricted channel" confirmation, remembered per server for this

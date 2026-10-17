@@ -3,6 +3,8 @@
 #include "application_composer.hpp"
 #include "application_content_input.hpp"
 #include "application_message_interaction.hpp"
+#include "application_media_context.hpp"
+#include "application_search.hpp"
 #include "application_state.hpp"
 #include "application_text_form.hpp"
 #include "application_text_form_state.hpp"
@@ -465,35 +467,111 @@ void open_modal(Utf8View body) noexcept {
     open_modal_step();
 }
 
-// Explicit media filter for the open channel (text_and_images
-// .explicit_content_settings): servers, friend DMs and other DMs each have a
-// setting; unset means friends show and everything else blurs.
-MessageExplicitFilter explicit_filter_for(u64 channel_id) noexcept {
-    const auto& state = g_app.account_ui->chat_state;
-    const ChannelRecord* channel = chat_state_store_find_channel(state, channel_id);
-    u32 context = 2; // other DMs
-    if (channel && channel->guild_id) {
-        context = 1;
-    } else if (channel && channel->type == 1 && state.private_channels) {
-        const auto* record = private_channel_store_find(*state.private_channels, channel_id);
-        const auto recipients =
-            record ? private_channel_store_recipients(*state.private_channels, *record) : ConstSlice<u64>{};
-        const auto* relationships = application_friends_relationships();
-        const auto* friend_record =
-            recipients.count == 1 && relationships ? relationship_store_find(*relationships, recipients[0]) : nullptr;
-        if (friend_record && friend_record->type == RelationshipType::friend_)
-            context = 0;
+struct MediaStoreVersion {
+    const MessageStore* store;
+    const MessageRecord* records;
+    u32 created, updated, deleted, count;
+};
+MediaStoreVersion media_store_version(const MessageStore* store) noexcept {
+    return store ? MediaStoreVersion{store, store->records, store->created, store->updated, store->deleted, store->count}
+                 : MediaStoreVersion{};
+}
+bool same_media_store(const MediaStoreVersion& a, const MediaStoreVersion& b) noexcept {
+    return a.store == b.store && a.records == b.records && a.created == b.created && a.updated == b.updated &&
+           a.deleted == b.deleted && a.count == b.count;
+}
+struct MediaPolicyInputs {
+    const ChatStateStore* channels;
+    const RelationshipStore* relationships;
+    MediaStoreVersion live, search;
+    u64 account_scope, self_user_id;
+    u32 channel_revision, relationship_revision, live_generation, search_revision;
+    AccountContentPolicy content;
+    MessageExplicitFilter filters[3];
+    bool reveal_allowed;
+};
+MediaPolicyInputs media_policy_inputs() noexcept {
+    MediaPolicyInputs inputs{};
+    inputs.account_scope = account_scope();
+    inputs.channels = g_app.account_ui ? &g_app.account_ui->chat_state : nullptr;
+    if (inputs.channels) {
+        inputs.self_user_id = inputs.channels->self_user_id;
+        inputs.content = inputs.channels->content_policy;
+        inputs.channel_revision = inputs.channels->channel_mutations;
+        inputs.live = media_store_version(&g_app.message_view.store);
+        inputs.live_generation = g_app.message_view.timeline.reset_generation;
     }
-    constexpr u8 kFields[3] = {2, 1, 3}; // friend DM, guild, other DM sub-fields of field 29
-    UserSettingsValue value{};
-    const u64 fallback = context == 0 ? 1u : 2u;
-    const u64 setting = application_user_settings_read({6, 29, kFields[context], UserSettingsKind::enumeration}, &value) &&
-                                value.number >= 1 && value.number <= 3
-                            ? value.number
-                            : fallback;
-    return setting == 1 ? MessageExplicitFilter::show
-           : setting == 3 ? MessageExplicitFilter::block
-                          : MessageExplicitFilter::blur;
+    inputs.relationships = application_friends_relationships();
+    inputs.relationship_revision = inputs.relationships ? inputs.relationships->revision : 0;
+    if (const auto* timeline = application_search_rich_timeline()) {
+        inputs.search = media_store_version(timeline->store);
+        const auto* scene = application_search_scene();
+        inputs.search_revision = scene && scene->source ? scene->source->revision : 0;
+    }
+    for (u32 i = 0; i < 3; ++i)
+        inputs.filters[i] = application_user_settings_explicit_filter(static_cast<MessageMediaContext>(i));
+    inputs.reveal_allowed = !application_user_settings_content_confirmation_required();
+    return inputs;
+}
+bool same_media_sources(const MediaPolicyInputs& a, const MediaPolicyInputs& b) noexcept {
+    return a.channels == b.channels && a.relationships == b.relationships &&
+           a.channel_revision == b.channel_revision && a.relationship_revision == b.relationship_revision &&
+           a.live_generation == b.live_generation && a.search_revision == b.search_revision &&
+           same_media_store(a.live, b.live) && same_media_store(a.search, b.search);
+}
+bool same_media_owner(const MessageMediaOwner& a, const MessageMediaOwner& b) noexcept {
+    return a.channel_id == b.channel_id && a.author_id == b.author_id &&
+           a.source_channel_id == b.source_channel_id && a.source_message_id == b.source_message_id &&
+           a.forwarded == b.forwarded;
+}
+bool same_media_context(const ApplicationMediaContext& a, const ApplicationMediaContext& b) noexcept {
+    return a.author_id == b.author_id && a.context == b.context && a.self_authored == b.self_authored;
+}
+ApplicationMediaContext resolve_media_context(const MediaPolicyInputs& inputs, const MessageMediaOwner& media) noexcept {
+    return application_media_context_resolve(media, inputs.self_user_id, inputs.channels, inputs.relationships,
+                                             inputs.live.store, inputs.search.store);
+}
+// Only queried owners can affect painted media. Store counters admit a bounded
+// recheck; unrelated text edits, presence updates and channel metadata changes
+// do not invalidate all message geometry when those owners resolve identically.
+inline constexpr u32 kMediaPolicyDependencies = 128;
+struct MediaPolicyDependency {
+    MessageMediaOwner owner;
+    ApplicationMediaContext resolved;
+};
+struct MediaPolicyOwner {
+    MediaPolicyInputs inputs;
+    MediaPolicyDependency dependencies[kMediaPolicyDependencies];
+    u64 revision;
+    u32 count;
+    bool initialized, overflow;
+};
+MediaPolicyOwner media_policy{};
+
+MessageMediaPolicyResult query_media_policy(const void*, const MessageMediaOwner& media) noexcept {
+    // The callback borrows application state; source records are never retained.
+    auto& policy = media_policy;
+    const auto* search_timeline = application_search_rich_timeline();
+    const auto resolved = application_media_context_resolve(
+        media, g_app.account_ui ? g_app.account_ui->chat_state.self_user_id : 0,
+        g_app.account_ui ? &g_app.account_ui->chat_state : nullptr, application_friends_relationships(),
+        g_app.account_ui ? &g_app.message_view.store : nullptr,
+        search_timeline ? search_timeline->store : nullptr);
+    u32 dependency = 0;
+    for (; dependency < policy.count; ++dependency)
+        if (same_media_owner(policy.dependencies[dependency].owner, media))
+            break;
+    if (dependency == policy.count && dependency < kMediaPolicyDependencies) {
+        policy.dependencies[dependency] = {media, resolved};
+        ++policy.count;
+    } else if (dependency == kMediaPolicyDependencies) {
+        // The next admitted source change forces a rebuild and starts a fresh
+        // bounded set, so a long scrolling session cannot pin this fallback.
+        policy.overflow = true;
+    }
+    return {resolved.self_authored ? MessageExplicitFilter::show
+                                  : application_user_settings_explicit_filter(resolved.context),
+            !application_user_settings_content_confirmation_required()};
 }
 
 // Age gate: accepted servers (and DM-less channel ids) for this session.
@@ -550,6 +628,40 @@ bool age_gate_save(TextFormOwnerKey key, Utf8View) noexcept {
 }
 
 } // namespace
+
+MessageMediaPolicy application_message_media_policy() noexcept {
+    const auto inputs = media_policy_inputs();
+    auto& policy = media_policy;
+    const auto& previous = policy.inputs;
+    const bool scope_changed = !policy.initialized || inputs.account_scope != previous.account_scope ||
+                               inputs.self_user_id != previous.self_user_id;
+    bool changed = scope_changed || inputs.content.eligibility != previous.content.eligibility ||
+                   inputs.content.age_verification != previous.content.age_verification ||
+                   inputs.content.flags != previous.content.flags || inputs.reveal_allowed != previous.reveal_allowed;
+    for (u32 i = 0; i < 3; ++i)
+        changed |= inputs.filters[i] != previous.filters[i];
+    if (scope_changed) {
+        policy.count = 0;
+        policy.overflow = false;
+    } else if (!same_media_sources(inputs, previous)) {
+        if (policy.overflow) {
+            changed = true;
+            policy.count = 0;
+            policy.overflow = false;
+        }
+        for (u32 i = 0; i < policy.count; ++i) {
+            auto& dependency = policy.dependencies[i];
+            const auto resolved = resolve_media_context(inputs, dependency.owner);
+            changed |= !same_media_context(resolved, dependency.resolved);
+            dependency.resolved = resolved;
+        }
+    }
+    policy.inputs = inputs;
+    policy.initialized = true;
+    if (changed)
+        ++policy.revision;
+    return {&policy, query_media_policy, policy.revision};
+}
 
 void application_age_gate_synchronize() noexcept {
     if (!g_app.account_ui)
@@ -723,9 +835,7 @@ bool application_message_components_response(const RestClientResponse& response,
 }
 
 void application_message_components_tick(u64 now_ms) noexcept {
-    if (g_app.account_ui && g_app.account_ui->active_channel_id &&
-        message_scene_set_explicit_filter(&g_app.message_scene,
-                                          explicit_filter_for(g_app.account_ui->active_channel_id))) {
+    if (message_scene_set_media_policy(&g_app.message_scene, application_message_media_policy())) {
         refresh_account_text(true);
         application_request_frame();
     }
@@ -763,6 +873,9 @@ u64 application_message_components_next_wake() noexcept {
 }
 
 void application_message_components_release() noexcept {
+    media_policy.initialized = false;
+    media_policy.count = 0;
+    media_policy.overflow = false;
     if (!owner)
         return;
     message_scene_set_interaction(&g_app.message_scene, {});
