@@ -115,7 +115,7 @@ struct GuildVerificationForm {
     GuildVerificationText description;
     u8 field_count;
     u8 version_bytes;
-    bool truncated; // text or fields beyond the bounds were dropped
+    bool truncated; // text, values or fields could not be retained completely
     char version[kGuildVerificationVersionBytes];
     char text[kGuildVerificationTextBytes];
     u32 text_used;
@@ -126,7 +126,8 @@ inline Utf8View guild_verification_text(const GuildVerificationForm& form, Guild
 // Decodes GET /guilds/{g}/member-verification. False for a body that is not a
 // form object (fields of an unknown type decode as unknown).
 bool guild_verification_decode(Utf8View body, Slice<u32> scratch, GuildVerificationForm* output) noexcept;
-// Whether the form can be answered here: no required field of an unknown type.
+// Whether the complete form can be answered here: no lost text/fields and no
+// required field of an unknown type.
 bool guild_verification_supported(const GuildVerificationForm&) noexcept;
 
 // One answer per decoded field, in field order.
@@ -140,7 +141,8 @@ struct GuildVerificationAnswer {
 bool guild_verification_answers_complete(const GuildVerificationForm&, ConstSlice<GuildVerificationAnswer>) noexcept;
 // PUT body: {"version":...,"form_fields":[<each original field object plus
 // "response">]}. The original form body is re-read so every field is echoed
-// exactly as the server sent it. Returns the bytes written, 0 on failure.
+// exactly as the server sent it. Incomplete/unsupported forms or missing required
+// answers are refused. Returns the bytes written, 0 on failure.
 u32 guild_verification_write_submit(Utf8View form_body, ConstSlice<GuildVerificationAnswer> answers,
                                     Slice<u32> scratch, Slice<u8> output) noexcept;
 enum class GuildApplicationStatus : u8 { unknown, started, submitted, rejected, approved };
@@ -174,7 +176,7 @@ struct GuildOnboarding {
     u64 default_channels[kGuildOnboardingDefaultChannelMaximum];
     u32 prompt_count, option_count, default_channel_count;
     u8 mode;
-    bool enabled, truncated;
+    bool enabled, truncated; // incomplete display or saved selections; cannot submit
     char text[kGuildOnboardingTextBytes];
     u32 text_used;
 };
@@ -188,9 +190,11 @@ u32 guild_onboarding_flow_prompts(const GuildOnboarding&, Slice<u16> output) noe
 // the selection changed.
 bool guild_onboarding_toggle(GuildOnboarding*, u32 prompt, u32 option) noexcept;
 bool guild_onboarding_prompt_answered(const GuildOnboarding&, u32 prompt) noexcept;
-// POST body with the selected options and every flow prompt/option as seen
-// at `seen_ms`. Returns the bytes written, 0 on failure.
-u32 guild_onboarding_write_responses(const GuildOnboarding&, u64 seen_ms, Slice<u8> output) noexcept;
+// POST body with selected options and every flow prompt/option as seen at
+// `seen_ms`. Editing (PUT) includes all prompts instead. Incomplete models are
+// refused. Returns the bytes written, 0 on failure.
+u32 guild_onboarding_write_responses(const GuildOnboarding&, u64 seen_ms, Slice<u8> output,
+                                     bool editing = false) noexcept;
 
 // Scheduled events
 

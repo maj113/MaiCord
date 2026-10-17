@@ -31,16 +31,22 @@ struct Bank {
     u32* used;
     bool* truncated;
     GuildVerificationText add(JsonValue value, u32 limit = 4096) noexcept {
-        if (value.kind != JsonValueKind::string)
+        if (value.kind == JsonValueKind::null_value)
             return {};
-        const u32 room = capacity - *used;
-        if (room < 4) {
+        JsonString source{};
+        if (!json_value_as_string(value, &source)) {
             *truncated = true;
             return {};
         }
-        const u32 bytes = decode_text(value, data + *used, minimum(room, minimum<u32>(limit, 0xFFFF)));
-        const GuildVerificationText text{static_cast<u16>(*used), static_cast<u16>(bytes)};
-        *used += bytes;
+        const u32 room = capacity - *used;
+        const auto decoded =
+            json_string_decode_utf8(source, {data + *used, minimum(room, minimum<u32>(limit, 0xFFFF))});
+        if (!decoded.ok()) {
+            *truncated = true;
+            return {};
+        }
+        const GuildVerificationText text{static_cast<u16>(*used), static_cast<u16>(decoded.bytes)};
+        *used += decoded.bytes;
         return text;
     }
 };
@@ -118,6 +124,8 @@ bool form_value(void* opaque, u32, JsonValue value) noexcept {
     }
     if (value.kind == JsonValueKind::string)
         p.field->values[p.field->value_count++] = p.bank.add(value, 2048);
+    else
+        p.form->truncated = true;
     return true;
 }
 bool form_field_member(void* opaque, JsonString name, JsonValue value) noexcept {
@@ -133,22 +141,31 @@ bool form_field_member(void* opaque, JsonString name, JsonValue value) noexcept 
         f.placeholder = p.bank.add(value, 256);
     else if (json_string_equals_ascii(name, utf8_literal("required")))
         json_value_to_bool(value, &f.required);
-    else if ((json_string_equals_ascii(name, utf8_literal("values")) ||
-              json_string_equals_ascii(name, utf8_literal("choices"))) &&
-             value.kind == JsonValueKind::array)
-        return json_visit_indexed_array(p.document, value, kDepth, form_value, &p).ok();
+    else if (json_string_equals_ascii(name, utf8_literal("values")) ||
+             json_string_equals_ascii(name, utf8_literal("choices"))) {
+        if (value.kind == JsonValueKind::array)
+            return json_visit_indexed_array(p.document, value, kDepth, form_value, &p).ok();
+        if (value.kind != JsonValueKind::null_value)
+            p.form->truncated = true;
+    }
     return true;
 }
 bool form_field(void* opaque, u32, JsonValue value) noexcept {
     auto& p = *static_cast<FormPass*>(opaque);
-    if (value.kind != JsonValueKind::object)
-        return false;
+    if (value.kind != JsonValueKind::object) {
+        p.form->truncated = true;
+        return true;
+    }
     if (p.form->field_count >= kGuildVerificationFieldMaximum) {
         p.form->truncated = true;
         return true;
     }
     p.field = &p.form->fields[p.form->field_count++];
-    return json_visit_indexed_object(p.document, value, kDepth, form_field_member, &p).ok();
+    if (!json_visit_indexed_object(p.document, value, kDepth, form_field_member, &p).ok())
+        return false;
+    if (p.field->type == GuildVerificationFieldType::terms && !p.field->value_count)
+        p.form->truncated = true;
+    return true;
 }
 bool form_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<FormPass*>(opaque);
@@ -166,6 +183,17 @@ bool form_member(void* opaque, JsonString name, JsonValue value) noexcept {
     }
     return true;
 }
+bool decode_form(const JsonIndexedDocument& document, GuildVerificationForm* output) noexcept {
+    auto& form = *output;
+    form = {};
+    FormPass pass{
+        document, &form, {form.text, kGuildVerificationTextBytes, &form.text_used, &form.truncated},
+        nullptr,  {},    false};
+    if (!json_visit_root_object(document.input, document.structurals, kDepth, form_member, &pass).ok() ||
+        !pass.fields_seen)
+        return false;
+    return json_visit_indexed_array(document, pass.fields, kDepth, form_field, &pass).ok();
+}
 
 // Onboarding
 
@@ -175,11 +203,29 @@ struct OnboardingPass {
     Bank bank;
     GuildOnboardingPrompt* prompt;
     GuildOnboardingOption* option;
-    u64 responses[kGuildOnboardingOptionMaximum];
-    u32 response_count;
-    JsonValue prompts;
+    JsonValue prompts, responses;
     bool prompts_seen;
+    bool responses_seen;
 };
+bool onboarding_response(void* opaque, u32 index, JsonValue value) noexcept {
+    auto& p = *static_cast<OnboardingPass*>(opaque);
+    auto& o = *p.onboarding;
+    u64 id = 0;
+    if (!json_value_to_snowflake(value, &id) || index >= 750) {
+        o.truncated = true;
+        return true;
+    }
+    bool matched = false;
+    for (u32 i = 0; i < o.option_count; ++i) {
+        if (o.options[i].id != id)
+            continue;
+        o.options[i].selected = true;
+        matched = true;
+    }
+    if (!matched)
+        o.truncated = true;
+    return true;
+}
 bool emoji_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("name")))
@@ -212,16 +258,20 @@ bool option_member(void* opaque, JsonString name, JsonValue value) noexcept {
 bool prompt_option(void* opaque, u32, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& o = *p.onboarding;
-    if (value.kind != JsonValueKind::object)
+    if (value.kind != JsonValueKind::object) {
+        o.truncated = true;
         return true;
+    }
     if (o.option_count >= kGuildOnboardingOptionMaximum) {
         o.truncated = true;
         return true;
     }
     GuildOnboardingOption decoded{};
     p.option = &decoded;
-    if (!json_visit_indexed_object(p.document, value, kDepth, option_member, &p).ok() || !decoded.id)
+    if (!json_visit_indexed_object(p.document, value, kDepth, option_member, &p).ok() || !decoded.id) {
+        o.truncated = true;
         return true;
+    }
     o.options[o.option_count++] = decoded;
     ++p.prompt->option_count;
     return true;
@@ -242,7 +292,11 @@ bool prompt_member(void* opaque, JsonString name, JsonValue value) noexcept {
         json_value_to_bool(value, &prompt.required);
     else if (json_string_equals_ascii(name, utf8_literal("in_onboarding")))
         json_value_to_bool(value, &prompt.in_onboarding);
-    else if (json_string_equals_ascii(name, utf8_literal("options")) && value.kind == JsonValueKind::array) {
+    else if (json_string_equals_ascii(name, utf8_literal("options"))) {
+        if (value.kind != JsonValueKind::array) {
+            p.onboarding->truncated = true;
+            return true;
+        }
         prompt.first_option = static_cast<u16>(p.onboarding->option_count);
         prompt.option_count = 0;
         return json_visit_indexed_array(p.document, value, kDepth, prompt_option, &p).ok();
@@ -252,8 +306,10 @@ bool prompt_member(void* opaque, JsonString name, JsonValue value) noexcept {
 bool onboarding_prompt(void* opaque, u32, JsonValue value) noexcept {
     auto& p = *static_cast<OnboardingPass*>(opaque);
     auto& o = *p.onboarding;
-    if (value.kind != JsonValueKind::object)
+    if (value.kind != JsonValueKind::object) {
+        o.truncated = true;
         return true;
+    }
     if (o.prompt_count >= kGuildOnboardingPromptMaximum) {
         o.truncated = true;
         return true;
@@ -264,6 +320,7 @@ bool onboarding_prompt(void* opaque, u32, JsonValue value) noexcept {
     const u32 options_before = o.option_count;
     if (!json_visit_indexed_object(p.document, value, kDepth, prompt_member, &p).ok() || !decoded.id) {
         o.option_count = options_before; // drop the options of a rejected prompt
+        o.truncated = true;
         return true;
     }
     o.prompts[o.prompt_count++] = decoded;
@@ -274,8 +331,10 @@ bool onboarding_member(void* opaque, JsonString name, JsonValue value) noexcept 
     auto& o = *p.onboarding;
     u64 number = 0;
     if (json_string_equals_ascii(name, utf8_literal("prompts"))) {
-        if (value.kind != JsonValueKind::array)
-            return false;
+        if (value.kind != JsonValueKind::array) {
+            o.truncated = true;
+            return true;
+        }
         p.prompts = value;
         p.prompts_seen = true;
     } else if (json_string_equals_ascii(name, utf8_literal("default_channel_ids"))) {
@@ -283,9 +342,10 @@ bool onboarding_member(void* opaque, JsonString name, JsonValue value) noexcept 
         snowflake_string_array(p.document, value, o.default_channels, kGuildOnboardingDefaultChannelMaximum, &count);
         o.default_channel_count = minimum(count, kGuildOnboardingDefaultChannelMaximum);
     } else if (json_string_equals_ascii(name, utf8_literal("responses"))) {
-        u32 count = 0;
-        snowflake_string_array(p.document, value, p.responses, kGuildOnboardingOptionMaximum, &count);
-        p.response_count = minimum(count, kGuildOnboardingOptionMaximum);
+        if (p.responses_seen || value.kind != JsonValueKind::array)
+            o.truncated = true;
+        p.responses_seen = true;
+        p.responses = value;
     } else if (json_string_equals_ascii(name, utf8_literal("enabled"))) {
         json_value_to_bool(value, &o.enabled);
     } else if (json_string_equals_ascii(name, utf8_literal("mode")) && json_value_to_u64(value, &number)) {
@@ -585,20 +645,16 @@ bool guild_verification_decode(Utf8View body, Slice<u32> scratch, GuildVerificat
     const auto s = scan(body, scratch);
     if (!s.ok)
         return false;
-    auto& form = *output;
-    form = {};
-    FormPass pass{s.document, &form, {form.text, kGuildVerificationTextBytes, &form.text_used, &form.truncated},
-                  nullptr, {}, false};
-    if (!json_visit_root_object(body, s.document.structurals, kDepth, form_member, &pass).ok() || !pass.fields_seen)
-        return false;
-    return json_visit_indexed_array(s.document, pass.fields, kDepth, form_field, &pass).ok();
+    return decode_form(s.document, output);
 }
 
 bool guild_verification_supported(const GuildVerificationForm& form) noexcept {
+    if (form.truncated)
+        return false;
     for (u32 i = 0; i < form.field_count; ++i)
         if (form.fields[i].required && form.fields[i].type == GuildVerificationFieldType::unknown)
             return false;
-    return !form.truncated || form.field_count < kGuildVerificationFieldMaximum;
+    return true;
 }
 
 bool guild_verification_answers_complete(const GuildVerificationForm& form,
@@ -665,6 +721,10 @@ u32 guild_verification_write_submit(Utf8View form_body, ConstSlice<GuildVerifica
                                     Slice<u32> scratch, Slice<u8> output) noexcept {
     const auto s = scan(form_body, scratch);
     if (!s.ok || !output.data)
+        return 0;
+    GuildVerificationForm form{};
+    if (!decode_form(s.document, &form) || !guild_verification_supported(form) ||
+        !guild_verification_answers_complete(form, answers))
         return 0;
     ProtocolWriter w{output, 0};
     SubmitPass pass{&w, answers, {}, {}, 0, true, false, false};
@@ -793,10 +853,9 @@ bool guild_onboarding_decode(Utf8View body, Slice<u32> scratch, GuildOnboarding*
         return false;
     if (pass->prompts_seen && !json_visit_indexed_array(s.document, pass->prompts, kDepth, onboarding_prompt, pass).ok())
         return false;
-    for (u32 i = 0; i < o.option_count; ++i)
-        for (u32 r = 0; r < pass->response_count; ++r)
-            if (o.options[i].id == pass->responses[r])
-                o.options[i].selected = true;
+    if (pass->responses_seen && pass->responses.kind == JsonValueKind::array &&
+        !json_visit_indexed_array(s.document, pass->responses, kDepth, onboarding_response, pass).ok())
+        return false;
     return true;
 }
 
@@ -838,24 +897,31 @@ bool guild_onboarding_prompt_answered(const GuildOnboarding& onboarding, u32 pro
     return false;
 }
 
-u32 guild_onboarding_write_responses(const GuildOnboarding& onboarding, u64 seen_ms, Slice<u8> output) noexcept {
-    if (!output.data)
+u32 guild_onboarding_write_responses(const GuildOnboarding& onboarding, u64 seen_ms, Slice<u8> output,
+                                     bool editing) noexcept {
+    if (!output.data || onboarding.truncated)
         return 0;
     ProtocolWriter w{output, 0};
     bool ok = protocol_writer_append_literal(&w, "{\"onboarding_responses\":[");
     bool first = true;
-    for (u32 i = 0; ok && i < onboarding.option_count; ++i) {
-        if (!onboarding.options[i].selected)
+    for (u32 i = 0; ok && i < onboarding.prompt_count; ++i) {
+        const auto& prompt = onboarding.prompts[i];
+        if (!editing && !prompt.in_onboarding)
             continue;
-        ok = (first || protocol_writer_append_byte(&w, ',')) &&
-             protocol_writer_append_snowflake(&w, onboarding.options[i].id);
-        first = false;
+        for (u32 o = 0; ok && o < prompt.option_count; ++o) {
+            const auto& option = onboarding.options[prompt.first_option + o];
+            if (!option.selected)
+                continue;
+            ok = (first || protocol_writer_append_byte(&w, ',')) &&
+                 protocol_writer_append_snowflake(&w, option.id);
+            first = false;
+        }
     }
     ok = ok && protocol_writer_append_literal(&w, "],\"onboarding_prompts_seen\":{");
     first = true;
     for (u32 i = 0; ok && i < onboarding.prompt_count; ++i) {
         const auto& prompt = onboarding.prompts[i];
-        if (!prompt.in_onboarding)
+        if (!editing && !prompt.in_onboarding)
             continue;
         ok = (first || protocol_writer_append_byte(&w, ',')) &&
              protocol_writer_append_snowflake(&w, prompt.id) && protocol_writer_append_byte(&w, ':') &&
@@ -866,7 +932,7 @@ u32 guild_onboarding_write_responses(const GuildOnboarding& onboarding, u64 seen
     first = true;
     for (u32 i = 0; ok && i < onboarding.prompt_count; ++i) {
         const auto& prompt = onboarding.prompts[i];
-        if (!prompt.in_onboarding)
+        if (!editing && !prompt.in_onboarding)
             continue;
         for (u32 o = 0; ok && o < prompt.option_count; ++o) {
             ok = (first || protocol_writer_append_byte(&w, ',')) &&

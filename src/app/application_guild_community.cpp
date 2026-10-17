@@ -231,6 +231,138 @@ bool can_manage_events(u64 guild_id) noexcept {
 
 using Bank = TextBank;
 
+bool modal_submission(GuildCommunityOperation op) noexcept {
+    return op == GuildCommunityOperation::verification_submit ||
+           op == GuildCommunityOperation::onboarding_submit ||
+           op == GuildCommunityOperation::onboarding_update || op == GuildCommunityOperation::event_create;
+}
+bool modal_request_current(const Request& request) noexcept {
+    if (!owner || !owner->scene.active || owner->guild_id != request.guild_id ||
+        (modal_submission(request.op) && owner->phase != Phase::submitting))
+        return false;
+    switch (request.op) {
+    case GuildCommunityOperation::verification_get:
+    case GuildCommunityOperation::verification_submit:
+        return owner->mode == Mode::rules;
+    case GuildCommunityOperation::onboarding_get:
+        return owner->mode == Mode::onboarding || owner->mode == Mode::channels_roles;
+    case GuildCommunityOperation::onboarding_submit:
+        return owner->mode == Mode::onboarding;
+    case GuildCommunityOperation::onboarding_update:
+        return owner->mode == Mode::channels_roles;
+    case GuildCommunityOperation::event_create:
+        return owner->mode == Mode::create;
+    default:
+        return false;
+    }
+}
+void discard_modal_submissions() noexcept {
+    if (!background)
+        return;
+    u32 kept = 0;
+    for (u32 i = 0; i < background->queue_count; ++i)
+        if (!modal_submission(background->queue[i].op))
+            background->queue[kept++] = background->queue[i];
+    background->queue_count = kept;
+}
+
+u32 number_bytes(u32 value) noexcept {
+    char digits[20];
+    return decimal_write(digits, value);
+}
+// These bounds describe what the modal can show, independently of the larger
+// decoded models. Recompute before submission instead of trusting footer state.
+bool rules_presentation_complete(const Owner& p) noexcept {
+    if (p.form.truncated || p.form.field_count > kGuildVerificationFieldMaximum ||
+        !guild_verification_supported(p.form))
+        return false;
+    u32 text_bytes = 0, controls = 0, editors = 0;
+    bool agree = false;
+    for (u32 f = 0; f < p.form.field_count; ++f) {
+        const auto& field = p.form.fields[f];
+        if (field.value_count > kGuildVerificationValueMaximum)
+            return false;
+        if (field.type == GuildVerificationFieldType::terms) {
+            ++controls;
+            if (field.value_count)
+                ++controls;
+            if (!agree)
+                ++controls;
+            agree = true;
+            for (u32 v = 0; v < field.value_count; ++v)
+                text_bytes += (v ? 1u : 0u) + number_bytes(v + 1) + 2u + field.values[v].bytes;
+        } else {
+            ++controls;
+            if (field.type == GuildVerificationFieldType::text_input ||
+                field.type == GuildVerificationFieldType::paragraph)
+                ++editors;
+        }
+    }
+    return text_bytes <= sizeof(p.banks[0]) && controls <= kControlCapacity && editors <= kEditors;
+}
+u32 onboarding_option_bytes(const GuildOnboarding& model, const GuildOnboardingPrompt& prompt) noexcept {
+    u32 bytes = 0;
+    for (u32 o = 0; o < prompt.option_count; ++o) {
+        const auto& option = model.options[prompt.first_option + o];
+        bytes += option.title.bytes;
+        if (option.emoji.bytes && !option.emoji_id)
+            bytes += option.emoji.bytes + 1u;
+    }
+    return bytes;
+}
+bool onboarding_presentation_complete(const Owner& p) noexcept {
+    const auto& model = p.onboarding;
+    if (model.truncated || model.prompt_count > kGuildOnboardingPromptMaximum ||
+        model.option_count > kGuildOnboardingOptionMaximum)
+        return false;
+    const u32 flow_count = guild_onboarding_flow_prompts(model, {});
+    u32 text_bytes = 0, controls = 0, flow_step = 0;
+    for (u32 i = 0; i < model.prompt_count; ++i) {
+        const auto& prompt = model.prompts[i];
+        if (prompt.first_option > model.option_count ||
+            prompt.option_count > model.option_count - prompt.first_option)
+            return false;
+        if (!prompt.option_count || (p.mode == Mode::onboarding && !prompt.in_onboarding))
+            continue;
+        const u32 option_bytes = onboarding_option_bytes(model, prompt);
+        if (p.mode == Mode::channels_roles) {
+            text_bytes += option_bytes;
+            controls += 1u + prompt.option_count;
+        } else {
+            // Reserve the largest footer used on this page, including the
+            // submitting phase, so a queued write has the same admission rule.
+            const u32 progress = utf8_literal("Question ").bytes + number_bytes(++flow_step) +
+                                 utf8_literal(" of ").bytes + number_bytes(flow_count);
+            const u32 status =
+                maximum(p.status.bytes, maximum(progress, utf8_literal("Finishing\xE2\x80\xA6").bytes));
+            const u32 instructions =
+                (prompt.single_select ? utf8_literal("Pick one") : utf8_literal("Pick as many as you like"))
+                    .bytes +
+                (prompt.required ? utf8_literal(" (required).") : utf8_literal(".")).bytes;
+            if (option_bytes + instructions + status > sizeof(p.banks[0]) ||
+                1u + prompt.option_count > kControlCapacity)
+                return false;
+        }
+    }
+    return text_bytes <= sizeof(p.banks[0]) && controls <= kControlCapacity;
+}
+bool modal_presentation_complete(const Owner& p) noexcept {
+    if (p.mode == Mode::rules)
+        return rules_presentation_complete(p);
+    if (p.mode == Mode::onboarding || p.mode == Mode::channels_roles)
+        return onboarding_presentation_complete(p);
+    return true;
+}
+bool onboarding_required_complete(const GuildOnboarding& model) noexcept {
+    for (u32 i = 0; i < model.prompt_count; ++i)
+        if (model.prompts[i].in_onboarding && model.prompts[i].required &&
+            !guild_onboarding_prompt_answered(model, i))
+            return false;
+    return true;
+}
+constexpr Utf8View kIncompleteForm =
+    utf8_literal("These rules or questions can't be shown completely here. Open Discord to continue.");
+
 // ---- Editors -------------------------------------------------------------------
 
 bool editable() noexcept {
@@ -261,6 +393,23 @@ int editor_slot(u64 control) noexcept {
 Utf8View editor_value(u64 control) noexcept {
     const int slot = editor_slot(control);
     return slot >= 0 ? message_composer_text(owner->models[slot]) : Utf8View{};
+}
+bool rules_answers(GuildVerificationAnswer* answers) noexcept {
+    const auto& p = *owner;
+    if (p.form.field_count > kGuildVerificationFieldMaximum)
+        return false;
+    for (u32 f = 0; f < p.form.field_count; ++f) {
+        answers[f] = p.answers[f];
+        const auto type = p.form.fields[f].type;
+        if (type == GuildVerificationFieldType::text_input ||
+            type == GuildVerificationFieldType::paragraph) {
+            answers[f].text = editor_value(control_text_base + f);
+            answers[f].answered = answers[f].text.bytes != 0;
+        } else if (type == GuildVerificationFieldType::verification) {
+            answers[f].agreed = true;
+        }
+    }
+    return guild_verification_answers_complete(p.form, {answers, p.form.field_count});
 }
 void clear_editors() noexcept {
     for (u32 i = 0; i < kEditors; ++i) {
@@ -361,6 +510,12 @@ void project_rules(Bank& bank) noexcept {
         p.footer = {p.status, utf8_literal("Submit"), utf8_literal("Cancel"), true, false, false, true};
         return;
     }
+    if (!rules_presentation_complete(p)) {
+        notice(control_notice, utf8_literal("This form can't be completed here"), kIncompleteForm);
+        p.footer = {
+            kIncompleteForm, utf8_literal("Submit"), utf8_literal("Cancel"), true, false, false, true};
+        return;
+    }
     if (p.form.description.bytes)
         p.content.description = guild_verification_text(p.form, p.form.description);
     bool agree_shown = false; // one agreement covers every rules field
@@ -420,16 +575,7 @@ void project_rules(Bank& bank) noexcept {
     bool complete = true;
     {
         GuildVerificationAnswer answers[kGuildVerificationFieldMaximum];
-        for (u32 f = 0; f < p.form.field_count; ++f) {
-            answers[f] = p.answers[f];
-            const auto type = p.form.fields[f].type;
-            if (type == GuildVerificationFieldType::text_input || type == GuildVerificationFieldType::paragraph) {
-                answers[f].text = editor_value(control_text_base + f);
-                answers[f].answered = answers[f].text.bytes != 0;
-            }
-        }
-        complete = guild_verification_supported(p.form) &&
-                   guild_verification_answers_complete(p.form, {answers, p.form.field_count});
+        complete = rules_answers(answers);
     }
     Utf8View status = p.status;
     if (!status.bytes && p.phase == Phase::submitting)
@@ -483,8 +629,20 @@ void project_onboarding(Bank& bank) noexcept {
         p.footer = {p.status, utf8_literal("Next"), utf8_literal("Close"), true, false, false, true};
         return;
     }
+    if (!onboarding_presentation_complete(p)) {
+        notice(control_notice, utf8_literal("These questions can't be completed here"), kIncompleteForm);
+        p.footer = {kIncompleteForm,
+                    p.mode == Mode::channels_roles ? utf8_literal("Save") : utf8_literal("Finish"),
+                    utf8_literal("Close"),
+                    true,
+                    false,
+                    false,
+                    true};
+        return;
+    }
     if (p.mode == Mode::channels_roles) {
-        p.content.description = utf8_literal("Answer questions to get roles and see the channels you care about.");
+        p.content.description =
+            utf8_literal("Answer questions to get roles and see the channels you care about.");
         for (u32 i = 0; i < p.onboarding.prompt_count; ++i) {
             const auto& prompt = p.onboarding.prompts[i];
             if (!prompt.option_count)
@@ -879,6 +1037,8 @@ bool open_modal(Mode mode, u64 guild_id, Utf8View title, u64 focus) noexcept {
         const auto* g = guild(guild_id);
         if (!g)
             return false;
+        discard_modal_submissions();
+        owner->lifetime = ++lifetime_serial;
         owner->guild_id = guild_id;
         owner->guild_generation = g->generation;
         set_title(title);
@@ -951,36 +1111,61 @@ void reload() noexcept {
     else if (p.mode == Mode::onboarding || p.mode == Mode::channels_roles)
         enqueue(GuildCommunityOperation::onboarding_get, p.guild_id);
 }
+bool submit_request(GuildCommunityOperation op) noexcept {
+    auto& p = *owner;
+    const Phase previous = p.phase;
+    p.phase = Phase::submitting;
+    if (enqueue(op, p.guild_id))
+        return true;
+    p.phase = previous;
+    p.status = utf8_literal("This couldn't be queued. Try again.");
+    p.failed = true;
+    return false;
+}
 void submit_modal() noexcept {
     auto& p = *owner;
     if (!p.footer.can_save || p.phase == Phase::submitting)
         return;
+    if (!p.scene.active || !modal_presentation_complete(p) ||
+        ((p.mode == Mode::rules || p.mode == Mode::onboarding || p.mode == Mode::channels_roles) &&
+         p.phase != Phase::ready && p.phase != Phase::failed))
+        return;
     switch (p.mode) {
-    case Mode::rules:
+    case Mode::rules: {
+        GuildVerificationAnswer answers[kGuildVerificationFieldMaximum];
+        if (!rules_answers(answers))
+            return;
         for (u32 f = 0; f < p.form.field_count; ++f) {
             const auto type = p.form.fields[f].type;
             if (type == GuildVerificationFieldType::verification)
                 p.answers[f].agreed = true;
         }
-        p.phase = Phase::submitting;
-        enqueue(GuildCommunityOperation::verification_submit, p.guild_id);
+        if (!submit_request(GuildCommunityOperation::verification_submit))
+            return;
         break;
+    }
     case Mode::onboarding:
+        if (p.flow_count && (p.step >= p.flow_count || p.flow[p.step] >= p.onboarding.prompt_count ||
+                             (p.onboarding.prompts[p.flow[p.step]].required &&
+                              !guild_onboarding_prompt_answered(p.onboarding, p.flow[p.step]))))
+            return;
         if (p.flow_count && p.step + 1 < p.flow_count) {
             ++p.step;
             p.scene.focus = {UiSettingsTargetKind::control, kPage, 0};
             break;
         }
-        p.phase = Phase::submitting;
-        enqueue(GuildCommunityOperation::onboarding_submit, p.guild_id);
+        if (!onboarding_required_complete(p.onboarding))
+            return;
+        if (!submit_request(GuildCommunityOperation::onboarding_submit))
+            return;
         break;
     case Mode::channels_roles:
-        p.phase = Phase::submitting;
-        enqueue(GuildCommunityOperation::onboarding_update, p.guild_id);
+        if (!submit_request(GuildCommunityOperation::onboarding_update))
+            return;
         break;
     case Mode::create:
-        p.phase = Phase::submitting;
-        enqueue(GuildCommunityOperation::event_create, p.guild_id);
+        if (!submit_request(GuildCommunityOperation::event_create))
+            return;
         break;
     case Mode::event:
     case Mode::events:
@@ -1097,7 +1282,7 @@ void activate(SettingsLayer*, const SettingsLayerActivation& activation) noexcep
         }
         return;
     }
-    if (!editable())
+    if (!editable() || !modal_presentation_complete(p))
         return;
     if (id == control_interested) {
         const auto* e = events ? scheduled_event_store_find(*events, p.event_id) : nullptr;
@@ -1204,23 +1389,29 @@ u32 build_body(const Request& request) noexcept {
     if (!owner || owner->guild_id != request.guild_id)
         return 0;
     auto& p = *owner;
+    if (modal_submission(request.op) && !modal_request_current(request))
+        return 0;
     switch (request.op) {
     case GuildCommunityOperation::verification_submit: {
+        if (!rules_presentation_complete(p))
+            return 0;
         GuildVerificationAnswer answers[kGuildVerificationFieldMaximum];
-        for (u32 f = 0; f < p.form.field_count; ++f) {
-            answers[f] = p.answers[f];
-            const auto type = p.form.fields[f].type;
-            if (type == GuildVerificationFieldType::text_input || type == GuildVerificationFieldType::paragraph) {
-                answers[f].text = editor_value(control_text_base + f);
-                answers[f].answered = answers[f].text.bytes != 0;
-            }
-        }
-        return guild_verification_write_submit({p.form_body, p.form_body_bytes}, {answers, p.form.field_count},
-                                               {b.scratch, 16384}, {b.body, sizeof(b.body)});
+        if (!rules_answers(answers))
+            return 0;
+        return guild_verification_write_submit({p.form_body, p.form_body_bytes},
+                                               {answers, p.form.field_count}, {b.scratch, 16384},
+                                               {b.body, sizeof(b.body)});
     }
     case GuildCommunityOperation::onboarding_submit:
     case GuildCommunityOperation::onboarding_update:
-        return guild_onboarding_write_responses(p.onboarding, clock_unix_milliseconds(), {b.body, sizeof(b.body)});
+        if (!onboarding_presentation_complete(p))
+            return 0;
+        if (request.op == GuildCommunityOperation::onboarding_submit &&
+            !onboarding_required_complete(p.onboarding))
+            return 0;
+        return guild_onboarding_write_responses(p.onboarding, clock_unix_milliseconds(),
+                                                {b.body, sizeof(b.body)},
+                                                request.op == GuildCommunityOperation::onboarding_update);
     case GuildCommunityOperation::event_create: {
         ScheduledEventCreate create{};
         create.name = editor_value(control_name);
@@ -1461,6 +1652,12 @@ bool application_guild_community_open_create(u64 guild_id) noexcept {
     }
     build_calendar();
     if (switching) {
+        const auto* g = guild(guild_id);
+        if (!g)
+            return false;
+        discard_modal_submissions();
+        p.lifetime = ++lifetime_serial;
+        p.guild_generation = g->generation;
         clear_editors();
         set_title(utf8_literal("Create event"));
     }
@@ -1571,18 +1768,7 @@ void application_guild_community_close(bool restore_focus) noexcept {
     settings_layer_cancel_pointer(&owner->layer);
     owner->menu = Menu::none;
     // A queued modal submit is dropped; one in flight finishes and is discarded.
-    if (background) {
-        u32 kept = 0;
-        for (u32 i = 0; i < background->queue_count; ++i) {
-            const auto op = background->queue[i].op;
-            if (op == GuildCommunityOperation::verification_submit ||
-                op == GuildCommunityOperation::onboarding_submit ||
-                op == GuildCommunityOperation::onboarding_update || op == GuildCommunityOperation::event_create)
-                continue;
-            background->queue[kept++] = background->queue[i];
-        }
-        background->queue_count = kept;
-    }
+    discard_modal_submissions();
     renderer_bind_settings_scene(&g_app.renderer, nullptr);
     owner->layer.entrance_started = 0;
     renderer_set_settings_modal_progress(&g_app.renderer, 1);
@@ -1750,7 +1936,12 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
     const bool same_modal = owner && owner->scene.active && owner->lifetime == b.modal_lifetime &&
                             owner->guild_id == request.guild_id;
     b.request_id = 0;
-    const bool ok = response.transport_ok() && guild_community_classify(response.status_code) == GuildCommunityOutcome::ok;
+    if ((modal_submission(request.op) || request.op == GuildCommunityOperation::verification_get ||
+         request.op == GuildCommunityOperation::onboarding_get) &&
+        (!same_modal || !modal_request_current(request)))
+        return true;
+    const bool ok = response.transport_ok() &&
+                    guild_community_classify(response.status_code) == GuildCommunityOutcome::ok;
     if (response.transport_ok() && response.status_code == 429 && response.rate_limited &&
         response.retry_at_ms && !api_rejection_requires_action(response.rejection)) {
         // Retry the same request once the server allows it.
@@ -1850,7 +2041,8 @@ bool application_guild_community_response(const RestClientResponse& response, Ut
             owner->step = 0;
             owner->phase = Phase::ready;
             // Nothing to ask on join: onboarding is not shown at all.
-            if (owner->mode == Mode::onboarding && (!owner->onboarding.enabled || !owner->flow_count)) {
+            if (owner->mode == Mode::onboarding && !owner->onboarding.truncated &&
+                (!owner->onboarding.enabled || !owner->flow_count)) {
                 const u64 guild_id = owner->guild_id;
                 application_guild_community_close();
                 const auto* g = guild(guild_id);

@@ -9,6 +9,7 @@
 #include "maicord/model/scheduled_event_store.hpp"
 #include "maicord/protocol/guild_assets.hpp"
 #include "maicord/protocol/guild_community.hpp"
+#include "maicord/protocol/writer.hpp"
 #include "maicord/ui/guild_banner.hpp"
 #include "maicord/ui/guild_card_scene.hpp"
 #include "maicord/ui/message_markdown.hpp"
@@ -208,10 +209,75 @@ void test_verification() noexcept {
               !guild_verification_supported(unknown) &&
               !guild_verification_decode(utf8_literal(R"({"version":"1"})"), {scratch, 16384}, &unknown),
           "community: unknown required fields are not answerable here; bodies without fields are refused");
+
+    // Eleven valid Unicode rules exactly fill the fixed text bank. The last
+    // rule grows by one scalar in the second pass, without exceeding its schema
+    // limit, so accepting it would agree to text that was not retained.
+    static u8 unicode_body[kGuildCommunityMaximumBodyBytes];
+    static u8 submitted[kGuildCommunityMaximumBodyBytes];
+    const auto unicode_form = [&](u32 tail_characters) noexcept -> Utf8View {
+        ProtocolWriter writer{{unicode_body, sizeof(unicode_body)}, 0};
+        bool ok = protocol_writer_append_literal(
+            &writer, R"({"version":"1","form_fields":[{"field_type":"TERMS","required":true,"values":[)");
+        for (u32 value = 0; ok && value < 11; ++value) {
+            ok = (value == 0 || protocol_writer_append_byte(&writer, ',')) &&
+                 protocol_writer_append_byte(&writer, '"');
+            const u32 characters = value < 10 ? 300 : tail_characters;
+            for (u32 i = 0; ok && i < characters; ++i)
+                ok = protocol_writer_append_literal(&writer, "\\ud83d\\ude00");
+            ok = ok && protocol_writer_append_byte(&writer, '"');
+        }
+        ok = ok && protocol_writer_append_literal(&writer, "]}]}");
+        return {reinterpret_cast<const char*>(unicode_body), ok ? writer.used : 0};
+    };
+    GuildVerificationAnswer agreed{};
+    agreed.agreed = true;
+    const auto exact = unicode_form(72);
+    check(exact.bytes && guild_verification_decode(exact, {scratch, 16384}, &form) && !form.truncated &&
+              form.text_used == kGuildVerificationTextBytes && form.fields[0].value_count == 11 &&
+              form.fields[0].values[0].bytes == 1200 && form.fields[0].values[10].bytes == 288 &&
+              contains(guild_verification_text(form, form.fields[0].values[10]),
+                       utf8_literal("\xF0\x9F\x98\x80")) &&
+              guild_verification_supported(form) &&
+              guild_verification_write_submit(exact, {&agreed, 1}, {scratch, 16384},
+                                              {submitted, sizeof(submitted)}),
+          "community: escaped Unicode rules fit exactly and remain submit-ready without byte loss");
+    const auto over = unicode_form(73);
+    check(over.bytes && guild_verification_decode(over, {scratch, 16384}, &form) && form.field_count == 1 &&
+              form.truncated && !guild_verification_supported(form) &&
+              !guild_verification_write_submit(over, {&agreed, 1}, {scratch, 16384},
+                                               {submitted, sizeof(submitted)}),
+          "community: one lost Unicode scalar makes even a one-field form unanswerable and unwritable");
+    ProtocolWriter label{{unicode_body, sizeof(unicode_body)}, 0};
+    bool label_ok = protocol_writer_append_literal(
+        &label, R"({"form_fields":[{"field_type":"TERMS","required":true,"label":")");
+    for (u32 i = 0; label_ok && i < 300; ++i)
+        label_ok = protocol_writer_append_literal(&label, "\\u00e9");
+    label_ok = label_ok && protocol_writer_append_literal(&label, R"(","values":["Rule"]}]})");
+    const Utf8View long_label{reinterpret_cast<const char*>(unicode_body), label.used};
+    check(label_ok && guild_verification_decode(long_label, {scratch, 16384}, &form) && form.truncated &&
+              !guild_verification_supported(form) &&
+              !guild_verification_write_submit(long_label, {&agreed, 1}, {scratch, 16384},
+                                               {submitted, sizeof(submitted)}),
+          "community: a valid Unicode label exceeding its fixed byte budget cannot lose text silently");
+    const Utf8View malformed_values[] = {
+        utf8_literal(R"({"form_fields":[{"field_type":"TERMS","required":true,"values":["Visible",7]}]})"),
+        utf8_literal(
+            R"({"form_fields":[{"field_type":"TERMS","required":true,"values":["Visible",null]}]})"),
+        utf8_literal(R"({"form_fields":[{"field_type":"TERMS","required":true,"values":"Hidden"}]})"),
+        utf8_literal(R"({"form_fields":[{"required":true,"values":null,"field_type":"TERMS"}]})"),
+        utf8_literal(R"({"form_fields":[{"field_type":"TERMS","required":true,"values":[]}]})"),
+        utf8_literal(R"({"form_fields":[{"field_type":"TERMS","required":true,"values":["Rule"]},null]})")};
+    for (const auto invalid : malformed_values)
+        check(guild_verification_decode(invalid, {scratch, 16384}, &form) && form.truncated &&
+                  !guild_verification_supported(form) &&
+                  !guild_verification_write_submit(invalid, {&agreed, 1}, {scratch, 16384},
+                                                   {submitted, sizeof(submitted)}),
+              "community: malformed rules cannot be silently omitted from consent");
 }
 
 constexpr Utf8View kOnboarding = utf8_literal(
-    R"({"guild_id":"10","enabled":true,"mode":0,"default_channel_ids":["300","301"],"responses":["502"],)"
+    R"({"guild_id":"10","enabled":true,"mode":0,"default_channel_ids":["300","301"],"responses":["502","701"],)"
     R"("prompts":[{"id":"40","type":0,"title":"What brings you here?","single_select":false,"required":true,)"
     R"("in_onboarding":true,"options":[{"id":"501","title":"Games","description":"Play together",)"
     R"("emoji":{"id":null,"name":"🎮"},"role_ids":["7"],"channel_ids":["300","301"]},)"
@@ -233,7 +299,8 @@ void test_onboarding() noexcept {
               onboarding.options[0].channel_count == 2 &&
               utf8_equal(guild_onboarding_text(onboarding, onboarding.options[0].emoji),
                          utf8_literal("\xF0\x9F\x8E\xAE")) &&
-              !onboarding.options[0].selected && onboarding.options[1].selected && flow_count == 2 && flow[1] == 1,
+              !onboarding.options[0].selected && onboarding.options[1].selected &&
+              onboarding.options[4].selected && flow_count == 2 && flow[1] == 1,
           "community: onboarding decodes prompts, options, saved responses and the flow");
     // Single-select keeps one option.
     guild_onboarding_toggle(&onboarding, 1, 0);
@@ -252,6 +319,78 @@ void test_onboarding() noexcept {
                                R"("onboarding_responses_seen":{"501":1700000000000,"502":1700000000000,)"
                                R"("601":1700000000000,"602":1700000000000}})")),
           "community: responses carry selected options and every flow prompt and option as seen");
+    const u32 edited =
+        guild_onboarding_write_responses(onboarding, 1700000000000ull, {body, sizeof(body)}, true);
+    check(text_is(
+              body, edited,
+              utf8_literal(
+                  R"({"onboarding_responses":["501","602","701"],)"
+                  R"("onboarding_prompts_seen":{"40":1700000000000,"41":1700000000000,"42":1700000000000},)"
+                  R"("onboarding_responses_seen":{"501":1700000000000,"502":1700000000000,)"
+                  R"("601":1700000000000,"602":1700000000000,"701":1700000000000}})")),
+          "community: editing preserves non-flow choices and marks all prompts and options seen");
+
+    const Utf8View incomplete[] = {
+        utf8_literal(R"({"prompts":[{"id":"1","options":[{"id":"2"}]}],"responses":["3"]})"),
+        utf8_literal(R"({"prompts":[{"id":"1","options":[{"id":"2"}]}],"responses":["2","bad"]})"),
+        utf8_literal(R"({"prompts":[],"responses":["0"]})"),
+        utf8_literal(R"({"prompts":[],"responses":[2]})"),
+        utf8_literal(R"({"prompts":[],"responses":null})"),
+        utf8_literal(R"({"prompts":[],"responses":{}})"),
+        utf8_literal(R"({"prompts":[],"responses":[],"responses":[]})"),
+        utf8_literal(R"({"prompts":null})"),
+        utf8_literal(R"({"prompts":{}})"),
+        utf8_literal(R"({"prompts":[{"id":"1","options":null}]})")};
+    for (const auto invalid : incomplete)
+        check(guild_onboarding_decode(invalid, {scratch, 16384}, &onboarding) && onboarding.truncated &&
+                  !guild_onboarding_write_responses(onboarding, 1, {body, sizeof(body)}) &&
+                  !guild_onboarding_write_responses(onboarding, 1, {body, sizeof(body)}, true),
+              "community: malformed or unmatched saved choices cannot become a partial replacement");
+
+    const Utf8View empty_responses[] = {
+        utf8_literal(R"({"prompts":[{"id":"1","options":[{"id":"2"}]}]})"),
+        utf8_literal(R"({"prompts":[{"id":"1","options":[{"id":"2"}]}],"responses":[]})")};
+    for (const auto empty : empty_responses)
+        check(guild_onboarding_decode(empty, {scratch, 16384}, &onboarding) && !onboarding.truncated &&
+                  !onboarding.options[0].selected &&
+                  guild_onboarding_write_responses(onboarding, 1, {body, sizeof(body)}, true),
+              "community: a complete successful GET may omit saved choices or return an empty list");
+
+    static u8 capacity_body[8192];
+    const struct {
+        u32 options, count;
+        u64 final_id;
+    } responses[] = {{128, 128, 0}, {128, 750, 0}, {128, 751, 0}, {128, 750, 9999}, {129, 128, 0}};
+    for (const auto response : responses) {
+        ProtocolWriter writer{{capacity_body, sizeof(capacity_body)}, 0};
+        bool ok = protocol_writer_append_literal(
+            &writer, R"({"prompts":[{"id":"1","in_onboarding":true,"options":[)");
+        for (u32 i = 0; ok && i < response.options; ++i)
+            ok = (i == 0 || protocol_writer_append_byte(&writer, ',')) &&
+                 protocol_writer_append_literal(&writer, "{\"id\":") &&
+                 protocol_writer_append_snowflake(&writer, 1000 + i) &&
+                 protocol_writer_append_byte(&writer, '}');
+        ok = ok && protocol_writer_append_literal(&writer, R"(]}],"responses":[)");
+        for (u32 i = 0; ok && i < response.count; ++i)
+            ok = (i == 0 || protocol_writer_append_byte(&writer, ',')) &&
+                 protocol_writer_append_snowflake(&writer, i + 1 == response.count && response.final_id
+                                                               ? response.final_id
+                                                               : 1000 + i % kGuildOnboardingOptionMaximum);
+        ok = ok && protocol_writer_append_literal(&writer, "]}");
+        const Utf8View input{reinterpret_cast<const char*>(capacity_body), writer.used};
+        const bool complete = response.options <= kGuildOnboardingOptionMaximum && response.count <= 750 &&
+                              !response.final_id;
+        const bool parsed = ok && guild_onboarding_decode(input, {scratch, 16384}, &onboarding);
+        u32 selected = 0;
+        for (u32 i = 0; i < onboarding.option_count; ++i)
+            selected += onboarding.options[i].selected;
+        check(parsed && onboarding.option_count == kGuildOnboardingOptionMaximum &&
+                  selected == kGuildOnboardingOptionMaximum && onboarding.truncated != complete &&
+                  (guild_onboarding_write_responses(onboarding, 1, {body, sizeof(body)}, true) != 0) ==
+                      complete,
+              "community: retained choices round-trip through the response limit; overflow refuses "
+              "replacement");
+    }
 }
 
 constexpr Utf8View kEvent = utf8_literal(
