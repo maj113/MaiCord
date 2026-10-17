@@ -465,6 +465,12 @@ float client_dip_y(LPARAM value) noexcept { return static_cast<i16>(HIWORD(value
 bool application_downloads_active() noexcept { return false; }
 bool application_downloads_available(u64, u64, bool) noexcept { return false; }
 bool application_downloads_begin(u64, u64, bool) noexcept { return false; }
+bool application_downloads_embed_available(u64, u32, bool) noexcept {
+    return false;
+}
+bool application_downloads_begin_embed(u64, u32, bool) noexcept {
+    return false;
+}
 bool application_search_source_resolve(const ApplicationSearchSourceTicket& ticket, bool snapshot, ApplicationSearchSourceView* out) noexcept {
     using namespace image_viewer_runtime_test;
     if (!out) return false; *out = {};

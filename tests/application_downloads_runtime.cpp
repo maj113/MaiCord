@@ -121,6 +121,37 @@ bool seed_into(MessageStore& source, MessageRichStore& rich, u64 id, u64 attachm
     }
     return message_rich_store_apply(&rich, id, record->revision, event).ok();
 }
+// A Tenor-style GIFV embed whose video and poster the media proxy serves
+// (without proxy URLs, only the third-party host knows them).
+bool seed_embed(u64 id, bool proxied) noexcept {
+    const auto inserted = message_store_upsert(&g_app.message_view.store, {id, 101, 3, 1, 0, {}, 0});
+    const auto* record =
+        inserted.ok() ? message_store_resolve(g_app.message_view.store, inserted.handle) : nullptr;
+    if (!record)
+        return false;
+    GatewayMessageEmbed gif{};
+    gif.type = GatewayMessageEmbedType::gifv;
+    gif.url = utf8_literal("https://tenor.com/view/wave");
+    gif.thumbnail.url = utf8_literal("https://media.tenor.com/wave.png");
+    gif.thumbnail.content_type = utf8_literal("image/png");
+    gif.video.url = utf8_literal("https://media.tenor.com/wave.mp4");
+    gif.video.content_type = utf8_literal("video/mp4");
+    if (proxied) {
+        gif.thumbnail.proxy_url =
+            utf8_literal("https://images-ext-1.discordapp.net/external/AbC/https/media.tenor.com/wave.png");
+        gif.video.proxy_url =
+            utf8_literal("https://images-ext-1.discordapp.net/external/AbC/https/media.tenor.com/wave.mp4");
+    }
+    gif.thumbnail.width = gif.video.width = 498;
+    gif.thumbnail.height = gif.video.height = 280;
+    gif.thumbnail.has_width = gif.thumbnail.has_height = gif.video.has_width = gif.video.has_height = true;
+    GatewayMessageEvent event{};
+    event.id = id;
+    event.fields = gateway_message_field_embeds;
+    event.embeds = {&gif, 1};
+    return message_rich_store_apply(&g_app.account_ui->message_rich_store, id, record->revision, event)
+        .ok();
+}
 bool seed(u64 id, u64 attachment, Utf8View filename, bool snapshot = false) noexcept {
     return seed_into(g_app.message_view.store, g_app.account_ui->message_rich_store, id, attachment,
                      filename, snapshot);
@@ -906,6 +937,52 @@ void run() noexcept {
     application_downloads_pump();
     finish();
     check(q->jobs[0].phase == JobPhase::saved, "Downloads the reused receipt saves normally");
+    dismiss_all();
+    // Embed media saves through Discord's media proxy with a length the response gives.
+    check(seed_embed(503, true) && seed_embed(504, false) &&
+              application_downloads_embed_available(503, 0) &&
+              !application_downloads_embed_available(503, 1) &&
+              !application_downloads_embed_available(504, 0),
+          "Downloads embed media is saveable only through Discord's media proxy");
+    const u32 embed_transfers = starts;
+    picker_ready = false;
+    check(application_downloads_begin_embed(503, 0) && q->jobs[0].source.embed &&
+              !q->jobs[0].source.attachment &&
+              q->jobs[0].source.bytes == kHttpsFileDownloadSizeFromResponse &&
+              utf8_equal({q->jobs[0].source.filename, q->jobs[0].source.filename_bytes},
+                         utf8_literal("wave.mp4")),
+          "Downloads embed Save names the file after its original media URL");
+    application_downloads_pump();
+    picker_ready = true;
+    application_downloads_pump();
+    constexpr char proxied_video[] =
+        "https://images-ext-1.discordapp.net/external/AbC/https/media.tenor.com/wave.mp4";
+    check(starts == embed_transfers + 1 && !submitted_attachment && !submitted_origin &&
+              submitted_bytes == kHttpsFileDownloadSizeFromResponse &&
+              bytes_equal(submitted_url, proxied_video, sizeof(proxied_video)),
+          "Downloads embed transfer fetches the proxied media without an attachment identity or link "
+          "refresh");
+    transfer_result.file_bytes = 9;
+    transfer_result.committed_bytes = 4;
+    application_downloads_pump();
+    UiDownloadRow embed_row{};
+    application_downloads_open();
+    check(resolve_row(q, 0, &embed_row) && embed_row.total == 9 && embed_row.bytes == 4,
+          "Downloads embed progress uses the length the response declared");
+    finish();
+    dismiss_all();
+    DownloadSource embed_source{};
+    menu_row_count = 0;
+    check(capture_embed(503, 0, false, &embed_source) &&
+              open_embed_context(embed_source, utf8_literal("https://media.tenor.com/wave.mp4"),
+                                 {10, 10, 11, 11}) &&
+              row_action("Save Image") && row_action("Copy Media Link") && !row_action("Copy Image"),
+          "Downloads embed menu offers Save beside links named after the original media");
+    const u32 links_before = opened_links;
+    check(application_downloads_context_action(row_action("Save Image")) && q->jobs[0].occupied &&
+              q->jobs[0].source.embed && opened_links == links_before,
+          "Downloads embed menu Save queues the proxied media");
+    cancel_job(*q, 0);
     dismiss_all();
     check(message_store_initialize(&search_store, {search_records, 4}, {search_order, 4},
                                    {search_text, sizeof(search_text)}) &&

@@ -14,6 +14,10 @@ bool application_downloads_search_available(const ApplicationSearchSourceTicket&
                                              bool snapshot = false) noexcept;
 bool application_downloads_begin_search(const ApplicationSearchSourceTicket&, u64 attachment_id,
                                         bool snapshot = false) noexcept;
+// Embed media (a GIF, GIFV video or image embed) of a timeline message, by the
+// embed's index in the message or its forwarded snapshot.
+bool application_downloads_embed_available(u64 message_id, u32 embed_index, bool snapshot = false) noexcept;
+bool application_downloads_begin_embed(u64 message_id, u32 embed_index, bool snapshot = false) noexcept;
 // Pure pointer query for cursor resolution: true over an inline Save button.
 // It never captures, focuses or changes hover state.
 bool application_downloads_save_target(float x, float y) noexcept;

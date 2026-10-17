@@ -60,6 +60,10 @@ struct DownloadSource {
     u32 revision;
     u16 url_bytes, filename_bytes;
     bool snapshot, risky, search_result;
+    // Embed media: attachment is zero, url is its media-proxy URL and bytes is
+    // kHttpsFileDownloadSizeFromResponse.
+    bool embed;
+    u8 embed_index;
     char url[2048], filename[512];
 };
 struct DownloadJob {
@@ -95,6 +99,9 @@ struct ApplicationDownloads {
     ReceivedAttachmentKind menu_kind;
     MediaAttachmentFormat menu_format;
     bool menu_sticker; // menu.url is a sticker image; menu.attachment is zero
+    bool menu_embed;   // menu is embed media; its link rows use menu_link
+    u16 menu_link_bytes;
+    char menu_link[2048];
     AccountUiRuntime* account_ui;
     void* account_instance;
     u64 scope, profile, self, warning_id, wake_at;
@@ -220,14 +227,119 @@ bool capture_search(const ApplicationSearchSourceTicket& ticket, u64 attachment_
     out->search_result = true;
     return true;
 }
+// The media an embed shows, as the message scene selects it: a gallery tile's
+// own media, or a merged embed's host.
+bool embed_media(const MessageRichStore& store, const MessageRichRecord& rich, u32 index,
+                 MessageRichEmbedMediaSelection* selected) noexcept {
+    MessageRichEmbedGalleryPlace place{};
+    const bool tile = message_rich_embed_gallery_place(store, rich, index, &place);
+    if (!tile && message_rich_embed_merge_host(store, rich, index) != index)
+        return false;
+    return tile ? message_rich_embed_gallery_select(store, rich.embeds[index], selected)
+                : message_rich_embed_media_select(store, rich.embeds[index], selected);
+}
+bool media_downloadable(Utf8View url) noexcept {
+    u8 request[kCdnMaximumTargetBytes + 192];
+    return url.bytes && attachment_download_write_media_request(url, {request, sizeof(request)}).ok();
+}
+// The saved name of embed media: the last path segment of its original URL,
+// with an extension for its format when the segment has none.
+bool embed_filename(Utf8View url, MediaAttachmentFormat format, DownloadSource* out) noexcept {
+    u32 start = 0, end = url.bytes, slashes = 0;
+    for (u32 i = 0; i < url.bytes; ++i) {
+        if (url.data[i] == '?' || url.data[i] == '#') {
+            end = i;
+            break;
+        }
+        if (url.data[i] == '/' && ++slashes >= 3)
+            start = i + 1;
+    }
+    const char* extension = format == MediaAttachmentFormat::gif    ? ".gif"
+                            : format == MediaAttachmentFormat::mp4  ? ".mp4"
+                            : format == MediaAttachmentFormat::png  ? ".png"
+                            : format == MediaAttachmentFormat::jpeg ? ".jpg"
+                            : format == MediaAttachmentFormat::webp ? ".webp"
+                                                                    : "";
+    char name[sizeof(out->filename)]{};
+    u32 bytes = slashes >= 3 && end > start ? minimum<u32>(end - start, sizeof(name) - 8) : 0;
+    copy_bytes(name, url.data + start, bytes);
+    if (!bytes) {
+        copy_bytes(name, format == MediaAttachmentFormat::mp4 ? "video" : "image", 5);
+        bytes = 5;
+    }
+    bool dotted = false;
+    for (u32 i = 0; i < bytes; ++i)
+        dotted = dotted || name[i] == '.';
+    for (u32 i = 0; !dotted && extension[i]; ++i)
+        name[bytes++] = extension[i];
+    const auto safe =
+        attachment_download_safe_filename({name, bytes}, {out->filename, sizeof(out->filename)});
+    if (!safe.ok() || !safe.bytes)
+        return false;
+    out->filename_bytes = static_cast<u16>(safe.bytes);
+    out->risky = safe.risky;
+    return true;
+}
+bool capture_embed_payload(const MessageRecord& record, MessageHandle handle, const MessageRichStore& store,
+                           u32 embed_index, bool snapshot, DownloadSource* out) noexcept {
+    if (!out || !account_ready() || record.delivery != MessageDeliveryState::authoritative ||
+        !channel_current(record.channel_id) || embed_index > 0xFF)
+        return false;
+    const auto* outer = message_rich_store_find(store, record.id);
+    const auto* rich = snapshot ? message_rich_store_snapshot(store, record.id) : outer;
+    MessageRichEmbedMediaSelection selected{};
+    if (!outer || !rich || rich->message_revision != record.revision ||
+        outer->message_revision != record.revision || embed_index >= rich->embed_count ||
+        !embed_media(store, *rich, embed_index, &selected) || !selected.media)
+        return false;
+    // The media proxy serves any embed media; a raw third-party URL is never fetched.
+    const Utf8View original = message_rich_store_string(store, selected.media->url);
+    Utf8View url = message_rich_store_string(store, selected.media->proxy_url);
+    if (!media_downloadable(url))
+        url = original;
+    if (!media_downloadable(url) || url.bytes >= sizeof(out->url))
+        return false;
+    DownloadSource source{};
+    const bool gifv = rich->embeds[embed_index].type == GatewayMessageEmbedType::gifv;
+    if (!embed_filename(original.bytes ? original : url,
+                        gifv ? MediaAttachmentFormat::mp4 : selected.format, &source))
+        return false;
+    source.scope = g_app.plugin_account_scope_serial;
+    source.profile = g_app.account.status.profile_id;
+    source.self = g_app.account_ui->chat_state.self_user_id;
+    source.channel = source.origin_channel = record.channel_id;
+    source.message = source.origin_message = record.id;
+    source.handle = handle;
+    source.revision = record.revision;
+    source.bytes = kHttpsFileDownloadSizeFromResponse;
+    source.snapshot = snapshot;
+    source.embed = true;
+    source.embed_index = static_cast<u8>(embed_index);
+    source.url_bytes = static_cast<u16>(url.bytes);
+    copy_bytes(source.url, url.data, url.bytes);
+    source.fingerprint = hash64_counted_bytes(kHash64Seed, url.data, url.bytes);
+    *out = source;
+    return true;
+}
+bool capture_embed(u64 message_id, u32 embed_index, bool snapshot, DownloadSource* out) noexcept {
+    if (!out || !account_ready() || !message_id)
+        return false;
+    const auto found = message_store_find(g_app.message_view.store, message_id);
+    const auto* message =
+        found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;
+    return message && message->channel_id == g_app.account_ui->active_channel_id &&
+           capture_embed_payload(*message, found.handle, g_app.account_ui->message_rich_store, embed_index,
+                                 snapshot, out);
+}
 bool source_current(const DownloadSource& s) noexcept {
     if (!account_ready() || s.scope != g_app.plugin_account_scope_serial ||
         s.profile != g_app.account.status.profile_id ||
         s.self != g_app.account_ui->chat_state.self_user_id)
         return false;
     DownloadSource live{};
-    const bool valid = s.search_result ? capture_search(s.search_source, s.attachment, s.snapshot, &live)
-                                       : capture(s.message, s.attachment, s.snapshot, &live);
+    const bool valid = s.embed           ? capture_embed(s.message, s.embed_index, s.snapshot, &live)
+                       : s.search_result ? capture_search(s.search_source, s.attachment, s.snapshot, &live)
+                                         : capture(s.message, s.attachment, s.snapshot, &live);
     return valid && live.handle.slot == s.handle.slot && live.handle.generation == s.handle.generation &&
            live.revision == s.revision && live.channel == s.channel &&
            live.origin_channel == s.origin_channel && live.origin_message == s.origin_message &&
@@ -263,6 +375,18 @@ bool source_media_allowed(const DownloadSource& source, bool activation = false)
         message->revision != source.revision || outer->message_revision != source.revision ||
         rich->message_revision != source.revision)
         return false;
+    if (source.embed) {
+        if (source.embed_index >= rich->embed_count)
+            return false;
+        const auto owner = message_media_owner(*message, outer);
+        const auto key = message_media_reveal_key(source.message, MessageMediaSource::embed,
+                                                  source.embed_index, source.snapshot);
+        const bool explicit_media = message_rich_embed_explicit(rich->embeds[source.embed_index]);
+        return activation ? !application_media_activation_consumed(*scene, owner, source.message, key,
+                                                                   false, explicit_media)
+                          : message_scene_media_obscure(*scene, owner, source.message, key, false,
+                                                        explicit_media) == MessageMediaObscure::none;
+    }
     for (u32 index = 0; index < rich->attachment_count; ++index) {
         const auto& attachment = rich->attachments[index];
         if (attachment.id != source.attachment)
@@ -410,13 +534,13 @@ bool resolve_row(void* opaque, u32 index, UiDownloadRow* out) noexcept {
             *out = {j.id,
                     j.chosen_name_bytes ? Utf8View{j.chosen_name, j.chosen_name_bytes}
                                         : Utf8View{j.source.filename, j.source.filename_bytes},
-                    j.source.snapshot        ? utf8_literal("Forwarded attachment")
+                    j.source.embed           ? utf8_literal("Embedded media")
+                    : j.source.snapshot      ? utf8_literal("Forwarded attachment")
                     : j.source.search_result ? utf8_literal("Search attachment")
                                              : utf8_literal("Message attachment"),
-                    job_status(j),
-                    j.transfer.committed_bytes,
-                    j.source.bytes,
-                    shown_phase,
+                    job_status(j), j.transfer.committed_bytes,
+                    // Embed media learns its length from the response.
+                    j.source.embed ? j.transfer.file_bytes : j.source.bytes, shown_phase,
                     j.phase == JobPhase::choosing || j.phase == JobPhase::resolving,
                     !done && !j.cancel_requested,
                     (j.phase == JobPhase::failed || j.phase == JobPhase::cancelled) && !j.admitted &&
@@ -492,6 +616,7 @@ bool begin_source(const DownloadSource& source) noexcept {
               j.source.search_source.index == source.search_source.index));
         if (!terminal(j.phase) && same_search && j.source.message == source.message &&
             j.source.attachment == source.attachment && j.source.snapshot == source.snapshot &&
+            j.source.embed == source.embed && j.source.embed_index == source.embed_index &&
             j.source.fingerprint == source.fingerprint && (j.admitted || source_current(j.source)))
             return application_downloads_open();
     }
@@ -540,6 +665,14 @@ bool application_downloads_begin_search(const ApplicationSearchSourceTicket& tic
                                         bool snapshot) noexcept {
     DownloadSource source{};
     return !capture_search(ticket, attachment, snapshot, &source) || begin_source(source);
+}
+bool application_downloads_embed_available(u64 message, u32 embed, bool snapshot) noexcept {
+    DownloadSource source{};
+    return capture_embed(message, embed, snapshot, &source);
+}
+bool application_downloads_begin_embed(u64 message, u32 embed, bool snapshot) noexcept {
+    DownloadSource source{};
+    return !capture_embed(message, embed, snapshot, &source) || begin_source(source);
 }
 bool application_downloads_active() noexcept {
     return g_app.downloads && g_app.downloads->active;
@@ -908,6 +1041,7 @@ bool open_context(DownloadSource source, UiRect anchor) noexcept {
     q->menu_kind = kind;
     q->menu_format = format;
     q->menu_sticker = false;
+    q->menu_embed = false;
     q->menu_opens = g_app.message_context.opens;
     q->menu_valid = true;
     return application_request_frame();
@@ -978,7 +1112,8 @@ bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) n
 }
 // A right-clicked embed image (each gallery tile on its own) adds the link
 // pair for that image's original URL, as a sticker image does.
-bool embed_image_at(float x, float y, DownloadSource* out) noexcept {
+bool embed_image_at(float x, float y, DownloadSource* out, u32* embed_index = nullptr,
+                    bool* snapshot = nullptr) noexcept {
     if (!g_app.account_ui || !g_app.message_scene.active || !out || !message_rich_display().embeds)
         return false;
     const auto& scene = g_app.message_scene;
@@ -1032,6 +1167,10 @@ bool embed_image_at(float x, float y, DownloadSource* out) noexcept {
                 source.message = message->id;
                 source.revision = message->revision;
                 *out = source;
+                if (embed_index)
+                    *embed_index = i;
+                if (snapshot)
+                    *snapshot = s != 0;
                 return true;
             }
         }
@@ -1050,9 +1189,61 @@ bool open_sticker_context(const DownloadSource& source, UiRect anchor) noexcept 
     q->menu = source;
     q->menu_kind = ReceivedAttachmentKind::sticker;
     q->menu_sticker = true;
+    q->menu_embed = false;
     q->menu_opens = g_app.message_context.opens;
     q->menu_valid = true;
     return application_request_frame();
+}
+// What embed media is, for its menu labels: an animation, a video or an image.
+ReceivedAttachmentKind embed_kind(const DownloadSource& source) noexcept {
+    const auto& store = g_app.account_ui->message_rich_store;
+    const auto* rich = source.snapshot ? message_rich_store_snapshot(store, source.message)
+                                       : message_rich_store_find(store, source.message);
+    MessageRichEmbedMediaSelection selected{};
+    if (!rich || source.embed_index >= rich->embed_count ||
+        !embed_media(store, *rich, source.embed_index, &selected))
+        return ReceivedAttachmentKind::file;
+    if (rich->embeds[source.embed_index].type == GatewayMessageEmbedType::gifv ||
+        selected.format == MediaAttachmentFormat::gif)
+        return ReceivedAttachmentKind::animated_image;
+    if (selected.format == MediaAttachmentFormat::mp4)
+        return ReceivedAttachmentKind::video;
+    return selected.format == MediaAttachmentFormat::unknown ? ReceivedAttachmentKind::file
+                                                             : ReceivedAttachmentKind::image;
+}
+// Embed media gets Save beside its link rows, which name the original URL.
+bool open_embed_context(const DownloadSource& source, Utf8View link, UiRect anchor) noexcept {
+    auto* q = ensure_owner();
+    if (!link.bytes)
+        link = {source.url, source.url_bytes};
+    if (!q || link.bytes > sizeof(q->menu_link) || !source_current(source) || !dismiss_popup())
+        return false;
+    q->menu_valid = false;
+    const auto kind = embed_kind(source);
+    const ReceivedAttachmentMenuFacts facts{kind, link, false, true};
+    const u32 count = received_attachment_menu(facts, {q->menu_items, kReceivedAttachmentMenuItems});
+    if (!count || !open_message_media_context_popup(source.message, anchor, {q->menu_items, count}))
+        return false;
+    q->menu = source;
+    q->menu_kind = kind;
+    q->menu_sticker = false;
+    q->menu_embed = true;
+    copy_bytes(q->menu_link, link.data, link.bytes);
+    q->menu_link_bytes = static_cast<u16>(link.bytes);
+    q->menu_opens = g_app.message_context.opens;
+    q->menu_valid = true;
+    return application_request_frame();
+}
+// A right-clicked embed: Save when its media can be fetched, else only links.
+bool embed_context(float x, float y, UiRect anchor) noexcept {
+    DownloadSource shown{}, media{};
+    u32 index = 0;
+    bool snapshot = false;
+    if (!embed_image_at(x, y, &shown, &index, &snapshot))
+        return false;
+    return capture_embed(shown.message, index, snapshot, &media)
+               ? open_embed_context(media, {shown.url, shown.url_bytes}, anchor)
+               : open_sticker_context(shown, anchor);
 }
 // Copy Image reads the largest decoded tier the renderer still holds; the
 // viewer's 2048 DIP decode bound caps it.
@@ -1180,21 +1371,27 @@ bool application_downloads_pump() noexcept {
             j.source.attachment, j.source.revision, j.source.snapshot ? j.source.origin_channel : 0};
         Utf8View ready{};
         const Utf8View original{j.source.url, j.source.url_bytes};
-        const auto result =
-            j.resolution.pending
-                ? received_attachment_open_resume(&j.resolution, identity, original, &g_app.media_urls,
-                                                  clock_monotonic_milliseconds(),
-                                                  clock_unix_milliseconds() / 1000, &ready)
-                : received_attachment_open_begin(&j.resolution, identity, original, &g_app.media_urls,
-                                                 clock_monotonic_milliseconds(),
-                                                 clock_unix_milliseconds() / 1000, &ready, j.force_refresh);
+        // Embed media is fetched by the media-proxy URL it was captured with;
+        // only signed attachment links are refreshed first.
+        auto result = ReceivedAttachmentOpenResult::ready;
+        if (j.source.embed)
+            ready = original;
+        else
+            result = j.resolution.pending
+                         ? received_attachment_open_resume(
+                               &j.resolution, identity, original, &g_app.media_urls,
+                               clock_monotonic_milliseconds(), clock_unix_milliseconds() / 1000, &ready)
+                         : received_attachment_open_begin(&j.resolution, identity, original,
+                                                          &g_app.media_urls, clock_monotonic_milliseconds(),
+                                                          clock_unix_milliseconds() / 1000, &ready,
+                                                          j.force_refresh);
         if (result == ReceivedAttachmentOpenResult::pending) {
             resolution_pending = true;
             continue;
         }
         if (result != ReceivedAttachmentOpenResult::ready || !source_current(j.source) ||
             !source_media_allowed(j.source) ||
-            !url_current(ready, j.source.origin_channel, j.source.attachment)) {
+            (!j.source.embed && !url_current(ready, j.source.origin_channel, j.source.attachment))) {
             fail_job(*q, j,
                      result == ReceivedAttachmentOpenResult::stale ? HttpsFileDownloadError::invalid_input
                                                                    : HttpsFileDownloadError::http);
@@ -1203,7 +1400,7 @@ bool application_downloads_pump() noexcept {
         AccountDownloadRequest request{};
         request.url = ready;
         request.path = {j.path, j.path_units};
-        request.source_channel_id = j.source.origin_channel;
+        request.source_channel_id = j.source.embed ? 0 : j.source.origin_channel;
         request.attachment_id = j.source.attachment;
         request.expected_bytes = j.source.bytes;
         request.destination = j.destination;
@@ -1277,8 +1474,7 @@ bool application_downloads_context_at(float x, float y) noexcept {
     const UiRect anchor{x, y, x + 1, y + 1};
     return attachment_at(x, y, false, &source) ? open_context(source, anchor)
            : sticker_at(x, y, {}, &source)     ? open_sticker_context(source, anchor)
-           : embed_image_at(x, y, &source)     ? open_sticker_context(source, anchor)
-                                               : false;
+                                               : embed_context(x, y, anchor);
 }
 bool application_downloads_context_focused() noexcept {
     DownloadSource source{};
@@ -1314,6 +1510,16 @@ bool application_downloads_context_action(u32 action) noexcept {
     }
     if (!source_current(source))
         return true;
+    if (q->menu_embed) {
+        const Utf8View link{q->menu_link, q->menu_link_bytes};
+        if (action == kReceivedAttachmentActionSave)
+            return begin_source(source);
+        if (action == kReceivedAttachmentActionCopyLink && !clipboard_write_utf8(g_app.window, link))
+            log_write(LogLevel::warning, "downloads", "copy_link_failed");
+        if (action == kReceivedAttachmentActionOpenLink)
+            application_open_content_url(link);
+        return true;
+    }
     switch (action) {
     case kReceivedAttachmentActionSave:
         return begin_source(source);

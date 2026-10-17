@@ -268,10 +268,17 @@ void activate(u32 index) noexcept {
         }
         const auto source = message_store_find(g_app.message_view.store, viewer.message_id);
         const auto* record = source.ok() ? message_store_resolve(g_app.message_view.store, source.handle) : nullptr;
-        if (viewer.attachment_id && viewer.account_scope == g_app.plugin_account_scope_serial &&
-            viewer.profile_id == g_app.account.status.profile_id && g_app.account_ui &&
-            viewer.self_user_id == g_app.account_ui->chat_state.self_user_id && record && record->revision == viewer.message_revision &&
-            source.handle.slot == viewer.source_slot && source.handle.generation == viewer.source_generation)
+        const bool current = viewer.account_scope == g_app.plugin_account_scope_serial &&
+                             viewer.profile_id == g_app.account.status.profile_id && g_app.account_ui &&
+                             viewer.self_user_id == g_app.account_ui->chat_state.self_user_id && record &&
+                             record->revision == viewer.message_revision &&
+                             source.handle.slot == viewer.source_slot &&
+                             source.handle.generation == viewer.source_generation;
+        const auto* shown =
+            viewer.item_index < viewer.item_count ? &viewer.items[viewer.item_index] : nullptr;
+        if (current && shown && shown->kind == MessageSceneRichItemKind::embed)
+            application_downloads_begin_embed(viewer.message_id, shown->index, viewer.attachment_snapshot);
+        else if (current && viewer.attachment_id)
             application_downloads_begin(viewer.message_id, viewer.attachment_id, viewer.attachment_snapshot);
         return;
     }
@@ -530,9 +537,17 @@ bool application_image_viewer_synchronize() noexcept {
     } else if (scene.copied) {
         application_request_frame();
     }
-    const bool save = viewer.attachment_id && (viewer.search_result
-        ? application_downloads_search_available(viewer.search_source, viewer.attachment_id, viewer.attachment_snapshot)
-        : application_downloads_available(viewer.message_id, viewer.attachment_id, viewer.attachment_snapshot));
+    const auto* shown = viewer.item_index < viewer.item_count ? &viewer.items[viewer.item_index] : nullptr;
+    const bool embed = shown && shown->kind == MessageSceneRichItemKind::embed && !viewer.search_result;
+    const bool save =
+        embed ? application_downloads_embed_available(viewer.message_id, shown->index,
+                                                      viewer.attachment_snapshot)
+              : viewer.attachment_id &&
+                    (viewer.search_result
+                         ? application_downloads_search_available(
+                               viewer.search_source, viewer.attachment_id, viewer.attachment_snapshot)
+                         : application_downloads_available(viewer.message_id, viewer.attachment_id,
+                                                           viewer.attachment_snapshot));
     ui_image_viewer_set_save_available(&scene, save);
     ui_image_viewer_set_actions(&scene, ui_image_viewer_action_open | ui_image_viewer_action_copy);
     g_app.renderer.image_viewer = &scene;
