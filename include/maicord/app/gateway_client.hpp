@@ -233,6 +233,8 @@ enum class GatewayClientDispatchKind : u8 {
     // state.guild_id and state.record_count, followed by ChannelCursor records.
     // Latest activity only: never a read cursor, message body or mention count.
     channel_cursor_update,
+    // GUILD_APPLICATION_COMMAND_INDEX_UPDATE: state.guild_id only; no payload.
+    guild_command_index_update,
 };
 
 enum class GatewayClientDispatchRouteError : u8 {

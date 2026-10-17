@@ -119,6 +119,35 @@ GatewayClientDispatchRouteResult route_channel_pins_update(JsonValue data, Slice
     return {};
 }
 
+void route_command_index_update(JsonValue data, Slice<u32> scratch, u32 maximum_depth,
+                                GatewayClientEvent* event) noexcept {
+    if (data.kind != JsonValueKind::object)
+        return;
+    const auto scan = json_scan_structurals_avx1(data.source, scratch);
+    if (!scan.ok())
+        return;
+    struct Context {
+        u64 guild_id;
+        bool seen;
+    } context{};
+    const auto read = json_visit_value_object(
+        data, {scratch.data, scan.count}, maximum_depth,
+        [](void* opaque, JsonString name, JsonValue value) noexcept {
+            if (!json_string_equals_ascii(name, utf8_literal("guild_id")))
+                return true;
+            auto& fields = *static_cast<Context*>(opaque);
+            if (fields.seen)
+                return false;
+            fields.seen = true;
+            return json_value_to_snowflake(value, &fields.guild_id);
+        },
+        &context);
+    if (read.ok() && context.seen && context.guild_id) {
+        event->dispatch_kind = GatewayClientDispatchKind::guild_command_index_update;
+        event->state.guild_id = context.guild_id;
+    }
+}
+
 bool copy_event_name(JsonString source, GatewayClientEvent* destination) noexcept {
     const JsonStringDecodeResult size = json_string_decode_utf8(source, Slice<char>{nullptr, 0});
     if (size.error != JsonStringDecodeError::output_too_small ||
@@ -1236,6 +1265,12 @@ GatewayClientDispatchRouteResult gateway_client_route_dispatch(
                                                 payload);
     if (json_string_equals_ascii(envelope.event_name, utf8_literal("CHANNEL_PINS_UPDATE")))
         return route_channel_pins_update(envelope.data, structural_scratch, maximum_depth, event);
+    if (json_string_equals_ascii(envelope.event_name,
+                                 utf8_literal("GUILD_APPLICATION_COMMAND_INDEX_UPDATE"))) {
+        // A cache hint is ancillary; malformed data never fails the session.
+        route_command_index_update(envelope.data, structural_scratch, maximum_depth, event);
+        return {};
+    }
     if (json_string_equals_ascii(envelope.event_name, utf8_literal("USER_REQUIRED_ACTION_UPDATE"))) {
         if (!account_requirement_update(envelope.data, structural_scratch, &event->required_action))
             return route_error(GatewayClientDispatchRouteError::decode,

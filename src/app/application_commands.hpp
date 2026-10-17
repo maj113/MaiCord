@@ -14,6 +14,10 @@ bool application_commands_scroll_range(bool rail, UiScrollRange*) noexcept;
 bool application_commands_scroll(bool rail, double offset, bool* changed) noexcept;
 bool application_commands_key(u32 key) noexcept;
 void application_commands_gateway(Utf8View body) noexcept;
+// Invalidates the matching guild index, or a bound DM index conservatively
+// (no guild-to-bot map is retained). The user index is independent. UI refresh
+// is deferred until tick; queued/sending interactions and the draft stay intact.
+void application_commands_invalidate_guild(u64 guild_id) noexcept;
 bool application_commands_tick(u64 now) noexcept;
 void application_commands_dismiss() noexcept;
 u64 application_commands_next_wake() noexcept;

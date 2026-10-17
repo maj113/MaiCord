@@ -32,6 +32,7 @@ struct Entry {
 struct Commands {
     CommandIndex index[2];
     Arena projection;
+    Arena retired_index_storage;
     Entry* entries;
     u32 count;
     const CommandApplication** apps;
@@ -47,10 +48,11 @@ struct Commands {
     u32 choice_bytes[25];
     u64 guild, channel, filter_app, requested_channel, requested_guild, retry_at;
     u32 revision, generation, rendered_generation, submitted_revision;
+    u32 channel_index_epoch, requested_index_epoch;
     u64 submitted_document, dismissed_document;
     u32 dismissed_revision;
     u8 pending, operation, requested_slot;
-    bool loaded[2], sending, queued;
+    bool loaded[2], sending, queued, catalog_dirty, indexing_retry;
     float offset, rail_offset;
     u32 keyboard_row, option_count;
     u8 attempts[2];
@@ -63,6 +65,15 @@ struct Commands {
     bool context_wanted, context_send;
 };
 Commands* commands;
+void advance_channel_index_epoch(Commands& c) noexcept {
+    if (++c.channel_index_epoch == 0)
+        ++c.channel_index_epoch;
+}
+bool retired_text(Utf8View text, const Arena& storage) noexcept {
+    const usize pointer = reinterpret_cast<usize>(text.data);
+    const usize base = reinterpret_cast<usize>(storage.base);
+    return text.bytes && storage.base && pointer >= base && pointer - base < storage.reserved;
+}
 Utf8View field_text(const CommandIndex& index, JsonValue value, const char* key,
                     Slice<char> scratch) noexcept {
     u32 n = 0;
@@ -464,6 +475,7 @@ bool application_commands_sync(bool* handled) noexcept {
                                                            g_app.message_composer.channel_id);
     const u64 guild = channel ? channel->guild_id : 0;
     if (c.channel != g_app.message_composer.channel_id) {
+        advance_channel_index_epoch(c);
         if (c.guild != guild || !guild) {
             c.loaded[0] = false;
             c.pending |= 1;
@@ -733,6 +745,7 @@ bool application_commands_submit(u64 now) noexcept {
         application, nonce, payload, ui.message_history_request_id, op);
     if (result.error == RestClientSubmitError::busy) {
         c.retry_at = now + 100;
+        c.indexing_retry = false;
         return true;
     }
     if (op == 3)
@@ -760,7 +773,9 @@ bool application_commands_submit(u64 now) noexcept {
     c.issued_nonce = nonce;
     c.requested_channel = op == 2 ? c.send_channel : c.channel;
     c.requested_guild = op == 2 ? c.send_guild : c.guild;
+    c.requested_index_epoch = c.channel_index_epoch;
     c.retry_at = 0;
+    c.indexing_retry = false;
     if (op == 2) {
         c.queued = false;
         c.sending = true;
@@ -774,7 +789,11 @@ bool application_commands_response(const RestClientResponse& response, Utf8View 
     if (!commands)
         return true;
     auto& c = *commands;
+    if (c.catalog_dirty && !application_commands_tick(clock_monotonic_milliseconds()))
+        return false;
     const bool same = c.requested_channel == c.channel && c.requested_guild == c.guild;
+    if (c.operation == 0 && c.requested_index_epoch != c.channel_index_epoch)
+        return refresh_message_composer_ui();
     if (c.operation == 3) {
         c.suggestions_dirty =
             command_autocomplete_transport(&c.autocomplete, c.issued_nonce,
@@ -815,6 +834,7 @@ bool application_commands_response(const RestClientResponse& response, Utf8View 
             c.pending |= 1u << c.requested_slot;
             c.retry_at = response.status_code == 429 ? response.retry_at_ms :
                 deadline_after(clock_monotonic_milliseconds(), 5000);
+            c.indexing_retry = c.operation == 0 && response.status_code == 202;
         } else {
             c.pending &= ~(1u << c.requested_slot);
             c.loaded[c.requested_slot] = true;
@@ -944,10 +964,65 @@ void application_commands_gateway(Utf8View body) noexcept {
                                                        kMessageHistoryPageStructuralCount}) ||
                           c.suggestions_dirty;
 }
+void application_commands_invalidate_guild(u64 guild_id) noexcept {
+    if (!guild_id || !commands || !commands->channel || (commands->guild && commands->guild != guild_id))
+        return;
+    auto& c = *commands;
+    advance_channel_index_epoch(c);
+    c.loaded[0] = false;
+    c.pending |= 1;
+    c.attempts[0] = 0;
+    if (c.indexing_retry && c.requested_guild == c.guild && !c.queued && !c.sending) {
+        c.retry_at = 0;
+        c.indexing_retry = false;
+    }
+    if (c.selected.index == &c.index[0]) {
+        c.selected = {};
+        c.focused_option = {};
+        c.choice_count = c.option_count = 0;
+        command_autocomplete_cancel(&c.autocomplete);
+    }
+    // Visible context-menu labels can still borrow this arena. Retire it until
+    // post-drain UI refresh, while making the stale commands unselectable now.
+    if (c.index[0].storage.base)
+        c.retired_index_storage = c.index[0].storage;
+    c.index[0] = {};
+    arena_release(&c.projection);
+    c.entries = nullptr;
+    c.apps = nullptr;
+    c.count = c.app_count = 0;
+    c.filter_app = 0;
+    c.revision = 0;
+    c.catalog_dirty = true;
+    ++c.generation;
+    // This close is a cache refresh, not a dismissal of the unchanged draft.
+    const u64 dismissed_document = c.dismissed_document;
+    const u32 dismissed_revision = c.dismissed_revision;
+    close_popup();
+    c.dismissed_document = dismissed_document;
+    c.dismissed_revision = dismissed_revision;
+}
 bool application_commands_tick(u64 now) noexcept {
     if (!commands)
         return true;
     auto& c = *commands;
+    if (c.catalog_dirty) {
+        c.catalog_dirty = false;
+        application_user_actions_commands_changed();
+        // A failed/hidden context-menu refresh must not leave borrowed text
+        // visible after the retired index storage is released.
+        for (u32 n = 0; g_app.popup_scene.active && n < g_app.popup_scene.item_count; ++n) {
+            const auto& item = g_app.popup_scene.items[n];
+            if (retired_text(item.label, c.retired_index_storage) ||
+                retired_text(item.detail, c.retired_index_storage)) {
+                popup_scene_close(&g_app.popup_scene);
+                set_popup_owner(PopupOwnerKind::none);
+            }
+        }
+        arena_release(&c.retired_index_storage);
+        if (!refresh_message_composer_ui())
+            return false;
+    }
     if (!g_app.popup_scene.active || g_app.popup_owner_kind != PopupOwnerKind::commands) {
         command_autocomplete_cancel(&c.autocomplete);
         c.suggestions_dirty = false;
@@ -964,6 +1039,8 @@ u64 application_commands_next_wake() noexcept {
     if (!commands)
         return 0;
     const auto& c = *commands;
+    if (c.catalog_dirty)
+        return 1;
     const bool idle = g_app.details_request_owner == MessageHistoryRequestOwner::none;
     u64 wake = c.autocomplete.phase == CommandAutocompletePhase::waiting ? c.autocomplete.deadline : 0;
     if (!idle)
@@ -996,6 +1073,7 @@ bool bind_context_channel() noexcept {
     if (c.channel != channel_id) {
         if (c.queued || c.sending)
             return false;
+        advance_channel_index_epoch(c);
         if (c.guild != guild || !guild) {
             c.loaded[0] = false;
             if (c.selected.index == &c.index[0])
@@ -1082,6 +1160,7 @@ void application_commands_release() noexcept {
     command_index_release(&commands->index[0]);
     command_index_release(&commands->index[1]);
     arena_release(&commands->projection);
+    arena_release(&commands->retired_index_storage);
     VirtualFree(commands, 0, MEM_RELEASE);
     commands = nullptr;
 }

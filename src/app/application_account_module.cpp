@@ -474,6 +474,9 @@ GatewayClientPopResult application_pop_account_gateway(void* source, GatewayClie
     application_guild_community_gateway(*event, {payload_output.data, popped.payload_bytes});
     application_notifications_gateway(&g_app, *event, {payload_output.data, popped.payload_bytes});
     application_composer_gateway_event(event->kind);
+    if (event->kind == GatewayClientEventKind::dispatch &&
+        event->dispatch_kind == GatewayClientDispatchKind::guild_command_index_update)
+        application_commands_invalidate_guild(event->state.guild_id);
     // Observe the mailbox before the selected timeline filters it. Pins can
     // reference messages outside the resident window, including deletions.
     if (event->kind == GatewayClientEventKind::dispatch && popped.payload_bytes <= payload_output.count) {

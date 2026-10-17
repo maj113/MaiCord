@@ -140,5 +140,44 @@ void test_command_autocomplete(void (*check)(bool, const char*) noexcept) noexce
                   .ok() &&
               event.dispatch_kind == GatewayClientDispatchKind::unknown && !payload.count,
           "oversized ancillary autocomplete response does not disconnect gateway");
+    const struct {
+        Utf8View wire;
+        bool invalidates;
+    } index_updates[]{
+        {utf8_literal(
+             R"({"op":0,"t":"GUILD_APPLICATION_COMMAND_INDEX_UPDATE","s":78,"d":{"guild_id":"55"}})"),
+         true},
+        {utf8_literal(
+             R"({"op":0,"t":"GUILD_APPLICATION_COMMAND_INDEX_UPDATE","s":78,"d":{"guild_id":"55","version":null}})"),
+         true},
+        {utf8_literal(
+             R"({"op":0,"t":"GUILD_APPLICATION_COMMAND_INDEX_UPDATE","s":78,"d":{"guild_id":"55","version":"7","extra":{"ignored":true}}})"),
+         true},
+        {utf8_literal(R"({"op":0,"t":"GUILD_APPLICATION_COMMAND_INDEX_UPDATE","s":78,"d":{}})"), false},
+        {utf8_literal(
+             R"({"op":0,"t":"GUILD_APPLICATION_COMMAND_INDEX_UPDATE","s":78,"d":{"guild_id":"0"}})"),
+         false},
+        {utf8_literal(
+             R"({"op":0,"t":"GUILD_APPLICATION_COMMAND_INDEX_UPDATE","s":78,"d":{"guild_id":"invalid"}})"),
+         false},
+        {utf8_literal(
+             R"({"op":0,"t":"GUILD_APPLICATION_COMMAND_INDEX_UPDATE","s":78,"d":{"guild_id":"55","guild_id":"66"}})"),
+         false},
+        {utf8_literal(R"({"op":0,"t":"GUILD_APPLICATION_COMMAND_INDEX_UPDATE","s":78,"d":[]})"), false},
+        {utf8_literal(R"({"op":0,"t":"APPLICATION_COMMAND_UPDATE","s":78,"d":{"guild_id":"55"}})"), false}};
+    for (const auto& update : index_updates) {
+        event = {};
+        payload = {};
+        const bool routed =
+            gateway_decode_envelope(update.wire, {scratch, 2048}, 32, &envelope).ok() &&
+            gateway_client_route_dispatch(envelope, {scratch, 2048}, 32, {}, {}, &event, &payload).ok();
+        check(routed && event.sequence == 78 && !payload.count && !event.dispatch_payload_bytes &&
+                  event.dispatch_kind == (update.invalidates
+                                              ? GatewayClientDispatchKind::guild_command_index_update
+                                              : GatewayClientDispatchKind::unknown) &&
+                  (!update.invalidates || event.state.guild_id == 55),
+              "gateway command-index invalidation needs only valid guild_id and ignores malformed or "
+              "unrelated ancillary events");
+    }
 }
 } // namespace maicord

@@ -61,12 +61,11 @@ using namespace app_detail;
 u32 failures, calls, operation;
 char payload[65536];
 u32 payload_bytes;
-u64 submitted_application, submitted_nonce;
+u64 submitted_channel, submitted_guild, submitted_application, submitted_nonce;
 RestClientSubmitError submit_error;
 bool measure_header_name(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* value) noexcept {
     if (!request.no_wrap || request.styles.count != 1 ||
-        request.styles[0].byte_count != request.text.bytes ||
-        request.styles[0].flags != text_style_bold)
+        request.styles[0].byte_count != request.text.bytes || request.styles[0].flags != text_style_bold)
         return false;
     *value = {{47, 20}, 16, 1};
     return true;
@@ -74,12 +73,17 @@ bool measure_header_name(void*, const UiTextMeasureRequest& request, UiTextMeasu
 void check(bool ok, const char* label) noexcept {
     test_check(&failures, ok, label);
 }
-RestClientSubmitResult WINAPI submit(void*, u64, u64, u64 application, u64 nonce, Utf8View data,
-                                          u64, u8 op) noexcept {
-    ++calls; operation = op;
-    submitted_application = application; submitted_nonce = nonce;
+RestClientSubmitResult WINAPI submit(void*, u64 channel, u64 guild, u64 application, u64 nonce,
+                                     Utf8View data, u64, u8 op) noexcept {
+    ++calls;
+    operation = op;
+    submitted_channel = channel;
+    submitted_guild = guild;
+    submitted_application = application;
+    submitted_nonce = nonce;
     payload_bytes = data.bytes;
-    if (data.bytes) copy_bytes(payload, data.data, data.bytes);
+    if (data.bytes)
+        copy_bytes(payload, data.data, data.bytes);
     return {submit_error};
 }
 u32 action_named(Utf8View label, u32 ordinal = 0) noexcept {
@@ -144,6 +148,214 @@ void command_retry_cases() noexcept {
     application_commands_release();
     popup_scene_close(&g_app.popup_scene);
     set_popup_owner(PopupOwnerKind::none);
+    edit({});
+}
+void command_index_invalidation_cases() noexcept {
+    auto& ui = *g_app.account_ui;
+    auto& composer = g_app.message_composer;
+    const auto saved_state = ui.chat_state;
+    const u64 saved_active_channel = ui.active_channel_id;
+    const u64 saved_composer_channel = composer.channel_id;
+    GuildRecord guilds[1]{};
+    ChannelRecord channels[1]{};
+    u16 guild_order[1]{}, channel_order[1]{};
+    u8 names[128]{};
+    ChannelInput channel{};
+    channel.id = 9;
+    channel.guild_id = 55;
+    channel.name = utf8_literal("commands");
+    application_commands_release();
+    const u32 unbound_calls = calls;
+    application_commands_invalidate_guild(55);
+    check(!application_commands_next_wake() && calls == unbound_calls,
+          "command invalidation leaves an unbound catalog idle");
+    const bool initialized =
+        chat_state_store_initialize(&ui.chat_state, {guilds, 1}, {guild_order, 1}, {channels, 1},
+                                    {channel_order, 1}, {names, sizeof(names)}) &&
+        chat_state_store_upsert_guild(&ui.chat_state,
+                                      {55, utf8_literal("Guild"), GuildMutationKind::create, 1})
+            .ok() &&
+        chat_state_store_upsert_channel(&ui.chat_state, channel).ok() &&
+        message_composer_controller_select_channel(&ui.message_composer_controller, 9).ok();
+    check(initialized, "command invalidation guild fixture initializes");
+    if (initialized) {
+        ui.active_channel_id = 9;
+        constexpr auto server = utf8_literal(
+            R"({"applications":[{"id":"10","name":"Guild app"}],"application_commands":[{"id":"100","application_id":"10","version":"2","name":"guild","description":"Guild command","type":1},{"id":"102","application_id":"10","version":"2","name":"Inspect user","type":2}]})");
+        constexpr auto stale = utf8_literal(
+            R"({"applications":[{"id":"10","name":"Guild app"}],"application_commands":[{"id":"101","application_id":"10","version":"1","name":"stale","description":"Old command","type":1}]})");
+        constexpr auto user = utf8_literal(
+            R"({"applications":[{"id":"20","name":"User app"}],"application_commands":[{"id":"200","application_id":"20","version":"8","name":"personal","description":"User command","type":1}]})");
+        const u32 initial_calls = calls;
+        edit(utf8_literal("/"));
+        check(application_commands_submit(1) && operation == 0, "command invalidation loads guild index");
+        respond(200, server);
+        edit(utf8_literal("/guild"));
+        check(application_commands_key(VK_RETURN) && g_app.message_composer_scene.command.name_bytes == 6 &&
+                  application_commands_submit(2) && operation == 1,
+              "command invalidation retains selected guild command while the independent user index loads");
+        const u32 before_event = calls;
+        application_commands_invalidate_guild(0);
+        application_commands_invalidate_guild(66);
+        check(
+            application_commands_tick(1) && calls == before_event &&
+                g_app.message_composer_scene.command.name_bytes == 6 &&
+                utf8_equal(message_composer_text(composer), utf8_literal("/guild ")),
+            "command invalidation ignores zero and unrelated guilds without disturbing selection or draft");
+        application_commands_invalidate_guild(55);
+        check(application_commands_next_wake() == 1 && calls == before_event &&
+                  application_commands_tick(1) && !g_app.message_composer_scene.command.name_bytes &&
+                  g_app.popup_scene.active &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("/guild ")),
+              "command invalidation defers projection work and reopens the untouched draft without stale "
+              "selection");
+        respond(200, user);
+        edit(utf8_literal("/"));
+        check(action_named(utf8_literal("/personal")) && !action_named(utf8_literal("/guild")),
+              "command invalidation preserves the independently arriving user index while removing stale "
+              "guild entries");
+        constexpr u16 old_statuses[]{200, 202, 429};
+        for (u32 i = 0; i < 3; ++i) {
+            check(application_commands_submit(10 + i * 4) && operation == 0,
+                  "command invalidation admits one guild refresh");
+            application_commands_invalidate_guild(55);
+            application_commands_invalidate_guild(55);
+            check(application_commands_tick(1),
+                  "command invalidation coalesces repeated in-flight updates");
+            RestClientResponse old{};
+            old.status_code = old_statuses[i];
+            old.rate_limited = old.status_code == 429;
+            old.retry_at_ms = old.rate_limited ? 900000000000ull : 0;
+            g_app.details_request_owner = MessageHistoryRequestOwner::none;
+            check(application_commands_response(old, stale) && application_commands_pending(12 + i * 4) &&
+                      !action_named(utf8_literal("/stale")) && action_named(utf8_literal("/personal")) &&
+                      application_commands_submit(12 + i * 4) && operation == 0,
+                  "command invalidation fences old success pending and rate responses without losing or "
+                  "delaying the refetch");
+            respond(200, server);
+            check(action_named(utf8_literal("/guild")) && action_named(utf8_literal("/personal")) &&
+                      !application_commands_pending(13 + i * 4),
+                  "command invalidation installs only the current guild response and never refetches the "
+                  "user index");
+            if (i != 2) {
+                application_commands_invalidate_guild(55);
+                check(application_commands_tick(1),
+                      "command invalidation prepares the next response fence");
+            }
+        }
+        check(calls == initial_calls + 8,
+              "command invalidation refetch counts exclude duplicate events and user-index reloads");
+        for (u32 sending = 0; sending < 2; ++sending) {
+            edit(utf8_literal("/guild"));
+            check(application_commands_key(VK_RETURN) && application_commands_key(VK_RETURN),
+                  "command invalidation queues an immutable interaction payload");
+            if (sending)
+                check(application_commands_submit(30) && operation == 2,
+                      "command invalidation sends the interaction before update");
+            const u32 submitted_before = calls;
+            application_commands_invalidate_guild(55);
+            check(application_commands_tick(1) && calls == submitted_before &&
+                      utf8_equal(message_composer_text(composer), utf8_literal("/guild ")),
+                  "command invalidation never resubmits or edits a queued or sending draft");
+            if (!sending)
+                check(application_commands_submit(30) && operation == 2,
+                      "command invalidation preserves the already serialized queued interaction");
+            check(submitted_channel == 9 && submitted_guild == 55 && submitted_application == 10 &&
+                      submitted_nonce && payload_contains(utf8_literal("\"id\":\"100\"")) &&
+                      payload_contains(utf8_literal("\"version\":\"2\"")),
+                  "command invalidation keeps the admitted command identity and version after freeing its "
+                  "index");
+            edit(utf8_literal("newer draft stays"));
+            respond(204);
+            check(utf8_equal(message_composer_text(composer), utf8_literal("newer draft stays")) &&
+                      !application_commands_pending(31) &&
+                      message_composer_controller_select_channel(&ui.message_composer_controller, 8).ok() &&
+                      message_composer_controller_select_channel(&ui.message_composer_controller, 9).ok() &&
+                      utf8_equal(message_composer_text(composer), utf8_literal("newer draft stays")),
+                  "command invalidation preserves a newer retained draft through interaction completion "
+                  "and channel switches");
+            edit(utf8_literal("/"));
+            check(application_commands_submit(32) && operation == 0,
+                  "command invalidation refetches the guild only when command discovery is wanted again");
+            respond(200, server);
+        }
+        edit(utf8_literal("retained context draft"));
+        ApplicationContextCommand found[1]{};
+        bool loading = false;
+        const u32 context_count = application_commands_context(2, {found, 1}, &loading);
+        PopupItem item{};
+        item.label = found[0].name;
+        item.flags = popup_item_enabled;
+        item.action = 1;
+        set_popup_owner(PopupOwnerKind::member);
+        check(context_count == 1 && !loading &&
+                  popup_scene_open(&g_app.popup_scene, PopupKind::context_menu, 1, {&item, 1}, {0, 0, 1, 1},
+                                   command_viewport, 200)
+                      .ok(),
+              "command invalidation opens an Apps row borrowing the guild index label");
+        const u32 context_before = context_changes, requests_before = calls;
+        application_commands_invalidate_guild(55);
+        check(g_app.popup_scene.active && context_changes == context_before && calls == requests_before &&
+                  utf8_equal(g_app.popup_scene.items[0].label, utf8_literal("Inspect user")) &&
+                  application_commands_tick(1) && !g_app.popup_scene.active &&
+                  context_changes == context_before + 1 && calls == requests_before,
+              "command invalidation retains borrowed Apps text until the deferred no-op refresh safely "
+              "closes it");
+        constexpr u16 waiting_statuses[]{202, 429};
+        for (const u16 status : waiting_statuses) {
+            edit(utf8_literal("/"));
+            check(application_commands_submit(1000) && operation == 0,
+                  "command invalidation submits the index before an existing retry wait");
+            RestClientResponse response{};
+            response.status_code = status;
+            response.rate_limited = status == 429;
+            response.retry_at_ms = response.rate_limited ? 900000000000ull : 0;
+            g_app.details_request_owner = MessageHistoryRequestOwner::none;
+            check(application_commands_response(response, {}),
+                  "command invalidation installs the existing index retry wait");
+            application_commands_invalidate_guild(55);
+            check(application_commands_tick(1) && application_commands_pending(1002) == (status == 202) &&
+                      (status != 429 || application_commands_next_wake() == response.retry_at_ms) &&
+                      application_commands_submit(status == 429 ? response.retry_at_ms : 1002) &&
+                      operation == 0,
+                  "command invalidation replaces obsolete local 202 waiting while retaining the server 429 "
+                  "floor");
+            respond(200, server);
+            if (status == 202) {
+                application_commands_invalidate_guild(55);
+                check(application_commands_tick(1), "command invalidation prepares the server-floor case");
+            }
+        }
+        ui.active_channel_id = 8;
+        check(message_composer_controller_select_channel(&ui.message_composer_controller, 8).ok(),
+              "command invalidation binds the direct-message channel");
+        edit(utf8_literal("/"));
+        check(application_commands_submit(2000) && operation == 0 && submitted_channel == 8 &&
+                  !submitted_guild,
+              "command invalidation loads the direct-message channel index separately from the user index");
+        respond(200, server);
+        edit(utf8_literal("direct-message draft"));
+        const u32 dm_calls = calls;
+        application_commands_invalidate_guild(55);
+        application_commands_invalidate_guild(66);
+        check(application_commands_tick(1) && calls == dm_calls && !application_commands_pending(2001) &&
+                  utf8_equal(message_composer_text(composer), utf8_literal("direct-message draft")),
+              "command invalidation coalesces guild hints for a bound DM catalog without fetching behind a "
+              "closed picker");
+        edit(utf8_literal("/"));
+        check(action_named(utf8_literal("/personal")) && !action_named(utf8_literal("/guild")) &&
+                  application_commands_submit(2002) && operation == 0 && submitted_channel == 8 &&
+                  !submitted_guild && calls == dm_calls + 1,
+              "command invalidation refreshes the DM channel once on demand while preserving the "
+              "independent user index");
+        respond(200, server);
+    }
+    application_commands_release();
+    popup_scene_close(&g_app.popup_scene);
+    set_popup_owner(PopupOwnerKind::none);
+    ui.chat_state = saved_state;
+    ui.active_channel_id = saved_active_channel;
+    message_composer_controller_select_channel(&ui.message_composer_controller, saved_composer_channel);
     edit({});
 }
 void composer_slowmode_cases() noexcept {
@@ -331,6 +543,7 @@ void run() noexcept {
     if (ready) {
         composer.focused = true;
         command_retry_cases();
+        command_index_invalidation_cases();
         edit(utf8_literal("/"));
         check(application_commands_submit(1) && operation == 0, "load server command index");
         respond(200, utf8_literal(R"({"applications":[{"id":"10","name":"Test","bot":{"id":"11"}},{"id":"20","name":"Other","bot":{"id":"21"}}],"application_commands":[{"id":"100","application_id":"10","version":"7","name":"wordle","description":"Play wordle","type":1},{"id":"101","application_id":"10","version":"7","name":"echo","description":"Echo","type":1,"options":[{"name":"text","type":3,"required":true}]},{"id":"102","application_id":"10","version":"7","name":"pick","description":"Pick","type":1,"options":[{"name":"mode","type":4,"required":true,"choices":[{"name":"One","value":1},{"name":"Two","value":2}]}]},{"id":"103","application_id":"10","version":"7","name":"admin","description":"Admin","type":1,"options":[{"name":"group","type":2,"options":[{"name":"run","description":"Run","type":1,"options":[{"name":"count","type":4,"required":true}]}]}]},{"id":"104","application_id":"10","version":"7","name":"bump","description":"First bump","type":1},{"id":"105","application_id":"20","version":"7","name":"bump","description":"Second bump","type":1},{"id":"106","application_id":"10","version":"7","name":"search","description":"Search","type":1,"options":[{"name":"query","type":3,"required":true,"autocomplete":true},{"name":"count","type":4}]}]})"));
