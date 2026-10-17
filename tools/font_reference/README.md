@@ -656,8 +656,8 @@ python tools/font_reference/tt_position_oracle.py --root <output> --source <firs
   `--geometry-dump`); `MaiCordTtOutlineTests` checks them with native preparation
   and decoding.
 - `tt_position_oracle.py` generates the positioning and vector corpus from the
-  first-party empty instruction font; `MaiCordTtPositionTests` runs it through the
-  same native geometry adapter.
+  first-party empty instruction font; `MaiCordTtOutlineTests position` runs it
+  through the same native geometry adapter.
 - `--instructions-state=<glyph-id>` adds native current and original fixed-point
   coordinates and touch bits next to the Windows commands.
 

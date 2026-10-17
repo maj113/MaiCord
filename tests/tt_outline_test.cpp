@@ -3,20 +3,51 @@
 #include "maicord/core/byte_order.hpp"
 #include <Windows.h>
 namespace maicord {namespace {
-#if defined(MAICORD_TT_BOLD_OBLIQUE_TESTS)
+namespace bold_oblique_fixture {
 #include "generated/tt_bold_oblique_fixture.inc"
-#elif defined(MAICORD_TT_BOLD_TESTS)
+}
+namespace bold_fixture {
 #include "generated/tt_bold_fixture.inc"
-#elif defined(MAICORD_TT_OBLIQUE_TESTS)
+}
+namespace oblique_fixture {
 #include "generated/tt_oblique_fixture.inc"
-#elif defined(MAICORD_TT_POSITION_TESTS)
+}
+namespace position_fixture {
 #include "generated/tt_position_fixture.inc"
-#else
+}
+namespace normal_fixture {
 #include "generated/tt_outline_fixture.inc"
 #include "generated/tt_recovery_fixture.inc"
+}
 static_assert(sizeof(SfntOutlineScratch)==64);
 static_assert(sizeof(TtOutlineInstance)==248,"Preparation recovery must fit the existing instance footprint.");
-#endif
+enum class OutlineMode : u8 { normal,bold,bold_oblique,oblique,position };
+bool simulate_oblique=false,simulate_bold=false;
+template<usize Count> bool mode_name(const wchar_t* value,u32 count,const wchar_t (&name)[Count]) noexcept {
+    if(count!=Count-1)return false;
+    for(u32 i=0;i<count;++i)if(value[i]!=name[i])return false;
+    return true;
+}
+bool outline_mode(OutlineMode* mode) noexcept {
+    const wchar_t* command=GetCommandLineW();bool quoted=false;
+    while(*command){if(*command=='"')quoted=!quoted;else if(!quoted&&(*command==' '||*command=='\t'))break;++command;}
+    if(quoted)return false;
+    while(*command==' '||*command=='\t')++command;
+    *mode=OutlineMode::normal;if(!*command)return true;
+    quoted=*command=='"';if(quoted)++command;const wchar_t* begin=command;
+    while(*command&&!(quoted?*command=='"':(*command==' '||*command=='\t')))++command;
+    const u32 count=static_cast<u32>(command-begin);
+    if(quoted){if(*command!='"')return false;++command;}
+    while(*command==' '||*command=='\t')++command;
+    if(*command)return false;
+    if(mode_name(begin,count,L"normal"))*mode=OutlineMode::normal;
+    else if(mode_name(begin,count,L"bold"))*mode=OutlineMode::bold;
+    else if(mode_name(begin,count,L"bold-oblique"))*mode=OutlineMode::bold_oblique;
+    else if(mode_name(begin,count,L"oblique"))*mode=OutlineMode::oblique;
+    else if(mode_name(begin,count,L"position"))*mode=OutlineMode::position;
+    else return false;
+    return true;
+}
 void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
 void number(u64 v) noexcept {char s[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n/2;++i){const char c=s[i];s[i]=s[n-i-1];s[n-i-1]=c;}print({s,n});}
 bool fail(u32 item,u32 code) noexcept {print(utf8_literal("FAIL font="));number(item);print(utf8_literal(" code="));number(code);print(utf8_literal("\n"));return false;}
@@ -29,17 +60,7 @@ u8 changed_font[4096];bool rejected_program_checked=false;
 TtInterpreter preparation() noexcept {TtInterpreter s{};s.stack={stack,256};s.storage={prep_storage,128};s.cvt={prep_cvt,128};s.functions={functions,128};s.frames={frames,32};s.twilight={prep_twilight,64};return s;}
 TtOutlineContext context(const TtOutlineInstance* instance) noexcept {TtOutlineContext c{};c.instance=instance;c.scratch.stack={stack,256};c.scratch.storage={storage,128};c.scratch.cvt={cvt,128};c.scratch.frames={frames,32};c.scratch.twilight={twilight,64};c.scratch.glyph={vm_points,512};c.contour_ends={vm_ends,128};return c;}
 SfntStatus decode_outline(const FontGeometryInstance& instance,u16 glyph,FontGeometryScratch* scratch,GlyphOutline* output,u32 work=1000000) noexcept {
-#if defined(MAICORD_TT_OBLIQUE_TESTS) || defined(MAICORD_TT_BOLD_OBLIQUE_TESTS)
-    constexpr bool oblique=true;
-#else
-    constexpr bool oblique=false;
-#endif
-#if defined(MAICORD_TT_BOLD_TESTS) || defined(MAICORD_TT_BOLD_OBLIQUE_TESTS)
-    constexpr bool bold=true;
-#else
-    constexpr bool bold=false;
-#endif
-    return font_geometry_outline(instance,glyph,scratch,output,work,nullptr,oblique,bold);
+    return font_geometry_outline(instance,glyph,scratch,output,work,nullptr,simulate_oblique,simulate_bold);
 }
 bool equal(const GlyphOutline& actual,const Expected& expected) noexcept {const float bounds[]{actual.minimum_x,actual.minimum_y,actual.maximum_x,actual.maximum_y};return actual.count==expected.count && static_cast<u32>(actual.fill_rule)==expected.fill && actual.has_bounds==(expected.has_bounds!=0) && bytes_equal(bounds,expected.bounds,16) && bytes_equal(commands,expected.commands.data,expected.commands.count);}
 bool vertical_policy(SfntFace face,const Expected (&expected)[4],bool reject) noexcept {
@@ -113,10 +134,20 @@ bool corpus(ConstSlice<u8> fixture) noexcept {
         ++fonts;
     }return r.at==r.bytes.count;
 }
-int run() noexcept {bool ok=corpus({tt_outline_fixture,sizeof(tt_outline_fixture)});
-#if !defined(MAICORD_TT_POSITION_TESTS) && !defined(MAICORD_TT_OBLIQUE_TESTS) && !defined(MAICORD_TT_BOLD_TESTS) && !defined(MAICORD_TT_BOLD_OBLIQUE_TESTS)
-    if(ok)ok=corpus({tt_recovery_fixture,sizeof(tt_recovery_fixture)});
-#endif
+int run() noexcept {
+    OutlineMode mode{};if(!outline_mode(&mode)){print(utf8_literal("FAIL outline mode\n"));return 2;}
+    ConstSlice<u8> fixture{normal_fixture::tt_outline_fixture,sizeof(normal_fixture::tt_outline_fixture)};
+    switch(mode){
+    case OutlineMode::normal:break;
+    case OutlineMode::bold:fixture={bold_fixture::tt_outline_fixture,sizeof(bold_fixture::tt_outline_fixture)};break;
+    case OutlineMode::bold_oblique:fixture={bold_oblique_fixture::tt_outline_fixture,sizeof(bold_oblique_fixture::tt_outline_fixture)};break;
+    case OutlineMode::oblique:fixture={oblique_fixture::tt_outline_fixture,sizeof(oblique_fixture::tt_outline_fixture)};break;
+    case OutlineMode::position:fixture={position_fixture::tt_outline_fixture,sizeof(position_fixture::tt_outline_fixture)};break;
+    }
+    simulate_oblique=mode==OutlineMode::oblique||mode==OutlineMode::bold_oblique;
+    simulate_bold=mode==OutlineMode::bold||mode==OutlineMode::bold_oblique;
+    bool ok=corpus(fixture);
+    if(ok&&mode==OutlineMode::normal)ok=corpus({normal_fixture::tt_recovery_fixture,sizeof(normal_fixture::tt_recovery_fixture)});
     print(utf8_literal("fonts="));number(fonts);print(utf8_literal("\noutlines="));number(outlines);print(utf8_literal("\ncommands="));number(command_checks);print(utf8_literal("\nbounds="));number(bound_checks);print(utf8_literal("\nbudgets="));number(budgets);print(utf8_literal("\ninvalid="));number(invalid);print(utf8_literal("\nvertical="));number(vertical_checks);print(ok?utf8_literal("\nPASS native instructed outlines\n"):utf8_literal("\nFAIL native instructed outlines\n"));return ok?0:1;}
 }}
 extern "C" __declspec(noreturn) void WINAPI maicord_tt_outline_entry() noexcept {ExitProcess(static_cast<UINT>(maicord::run()));}

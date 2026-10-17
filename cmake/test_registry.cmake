@@ -1869,30 +1869,15 @@ maicord_test(MaiCordTtOrientationTests ENTRY maicord_tt_orientation_entry
     SOURCES tests/tt_orientation_test.cpp
     LIBS maicord_core maicord_font kernel32
     TEST maicord_native_tt_orientation)
-foreach(simulation BOLD BOLD_OBLIQUE)
-    add_executable(MaiCordTt${simulation}Tests tests/tt_outline_test.cpp $<TARGET_OBJECTS:maicord_runtime>)
-    target_compile_definitions(MaiCordTt${simulation}Tests PRIVATE MAICORD_TT_${simulation}_TESTS=1)
-    target_link_libraries(MaiCordTt${simulation}Tests PRIVATE maicord_compile_contract maicord_core maicord_font kernel32)
-    set_target_properties(MaiCordTt${simulation}Tests PROPERTIES CXX_EXTENSIONS OFF)
-    target_link_options(MaiCordTt${simulation}Tests PRIVATE /ENTRY:maicord_tt_outline_entry /SUBSYSTEM:CONSOLE,6.02)
-    string(TOLOWER "${simulation}" simulation_lower)
-    add_test(NAME maicord_native_tt_${simulation_lower} COMMAND MaiCordTt${simulation}Tests)
-endforeach()
 maicord_add_tests(MaiCordTtInterpreterTests TEST maicord_native_tt_interpreter)
 maicord_test(MaiCordTtOutlineTests ENTRY maicord_tt_outline_entry
     SOURCES tests/tt_outline_test.cpp
     LIBS maicord_core maicord_font kernel32
-    TEST maicord_native_tt_outlines)
-maicord_test(MaiCordTtObliqueTests ENTRY maicord_tt_outline_entry
-    SOURCES tests/tt_outline_test.cpp
-    LIBS maicord_core maicord_font kernel32
-    DEFINES MAICORD_TT_OBLIQUE_TESTS=1
-    TEST maicord_native_tt_oblique)
-maicord_test(MaiCordTtPositionTests ENTRY maicord_tt_outline_entry
-    SOURCES tests/tt_outline_test.cpp
-    LIBS maicord_core maicord_font kernel32
-    DEFINES MAICORD_TT_POSITION_TESTS=1
-    TEST maicord_native_tt_positioning)
+    TEST maicord_native_tt_bold bold
+    TEST maicord_native_tt_bold_oblique bold-oblique
+    TEST maicord_native_tt_outlines normal
+    TEST maicord_native_tt_oblique oblique
+    TEST maicord_native_tt_positioning position)
 maicord_test(MaiCordFontInstanceTests ENTRY maicord_font_store_entry
     SOURCES tests/font_store_test.cpp
     LIBS maicord_core maicord_font kernel32
