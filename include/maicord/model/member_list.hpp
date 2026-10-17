@@ -3,6 +3,7 @@
 #include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/user_store.hpp"
 #include "maicord/model/thread_member_store.hpp"
+#include "maicord/model/relationship_store.hpp"
 
 namespace maicord {
 
@@ -103,9 +104,17 @@ const MemberListRow* member_list_view_row(
 Utf8View member_list_row_label(
     const MemberListRow& row, const GuildMemberStore& members,
     const UserStore& users, const ChatStateStore& state) noexcept;
+// Sources for a private conversation's member presence: the overall status,
+// which no server scopes. Relationships may be absent (not yet loaded).
+struct MemberListPrivatePresence {
+    const RelationshipStore* relationships;
+    GuildMemberStatus self_status;
+};
+// Rows show the caller's own status, then a relationship's presence, then the
+// platforms of the user's latest presence from any scope (none online reads offline).
 MemberListViewResult member_list_view_private(
     MemberListView* projection, const UserStore& users,
-    const ChatStateStore& state, u64 channel_id) noexcept;
+    const ChatStateStore& state, u64 channel_id, const MemberListPrivatePresence& presence) noexcept;
 MemberListViewResult member_list_view_thread(
     MemberListView* projection, const ThreadMemberStore& threads,
     const GuildMemberStore& members, const UserStore& users,

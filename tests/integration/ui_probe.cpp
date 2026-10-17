@@ -12121,7 +12121,9 @@ int run_probe() noexcept {
             static UiLayoutNode group_nodes[40]{};
             GuildMemberStore no_guild_members{};
             g_probe.navigation.private_rows = &private_rows;
-            bool listed = member_list_view_private(&group_members, g_probe.users, g_probe.chat_state, 9997).ok() &&
+            bool listed = member_list_view_private(&group_members, g_probe.users, g_probe.chat_state, 9997,
+                                                   {private_rows.relationships, GuildMemberStatus::online})
+                              .ok() &&
                           group_members.member_count >= 3 &&
                           member_list_scene_initialize(&group_scene, {group_row_widgets, 8}, {group_widgets, 40},
                                                        {group_nodes, 40}) &&

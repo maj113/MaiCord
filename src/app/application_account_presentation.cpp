@@ -34,6 +34,7 @@
 #include "application_private_channel.hpp"
 #include "application_user_settings.hpp"
 #include "application_message_intro.hpp"
+#include "application_self_status.hpp"
 
 #include "application_state.hpp"
 
@@ -87,6 +88,15 @@ void log_member_presentation() noexcept {
     trace.field("visible_members", visible_members);
     trace.field("visible_named_profiles", visible_named);
     trace.write("member_hydration");
+}
+// The caller's own status for private member rows; unknown until the session
+// reports it for this account.
+GuildMemberStatus self_member_status(const AccountUiRuntime& ui) noexcept {
+    const auto status = application_self_status_snapshot();
+    return status.authoritative && status.profile_id == g_app.account.status.profile_id &&
+                   status.self_user_id == ui.chat_state.self_user_id && status.status <= GatewayUserStatus::invisible
+               ? static_cast<GuildMemberStatus>(static_cast<u8>(status.status) + 1)
+               : GuildMemberStatus::unknown;
 }
 } // namespace
 
@@ -181,8 +191,8 @@ bool synchronize_shell_widget_scenes() noexcept {
                                                         ui.guild_member_store, ui.user_store,
                                                         ui.chat_state, selected->guild_id, selected->id)
             : selected && selected->type == 3
-                ? member_list_view_private(&ui.member_list, ui.user_store,
-                                                         ui.chat_state, selected->id)
+                ? member_list_view_private(&ui.member_list, ui.user_store, ui.chat_state, selected->id,
+                                           {application_friends_relationships(), self_member_status(ui)})
                 : member_list_view_rebuild(&ui.member_list, ui.guild_member_store,
                                                          ui.user_store, ui.chat_state,
                                                          ordinary_thread ? 0 : guild_id, list_id);

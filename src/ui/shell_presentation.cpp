@@ -1079,10 +1079,11 @@ bool shell_presentation_build_member_status_overlay(const MemberListScene* membe
         const GuildMemberRecord* member = member_scene->members && row.record_slot < member_scene->members->capacity
                                               ? &member_scene->members->records[row.record_slot]
                                               : nullptr;
-        const auto presence = static_cast<UiPresence>(member ? member->status : GuildMemberStatus::unknown);
+        // Rows without a server record (private conversations) carry their resolved status.
+        const auto presence = static_cast<UiPresence>(member ? member->status : row.source_row.status);
         const bool mobile =
-            member && member_scene->users &&
-            ui_presence_mobile(presence, user_store_client_status(*member_scene->users, member->user_id));
+            member_scene->users &&
+            ui_presence_mobile(presence, user_store_client_status(*member_scene->users, row.user_id));
         // The phone stands 1.5 dots tall above the same bottom-right corner.
         const float rise = mobile ? ui_rect_height(status->rectangle) * .5f : 0.0f;
         const UiRect badge{status->rectangle.left - 2.0f, status->rectangle.top - 2.0f - rise,

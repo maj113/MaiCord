@@ -102,14 +102,47 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
     MemberListView dm_members{};
     dm_members.rows = {dm_rows, 8};
     GuildMemberStore no_guild_members{};
-    const auto dm_projected = member_list_view_private(&dm_members, users, store, 11);
+    RelationshipRecord relationship_records[4]{};
+    RelationshipStore relationships{};
+    check(relationship_store_initialize(&relationships, {relationship_records, 4}), "relationship storage initialize");
+    const MemberListPrivatePresence no_presence{nullptr, GuildMemberStatus::unknown};
+    const auto dm_projected = member_list_view_private(&dm_members, users, store, 11, no_presence);
     check(dm_projected.ok() && dm_members.member_count == 3 && dm_members.count == 4 &&
         dm_rows[1].user_id == 2 && dm_rows[2].user_id == 3 && dm_rows[3].user_id == 1 &&
         utf8_equal(member_list_row_label(dm_rows[1], no_guild_members, users, store), utf8_literal("peer")) &&
-        !member_list_view_private(&dm_members, users, store, 11).changed,
+        !member_list_view_private(&dm_members, users, store, 11, no_presence).changed,
         "group DM member projection contains recipients and self without guild records and retains unchanged view");
-    check(member_list_view_private(&dm_members, users, store, 999).ok() && dm_members.count == 0 &&
-        member_list_view_private(&dm_members, users, store, 11).ok() && dm_members.member_count == 3,
+    check(dm_rows[1].status == GuildMemberStatus::offline && dm_rows[2].status == GuildMemberStatus::offline &&
+              dm_rows[3].status == GuildMemberStatus::unknown,
+          "group DM members without any presence read offline; self waits for its session status");
+    // Presence sources advance no shared revision: each call re-resolves the
+    // rows, so the projection changes without a user or channel revision.
+    RelationshipRecord peer_relation{};
+    peer_relation.user_id = 2;
+    peer_relation.type = RelationshipType::friend_;
+    peer_relation.presence = RelationshipPresence::dnd;
+    check(relationship_store_upsert(&relationships, peer_relation).ok() &&
+              user_store_set_client_status(&users, 3,
+                                           client_status_with(client_status_with(0, ClientPlatform::desktop,
+                                                                                 ClientPlatformStatus::idle),
+                                                              ClientPlatform::mobile, ClientPlatformStatus::online)),
+          "group DM presence fixtures apply");
+    const u32 presence_users_revision = users.revision;
+    const MemberListPrivatePresence presence{&relationships, GuildMemberStatus::idle};
+    check(member_list_view_private(&dm_members, users, store, 11, presence).changed &&
+              users.revision == presence_users_revision && dm_rows[1].status == GuildMemberStatus::dnd &&
+              dm_rows[2].status == GuildMemberStatus::online && dm_rows[3].status == GuildMemberStatus::idle &&
+              !member_list_view_private(&dm_members, users, store, 11, presence).changed,
+          "group DM members show a relationship's presence, any online platform and the caller's own status");
+    check(relationship_store_presence(&relationships, 2, RelationshipPresence::unknown).changed &&
+              user_store_set_client_status(&users, 2, client_status_with(0, ClientPlatform::web,
+                                                                         ClientPlatformStatus::idle)) &&
+              user_store_set_client_status(&users, 3, 0) &&
+              member_list_view_private(&dm_members, users, store, 11, presence).changed &&
+              dm_rows[1].status == GuildMemberStatus::idle && dm_rows[2].status == GuildMemberStatus::offline,
+          "group DM members fall back to their latest platforms when a relationship has no presence");
+    check(member_list_view_private(&dm_members, users, store, 999, no_presence).ok() && dm_members.count == 0 &&
+        member_list_view_private(&dm_members, users, store, 11, no_presence).ok() && dm_members.member_count == 3,
         "group DM projection clears removed channels and rebuilds when changing conversations");
     // The owner's crown follows the name, and stays inside the line for a long name.
     const UiRect name_line{100, 10, 260, 30};

@@ -114,13 +114,18 @@ bool presence_visible(void*, u64 guild_id, u64 user_id) noexcept {
     if (user_id == ui->chat_state.self_user_id ||
         (g_app.renderer.profile_scene && g_app.renderer.profile_scene->active))
         return true;
-    if (guild_id != ui->chat_state.selected_guild_id)
+    // Private conversation rows show the overall status, which any server's
+    // presence updates; message authors stay scoped to the selected server.
+    const bool any_scope = !ui->chat_state.selected_guild_id;
+    if (guild_id != ui->chat_state.selected_guild_id && !any_scope)
         return false;
     const MemberListScene& members = g_app.member_list_scene;
     if (members.active)
         for (u32 index = 0; index < members.count && index < members.rows.count; ++index)
             if (members.rows[index].user_id == user_id)
                 return true;
+    if (guild_id != ui->chat_state.selected_guild_id)
+        return false;
     const MessageScene& messages = g_app.message_scene;
     if (messages.active && messages.timeline && messages.timeline->store)
         for (u32 index = 0; index < messages.count && index < messages.rows.count; ++index) {

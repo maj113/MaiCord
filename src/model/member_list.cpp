@@ -2,6 +2,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/model/role_policy.hpp"
+#include "maicord/protocol/client_status.hpp"
 
 namespace maicord {
 namespace {
@@ -218,16 +219,51 @@ MemberListViewResult member_list_view_rebuild(
                                              member_count, true};
 }
 
+namespace {
+// The status the user's latest presence from any scope implies: one online
+// platform makes the user online (another may only be away); none reads offline.
+GuildMemberStatus platform_status(u8 packed) noexcept {
+    bool idle = false, dnd = false;
+    for (u32 platform = 0; platform < kClientPlatformCount; ++platform) {
+        const auto status = client_status_get(packed, static_cast<ClientPlatform>(platform));
+        if (status == ClientPlatformStatus::online) return GuildMemberStatus::online;
+        dnd |= status == ClientPlatformStatus::dnd;
+        idle |= status == ClientPlatformStatus::idle;
+    }
+    return dnd ? GuildMemberStatus::dnd : idle ? GuildMemberStatus::idle : GuildMemberStatus::offline;
+}
+// The caller's own status, then a relationship's presence, then the platforms
+// of the user's latest presence from any scope.
+GuildMemberStatus private_status(const MemberListPrivatePresence& presence, const UserStore& users,
+                                 const ChatStateStore& state, u64 user_id) noexcept {
+    if (user_id == state.self_user_id) return presence.self_status;
+    if (const auto* relation = presence.relationships ? relationship_store_find(*presence.relationships, user_id) : nullptr)
+        switch (relation->presence) {
+        case RelationshipPresence::online: return GuildMemberStatus::online;
+        case RelationshipPresence::idle: return GuildMemberStatus::idle;
+        case RelationshipPresence::dnd: return GuildMemberStatus::dnd;
+        case RelationshipPresence::offline: return GuildMemberStatus::offline;
+        default: break;
+        }
+    return platform_status(user_store_client_status(users, user_id));
+}
+} // namespace
+
 MemberListViewResult member_list_view_private(
     MemberListView* projection, const UserStore& users,
-    const ChatStateStore& state, u64 channel_id) noexcept {
+    const ChatStateStore& state, u64 channel_id, const MemberListPrivatePresence& presence) noexcept {
     if (!projection || !projection->rows.data || !state.private_channels)
         return fail(projection, MemberListViewError::invalid_input);
     const auto& store = *state.private_channels;
     const auto* channel = private_channel_store_find(store, channel_id);
     if (!projection->thread_mode && projection->guild_id == 0 && projection->list_id == channel_id &&
-        projection->source_member_revision == store.revision && projection->source_user_revision == users.revision)
-        return {MemberListViewError::none, projection->count, projection->member_count, false};
+        projection->source_member_revision == store.revision && projection->source_user_revision == users.revision) {
+        // Presence sources carry no shared revision; a small group re-resolves.
+        bool current = true;
+        for (u32 i = 1; i < projection->count && current; ++i)
+            current = projection->rows[i].status == private_status(presence, users, state, projection->rows[i].user_id);
+        if (current) return {MemberListViewError::none, projection->count, projection->member_count, false};
+    }
     projection->thread_mode = false; projection->source_threads = nullptr; projection->incomplete = false;
     const auto recipients = channel ? private_channel_store_recipients(store, *channel) : ConstSlice<u64>{};
     bool includes_self = false;
@@ -235,9 +271,11 @@ MemberListViewResult member_list_view_private(
     const u32 count = recipients.count + (channel && !includes_self && state.self_user_id ? 1u : 0u);
     if (count + 1 > projection->rows.count) return fail(projection, MemberListViewError::capacity);
     projection->rows[0] = {0, kMemberListPrivateGroup, ~0u, 0, 0, GuildMemberStatus::unknown, MemberListRowKind::group};
-    for (u32 i = 0; i < count; ++i) projection->rows[i + 1] = {
-        i < recipients.count ? recipients[i] : state.self_user_id, channel_id, ~0u, 0, 0,
-        GuildMemberStatus::unknown, MemberListRowKind::member};
+    for (u32 i = 0; i < count; ++i) {
+        const u64 user_id = i < recipients.count ? recipients[i] : state.self_user_id;
+        projection->rows[i + 1] = {user_id, channel_id, ~0u, 0, 0, private_status(presence, users, state, user_id),
+                                   MemberListRowKind::member};
+    }
     projection->guild_id = 0; projection->list_id = channel_id;
     projection->count = count ? count + 1 : 0; projection->member_count = count;
     projection->resident_count = projection->count; projection->authoritative = false; projection->awaiting_sync = false; projection->source_members = nullptr;
