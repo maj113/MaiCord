@@ -5,6 +5,8 @@
 #include "maicord/ui/profile_appearance.hpp"
 #include "maicord/ui/role_color.hpp"
 #include "maicord/ui/plugin_slots.hpp"
+#include "maicord/model/guild_member_store.hpp"
+#include "maicord/model/user_store.hpp"
 
 namespace maicord {
 struct MessageAuthorLayout {

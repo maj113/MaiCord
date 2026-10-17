@@ -1,9 +1,15 @@
 #include "maicord/ui/badge.hpp"
 #include "maicord/ui/profile_media.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/ui/profile_appearance.hpp"
+#include "maicord/model/user_store.hpp"
+#include "maicord/model/chat_state.hpp"
+#include "maicord/model/guild_member_store.hpp"
+#include "maicord/model/member_list.hpp"
+#include "maicord/ui/member_list_scene.hpp"
 
 #include <Windows.h>
 namespace maicord {

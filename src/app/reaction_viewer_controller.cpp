@@ -1,4 +1,5 @@
 #include "maicord/app/reaction_viewer_controller.hpp"
+#include "maicord/app/rest_client.hpp"
 #include "maicord/core/deadline.hpp"
 
 #include <Windows.h>

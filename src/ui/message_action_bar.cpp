@@ -1,5 +1,9 @@
 #include "maicord/ui/message_action_bar.hpp"
 #include "maicord/ui/plugin_slots.hpp"
+#include "maicord/model/message_store.hpp"
+#include "maicord/model/reaction_preferences.hpp"
+#include "maicord/ui/message_scene.hpp"
+#include "maicord/ui/message_text_presentation.hpp"
 
 namespace maicord {
 namespace {

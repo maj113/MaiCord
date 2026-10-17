@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/ui/icon.hpp"
 
 namespace maicord {

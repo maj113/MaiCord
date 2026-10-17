@@ -6,8 +6,10 @@
 #include "maicord/ui/spinner.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/text_style.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/stage_policy.hpp"
 
 namespace maicord {
 namespace {

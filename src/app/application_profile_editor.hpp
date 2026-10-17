@@ -1,11 +1,14 @@
 #pragma once
-#include "maicord/app/rest_client.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/model/profile_editor.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "maicord/ui/profile_dialog_scene.hpp"
 #include "maicord/ui/profile_scene.hpp"
+
+namespace maicord {
+struct RestClientResponse;
+}
 
 namespace maicord::app_detail {
 // User Settings > Profiles: the official client's profile editor ("Main Profile" and

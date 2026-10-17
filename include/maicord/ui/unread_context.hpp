@@ -1,9 +1,12 @@
 #pragma once
-#include "maicord/ui/message_scene.hpp"
-#include "maicord/ui/navigation_context.hpp"
 #include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
+struct ChatStateStore;
+struct MessageScene;
+struct MessageStore;
+struct NavigationView;
+struct ShellNavigationScene;
 enum class UnreadContextKind : u8 { none, message, channel };
 struct UnreadContextSource {
     u64 account_serial, profile_key, self_user_id;

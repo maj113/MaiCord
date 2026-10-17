@@ -1,6 +1,7 @@
 #include "maicord/app/visible_author_hydration.hpp"
 #include "maicord/app/gateway_member_request_owner.hpp"
 #include "maicord/app/message_event_pump.hpp"
+#include "maicord/app/gateway_client.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

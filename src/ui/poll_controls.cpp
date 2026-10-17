@@ -1,5 +1,6 @@
 #include "maicord/ui/poll_controls.hpp"
 #include "maicord/ui/foreground_color.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
 

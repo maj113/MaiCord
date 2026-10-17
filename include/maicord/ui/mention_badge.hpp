@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/ui/text_presentation.hpp"
+#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
 inline constexpr u32 kUiMentionBadgeMaximumTextBytes = 3;

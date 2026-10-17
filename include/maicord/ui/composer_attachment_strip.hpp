@@ -2,12 +2,12 @@
 
 #include "maicord/media/asset.hpp"
 #include "maicord/ui/geometry.hpp"
-#include "maicord/ui/icon.hpp"
 #include "maicord/ui/paint.hpp"
-#include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/theme.hpp"
 
 namespace maicord {
+struct UiTextOutput;
+enum class UiIcon : u8;
 
 // Composer upload area: a horizontally scrolling row of fixed 200 x 200 tiles
 // inside the input surface, each with its media (contain-fit thumbnail or

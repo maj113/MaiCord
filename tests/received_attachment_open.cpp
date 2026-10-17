@@ -1,4 +1,5 @@
 #include "maicord/app/received_attachment_open.hpp"
+#include "maicord/app/rest_client.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "test_output.hpp"

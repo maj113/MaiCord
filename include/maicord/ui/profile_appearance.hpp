@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/model/user_profile.hpp"
 #include "maicord/ui/text_presentation.hpp"
+#include "maicord/ui/text_style.hpp"
 namespace maicord {
 inline UiTextFace profile_name_face(u16 id) noexcept {
     switch (id) {

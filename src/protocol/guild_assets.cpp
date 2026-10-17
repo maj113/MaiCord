@@ -6,6 +6,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "maicord/protocol/rest.hpp"
 #include "json_write.hpp"
 
 #include <Windows.h>

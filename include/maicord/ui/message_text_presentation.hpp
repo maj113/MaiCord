@@ -1,17 +1,17 @@
 #pragma once
 
 #include "maicord/model/chat_state.hpp"
-#include "maicord/model/guild_member_store.hpp"
-#include "maicord/model/user_store.hpp"
 #include "maicord/ui/message_markdown.hpp"
-#include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/message_scene.hpp"
 #include "maicord/ui/text_flow_layout.hpp"
-#include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/theme.hpp"
 
 namespace maicord {
+struct GuildMemberStore;
+struct NavigationView;
+struct UiTextMeasureCache;
+struct UserStore;
 
 inline constexpr u32 kMaximumMessageTextCommands = 1'024;
 inline constexpr u32 kMaximumMessageTextUtf8Bytes = 32 * 1'024;

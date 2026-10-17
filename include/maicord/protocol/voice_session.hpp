@@ -4,6 +4,7 @@
 #include "maicord/protocol/voice_heartbeat.hpp"
 #include "maicord/protocol/websocket_handshake.hpp"
 #include "maicord/protocol/websocket_message.hpp"
+#include "maicord/protocol/gateway_events.hpp"
 
 namespace maicord {
 enum class VoiceSessionEventKind : u8 {

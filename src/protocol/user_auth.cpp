@@ -4,6 +4,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/protocol/rest.hpp"
 
 #include "json_write.hpp"
 

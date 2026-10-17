@@ -1,4 +1,5 @@
 #include "maicord/app/message_event_pump.hpp"
+#include "maicord/app/gateway_client.hpp"
 #include "maicord/app/presence_coalescer.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"

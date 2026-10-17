@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/model/chat_state.hpp"
-#include "maicord/protocol/guild_admin.hpp"
 
 namespace maicord {
+struct GuildAdminPosition;
 
 // Channel list drag-and-drop. Text-like (text, announcement, forum, media),
 // voice-like (voice, stage) and category channels are independent sort groups.

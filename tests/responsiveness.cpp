@@ -3,6 +3,7 @@
 #include "maicord/app/wake_coalescing.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/member_list.hpp"
+#include "maicord/protocol/client_status.hpp"
 #include "maicord/model/user_profile.hpp"
 #include "../src/app/gateway_relationship_dispatch.hpp"
 

@@ -1,21 +1,21 @@
 #include "maicord/model/user_activity.hpp"
 #include "maicord/model/image_crop.hpp"
 #include "maicord/media/asset.hpp"
-#include "maicord/ui/scroll_host.hpp"
 #include "maicord/ui/message_markdown.hpp"
 #pragma once
 #include "maicord/ui/surface_geometry.hpp"
 #include "maicord/ui/edit_field.hpp"
 #include "maicord/ui/badge.hpp"
 #include "maicord/model/user_profile.hpp"
-#include "maicord/model/user_store.hpp"
-#include "maicord/model/chat_state.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/button_keyboard.hpp"
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
-#include "maicord/ui/presence.hpp"
 namespace maicord {
+struct ChatStateStore;
+struct UiScrollBinding;
+struct UserStore;
+enum class UiPresence : u8;
 // User profile surfaces: the click popout (compact card), the full profile
 // modal (profile card and tab panel) and the profile editor's preview.
 // Geometry is in DIPs.

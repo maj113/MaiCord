@@ -1,9 +1,10 @@
 #pragma once
 
 #include "maicord/ui/message_context_menu.hpp"
-#include "maicord/ui/message_scene.hpp"
 
 namespace maicord {
+struct MessageScene;
+struct MessageSceneHit;
 
 inline constexpr u32 kMessageActionBarQuickReactionCount = 3;
 // Collapsed bar: three quick reactions, Add reaction, Reply or Edit, More,

@@ -1,5 +1,6 @@
 #include "maicord/ui/channel_context_policy.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
 bool channel_context_target_valid(const ChatStateStore& state, u64 channel_id) noexcept {

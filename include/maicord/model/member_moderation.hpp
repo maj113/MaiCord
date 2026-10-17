@@ -1,9 +1,9 @@
 #pragma once
 
-#include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/permission_compute.hpp"
 
 namespace maicord {
+struct GuildMemberStore;
 
 enum ModerationAction : u8 {
     moderation_action_nickname = 1u << 0,

@@ -2,6 +2,7 @@
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/search_scene.hpp"
 #include "maicord/ui/background_surface.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/icon.hpp"

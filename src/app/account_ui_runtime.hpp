@@ -19,6 +19,8 @@
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/ui/profile_media.hpp"
+#include "maicord/model/private_channel_store.hpp"
+#include "maicord/model/reaction_preferences.hpp"
 
 namespace maicord::app_detail {
 

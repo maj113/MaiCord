@@ -1,6 +1,7 @@
 #include "maicord/ui/edit_field.hpp"
 #include "maicord/ui/shell_presentation.hpp"
 #include "maicord/ui/background_surface.hpp"
+#include "maicord/ui/text_presentation.hpp"
 namespace maicord {
 bool ui_edit_field_paint(PaintStream* paint, UiRect field, UiRect content, const UiEditView& view,
                          const UiEditGeometry* geometry, Color background, const Theme& theme, u32 dpi,
@@ -42,7 +43,4 @@ bool ui_edit_field_text_output(UiTextOutput* text, UiWidgetReference owner, UiRe
                                       entered ? UiTextAlignment::start : UiTextAlignment::center,
                                       UiTextWrapping::no_wrap, UiTextOverflow::clip});
 }
-} // namespace maicord
-
-namespace maicord {
 } // namespace maicord

@@ -1,4 +1,5 @@
 #include "maicord/ui/member_context_policy.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
 

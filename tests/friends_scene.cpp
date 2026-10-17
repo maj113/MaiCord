@@ -1,5 +1,6 @@
 #include "maicord/ui/friends_scene.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/presence.hpp"
 namespace maicord {
 namespace {
 struct FriendsFixture {

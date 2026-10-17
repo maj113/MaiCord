@@ -1,5 +1,6 @@
 #include "maicord/protocol/relationships.hpp"
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/protocol/rest.hpp"
 #include "../src/app/gateway_relationship_dispatch.hpp"
 
 namespace maicord {

@@ -3,6 +3,8 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/message_rich_store.hpp"
+#include "maicord/protocol/guild_community.hpp"
 
 namespace maicord {
 namespace {

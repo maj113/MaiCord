@@ -1,11 +1,10 @@
 #pragma once
 
-#include "maicord/model/message_store.hpp"
-#include "maicord/model/reaction_preferences.hpp"
-#include "maicord/ui/emoji_catalog.hpp"
 #include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
+struct MessageRecord;
+struct ReactionPreferenceStore;
 
 inline constexpr u32 kMessageContextQuickReactionCount = 4;
 inline constexpr u32 kMessageContextMaximumItems = 21;

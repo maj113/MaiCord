@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/model/read_state.hpp"
+#include "maicord/model/private_channel_store.hpp"
 
 namespace maicord {
 namespace {

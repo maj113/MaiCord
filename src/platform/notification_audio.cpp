@@ -1,5 +1,6 @@
 #include "maicord/platform/notification_audio.hpp"
 #include "maicord/core/win32_process.hpp"
+#include "maicord/core/byte_range.hpp"
 #include <mmdeviceapi.h>
 #include <audioclient.h>
 #include <mmreg.h>

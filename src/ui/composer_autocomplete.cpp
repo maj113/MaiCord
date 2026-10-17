@@ -2,11 +2,16 @@
 #include "maicord/ui/emoji_catalog.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/permission_compute.hpp"
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/user_store.hpp"
+#include "maicord/model/message_composer.hpp"
+#include "maicord/model/message_store.hpp"
+#include "maicord/ui/message_text_presentation.hpp"
+#include "maicord/ui/navigation_view.hpp"
 
 namespace maicord {
 namespace {

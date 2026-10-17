@@ -1,4 +1,5 @@
 #include "maicord/app/chat_state_dispatch.hpp"
+#include "maicord/app/gateway_client.hpp"
 
 namespace maicord {
 namespace {

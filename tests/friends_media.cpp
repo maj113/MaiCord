@@ -1,6 +1,8 @@
 #include "maicord/ui/friends_media.hpp"
 #include "maicord/media/animation_timeline.hpp"
 #include "maicord/render/media_atlas.hpp"
+#include "maicord/ui/presence.hpp"
+#include "maicord/model/user_store.hpp"
 
 namespace maicord {
 namespace {

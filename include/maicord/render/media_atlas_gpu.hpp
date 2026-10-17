@@ -1,9 +1,5 @@
 #pragma once
 
-#include "maicord/media/animated_webp.hpp"
-#include "maicord/media/apng.hpp"
-#include "maicord/media/gif.hpp"
-#include "maicord/media/jpeg.hpp"
 #include "maicord/media/png.hpp"
 #include "maicord/media/vp8.hpp"
 #include "maicord/media/webp.hpp"
@@ -21,6 +17,12 @@ struct ID3D11Texture2D;
 struct ID3D11UnorderedAccessView;
 
 namespace maicord {
+struct AnimatedWebpFrame;
+struct ApngFrame;
+struct GifFrame;
+struct GifPalette;
+struct JpegCoefficientWorkspace;
+struct JpegImage;
 
 struct MediaAtlasGpu {
     VideoFrameGpu video;

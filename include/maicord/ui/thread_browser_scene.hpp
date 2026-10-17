@@ -3,6 +3,7 @@
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/forum_channel_scene.hpp"
+#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
 inline constexpr u32 kUiThreadBrowserPageCapacity = 25;

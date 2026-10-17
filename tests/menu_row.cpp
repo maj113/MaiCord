@@ -5,6 +5,7 @@
 #include "maicord/ui/message_context_menu.hpp"
 #include "maicord/ui/text_edit_menu.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/model/message_store.hpp"
 
 namespace maicord {
 namespace {

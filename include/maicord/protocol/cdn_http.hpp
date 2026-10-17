@@ -1,7 +1,6 @@
 #pragma once
 
 #include "maicord/protocol/cdn_url.hpp"
-#include "maicord/protocol/http1.hpp"
 #include "maicord/media/encoded_video_limits.hpp"
 
 namespace maicord {

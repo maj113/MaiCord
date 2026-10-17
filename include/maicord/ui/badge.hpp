@@ -1,9 +1,9 @@
 #pragma once
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/core/hash.hpp"
-#include "maicord/ui/button.hpp"
 #include "maicord/ui/text_presentation.hpp"
 namespace maicord {
+struct PaintStream;
 // All badge consumers use the same label, icon slot and padding.
 struct UiBadgeLayout {
     UiRect outer, text, icon, remove;

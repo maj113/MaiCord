@@ -2,6 +2,7 @@
 // list order, drag state machines, text-in-voice capability and the server
 // menu policy.
 #include "maicord/app/chat_state_dispatch.hpp"
+#include "maicord/app/gateway_client.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/channel_reorder.hpp"
 #include "maicord/model/guild_folder_edit.hpp"
@@ -14,6 +15,7 @@
 #include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/navigation_drag.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/ui/popup_scene.hpp"
 #include "test_output.hpp"
 
 namespace maicord::navigation_wave_test {

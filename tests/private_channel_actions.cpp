@@ -1,6 +1,9 @@
 #include "maicord/app/private_channel_actions.hpp"
 #include "maicord/app/message_event_pump.hpp"
+#include "maicord/app/gateway_client.hpp"
+#include "maicord/app/rest_client.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/private_channel_store.hpp"
 
 namespace maicord {
 void test_private_channel_actions(void (*check)(bool, const char*) noexcept) noexcept {

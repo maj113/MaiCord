@@ -13,6 +13,13 @@
 
 namespace maicord {
 
+enum class GatewayClientEventKind : u8;
+struct GatewayClientEvent;
+struct GatewayClientPopResult;
+struct GatewayMessageEvent;
+struct GatewayMessagePollVoteEvent;
+struct GatewayMessageReactionEvent;
+
 inline constexpr u32 kMessageEventPumpPayloadCapacity = 32 * 1024;
 
 enum class MessageEventPumpError : u8 {

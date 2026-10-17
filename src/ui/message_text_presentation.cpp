@@ -14,7 +14,11 @@
 #include "maicord/model/message_poll_store.hpp"
 #include "maicord/model/scheduled_event_store.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/guild_member_store.hpp"
+#include "maicord/model/user_store.hpp"
+#include "maicord/ui/navigation_view.hpp"
 
 #include <Windows.h>
 

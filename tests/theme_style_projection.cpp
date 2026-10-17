@@ -3,6 +3,13 @@
 #include "maicord/ui/message_scene.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/ui/theme_styles.hpp"
+#include "maicord/ui/audio_controls.hpp"
+#include "maicord/ui/page_registry.hpp"
+#include "maicord/ui/poll_controls.hpp"
+#include "maicord/ui/settings_scene.hpp"
+#include "maicord/ui/theme_editor.hpp"
+#include "maicord/ui/forum_post_scene.hpp"
 
 namespace maicord {
 namespace {

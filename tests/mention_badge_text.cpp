@@ -1,6 +1,8 @@
 #include "maicord/ui/mention_badge.hpp"
 #include "maicord/ui/shell_presentation.hpp"
 #include "maicord/ui/shell_text_presentation.hpp"
+#include "maicord/ui/guild_rail_scene.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
 
 namespace maicord {
 namespace mention_text_probe {

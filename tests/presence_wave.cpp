@@ -5,6 +5,7 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/app/presence_idle.hpp"
 #include "maicord/app/private_channel_actions.hpp"
+#include "maicord/app/rest_client.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user_activity.hpp"
@@ -16,6 +17,7 @@
 #include "maicord/protocol/private_conversation.hpp"
 #include "maicord/protocol/self_status_settings.hpp"
 #include "maicord/ui/unread_banner_scene.hpp"
+#include "maicord/model/private_channel_store.hpp"
 #include "test_output.hpp"
 
 namespace maicord::presence_wave_test {

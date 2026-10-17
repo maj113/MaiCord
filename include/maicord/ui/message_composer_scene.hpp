@@ -1,18 +1,17 @@
 #pragma once
 
 #include "maicord/core/arena.hpp"
-#include "maicord/model/chat_state.hpp"
 #include "maicord/model/user_store.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/ui/composer_attachment_strip.hpp"
 #include "maicord/ui/composer_voice_bar.hpp"
-#include "maicord/ui/message_typing_presentation.hpp"
 #include "maicord/ui/widget_manager.hpp"
 #include "maicord/ui/text_composition.hpp"
 #include "maicord/ui/text_style.hpp"
 #include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
+struct ChatStateStore;
 
 // Plugin composer-toolbar buttons sit before the GIF button.
 inline constexpr u32 kMessageComposerPluginSlots = 4;

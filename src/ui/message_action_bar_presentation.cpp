@@ -2,6 +2,7 @@
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/plugin_slots.hpp"
+#include "maicord/ui/message_action_bar.hpp"
 
 namespace maicord {
 namespace {

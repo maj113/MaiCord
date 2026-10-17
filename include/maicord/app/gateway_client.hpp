@@ -1,6 +1,4 @@
 #pragma once
-#include "maicord/app/voice_connection.hpp"
-#include "maicord/app/gateway_stream_control.hpp"
 #include "maicord/app/video_frame_sink.hpp"
 #include "maicord/model/user_profile.hpp"
 #include "maicord/model/upload_allowance.hpp"
@@ -10,11 +8,9 @@
 #include "maicord/app/gateway_read_state.hpp"
 
 #include "maicord/app/account_profile.hpp"
-#include "maicord/core/spsc_queue.hpp"
-#include "maicord/core/spsc_mailbox.hpp"
 #include "maicord/platform/network_worker.hpp"
-#include "maicord/platform/secure_buffer.hpp"
 #include "maicord/protocol/gateway_commands.hpp"
+#include "maicord/app/gateway_user_configuration.hpp"
 #include "maicord/protocol/gateway_endpoint.hpp"
 #include "maicord/protocol/gateway_runtime.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
@@ -22,12 +18,20 @@
 #include "maicord/protocol/gateway_typing_events.hpp"
 #include "maicord/protocol/gateway_session.hpp"
 #include "maicord/protocol/relationships.hpp"
-#include "maicord/protocol/notification_settings.hpp"
+#include "maicord/model/message_notifications.hpp"
 #include "maicord/protocol/self_status_settings.hpp"
 #include "maicord/protocol/gateway_presence.hpp"
-#include "maicord/protocol/client_status.hpp"
 
 namespace maicord {
+
+enum class VoiceSocketPhase : u8;
+enum class VoiceConnectionError : u8;
+enum class VoiceUdpPhase : u8;
+enum class VoiceUdpError : u8;
+enum class VoiceSourceKind : u8;
+enum class VoiceVideoCodec : u8;
+struct GatewayStreamKey;
+struct GatewayClientStreamSnapshot;
 
 enum class GatewayClientPhase : u8 {
     empty,
@@ -1158,18 +1162,6 @@ struct GatewayClient {
     volatile LONG64 frecency_settings_revision;
 };
 
-// Caller-owned views are copied synchronously into the normal-user worker's
-// tail allocation. They need remain valid only for gateway_client_start_user.
-// Token, capabilities, and the empty fresh-session client_state are supplied
-// by the normal-user command writer and cannot be overridden here.
-struct GatewayUserClientConfiguration {
-    GatewayUserProperties properties;
-    u64 since_ms;
-    GatewayUserStatus status;
-    bool has_since;
-    bool afk;
-};
-
 // Resume state is profile-bound and contains only the one user session.
 struct GatewayUserSessionSnapshot {
     GatewayResumeState resume;
@@ -1190,8 +1182,6 @@ GatewayClientResult gateway_client_start_user(GatewayClient* client, AccountProf
                                               const GatewayUserClientConfiguration* configuration,
                                               const GatewayEndpoint* gateway_endpoint,
                                               const GatewayUserSessionSnapshot* session) noexcept;
-bool gateway_user_client_configuration_validate(
-    const GatewayUserClientConfiguration& configuration) noexcept;
 GatewayClientResult gateway_client_wait_hello(GatewayClient* client, u32 timeout_milliseconds) noexcept;
 GatewayClientResult gateway_client_stop(GatewayClient* client, u32 timeout_milliseconds) noexcept;
 // User-only counterpart. After the worker finishes, the profile metadata

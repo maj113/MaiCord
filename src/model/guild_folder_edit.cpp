@@ -1,5 +1,6 @@
 #include "maicord/model/guild_folder_edit.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

@@ -16,6 +16,13 @@
 #include "maicord/ui/plugin_slot_surfaces.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/ui/guild_banner.hpp"
+#include "maicord/model/member_list.hpp"
+#include "maicord/ui/composer_voice_bar.hpp"
+#include "maicord/model/guild_member_store.hpp"
+#include "maicord/ui/member_list_scene.hpp"
+#include "maicord/ui/message_composer_scene.hpp"
+#include "maicord/ui/message_text_presentation.hpp"
+#include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
 namespace {

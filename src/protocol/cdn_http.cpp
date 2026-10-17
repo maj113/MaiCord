@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/ui/regional_flag.hpp"
+#include "maicord/protocol/http1.hpp"
 
 namespace maicord {
 bool catalog_provider_request_valid(CdnHost host, CdnImageType type,

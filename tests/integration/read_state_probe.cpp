@@ -4,6 +4,8 @@
 #include "maicord/ui/channel_context_policy.hpp"
 #include "maicord/ui/mention_badge.hpp"
 #include "maicord/ui/shell_text_presentation.hpp"
+#include "maicord/ui/guild_rail_scene.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord {
 namespace {

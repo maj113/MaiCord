@@ -2,6 +2,14 @@
 #include "maicord/ui/message_context_controller.hpp"
 #include "maicord/ui/channel_context_policy.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/app/message_timeline.hpp"
+#include "maicord/model/message_store.hpp"
+#include "maicord/model/permission_bits.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/ui/message_scene.hpp"
+#include "maicord/ui/navigation_view.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/ui/virtual_list.hpp"
 
 namespace maicord {
 namespace {

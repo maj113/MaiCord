@@ -1,9 +1,9 @@
 #pragma once
 
 #include "maicord/ui/icon.hpp"
-#include "maicord/ui/settings_scene.hpp"
 
 namespace maicord {
+enum class UiSettingsControlKind : u8;
 
 // Declarative settings vocabulary: sections -> panels -> nodes. Keys are stable
 // dotted identifiers ("appearance.theme") shared by search, deep links and

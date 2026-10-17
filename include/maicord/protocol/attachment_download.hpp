@@ -1,10 +1,9 @@
 #pragma once
 
-#include "maicord/protocol/cdn_url.hpp"
 #include "maicord/protocol/http1.hpp"
-#include "maicord/protocol/http_response_stream.hpp"
 
 namespace maicord {
+enum class CdnHost : u8;
 
 enum class AttachmentDownloadRequestError : u8 {
     none, invalid_input, invalid_url, origin_mismatch, expired, output_capacity,

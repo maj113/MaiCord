@@ -1,9 +1,10 @@
 #pragma once
 
-#include "maicord/app/rest_client.hpp"
 #include "maicord/ui/reaction_viewer.hpp"
 
 namespace maicord {
+enum class RestClientError : u8;
+struct RestClientResponse;
 
 inline constexpr u32 kReactionViewerMaximumRetries = 3;
 

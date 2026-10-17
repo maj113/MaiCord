@@ -1,9 +1,10 @@
 #pragma once
 
 #include "maicord/model/message_store.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
 
 namespace maicord {
+struct GatewayMessageDeleteEvent;
+struct GatewayMessageEvent;
 
 enum class MessageReconcileError : u8 {
     none,

@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/model/member_moderation.hpp"
-#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
+struct PopupItem;
 
 // Popup action identities owned by member moderation; choices are indexed.
 struct MemberModerationMenuActions {

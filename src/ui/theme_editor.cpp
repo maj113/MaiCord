@@ -4,7 +4,9 @@
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/widget_scroll.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 namespace maicord {
 namespace {
 u32 at(UiThemeEditorElement e) noexcept {

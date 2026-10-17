@@ -5,6 +5,7 @@
 #include "maicord/ui/shell_presentation.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/plugin_slots.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
 
 namespace maicord {
 

@@ -1,5 +1,4 @@
 #include "maicord/app/update_generation_authentication.hpp"
-#include "maicord/app/account_module_api.hpp"
 #include "update_signed_fixture_helpers.hpp"
 #include <bcrypt.h>
 

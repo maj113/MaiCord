@@ -1,6 +1,7 @@
 #include "maicord/protocol/attachment_upload.hpp"
 #include "maicord/protocol/message_create.hpp"
 #include "maicord/core/json_reader.hpp"
+#include "maicord/protocol/rest.hpp"
 
 namespace maicord {
 namespace {

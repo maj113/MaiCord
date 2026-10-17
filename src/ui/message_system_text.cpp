@@ -1,5 +1,7 @@
 #include "maicord/ui/message_system_text.hpp"
 
+#include "maicord/core/decimal.hpp"
+
 namespace maicord {
 namespace {
 

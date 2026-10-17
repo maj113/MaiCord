@@ -2,7 +2,10 @@
 #include "maicord/ui/background_presentation.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/icon.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/ui/presence.hpp"
+#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
 namespace {

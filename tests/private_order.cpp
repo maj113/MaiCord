@@ -1,5 +1,7 @@
 #include "maicord/app/chat_state_dispatch.hpp"
+#include "maicord/app/gateway_client.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/model/private_channel_store.hpp"
 
 namespace maicord {
 void test_private_order(void (*check)(bool, const char*) noexcept) noexcept {

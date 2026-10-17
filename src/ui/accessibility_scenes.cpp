@@ -1,5 +1,6 @@
 #include "maicord/ui/accessibility_scenes.hpp"
 
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/call_scene.hpp"

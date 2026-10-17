@@ -5,6 +5,7 @@
 #include "maicord/ui/popup_presentation.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/text_form.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
 namespace {

@@ -1,8 +1,8 @@
 #pragma once
-#include "maicord/model/chat_state.hpp"
 #include "maicord/protocol/guild_folders.hpp"
 
 namespace maicord {
+struct ChatStateStore;
 
 inline constexpr u16 kGuildDisplayNoFolder = 0xFFFF;
 // Folder header rows share the guild row ID space; snowflakes never set bit 63.

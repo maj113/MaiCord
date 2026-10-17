@@ -1,5 +1,6 @@
 #include "maicord/ui/friends_media.hpp"
 #include "maicord/model/asset_hash.hpp"
+#include "maicord/model/user_store.hpp"
 
 namespace maicord {
 u32 friends_avatar_media_count(const UiFriendsScene& scene) noexcept {

@@ -19,6 +19,7 @@
 #include "maicord/ui/media_picker_presentation.hpp"
 #include "maicord/ui/reaction_viewer_presentation.hpp"
 #include "maicord/ui/shell_text_presentation.hpp"
+#include "maicord/model/private_channel_store.hpp"
 #include "maicord/ui/inline_flag_projection.hpp"
 #include "maicord/render/inline_media.hpp"
 

@@ -1,4 +1,5 @@
 #include "maicord/app/message_event_pump.hpp"
+#include "maicord/app/gateway_client.hpp"
 
 namespace maicord {
 namespace thread_pump_probe {

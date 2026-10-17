@@ -1,10 +1,11 @@
 #pragma once
 
 #include "maicord/ui/audio_controls.hpp"
-#include "maicord/ui/paint.hpp"
-#include "maicord/model/message_rich_store.hpp"
 
 namespace maicord {
+struct MessageRichAttachment;
+struct MessageRichStore;
+struct PaintStream;
 // Optional caller waveform scratch is borrowed only through the synchronous
 // paint. Empty scratch projects labels/geometry without decoding waveform data.
 bool ui_audio_attachment_project(const MessageRichStore&, const MessageRichAttachment&, u64 generation,

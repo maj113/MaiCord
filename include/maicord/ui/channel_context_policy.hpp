@@ -1,9 +1,9 @@
 #pragma once
 #include "maicord/app/read_scope.hpp"
 #include "maicord/model/chat_state.hpp"
-#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
+struct PopupItem;
 // Includes visible categories/voice channels with plugin-only menus. Native
 // action availability is separate from context-target eligibility.
 bool channel_context_target_valid(const ChatStateStore&, u64 channel_id) noexcept;

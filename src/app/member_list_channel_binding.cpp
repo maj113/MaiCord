@@ -3,6 +3,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord {
 namespace {

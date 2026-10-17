@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/surface_geometry.hpp"
-#include "maicord/ui/text_presentation.hpp"
 namespace maicord {
+struct UiTextOutput;
 struct UiEditView {
     Utf8View text;
     u32 anchor, caret;

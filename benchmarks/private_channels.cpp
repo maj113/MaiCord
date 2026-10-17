@@ -1,5 +1,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/private_channel_title.hpp"
+#include "maicord/model/private_channel_store.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 bool benchmark_private_order(Clock clock, ChatStateStore& state,

@@ -1,5 +1,5 @@
 #include "maicord/app/update_install.hpp"
-#include "maicord/app/account_module_api.hpp"
+#include "maicord/app/account_module_version.hpp"
 #include "update_signed_fixture_helpers.hpp"
 #include <bcrypt.h>
 

@@ -11,6 +11,7 @@
 #include "maicord/ui/message_system_text.hpp"
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/navigation_view.hpp"
 
 // Message content wave: system rows, received spoilers and explicit media,
 // components and interactions, modals, ephemeral rows and invite cards.

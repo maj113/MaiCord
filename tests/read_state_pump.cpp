@@ -1,7 +1,9 @@
 #include "maicord/app/message_event_pump.hpp"
+#include "maicord/app/gateway_client.hpp"
 #include "maicord/model/read_state.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/app/read_ack_controller.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord {
 namespace read_pump_probe {

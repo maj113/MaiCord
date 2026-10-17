@@ -1,9 +1,9 @@
 #pragma once
 #include "maicord/ui/friends_scene.hpp"
-#include "maicord/model/user_store.hpp"
 #include "maicord/media/asset.hpp"
 
 namespace maicord {
+struct UserStore;
 // One borrowed viewport candidate; no name, image or hash bank is retained.
 struct FriendsAvatarMedia {
     MediaAssetKey key;

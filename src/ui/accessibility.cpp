@@ -2,6 +2,7 @@
 
 #include "maicord/core/hash.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
 namespace {

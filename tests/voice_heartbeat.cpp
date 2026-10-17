@@ -1,6 +1,7 @@
 #include "maicord/protocol/voice_heartbeat.hpp"
 #include "maicord/protocol/voice_gateway.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/protocol/gateway_events.hpp"
 
 namespace maicord {
 void test_voice_heartbeat(void (*check)(bool, const char*) noexcept) noexcept {

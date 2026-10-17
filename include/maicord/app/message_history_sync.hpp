@@ -1,10 +1,10 @@
 #pragma once
 
-#include "maicord/app/rest_client.hpp"
 #include "maicord/app/message_event_pump.hpp"
 #include "maicord/protocol/message_history.hpp"
 
 namespace maicord {
+struct RestClientResponse;
 
 bool message_history_observe_page(UserStore* users, GuildMemberStore* members,
                                   ChatStateStore* state,

@@ -1,11 +1,10 @@
 #pragma once
 
 #include "maicord/core/stable_storage.hpp"
-#include "maicord/render/media_atlas.hpp"
 #include "maicord/ui/geometry.hpp"
-#include "maicord/ui/theme.hpp"
 
 namespace maicord {
+struct MediaAtlasHandle;
 
 inline constexpr u32 kRendererMediaQuadCapacity = 4'096;
 inline constexpr u32 kRendererMediaBatchCapacity = 512;

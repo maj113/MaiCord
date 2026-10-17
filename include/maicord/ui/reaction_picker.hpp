@@ -3,10 +3,9 @@
 #include "maicord/core/arena.hpp"
 #include "maicord/model/reaction_preferences.hpp"
 #include "maicord/model/chat_state.hpp"
-#include "maicord/ui/emoji_catalog.hpp"
-#include "maicord/model/message_composer.hpp"
 
 namespace maicord {
+struct MessageComposer;
 
 // The emoji picker's data model. The expression picker's Emoji tab and the
 // message reaction popout both present it through UiMediaPickerScene.

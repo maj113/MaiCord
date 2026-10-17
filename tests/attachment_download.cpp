@@ -2,6 +2,7 @@
 #include "maicord/protocol/http_response_stream.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/protocol/cdn_url.hpp"
 #include <initializer_list>
 
 namespace maicord { namespace {

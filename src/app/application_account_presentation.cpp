@@ -18,6 +18,7 @@
 #include "application_pinned_messages.hpp"
 #include "application_thread_browser.hpp"
 #include "application_message_edit.hpp"
+#include "maicord/ui/message_typing_presentation.hpp"
 #include "application_thread_header.hpp"
 #include "application_channel_authority.hpp"
 #include "application_reply_draft.hpp"

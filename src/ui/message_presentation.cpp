@@ -14,6 +14,7 @@
 #include "maicord/model/message_poll_store.hpp"
 #include "maicord/model/scheduled_event_store.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
 namespace {

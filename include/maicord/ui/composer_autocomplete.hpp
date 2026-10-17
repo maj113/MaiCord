@@ -2,12 +2,13 @@
 
 #include "maicord/core/arena.hpp"
 #include "maicord/model/member_list.hpp"
-#include "maicord/model/message_composer.hpp"
-#include "maicord/model/message_store.hpp"
-#include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/emoji_catalog.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
+struct MessageComposer;
+struct MessageStore;
+struct NavigationView;
 
 inline constexpr u32 kComposerAutocompleteCapacity = 16;
 // At most ten rows: users first, then roles fill the rows left, then

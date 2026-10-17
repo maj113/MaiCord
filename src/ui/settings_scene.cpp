@@ -8,6 +8,11 @@
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/transition.hpp"
 #include "maicord/ui/spinner.hpp"
+#include "maicord/ui/text_style.hpp"
+#include "maicord/ui/audio_controls.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/ui/icon.hpp"
+#include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
 namespace {

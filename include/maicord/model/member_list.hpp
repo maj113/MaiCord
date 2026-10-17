@@ -1,11 +1,13 @@
 #pragma once
 
-#include "maicord/model/guild_member_store.hpp"
 #include "maicord/model/user_store.hpp"
 #include "maicord/model/thread_member_store.hpp"
 #include "maicord/model/relationship_store.hpp"
 
 namespace maicord {
+struct ChatStateStore;
+struct GuildMemberStore;
+enum class GuildMemberStatus : u8;
 
 inline constexpr u64 kMemberListOnlineGroup = 0;
 inline constexpr u64 kMemberListOfflineGroup = ~0ull;

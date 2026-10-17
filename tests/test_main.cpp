@@ -18,6 +18,7 @@
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/app/user_auth_coordinator.hpp"
 #include "maicord/app/rest_client.hpp"
+#include "maicord/ui/message_action_bar.hpp"
 #include "maicord/app/chat_state_dispatch.hpp"
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/app/message_draft_persistence.hpp"

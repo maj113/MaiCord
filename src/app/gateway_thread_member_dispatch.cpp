@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "maicord/protocol/client_status.hpp"
 #include "gateway_dispatch_common.hpp"
 #include "gateway_payload_writer.hpp"
 namespace maicord {

@@ -1,5 +1,5 @@
 #include "maicord/app/update_generation.hpp"
-#include "maicord/app/account_module_api.hpp"
+#include "maicord/app/account_module_version.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/hash.hpp"
 

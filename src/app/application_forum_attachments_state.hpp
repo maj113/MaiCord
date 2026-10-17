@@ -1,6 +1,7 @@
 #pragma once
 #include "application_forum_attachments.hpp"
 #include "application_upload_lane.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
 namespace maicord::app_detail {
 struct AccountUiRuntime;
 struct ApplicationForumAttachments {

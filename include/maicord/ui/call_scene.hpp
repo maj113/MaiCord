@@ -1,11 +1,10 @@
 #pragma once
 #include "maicord/media/asset.hpp"
-#include "maicord/model/stage_policy.hpp"
 #include "maicord/ui/paint.hpp"
-#include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/transition.hpp"
 
 namespace maicord {
+struct UiTextOutput;
 // Call view: a header, a stage of participant tiles (a responsive 16:9 grid,
 // or one focused tile above a filmstrip) and a control bar. Pure geometry and
 // paint; the host projects participants, video residency and voice state and

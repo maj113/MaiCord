@@ -5,6 +5,7 @@
 #include "maicord/ui/call_scene.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/stream_card_scene.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 
 // Go Live watching on the client: preview cache and backoff, the snapshot ->
 // call-view state projection, stream tiles (layout, controls, media, states),

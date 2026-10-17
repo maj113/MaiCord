@@ -3,6 +3,7 @@
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/spinner.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 

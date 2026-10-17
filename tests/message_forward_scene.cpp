@@ -1,6 +1,7 @@
 #include "maicord/ui/message_forward_scene.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/foreground_color.hpp"
+#include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
 namespace {

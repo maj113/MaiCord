@@ -1,6 +1,7 @@
 #include "maicord/app/member_list_channel_binding.hpp"
 #include "maicord/model/thread_member_store.hpp"
 #include "maicord/ui/member_list_scene.hpp"
+#include "maicord/model/guild_member_store.hpp"
 
 namespace maicord {
 namespace {

@@ -1,5 +1,6 @@
 #include "maicord/protocol/gateway_events.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "maicord/protocol/account_requirement.hpp"
 
 namespace maicord {
 namespace {

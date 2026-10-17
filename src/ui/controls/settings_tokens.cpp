@@ -1,6 +1,7 @@
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/background_presentation.hpp"
 #include "maicord/ui/transition.hpp"
+#include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
 namespace {

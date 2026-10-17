@@ -9,6 +9,7 @@
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/model/invite_card_cache.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
+#include "maicord/ui/theme_styles.hpp"
 
 #include <Windows.h>
 

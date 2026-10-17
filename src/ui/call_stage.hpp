@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/call_scene.hpp"
 #include "maicord/ui/icon.hpp"
+#include "maicord/ui/text_presentation.hpp"
 
 // Stage-channel parts of the call view (internal to call_scene.cpp).
 namespace maicord::call_stage {

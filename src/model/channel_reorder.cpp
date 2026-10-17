@@ -1,4 +1,5 @@
 #include "maicord/model/channel_reorder.hpp"
+#include "maicord/protocol/guild_admin.hpp"
 
 namespace maicord {
 namespace {

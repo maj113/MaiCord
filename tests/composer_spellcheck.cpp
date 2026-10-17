@@ -1,6 +1,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/spell_checker.hpp"
 #include "maicord/ui/composer_spellcheck.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
 namespace {

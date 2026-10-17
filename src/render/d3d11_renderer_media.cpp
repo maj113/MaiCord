@@ -3,6 +3,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/render/colr_program.hpp"
 #include "maicord/ui/regional_flag.hpp"
+#include "maicord/media/jpeg.hpp"
 
 #include <d3d11_1.h>
 

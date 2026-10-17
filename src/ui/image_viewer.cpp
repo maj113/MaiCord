@@ -1,4 +1,9 @@
 #include "maicord/ui/image_viewer.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/ui/icon.hpp"
+#include "maicord/ui/button.hpp"
+#include "maicord/ui/text_presentation.hpp"
+#include "maicord/ui/text_style.hpp"
 namespace maicord {
 namespace {
 constexpr float kToolbarTarget = 32, kToolbarPitch = 40, kToolbarInset = 16, kToolbarTop = 12;

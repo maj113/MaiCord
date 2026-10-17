@@ -5,6 +5,7 @@
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/render/layer_presentation.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 
 #include <d3d11_1.h>

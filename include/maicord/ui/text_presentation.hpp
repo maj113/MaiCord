@@ -2,11 +2,12 @@
 
 #include "maicord/core/slice.hpp"
 #include "maicord/core/arena.hpp"
-#include "maicord/ui/text_style.hpp"
 #include "maicord/ui/theme.hpp"
 #include "maicord/ui/widget_manager.hpp"
 
 namespace maicord {
+struct TextStyleSpan;
+enum class UiTextFace : u8;
 
 enum class UiTextAlignment : u8 {
     start,

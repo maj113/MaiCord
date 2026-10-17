@@ -1,9 +1,10 @@
 #pragma once
 
 #include "maicord/core/json_reader.hpp"
-#include "maicord/protocol/rest.hpp"
 
 namespace maicord {
+struct RestRouteKey;
+enum class RestMethod : u8;
 
 // Server images, expressions and owner actions. One request describes one
 // REST call (or a local image probe); the account layer prepares the picked

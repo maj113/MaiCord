@@ -11,7 +11,12 @@
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/transition.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/utf.hpp"
+#include "maicord/model/user_store.hpp"
+#include "maicord/ui/presence.hpp"
+#include "maicord/ui/scroll_host.hpp"
 #include <new>
 namespace maicord {
 namespace {

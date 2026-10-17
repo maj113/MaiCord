@@ -6,6 +6,7 @@
 #include "maicord/platform/secure_buffer.hpp"
 #include "maicord/protocol/user_auth.hpp"
 #include "maicord/core/win32_records.hpp"
+#include "maicord/protocol/rest.hpp"
 
 namespace maicord {
 

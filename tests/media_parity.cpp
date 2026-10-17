@@ -1,5 +1,6 @@
 // Manual extension: MAICORD_MEDIA_PARITY_SAMPLES=<directory> adds local sample files to the run.
 #include "maicord/app/media_url_resolver.hpp"
+#include "maicord/app/rest_client.hpp"
 #include "maicord/app/account_media.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/time.hpp"

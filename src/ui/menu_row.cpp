@@ -1,4 +1,6 @@
 #include "maicord/ui/menu_row.hpp"
+#include "maicord/ui/theme_styles.hpp"
+#include "maicord/ui/surface_geometry.hpp"
 
 namespace maicord {
 bool ui_menu_row_project(UiRect content, UiRect clip, UiMenuRowPresentation presentation, bool has_detail,

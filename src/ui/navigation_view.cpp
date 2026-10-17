@@ -1,7 +1,13 @@
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/model/channel_reorder.hpp"
 #include "maicord/model/stage_instance_store.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "maicord/model/private_channel_store.hpp"
+#include "maicord/model/guild_display_order.hpp"
+#include "maicord/model/voice_state_store.hpp"
+#include "maicord/protocol/guild_folders.hpp"
+#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
 namespace {

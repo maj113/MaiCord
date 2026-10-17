@@ -1,10 +1,10 @@
 #pragma once
 #include "maicord/core/arena.hpp"
 #include "maicord/core/json_reader.hpp"
-#include "maicord/protocol/rest.hpp"
-#include "maicord/protocol/writer.hpp"
 
 namespace maicord {
+struct RestRouteKey;
+enum class RestMethod : u8;
 // User notes, in-app reports (the menu-driven reporting API) and message flag
 // edits.
 inline constexpr u32 kUserNoteMaximumCodepoints = 256;

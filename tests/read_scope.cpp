@@ -1,4 +1,5 @@
 #include "maicord/app/read_scope.hpp"
+#include "maicord/model/permission_bits.hpp"
 #include <limits>
 
 namespace maicord {

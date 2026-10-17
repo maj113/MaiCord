@@ -1,8 +1,8 @@
 #pragma once
-#include "maicord/protocol/rest.hpp"
 #include "maicord/protocol/https_upload.hpp"
 
 namespace maicord {
+struct RestRouteKey;
 inline constexpr u32 kAttachmentUploadMaximumFilenameBytes = 1024;
 inline constexpr u32 kAttachmentUploadMaximumUploadedFilenameBytes = 4096;
 inline constexpr u32 kAttachmentUploadMaximumCount = 10;

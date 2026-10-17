@@ -1,4 +1,6 @@
 #include "maicord/platform/uia_provider.hpp"
+#include "maicord/core/ascii.hpp"
+#include "maicord/ui/accessibility.hpp"
 
 #include <ole2.h>
 

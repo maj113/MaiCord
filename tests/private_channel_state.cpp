@@ -6,9 +6,12 @@
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/app/user_store_dispatch.hpp"
 #include "maicord/model/member_list.hpp"
+#include "maicord/protocol/client_status.hpp"
 #include "maicord/ui/member_list_scene.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/private_channel_store.hpp"
+#include "maicord/model/guild_member_store.hpp"
 
 namespace maicord {
 

@@ -1,11 +1,12 @@
 #pragma once
 
 #include "maicord/core/byte_queue.hpp"
-#include "maicord/core/json_reader.hpp"
-#include "maicord/protocol/gateway_commands.hpp"
 #include "maicord/protocol/http1.hpp"
 
 namespace maicord {
+struct GatewayUserProperties;
+enum class JsonReadError : u8;
+enum class JsonScanError : u8;
 
 inline constexpr u32 kRestMaximumHeaderBytes = 32 * 1024;
 inline constexpr u32 kRestMaximumHeaderFields = 128;

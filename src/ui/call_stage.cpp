@@ -1,8 +1,11 @@
 #include "call_stage.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/text_style.hpp"
+#include "maicord/model/stage_policy.hpp"
 
 namespace maicord::call_stage {
 u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {

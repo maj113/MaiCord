@@ -8,10 +8,12 @@
 #include "application_message_interaction.hpp"
 #include "application_state.hpp"
 #include "application_voice_settings.hpp"
+#include "maicord/app/voice_connection.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/text_bank.hpp"
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 
 #include <Windows.h>
 

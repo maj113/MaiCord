@@ -1,11 +1,10 @@
 #pragma once
 #include "maicord/ui/edit_field.hpp"
 #include "maicord/ui/widget_storage.hpp"
-#include "maicord/ui/scrollbar.hpp"
 #include "maicord/media/asset.hpp"
-#include "maicord/ui/presence.hpp"
 
 namespace maicord {
+enum class UiPresence : u8;
 struct ChatStateStore;
 inline constexpr u32 kUiQuickSwitcherMaximumRows = 100;
 inline constexpr u32 kUiQuickSwitcherVisibleRows = 12;

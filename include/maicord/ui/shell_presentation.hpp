@@ -1,14 +1,15 @@
 #pragma once
 
 #include "maicord/ui/navigation_view.hpp"
-#include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/scene.hpp"
-#include "maicord/ui/message_composer_scene.hpp"
-#include "maicord/ui/member_list_scene.hpp"
-#include "maicord/ui/shell_navigation_scene.hpp"
 
 namespace maicord {
+struct GuildRailScene;
+struct MemberListScene;
+struct MessageComposerPresentationInput;
+struct MessageComposerScene;
+struct ShellNavigationScene;
 
 struct ShellPresentationRegions {
     UiRect message_view;

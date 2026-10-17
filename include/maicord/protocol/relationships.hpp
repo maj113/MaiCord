@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/model/relationship_store.hpp"
-#include "maicord/protocol/rest.hpp"
 
 namespace maicord {
+enum class RestMethod : u8;
 inline constexpr u64 kRelationshipsRouteId = 0x52454C4154494F4Eull;
 inline constexpr u32 kRelationshipUsernameMaximumBytes = 32;
 inline constexpr u32 kRelationshipsMaximumBytes = 4u * 1024u * 1024u;

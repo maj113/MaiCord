@@ -7,6 +7,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/render/text_edit_layout.hpp"
 #include "maicord/ui/text.hpp"
+#include "maicord/ui/navigation_view.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord { namespace {
 constexpr auto tajikistan = utf8_literal("\xF0\x9F\x87\xB9\xF0\x9F\x87\xAF");

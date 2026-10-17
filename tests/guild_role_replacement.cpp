@@ -1,6 +1,8 @@
 #include "maicord/app/chat_state_dispatch.hpp"
+#include "maicord/app/gateway_client.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/permission_bits.hpp"
 #include "chat_state_record_equal.hpp"
 
 namespace maicord {

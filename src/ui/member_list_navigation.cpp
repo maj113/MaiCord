@@ -1,5 +1,6 @@
 #include "maicord/ui/member_list_scene.hpp"
 #include "maicord/ui/virtual_list.hpp"
+#include "maicord/model/guild_member_store.hpp"
 
 namespace maicord {
 namespace {

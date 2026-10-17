@@ -1,5 +1,6 @@
 #include "maicord/app/message_forward_controller.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/private_channel_store.hpp"
 
 namespace maicord {
 namespace {

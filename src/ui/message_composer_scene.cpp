@@ -6,6 +6,8 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/message_markdown.hpp"
+#include "maicord/ui/message_typing_presentation.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 namespace {

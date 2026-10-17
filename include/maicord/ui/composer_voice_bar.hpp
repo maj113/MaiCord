@@ -1,11 +1,12 @@
 #pragma once
 
 #include "maicord/ui/geometry.hpp"
-#include "maicord/ui/paint.hpp"
-#include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/theme.hpp"
 
 namespace maicord {
+struct PaintStream;
+struct UiTextOutput;
+struct UiWidgetReference;
 
 // The composer's voice message state. While a recording exists the editor
 // row becomes the recording bar: a pulsing record dot, the timer, the live

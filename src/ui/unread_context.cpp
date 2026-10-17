@@ -1,4 +1,11 @@
 #include "maicord/ui/unread_context.hpp"
+#include "maicord/model/chat_state.hpp"
+#include "maicord/model/message_store.hpp"
+#include "maicord/model/permission_bits.hpp"
+#include "maicord/ui/message_scene.hpp"
+#include "maicord/ui/navigation_view.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/ui/navigation_context.hpp"
 
 namespace maicord {
 namespace {

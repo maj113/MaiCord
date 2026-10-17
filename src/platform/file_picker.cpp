@@ -1,6 +1,7 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/platform/file_picker.hpp"
 #include "maicord/core/arena.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/module.hpp"

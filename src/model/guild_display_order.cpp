@@ -1,5 +1,6 @@
 #include "maicord/model/guild_display_order.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/chat_state.hpp"
 
 namespace maicord {
 namespace {

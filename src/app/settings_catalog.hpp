@@ -2,6 +2,7 @@
 
 #include "maicord/app/client_preferences.hpp"
 #include "maicord/ui/settings_schema.hpp"
+#include "maicord/ui/settings_scene.hpp"
 
 namespace maicord {
 

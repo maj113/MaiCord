@@ -1,6 +1,7 @@
 #include "maicord/app/message_composer_controller.hpp"
 #include "maicord/app/message_send_response.hpp"
 #include "maicord/app/message_history_sync.hpp"
+#include "maicord/app/rest_client.hpp"
 #include "maicord/app/message_attachment_drafts.hpp"
 #include "maicord/ui/attachment_menu.hpp"
 #include "maicord/core/time.hpp"

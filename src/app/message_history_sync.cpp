@@ -1,4 +1,5 @@
 #include "maicord/app/message_history_sync.hpp"
+#include "maicord/app/rest_client.hpp"
 #include "maicord/core/deadline.hpp"
 
 namespace maicord {

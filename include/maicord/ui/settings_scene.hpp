@@ -6,10 +6,10 @@
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/edit_field.hpp"
-#include "maicord/ui/icon.hpp"
 #include "maicord/media/asset.hpp"
 
 namespace maicord {
+enum class UiIcon : u8;
 
 enum class UiSettingsControlKind : u8 {
     toggle,

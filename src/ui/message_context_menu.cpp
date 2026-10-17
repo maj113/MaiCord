@@ -1,6 +1,10 @@
 #include "maicord/ui/message_context_menu.hpp"
 
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/message_store.hpp"
+#include "maicord/model/reaction_preferences.hpp"
+#include "maicord/ui/emoji_catalog.hpp"
 
 namespace maicord {
 namespace {

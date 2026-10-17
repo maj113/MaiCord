@@ -9,6 +9,9 @@
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/model/user_store.hpp"
+#include "maicord/ui/presence.hpp"
+#include "maicord/ui/scrollbar.hpp"
+#include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
 namespace {

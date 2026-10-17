@@ -1,9 +1,9 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
+struct Theme;
 
 struct ContentTextRetentionKey {
     u64 shell_signature;

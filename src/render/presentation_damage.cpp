@@ -1,4 +1,5 @@
 #include "maicord/render/presentation_damage.hpp"
+#include "maicord/render/media_atlas.hpp"
 
 namespace maicord {
 namespace {

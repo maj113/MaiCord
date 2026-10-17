@@ -5,6 +5,8 @@
 #include "maicord/platform/clipboard_image.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/button.hpp"
+#include "maicord/ui/text_presentation.hpp"
 namespace maicord {
 namespace {
 void test_image_gallery(void (*check)(bool, const char*) noexcept) noexcept {

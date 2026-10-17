@@ -2,6 +2,7 @@
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/surface_elevation.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 #include <new>
 
 namespace maicord {

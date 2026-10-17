@@ -1,5 +1,6 @@
 #include "maicord/ui/channel_context_policy.hpp"
 #include "maicord/model/permission_bits.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
 void test_channel_context_policy(void (*check)(bool, const char*) noexcept) noexcept {

@@ -5,6 +5,7 @@
 #include "maicord/protocol/attachment_download.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/protocol/cdn_url.hpp"
 
 #include <Windows.h>
 

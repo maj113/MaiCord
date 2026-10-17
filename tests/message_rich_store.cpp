@@ -1,5 +1,7 @@
 #include "maicord/model/message_rich_store.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/stable_storage.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 namespace {

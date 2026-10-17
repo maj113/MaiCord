@@ -1,4 +1,5 @@
 #include "maicord/platform/desktop_integration.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 
 #include <stddef.h>

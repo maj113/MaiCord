@@ -1,11 +1,11 @@
 #pragma once
 
-#include "maicord/core/stable_storage.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/message_reaction.hpp"
-#include "maicord/media/asset.hpp"
 
 namespace maicord {
+struct StableStorage;
+enum class MediaAttachmentFormat : u32;
 
 struct MessageRichString {
     u32 offset;

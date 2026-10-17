@@ -3,6 +3,7 @@
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/icon.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

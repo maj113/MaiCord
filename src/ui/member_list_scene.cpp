@@ -4,6 +4,12 @@
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/model/thread_member_store.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/core/utf.hpp"
+#include "maicord/model/chat_state.hpp"
+#include "maicord/model/guild_member_store.hpp"
+#include "maicord/ui/plugin_slots.hpp"
+#include "maicord/ui/scene.hpp"
 
 namespace maicord {
 namespace {

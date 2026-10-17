@@ -1,6 +1,10 @@
 #pragma once
 
 #include "maicord/render/media_atlas_gpu.hpp"
+#include "maicord/media/jpeg.hpp"
+#include "maicord/media/animated_webp.hpp"
+#include "maicord/media/apng.hpp"
+#include "maicord/media/gif.hpp"
 
 #include <d3d11_1.h>
 

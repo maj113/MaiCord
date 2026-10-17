@@ -3,6 +3,7 @@
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/ui/popup_presentation.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord {
 namespace {

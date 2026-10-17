@@ -4,6 +4,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/guild_rail_scene.hpp"
+#include "maicord/protocol/guild_folders.hpp"
 
 namespace maicord {
 namespace {

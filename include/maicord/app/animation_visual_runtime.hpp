@@ -1,10 +1,14 @@
 #pragma once
 
-#include "maicord/app/account_media.hpp"
 #include "maicord/core/stable_storage.hpp"
+#include "maicord/media/animated_webp.hpp"
 #include "maicord/media/animation_timeline.hpp"
+#include "maicord/media/apng.hpp"
+#include "maicord/media/gif.hpp"
 
 namespace maicord {
+
+enum class AccountMediaFrameKind : u8;
 
 inline constexpr u32 kAnimationVisualInitialCapacity = 128;
 inline constexpr u32 kAnimationVisualMaximumCapacity = 4'096;

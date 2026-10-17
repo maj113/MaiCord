@@ -1,9 +1,9 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include "maicord/render/media_atlas.hpp"
 
 namespace maicord {
+struct MediaAtlasHandle;
 
 inline constexpr u32 kPresentationDamageMediaCapacity = 4'096;
 inline constexpr u32 kPresentationDamageMediaDomainCount = 2;

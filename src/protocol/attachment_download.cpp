@@ -1,6 +1,8 @@
 #include "maicord/protocol/attachment_download.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/protocol/cdn_url.hpp"
+#include "maicord/protocol/http_response_stream.hpp"
 
 namespace maicord { namespace {
 HttpHeadResult rejected(AttachmentDownloadResponsePolicy* p,

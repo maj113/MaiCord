@@ -1,6 +1,7 @@
 #include "maicord/model/member_list.hpp"
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/model/guild_member_store.hpp"
 
 namespace maicord {
 namespace sparse_probe {

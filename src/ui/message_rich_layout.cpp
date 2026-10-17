@@ -1,5 +1,6 @@
 #include "maicord/ui/message_rich_layout.hpp"
 
+#include "maicord/core/decimal.hpp"
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/message_component_layout.hpp"
 #include "maicord/ui/audio_controls.hpp"

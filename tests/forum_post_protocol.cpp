@@ -1,5 +1,6 @@
 #include "maicord/protocol/forum_post.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
 #include "test_output.hpp"
 
 namespace maicord::forum_post_test {

@@ -1,10 +1,10 @@
 #pragma once
 
-#include "maicord/ui/paint.hpp"
-#include "maicord/ui/reaction_viewer.hpp"
-#include "maicord/ui/text_presentation.hpp"
-
 namespace maicord {
+struct PaintStream;
+struct ReactionViewer;
+struct Theme;
+struct UiTextOutput;
 
 bool reaction_viewer_presentation_build(const ReactionViewer& viewer,
                                         const Theme& theme,

@@ -1,6 +1,7 @@
 #include "gateway_relationship_dispatch.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/protocol/client_status.hpp"
 #include "maicord/model/user_activity.hpp"
 #include "maicord/model/user_profile.hpp"
 

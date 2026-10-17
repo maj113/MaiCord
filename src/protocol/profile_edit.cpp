@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/protocol/rest.hpp"
 
 namespace maicord {
 namespace {

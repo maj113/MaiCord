@@ -4,6 +4,9 @@
 #include "maicord/ui/mention_badge.hpp"
 #include "maicord/ui/shell_text_presentation.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/ui/guild_rail_scene.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
+#include "maicord/ui/presence.hpp"
 #include "text_projection_observer.hpp"
 
 #include <Windows.h>

@@ -3,6 +3,7 @@
 
 #include "maicord/core/byte_order.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/protocol/notification_settings.hpp"
 
 #include "gateway_dispatch_common.hpp"
 #include "gateway_user_payload.hpp"
@@ -10,6 +11,7 @@
 #include "gateway_private_dispatch.hpp"
 #include "gateway_relationship_dispatch.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "maicord/protocol/account_requirement.hpp"
 
 namespace maicord {
 namespace {

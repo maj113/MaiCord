@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/model/friend_search.hpp"
+#include "maicord/model/private_channel_store.hpp"
 
 namespace maicord {
 namespace {

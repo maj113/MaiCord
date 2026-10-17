@@ -1,4 +1,5 @@
 #include "maicord/model/message_reconcile.hpp"
+#include "maicord/protocol/gateway_message_events.hpp"
 
 namespace maicord {
 namespace {

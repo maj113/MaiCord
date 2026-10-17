@@ -6,6 +6,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/platform/tls_stream.hpp"
 #include "maicord/ui/regional_flag.hpp"
+#include "maicord/protocol/http1.hpp"
 
 #include <Windows.h>
 

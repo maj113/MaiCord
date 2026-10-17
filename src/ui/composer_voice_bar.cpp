@@ -1,6 +1,10 @@
 #include "maicord/ui/composer_voice_bar.hpp"
 
+#include "maicord/core/decimal.hpp"
 #include "maicord/ui/background_presentation.hpp"
+#include "maicord/ui/paint.hpp"
+#include "maicord/ui/text_presentation.hpp"
+#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
 namespace {

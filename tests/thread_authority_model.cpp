@@ -1,4 +1,5 @@
 #include "maicord/model/chat_state.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord {
 namespace {

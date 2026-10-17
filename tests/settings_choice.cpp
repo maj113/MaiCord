@@ -1,4 +1,7 @@
 #include "maicord/ui/settings_choice.hpp"
+#include "maicord/ui/message_action_bar.hpp"
+#include "maicord/ui/page_registry.hpp"
+#include "maicord/ui/settings_scene.hpp"
 
 namespace maicord {
 static_assert(static_cast<u8>(PopupKind::tooltip) == 4 && static_cast<u8>(PopupKind::settings_choice) == 5);

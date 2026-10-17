@@ -1,6 +1,7 @@
 #include "probe_present.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/shell_text_presentation.hpp"
+#include "maicord/model/guild_member_store.hpp"
 
 namespace maicord {
 namespace {

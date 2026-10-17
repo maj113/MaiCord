@@ -1,5 +1,6 @@
 #include "maicord/ui/guild_context_policy.hpp"
 #include "maicord/model/guild_settings_model.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
 bool guild_context_target_valid(const ChatStateStore& state, u64 guild_id) noexcept {

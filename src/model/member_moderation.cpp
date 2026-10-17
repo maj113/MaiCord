@@ -1,5 +1,6 @@
 #include "maicord/model/member_moderation.hpp"
 #include "maicord/model/role_policy.hpp"
+#include "maicord/model/guild_member_store.hpp"
 
 namespace maicord {
 

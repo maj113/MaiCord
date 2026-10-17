@@ -1,8 +1,8 @@
 #pragma once
-#include "maicord/app/rest_client.hpp"
 #include "maicord/protocol/attachment_refresh.hpp"
 
 namespace maicord {
+struct RestClientResponse;
 enum class MediaUrlState : u8 {
     empty,
     queued,

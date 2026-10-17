@@ -3,6 +3,7 @@
 #include "maicord/model/message_rich_store.hpp"
 #include "maicord/model/message_store.hpp"
 #include "maicord/model/read_state.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 #include <Windows.h>
 

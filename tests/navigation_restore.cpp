@@ -1,4 +1,5 @@
 #include "maicord/app/message_event_pump.hpp"
+#include "maicord/app/gateway_client.hpp"
 
 namespace maicord {
 void test_navigation_restore(void (*check)(bool, const char*) noexcept) noexcept {

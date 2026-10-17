@@ -1,11 +1,12 @@
 #pragma once
 
-#include "maicord/model/guild_detail_store.hpp"
-#include "maicord/model/guild_member_store.hpp"
-#include "maicord/model/permission_compute.hpp"
 #include "maicord/protocol/guild_admin.hpp"
 
 namespace maicord {
+struct ChannelRecord;
+struct ChatStateStore;
+struct GuildDetailStore;
+struct RoleRecord;
 
 // Server Settings: what the current account may open and change in one
 // guild, plus the drafts and request bodies of its pages. Pure functions over

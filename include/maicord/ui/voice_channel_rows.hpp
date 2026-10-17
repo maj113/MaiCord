@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/geometry.hpp"
+#include "maicord/model/voice_state_store.hpp"
 
 namespace maicord {
 struct UiVoiceParticipantRow {

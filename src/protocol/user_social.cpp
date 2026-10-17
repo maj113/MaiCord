@@ -1,6 +1,8 @@
 #include "maicord/protocol/user_social.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/protocol/rest.hpp"
+#include "maicord/protocol/writer.hpp"
 
 namespace maicord {
 namespace {

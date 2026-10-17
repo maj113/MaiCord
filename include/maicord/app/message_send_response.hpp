@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/app/message_composer_controller.hpp"
+#include "maicord/protocol/account_requirement.hpp"
 
 namespace maicord {
 struct RestClientResponse;

@@ -1,6 +1,9 @@
 #pragma once
-#include "maicord/app/rest_client.hpp"
 #include "maicord/protocol/thread_actions.hpp"
+
+namespace maicord {
+struct RestClientResponse;
+}
 
 namespace maicord::app_detail {
 enum class ApplicationThreadActionEnqueueResult : u8 {

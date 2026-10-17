@@ -2,6 +2,7 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/model/role_policy.hpp"
+#include "maicord/model/guild_member_store.hpp"
 
 namespace maicord {
 namespace {

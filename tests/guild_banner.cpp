@@ -11,6 +11,7 @@
 #include "maicord/ui/guild_card_scene.hpp"
 #include "maicord/ui/shell_presentation.hpp"
 #include "maicord/ui/shell_text_presentation.hpp"
+#include "maicord/ui/shell_navigation_scene.hpp"
 #include "test_output.hpp"
 
 namespace maicord::guild_banner_test {

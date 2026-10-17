@@ -4,6 +4,8 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/model/read_state.hpp"
+#include "maicord/model/private_channel_store.hpp"
+#include "maicord/model/permission_bits.hpp"
 #include <new>
 #include <type_traits>
 #pragma intrinsic(_alloca)

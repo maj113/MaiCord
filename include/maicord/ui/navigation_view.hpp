@@ -1,10 +1,10 @@
 #pragma once
 
 #include "maicord/model/chat_state.hpp"
-#include "maicord/model/voice_state_store.hpp"
-#include "maicord/model/guild_display_order.hpp"
 
 namespace maicord {
+struct GuildFolderSettings;
+struct VoiceStateStore;
 
 enum class GuildFolderRole : u8 { none, header, member };
 // The scheduled events entry leads a server's channel list: a synthetic row

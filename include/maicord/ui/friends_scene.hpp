@@ -1,12 +1,12 @@
 #pragma once
 #include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/text_presentation.hpp"
-#include "maicord/ui/presence.hpp"
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/list_navigation.hpp"
 #include "maicord/ui/edit_field.hpp"
 
 namespace maicord {
+enum class UiPresence : u8;
 inline constexpr u32 kUiFriendsMaximumVisibleRows = 152;
 // Two row labels and at most three inline actions, plus headings/tabs/search.
 inline constexpr u32 kUiFriendsMaximumTextCommands = 12 + 5 * kUiFriendsMaximumVisibleRows;

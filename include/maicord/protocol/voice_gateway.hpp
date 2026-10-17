@@ -2,10 +2,10 @@
 
 #include "maicord/protocol/gateway_commands.hpp"
 #include "maicord/protocol/gateway_endpoint.hpp"
-#include "maicord/protocol/gateway_events.hpp"
 #include "maicord/protocol/gateway_payload.hpp"
 
 namespace maicord {
+struct GatewayEventDecodeResult;
 // VOICE_SERVER_UPDATE supplies an authority, not a URL. Ports 80/443 are
 // normalized to secure port 443.
 GatewayEndpointError voice_gateway_endpoint(Utf8View authority, GatewayEndpoint* output) noexcept;

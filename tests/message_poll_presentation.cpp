@@ -3,6 +3,7 @@
 #include "maicord/model/message_poll_store.hpp"
 #include "maicord/ui/poll_controls.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/ui/navigation_view.hpp"
 
 namespace maicord {
 namespace {

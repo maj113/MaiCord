@@ -1,5 +1,8 @@
 #include "maicord/ui/badge.hpp"
 #include "maicord/ui/foreground_color.hpp"
+#include "maicord/ui/paint.hpp"
+#include "maicord/ui/button.hpp"
+#include "maicord/ui/icon.hpp"
 namespace maicord {
 bool ui_badge_attach(UiBadgeWidget* badge, UiWidgetManager* manager, UiWidgetHandle owner, Utf8View label,
                      Color marker, bool leading, bool removable, u32 flags) noexcept {

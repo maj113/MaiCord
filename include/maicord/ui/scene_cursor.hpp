@@ -21,7 +21,6 @@
 #include "maicord/ui/search_scene.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/thread_browser_scene.hpp"
-#include "maicord/ui/unread_banner_scene.hpp"
 #include "maicord/ui/video_scene.hpp"
 
 namespace maicord {

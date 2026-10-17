@@ -18,6 +18,8 @@
 #include "maicord/ui/message_scene.hpp"
 #include "maicord/ui/member_list_scene.hpp"
 #include "maicord/ui/message_text_coordinator.hpp"
+#include "maicord/model/guild_member_store.hpp"
+#include "maicord/model/permission_bits.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/qr_code.hpp"
 #include "maicord/ui/scene.hpp"

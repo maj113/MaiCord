@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/app/gateway_client.hpp"
+#include "maicord/core/spsc_mailbox.hpp"
 namespace maicord {
 using GatewayClientMailbox = SpscMailbox<GatewayClientEvent, kGatewayClientEventCapacity, kGatewayClientDispatchPayloadCapacity>;
 // Production producer waits only at full-mailbox boundaries. Consumer signals

@@ -32,6 +32,7 @@
 #include "colr_binding_probe.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
 #include "../../src/app/account_ui_runtime.hpp"
+#include "maicord/ui/presence.hpp"
 #include "../../src/app/application_state.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "../../src/render/d3d11_renderer_layout.hpp"

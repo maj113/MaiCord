@@ -1,6 +1,8 @@
 #include "maicord/ui/message_scene.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/model/user_store.hpp"
+#include "maicord/ui/navigation_view.hpp"
 
 namespace maicord {
 namespace {

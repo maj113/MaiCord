@@ -1,8 +1,8 @@
 #pragma once
-#include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
+struct UiSettingsControl;
 inline constexpr u32 kUiSettingsChoiceWindow = 32;
 inline constexpr u32 kUiSettingsChoiceMaximum = 1024;
 inline constexpr u32 kUiSettingsChoiceMaximumItems = kUiSettingsChoiceWindow + 2;

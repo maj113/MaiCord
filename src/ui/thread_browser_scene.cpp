@@ -4,6 +4,7 @@
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/spinner.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

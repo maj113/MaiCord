@@ -19,6 +19,8 @@
 #include "application_poll_create.hpp"
 #include "application_settings_layer.hpp"
 #include "application_state.hpp"
+#include "maicord/app/voice_socket.hpp"
+#include "maicord/app/voice_udp_discovery.hpp"
 #include "../render/d3d11_renderer_interaction_state.hpp"
 #include "maicord/app/login_continuations.hpp"
 #include "maicord/app/message_interaction_rules.hpp"

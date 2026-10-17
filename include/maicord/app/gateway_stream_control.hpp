@@ -1,10 +1,13 @@
 #pragma once
 
-#include "maicord/app/voice_connection.hpp"
+#include "maicord/app/voice_connection_setup.hpp"
 #include "maicord/protocol/gateway_payload.hpp"
 #include "maicord/protocol/gateway_stream.hpp"
 
 namespace maicord {
+enum class VoiceSocketPhase : u8;
+enum class VoiceConnectionError : u8;
+enum class VoiceUdpPhase : u8;
 // Go Live watch session on the main Gateway (worker-owned, never copied):
 //   watch -> STREAM_WATCH -> STREAM_CREATE (media server) ->
 //   STREAM_SERVER_UPDATE (token, endpoint) -> stream voice connection ->

@@ -5,6 +5,7 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/model/message_composer.hpp"
 #include "maicord/model/relationship_store.hpp"
+#include "maicord/ui/presence.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationFriends;

@@ -4,6 +4,8 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/model/permission_compute.hpp"
+#include "maicord/model/guild_detail_store.hpp"
 
 namespace maicord {
 namespace {

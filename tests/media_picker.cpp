@@ -8,6 +8,7 @@
 #include "maicord/app/client_theme.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/surface_elevation.hpp"
+#include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
 namespace {

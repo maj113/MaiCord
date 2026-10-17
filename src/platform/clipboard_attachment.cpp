@@ -1,5 +1,6 @@
 #include "maicord/platform/clipboard_attachment.hpp"
 #include "maicord/platform/clipboard_image.hpp"
+#include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include <shlobj.h>
 #include <shellapi.h>

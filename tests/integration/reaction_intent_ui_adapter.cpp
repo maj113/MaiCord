@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/model/reaction_preferences.hpp"
 
 namespace maicord {
 namespace {

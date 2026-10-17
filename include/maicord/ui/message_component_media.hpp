@@ -1,11 +1,12 @@
 #pragma once
 
 #include "maicord/media/asset.hpp"
-#include "maicord/model/message_rich_store.hpp"
 #include "maicord/protocol/guild_invite.hpp"
-#include "maicord/protocol/guild_community.hpp"
 
 namespace maicord {
+struct MessageRichComponent;
+struct MessageRichStore;
+struct ScheduledEvent;
 
 // Thumbnail and media gallery images are fetched by URL, like profile art:
 // the key is a hash of the (proxied) URL, so identical media share one decode.

@@ -16,6 +16,7 @@
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/cursor.hpp"
 #include "maicord/ui/stream_card_scene.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 
 namespace maicord::app_detail {
 namespace {

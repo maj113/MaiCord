@@ -1,6 +1,7 @@
 #include "probe_present.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/ui/call_scene.hpp"
+#include "maicord/model/stage_policy.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 
 #include <d3d11_1.h>

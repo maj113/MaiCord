@@ -6,6 +6,7 @@
 #include "maicord/ui/shell_presentation.hpp"
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/friends_scene.hpp"
+#include "maicord/ui/presence.hpp"
 
 namespace maicord {
 namespace theme_views_probe_detail {

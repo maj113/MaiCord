@@ -1,5 +1,7 @@
 #include "maicord/ui/timestamp_format.hpp"
 
+#include "maicord/core/decimal.hpp"
+
 #include <Windows.h>
 
 namespace maicord {

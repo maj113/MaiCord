@@ -2,9 +2,9 @@
 
 #include "maicord/protocol/thread_creation.hpp"
 #include "maicord/protocol/attachment_upload.hpp"
-#include "maicord/protocol/gateway_message_events.hpp"
 
 namespace maicord {
+struct GatewayMessageAttachment;
 inline constexpr u32 kForumPostTitleMaximumScalars = 100;
 inline constexpr u32 kForumPostTitleMaximumBytes = 400;
 inline constexpr u32 kForumPostContentMaximumScalars = 2000;

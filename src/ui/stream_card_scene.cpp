@@ -5,6 +5,7 @@
 #include "maicord/ui/text_style.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 
 namespace maicord {
 namespace {

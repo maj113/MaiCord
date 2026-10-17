@@ -1,8 +1,6 @@
 #pragma once
 
 #include "maicord/model/member_list.hpp"
-#include "maicord/ui/plugin_slots.hpp"
-#include "maicord/ui/scene.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/badge.hpp"
 #include "maicord/ui/widget_manager.hpp"
@@ -10,6 +8,7 @@
 #include "maicord/ui/list_navigation.hpp"
 
 namespace maicord {
+struct UiPluginSlotBadge;
 
 inline constexpr u32 kMemberListSceneOverscanRows = 2;
 inline constexpr float kMemberListRowHeight = 44.0f;

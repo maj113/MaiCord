@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/user_store.hpp"
 #include "maicord/model/chat_state.hpp"
+#include "maicord/protocol/client_status.hpp"
 #include "maicord/protocol/json_ids.hpp"
 
 #include "gateway_dispatch_common.hpp"

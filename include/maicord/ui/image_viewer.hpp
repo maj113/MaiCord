@@ -1,9 +1,8 @@
 #pragma once
 #include "maicord/ui/paint.hpp"
-#include "maicord/ui/text_presentation.hpp"
-#include "maicord/ui/button.hpp"
 #include "maicord/ui/button_keyboard.hpp"
 namespace maicord {
+struct UiTextOutput;
 // Toolbar/gallery button indices.
 enum UiImageViewerButton : u32 {
     ui_image_viewer_zoom_out,

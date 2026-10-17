@@ -18,6 +18,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/ui/presence.hpp"
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/model/member_moderation.hpp"
 #include "maicord/model/profile_editor.hpp"

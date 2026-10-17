@@ -1,4 +1,5 @@
 #include "maicord/render/renderer_media_draw_storage.hpp"
+#include "maicord/render/media_atlas.hpp"
 
 namespace maicord {
 namespace {

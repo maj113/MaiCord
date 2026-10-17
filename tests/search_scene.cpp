@@ -7,6 +7,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/scene.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
+#include "maicord/ui/navigation_view.hpp"
 
 namespace maicord {
 namespace {

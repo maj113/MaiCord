@@ -1,10 +1,11 @@
 #pragma once
 
 #include "maicord/ui/paint.hpp"
-#include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
+struct PopupScene;
+struct UiEditGeometry;
 struct UiTextMeasureCache;
 
 enum class PopupMediaPresentationStatus : u8 {

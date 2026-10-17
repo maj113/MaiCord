@@ -1,7 +1,5 @@
 #pragma once
 
-#include "maicord/ui/accessibility.hpp"
-
 #include "maicord/core/win32_records.hpp"
 
 // Microsoft UI Automation server for one window, over UiAccessTree snapshots.
@@ -16,6 +14,11 @@
 // callback (which should defer them).
 
 namespace maicord {
+struct UiAccessPropertyChange;
+struct UiAccessTree;
+struct UiRect;
+struct Utf8View;
+enum class UiAccessAction : u8;
 
 struct UiaHostCallbacks {
     void* context;

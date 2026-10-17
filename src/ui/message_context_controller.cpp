@@ -1,5 +1,6 @@
 #include "maicord/ui/message_context_controller.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/model/message_store.hpp"
 
 namespace maicord {
 namespace {

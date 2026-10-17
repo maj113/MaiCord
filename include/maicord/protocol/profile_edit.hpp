@@ -1,9 +1,10 @@
 #pragma once
 
-#include "maicord/protocol/rest.hpp"
 #include "maicord/model/user_profile.hpp"
 
 namespace maicord {
+struct RestRouteKey;
+enum class RestMethod : u8;
 
 // Profile editing (main and per-server profiles): save requests, profile loads,
 // the owned collectibles list and the flattened field errors of a rejected save.

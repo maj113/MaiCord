@@ -1,9 +1,9 @@
 #pragma once
 #include "maicord/app/read_scope.hpp"
 #include "maicord/model/chat_state.hpp"
-#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
+struct PopupItem;
 bool guild_context_target_valid(const ChatStateStore&, u64 guild_id) noexcept;
 bool guild_context_target_current(const ChatStateStore&, u64 guild_id, u16 generation,
                                   u32 revision) noexcept;

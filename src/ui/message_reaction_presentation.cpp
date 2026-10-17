@@ -1,5 +1,6 @@
 #include "maicord/ui/message_reaction_presentation.hpp"
 
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/emoji_catalog.hpp"
 #include "maicord/ui/regional_flag.hpp"

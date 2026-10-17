@@ -1,6 +1,7 @@
 #include "maicord/ui/audio_controls.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/foreground_color.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {

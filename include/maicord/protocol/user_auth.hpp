@@ -1,9 +1,9 @@
 #pragma once
 
 #include "maicord/core/json_reader.hpp"
-#include "maicord/protocol/rest.hpp"
 
 namespace maicord {
+struct RestUserRequestHeaders;
 
 inline constexpr u32 kUserAuthMaximumLoginBytes = 512;
 inline constexpr u32 kUserAuthMaximumPasswordBytes = 1024;

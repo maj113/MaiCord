@@ -8,6 +8,8 @@
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/ui/popup_scene.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 
 namespace maicord {
 namespace {

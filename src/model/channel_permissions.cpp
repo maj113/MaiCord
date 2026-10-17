@@ -1,6 +1,7 @@
 #include "maicord/model/chat_state.hpp"
 #include "maicord/model/read_state.hpp"
 #include "maicord/model/permission_compute.hpp"
+#include "maicord/model/private_channel_store.hpp"
 
 namespace maicord {
 namespace {

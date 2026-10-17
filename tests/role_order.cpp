@@ -1,6 +1,7 @@
 #include "maicord/model/member_list.hpp"
 #include "maicord/model/role_policy.hpp"
 #include "maicord/model/thread_member_store.hpp"
+#include "maicord/model/guild_member_store.hpp"
 
 namespace maicord {
 namespace role_order_probe {

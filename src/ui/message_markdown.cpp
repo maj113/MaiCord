@@ -2,6 +2,7 @@
 #include "maicord/ui/code_highlight.hpp"
 #include "maicord/ui/ansi_text.hpp"
 #include "maicord/core/ascii.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/emoji_catalog.hpp"

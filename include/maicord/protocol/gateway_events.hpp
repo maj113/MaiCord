@@ -1,9 +1,9 @@
 #pragma once
 
 #include "maicord/protocol/gateway_payload.hpp"
-#include "maicord/protocol/account_requirement.hpp"
 
 namespace maicord {
+enum class AccountRequirement : u8;
 
 struct GatewayHello {
     u32 heartbeat_interval_ms;

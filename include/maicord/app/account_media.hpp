@@ -4,7 +4,6 @@
 #include "maicord/platform/mp4_decoder.hpp"
 #include "maicord/app/cdn_client.hpp"
 #include "maicord/media/gpu_video_frame.hpp"
-#include "maicord/protocol/media_catalog.hpp"
 #include "maicord/app/local_draft_preview.hpp"
 #include "maicord/app/attachment_media_probe.hpp"
 

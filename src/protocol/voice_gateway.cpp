@@ -1,6 +1,7 @@
 #include "maicord/protocol/voice_gateway.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/protocol/gateway_events.hpp"
 #include "json_command_writer.hpp"
 
 namespace maicord {

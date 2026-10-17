@@ -25,6 +25,7 @@
 #include "maicord/app/browser_login.hpp"
 #include "maicord/app/account_session_store.hpp"
 #include "maicord/app/account_media_worker.hpp"
+#include "maicord/app/gateway_stream_control.hpp"
 #include "maicord/app/user_account_coordinator.hpp"
 #include "maicord/app/user_client_configuration.hpp"
 #include "maicord/core/data_path.hpp"

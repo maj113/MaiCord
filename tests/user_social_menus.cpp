@@ -4,6 +4,9 @@
 #include "maicord/model/active_now.hpp"
 #include "maicord/ui/friends_scene.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/message_store.hpp"
+#include "maicord/model/reaction_preferences.hpp"
+#include "maicord/ui/presence.hpp"
 
 namespace maicord {
 namespace {

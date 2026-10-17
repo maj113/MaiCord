@@ -1,11 +1,13 @@
 #pragma once
 
-#include "maicord/app/gateway_client.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/model/guild_detail_store.hpp"
 #include "maicord/model/user_store.hpp"
 
 namespace maicord {
+
+enum class GatewayClientDispatchKind : u8;
+struct GatewayClientEvent;
 
 enum class ChatStateApplyError : u8 {
     none,

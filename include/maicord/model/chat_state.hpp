@@ -1,12 +1,11 @@
 #pragma once
 
 #include "maicord/core/utf.hpp"
-#include "maicord/model/permission_bits.hpp"
-#include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/upload_allowance.hpp"
 #include "maicord/model/content_policy.hpp"
 
 namespace maicord {
+struct PrivateChannelStore;
 struct ReadStateStore;
 struct ChatStateStore;
 

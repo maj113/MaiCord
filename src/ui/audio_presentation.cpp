@@ -6,6 +6,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/base64.hpp"
+#include "maicord/model/message_rich_store.hpp"
 
 namespace maicord {
 namespace {

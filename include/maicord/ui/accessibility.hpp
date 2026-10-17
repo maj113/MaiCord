@@ -1,6 +1,5 @@
 #pragma once
 
-#include "maicord/ui/text_presentation.hpp"
 #include "maicord/ui/widget_manager.hpp"
 
 // Platform-neutral accessibility projection of retained widget trees.
@@ -12,6 +11,7 @@
 // reads finished snapshots.
 
 namespace maicord {
+struct UiTextCommand;
 
 inline constexpr u32 kUiAccessNone = 0xFFFF'FFFFu;
 inline constexpr u32 kUiAccessOwnerMaximum = 48;

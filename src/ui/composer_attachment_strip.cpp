@@ -3,6 +3,9 @@
 #include "maicord/ui/background_presentation.hpp"
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/foreground_color.hpp"
+#include "maicord/ui/icon.hpp"
+#include "maicord/ui/text_presentation.hpp"
+#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
 namespace {

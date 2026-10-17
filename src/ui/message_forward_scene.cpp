@@ -7,6 +7,8 @@
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/model/user_store.hpp"
 #include "maicord/ui/guild_icon_media.hpp"
+#include "maicord/ui/text_presentation.hpp"
+#include "maicord/ui/scrollbar.hpp"
 
 namespace maicord {
 namespace {

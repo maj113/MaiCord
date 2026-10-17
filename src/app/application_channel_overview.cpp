@@ -18,6 +18,7 @@
 #include "application_media_picker.hpp"
 #include "application_profile.hpp"
 #include "application_text_form.hpp"
+#include "maicord/model/permission_compute.hpp"
 #include "application_attachments.hpp"
 #include "maicord/app/channel_overview_controller.hpp"
 #include "maicord/model/channel_settings_model.hpp"

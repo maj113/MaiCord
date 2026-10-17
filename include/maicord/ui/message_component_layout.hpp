@@ -1,10 +1,13 @@
 #pragma once
 
-#include "maicord/ui/message_rich_layout.hpp"
-#include "maicord/ui/layout_engine.hpp"
 #include "maicord/ui/theme.hpp"
 
 namespace maicord {
+struct MessageRichComponent;
+struct MessageRichItemLayout;
+struct MessageRichRecord;
+struct UiLayoutStyle;
+struct UiRect;
 
 struct Theme;
 

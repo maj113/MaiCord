@@ -1,4 +1,5 @@
 #include "maicord/app/message_event_pump.hpp"
+#include "maicord/app/gateway_client.hpp"
 #include "maicord/app/presence_coalescer.hpp"
 #include "maicord/model/member_list.hpp"
 #include "maicord/model/role_policy.hpp"

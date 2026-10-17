@@ -1,9 +1,9 @@
 #pragma once
-#include "maicord/ui/popup_scene.hpp"
 #include "maicord/ui/spell_tokenize.hpp"
 #include "maicord/ui/text_composition.hpp"
 
 namespace maicord {
+struct PopupItem;
 
 // Composer spell checking off the input path. Edits schedule a debounced pass
 // from the frame tick; each pass re-tokenizes the text and queries the backend

@@ -1,8 +1,8 @@
 #pragma once
 #include "maicord/ui/profile_scene.hpp"
 #include "maicord/media/asset.hpp"
-#include "maicord/ui/member_list_scene.hpp"
 namespace maicord {
+struct MemberListScene;
 struct ProfileMedia {
     u64 playback_epoch;
     MediaAssetKey key;

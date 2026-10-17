@@ -13,6 +13,7 @@
 #include "application_voice.hpp"
 #include "application_content_input.hpp"
 #include "maicord/app/private_channel_actions.hpp"
+#include "maicord/app/voice_socket.hpp"
 #include "maicord/ui/private_channel_title.hpp"
 #include "maicord/ui/private_channel_rows.hpp"
 #include "maicord/ui/shell_navigation_scene.hpp"

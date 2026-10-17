@@ -15,6 +15,7 @@
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
+#include "maicord/ui/navigation_view.hpp"
 #include <dwrite.h> // Test-only coverage oracle; the client has no DirectWrite.
 
 namespace maicord {

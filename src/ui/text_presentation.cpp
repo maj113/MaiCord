@@ -1,5 +1,6 @@
 #include "maicord/ui/text_presentation.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/ui/text_style.hpp"
 
 #include <Windows.h>
 

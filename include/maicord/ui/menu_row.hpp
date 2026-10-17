@@ -1,10 +1,9 @@
 #pragma once
 
 #include "maicord/ui/icon.hpp"
-#include "maicord/ui/surface_geometry.hpp"
-#include "maicord/ui/theme_styles.hpp"
 
 namespace maicord {
+struct UiResolvedThemeStyles;
 
 enum class UiMenuIconPlacement : u8 {
     leading,

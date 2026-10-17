@@ -1,13 +1,16 @@
 #pragma once
 
-#include "maicord/ui/theme_styles.hpp"
-#include "maicord/ui/audio_controls.hpp"
-#include "maicord/ui/poll_controls.hpp"
-#include "maicord/ui/settings_scene.hpp"
-#include "maicord/ui/forum_post_scene.hpp"
-#include "maicord/ui/theme_editor.hpp"
-
 namespace maicord {
+struct ForumPostStyle;
+struct Theme;
+struct UiAudioControlsStyle;
+struct UiPollStyle;
+struct UiPollVotersStyle;
+struct UiResolvedThemeStyles;
+struct UiSettingsStyle;
+struct UiThemeEditorStyle;
+struct UiThemeMetrics;
+
 // Apply-time bank projection. Null/dormant banks yield the built-in component
 // defaults. No ownership, registry lookup, hashing or allocation.
 const UiThemeMetrics& ui_theme_metrics(const UiResolvedThemeStyles*) noexcept;

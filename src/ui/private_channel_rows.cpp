@@ -1,6 +1,8 @@
 #include "maicord/ui/private_channel_rows.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/utf.hpp"
 #include "maicord/model/user_store.hpp"
 #include "maicord/ui/shell_navigation_scene.hpp"
 #include "maicord/ui/member_list_scene.hpp"
@@ -8,6 +10,7 @@
 #include "maicord/ui/presence.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/background_presentation.hpp"
+#include "maicord/model/private_channel_store.hpp"
 
 namespace maicord {
 namespace {

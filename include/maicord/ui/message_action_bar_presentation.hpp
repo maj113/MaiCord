@@ -1,10 +1,10 @@
 #pragma once
 
-#include "maicord/ui/message_action_bar.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
+struct MessageActionBar;
 
 bool message_action_bar_presentation_build(
     const MessageActionBar& bar, const Theme& theme,

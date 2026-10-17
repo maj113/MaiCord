@@ -1,4 +1,5 @@
 #include "maicord/ui/guild_banner.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/media/jpeg.hpp"

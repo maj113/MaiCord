@@ -9,6 +9,7 @@
 #include "maicord/ui/attachment_menu.hpp"
 #include "maicord/ui/composer_attachment_strip.hpp"
 #include "maicord/ui/message_composer_scene.hpp"
+#include "maicord/ui/text_presentation.hpp"
 
 // Composer upload strip: the file classifier, tile geometry, hit testing,
 // scrolling, scene projection and draft metadata that reaches the body.

@@ -1,4 +1,5 @@
 #include "maicord/app/chat_state_dispatch.hpp"
+#include "maicord/app/gateway_client.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/model/permission_compute.hpp"

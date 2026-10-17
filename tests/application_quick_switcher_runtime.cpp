@@ -17,6 +17,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/clipboard.hpp"
+#include "maicord/protocol/client_status.hpp"
+#include "maicord/ui/presence.hpp"
 #include "test_output.hpp"
 
 namespace maicord::quick_switcher_runtime_test {

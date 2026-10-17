@@ -1,5 +1,6 @@
 #include "maicord/ui/reaction_viewer.hpp"
 
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {

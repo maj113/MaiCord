@@ -2,6 +2,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/menu_row.hpp"
+#include "maicord/ui/popup_scene.hpp"
 
 namespace maicord {
 namespace {

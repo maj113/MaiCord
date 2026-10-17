@@ -6,6 +6,7 @@
 #include "maicord/protocol/guild_assets.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/guild_detail_store.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

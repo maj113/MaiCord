@@ -3,6 +3,8 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/model/message_composer.hpp"
+#include "maicord/ui/emoji_catalog.hpp"
 
 namespace maicord {
 namespace {

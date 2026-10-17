@@ -13,6 +13,7 @@
 #include "maicord/ui/profile_scene.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "maicord/ui/user_context_menu.hpp"
+#include "maicord/ui/presence.hpp"
 
 // The probe links the application media pump without the editor owner: the
 // editor scenes are bound to the renderer directly below.

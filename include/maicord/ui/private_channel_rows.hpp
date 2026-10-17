@@ -1,11 +1,13 @@
 #pragma once
-#include "maicord/model/chat_state.hpp"
-#include "maicord/model/relationship_store.hpp"
 #include "maicord/model/typing_store.hpp"
 #include "maicord/ui/geometry.hpp"
-#include "maicord/ui/paint.hpp"
 
 namespace maicord {
+struct ChatStateStore;
+struct PaintStream;
+struct RelationshipStore;
+struct Theme;
+struct UserStore;
 // Borrowed by the navigation view for DM and group DM rows and the DM header.
 struct UiPrivateRowSource {
     const ChatStateStore* state;

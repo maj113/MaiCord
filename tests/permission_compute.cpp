@@ -2,6 +2,7 @@
 #include "maicord/model/member_moderation.hpp"
 #include "maicord/model/guild_settings_model.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/guild_member_store.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

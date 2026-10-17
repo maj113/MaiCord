@@ -19,6 +19,7 @@
 #include "application_state.hpp"
 #include "application_profile.hpp"
 #include "application_text_form.hpp"
+#include "maicord/model/reaction_preferences.hpp"
 #include "application_forum_form.hpp"
 #include "application_forum_post.hpp"
 #include "application_composer_text_input.hpp"

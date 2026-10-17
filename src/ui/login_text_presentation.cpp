@@ -2,6 +2,7 @@
 #include "maicord/ui/foreground_color.hpp"
 
 #include "maicord/core/utf.hpp"
+#include "maicord/ui/text_style.hpp"
 
 namespace maicord {
 namespace {

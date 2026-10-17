@@ -1,10 +1,10 @@
 #pragma once
 
-#include "maicord/app/rest_client.hpp"
 #include "maicord/model/message_store.hpp"
 #include "maicord/protocol/reaction_users.hpp"
 
 namespace maicord {
+struct RestClientResponse;
 inline constexpr u32 kPollControllerMaximumAnswers = 10;
 inline constexpr u32 kPollControllerMaximumRetries = 3;
 struct PollControllerActor {

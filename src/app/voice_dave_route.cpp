@@ -3,6 +3,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/protocol/gateway_events.hpp"
 
 namespace maicord {
 namespace {

@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/app/rest_client.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/model/user_store.hpp"
 #include "maicord/model/message_rich_store.hpp"

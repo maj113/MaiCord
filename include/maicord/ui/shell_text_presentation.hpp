@@ -3,13 +3,14 @@
 #include "maicord/model/chat_state.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/scene.hpp"
-#include "maicord/ui/message_composer_scene.hpp"
-#include "maicord/ui/member_list_scene.hpp"
-#include "maicord/ui/shell_navigation_scene.hpp"
-#include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/text_presentation.hpp"
 
 namespace maicord {
+struct GuildRailScene;
+struct MemberListScene;
+struct MessageComposerScene;
+struct ShellNavigationScene;
+struct UserStore;
 
 inline constexpr u32 kMaximumShellChromeTextCommands = 384;
 

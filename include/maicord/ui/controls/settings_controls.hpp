@@ -1,11 +1,10 @@
 #pragma once
 
-#include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/geometry.hpp"
-#include "maicord/ui/icon.hpp"
 #include "maicord/ui/paint.hpp"
 
 namespace maicord {
+struct UiSettingsTokens;
 
 // Stateless settings controls: geometry, paint and hit-testing over resolved
 // tokens. Callers own state, animation clocks and text emission.

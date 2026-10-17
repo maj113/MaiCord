@@ -3,6 +3,7 @@
 #include "maicord/protocol/rest_route.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/heap_sort.hpp"
+#include "maicord/protocol/rest.hpp"
 
 namespace maicord {
 namespace {

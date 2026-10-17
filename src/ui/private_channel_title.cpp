@@ -1,4 +1,8 @@
 #include "maicord/ui/private_channel_title.hpp"
+#include "maicord/core/decimal.hpp"
+#include "maicord/core/utf.hpp"
+#include "maicord/model/chat_state.hpp"
+#include "maicord/model/private_channel_store.hpp"
 
 namespace maicord {
 u64 private_channel_peer(const ChatStateStore& state, u64 channel_id) noexcept {

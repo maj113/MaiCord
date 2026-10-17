@@ -1,5 +1,7 @@
 #include "maicord/app/quick_switcher_controller.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/model/private_channel_store.hpp"
+#include "maicord/model/permission_bits.hpp"
 
 namespace maicord {
 namespace {

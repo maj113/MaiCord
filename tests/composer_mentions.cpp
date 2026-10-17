@@ -10,6 +10,7 @@
 #include "maicord/protocol/message_create.hpp"
 #include "maicord/ui/composer_autocomplete.hpp"
 #include "maicord/ui/message_markdown.hpp"
+#include "maicord/ui/navigation_view.hpp"
 
 namespace maicord {
 namespace {

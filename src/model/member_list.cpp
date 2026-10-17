@@ -3,6 +3,8 @@
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/model/role_policy.hpp"
 #include "maicord/protocol/client_status.hpp"
+#include "maicord/model/guild_member_store.hpp"
+#include "maicord/model/private_channel_store.hpp"
 
 namespace maicord {
 namespace {
