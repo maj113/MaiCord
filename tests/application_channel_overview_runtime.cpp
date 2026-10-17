@@ -69,6 +69,13 @@ bool send() noexcept {
     return application_channel_overview_submit(
         maximum(clock_monotonic_milliseconds(), owner ? owner->controller.retry_at_ms : 0));
 }
+void focus(UiSettingsTarget target) noexcept {
+    settings_layer_focus(&owner->layer, target);
+}
+void activate(UiSettingsTarget target) noexcept {
+    if (owner)
+        settings_layer_activate_target(&owner->layer, target);
+}
 bool edit_name(Utf8View value) noexcept {
     focus({UiSettingsTargetKind::control, page_key, 1});
     const auto target = application_channel_overview_edit_target();
