@@ -60,6 +60,9 @@ const PcmWorkspace& pcm_owner(const AccountVideoSession& s) noexcept {
     return s.status.kind == AccountPlaybackKind::mp3 ? static_cast<const Mp3Workspace*>(s.workspace)->pcm
                                                     : *static_cast<const PcmWorkspace*>(s.workspace);
 }
+bool pcm_backed(const AccountVideoSession& s) noexcept {
+    return s.status.kind == AccountPlaybackKind::wave_pcm || s.status.kind == AccountPlaybackKind::mp3;
+}
 bool standalone(const AccountVideoSession& s) noexcept {
     return s.status.kind != AccountPlaybackKind::mp4;
 }
@@ -77,7 +80,7 @@ MediaAudio* audio_owner(AccountVideoSession& s) noexcept {
         return nullptr;
     if (s.status.kind == AccountPlaybackKind::ogg_opus)
         return &static_cast<OpusWorkspace*>(s.workspace)->audio;
-    if (s.status.kind == AccountPlaybackKind::wave_pcm || s.status.kind == AccountPlaybackKind::mp3)
+    if (pcm_backed(s))
         return &pcm_owner(s).audio;
     return &static_cast<Workspace*>(s.workspace)->audio;
 }
@@ -86,19 +89,19 @@ const MediaAudio* audio_owner(const AccountVideoSession& s) noexcept {
         return nullptr;
     if (s.status.kind == AccountPlaybackKind::ogg_opus)
         return &static_cast<const OpusWorkspace*>(s.workspace)->audio;
-    if (s.status.kind == AccountPlaybackKind::wave_pcm || s.status.kind == AccountPlaybackKind::mp3)
+    if (pcm_backed(s))
         return &pcm_owner(s).audio;
     return &static_cast<const Workspace*>(s.workspace)->audio;
 }
 u64 wanted_frames(const AccountVideoSession& s) noexcept {
-    if (s.status.kind == AccountPlaybackKind::wave_pcm || s.status.kind == AccountPlaybackKind::mp3)
+    if (pcm_backed(s))
         return pcm_owner(s).wanted_frames;
     return s.status.kind == AccountPlaybackKind::ogg_opus
                ? static_cast<const OpusWorkspace*>(s.workspace)->wanted_frames
                : static_cast<const Workspace*>(s.workspace)->wanted_frames;
 }
 bool& requested_play(AccountVideoSession& s) noexcept {
-    if (s.status.kind == AccountPlaybackKind::wave_pcm || s.status.kind == AccountPlaybackKind::mp3)
+    if (pcm_backed(s))
         return pcm_owner(s).requested_play;
     return s.status.kind == AccountPlaybackKind::ogg_opus
                ? static_cast<OpusWorkspace*>(s.workspace)->requested_play
@@ -361,7 +364,7 @@ bool workspace(AccountVideoSession& s) noexcept {
         return true;
     if (s.status.kind == AccountPlaybackKind::ogg_opus)
         return opus_workspace(s);
-    if (s.status.kind == AccountPlaybackKind::wave_pcm || s.status.kind == AccountPlaybackKind::mp3)
+    if (pcm_backed(s))
         return pcm_workspace(s);
     auto* w = static_cast<Workspace*>(
         VirtualAlloc(nullptr, sizeof(Workspace), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
@@ -496,7 +499,7 @@ bool reset(AccountVideoSession& s, i64 target) noexcept {
             terminal(s, AccountVideoError::audio, audio.native_error);
             return false;
         }
-        const bool window = s.status.kind == AccountPlaybackKind::wave_pcm || s.status.kind == AccountPlaybackKind::mp3
+        const bool window = pcm_backed(s)
                                 ? pcm_window(s, pcm_owner(s))
                                 : s.status.kind == AccountPlaybackKind::ogg_opus
                                 ? opus_window(s, *static_cast<OpusWorkspace*>(s.workspace))
@@ -1218,7 +1221,7 @@ AccountVideoService account_video_session_service(AccountVideoSession* s, bool (
         if (!request_audio_state(*s))
             return out;
     if (s->status.has_audio && (s->desired_play || s->seeking))
-        out.needs_service = s->status.kind == AccountPlaybackKind::wave_pcm || s->status.kind == AccountPlaybackKind::mp3
+        out.needs_service = pcm_backed(*s)
                                 ? pcm_service(*s, cancelled, context, &out.interrupted)
                                 : s->status.kind == AccountPlaybackKind::ogg_opus
                                 ? opus_service(*s, cancelled, context, &out.interrupted)
@@ -1451,7 +1454,7 @@ AccountVideoProbeSnapshot account_video_session_probe_snapshot(const AccountVide
     out.published = s->published;
     out.seeking = s->seeking;
     out.audio_epoch_ready = s->audio_epoch_ready;
-    if (s->workspace && (s->status.kind == AccountPlaybackKind::wave_pcm || s->status.kind == AccountPlaybackKind::mp3)) {
+    if (s->workspace && pcm_backed(*s)) {
         const auto& w = pcm_owner(*s);
         out.audio = media_audio_status(&w.audio);
         out.source_frames = w.source_frames;

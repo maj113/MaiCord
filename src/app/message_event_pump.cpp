@@ -47,8 +47,6 @@ bool preflight_read_snapshot(const MessageEventPump& pump, const GatewayClientEv
     return true;
 }
 bool cached_mentions(const MessageEventPump& pump, u64 channel_id, u64 cursor, u32* count) noexcept {
-    if (!count)
-        return false;
     *count = 0;
     const auto* store = pump.timeline ? pump.timeline->store : nullptr;
     if (pump.state->selected_channel_id != channel_id || !store)
@@ -462,9 +460,6 @@ bool is_not_resident(const MessageTimelineApplyResult& result) noexcept {
 
 bool message_mentions_current_member(const ChatStateStore& state, const GatewayClientEvent& event,
                                      ConstSlice<u8> payload, bool* mentioned) noexcept {
-    if (!mentioned) {
-        return false;
-    }
     *mentioned = (event.message.mention_flags & (gateway_client_message_mention_everyone |
                                                  gateway_client_message_mention_current_user)) != 0;
     const ChannelRecord* channel = chat_state_store_find_channel(state, event.message.channel_id);
@@ -958,8 +953,7 @@ MessageEventPumpConsumeResult message_event_pump_consume(MessageEventPump* pump,
             result.state_incomplete = true;
             return result;
         }
-        if (pump->guild_details)
-            guild_detail_store_apply_gateway_event(pump->guild_details, *pump->state, event, payload);
+        guild_detail_store_apply_gateway_event(pump->guild_details, *pump->state, event, payload);
         if (pump->members) {
             guild_member_store_reset_lists(pump->members);
             guild_member_store_retire_role_authority(pump->members);

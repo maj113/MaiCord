@@ -17,9 +17,6 @@ namespace maicord {
 namespace {
 
 bool ensure_suggestion_storage(ComposerAutocomplete* autocomplete) noexcept {
-    if (!autocomplete) {
-        return false;
-    }
     if (autocomplete->suggestions) {
         return true;
     }
@@ -61,7 +58,7 @@ bool contains_folded_ascii(Utf8View candidate, Utf8View query) noexcept {
 }
 
 bool active_token(const MessageComposer& composer, Utf8View* token, u32* begin) noexcept {
-    if (!token || !begin || !composer.text || composer.anchor != composer.caret ||
+    if (!composer.text || composer.anchor != composer.caret ||
         composer.caret > composer.bytes) {
         return false;
     }
@@ -82,26 +79,12 @@ bool active_token(const MessageComposer& composer, Utf8View* token, u32* begin) 
 }
 
 u32 decimal_u64(u64 value, Slice<char> output) noexcept {
-    if (!output.data || output.count == 0) {
-        return 0;
-    }
-    char reverse[20]{};
-    u32 digits = 0;
-    do {
-        reverse[digits++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0 && digits < static_cast<u32>(sizeof(reverse)));
-    if (digits > output.count) {
-        return 0;
-    }
-    for (u32 index = 0; index < digits; ++index) {
-        output[index] = reverse[digits - index - 1];
-    }
-    return digits;
+    const u32 digits = decimal_digits(value);
+    return digits > output.count ? 0 : decimal_write(output.data, value);
 }
 
 bool set_snowflake_insertion(ComposerAutocompleteSuggestion* suggestion, char marker, u64 id) noexcept {
-    if (!suggestion || id == 0) {
+    if (id == 0) {
         return false;
     }
     char digits[20]{};
@@ -122,7 +105,7 @@ bool set_snowflake_insertion(ComposerAutocompleteSuggestion* suggestion, char ma
 }
 
 bool set_emoji_insertion(ComposerAutocompleteSuggestion* suggestion, Utf8View glyph) noexcept {
-    if (!suggestion || !glyph.data || glyph.bytes == 0 ||
+    if (!glyph.data || glyph.bytes == 0 ||
         glyph.bytes + 1u > sizeof(suggestion->insertion)) {
         return false;
     }
@@ -135,7 +118,7 @@ bool set_emoji_insertion(ComposerAutocompleteSuggestion* suggestion, Utf8View gl
 }
 
 bool set_emoji_label(ComposerAutocompleteSuggestion* suggestion, Utf8View name, Utf8View glyph) noexcept {
-    if (!suggestion || !name.data || !glyph.data || name.bytes == 0 || glyph.bytes == 0 ||
+    if (!name.data || !glyph.data || name.bytes == 0 || glyph.bytes == 0 ||
         glyph.bytes + name.bytes + 4u > sizeof(suggestion->label_storage)) {
         return false;
     }
@@ -252,7 +235,7 @@ bool role_before(const RoleCandidate& left, const RoleCandidate& right) noexcept
 }
 
 ComposerAutocompleteSuggestion* append(ComposerAutocomplete* autocomplete, Utf8View label) noexcept {
-    if (!autocomplete || autocomplete->count >= kComposerAutocompleteCapacity || !label.data ||
+    if (autocomplete->count >= kComposerAutocompleteCapacity || !label.data ||
         label.bytes == 0) {
         return nullptr;
     }

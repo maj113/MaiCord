@@ -78,7 +78,7 @@ UiWidgetResult add_reaction(UiWidgetManager* manager, UiWidgetHandle parent, u32
 }
 
 bool set_fixed_height(UiWidgetManager* manager, UiWidgetHandle handle, float height) noexcept {
-    if (!manager || !ui_extent_valid(height)) {
+    if (!ui_extent_valid(height)) {
         return false;
     }
     UiWidget* widget = ui_widget_manager_resolve(manager, handle);
@@ -91,7 +91,7 @@ bool set_fixed_height(UiWidgetManager* manager, UiWidgetHandle handle, float hei
 }
 
 bool set_fixed_width(UiWidgetManager* manager, UiWidgetHandle handle, float width) noexcept {
-    if (!manager || !ui_extent_valid(width) || width <= 0.0f) {
+    if (!ui_extent_valid(width) || width <= 0.0f) {
         return false;
     }
     UiWidget* widget = ui_widget_manager_resolve(manager, handle);
@@ -104,7 +104,7 @@ bool set_fixed_width(UiWidgetManager* manager, UiWidgetHandle handle, float widt
 }
 
 bool set_interaction(UiWidgetManager* manager, UiWidgetHandle handle, bool interactive) noexcept {
-    UiWidget* widget = manager ? ui_widget_manager_resolve(manager, handle) : nullptr;
+    UiWidget* widget = ui_widget_manager_resolve(manager, handle);
     if (!widget) {
         return false;
     }

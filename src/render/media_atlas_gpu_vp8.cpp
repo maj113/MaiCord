@@ -376,10 +376,10 @@ MediaAtlasGpuResult media_atlas_gpu_advance_animated_webp_vp8(
 }
 
 void media_atlas_gpu_release(MediaAtlasGpu* gpu) noexcept {
-    if (gpu) video_frame_gpu_release(&gpu->video);
     if (!gpu) {
         return;
     }
+    video_frame_gpu_release(&gpu->video);
     com_release(gpu->jpeg_atlas_shader);
     com_release(gpu->jpeg_atlas_constants);
     com_release(gpu->jpeg_idct_shader);

@@ -17,6 +17,12 @@ NetworkWorkerResult failure(NetworkWorkerError error, u32 native_error) noexcept
     return NetworkWorkerResult{native_error, error};
 }
 
+void close_worker(NetworkWorker* worker) noexcept {
+    CloseHandle(worker->thread);
+    CloseHandle(worker->ready_event);
+    *worker = NetworkWorker{};
+}
+
 NetworkWorkerStep dispatch(NetworkWorker* worker, NetworkWorkerEventKind kind,
                            const NetworkPollResult& poll) noexcept {
     const NetworkWorkerEvent event{poll, GetTickCount64(), kind};
@@ -127,18 +133,14 @@ NetworkWorkerResult network_worker_start(NetworkWorker* worker, NetworkWorkerHan
             network_worker_request_stop(worker);
         }
         WaitForSingleObject(worker->thread, INFINITE);
-        CloseHandle(worker->thread);
-        CloseHandle(worker->ready_event);
-        *worker = NetworkWorker{};
+        close_worker(worker);
         return failure(NetworkWorkerError::startup_timeout,
                        native_error);
     }
     if (worker->startup_error != NetworkWorkerError::none) {
         WaitForSingleObject(worker->thread, INFINITE);
         const NetworkWorkerResult result = failure(worker->startup_error, worker->native_error);
-        CloseHandle(worker->thread);
-        CloseHandle(worker->ready_event);
-        *worker = NetworkWorker{};
+        close_worker(worker);
         return result;
     }
     return success();
@@ -165,9 +167,7 @@ NetworkWorkerResult network_worker_join(NetworkWorker* worker, u32 timeout_milli
         return failure(NetworkWorkerError::join_timeout,
                        waited == WAIT_FAILED ? thread_last_error() : WAIT_TIMEOUT);
     }
-    CloseHandle(worker->thread);
-    CloseHandle(worker->ready_event);
-    *worker = NetworkWorker{};
+    close_worker(worker);
     return success();
 }
 

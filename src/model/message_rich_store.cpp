@@ -22,20 +22,17 @@ constexpr bool system_target_type(u16 type) noexcept {
 using StringVisitor = bool (*)(void*, MessageRichString*) noexcept;
 
 bool visit_string(MessageRichString* value, StringVisitor visitor, void* context) noexcept {
-    return value && visitor && visitor(context, value);
+    return visitor(context, value);
 }
 
 bool walk_embed_media_strings(MessageRichEmbedMedia* media, StringVisitor visitor, void* context) noexcept {
-    return media && visit_string(&media->url, visitor, context) &&
+    return visit_string(&media->url, visitor, context) &&
            visit_string(&media->proxy_url, visitor, context) &&
            visit_string(&media->content_type, visitor, context) &&
            visit_string(&media->description, visitor, context);
 }
 
 bool walk_strings(MessageRichRecord* record, u32 fields, StringVisitor visitor, void* context) noexcept {
-    if (!record || !visitor) {
-        return false;
-    }
     if ((fields & gateway_message_field_interaction) != 0 &&
         (!visit_string(&record->interaction.user_name, visitor, context) ||
          !visit_string(&record->interaction.user_avatar_hash, visitor, context) ||
@@ -138,15 +135,12 @@ struct TotalContext {
 
 bool total_string(void* opaque, MessageRichString* value) noexcept {
     auto* context = static_cast<TotalContext*>(opaque);
-    if (!context || !context->store || !value) {
-        return false;
-    }
     if (value->bytes == 0) {
         return value->offset == 0;
     }
     const MessageRichStore& store = *context->store;
     const u32 base = bank_base(store);
-    if (!store.text || value->offset < base || value->offset > base + store.text_used ||
+    if (value->offset < base || value->offset > base + store.text_used ||
         value->bytes > base + store.text_used - value->offset) {
         return false;
     }
@@ -166,9 +160,6 @@ struct RelocateContext {
 
 bool relocate_string(void* opaque, MessageRichString* value) noexcept {
     auto* context = static_cast<RelocateContext*>(opaque);
-    if (!context || !context->store || !value) {
-        return false;
-    }
     if (value->bytes == 0) {
         return value->offset == 0;
     }
@@ -221,9 +212,6 @@ SearchResult find_record(const MessageRichStore& store, u64 message_id) noexcept
 
 bool compact_excluding(MessageRichStore* store, u16 target_slot, bool has_target,
                        u32 replaced_fields) noexcept {
-    if (!store || !store->records || !store->order || !store->text) {
-        return false;
-    }
     TotalContext total{store, 0};
     for (u32 slot = 0; slot < store->record_extent; ++slot) {
         if (!store->records[slot].occupied)
@@ -255,7 +243,7 @@ bool compact_excluding(MessageRichStore* store, u16 target_slot, bool has_target
 }
 
 bool add_bytes(u64* total, Utf8View value) noexcept {
-    if (!total || (!value.data && value.bytes != 0) || value.bytes > 0xFFFFu ||
+    if ((!value.data && value.bytes != 0) || value.bytes > 0xFFFFu ||
         !utf8_validate(value).valid || *total > ~0ull - value.bytes) {
         return false;
     }
@@ -264,14 +252,14 @@ bool add_bytes(u64* total, Utf8View value) noexcept {
 }
 
 bool validate_embed_media(const GatewayMessageEmbedMedia& media, u64* desired_bytes) noexcept {
-    return desired_bytes && (!media.has_width || media.width != 0) &&
+    return (!media.has_width || media.width != 0) &&
            (!media.has_height || media.height != 0) && add_bytes(desired_bytes, media.url) &&
            add_bytes(desired_bytes, media.proxy_url) && add_bytes(desired_bytes, media.content_type) &&
            add_bytes(desired_bytes, media.description);
 }
 
 bool validate_attachments(ConstSlice<GatewayMessageAttachment> attachments, u64* desired_bytes) noexcept {
-    if (!desired_bytes || attachments.count > kGatewayMessageAttachmentMaximum ||
+    if (attachments.count > kGatewayMessageAttachmentMaximum ||
         (!attachments.data && attachments.count))
         return false;
     for (u32 index = 0; index < attachments.count; ++index) {
@@ -285,7 +273,7 @@ bool validate_attachments(ConstSlice<GatewayMessageAttachment> attachments, u64*
     return true;
 }
 bool validate_input(const GatewayMessageEvent& input, u32 fields, u64* desired_bytes) noexcept {
-    if (!desired_bytes || input.reactions.count > kGatewayMessageReactionMaximum ||
+    if (input.reactions.count > kGatewayMessageReactionMaximum ||
         input.attachments.count > kGatewayMessageAttachmentMaximum ||
         input.embeds.count > kGatewayMessageEmbedMaximum ||
         input.embed_fields.count > kGatewayMessageEmbedFieldMaximum ||
@@ -375,7 +363,7 @@ bool validate_input(const GatewayMessageEvent& input, u32 fields, u64* desired_b
 }
 
 MessageRichString store_string(MessageRichStore* store, Utf8View value, bool* truncated) noexcept {
-    if (!store || !truncated || value.bytes == 0) {
+    if (value.bytes == 0) {
         return MessageRichString{};
     }
     const u32 capacity = bank_capacity(*store);
@@ -404,7 +392,7 @@ void copy_embed_media(MessageRichStore* store, const GatewayMessageEmbedMedia& s
 
 bool count_wasted(void* opaque, MessageRichString* value) noexcept {
     auto* total = static_cast<u64*>(opaque);
-    if (!total || !value || *total > ~0ull - value->bytes) {
+    if (*total > ~0ull - value->bytes) {
         return false;
     }
     *total += value->bytes;
@@ -645,7 +633,7 @@ void copy_input(MessageRichStore* store, MessageRichRecord* record, const Gatewa
 }
 
 bool erase_snapshot_slot(MessageRichStore* store, u16 slot) noexcept {
-    if (!store || slot >= store->record_extent || !store->records[slot].occupied ||
+    if (slot >= store->record_extent || !store->records[slot].occupied ||
         !store->records[slot].forwarded_snapshot_child || !store->snapshot_count)
         return false;
     u64 wasted = 0;
@@ -661,7 +649,7 @@ bool erase_snapshot_slot(MessageRichStore* store, u16 slot) noexcept {
 }
 
 bool erase_slot(MessageRichStore* store, u32 order_index, u16 slot) noexcept {
-    if (!store || slot >= store->record_extent || order_index >= store->count ||
+    if (slot >= store->record_extent || order_index >= store->count ||
         store->order[order_index] != slot || !store->records[slot].occupied) {
         return false;
     }
@@ -720,7 +708,7 @@ bool initialize_store(MessageRichStore* store, MessageRichRecord* records, Stabl
 }
 
 bool extend_records(MessageRichStore* store) noexcept {
-    if (!store || !store->record_storage || store->record_extent >= store->record_capacity ||
+    if (!store->record_storage || store->record_extent >= store->record_capacity ||
         !stable_storage_reserve(store->record_storage, store->record_extent + 1u)) {
         return false;
     }
@@ -861,12 +849,10 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
                                          const GatewayMessageEvent& input, bool child = false,
                                          u16 child_slot = 0, const RichValidationPlan* validated = nullptr) noexcept {
     MessageRichStoreResult result{};
-    if (!store || !store->records || !store->order || !store->text || store->capacity == 0 ||
+    if (!store->records || !store->order || !store->text || store->capacity == 0 ||
         message_id == 0 || message_revision == 0 || input.id != message_id) {
         result.error = MessageRichStoreError::invalid_input;
-        if (store) {
-            ++store->rejected;
-        }
+        ++store->rejected;
         return result;
     }
     u32 fields = input.fields & kRichFields & (child ? ~static_cast<u32>(gateway_message_field_thread) : ~0u);
@@ -986,12 +972,11 @@ static MessageRichStoreResult apply_body(MessageRichStore* store, u64 message_id
     result.storage_truncated = storage_truncated;
 
     if (!record_has_content(*record)) {
-        if (!erase_slot(store, search.found ? search.order_index : search.order_index, slot)) {
+        if (!erase_slot(store, search.order_index, slot)) {
             result.error = MessageRichStoreError::corrupt_state;
             ++store->rejected;
             return result;
         }
-        result.record = nullptr;
         return result;
     }
     result.record = record;
@@ -1030,9 +1015,7 @@ MessageRichStoreResult message_rich_store_apply(MessageRichStore* store, u64 mes
     const bool supplied = (input.fields & gateway_message_field_message_snapshots) != 0;
     if (!supplied && input.snapshot.present)
         return {nullptr, MessageRichStoreError::invalid_input, false, false};
-    if (!outer && !(input.fields & kRichFields))
-        return apply_body(store, message_id, message_revision, input);
-    if (!outer && store->count >= store->capacity)
+    if (!outer && (!(input.fields & kRichFields) || store->count >= store->capacity))
         return apply_body(store, message_id, message_revision, input);
     const u16 previous_slot = previous ? outer->forwarded_snapshot_slot : 0;
     GatewayMessageEvent body{};
@@ -1448,8 +1431,6 @@ struct PackStringContext {
 
 bool pack_string(void* opaque, MessageRichString* value) noexcept {
     auto* context = static_cast<PackStringContext*>(opaque);
-    if (!context || !value)
-        return false;
     if (value->bytes == 0)
         return value->offset == 0;
     const MessageRichStore& store = *context->store;
@@ -1457,11 +1438,9 @@ bool pack_string(void* opaque, MessageRichString* value) noexcept {
     if (value->offset < base || value->offset > base + store.text_used ||
         value->bytes > base + store.text_used - value->offset || value->bytes > ~0u - context->cursor)
         return false;
-    if (context->output) {
-        if (context->cursor + value->bytes > context->capacity)
-            return false;
-        copy_bytes(context->output + context->cursor, store.text + value->offset, value->bytes);
-    }
+    if (context->cursor + value->bytes > context->capacity)
+        return false;
+    copy_bytes(context->output + context->cursor, store.text + value->offset, value->bytes);
     value->offset = context->cursor;
     context->cursor += value->bytes;
     return true;
@@ -1545,8 +1524,6 @@ struct UnpackStringContext {
 
 bool unpack_string(void* opaque, MessageRichString* value) noexcept {
     auto* context = static_cast<UnpackStringContext*>(opaque);
-    if (!context || !value)
-        return false;
     if (value->bytes == 0)
         return value->offset == 0;
     if (value->offset > context->string_bytes || value->bytes > context->string_bytes - value->offset)

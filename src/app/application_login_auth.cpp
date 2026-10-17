@@ -68,9 +68,6 @@ struct VerificationInput {
 };
 
 bool login_control_mfa_type(LoginControl control, UserAuthMfaType* type) noexcept {
-    if (!type) {
-        return false;
-    }
     switch (control) {
     case LoginControl::mfa_totp:
         *type = UserAuthMfaType::totp;

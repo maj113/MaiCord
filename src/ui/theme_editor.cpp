@@ -72,15 +72,7 @@ void numbers(UiThemeEditorScene& s) noexcept {
         s.hex[i + 1] = digits[(rgb >> (20 - i * 4)) & 15];
     s.hex[7] = 0;
     auto number = [](char* dst, u32 v) noexcept -> u8 {
-        char reverse[4];
-        u8 count = 0;
-        do {
-            reverse[count++] = static_cast<char>('0' + v % 10);
-            v /= 10;
-        } while (v);
-        for (u8 i = 0; i < count; ++i)
-            dst[i] = reverse[count - i - 1];
-        return count;
+        return static_cast<u8>(decimal_write(dst, v));
     };
     s.direction_bytes = number(s.direction_text, s.draft.angle_degrees);
     s.intensity_bytes = number(s.intensity_text, s.draft.intensity);
@@ -238,7 +230,7 @@ UiRect track(UiRect r) noexcept {
     return {r.left + 8, r.bottom - 18, r.right - 8, r.bottom - 10};
 }
 bool publish(UiThemeEditorScene& s, BackgroundTheme next, BackgroundTheme* output) noexcept {
-    if (!output || !background_theme_valid(next) || background_theme_equal(next, s.draft))
+    if (!background_theme_valid(next) || background_theme_equal(next, s.draft))
         return false;
     s.draft = next;
     const u32 profile = background_effect_profile_index(next.effect);

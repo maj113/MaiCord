@@ -317,15 +317,7 @@ Utf8View tab_label(u32 tab) noexcept {
     return tab < 5 ? labels[tab] : Utf8View{};
 }
 u8 compact_count(char* out, u64 value) noexcept {
-    char digits[24];
-    u8 used = 0, n = 0;
-    u64 rest = value < 1000 ? value : value / 1000;
-    do {
-        digits[n++] = static_cast<char>('0' + rest % 10);
-        rest /= 10;
-    } while (rest && n < 20);
-    while (n)
-        out[used++] = digits[--n];
+    u8 used = static_cast<u8>(decimal_write(out, value < 1000 ? value : value / 1000));
     if (value >= 1000 && value < 10000) {
         out[used++] = '.';
         out[used++] = static_cast<char>('0' + value / 100 % 10);
@@ -768,13 +760,9 @@ UiWidgetHandle add(UiSearchScene& s, UiRect rectangle, UiSearchTarget target, Ut
 void count_label(UiSearchScene& s) noexcept {
     auto append = [&](u64 value) noexcept {
         char digits[20];
-        u32 n = 0;
-        do {
-            digits[n++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value);
-        while (n)
-            s.count_text[s.count_bytes++] = digits[--n];
+        const u32 n = decimal_write(digits, value);
+        for (u32 i = 0; i < n; ++i)
+            s.count_text[s.count_bytes++] = digits[i];
     };
     s.count_bytes = 0;
     for (u32 tab = 0; tab < 5; ++tab)
@@ -1119,16 +1107,8 @@ bool rebuild(UiSearchScene& s) noexcept {
             const u64 index = start + i;
             if (index > ~u32{0} / page_size)
                 break;
-            u64 number = index + 1;
-            char digits[12]{};
-            u8 bytes = 0;
-            do {
-                digits[bytes++] = static_cast<char>('0' + number % 10);
-                number /= 10;
-            } while (number);
+            const u8 bytes = static_cast<u8>(decimal_write(s.page_text[i], index + 1));
             s.page_bytes[i] = bytes;
-            for (u32 j = 0; j < bytes; ++j)
-                s.page_text[i][j] = digits[bytes - j - 1];
             const float x = pages_left + i * 32;
             s.pages[i] = add(s, {x, p.bottom - 36, x + 28, p.bottom - 8},
                              {UiSearchAction::page, 0, 0, static_cast<u32>(index * page_size)},

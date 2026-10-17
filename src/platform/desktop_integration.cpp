@@ -16,9 +16,6 @@ constexpr wchar_t kUrlArgument[] = L"--url";
 bool space(wchar_t c) noexcept {
     return c == L' ' || c == L'\t';
 }
-wchar_t fold(wchar_t c) noexcept {
-    return c >= L'A' && c <= L'Z' ? static_cast<wchar_t>(c + (L'a' - L'A')) : c;
-}
 u32 wide_length(const wchar_t* text) noexcept {
     u32 n = 0;
     while (text && text[n])
@@ -39,7 +36,7 @@ bool prefix_folded(ConstSlice<wchar_t> text, u32 at, const wchar_t* literal) noe
     if (at > text.count || text.count - at < n)
         return false;
     for (u32 i = 0; i < n; ++i)
-        if (fold(text[at + i]) != literal[i])
+        if (ascii_lower(text[at + i]) != literal[i])
             return false;
     return true;
 }
@@ -174,7 +171,7 @@ bool segment_is(ConstSlice<wchar_t> text, u32 first, u32 last, const wchar_t* li
     if (last - first != n)
         return false;
     for (u32 i = 0; i < n; ++i)
-        if (fold(text[first + i]) != literal[i])
+        if (ascii_lower(text[first + i]) != literal[i])
             return false;
     return true;
 }
@@ -459,7 +456,7 @@ bool desktop_instance_name(const wchar_t* kind, ConstSlice<wchar_t> profile, wch
     // FNV-1a over the case-folded path; stable across processes.
     u64 hash = 0xcbf29ce484222325ull;
     for (u32 i = 0; i < profile.count; ++i) {
-        const wchar_t c = fold(profile[i] == L'/' ? L'\\' : profile[i]);
+        const wchar_t c = ascii_lower(profile[i] == L'/' ? L'\\' : profile[i]);
         hash = (hash ^ static_cast<u64>(c & 0xff)) * 0x100000001b3ull;
         hash = (hash ^ static_cast<u64>(c >> 8)) * 0x100000001b3ull;
     }

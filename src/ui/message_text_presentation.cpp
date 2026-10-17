@@ -1992,22 +1992,6 @@ bool append_annotations(MessageTextPresentation* presentation, const MessageScen
     return true;
 }
 
-u32 format_count(u32 value, char* output) noexcept {
-    char digits[16];
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10u);
-        value /= 10u;
-    } while (value);
-    u32 bytes = 0;
-    for (u32 i = 0; i < count; ++i) {
-        if (i && (count - i) % 3u == 0)
-            output[bytes++] = ',';
-        output[bytes++] = digits[count - 1u - i];
-    }
-    return bytes;
-}
-
 bool retain_text(MessageTextPresentation* presentation, Utf8View text, Utf8View* output) noexcept {
     if (text.bytes > presentation->utf8.count - presentation->utf8_count)
         return fail(presentation, MessageTextPresentationError::capacity);
@@ -2080,7 +2064,7 @@ bool append_event_card(MessageTextPresentation* presentation, const MessageScene
             if (detail_bytes)
                 add(utf8_literal(" \xC2\xB7 "));
             char count[16];
-            add({count, format_count(event->user_count, count)});
+            add({count, decimal_write_grouped(count, event->user_count)});
             add(utf8_literal(" interested"));
         }
     }
@@ -2141,11 +2125,11 @@ bool append_invite_cards(MessageTextPresentation* presentation, const MessageSce
         char detail_storage[96];
         u32 detail_bytes = 0;
         if (known && entry->invite.counts_known) {
-            detail_bytes += format_count(entry->invite.presence_count, detail_storage);
+            detail_bytes += decimal_write_grouped(detail_storage, entry->invite.presence_count);
             const auto online = utf8_literal(" online \xC2\xB7 ");
             copy_bytes(detail_storage + detail_bytes, online.data, online.bytes);
             detail_bytes += online.bytes;
-            detail_bytes += format_count(entry->invite.member_count, detail_storage + detail_bytes);
+            detail_bytes += decimal_write_grouped(detail_storage + detail_bytes, entry->invite.member_count);
             const auto members = utf8_literal(" members");
             copy_bytes(detail_storage + detail_bytes, members.data, members.bytes);
             detail_bytes += members.bytes;

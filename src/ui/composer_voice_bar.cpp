@@ -12,15 +12,7 @@ constexpr float kDot = 10.f, kGap = 8.f, kBar = 3.f, kBarGap = 2.f, kMinimumPeak
 u32 time_text(u32 milliseconds, char* out) noexcept {
     const u32 seconds = milliseconds / 1000, minutes = seconds / 60;
     u32 used = 0;
-    char digits[10];
-    u32 count = 0;
-    u32 value = minimum(minutes, 999u);
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    while (count)
-        out[used++] = digits[--count];
+    used += decimal_write(out + used, minimum(minutes, 999u));
     out[used++] = ':';
     out[used++] = static_cast<char>('0' + seconds % 60 / 10);
     out[used++] = static_cast<char>('0' + seconds % 10);

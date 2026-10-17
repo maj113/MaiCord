@@ -62,7 +62,7 @@ float reveal_of(const GuildRailScene* scene, const GuildViewRow& row) noexcept {
 }
 
 float content_height(const GuildRailScene* scene, const NavigationView* view) noexcept {
-    if (!view || view->guild_count > view->guild_capacity || (view->guild_count != 0 && !view->guild_rows))
+    if (!view)
         return 0.0f;
     float height = kGuildRailTopInset;
     for (u32 i = 0; i < view->guild_count; ++i)
@@ -122,9 +122,6 @@ template <typename Visit> void each_visible(const GuildRailScene& scene, const N
 }
 
 void clear_materialization(GuildRailScene* scene) noexcept {
-    if (!scene) {
-        return;
-    }
     ui_widget_manager_reset(&scene->widgets);
     scene->root = ui_widget_invalid_handle();
     scene->add_button = ui_widget_invalid_handle();

@@ -145,10 +145,8 @@ bool allocate_name(ChatStateStore* store, Utf8View name, u32* offset) noexcept {
         *offset = 0;
         return true;
     }
-    if (name.bytes > store->name_bank_bytes - store->name_used && !compact_names(store)) {
-        return false;
-    }
-    if (name.bytes > store->name_bank_bytes - store->name_used) {
+    if (name.bytes > store->name_bank_bytes - store->name_used &&
+        (!compact_names(store) || name.bytes > store->name_bank_bytes - store->name_used)) {
         return false;
     }
     *offset = active_name_base(*store) + store->name_used;
@@ -162,6 +160,12 @@ bool name_equals(const ChatStateStore& store, u32 offset, u16 bytes, Utf8View na
         return false;
     }
     return bytes_equal(store.names + offset, name.data, name.bytes);
+}
+
+Utf8View stored_name(const ChatStateStore& store, bool present, u32 offset, u32 bytes) noexcept {
+    return present && bytes != 0 && offset + bytes <= store.name_bank_bytes * 2
+               ? Utf8View{reinterpret_cast<const char*>(store.names + offset), bytes}
+               : Utf8View{};
 }
 
 struct NamePreflight {
@@ -419,9 +423,6 @@ bool set_selection(ChatStateStore* store, const ChannelRecord* channel) noexcept
     return true;
 }
 
-} // namespace
-
-namespace {
 bool initialize_store(ChatStateStore* store, Slice<GuildRecord> guilds, Slice<u16> guild_order,
                       Slice<ChannelRecord> channels, Slice<u16> channel_order,
                       Slice<u8> double_buffered_names, bool zeroed) noexcept {
@@ -983,12 +984,7 @@ bool chat_state_store_remove_guild(ChatStateStore* store, u64 guild_id, bool una
         chat_state_store_select_default(store);
         return true;
     }
-    for (u32 index = store->channel_count; index != 0; --index) {
-        const ChannelRecord& channel = store->channels[store->channel_order[index - 1]];
-        if (channel.guild_id == guild_id) {
-            chat_state_store_remove_channel(store, channel.id);
-        }
-    }
+    chat_state_store_remove_guild_channels(store, guild_id);
     chat_state_store_remove_guild_roles(store, guild_id);
     chat_state_store_remove_guild_emojis(store, guild_id);
     store->name_wasted += record.name_bytes;
@@ -1091,11 +1087,7 @@ const RoleRecord* chat_state_store_find_role(const ChatStateStore& store, u64 gu
 
 Utf8View chat_state_store_guild_name(const ChatStateStore& store,
                                         const GuildRecord& record) noexcept {
-    return record.occupied && record.name_bytes != 0 &&
-                   record.name_offset + record.name_bytes <= store.name_bank_bytes * 2
-               ? Utf8View{reinterpret_cast<const char*>(store.names + record.name_offset),
-                          record.name_bytes}
-               : Utf8View{};
+    return stored_name(store, record.occupied, record.name_offset, record.name_bytes);
 }
 
 Utf8View chat_state_store_guild_icon_hash(const GuildRecord& record) noexcept {
@@ -1112,20 +1104,12 @@ Utf8View chat_state_store_guild_banner_hash(const GuildRecord& record) noexcept 
 
 Utf8View chat_state_store_channel_name(const ChatStateStore& store,
                                           const ChannelRecord& record) noexcept {
-    return record.occupied && record.name_bytes != 0 &&
-                   record.name_offset + record.name_bytes <= store.name_bank_bytes * 2
-               ? Utf8View{reinterpret_cast<const char*>(store.names + record.name_offset),
-                          record.name_bytes}
-               : Utf8View{};
+    return stored_name(store, record.occupied, record.name_offset, record.name_bytes);
 }
 
 Utf8View chat_state_store_role_name(const ChatStateStore& store,
                                        const RoleRecord& record) noexcept {
-    return record.id != 0 && record.name_bytes != 0 && store.names &&
-                   record.name_offset + record.name_bytes <= store.name_bank_bytes * 2
-               ? Utf8View{reinterpret_cast<const char*>(store.names + record.name_offset),
-                          record.name_bytes}
-               : Utf8View{};
+    return stored_name(store, record.id != 0 && store.names, record.name_offset, record.name_bytes);
 }
 
 bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input) noexcept {
@@ -1156,43 +1140,34 @@ bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input)
             role.name_offset = name_offset;
             role.name_bytes = static_cast<u16>(input.name.bytes);
         }
-        role.permissions = input.permissions;
-        role.position = input.position;
-        role.color = input.color;
-        role.hoist = input.hoist;
-        role.managed = input.managed;
-        role.mentionable = input.mentionable;
-        role.has_icon = input.has_icon;
-        role.in_prompt = input.in_prompt;
-        role.secondary_color = input.secondary_color;
-        role.tertiary_color = input.tertiary_color;
-        return true;
+    } else {
+        if (store->role_count >= store->role_capacity ||
+            !chat_state_store_prepare_permissions(store, store->role_count + 1, store->overwrite_count)) {
+            ++store->rejected;
+            return false;
+        }
+        u32 name_offset = 0;
+        if (!allocate_name(store, input.name, &name_offset)) {
+            ++store->rejected;
+            return false;
+        }
+        // Keep the existing compact backing sorted: lookups need no extra index or cache.
+        // Allocate the name before moving records so rejection leaves the order intact.
+        for (u32 move = store->role_count; move > index; --move) {
+            store->roles[move] = store->roles[move - 1];
+        }
+        ++store->role_count;
+        RoleRecord& role = store->roles[index];
+        role = RoleRecord{};
+        role.id = input.id;
+        role.guild_id = input.guild_id;
+        role.name_offset = name_offset;
+        role.name_bytes = static_cast<u16>(input.name.bytes);
     }
-    if (store->role_count >= store->role_capacity ||
-        !chat_state_store_prepare_permissions(store, store->role_count + 1, store->overwrite_count)) {
-        ++store->rejected;
-        return false;
-    }
-    u32 name_offset = 0;
-    if (!allocate_name(store, input.name, &name_offset)) {
-        ++store->rejected;
-        return false;
-    }
-    // Keep the existing compact backing sorted: lookups need no extra index or cache.
-    // Allocate the name before moving records so rejection leaves the order intact.
-    for (u32 move = store->role_count; move > index; --move) {
-        store->roles[move] = store->roles[move - 1];
-    }
-    ++store->role_count;
     RoleRecord& role = store->roles[index];
-    role = RoleRecord{};
-    role.id = input.id;
-    role.guild_id = input.guild_id;
     role.permissions = input.permissions;
     role.position = input.position;
     role.color = input.color;
-    role.name_offset = name_offset;
-    role.name_bytes = static_cast<u16>(input.name.bytes);
     role.hoist = input.hoist;
     role.managed = input.managed;
     role.mentionable = input.mentionable;

@@ -11,8 +11,7 @@ struct Writer {
 };
 
 bool append(Writer* writer, Utf8View value) noexcept {
-    if (!writer || (!value.data && value.bytes != 0) || writer->used > writer->output.count ||
-        value.bytes > writer->output.count - writer->used) {
+    if ((!value.data && value.bytes != 0) || value.bytes > writer->output.count - writer->used) {
         return false;
     }
     copy_bytes(writer->output.data + writer->used, value.data, value.bytes);

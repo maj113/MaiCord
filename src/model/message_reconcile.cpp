@@ -82,31 +82,44 @@ u16 create_type(const MessageStore& store, const GatewayMessageEvent& event) noe
     return previous ? previous->type : u16{0};
 }
 
-MessageReconcileResult prepare_update(
-    const MessageStore* store, const GatewayMessageEvent& event,
-    MessageContentAvailability content_availability,
-    MessageInput* merged) noexcept {
-    if (!store || !merged) {
-        return reconcile_error(MessageReconcileError::invalid_input);
-    }
-    if ((event.fields & update_required_fields) != update_required_fields ||
-        (event.fields & ~known_fields) != 0) {
-        return reconcile_error(MessageReconcileError::invalid_event);
-    }
-    const MessageStoreResult found = message_store_find(*store, event.id);
+// Finds the resident record a Gateway event names and checks its channel.
+MessageReconcileResult find_resident(const MessageStore& store, u64 message_id, u64 channel_id,
+                                     const MessageRecord** record) noexcept {
+    const MessageStoreResult found = message_store_find(store, message_id);
     if (!found.ok()) {
         return reconcile_error(found.error == MessageStoreError::not_found
                                    ? MessageReconcileError::not_found
                                    : MessageReconcileError::store_failure,
                                found.error);
     }
-    const MessageRecord* existing = message_store_resolve(*store, found.handle);
-    if (!existing) {
+    *record = message_store_resolve(store, found.handle);
+    if (!*record) {
         return reconcile_error(MessageReconcileError::store_failure,
                                MessageStoreError::not_found);
     }
-    if (existing->channel_id != event.channel_id) {
+    if ((*record)->channel_id != channel_id) {
         return reconcile_error(MessageReconcileError::channel_mismatch);
+    }
+    return MessageReconcileResult{found.handle, found.order_index, MessageStoreError::none,
+                                  MessageReconcileError::none, false};
+}
+
+// Merges an update over the resident record; the result carries its handle.
+MessageReconcileResult merge_update(
+    const MessageStore* store, const GatewayMessageEvent& event,
+    MessageContentAvailability content_availability,
+    MessageInput* merged) noexcept {
+    if (!store) {
+        return reconcile_error(MessageReconcileError::invalid_input);
+    }
+    if ((event.fields & update_required_fields) != update_required_fields ||
+        (event.fields & ~known_fields) != 0) {
+        return reconcile_error(MessageReconcileError::invalid_event);
+    }
+    const MessageRecord* existing = nullptr;
+    const MessageReconcileResult found = find_resident(*store, event.id, event.channel_id, &existing);
+    if (!found.ok()) {
+        return found;
     }
     const Utf8View existing_content = message_store_content(*store, found.handle);
     *merged = MessageInput{
@@ -130,13 +143,26 @@ MessageReconcileResult prepare_update(
         merge_message_presentation(event, existing->presentation_flags),
         (event.fields & gateway_message_field_type) ? event.type : existing->type,
     };
-    const MessageStoreError validation = message_store_validate_input(store, *merged);
-    return validation == MessageStoreError::none
-               ? MessageReconcileResult{found.handle, found.order_index,
-                                        MessageStoreError::none,
-                                        MessageReconcileError::none, false}
-               : reconcile_error(MessageReconcileError::store_failure,
-                                 validation);
+    return found;
+}
+
+// Admits a create event and builds its record input.
+MessageReconcileError prepare_create(const MessageStore* store, const GatewayMessageEvent& event,
+                                     MessageContentAvailability content_availability,
+                                     MessageInput* input) noexcept {
+    if (!store) {
+        return MessageReconcileError::invalid_input;
+    }
+    if ((event.fields & create_required_fields) != create_required_fields ||
+        (event.fields & ~known_fields) != 0) {
+        return MessageReconcileError::invalid_event;
+    }
+    *input = MessageInput{event.id, event.channel_id, event.author_id,
+                          event.timestamp_ms, event.edited_timestamp_ms,
+                          event.content, event.flags, content_availability,
+                          MessageDeliveryState::authoritative, create_presentation(*store, event),
+                          create_type(*store, event)};
+    return MessageReconcileError::none;
 }
 
 } // namespace
@@ -144,37 +170,23 @@ MessageReconcileResult prepare_update(
 MessageReconcileResult message_reconcile_create(
     MessageStore* store, const GatewayMessageEvent& event,
     MessageContentAvailability content_availability) noexcept {
-    if (!store) {
-        return reconcile_error(MessageReconcileError::invalid_input);
+    MessageInput input{};
+    const MessageReconcileError error = prepare_create(store, event, content_availability, &input);
+    if (error != MessageReconcileError::none) {
+        return reconcile_error(error);
     }
-    if ((event.fields & create_required_fields) != create_required_fields ||
-        (event.fields & ~known_fields) != 0) {
-        return reconcile_error(MessageReconcileError::invalid_event);
-    }
-    return store_result(message_store_upsert(
-        store, MessageInput{event.id, event.channel_id, event.author_id,
-                            event.timestamp_ms, event.edited_timestamp_ms,
-                            event.content, event.flags, content_availability,
-                            MessageDeliveryState::authoritative, create_presentation(*store, event),
-                            create_type(*store, event)}));
+    return store_result(message_store_upsert(store, input));
 }
 
 MessageReconcileResult message_reconcile_validate_create(
     const MessageStore* store, const GatewayMessageEvent& event,
     MessageContentAvailability content_availability) noexcept {
-    if (!store) {
-        return reconcile_error(MessageReconcileError::invalid_input);
+    MessageInput input{};
+    const MessageReconcileError error = prepare_create(store, event, content_availability, &input);
+    if (error != MessageReconcileError::none) {
+        return reconcile_error(error);
     }
-    if ((event.fields & create_required_fields) != create_required_fields ||
-        (event.fields & ~known_fields) != 0) {
-        return reconcile_error(MessageReconcileError::invalid_event);
-    }
-    const MessageStoreError validation = message_store_validate_input(
-        store, MessageInput{event.id, event.channel_id, event.author_id,
-                            event.timestamp_ms, event.edited_timestamp_ms,
-                            event.content, event.flags, content_availability,
-                            MessageDeliveryState::authoritative, create_presentation(*store, event),
-                            create_type(*store, event)});
+    const MessageStoreError validation = message_store_validate_input(store, input);
     return validation == MessageStoreError::none
                ? MessageReconcileResult{MessageHandle{~0u, 0}, ~0u,
                                         MessageStoreError::none,
@@ -186,50 +198,10 @@ MessageReconcileResult message_reconcile_validate_create(
 MessageReconcileResult message_reconcile_update(
     MessageStore* store, const GatewayMessageEvent& event,
     MessageContentAvailability content_availability) noexcept {
-    if (!store) {
-        return reconcile_error(MessageReconcileError::invalid_input);
-    }
-    if ((event.fields & update_required_fields) != update_required_fields ||
-        (event.fields & ~known_fields) != 0) {
-        return reconcile_error(MessageReconcileError::invalid_event);
-    }
-    const MessageStoreResult found = message_store_find(*store, event.id);
-    if (!found.ok()) {
-        return reconcile_error(found.error == MessageStoreError::not_found
-                                   ? MessageReconcileError::not_found
-                                   : MessageReconcileError::store_failure,
-                               found.error);
-    }
-    const MessageRecord* existing = message_store_resolve(*store, found.handle);
-    if (!existing) {
-        return reconcile_error(MessageReconcileError::store_failure,
-                               MessageStoreError::not_found);
-    }
-    if (existing->channel_id != event.channel_id) {
-        return reconcile_error(MessageReconcileError::channel_mismatch);
-    }
-    const Utf8View existing_content = message_store_content(*store, found.handle);
-    const MessageInput merged{
-        event.id,
-        event.channel_id,
-        (event.fields & gateway_message_field_author_id) != 0 ? event.author_id
-                                                              : existing->author_id,
-        (event.fields & gateway_message_field_timestamp) != 0 ? event.timestamp_ms
-                                                               : existing->timestamp_ms,
-        (event.fields & gateway_message_field_edited_timestamp) != 0
-            ? event.edited_timestamp_ms
-            : existing->edited_timestamp_ms,
-        (event.fields & gateway_message_field_content) != 0 ? event.content
-                                                             : existing_content,
-        (event.fields & gateway_message_field_flags) != 0 ? event.flags
-                                                           : existing->flags,
-        (event.fields & gateway_message_field_content) != 0
-            ? content_availability
-            : existing->content_availability,
-        existing->delivery,
-        merge_message_presentation(event, existing->presentation_flags),
-        (event.fields & gateway_message_field_type) ? event.type : existing->type,
-    };
+    MessageInput merged{};
+    const MessageReconcileResult prepared = merge_update(store, event, content_availability, &merged);
+    if (!prepared.ok())
+        return prepared;
     return store_result(message_store_upsert(store, merged));
 }
 
@@ -237,7 +209,13 @@ MessageReconcileResult message_reconcile_validate_update(
     const MessageStore* store, const GatewayMessageEvent& event,
     MessageContentAvailability content_availability) noexcept {
     MessageInput merged{};
-    return prepare_update(store, event, content_availability, &merged);
+    const MessageReconcileResult prepared = merge_update(store, event, content_availability, &merged);
+    if (!prepared.ok())
+        return prepared;
+    const MessageStoreError validation = message_store_validate_input(store, merged);
+    return validation == MessageStoreError::none
+               ? prepared
+               : reconcile_error(MessageReconcileError::store_failure, validation);
 }
 
 MessageReconcileResult message_reconcile_delete(
@@ -245,24 +223,13 @@ MessageReconcileResult message_reconcile_delete(
     if (!store || event.id == 0 || event.channel_id == 0) {
         return reconcile_error(MessageReconcileError::invalid_input);
     }
-    const MessageStoreResult found = message_store_find(*store, event.id);
+    const MessageRecord* record = nullptr;
+    const MessageReconcileResult found = find_resident(*store, event.id, event.channel_id, &record);
     if (!found.ok()) {
-        return reconcile_error(found.error == MessageStoreError::not_found
-                                   ? MessageReconcileError::not_found
-                                   : MessageReconcileError::store_failure,
-                               found.error);
-    }
-    const MessageRecord* record = message_store_resolve(*store, found.handle);
-    if (!record) {
-        return reconcile_error(MessageReconcileError::store_failure,
-                               MessageStoreError::not_found);
-    }
-    if (record->channel_id != event.channel_id) {
-        return reconcile_error(MessageReconcileError::channel_mismatch);
+        return found;
     }
     return message_store_delete(store, event.id)
-               ? MessageReconcileResult{found.handle, found.order_index, MessageStoreError::none,
-                                        MessageReconcileError::none, false}
+               ? found
                : reconcile_error(MessageReconcileError::store_failure,
                                  MessageStoreError::not_found);
 }

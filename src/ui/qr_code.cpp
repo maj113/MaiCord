@@ -16,7 +16,7 @@ struct BitBuffer {
 };
 
 bool append_bits(BitBuffer* buffer, u32 value, u32 count) noexcept {
-    if (!buffer || count > 31 || buffer->bits + count > kDataCodewords * 8) {
+    if (count > 31 || buffer->bits + count > kDataCodewords * 8) {
         return false;
     }
     for (u32 remaining = count; remaining != 0; --remaining) {

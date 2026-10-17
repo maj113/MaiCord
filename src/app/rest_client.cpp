@@ -585,7 +585,7 @@ bool valid_user_configuration(const RestUserConfiguration& configuration) noexce
 
 bool copy_user_configuration(RestClientRuntime* runtime,
                              const RestUserConfiguration& configuration) noexcept {
-    if (!runtime || !runtime->user_super_properties || !runtime->user_locale || !runtime->user_timezone ||
+    if (!runtime->user_super_properties || !runtime->user_locale || !runtime->user_timezone ||
         !valid_user_configuration(configuration) ||
         !copy_bytes(runtime->user_super_properties, kRestUserSuperPropertiesMaximumBytes,
                     configuration.super_properties.data, configuration.super_properties.count) ||

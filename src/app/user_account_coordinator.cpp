@@ -12,7 +12,7 @@ UserAccountCoordinatorResult invalid_result() noexcept {
 }
 
 bool duplicate_credential(const SecureBuffer& source, SecureBuffer* destination) noexcept {
-    if (!destination || destination->data || !source.data || !source.locked || source.bytes == 0 ||
+    if (destination->data || !source.data || !source.locked || source.bytes == 0 ||
         source.bytes > kAccountProfileMaximumCredentialBytes) {
         return false;
     }

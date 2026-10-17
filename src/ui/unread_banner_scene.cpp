@@ -21,16 +21,9 @@ bool append(Slice<char> output, u32* used, Utf8View text) noexcept {
     return true;
 }
 bool append_u32(Slice<char> output, u32* used, u32 value) noexcept {
-    char digits[10];
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    if (count > output.count - *used)
+    if (decimal_digits(value) > output.count - *used)
         return false;
-    while (count)
-        output.data[(*used)++] = digits[--count];
+    *used += decimal_write(output.data + *used, value);
     return true;
 }
 // Notice card text: a bold title line over the wrapped description (up to
@@ -84,11 +77,7 @@ UiRect notice_rectangle(const UiUnreadBannerScene& s) noexcept {
 u8 copy_text(char* output, u32 capacity, Utf8View text) noexcept {
     if (!text.data || !utf8_validate(text).valid)
         return 0;
-    u32 bytes = text.bytes < capacity ? text.bytes : capacity;
-    while (bytes && bytes < text.bytes && (static_cast<u8>(text.data[bytes]) & 0xC0) == 0x80)
-        --bytes;
-    copy_bytes(output, text.data, bytes);
-    return static_cast<u8>(bytes);
+    return static_cast<u8>(utf8_copy_truncated(output, capacity, text));
 }
 UiRect banner_rectangle(const UiUnreadBannerScene& s) noexcept {
     const auto& st = s.style;

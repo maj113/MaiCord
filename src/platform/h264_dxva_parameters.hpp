@@ -59,4 +59,23 @@ inline void h264_dxva_picture_parameters(const H264Sps& a, const H264Pps& b, con
     *matrix = q;
 }
 
+// Copies bytes into the driver's mapped decoder buffer of the given type and
+// describes it for SubmitDecoderBuffers.
+inline HRESULT dxva_upload_buffer(ID3D11VideoContext* context, ID3D11VideoDecoder* decoder,
+                                  D3D11_VIDEO_DECODER_BUFFER_TYPE type, const void* data, u32 bytes,
+                                  D3D11_VIDEO_DECODER_BUFFER_DESC* description) noexcept {
+    UINT capacity = 0;
+    void* destination = nullptr;
+    HRESULT status = context->GetDecoderBuffer(decoder, type, &capacity, &destination);
+    if (FAILED(status)) return status;
+    const bool fits = destination && bytes <= capacity;
+    if (fits) copy_bytes(destination, data, bytes);
+    status = context->ReleaseDecoderBuffer(decoder, type);
+    if (!fits) return E_OUTOFMEMORY;
+    *description = {};
+    description->BufferType = type;
+    description->DataSize = bytes;
+    return status;
+}
+
 } // namespace maicord

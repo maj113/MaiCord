@@ -20,9 +20,6 @@ ReactionViewerControllerResult failure(ReactionViewerController* controller,
 }
 
 void require_current_page(ReactionViewerController* controller) noexcept {
-    if (!controller) {
-        return;
-    }
     controller->retry_at_ms = 0;
     controller->retry_attempt = 0;
     controller->phase = controller->viewer && controller->viewer->active
@@ -40,7 +37,7 @@ ReactionViewerControllerResult stale_response(ReactionViewerController* controll
 ReactionViewerControllerResult retry_or_fail(ReactionViewerController* controller, u64 now_monotonic_ms,
                                              u64 retry_at_ms,
                                              ReactionViewerControllerError terminal_error) noexcept {
-    if (!controller || !controller->viewer || !controller->viewer->active) {
+    if (!controller->viewer || !controller->viewer->active) {
         return failure(controller, ReactionViewerControllerError::state);
     }
     if (controller->retry_attempt < kReactionViewerMaximumRetries) {

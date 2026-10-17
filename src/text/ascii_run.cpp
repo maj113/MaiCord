@@ -22,13 +22,11 @@ SfntStatus native_ascii_run(const NativeRunPlanStore& store,NativeRunPlanHandle 
     const auto nominal=native_run_plan_nominal(store,handle);if(!nominal.glyph_limit)return SfntStatus::invalid_input;
     for(u32 i=0;i<text.bytes;++i){const u32 cp=static_cast<u8>(text.data[i]);if(cp<32||cp>126)return SfntStatus::unsupported_sequence;}
     bool nominal_run=!independent;
-    {
     for(u32 i=0;i<text.bytes;++i){u16 glyph=0;const u32 offset=static_cast<u8>(text.data[i])-32u;
         if(offset<nominal.ascii_count)glyph=static_cast<u16>(nominal.ascii_first+offset);
         else{const auto status=sfnt_cmap_glyph(font->cmap,static_cast<u8>(text.data[i]),0,&glyph);if(status!=SfntStatus::ok)return status;}
         if(!glyph)return SfntStatus::unsupported_sequence;
         mapped[i]={{glyph,SfntGlyphClass::unassigned,0},i};nominal_run=nominal_run&&simple(nominal,glyph);}
-    }
     if(!text.bytes)return SfntStatus::ok;
     const __m128 scale=_mm_div_ss(_mm_set_ss(em),_mm_set_ss(static_cast<float>(plan->units_per_em)));
     u32 count=0;u64 operations=0;

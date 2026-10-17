@@ -113,9 +113,7 @@ void append(char* out, u8& used, const char* value) noexcept {
     while (*value) out[used++] = *value++;
 }
 void append_number(char* out, u8& used, u64 number) noexcept {
-    char reverse[20]{}; u8 count = 0;
-    do { reverse[count++] = static_cast<char>('0' + number % 10); number /= 10; } while (number);
-    while (count) out[used++] = reverse[--count];
+    used = static_cast<u8>(used + decimal_write(out + used, number));
 }
 void progress_label(UiDownloadScene& s, u32 slot, const UiDownloadRow& r) noexcept {
     auto& used = s.progress_bytes[slot]; used = 0;

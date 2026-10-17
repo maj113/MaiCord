@@ -175,7 +175,7 @@ PresentationDamageRect media_batch_clip(const MediaDrawBatch& batch) noexcept {
 bool update_media_quad_source(D3D11Renderer* renderer, const MediaAtlasResult& allocation, u8 domain,
                               MediaQuad* quad, bool* changed) noexcept {
     const bool preview = domain == 1;
-    if (!renderer || !quad || !changed || !allocation.ok() || domain > 1 ||
+    if (!allocation.ok() || domain > 1 ||
         (preview ? (!renderer->preview_media_atlas || !renderer->media_gpu.preview_texture_view)
                  : (!renderer->media_atlas || !renderer->media_gpu.texture_view))) {
         return false;
@@ -215,9 +215,6 @@ bool update_media_quad_source(D3D11Renderer* renderer, const MediaAtlasResult& a
 }
 
 bool refresh_media_quad_sources(D3D11Renderer* renderer, bool* changed) noexcept {
-    if (!renderer || !changed) {
-        return false;
-    }
     *changed = false;
     if (renderer->media_atlas) {
         media_atlas_begin_visibility(renderer->media_atlas);
@@ -286,17 +283,14 @@ bool queue_media_quad(D3D11Renderer* renderer, const MediaAtlasResult& allocatio
     if (!ui_rect_has_area(ui_rect_intersection(UiRect{left, top, right, bottom}, clip))) {
         return true;
     }
-    const bool surface_ready =
-        renderer && (domain == 0 ? renderer->media_atlas && renderer->media_gpu.texture_view
-                                 : domain == 1 && renderer->preview_media_atlas &&
-                                       renderer->media_gpu.preview_texture_view);
-    if (!renderer || !allocation.ok() || !surface_ready || left >= right || top >= bottom ||
+    const bool surface_ready = domain == 0 ? renderer->media_atlas && renderer->media_gpu.texture_view
+                                           : domain == 1 && renderer->preview_media_atlas &&
+                                                 renderer->media_gpu.preview_texture_view;
+    if (!allocation.ok() || !surface_ready || left >= right || top >= bottom ||
         renderer->media_quad_count >= kRendererMediaQuadCapacity ||
         !renderer_media_draw_storage_reserve_quads(&renderer->media_draw,
                                                    renderer->media_quad_count + 1u)) {
-        if (renderer) {
-            ++renderer->media_rejected;
-        }
+        ++renderer->media_rejected;
         return false;
     }
     MediaAtlas* atlas = domain == 0 ? renderer->media_atlas : renderer->preview_media_atlas;
@@ -380,7 +374,7 @@ bool queue_folder_preview(D3D11Renderer* renderer, const GuildRailRowWidget& row
 }
 bool find_user_avatar(const D3D11Renderer& renderer, const UserRecord& user,
                       MediaAtlasResult* allocation) noexcept {
-    if (!allocation || !renderer.media_atlas || user.avatar_hash_bytes == 0) {
+    if (!renderer.media_atlas || user.avatar_hash_bytes == 0) {
         return false;
     }
     const Utf8View hash = user_store_avatar_hash(user);
@@ -737,7 +731,7 @@ bool queue_inline_flags(D3D11Renderer* renderer) noexcept {
     return true;
 }
 bool split_paint_quad_boundary(PaintStream* paint, u32 quad, u32* batch_index) noexcept {
-    if (!paint || !batch_index || quad > paint->count)
+    if (quad > paint->count)
         return false;
     for (u32 i = 0; i < paint->batch_count; ++i) {
         auto& batch = paint->batches[i];
@@ -980,13 +974,12 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         if (!queue_settings_profile_overlays(renderer, theme, true))
             return layout_step_failed(__LINE__);
         renderer->form_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
-        if (renderer->forum_form && renderer->forum_form->scene && renderer->forum_form->scene->active &&
+        if (d3d11_renderer_forum_form_active(*renderer) &&
             !forum_post_paint(*renderer->forum_form->scene, renderer->forum_form->geometry, theme,
                               &renderer->paint_stream))
             return layout_step_failed(__LINE__);
         renderer->forum_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
-        return (!renderer->text_form || !renderer->text_form->scene ||
-                !renderer->text_form->scene->active ||
+        return (!d3d11_renderer_text_form_active(*renderer) ||
                 text_form_paint(*renderer->text_form->scene, renderer->text_form->geometry, theme,
                                 &renderer->paint_stream)) &&
                queue_inline_flags(renderer);
@@ -995,9 +988,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (renderer->popup_scene && renderer->popup_scene->active) {
         renderer->paint_stream.scrollbar_viewport = renderer->popup_scene->rectangle;
     } else if ((renderer->image_viewer && renderer->image_viewer->active) ||
-               ((renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active) ||
-                (renderer->forum_form && renderer->forum_form->scene &&
-                 renderer->forum_form->scene->active)) ||
+               d3d11_renderer_form_active(*renderer) ||
                (renderer->reaction_viewer && renderer->reaction_viewer->active))
         renderer->paint_stream.scrollbar_viewport = {};
     if (renderer->profile_scene && renderer->profile_scene->active &&
@@ -1029,8 +1020,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
                                                           source.span};
         }
         const TextEditMetric& caret = renderer->login_edit.caret;
-        const bool form =
-            renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active;
+        const bool form = d3d11_renderer_text_form_active(*renderer);
         const LoginPresentationInput presentation{
             ConstSlice<UiRect>{selections, renderer->login_edit.selection_count},
             ConstSlice<LoginCompositionGeometry>{composition, renderer->login_composition_metric_count},
@@ -1894,8 +1884,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
     if (focus_owner && !renderer->login_visible && !friends_requests_active &&
         !d3d11_renderer_media_picker_visible(*renderer) &&
         !(renderer->popup_scene && renderer->popup_scene->active) &&
-        !((renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active) ||
-          (renderer->forum_form && renderer->forum_form->scene && renderer->forum_form->scene->active)) &&
+        !d3d11_renderer_form_active(*renderer) &&
         !(renderer->reaction_viewer && renderer->reaction_viewer->active) &&
         !paint_stream_push_focus(&renderer->paint_stream, *focus_owner, theme.tokens.border.focus))
         return layout_step_failed(__LINE__);
@@ -2136,8 +2125,7 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         return layout_step_failed(__LINE__);
     if (friends_requests_active && focus_owner == &renderer->friends_requests_scene->widgets &&
         !(renderer->popup_scene && renderer->popup_scene->active) &&
-        !((renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active) ||
-          (renderer->forum_form && renderer->forum_form->scene && renderer->forum_form->scene->active)) &&
+        !d3d11_renderer_form_active(*renderer) &&
         !paint_stream_push_focus(&renderer->paint_stream, *focus_owner, theme.tokens.border.focus))
         return layout_step_failed(__LINE__);
     renderer->friends_requests_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
@@ -2604,12 +2592,12 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
         return layout_step_failed(__LINE__);
     renderer->quick_switcher_status_end_batch = paint_stream_seal(&renderer->paint_stream);
     renderer->form_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
-    if (renderer->forum_form && renderer->forum_form->scene && renderer->forum_form->scene->active &&
+    if (d3d11_renderer_forum_form_active(*renderer) &&
         !forum_post_paint(*renderer->forum_form->scene, renderer->forum_form->geometry, theme,
                           &renderer->paint_stream))
         return layout_step_failed(__LINE__);
     renderer->forum_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
-    if (renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active &&
+    if (d3d11_renderer_text_form_active(*renderer) &&
         !text_form_paint(*renderer->text_form->scene, renderer->text_form->geometry, theme,
                          &renderer->paint_stream))
         return layout_step_failed(__LINE__);

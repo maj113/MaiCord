@@ -69,6 +69,12 @@ struct Builder {
         return finish_lookup_plan({bits.data,words},{output.data,result.lookup_count},0,emission);
     }
 };
+bool unusable(const SfntLayout& layout,Slice<u64> scratch,Slice<u16> indices) noexcept {
+    return !layout.table.data||static_cast<u8>(layout.kind)>1||(scratch.count&&!scratch.data)||(indices.count&&!indices.data);
+}
+SfntStatus build(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult& result,u64 work,bool independent,bool common,u32 script) noexcept {
+    Builder builder{layout,variations,scratch,indices,result,work};const auto status=builder.run(independent,common,script);result.operations=work-builder.work;return status;
+}
 }
 __declspec(noinline) SfntStatus finish_lookup_plan(ConstSlice<u64> bits,Slice<u16> indices,u64 selected_work,u64 work) noexcept {
     if(!indices.count)return SfntStatus::ok;
@@ -79,18 +85,17 @@ __declspec(noinline) SfntStatus finish_lookup_plan(ConstSlice<u64> bits,Slice<u1
     return SfntStatus::ok;
 }
 SfntStatus sfnt_latin_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};if(!layout.table.data || static_cast<u8>(layout.kind)>1 || (scratch.count && !scratch.data) || (indices.count && !indices.data))return SfntStatus::invalid_input;
-    Builder builder{layout,variations,scratch,indices,*result,work};const auto status=builder.run(independent);result->operations=work-builder.work;return status;
+    if(!result)return SfntStatus::invalid_input;*result={};if(unusable(layout,scratch,indices))return SfntStatus::invalid_input;
+    return build(layout,variations,scratch,indices,*result,work,independent,false,0);
 }
 SfntStatus sfnt_common_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work,bool independent) noexcept {
-    if(!result)return SfntStatus::invalid_input;*result={};if(!layout.table.data || static_cast<u8>(layout.kind)>1 || (scratch.count && !scratch.data) || (indices.count && !indices.data))return SfntStatus::invalid_input;
-    Builder builder{layout,variations,scratch,indices,*result,work};const auto status=builder.run(independent,true);result->operations=work-builder.work;return status;
+    if(!result)return SfntStatus::invalid_input;*result={};if(unusable(layout,scratch,indices))return SfntStatus::invalid_input;
+    return build(layout,variations,scratch,indices,*result,work,independent,true,0);
 }
 SfntStatus sfnt_khmer_fallback_substitutions(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
-    if(!layout.table.data||layout.kind!=SfntLayoutKind::substitution||(scratch.count&&!scratch.data)||(indices.count&&!indices.data))return SfntStatus::invalid_input;
-    Builder builder{layout,variations,scratch,indices,*result,work};
-    const auto status=builder.run(true,false,sfnt_tag('k','h','m','r'));result->operations=work-builder.work;return status;
+    if(unusable(layout,scratch,indices)||layout.kind!=SfntLayoutKind::substitution)return SfntStatus::invalid_input;
+    return build(layout,variations,scratch,indices,*result,work,true,false,sfnt_tag('k','h','m','r'));
 }
 bool sfnt_alphabetic_script_supported(u32 script) noexcept {
     switch(script){
@@ -110,7 +115,7 @@ bool sfnt_alphabetic_script_supported(u32 script) noexcept {
 SfntStatus sfnt_alphabetic_lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,u32 script,bool independent,Slice<u64> scratch,Slice<u16> indices,SfntLookupPlanResult* result,u64 work) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
     if(script==sfnt_tag('l','a','t','n'))return sfnt_latin_lookup_plan(layout,variations,independent,scratch,indices,result,work);
-    if(!sfnt_alphabetic_script_supported(script)||!layout.table.data||static_cast<u8>(layout.kind)>1||(scratch.count&&!scratch.data)||(indices.count&&!indices.data))return SfntStatus::invalid_input;
-    Builder builder{layout,variations,scratch,indices,*result,work};const auto status=builder.run(independent,false,script);result->operations=work-builder.work;return status;
+    if(!sfnt_alphabetic_script_supported(script)||unusable(layout,scratch,indices))return SfntStatus::invalid_input;
+    return build(layout,variations,scratch,indices,*result,work,independent,false,script);
 }
 }

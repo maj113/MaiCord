@@ -12,7 +12,7 @@ HourCycle g_hour_cycle = HourCycle::automatic;
 inline constexpr u64 kFileTimeTicksPerSecond = 10'000'000ull;
 
 bool append_ascii(Slice<char> output, u32* used, const char* value, u32 bytes) noexcept {
-    if (!used || *used > output.count || bytes > output.count - *used) {
+    if (bytes > output.count - *used) {
         return false;
     }
     for (u32 index = 0; index < bytes; ++index) {
@@ -23,29 +23,14 @@ bool append_ascii(Slice<char> output, u32* used, const char* value, u32 bytes) n
 }
 
 bool append_u64(Slice<char> output, u32* used, u64 value) noexcept {
-    char reversed[20]{};
-    u32 digits = 0;
-    do {
-        reversed[digits++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0);
-    if (!used || *used > output.count || digits > output.count - *used) {
+    if (decimal_digits(value) > output.count - *used) {
         return false;
     }
-    for (u32 index = 0; index < digits; ++index) {
-        output[*used + index] = reversed[digits - index - 1];
-    }
-    *used += digits;
+    *used += decimal_write(output.data + *used, value);
     return true;
 }
 
 bool append_wide_utf8(Slice<char> output, u32* used, const wchar_t* value, u32 units) noexcept {
-    if (!used || (!value && units != 0) || *used > output.count) {
-        return false;
-    }
-    if (units == 0) {
-        return true;
-    }
     const int required = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, static_cast<int>(units),
                                              nullptr, 0, nullptr, nullptr);
     if (required <= 0 || static_cast<u32>(required) > output.count - *used) {
@@ -61,7 +46,7 @@ bool append_wide_utf8(Slice<char> output, u32* used, const wchar_t* value, u32 u
 }
 
 bool unix_to_local(u64 seconds, SYSTEMTIME* local) noexcept {
-    if (!local || seconds > ~0ull - kWindowsToUnixSeconds ||
+    if (seconds > ~0ull - kWindowsToUnixSeconds ||
         seconds + kWindowsToUnixSeconds > ~0ull / kFileTimeTicksPerSecond) {
         return false;
     }

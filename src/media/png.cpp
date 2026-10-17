@@ -23,9 +23,6 @@ PngParseResult parse_failure(PngParseResult result,
 
 bool format_parameters(u8 color_type_value, u8 bit_depth,
                        u8* channels) noexcept {
-    if (!channels) {
-        return false;
-    }
     switch (color_type_value) {
     case 0:
         *channels = 1;
@@ -454,10 +451,8 @@ PngDecodeResult png_decode_parsed_scanlines(
     PngDecodeResult result{};
     PngImage configured{};
     if (!image || !workspace || !scanlines.data ||
-        !configure_image(&configured, image ? image->width : 0,
-                         image ? image->height : 0,
-                         image ? image->bit_depth : 0,
-                         image ? image->color_type : 0) ||
+        !configure_image(&configured, image->width, image->height, image->bit_depth,
+                         image->color_type) ||
         image->idat_span_count == 0 || image->compressed_bytes < 6 ||
         image->interlace > 1 ||
         png_decode_buffer_bytes(*image) == 0 ||

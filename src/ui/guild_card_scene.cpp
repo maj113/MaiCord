@@ -22,14 +22,7 @@ UiMotionScope scope(const UiGuildCardScene& s) noexcept {
     return {kEntranceOwner, s.entrance_generation};
 }
 u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
-    if (!text.data)
-        return 0;
-    u32 bytes = minimum(text.bytes, capacity);
-    while (bytes && bytes < text.bytes && (static_cast<u8>(text.data[bytes]) & 0xc0) == 0x80)
-        --bytes;
-    if (bytes)
-        copy_bytes(destination, text.data, bytes);
-    return bytes;
+    return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
 }
 bool initialize(UiGuildCardScene& s) noexcept {
     if (s.owner.manager == &s.widgets)

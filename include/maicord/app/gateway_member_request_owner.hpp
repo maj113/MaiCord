@@ -140,7 +140,7 @@ inline void gateway_member_request_sent(GatewayMemberRequestOwner* owner,
 // The guild deadline applies even when that nonce is absent, stale or unknown.
 inline void gateway_member_request_rate_limited(GatewayMemberRequestOwner* owner,
                                                 const GatewayRateLimited& event, u64 now_ms) noexcept {
-    if (!owner || event.opcode != 8 || !event.guild_id)
+    if (event.opcode != 8 || !event.guild_id)
         return;
     const u64 due = deadline_after(now_ms, event.retry_after_ms);
     auto* floor = gateway_member_request_floor(owner, event.guild_id, now_ms);
@@ -177,7 +177,7 @@ inline void gateway_member_request_cancel_query(GatewayMemberRequestOwner* owner
 }
 inline void gateway_member_request_complete(GatewayMemberRequestOwner* owner,
                                             const GatewayMemberChunkReceipt& receipt) noexcept {
-    if (!owner || !receipt.nonce || !receipt.chunk_count || receipt.chunk_index != receipt.chunk_count - 1)
+    if (!receipt.nonce || !receipt.chunk_count || receipt.chunk_index != receipt.chunk_count - 1)
         return;
     if (owner->query_current && owner->query.guild_id == receipt.guild_id &&
         owner->query_sent_nonce == receipt.nonce)

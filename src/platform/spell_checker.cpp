@@ -143,10 +143,8 @@ bool spell_checker_ignore(SpellChecker* spell, Utf8View word) noexcept {
 void spell_checker_release(SpellChecker* spell) noexcept {
     if (!spell)
         return;
-    if (spell->checker)
-        spell->checker->Release();
-    if (spell->factory)
-        spell->factory->Release();
+    com_release(spell->checker);
+    com_release(spell->factory);
     if (spell->com_initialized)
         CoUninitialize();
     *spell = {};

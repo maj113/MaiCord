@@ -21,6 +21,7 @@ i64 rounded(i32 v,const TtGraphicsState& g) noexcept {
     case TtRound::super:value=((a-g.round_phase+g.round_threshold)&-static_cast<i64>(g.round_period))+g.round_phase;if(value<0&&v)value=g.round_phase;break;}
     return v<0?-value:value;
 }
+u32 tt_outline_information(u32 selector) noexcept {return (selector&1?42u:0u)|(selector&8?1024u:0u)|(selector&16?2048u:0u);}
 struct Machine {
     TtInterpreter& s;TtExecution& result;TtPhase phase;u32 work,depth=0;ConstSlice<u8> code;u32 at=0;
     bool spend(u32 n=1) noexcept {if(n>work)return false;work-=n;result.operations+=n;return true;}
@@ -210,7 +211,6 @@ struct Machine {
     }
 };
 }
-u32 tt_outline_information(u32 selector) noexcept {return (selector&1?42u:0u)|(selector&8?1024u:0u)|(selector&16?2048u:0u);}
 SfntStatus tt_execute(TtInterpreter* state,ConstSlice<u8> program,TtPhase phase,TtExecution* result,u32 work) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
     if(!state || !valid(program) || !state->units_per_em || state->stack_count>state->stack.count || (state->stack.count && !state->stack.data) || (state->storage.count && !state->storage.data) || (state->cvt.count && !state->cvt.data) || (state->functions.count && !state->functions.data) || (state->frames.count && !state->frames.data) || (state->glyph.count && !state->glyph.data) || (state->twilight.count && !state->twilight.data) || (state->contour_ends.count && !state->contour_ends.data))return SfntStatus::invalid_input;

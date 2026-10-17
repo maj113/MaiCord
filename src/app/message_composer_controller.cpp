@@ -83,7 +83,7 @@ bool controller_valid(const MessageComposerController* controller) noexcept {
 }
 
 MessageComposerRequest* find_request(MessageComposerController* controller, u64 nonce) noexcept {
-    if (!controller || nonce == 0) {
+    if (nonce == 0) {
         return nullptr;
     }
     for (u32 index = 0; index < kMessageComposerRequestCapacity; ++index) {
@@ -106,9 +106,6 @@ bool delivery_completed(const MessageComposerController& controller, const Messa
 }
 
 MessageComposerRequest* empty_request(MessageComposerController* controller) noexcept {
-    if (!controller) {
-        return nullptr;
-    }
     for (u32 index = 0; index < kMessageComposerRequestCapacity; ++index) {
         if (!controller->requests[index].occupied) {
             return &controller->requests[index];

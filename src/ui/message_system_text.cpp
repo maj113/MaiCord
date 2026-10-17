@@ -38,18 +38,6 @@ Utf8View view(const char* text) noexcept {
     return {text, bytes};
 }
 
-u32 write_u32(u32 value, char* output) noexcept {
-    char digits[10];
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10u);
-        value /= 10u;
-    } while (value);
-    for (u32 i = 0; i < count; ++i)
-        output[i] = digits[count - 1u - i];
-    return count;
-}
-
 // Original welcome lines, picked by message snowflake time.
 constexpr const char* kJoinLines[kMessageSystemJoinLineCount] = {
     "{a} just arrived. Say hi!",
@@ -225,7 +213,7 @@ u32 message_system_duration(u64 milliseconds, Slice<char> output) noexcept {
             text[bytes++] = value[i];
     };
     const auto count = [&](u64 value, const char* unit) noexcept {
-        bytes += write_u32(static_cast<u32>(value > 999'999u ? 999'999u : value), text + bytes);
+        bytes += decimal_write(text + bytes, value > 999'999u ? 999'999u : value);
         append(unit);
     };
     if (minutes < 1)
@@ -302,7 +290,7 @@ bool message_system_text_build(const MessageSystemTextInput& input, Slice<char> 
                         ? static_cast<u32>((static_cast<u64>(input.poll_votes) * 100u + input.poll_total_votes / 2u) /
                                            input.poll_total_votes)
                         : 0u;
-                u32 bytes = write_u32(percent, number);
+                u32 bytes = decimal_write(number, percent);
                 number[bytes++] = '%';
                 writer.raw({number, bytes});
                 break;
@@ -318,7 +306,7 @@ bool message_system_text_build(const MessageSystemTextInput& input, Slice<char> 
             }
             case 'n':
             case 'l': {
-                const u32 bytes = write_u32(tier, number);
+                const u32 bytes = decimal_write(number, tier);
                 writer.span({number, bytes}, MessageSystemSpanKind::emphasis);
                 break;
             }

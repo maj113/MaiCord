@@ -26,18 +26,12 @@ struct Writer {
         used += value.bytes;
     }
     void number(u64 value) noexcept {
-        char digits[20];
-        u32 n = 0;
-        do {
-            digits[n++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value);
+        const u32 n = decimal_digits(value);
         if (!ok || n > capacity - used) {
             ok = false;
             return;
         }
-        while (n)
-            data[used++] = digits[--n];
+        used += decimal_write(data + used, value);
     }
 };
 // CDN asset hashes: 32 hexadecimal digits, a_ for animated assets.

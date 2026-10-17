@@ -196,7 +196,7 @@ u32 byte_position_for_utf16(const SecureEdit& edit, u32 target) noexcept {
 }
 
 bool decode_utf16_one(ConstSlice<u16> input, u32 offset, u32* codepoint, u32* width) noexcept {
-    if (!codepoint || !width || offset >= input.count || !input.data) {
+    if (offset >= input.count || !input.data) {
         return false;
     }
     const u32 first = input[offset];

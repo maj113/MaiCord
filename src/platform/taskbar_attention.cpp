@@ -15,7 +15,7 @@ constexpr CLSID kTaskbarListClass = {0x56FDF344, 0xFD6D, 0x11D0, {0x95, 0x8A, 0x
 constexpr IID kTaskbarList3 = {0xEA1AFB91, 0x9E28, 0x4B86, {0x90, 0xE9, 0x9E, 0x9F, 0x8A, 0x5E, 0xEF, 0xAF}};
 
 float clamp01(float value) noexcept {
-    return value < 0 ? 0 : value > 1 ? 1 : value;
+    return clamp_value(value, 0.f, 1.f);
 }
 float square_root(float value) noexcept {
     if (value <= 0)

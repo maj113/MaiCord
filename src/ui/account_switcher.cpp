@@ -13,13 +13,7 @@ PopupItem action(Utf8View label, UiAccountSwitcherAction value, UiIcon icon, u16
 
 // Whole code points only; the caller's view may be longer than the slot.
 u32 copy_prefix(char* output, u32 capacity, Utf8View value) noexcept {
-    if (!value.data)
-        return 0;
-    u32 bytes = minimum(value.bytes, capacity);
-    while (bytes < value.bytes && bytes && (static_cast<u8>(value.data[bytes]) & 0xc0) == 0x80)
-        --bytes;
-    copy_bytes(output, value.data, bytes);
-    return bytes;
+    return value.data ? utf8_copy_truncated(output, capacity, value) : 0;
 }
 
 bool label_valid(Utf8View value) noexcept {

@@ -13,15 +13,13 @@ namespace maicord {
 namespace {
 
 bool update_frame_transform(D3D11Renderer* renderer) noexcept {
-    return renderer &&
-           d3d11_draw_pipeline_update_transform(renderer->pipeline, renderer->graphics.context,
-                                                renderer->width, renderer->height, renderer->dpi);
+    return d3d11_draw_pipeline_update_transform(renderer->pipeline, renderer->graphics.context, renderer->width,
+                                                renderer->height, renderer->dpi);
 }
 
 bool create_glyph_instance_buffer(D3D11Renderer* renderer, u32 capacity) noexcept {
     const D3D11DrawPipelineResult reserved = d3d11_draw_pipeline_reserve_glyph_instances(
-        renderer ? &renderer->pipeline : nullptr, renderer ? renderer->graphics.device : nullptr,
-        sizeof(GlyphQuad), capacity);
+        &renderer->pipeline, renderer->graphics.device, sizeof(GlyphQuad), capacity);
     if (!reserved.ok()) {
         log_write(LogLevel::error, "render", "glyph_instance_buffer_growth_failed");
         log_u64(LogLevel::error, "render", "glyph_instance_native_error",
@@ -411,10 +409,7 @@ bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
     }
     renderer->width = width;
     renderer->height = height;
-    if (!update_frame_transform(renderer)) {
-        return false;
-    }
-    return true;
+    return update_frame_transform(renderer);
 }
 
 bool renderer_finish_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
@@ -459,15 +454,13 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
     // Modal resize presents must consume a slot too. Skipping these waits
     // accumulates semaphore credits, allowing normal frames to queue far ahead
     // of the compositor after the drag ends.
-    if (renderer->graphics.frame_latency_waitable) {
-        if (!renderer->begin_frame_permit) {
-            const DWORD waited = d3d11_device_owner_wait(renderer->graphics, 1'000u);
-            if (waited != WAIT_OBJECT_0) {
-                log_write(LogLevel::error, "render", "frame_latency_wait_failed");
-                return false;
-            }
-            renderer->begin_frame_permit = true;
+    if (renderer->graphics.frame_latency_waitable && !renderer->begin_frame_permit) {
+        const DWORD waited = d3d11_device_owner_wait(renderer->graphics, 1'000u);
+        if (waited != WAIT_OBJECT_0) {
+            log_write(LogLevel::error, "render", "frame_latency_wait_failed");
+            return false;
         }
+        renderer->begin_frame_permit = true;
     }
     LARGE_INTEGER paint_begin{};
     LARGE_INTEGER paint_end{};

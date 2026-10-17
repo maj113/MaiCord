@@ -315,31 +315,20 @@ bool scroll_container(ProfileScene* scene, UiWidgetHandle handle, float offset) 
     return ui_layout_engine_set_scroll(&scene->widgets.layout, widget->layout, {0, offset});
 }
 void copy_label(ProfileString<128>* out, Utf8View text) noexcept {
-    u32 bytes = minimum<u32>(text.bytes, 128);
-    while (bytes && bytes < text.bytes && (static_cast<u8>(text.data[bytes]) & 0xC0) == 0x80)
-        --bytes;
+    const u32 bytes = utf8_truncated_length(text, 128);
     copy_bytes(out->data, text.data, bytes);
     out->bytes = static_cast<u16>(bytes);
 }
 template <u32 N> bool append(ProfileString<N>* s, Utf8View text) noexcept {
-    u32 bytes = minimum<u32>(text.bytes, N - s->bytes);
-    while (bytes && bytes < text.bytes && (static_cast<u8>(text.data[bytes]) & 0xC0) == 0x80)
-        --bytes;
+    const u32 bytes = utf8_truncated_length(text, N - s->bytes);
     copy_bytes(s->data + s->bytes, text.data, bytes);
     s->bytes += static_cast<u16>(bytes);
     return bytes == text.bytes;
 }
 template <u32 N> bool append_number(ProfileString<N>* s, u64 n) noexcept {
-    char digits[20];
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + n % 10);
-        n /= 10;
-    } while (n);
-    if (s->bytes + count > N)
+    if (s->bytes + decimal_digits(n) > N)
         return false;
-    while (count)
-        s->data[s->bytes++] = digits[--count];
+    s->bytes += static_cast<u16>(decimal_write(s->data + s->bytes, n));
     return true;
 }
 // "m:ss", or "h:mm:ss" from an hour.
@@ -413,15 +402,17 @@ CardLines card_lines(const UserActivity& a) noexcept {
     c.timer = !c.progress && (a.start_ms || a.end_ms);
     return c;
 }
-float card_height(const UserActivity& a, bool large) noexcept {
-    const auto m = card_metrics(large);
-    const auto lines = card_lines(a);
+float card_details(const CardLines& lines) noexcept {
     float details = 0;
     for (u32 i = 0; i < lines.count; ++i)
         details += (i ? 4.f : 0.f) + (i ? 16.f : 18.f);
     if (lines.progress || lines.timer)
         details += (lines.count ? 4.f : 0.f) + 16;
-    return m.pad + 16 + m.gap + maximum(m.image, details) + m.pad;
+    return details;
+}
+float card_height(const UserActivity& a, bool large) noexcept {
+    const auto m = card_metrics(large);
+    return m.pad + 16 + m.gap + maximum(m.image, card_details(card_lines(a))) + m.pad;
 }
 float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top, float right, u32 index,
                     const UserActivity& a, u64 now_ms, bool large, ProfileAction action) noexcept {
@@ -439,11 +430,7 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
              ProfileAction::none, kXs | text_style_bold, ProfileLook::plain, ProfileTone::strong))
         return -1;
     const float row = top + m.pad + 16 + m.gap;
-    float details = 0;
-    for (u32 i = 0; i < lines.count; ++i)
-        details += (i ? 4.f : 0.f) + (i ? 16.f : 18.f);
-    if (lines.progress || lines.timer)
-        details += (lines.count ? 4.f : 0.f) + 16;
+    const float details = card_details(lines);
     const float row_height = maximum(m.image, details);
     const float art_top = row + (row_height - m.image) * .5f;
     auto* image = add(s, owner, {left + m.pad, art_top, left + m.pad + m.image, art_top + m.image});
@@ -835,7 +822,7 @@ float name_block(ProfileScene* s, UiWidgetHandle owner, float left, float top, f
         const u32 shown = minimum<u32>(p.badge_count, 24);
         const u32 rows = (shown + per_row - 1) / per_row;
         const u32 first_row = minimum(shown, per_row);
-        const float block_w = first_row * 22.f - 2, block_h = rows * 22.f - 2 + 2;
+        const float block_w = first_row * 22.f - 2, block_h = rows * 22.f;
         const auto block = slot(minimum(block_w, width), block_h);
         for (u32 i = 0; i < shown; ++i) {
             const float bx = block.left + (i % per_row) * 22.f, by = block.top + 1 + (i / per_row) * 22.f;

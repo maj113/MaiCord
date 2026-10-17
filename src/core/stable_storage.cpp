@@ -9,7 +9,7 @@ bool valid_alignment(u32 value) noexcept {
 
 inline bool storage_bytes(u32 count, u32 element_bytes, usize* bytes) noexcept {
     // Both factors are u32; their full product always fits the x64 usize.
-    if (!bytes || element_bytes == 0) {
+    if (element_bytes == 0) {
         return false;
     }
     *bytes = static_cast<usize>(count) * element_bytes;
@@ -46,10 +46,8 @@ bool stable_storage_initialize(StableStorage* storage, u32 reserved_capacity,
 
 bool stable_storage_reserve(StableStorage* storage,
                             u32 required_capacity) noexcept {
-    const u32 reserved_capacity =
-        storage ? stable_storage_reserved_capacity(*storage) : 0;
     if (!storage || !storage->arena.base || required_capacity == 0 ||
-        required_capacity > reserved_capacity) {
+        required_capacity > stable_storage_reserved_capacity(*storage)) {
         return false;
     }
     if (required_capacity <= storage->capacity) {
@@ -79,10 +77,11 @@ bool stable_storage_reserve(StableStorage* storage,
 
 bool stable_storage_grow(StableStorage* storage,
                          u32 required_capacity) noexcept {
-    const u32 reserved_capacity =
-        storage ? stable_storage_reserved_capacity(*storage) : 0;
-    if (!storage || required_capacity == 0 ||
-        required_capacity > reserved_capacity) {
+    if (!storage) {
+        return false;
+    }
+    const u32 reserved_capacity = stable_storage_reserved_capacity(*storage);
+    if (required_capacity == 0 || required_capacity > reserved_capacity) {
         return false;
     }
     if (required_capacity <= storage->capacity) {

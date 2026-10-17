@@ -57,14 +57,12 @@ bool valid_slice(Slice<u8> value) noexcept {
 }
 
 bool ranges_overlap(Slice<u8> left, Slice<u8> right) noexcept {
-    const usize left_begin = reinterpret_cast<usize>(left.data);
-    const usize right_begin = reinterpret_cast<usize>(right.data);
-    const usize left_end = left_begin + left.count;
-    const usize right_end = right_begin + right.count;
-    if (left_end < left_begin || right_end < right_begin) {
-        return true;
-    }
-    return left_begin < right_end && right_begin < left_end;
+    return byte_ranges_conflict(left.data, left.count, right.data, right.count);
+}
+
+void wipe(Slice<u8> bytes) noexcept {
+    if (bytes.data)
+        SecureZeroMemory(bytes.data, bytes.count);
 }
 
 TlsStreamEvent event(TlsStreamEventKind kind) noexcept {
@@ -374,13 +372,10 @@ TlsStreamEvent finish_close(TlsStream* stream) noexcept {
     }
     // A cancelled receive may have written bytes that were never committed to
     // the queue. Erase its full storage, only after the last completion drains.
-    if (stream->buffers.encrypted_input.data)
-        SecureZeroMemory(stream->buffers.encrypted_input.data, stream->buffers.encrypted_input.count);
+    wipe(stream->buffers.encrypted_input);
     byte_queue_clear(&stream->encrypted_input, false);
-    if (stream->buffers.handshake_output.data)
-        SecureZeroMemory(stream->buffers.handshake_output.data, stream->buffers.handshake_output.count);
-    if (stream->buffers.record_output.data)
-        SecureZeroMemory(stream->buffers.record_output.data, stream->buffers.record_output.count);
+    wipe(stream->buffers.handshake_output);
+    wipe(stream->buffers.record_output);
     stream->state = TlsStreamState::closed;
     return event(TlsStreamEventKind::drained);
 }
@@ -568,18 +563,15 @@ TlsStreamEvent tls_stream_handle_completion(TlsStream* stream, NetworkLoop* loop
         completion.kind == NetworkOperationKind::resolve && completion.resolver == &stream->resolver;
     if (!owned_socket && !owned_resolver)
         return event(TlsStreamEventKind::waiting);
-    if (completion.kind == NetworkOperationKind::connect || completion.kind == NetworkOperationKind::send ||
-        completion.kind == NetworkOperationKind::receive) {
-        if (completion.connection == &stream->connection && stream->outstanding_operations != 0) {
-            --stream->outstanding_operations;
-        }
+    if (owned_socket && stream->outstanding_operations != 0) {
+        --stream->outstanding_operations;
     }
     if (stream->state == TlsStreamState::closing) {
         return finish_close(stream);
     }
     if (completion.kind == NetworkOperationKind::resolve) {
-        if (stream->state != TlsStreamState::resolving || completion.resolver != &stream->resolver ||
-            completion.stale || !completion.succeeded || !stream->resolver.results) {
+        if (stream->state != TlsStreamState::resolving || completion.stale || !completion.succeeded ||
+            !stream->resolver.results) {
             return failure(stream, TlsStreamError::resolve, static_cast<u32>(completion.native_error));
         }
         stream->next_address = stream->resolver.results;
@@ -590,8 +582,7 @@ TlsStreamEvent tls_stream_handle_completion(TlsStream* stream, NetworkLoop* loop
         return event(TlsStreamEventKind::waiting);
     }
     if (completion.kind == NetworkOperationKind::connect) {
-        if (stream->state != TlsStreamState::connecting || completion.connection != &stream->connection ||
-            completion.stale || !completion.succeeded ||
+        if (stream->state != TlsStreamState::connecting || completion.stale || !completion.succeeded ||
             stream->connection.state != NetworkConnectionState::connected) {
             network_connection_close(&stream->connection);
             if (start_connect_candidate(stream, loop)) {
@@ -606,8 +597,7 @@ TlsStreamEvent tls_stream_handle_completion(TlsStream* stream, NetworkLoop* loop
         return drive_handshake(stream);
     }
     if (completion.kind == NetworkOperationKind::send) {
-        if (completion.connection != &stream->connection || completion.stale || !completion.succeeded ||
-            completion.transferred == 0 || !stream->send_data) {
+        if (completion.stale || !completion.succeeded || completion.transferred == 0 || !stream->send_data) {
             return failure(stream, TlsStreamError::send, static_cast<u32>(completion.native_error));
         }
         stream->send_offset += completion.transferred;
@@ -635,41 +625,38 @@ TlsStreamEvent tls_stream_handle_completion(TlsStream* stream, NetworkLoop* loop
         SecureZeroMemory(stream->buffers.record_output.data, sent_bytes);
         return start_next_record(stream);
     }
-    if (completion.kind == NetworkOperationKind::receive) {
-        if (completion.connection != &stream->connection || completion.stale || !completion.succeeded) {
-            return failure(stream, TlsStreamError::receive, static_cast<u32>(completion.native_error));
-        }
-        if (completion.transferred == 0) {
-            if ((stream->state != TlsStreamState::reading && stream->state != TlsStreamState::duplex) ||
-                !stream->read_handler) {
-                return failure(stream, TlsStreamError::receive);
-            }
-            if (stream->read_completed) {
-                if (byte_queue_size(stream->encrypted_input)) return failure(stream, TlsStreamError::tls);
-                return complete_read(stream, true);
-            }
-            const TlsStreamReadAction action = stream->read_handler(stream->read_context, {}, true);
-            if (action == TlsStreamReadAction::pause && !stream->duplex) {
-                stream->paused_peer_closed = true;
-                stream->state = TlsStreamState::read_paused;
-                return event(TlsStreamEventKind::read_paused);
-            }
-            return action == TlsStreamReadAction::complete ? complete_read(stream, true)
-                                                           : failure(stream, TlsStreamError::receive);
-        }
-        if (!byte_queue_produce(&stream->encrypted_input, completion.transferred)) {
-            return failure(stream, TlsStreamError::capacity);
-        }
-        if (stream->state == TlsStreamState::handshake) {
-            return drive_handshake(stream);
-        }
-        if ((stream->state == TlsStreamState::reading || stream->state == TlsStreamState::duplex) &&
-            stream->read_handler) {
-            return drive_read(stream);
-        }
-        return failure(stream, TlsStreamError::receive);
+    if (completion.stale || !completion.succeeded) {
+        return failure(stream, TlsStreamError::receive, static_cast<u32>(completion.native_error));
     }
-    return failure(stream, TlsStreamError::invalid_input);
+    if (completion.transferred == 0) {
+        if ((stream->state != TlsStreamState::reading && stream->state != TlsStreamState::duplex) ||
+            !stream->read_handler) {
+            return failure(stream, TlsStreamError::receive);
+        }
+        if (stream->read_completed) {
+            if (byte_queue_size(stream->encrypted_input)) return failure(stream, TlsStreamError::tls);
+            return complete_read(stream, true);
+        }
+        const TlsStreamReadAction action = stream->read_handler(stream->read_context, {}, true);
+        if (action == TlsStreamReadAction::pause && !stream->duplex) {
+            stream->paused_peer_closed = true;
+            stream->state = TlsStreamState::read_paused;
+            return event(TlsStreamEventKind::read_paused);
+        }
+        return action == TlsStreamReadAction::complete ? complete_read(stream, true)
+                                                       : failure(stream, TlsStreamError::receive);
+    }
+    if (!byte_queue_produce(&stream->encrypted_input, completion.transferred)) {
+        return failure(stream, TlsStreamError::capacity);
+    }
+    if (stream->state == TlsStreamState::handshake) {
+        return drive_handshake(stream);
+    }
+    if ((stream->state == TlsStreamState::reading || stream->state == TlsStreamState::duplex) &&
+        stream->read_handler) {
+        return drive_read(stream);
+    }
+    return failure(stream, TlsStreamError::receive);
 }
 
 void tls_stream_close(TlsStream* stream) noexcept {

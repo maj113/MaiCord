@@ -10,7 +10,7 @@ namespace {
 constexpr UINT kTrayId = 1;
 
 float clamp01(float v) noexcept {
-    return v < 0 ? 0 : v > 1 ? 1 : v;
+    return clamp_value(v, 0.f, 1.f);
 }
 float root(float v) noexcept {
     if (v <= 0)
@@ -19,15 +19,6 @@ float root(float v) noexcept {
     for (u32 i = 0; i < 14; ++i)
         x = .5f * (x + v / x);
     return x;
-}
-float absolute(float v) noexcept {
-    return v < 0 ? -v : v;
-}
-float larger(float a, float b) noexcept {
-    return a > b ? a : b;
-}
-float smaller(float a, float b) noexcept {
-    return a < b ? a : b;
 }
 float channel(u32 color, u32 shift) noexcept {
     return static_cast<float>((color >> shift) & 255u) / 255.f;
@@ -60,16 +51,16 @@ float segment_distance(float px, float py, float ax, float ay, float bx, float b
 }
 // Signed distance to a rounded square centred at c with half extent h.
 float rounded_distance(float px, float py, float c, float h, float r) noexcept {
-    const float qx = absolute(px - c) - (h - r), qy = absolute(py - c) - (h - r);
-    const float ox = larger(qx, 0), oy = larger(qy, 0);
-    return root(ox * ox + oy * oy) + smaller(larger(qx, qy), 0) - r;
+    const float qx = absolute_value(px - c) - (h - r), qy = absolute_value(py - c) - (h - r);
+    const float ox = maximum(qx, 0.f), oy = maximum(qy, 0.f);
+    return root(ox * ox + oy * oy) + minimum(maximum(qx, qy), 0.f) - r;
 }
 
 void render_mark(const TrayIconPalette& palette, u32 extent, Slice<u32> pixels) noexcept {
     const float e = static_cast<float>(extent), c = e * .5f;
     // "M": two posts and a centre valley, round caps.
     const float points[5][2] = {{.28f, .71f}, {.28f, .31f}, {.5f, .55f}, {.72f, .31f}, {.72f, .71f}};
-    const float half_stroke = larger(e * .072f, .85f);
+    const float half_stroke = maximum(e * .072f, .85f);
     for (u32 y = 0; y < extent; ++y)
         for (u32 x = 0; x < extent; ++x) {
             const float px = static_cast<float>(x) + .5f, py = static_cast<float>(y) + .5f;
@@ -81,7 +72,7 @@ void render_mark(const TrayIconPalette& palette, u32 extent, Slice<u32> pixels) 
             const u32 base = lerp_color(palette.brand, palette.brand_shade, py / e);
             float d = 1e9f;
             for (u32 i = 0; i < 4; ++i)
-                d = smaller(d, segment_distance(px, py, points[i][0] * e, points[i][1] * e, points[i + 1][0] * e,
+                d = minimum(d, segment_distance(px, py, points[i][0] * e, points[i][1] * e, points[i + 1][0] * e,
                                                 points[i + 1][1] * e));
             const u32 shaded = over(base | 0xFF000000u, palette.glyph | 0xFF000000u, half_stroke - d + .5f);
             pixels[y * extent + x] = (static_cast<u32>(tile * 255.f + .5f) << 24) | (shaded & 0x00FFFFFFu);
@@ -225,7 +216,7 @@ bool tray_icon_render(TrayIconState state, u8 badge, const TrayIconPalette& pale
     const u32 fill = state == TrayIconState::connected || state == TrayIconState::speaking ? palette.success
                                                                                              : palette.danger;
     disc(pixels, extent, cx, cy, radius, fill);
-    const float half = larger(e * .045f, .7f), arm = radius * .5f;
+    const float half = maximum(e * .045f, .7f), arm = radius * .5f;
     switch (state) {
     case TrayIconState::speaking:
         disc(pixels, extent, cx, cy, radius * .42f, palette.glyph);

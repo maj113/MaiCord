@@ -58,10 +58,7 @@ bool media_audio_ring_native_queue_empty(const MediaAudioRing& r,u32 padding) no
 }
 void media_audio_ring_rewind(MediaAudioRing* r) noexcept {if(r&&ring_valid(*r))r->submitted=r->consumed;}
 bool media_audio_clock_time(u64 position,u64 frequency,u64* time) noexcept {
-    if(!time||!frequency)return false;const u64 whole=position/frequency,remainder=position%frequency;
-    if(whole>~u64{0}/10000000||remainder>~u64{0}/10000000)return false;
-    const u64 base=whole*10000000,fraction=remainder*10000000/frequency;
-    if(base>~u64{0}-fraction)return false;*time=base+fraction;return true;
+    return media_audio_clock_frames(position,frequency,10000000,time);
 }
 bool media_audio_clock_frames(u64 position,u64 frequency,u32 rate,u64* frames) noexcept {
     if(!frames||!frequency||!rate)return false;

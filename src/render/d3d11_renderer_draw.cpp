@@ -76,9 +76,6 @@ UiRect layer_clip(const D3D11Renderer& renderer, UiRect rect) noexcept {
 }
 
 bool intersect_scissor(D3D11_RECT* rectangle, const D3D11_RECT* damage) noexcept {
-    if (!rectangle) {
-        return false;
-    }
     if (damage) {
         rectangle->left = maximum(rectangle->left, damage->left);
         rectangle->top = maximum(rectangle->top, damage->top);
@@ -89,7 +86,7 @@ bool intersect_scissor(D3D11_RECT* rectangle, const D3D11_RECT* damage) noexcept
 }
 
 const UiNode* scene_node(const D3D11Renderer* renderer, UiSemantic semantic) noexcept {
-    return renderer && renderer->ui_scene
+    return renderer->ui_scene
                ? ui_scene_resolve(*renderer->ui_scene, ui_scene_find(*renderer->ui_scene, semantic))
                : nullptr;
 }
@@ -415,7 +412,7 @@ bool draw_gpu_text(D3D11Renderer* renderer, DrawSubmissionState* submission, con
 
 bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission, u32 first_batch,
                         u32 end_batch, float pixel_scale, const D3D11_RECT* damage) noexcept {
-    if (!renderer || first_batch > end_batch || end_batch > renderer->paint_stream.batch_count) {
+    if (first_batch > end_batch || end_batch > renderer->paint_stream.batch_count) {
         return false;
     }
     if (first_batch == end_batch) {
@@ -870,8 +867,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
           d3d11_renderer_guild_card_visible(*renderer) ||
           (renderer->message_action_bar && renderer->message_action_bar->active) ||
           (renderer->popup_scene && renderer->popup_scene->active) ||
-          ((renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active) ||
-           (renderer->forum_form && renderer->forum_form->scene && renderer->forum_form->scene->active)) ||
+          d3d11_renderer_form_active(*renderer) ||
           (renderer->reaction_viewer && renderer->reaction_viewer->active)));
     const bool interaction_text_current = d3d11_renderer_interaction_text_state_current(*renderer);
     const u32 base_paint_end =
@@ -940,9 +936,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
             : maximum(media_overlay_begin,
                       minimum(base_paint_end, renderer->edit_overlay_paint_first_batch));
     const bool form_active =
-        d3d11_renderer_tooltip_visible(*renderer) ||
-        ((renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active) ||
-         (renderer->forum_form && renderer->forum_form->scene && renderer->forum_form->scene->active)) ||
+        d3d11_renderer_tooltip_visible(*renderer) || d3d11_renderer_form_active(*renderer) ||
         (renderer_settings_page_visible(*renderer));
     const u32 form_paint =
         form_active ? minimum(renderer->form_paint_first_batch, paint_batch_count) : paint_batch_count;

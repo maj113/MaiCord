@@ -227,11 +227,11 @@ WebSocketHandshakeWriteResult websocket_compute_accept(ConstSlice<u8> client_key
     return WebSocketHandshakeWriteResult{encoded.bytes, WebSocketHandshakeError::none};
 }
 
-WebSocketHandshakeWriteResult websocket_write_opening_request_with_origin(ConstSlice<u8> target,
-                                                                          ConstSlice<u8> host,
-                                                                          ConstSlice<u8> client_key,
-                                                                          ConstSlice<u8> origin,
-                                                                          Slice<u8> output) noexcept {
+namespace {
+// Writes the opening request; origin, when given, adds an Origin header.
+WebSocketHandshakeWriteResult write_opening_request(ConstSlice<u8> target, ConstSlice<u8> host,
+                                                    ConstSlice<u8> client_key, const ConstSlice<u8>* origin,
+                                                    Slice<u8> output) noexcept {
     if (!output.data || !valid_client_key(client_key)) {
         return WebSocketHandshakeWriteResult{0, output.data ? WebSocketHandshakeError::invalid_client_key
                                                             : WebSocketHandshakeError::invalid_input};
@@ -242,16 +242,17 @@ WebSocketHandshakeWriteResult websocket_write_opening_request_with_origin(ConstS
     if (!valid_host(host)) {
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_host};
     }
-    if (!valid_origin(origin)) {
+    if (origin && !valid_origin(*origin)) {
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_origin};
     }
 
     constexpr u32 fixed_bytes =
         sizeof("GET  HTTP/1.1\r\nHost: \r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-               "Sec-WebSocket-Key: \r\nSec-WebSocket-Version: 13\r\nOrigin: \r\n\r\n") -
+               "Sec-WebSocket-Key: \r\nSec-WebSocket-Version: 13\r\n\r\n") -
         1;
-    const u64 required =
-        static_cast<u64>(fixed_bytes) + target.count + host.count + client_key.count + origin.count;
+    constexpr u32 origin_bytes = sizeof("Origin: \r\n") - 1;
+    const u64 required = static_cast<u64>(fixed_bytes) + target.count + host.count + client_key.count +
+                         (origin ? static_cast<u64>(origin_bytes) + origin->count : 0);
     if (required > output.count) {
         return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
     }
@@ -264,45 +265,28 @@ WebSocketHandshakeWriteResult websocket_write_opening_request_with_origin(ConstS
         protocol_writer_append_literal(&writer, "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                                                 "Sec-WebSocket-Key: ") &&
         protocol_writer_append_bytes(&writer, client_key) &&
-        protocol_writer_append_literal(&writer, "\r\nSec-WebSocket-Version: 13\r\nOrigin: ") &&
-        protocol_writer_append_bytes(&writer, origin) &&
-        protocol_writer_append_literal(&writer, "\r\n\r\n");
+        protocol_writer_append_literal(&writer, "\r\nSec-WebSocket-Version: 13\r\n") &&
+        (!origin || (protocol_writer_append_literal(&writer, "Origin: ") &&
+                     protocol_writer_append_bytes(&writer, *origin) &&
+                     protocol_writer_append_literal(&writer, "\r\n"))) &&
+        protocol_writer_append_literal(&writer, "\r\n");
     return written ? WebSocketHandshakeWriteResult{writer.used, WebSocketHandshakeError::none}
                    : WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
+}
+} // namespace
+
+WebSocketHandshakeWriteResult websocket_write_opening_request_with_origin(ConstSlice<u8> target,
+                                                                          ConstSlice<u8> host,
+                                                                          ConstSlice<u8> client_key,
+                                                                          ConstSlice<u8> origin,
+                                                                          Slice<u8> output) noexcept {
+    return write_opening_request(target, host, client_key, &origin, output);
 }
 
 WebSocketHandshakeWriteResult websocket_write_opening_request(ConstSlice<u8> target, ConstSlice<u8> host,
                                                               ConstSlice<u8> client_key,
                                                               Slice<u8> output) noexcept {
-    if (!output.data || !valid_client_key(client_key)) {
-        return WebSocketHandshakeWriteResult{0, output.data ? WebSocketHandshakeError::invalid_client_key
-                                                            : WebSocketHandshakeError::invalid_input};
-    }
-    if (!valid_target(target)) {
-        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_target};
-    }
-    if (!valid_host(host)) {
-        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::invalid_host};
-    }
-    constexpr u32 fixed_bytes =
-        sizeof("GET  HTTP/1.1\r\nHost: \r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-               "Sec-WebSocket-Key: \r\nSec-WebSocket-Version: 13\r\n\r\n") -
-        1;
-    const u64 required = static_cast<u64>(fixed_bytes) + target.count + host.count + client_key.count;
-    if (required > output.count) {
-        return WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
-    }
-    ProtocolWriter writer{output, 0};
-    const bool written =
-        protocol_writer_append_literal(&writer, "GET ") && protocol_writer_append_bytes(&writer, target) &&
-        protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") &&
-        protocol_writer_append_bytes(&writer, host) &&
-        protocol_writer_append_literal(&writer, "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-                                                "Sec-WebSocket-Key: ") &&
-        protocol_writer_append_bytes(&writer, client_key) &&
-        protocol_writer_append_literal(&writer, "\r\nSec-WebSocket-Version: 13\r\n\r\n");
-    return written ? WebSocketHandshakeWriteResult{writer.used, WebSocketHandshakeError::none}
-                   : WebSocketHandshakeWriteResult{0, WebSocketHandshakeError::output_too_small};
+    return write_opening_request(target, host, client_key, nullptr, output);
 }
 
 WebSocketHandshakeValidation websocket_validate_opening_response(ConstSlice<u8> response,

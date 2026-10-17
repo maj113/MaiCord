@@ -627,15 +627,15 @@ bool login_scene_layout_with_metrics(LoginScene* scene, float width, float heigh
     const bool qr_visible = !scene->phone_mode && !scene->recovery_mode && !scene->reset_mode && !scene->browser_mode &&
                             !full_viewport && width >= metrics.qr_min_width;
     const u8 variant = login_layout_variant(full_viewport, qr_visible, width, height, metrics);
-    const bool reusable =
-        scene->widgets.count != 0 && scene->layout_width == width && scene->layout_height == height &&
-        scene->layout_mfa_capabilities == scene->mfa_capabilities &&
+    const bool same_structure =
+        scene->widgets.count != 0 && scene->layout_mfa_capabilities == scene->mfa_capabilities &&
         scene->layout_credential_fields_hidden == scene->credential_fields_hidden &&
         scene->layout_recovery_mode == scene->recovery_mode &&
         scene->layout_reset_mode == scene->reset_mode && scene->layout_phone_mode == scene->phone_mode &&
         scene->layout_browser_mode == scene->browser_mode && scene->layout_browser_available == scene->browser_available &&
         scene->layout_recovery_result == (scene->recovery_mode && scene->back_only) &&
         scene->layout_variant == variant && scene->layout_metrics_revision == metrics.revision;
+    const bool reusable = same_structure && scene->layout_width == width && scene->layout_height == height;
     scene->full_viewport = full_viewport;
     scene->qr_visible = qr_visible;
     if (reusable) {
@@ -645,14 +645,6 @@ bool login_scene_layout_with_metrics(LoginScene* scene, float width, float heigh
         }
         return login_scene_focus(scene, scene->focus);
     }
-    const bool same_structure =
-        scene->widgets.count != 0 && scene->layout_mfa_capabilities == scene->mfa_capabilities &&
-        scene->layout_credential_fields_hidden == scene->credential_fields_hidden &&
-        scene->layout_recovery_mode == scene->recovery_mode &&
-        scene->layout_reset_mode == scene->reset_mode && scene->layout_phone_mode == scene->phone_mode &&
-        scene->layout_browser_mode == scene->browser_mode && scene->layout_browser_available == scene->browser_available &&
-        scene->layout_recovery_result == (scene->recovery_mode && scene->back_only) &&
-        scene->layout_variant == variant && scene->layout_metrics_revision == metrics.revision;
     if (same_structure) {
         if (!ui_widget_manager_layout(&scene->widgets, UiSize{width, height}).ok()) {
             discard_login_layout(scene);

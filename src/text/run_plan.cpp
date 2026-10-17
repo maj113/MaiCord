@@ -26,7 +26,7 @@ template<class T> Slice<T> take(Arena& arena,u32 count) noexcept {
 }
 template<class T> bool filled(Slice<T> values) noexcept {return !values.count||values.data;}
 #include "run_substitutions.inc"
-NativeRunPlanSlot* slot(NativeRunPlanStore& s,NativeRunPlanHandle h) noexcept {
+NativeRunPlanSlot* slot(const NativeRunPlanStore& s,NativeRunPlanHandle h) noexcept {
     if(!s.instances||!s.slots.data||!h.slot||h.slot>s.slots.count||!h.generation)return nullptr;
     auto& p=s.slots[h.slot-1];return p.references&&p.generation==h.generation?&p:nullptr;
 }
@@ -180,16 +180,16 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
     substitutions.keep=true;parent={};*output={available+1,p.generation};return {NativeFontError::none,SfntStatus::ok,0};
 }
 const SfntShapePlan* native_run_plan_get(const NativeRunPlanStore& store,NativeRunPlanHandle h,bool independent) noexcept {
-    auto* p=slot(const_cast<NativeRunPlanStore&>(store),h);return p?&reinterpret_cast<const PlanData*>(p->state.base)->plans[independent?1:0]:nullptr;
+    auto* p=slot(store,h);return p?&reinterpret_cast<const PlanData*>(p->state.base)->plans[independent?1:0]:nullptr;
 }
 NativeNominalPlan native_run_plan_nominal(const NativeRunPlanStore& store,NativeRunPlanHandle h) noexcept {
-    auto* p=slot(const_cast<NativeRunPlanStore&>(store),h);return p?reinterpret_cast<const PlanData*>(p->state.base)->nominal:NativeNominalPlan{};
+    auto* p=slot(store,h);return p?reinterpret_cast<const PlanData*>(p->state.base)->nominal:NativeNominalPlan{};
 }
 bool native_run_plan_retain(NativeRunPlanStore* store,NativeRunPlanHandle h) noexcept {
     if(!store)return false;auto* p=slot(*store,h);if(!p||p->references==0xffffffffu)return false;++p->references;return true;
 }
 const SfntFontLayoutMetrics* native_run_plan_metrics(const NativeRunPlanStore& store,NativeRunPlanHandle h) noexcept {
-    auto* p=slot(const_cast<NativeRunPlanStore&>(store),h);return p?&reinterpret_cast<const PlanData*>(p->state.base)->layout_metrics:nullptr;
+    auto* p=slot(store,h);return p?&reinterpret_cast<const PlanData*>(p->state.base)->layout_metrics:nullptr;
 }
 bool native_run_plan_release(NativeRunPlanStore* store,NativeRunPlanHandle h) noexcept {
     if(!store)return false;auto* p=slot(*store,h);if(!p)return false;if(--p->references)return true;

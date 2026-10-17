@@ -110,13 +110,9 @@ void append(UiImageViewer* v, Utf8View text) noexcept {
 }
 void append_number(UiImageViewer* v, u32 value) noexcept {
     char digits[10];
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value && count < 10);
-    while (count && v->footer_bytes < sizeof(v->footer))
-        v->footer[v->footer_bytes++] = digits[--count];
+    const u32 count = decimal_write(digits, value);
+    for (u32 i = 0; i < count && v->footer_bytes < sizeof(v->footer); ++i)
+        v->footer[v->footer_bytes++] = digits[i];
 }
 void compose_footer(UiImageViewer* v) noexcept {
     v->footer_bytes = 0;

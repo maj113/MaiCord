@@ -5,7 +5,7 @@
 namespace maicord {namespace {
 static_assert(sizeof(NativeFontFileId)==sizeof(FILE_ID_INFO));
 bool valid(const NativeFontStore& s) noexcept {return s.files.data && s.files.count && s.faces.data && s.faces.count;}
-NativeFontFaceSlot* slot(NativeFontStore& s,NativeFontHandle h) noexcept {
+NativeFontFaceSlot* slot(const NativeFontStore& s,NativeFontHandle h) noexcept {
     if(!valid(s)||!h.slot||h.slot>s.faces.count||!h.generation)return nullptr;
     auto& f=s.faces[h.slot-1];return f.references&&f.generation==h.generation?&f:nullptr;
 }
@@ -77,8 +77,7 @@ bool native_font_release(NativeFontStore* s,NativeFontHandle h) noexcept {
     if(!--file.faces)close(file);return true;
 }
 const NativeFontFace* native_font_get(const NativeFontStore& s,NativeFontHandle h) noexcept {
-    if(!valid(s)||!h.slot||h.slot>s.faces.count||!h.generation)return nullptr;
-    const auto& f=s.faces[h.slot-1];return f.references&&f.generation==h.generation?&f.face:nullptr;
+    const auto* f=slot(s,h);return f?&f->face:nullptr;
 }
 NativeFontStoreStats native_font_stats(const NativeFontStore& s) noexcept {
     NativeFontStoreStats stats{};if(!valid(s))return stats;

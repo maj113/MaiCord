@@ -555,9 +555,8 @@ static JsonReadResult visit_object_range(Utf8View input, ConstSlice<u32> structu
         }
     }
 
-    if (reader.error == JsonReadError::none &&
-        !consume_structural(&reader, '}', JsonReadError::expected_comma_or_end)) {
-        // consume_structural records the error.
+    if (reader.error == JsonReadError::none) {
+        consume_structural(&reader, '}', JsonReadError::expected_comma_or_end);
     }
     if (reader.error == JsonReadError::none) {
         skip_whitespace(&reader);
@@ -611,9 +610,8 @@ static JsonReadResult visit_array_range(Utf8View input, ConstSlice<u32> structur
         }
     }
 
-    if (reader.error == JsonReadError::none &&
-        !consume_structural(&reader, ']', JsonReadError::expected_comma_or_end)) {
-        // consume_structural records the error.
+    if (reader.error == JsonReadError::none) {
+        consume_structural(&reader, ']', JsonReadError::expected_comma_or_end);
     }
     if (reader.error == JsonReadError::none) {
         skip_whitespace(&reader);

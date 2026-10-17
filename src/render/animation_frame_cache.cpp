@@ -63,8 +63,7 @@ AnimationFrameCacheError translate_error(GlyphAtlasError error) noexcept {
 
 u32 find_bucket(const AnimationFrameCache* cache,
                 AnimationFrameCacheKey key) noexcept {
-    if (!cache || !cache->entries || !cache->buckets ||
-        cache->bucket_capacity == 0 || !key_valid(key)) {
+    if (cache->bucket_capacity == 0) {
         return 0xFFFFFFFFu;
     }
     const u32 first = key_bucket(key, cache->bucket_capacity);

@@ -11,7 +11,7 @@ struct GatewaySubscriptionThreadOwner {
 };
 inline bool gateway_subscription_thread_owner_prepare(const GatewaySubscriptionThreadOwner& owner,
     const GatewayGuildSubscription& desired, GatewayGuildSubscription* frame) noexcept {
-    if (!frame || !desired.guild_id || desired.clear_thread_guild_id) return false;
+    if (!desired.guild_id || desired.clear_thread_guild_id) return false;
     auto prepared = desired;
     if (owner.sent_guild_id && owner.sent_guild_id != desired.guild_id) {
         prepared.clear_thread_guild_id = owner.sent_guild_id;
@@ -23,14 +23,12 @@ inline bool gateway_subscription_thread_owner_prepare(const GatewaySubscriptionT
 }
 inline void gateway_subscription_thread_owner_admit(GatewaySubscriptionThreadOwner* owner,
     const GatewayGuildSubscription& frame) noexcept {
-    if (!owner) return;
     owner->active_guild_id = frame.thread_member_lists_present
         ? (frame.thread_id ? frame.guild_id : 0) : owner->sent_guild_id;
     owner->active = true;
 }
 inline void gateway_subscription_thread_owner_complete(GatewaySubscriptionThreadOwner* owner,
     bool sent) noexcept {
-    if (!owner) return;
     if (sent && owner->active) owner->sent_guild_id = owner->active_guild_id;
     owner->active_guild_id = 0; owner->active = false;
 }
@@ -38,6 +36,6 @@ inline void gateway_subscription_thread_owner_reset_connection(GatewaySubscripti
     gateway_subscription_thread_owner_complete(owner, false);
 }
 inline void gateway_subscription_thread_owner_ready(GatewaySubscriptionThreadOwner* owner, bool fresh) noexcept {
-    if (owner && fresh) *owner = {};
+    if (fresh) *owner = {};
 }
 } // namespace maicord

@@ -10,12 +10,7 @@ UserNoteEntry* find(UserNoteStore* store, u64 user_id) noexcept {
     return nullptr;
 }
 bool same(const char* a, u32 a_bytes, const char* b, u32 b_bytes) noexcept {
-    if (a_bytes != b_bytes)
-        return false;
-    for (u32 i = 0; i < a_bytes; ++i)
-        if (a[i] != b[i])
-            return false;
-    return true;
+    return a_bytes == b_bytes && bytes_equal(a, b, a_bytes);
 }
 // Evicts the least recently used entry that carries no unsaved work.
 UserNoteEntry* acquire(UserNoteStore* store, u64 user_id) noexcept {

@@ -22,10 +22,6 @@ u32 key_bucket(MediaAssetKey key, u32 capacity) noexcept {
     return wrap_bucket(media_asset_hash(key), capacity);
 }
 
-bool key_valid(MediaAssetKey key) noexcept {
-    return media_asset_key_valid(key);
-}
-
 MediaAtlasError translate_error(GlyphAtlasError error) noexcept {
     switch (error) {
     case GlyphAtlasError::none:
@@ -67,8 +63,7 @@ MediaAtlasResult result_from(const MediaAtlasEntry& entry,
 }
 
 u32 find_bucket(const MediaAtlas* atlas, MediaAssetKey key) noexcept {
-    if (!atlas || !atlas->entries || !atlas->buckets ||
-        atlas->bucket_capacity == 0 || !key_valid(key)) {
+    if (!atlas->entries || !atlas->buckets || atlas->bucket_capacity == 0) {
         return 0xFFFFFFFFu;
     }
     const u32 first = key_bucket(key, atlas->bucket_capacity);
@@ -116,7 +111,7 @@ bool insert_bucket(MediaAtlas* atlas, MediaAssetKey key, u32 slot) noexcept {
 }
 
 u32 find_free_slot(MediaAtlas* atlas) noexcept {
-    if (!atlas || atlas->entry_count >= atlas->entry_capacity) {
+    if (atlas->entry_count >= atlas->entry_capacity) {
         return 0xFFFFFFFFu;
     }
     const u32 first = atlas->free_cursor % atlas->entry_capacity;
@@ -142,7 +137,7 @@ void erase_entry(MediaAtlas* atlas, u32 slot, u32 bucket) noexcept {
 }
 
 bool rebuild_buckets_and_clear_stale(MediaAtlas* atlas) noexcept {
-    if (!atlas || !atlas->entries || !atlas->buckets) {
+    if (!atlas->entries || !atlas->buckets) {
         return false;
     }
     // Entry scans stop after the last occupied entry: capacity past the
@@ -242,7 +237,7 @@ void media_atlas_begin_visibility(MediaAtlas* atlas) noexcept {
 MediaAtlasResult media_atlas_peek(MediaAtlas* atlas, MediaAssetKey key) noexcept {
     if (!atlas || !atlas->entries || !atlas->buckets ||
         !atlas->allocations.entries ||
-        !key_valid(key)) {
+        !media_asset_key_valid(key)) {
         if (atlas) {
             ++atlas->rejected;
         }
@@ -275,7 +270,7 @@ bool media_atlas_unpin(MediaAtlas* atlas, MediaAssetKey key) noexcept {
 }
 
 bool media_atlas_forget(MediaAtlas* atlas, MediaAssetKey key) noexcept {
-    if (!atlas || !atlas->entries || !atlas->buckets || !key_valid(key))
+    if (!atlas || !atlas->entries || !atlas->buckets || !media_asset_key_valid(key))
         return false;
     const u32 bucket = find_bucket(atlas, key);
     if (bucket == 0xFFFFFFFFu)
@@ -288,7 +283,7 @@ bool media_atlas_forget(MediaAtlas* atlas, MediaAssetKey key) noexcept {
 
 MediaAtlasResult media_atlas_allocate(MediaAtlas* atlas, MediaAssetKey key,
                                       u16 width, u16 height) noexcept {
-    if (!atlas || !atlas->entries || !key_valid(key) || width == 0 ||
+    if (!atlas || !atlas->entries || !media_asset_key_valid(key) || width == 0 ||
         height == 0) {
         if (atlas) {
             ++atlas->rejected;
@@ -395,7 +390,7 @@ u16 media_atlas_capacity_height(const MediaAtlas& atlas) noexcept {
 }
 
 bool media_atlas_prepare(MediaAtlas* atlas, MediaAssetKey key, u16 width, u16 height) noexcept {
-    if (!atlas || !atlas->entries || !atlas->growth.maximum_height || !key_valid(key)) {
+    if (!atlas || !atlas->entries || !atlas->growth.maximum_height || !media_asset_key_valid(key)) {
         return false;
     }
     // A resident identity needs no space; peek does not pin it.

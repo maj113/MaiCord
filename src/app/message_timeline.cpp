@@ -33,7 +33,7 @@ UiScrollAnchor capture_anchor(const MessageTimeline& timeline) noexcept {
 
 void install_removed_anchor_fallback(UiVariableList* list, UiScrollAnchor* anchor, bool removed_anchor,
                                      u32 removal_index) noexcept {
-    if (!removed_anchor || !anchor || list->count == 0) {
+    if (!removed_anchor || list->count == 0) {
         return;
     }
     anchor->index = minimum(removal_index, list->count - 1);
@@ -99,7 +99,7 @@ bool newer_than_resident(const MessageStore& store, u64 id) noexcept {
 
 bool evict_resident_edge(MessageTimeline* timeline, UiScrollAnchor* anchor, u64 protected_id,
                          u32* first_changed) noexcept {
-    if (!timeline || !timeline->store || !timeline->list || timeline->list->count == 0 || !first_changed) {
+    if (!timeline || !timeline->store || !timeline->list || timeline->list->count == 0) {
         return false;
     }
     const u32 last = timeline->list->count - 1;

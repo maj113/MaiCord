@@ -1,6 +1,6 @@
 #include "maicord/text/font_run.hpp"
 namespace maicord {namespace {
-NativeFontRunSlot* slot(NativeFontRunStore* store,NativeFontRunHandle h) noexcept {
+NativeFontRunSlot* slot(const NativeFontRunStore* store,NativeFontRunHandle h) noexcept {
     if(!store||!h.slot||h.slot>store->slots.count)return nullptr;auto& s=store->slots[h.slot-1];return s.references&&s.generation==h.generation?&s:nullptr;
 }
 NativeFontResult invalid() noexcept {return {NativeFontError::invalid_input,SfntStatus::invalid_input,0};}
@@ -20,7 +20,7 @@ NativeFontResult native_font_run_acquire(NativeFontRunStore* store,NativeFontIns
     auto& saved=store->slots[vacant];saved.run={source,instance,simulations};saved.references=1;++saved.generation;*output={vacant+1,saved.generation};return {NativeFontError::none,SfntStatus::ok,0};
 }
 const NativeFontRun* native_font_run_get(const NativeFontRunStore& store,NativeFontRunHandle h) noexcept {
-    if(!h.slot||h.slot>store.slots.count)return nullptr;const auto& s=store.slots[h.slot-1];return s.references&&s.generation==h.generation?&s.run:nullptr;
+    const auto* s=slot(&store,h);return s?&s->run:nullptr;
 }
 bool native_font_run_retain(NativeFontRunStore* store,NativeFontRunHandle h) noexcept {auto* s=slot(store,h);if(!s||s->references==0xffffffffu)return false;++s->references;return true;}
 bool native_font_run_release(NativeFontRunStore* store,NativeFontRunHandle h) noexcept {

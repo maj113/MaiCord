@@ -71,10 +71,8 @@ Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_i
             used = a->status_emoji.bytes;
             if (a->activity.bytes) storage.data[used++] = ' ';
         }
-        u32 text = minimum<u32>(a->activity.bytes, static_cast<u32>(storage.count) - used);
         const Utf8View activity = a->activity.view();
-        while (text && text < activity.bytes && (static_cast<u8>(activity.data[text]) & 0xC0) == 0x80)
-            --text;
+        const u32 text = utf8_truncated_length(activity, static_cast<u32>(storage.count) - used);
         copy_bytes(storage.data + used, activity.data, text);
         return {storage.data, used + text};
     }
@@ -84,15 +82,11 @@ Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_i
     for (u32 i = 0; i < recipients.count; ++i) members += recipients[i] != source.state->self_user_id;
     const Utf8View suffix = members == 1 ? utf8_literal(" member") : utf8_literal(" members");
     char digits[20];
-    u32 first = 20;
-    do {
-        digits[--first] = static_cast<char>('0' + members % 10);
-        members /= 10;
-    } while (members);
-    if (storage.count < 20 - first + suffix.bytes) return {};
-    copy_bytes(storage.data, digits + first, 20 - first);
-    copy_bytes(storage.data + 20 - first, suffix.data, suffix.bytes);
-    return {storage.data, 20 - first + suffix.bytes};
+    const u32 digit_count = decimal_write(digits, members);
+    if (storage.count < digit_count + suffix.bytes) return {};
+    copy_bytes(storage.data, digits, digit_count);
+    copy_bytes(storage.data + digit_count, suffix.data, suffix.bytes);
+    return {storage.data, digit_count + suffix.bytes};
 }
 u32 ui_private_row_group_members(const ChatStateStore& state, u64 channel_id, u64 output[2]) noexcept {
     const ChannelRecord* channel = nullptr;

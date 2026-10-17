@@ -23,10 +23,8 @@ Utf8View private_channel_title(const ChatStateStore& state, const UserStore* use
     u32 used = 0;
     bool truncated = false;
     const auto append = [&](Utf8View text) noexcept {
-        const u32 take = minimum(text.bytes, storage.count - 3 - used);
-        u32 bytes = take;
         // Do not split a UTF-8 sequence when reserving the ellipsis suffix.
-        while (bytes && bytes < text.bytes && (static_cast<u8>(text.data[bytes]) & 0xc0u) == 0x80u) --bytes;
+        const u32 bytes = utf8_truncated_length(text, storage.count - 3 - used);
         copy_bytes(storage.data + used, text.data, bytes);
         used += bytes;
         truncated = truncated || bytes != text.bytes;
@@ -40,10 +38,7 @@ Utf8View private_channel_title(const ChatStateStore& state, const UserStore* use
         else if (user) append(user_store_name(*users, *user));
         else {
             char digits[20];
-            u32 first = 20;
-            u64 id = recipients[i];
-            do { digits[--first] = static_cast<char>('0' + id % 10); id /= 10; } while (id);
-            append({digits + first, 20 - first});
+            append({digits, decimal_write(digits, recipients[i])});
         }
         if (channel.type == 1) break;
     }

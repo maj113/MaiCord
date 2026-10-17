@@ -36,7 +36,7 @@ JpegParseResult parse_failure(JpegParseResult result, JpegError error) noexcept 
 }
 
 bool read_marker(ConstSlice<u8> encoded, u32* cursor, u8* marker) noexcept {
-    if (!cursor || !marker || *cursor >= encoded.count || encoded[*cursor] != 0xFF) {
+    if (*cursor >= encoded.count || encoded[*cursor] != 0xFF) {
         return false;
     }
     u32 offset = *cursor;
@@ -52,7 +52,7 @@ bool read_marker(ConstSlice<u8> encoded, u32* cursor, u8* marker) noexcept {
 }
 
 bool segment_bounds(ConstSlice<u8> encoded, u32* cursor, u32* payload, u32* payload_bytes) noexcept {
-    if (!cursor || !payload || !payload_bytes || *cursor + 2u > encoded.count) {
+    if (*cursor + 2u > encoded.count) {
         return false;
     }
     const u32 length = byte_load_be16(encoded.data + *cursor);
@@ -76,7 +76,7 @@ bool bytes_equal(const u8* left, const char* right, u32 count) noexcept {
 
 bool parse_exif_orientation(const u8* payload, u32 bytes, JpegOrientation* orientation) noexcept {
     // The sixth identifier byte is a fill byte and is not checked, as in Chromium.
-    if (!payload || !orientation || bytes < 14 || !bytes_equal(payload, "Exif\0", 5)) {
+    if (bytes < 14 || !bytes_equal(payload, "Exif\0", 5)) {
         return false;
     }
     const u8* tiff = payload + 6;
@@ -169,7 +169,7 @@ inline constexpr u32 kIccTagA2b0 = 0x41324230u;
 inline constexpr u32 kIccTagA2b1 = 0x41324231u;
 
 bool icc_cursor_begin(const IccScatter& scatter, u32 offset, IccCursor* cursor) noexcept {
-    if (!cursor || offset > scatter.profile_bytes) {
+    if (offset > scatter.profile_bytes) {
         return false;
     }
     u32 profile_offset = 0;
@@ -190,7 +190,7 @@ bool icc_cursor_begin(const IccScatter& scatter, u32 offset, IccCursor* cursor) 
 }
 
 bool icc_cursor_read_u8(IccCursor* cursor, u8* value) noexcept {
-    if (!cursor || !cursor->scatter || !value || cursor->offset >= cursor->scatter->profile_bytes) {
+    if (cursor->offset >= cursor->scatter->profile_bytes) {
         return false;
     }
     while (cursor->chunk_index < cursor->scatter->chunk_count) {
@@ -214,7 +214,7 @@ bool icc_cursor_read_u8(IccCursor* cursor, u8* value) noexcept {
 bool icc_cursor_read_u16(IccCursor* cursor, u16* value) noexcept {
     u8 high = 0;
     u8 low = 0;
-    if (!value || !icc_cursor_read_u8(cursor, &high) || !icc_cursor_read_u8(cursor, &low)) {
+    if (!icc_cursor_read_u8(cursor, &high) || !icc_cursor_read_u8(cursor, &low)) {
         return false;
     }
     *value = static_cast<u16>(static_cast<u16>(high) << 8u | low);
@@ -224,7 +224,7 @@ bool icc_cursor_read_u16(IccCursor* cursor, u16* value) noexcept {
 IccParseOutcome icc_append_entries(const IccScatter& scatter, u32 offset, u32 count, u8 precision_bytes,
                                    bool require_monotonic, JpegIccWorkspace* workspace,
                                    u32* table_offset) noexcept {
-    if (!workspace || !table_offset || count == 0 || (precision_bytes != 1 && precision_bytes != 2)) {
+    if (count == 0 || (precision_bytes != 1 && precision_bytes != 2)) {
         return IccParseOutcome::unsupported;
     }
     if (workspace->profile.entry_count > kJpegIccEntryMaximum ||
@@ -265,7 +265,7 @@ IccParseOutcome icc_append_entries(const IccScatter& scatter, u32 offset, u32 co
 IccParseOutcome icc_append_table(const IccScatter& scatter, u32 offset, u32 count, u8 precision_bytes,
                                  bool require_monotonic, JpegIccWorkspace* workspace,
                                  JpegIccCurve* curve) noexcept {
-    if (!curve || count < 2 || count > kJpegIccCurveEntryMaximum) {
+    if (count < 2 || count > kJpegIccCurveEntryMaximum) {
         return IccParseOutcome::unsupported;
     }
     u32 table_offset = 0;
@@ -281,7 +281,7 @@ IccParseOutcome icc_append_table(const IccScatter& scatter, u32 offset, u32 coun
 }
 
 bool icc_copy(const IccScatter& scatter, u32 offset, u8* destination, u32 bytes) noexcept {
-    if ((!destination && bytes != 0) || static_cast<u64>(offset) + bytes > scatter.profile_bytes) {
+    if (static_cast<u64>(offset) + bytes > scatter.profile_bytes) {
         return false;
     }
     u32 profile_offset = 0;
@@ -310,7 +310,7 @@ bool icc_copy(const IccScatter& scatter, u32 offset, u8* destination, u32 bytes)
 
 bool icc_read_u16(const IccScatter& scatter, u32 offset, u16* value) noexcept {
     u8 bytes[2]{};
-    if (!value || !icc_copy(scatter, offset, bytes, sizeof(bytes))) {
+    if (!icc_copy(scatter, offset, bytes, sizeof(bytes))) {
         return false;
     }
     *value = static_cast<u16>(static_cast<u16>(bytes[0]) << 8u | bytes[1]);
@@ -319,7 +319,7 @@ bool icc_read_u16(const IccScatter& scatter, u32 offset, u16* value) noexcept {
 
 bool icc_read_u32(const IccScatter& scatter, u32 offset, u32* value) noexcept {
     u8 bytes[4]{};
-    if (!value || !icc_copy(scatter, offset, bytes, sizeof(bytes))) {
+    if (!icc_copy(scatter, offset, bytes, sizeof(bytes))) {
         return false;
     }
     *value = static_cast<u32>(bytes[0]) << 24u | static_cast<u32>(bytes[1]) << 16u |
@@ -339,7 +339,7 @@ float absolute(float value) noexcept {
 
 bool icc_read_fixed(const IccScatter& scatter, u32 offset, float* value) noexcept {
     u32 bits = 0;
-    if (!value || !icc_read_u32(scatter, offset, &bits)) {
+    if (!icc_read_u32(scatter, offset, &bits)) {
         return false;
     }
     *value = icc_fixed(bits);
@@ -407,7 +407,7 @@ IccParseOutcome parse_icc_curve(const IccScatter& scatter, const IccTag& tag, Jp
                                 JpegIccCurve* curve) noexcept {
     u32 type = 0;
     u32 reserved = 0;
-    if (!workspace || !curve || tag.bytes < 12 || !icc_read_u32(scatter, tag.offset, &type) ||
+    if (tag.bytes < 12 || !icc_read_u32(scatter, tag.offset, &type) ||
         !icc_read_u32(scatter, tag.offset + 4u, &reserved)) {
         return IccParseOutcome::malformed;
     }
@@ -518,7 +518,7 @@ IccParseOutcome parse_icc_mft(const IccScatter& scatter, const IccTag& tag, u8 e
     u32 type = 0;
     u32 reserved = 0;
     u8 channels[4]{};
-    if (!workspace || tag.bytes < 48 || !icc_read_u32(scatter, tag.offset, &type) ||
+    if (tag.bytes < 48 || !icc_read_u32(scatter, tag.offset, &type) ||
         !icc_read_u32(scatter, tag.offset + 4u, &reserved) ||
         !icc_copy(scatter, tag.offset + 8u, channels, sizeof(channels))) {
         return IccParseOutcome::malformed;
@@ -633,7 +633,7 @@ IccParseOutcome parse_icc_mft(const IccScatter& scatter, const IccTag& tag, u8 e
 
 IccParseOutcome parse_icc_profile(const IccScatter& scatter, const JpegImage& image,
                                   JpegIccWorkspace* workspace) noexcept {
-    if (!workspace || scatter.profile_bytes < 132u) {
+    if (scatter.profile_bytes < 132u) {
         return IccParseOutcome::malformed;
     }
     u32 declared_bytes = 0;
@@ -823,9 +823,6 @@ IccParseOutcome parse_icc_profile(const IccScatter& scatter, const JpegImage& im
 void finalize_icc_profile(ConstSlice<u8> encoded, const JpegIccChunk* chunks, u32 chunk_count,
                           u32 declared_chunk_count, bool marker_seen, bool transport_malformed,
                           const JpegImage& image, JpegIccWorkspace* workspace) noexcept {
-    if (!workspace) {
-        return;
-    }
     JpegIccProfile& profile = workspace->profile;
     profile.entries = workspace->entries;
     if (!marker_seen) {
@@ -859,7 +856,7 @@ void finalize_icc_profile(ConstSlice<u8> encoded, const JpegIccChunk* chunks, u3
 
 bool build_huffman_table(JpegHuffmanTable* table, const u8* counts, const u8* symbols,
                          u32 symbol_count) noexcept {
-    if (!table || !counts || !symbols || symbol_count == 0 || symbol_count > 256) {
+    if (symbol_count == 0 || symbol_count > 256) {
         return false;
     }
     *table = JpegHuffmanTable{};
@@ -1077,7 +1074,7 @@ u32 scan_component_rows(const JpegImage& image, const JpegComponent& component) 
 
 JpegError parse_scan_header(ConstSlice<u8> encoded, u32 payload, u32 bytes, const JpegImage& image,
                             const JpegTables& tables, u16 restart_interval, JpegScan* scan) noexcept {
-    if (!scan || image.component_count == 0 || bytes < 6) {
+    if (image.component_count == 0 || bytes < 6) {
         return JpegError::order;
     }
     *scan = JpegScan{};
@@ -1190,9 +1187,6 @@ JpegError validate_progression(const JpegScan& scan, u8 progression[kJpegCompone
 }
 
 JpegError find_entropy_end(ConstSlice<u8> encoded, u32 start, JpegScan* scan, u32* next_marker) noexcept {
-    if (!scan || !next_marker) {
-        return JpegError::invalid_input;
-    }
     u32 cursor = start;
     u32 restart_markers = 0;
     const __m128i marker_byte = _mm_set1_epi8(static_cast<char>(0xFF));
@@ -1341,7 +1335,7 @@ __forceinline u32 entropy_read_bits(JpegEntropyReader* reader, u32 count) noexce
 }
 
 __forceinline bool entropy_align(JpegEntropyReader* reader) noexcept {
-    if (!reader || reader->error != JpegError::none) {
+    if (reader->error != JpegError::none) {
         return false;
     }
     // Bits of a partly consumed byte: every refill adds whole bytes.
@@ -1367,7 +1361,7 @@ __forceinline bool entropy_consume_restart(JpegEntropyReader* reader, u8 expecte
     // where the marker must start.
     if (!entropy_align(reader) || reader->bits != 0 || reader->offset >= reader->bytes.count ||
         reader->bytes[reader->offset] != 0xFF) {
-        if (reader && reader->error == JpegError::none) {
+        if (reader->error == JpegError::none) {
             reader->error = JpegError::restart;
         }
         return false;
@@ -1618,9 +1612,6 @@ __forceinline bool decode_block_local(JpegEntropyReader* reader, const JpegDecod
 // The reader state lives in a local copy (registers) for the whole block.
 bool decode_block(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, const JpegDecodeTable& ac_table,
                   i32* predictor, JpegCoefficientBlock* block, u32* huffman_symbols) noexcept {
-    if (!reader || !predictor || !block || !huffman_symbols) {
-        return false;
-    }
     JpegEntropyReader local = *reader;
     u32 symbols = *huffman_symbols;
     const bool ok = decode_block_local(&local, dc_table, ac_table, predictor, block, &symbols);
@@ -1630,10 +1621,8 @@ bool decode_block(JpegEntropyReader* reader, const JpegDecodeTable& dc_table, co
 }
 
 __forceinline bool store_coefficient(JpegEntropyReader* reader, i32 value, i16* destination) noexcept {
-    if (!reader || !destination || value < -32'768 || value > 32'767) {
-        if (reader) {
-            reader->error = JpegError::coefficient;
-        }
+    if (value < -32'768 || value > 32'767) {
+        reader->error = JpegError::coefficient;
         return false;
     }
     *destination = static_cast<i16>(value);
@@ -1644,9 +1633,8 @@ __forceinline bool decode_progressive_dc_initial(JpegEntropyReader* reader, cons
                                    u8 approximation_low, JpegCoefficientBlock* block,
                                    u32* huffman_symbols) noexcept {
     u8 symbol = 0;
-    if (!reader || !predictor || !block || !huffman_symbols ||
-        !decode_huffman_symbol(reader, table, &symbol) || symbol > 11) {
-        if (reader && reader->error == JpegError::none) {
+    if (!decode_huffman_symbol(reader, table, &symbol) || symbol > 11) {
+        if (reader->error == JpegError::none) {
             reader->error = JpegError::coefficient;
         }
         return false;
@@ -1660,9 +1648,6 @@ __forceinline bool decode_progressive_dc_initial(JpegEntropyReader* reader, cons
 
 __forceinline bool decode_progressive_dc_refinement(JpegEntropyReader* reader, u8 approximation_low,
                                       JpegCoefficientBlock* block) noexcept {
-    if (!reader || !block) {
-        return false;
-    }
     const i32 delta = 1u << approximation_low;
     const u32 bit = entropy_read_bit(reader);
     i32 value = block->values[0];
@@ -1683,9 +1668,6 @@ __forceinline bool decode_progressive_ac_initial(JpegEntropyReader* reader, cons
                                    u8 spectral_start, u8 spectral_end, u8 approximation_low,
                                    JpegCoefficientBlock* block, u32* eob_run,
                                    u32* huffman_symbols) noexcept {
-    if (!reader || !block || !eob_run || !huffman_symbols) {
-        return false;
-    }
     if (*eob_run != 0) {
         --*eob_run;
         return true;
@@ -1757,7 +1739,7 @@ __forceinline bool decode_progressive_ac_initial(JpegEntropyReader* reader, cons
 
 __forceinline bool refine_nonzeroes(JpegEntropyReader* reader, JpegCoefficientBlock* block, u32* coefficient,
                       u32 spectral_end, i32 zeroes_to_skip, i32 delta) noexcept {
-    if (!reader || !block || !coefficient || delta <= 0) {
+    if (delta <= 0) {
         return false;
     }
     while (*coefficient <= spectral_end) {
@@ -1801,9 +1783,6 @@ __forceinline bool decode_progressive_ac_refinement(JpegEntropyReader* reader, c
                                       u8 spectral_start, u8 spectral_end, u8 approximation_low,
                                       JpegCoefficientBlock* block, u32* eob_run,
                                       u32* huffman_symbols) noexcept {
-    if (!reader || !block || !eob_run || !huffman_symbols) {
-        return false;
-    }
     const i32 delta = 1u << approximation_low;
     u32 coefficient = spectral_start;
     if (*eob_run == 0) {
@@ -1883,8 +1862,7 @@ __forceinline bool decode_progressive_block(JpegEntropyReader* reader, const Jpe
 bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, const JpegTables& tables,
                              const JpegScan& scan, JpegCoefficientBlock* blocks,
                              JpegDecodeResult* result) noexcept {
-    if (!blocks || !result ||
-        static_cast<u64>(scan.entropy_offset) + scan.entropy_bytes > encoded.count) {
+    if (!blocks || static_cast<u64>(scan.entropy_offset) + scan.entropy_bytes > encoded.count) {
         return false;
     }
     JpegEntropyReader reader = entropy_reader(ConstSlice<u8>{encoded.data + scan.entropy_offset, scan.entropy_bytes});

@@ -355,8 +355,7 @@ HANDLE account_soundboard_notification_handle(const AccountSoundboard* s) noexce
 bool account_soundboard_stop(AccountSoundboard* s, GatewayClient* gateway, u32 timeout_ms) noexcept {
     if (!s || !s->initialized)
         return true;
-    if (gateway)
-        gateway_client_attach_soundboard(gateway, nullptr);
+    gateway_client_attach_soundboard(gateway, nullptr);
     voice_audio_output_stop(&s->preview);
     soundboard_mixer_stop(&s->mixer, 0);
     if (s->cdn_started) {

@@ -43,16 +43,9 @@ u32 seek_progress(u64 elapsed, u64 duration) noexcept {
     return static_cast<u32>(static_cast<double>(elapsed) / static_cast<double>(duration) * 10000.0);
 }
 void append_number(char* text, u32& cursor, u64 value, bool pad_two_digits = false) noexcept {
-    char digits[24];
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    if (pad_two_digits && count < 2)
+    if (pad_two_digits && decimal_digits(value) < 2)
         text[cursor++] = '0';
-    while (count)
-        text[cursor++] = digits[--count];
+    cursor += decimal_write(text + cursor, value);
 }
 void append_clock_text(char* text, u32& cursor, u64 milliseconds, bool hours_field) noexcept {
     const u64 seconds = milliseconds / 1000, hours = seconds / 3600;

@@ -39,20 +39,6 @@ bool submission_budget_exhausted(u32 maximum,u32 submitted) noexcept {
     return maximum&&submitted>=maximum;
 }
 
-HRESULT upload(State* s, D3D11_VIDEO_DECODER_BUFFER_TYPE type, const void* data,
-               u32 bytes, D3D11_VIDEO_DECODER_BUFFER_DESC* description) noexcept {
-    UINT capacity = 0;
-    void* destination = nullptr;
-    HRESULT status = s->context->GetDecoderBuffer(s->decoder, type, &capacity, &destination);
-    if (FAILED(status)) return status;
-    const bool fits = destination && bytes <= capacity;
-    if (fits) copy_bytes(destination, data, bytes);
-    status = s->context->ReleaseDecoderBuffer(s->decoder, type);
-    if (!fits) return E_OUTOFMEMORY;
-    *description = {}; description->BufferType = type; description->DataSize = bytes;
-    return status;
-}
-
 HRESULT submit(State* s, const H264ReferencePlan& plan, u8 surface) noexcept {
     const auto& picture = s->picture;
     DXVA_PicParams_H264 p{};
@@ -60,9 +46,10 @@ HRESULT submit(State* s, const H264ReferencePlan& plan, u8 surface) noexcept {
     h264_dxva_picture_parameters(picture.sps, picture.pps, picture.header.first, picture.header.all_intra,
                                  s->references, plan.decode_order, surface, s->feedback, &p, &q);
     D3D11_VIDEO_DECODER_BUFFER_DESC buffers[4]{};
-    HRESULT status = upload(s, D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS, &p, sizeof(p), &buffers[0]);
-    if (SUCCEEDED(status)) status = upload(s, D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX,
-        &q, sizeof(q), &buffers[1]);
+    HRESULT status = dxva_upload_buffer(s->context, s->decoder, D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS, &p,
+                                        sizeof(p), &buffers[0]);
+    if (SUCCEEDED(status)) status = dxva_upload_buffer(s->context, s->decoder,
+        D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX, &q, sizeof(q), &buffers[1]);
     if (FAILED(status)) return status;
 
     // Directly fill the driver's mapped compressed/slice buffers: no staging

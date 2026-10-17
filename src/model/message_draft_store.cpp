@@ -68,7 +68,7 @@ bool text_equal(const MessageDraftStore& store, const MessageDraftRecord& record
 }
 
 bool compact(MessageDraftStore* store) noexcept {
-    if (!store || !store_valid(*store)) {
+    if (!store_valid(*store)) {
         return false;
     }
     u32 write_offset = 0;
@@ -122,7 +122,7 @@ u64 touch(MessageDraftStore* store) noexcept {
 }
 
 bool erase_index(MessageDraftStore* store, u32 index) noexcept {
-    if (!store || !store_valid(*store) || index >= store->capacity || !store->records[index].occupied) {
+    if (!store_valid(*store) || index >= store->capacity || !store->records[index].occupied) {
         return false;
     }
     MessageDraftRecord& record = store->records[index];
@@ -135,9 +135,6 @@ bool erase_index(MessageDraftStore* store, u32 index) noexcept {
     return true;
 }
 
-} // namespace
-
-namespace {
 bool initialize_store(MessageDraftStore* store, Slice<MessageDraftRecord> records, Slice<u8> text,
                       bool clear_text) noexcept {
     if (!store || !records.data || records.count == 0 || records.count > kMessageDraftStoreMaximumRecords ||
@@ -255,11 +252,8 @@ MessageDraftStoreResult message_draft_store_save(MessageDraftStore* store,
         ++store->rejected;
         return draft_error(MessageDraftStoreError::record_capacity);
     }
-    if (input.text.bytes > store->text_capacity - store->text_used && !compact(store)) {
-        ++store->rejected;
-        return draft_error(MessageDraftStoreError::text_capacity);
-    }
-    if (input.text.bytes > store->text_capacity - store->text_used) {
+    if (input.text.bytes > store->text_capacity - store->text_used &&
+        (!compact(store) || input.text.bytes > store->text_capacity - store->text_used)) {
         ++store->rejected;
         return draft_error(MessageDraftStoreError::text_capacity);
     }

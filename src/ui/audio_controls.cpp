@@ -28,16 +28,9 @@ bool style_valid(const UiAudioControlsStyle& style) noexcept {
     return true;
 }
 void append_number(char* text, u32& cursor, u64 value, bool padded = false) noexcept {
-    char digits[24];
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    if (padded && count < 2)
+    if (padded && decimal_digits(value) < 2)
         text[cursor++] = '0';
-    while (count)
-        text[cursor++] = digits[--count];
+    cursor += decimal_write(text + cursor, value);
 }
 void append_time(char* text, u32& cursor, u64 milliseconds) noexcept {
     const u64 seconds = milliseconds / 1000, hours = seconds / 3600;

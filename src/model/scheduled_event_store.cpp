@@ -43,10 +43,7 @@ void scheduled_event_store_reset(ScheduledEventStore* store) noexcept {
 }
 
 const ScheduledEvent* scheduled_event_store_find(const ScheduledEventStore& store, u64 event_id) noexcept {
-    for (u32 i = 0; i < store.count; ++i)
-        if (store.entries[i].id == event_id)
-            return &store.entries[i];
-    return nullptr;
+    return find(const_cast<ScheduledEventStore*>(&store), event_id);
 }
 
 bool scheduled_event_store_upsert(ScheduledEventStore* store, const ScheduledEvent& event) noexcept {

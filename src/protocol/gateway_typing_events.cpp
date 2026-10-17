@@ -25,10 +25,8 @@ GatewayEventDecodeResult failure(
 }
 
 bool mark(TypingContext* context, u32 field) noexcept {
-    if (!context || (context->fields & field) != 0) {
-        if (context) {
-            context->error = GatewayEventDecodeError::duplicate_field;
-        }
+    if ((context->fields & field) != 0) {
+        context->error = GatewayEventDecodeError::duplicate_field;
         return false;
     }
     context->fields |= field;

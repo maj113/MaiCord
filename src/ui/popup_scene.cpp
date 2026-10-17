@@ -41,7 +41,7 @@ bool menu_avatar_column(ConstSlice<PopupItem> items) noexcept {
 }
 
 bool storage_bytes(u32 capacity, usize* total_bytes) noexcept {
-    if (!total_bytes || capacity == 0 || static_cast<usize>(capacity) > ~usize{0} / sizeof(PopupItem)) {
+    if (capacity == 0 || static_cast<usize>(capacity) > ~usize{0} / sizeof(PopupItem)) {
         return false;
     }
     const usize item_bytes = static_cast<usize>(capacity) * sizeof(PopupItem);
@@ -58,7 +58,7 @@ bool storage_bytes(u32 capacity, usize* total_bytes) noexcept {
 }
 
 bool materialize_owned_storage(PopupScene* scene) noexcept {
-    if (!scene || !scene->owned_storage.base || scene->owned_capacity == 0 || scene->items.data ||
+    if (!scene->owned_storage.base || scene->owned_capacity == 0 || scene->items.data ||
         scene->rows.data) {
         return false;
     }

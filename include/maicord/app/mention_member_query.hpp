@@ -99,7 +99,7 @@ inline u64 mention_member_query_next_wake(const MentionMemberQueryOwner& owner) 
 // The opcode 8 request once the timer expired; false while waiting.
 inline bool mention_member_query_due(const MentionMemberQueryOwner& owner, u64 now_ms,
                                      GatewayGuildMemberRequest* request) noexcept {
-    if (!request || !owner.due_at_ms || now_ms < owner.due_at_ms)
+    if (!owner.due_at_ms || now_ms < owner.due_at_ms)
         return false;
     *request = {};
     request->guild_id = owner.guild_id;

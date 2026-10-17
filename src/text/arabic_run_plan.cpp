@@ -11,7 +11,7 @@ struct PlanData {SfntShapePlan shape;StoredSteps steps[2];const SfntCmap* cmap;}
 NativeFontResult failure(SfntStatus status) noexcept {return {NativeFontError::font,status,0};}
 template<class T> Slice<T> take(Arena& arena,u32 count) noexcept {return {count?arena_allocate<T>(&arena,count):nullptr,count};}
 template<class T> bool filled(Slice<T> values) noexcept {return !values.count || values.data;}
-NativeArabicPlanSlot* slot(NativeArabicPlanStore& store,NativeArabicPlanHandle h) noexcept {
+NativeArabicPlanSlot* slot(const NativeArabicPlanStore& store,NativeArabicPlanHandle h) noexcept {
     if(!store.runs || !store.slots.data || !h.slot || h.slot>store.slots.count || !h.generation)return nullptr;
     auto& value=store.slots[h.slot-1];return value.references && value.generation==h.generation?&value:nullptr;
 }
@@ -69,7 +69,7 @@ NativeFontResult native_arabic_plan_acquire(NativeArabicPlanStore* store,NativeR
     auto& value=store->slots[available];value.run=run;value.state=state;state={};value.references=1;++value.generation;*output={available+1,value.generation};return {NativeFontError::none,SfntStatus::ok,0};
 }
 NativeArabicPlanView native_arabic_plan_get(const NativeArabicPlanStore& store,NativeArabicPlanHandle handle,bool independent) noexcept {
-    const auto* value=slot(const_cast<NativeArabicPlanStore&>(store),handle);if(!value)return {};
+    const auto* value=slot(store,handle);if(!value)return {};
     const auto& data=*reinterpret_cast<const PlanData*>(value->state.base);const u32 mode=independent?1u:0u;return {&data.shape,{data.steps[mode].data,data.steps[mode].count},data.cmap,data.steps[0].generic};
 }
 bool native_arabic_plan_release(NativeArabicPlanStore* store,NativeArabicPlanHandle handle) noexcept {

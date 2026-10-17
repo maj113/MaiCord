@@ -32,5 +32,4 @@ struct TtExecution {u32 operations,byte_offset,opcode,stack_count,call_depth;boo
 // Execution mutates working state on failure, which must then be discarded.
 SfntStatus tt_execute(TtInterpreter* state,ConstSlice<u8> program,TtPhase phase,
     TtExecution* result,u32 work_limit=1000000) noexcept;
-u32 tt_outline_information(u32 selector) noexcept;
 } // namespace maicord

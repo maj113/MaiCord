@@ -22,8 +22,6 @@ struct PresenceIdleInput {
 // Returns true when the idle state changed. since_unix_ms is when input
 // stopped, as the official client reports it.
 constexpr bool presence_idle_update(PresenceIdle* state, const PresenceIdleInput& in) noexcept {
-    if (!state)
-        return false;
     const bool idle = !in.in_call && (in.locked || (in.timeout_ms && in.input_idle_ms >= in.timeout_ms));
     if (idle == state->idle)
         return false;

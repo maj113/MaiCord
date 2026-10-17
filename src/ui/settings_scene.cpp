@@ -1679,11 +1679,6 @@ UiScrollbarGeometry ui_settings_scene_scrollbar(const UiSettingsScene& scene, bo
 }
 bool ui_settings_scene_activation(const UiSettingsScene& scene, UiSettingsTarget target, bool reverse,
                                   UiSettingsActivation* activation) noexcept {
-    if (target.kind == UiSettingsTargetKind::search_clear && activation && current(scene) &&
-        target_exists(scene, target)) {
-        *activation = {target, UiSettingsControlKind::action, false, 0};
-        return true;
-    }
     if (!activation || !current(scene) || !target_exists(scene, target))
         return false;
     *activation = {target, UiSettingsControlKind::action, false, 0};
@@ -2058,7 +2053,7 @@ bool ui_settings_scene_palette_hover(UiSettingsScene* scene, UiSettingsTarget ta
 }
 bool ui_settings_scene_aside(const UiSettingsScene& scene, UiRect* heading, UiRect* card, UiRect* clip,
                              bool* beside) noexcept {
-    if (!current(scene) || !scene.active)
+    if (!current(scene))
         return false;
     const auto aside = aside_layout(scene);
     if (!aside.active)

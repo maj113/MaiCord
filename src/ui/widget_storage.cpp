@@ -7,7 +7,7 @@ static_assert(sizeof(UiWidget) == 20);
 static_assert(sizeof(UiLayoutNode) == 216);
 
 bool append_storage_bytes(usize* cursor, usize bytes, usize alignment) noexcept {
-    if (!cursor || alignment == 0 || (alignment & (alignment - 1)) != 0) {
+    if (alignment == 0 || (alignment & (alignment - 1)) != 0) {
         return false;
     }
     const usize mask = alignment - 1;

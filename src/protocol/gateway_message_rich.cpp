@@ -23,7 +23,7 @@ GatewayEventDecodeResult rich_failure(GatewayEventDecodeError error, u32 offset 
 
 bool value_u32(JsonValue value, u32* output) noexcept {
     u64 parsed = 0;
-    if (!output || !json_value_to_u64(value, &parsed) || parsed > ~0u) {
+    if (!json_value_to_u64(value, &parsed) || parsed > ~0u) {
         return false;
     }
     *output = static_cast<u32>(parsed);
@@ -34,7 +34,7 @@ bool value_u32(JsonValue value, u32* output) noexcept {
 // JSON grammar has already been validated by the indexed reader. Sub-ms digits
 // are discarded; an absent field remains distinct from a known zero duration.
 bool duration_milliseconds(JsonValue value, u32* output) noexcept {
-    if (!output || value.kind != JsonValueKind::number || !value.source.data || !value.source.bytes)
+    if (value.kind != JsonValueKind::number || !value.source.data || !value.source.bytes)
         return false;
     const auto source = value.source;
     u32 at = 0, digits = 0, before_decimal = 0, leading_zeroes = 0;
@@ -104,10 +104,8 @@ bool duration_milliseconds(JsonValue value, u32* output) noexcept {
 }
 
 bool mark(u64* fields, u64 bit, GatewayEventDecodeError* error) noexcept {
-    if (!fields || !error || (*fields & bit) != 0) {
-        if (error) {
-            *error = GatewayEventDecodeError::duplicate_field;
-        }
+    if ((*fields & bit) != 0) {
+        *error = GatewayEventDecodeError::duplicate_field;
         return false;
     }
     *fields |= bit;
@@ -116,7 +114,7 @@ bool mark(u64* fields, u64 bit, GatewayEventDecodeError* error) noexcept {
 
 bool bounded_string(JsonString source, u32 maximum_bytes, Slice<char> output, u32* used, Utf8View* value,
                     u32* truncations) noexcept {
-    if (!used || !value || !truncations || *used > output.count) {
+    if (*used > output.count) {
         return false;
     }
     *value = Utf8View{};
@@ -484,7 +482,7 @@ GatewayEventDecodeResult read_object(JsonValue value, const JsonIndexedDocument&
     if (!read.ok() && read.error_offset >= begin)
         read.error_offset -= begin;
     if (!read.ok()) {
-        auto result = rich_failure(schema_error && *schema_error != GatewayEventDecodeError::none
+        auto result = rich_failure(*schema_error != GatewayEventDecodeError::none
                                        ? *schema_error
                                        : GatewayEventDecodeError::invalid_json,
                                    read.error_offset, JsonScanError::none, read.error);
@@ -1542,9 +1540,6 @@ GatewayEventDecodeResult decode_embed_media(JsonValue object, const JsonIndexedD
                                             u32 maximum_depth, Slice<char> text_output, u32* text_used,
                                             GatewayMessageEmbedMedia* destination,
                                             u32* truncations) noexcept {
-    if (!destination || !truncations) {
-        return rich_failure(GatewayEventDecodeError::invalid_data, object.source_offset);
-    }
     EmbedMediaContext context{};
     GatewayEventDecodeResult result =
         read_object(object, scratch, maximum_depth, visit_embed_media, &context, &context.error);

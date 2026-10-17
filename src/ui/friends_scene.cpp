@@ -272,14 +272,7 @@ void section_heading(Entry& e, const UiFriendsSection& section) noexcept {
     e.section_label[used++] = static_cast<char>(0x80);
     e.section_label[used++] = static_cast<char>(0x94);
     e.section_label[used++] = ' ';
-    char digits[10];
-    u32 n = 0, value = section.count;
-    do {
-        digits[n++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
-    while (n)
-        e.section_label[used++] = digits[--n];
+    used += decimal_write(e.section_label + used, section.count);
     e.section_label[used++] = ' ';
     e.section_label[used++] = section.collapsed ? '+' : '-';
     e.section_label_bytes = static_cast<u8>(used);
@@ -438,13 +431,9 @@ void count_heading(UiFriendsScene& s) noexcept {
     u32 used = 0;
     const auto append_number = [&](u32 value) noexcept {
         char digits[10];
-        u32 count = 0;
-        do {
-            digits[count++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value && count < 10);
-        while (count && used < sizeof(s.count_heading))
-            s.count_heading[used++] = digits[--count];
+        const u32 count = decimal_write(digits, value);
+        for (u32 i = 0; i < count && used < sizeof(s.count_heading); ++i)
+            s.count_heading[used++] = digits[i];
     };
     const u32 count = logical_count(s);
     append_number(count);
@@ -1356,14 +1345,7 @@ bool ui_friends_scene_text_output(const UiFriendsScene& s, const Theme& theme, U
             u32 more_bytes = 0;
             if (data.total > data.member_count) {
                 more[more_bytes++] = '+';
-                char digits[10];
-                u32 n = 0, value = data.total - data.member_count;
-                do {
-                    digits[n++] = static_cast<char>('0' + value % 10);
-                    value /= 10;
-                } while (value && n < 10);
-                while (n)
-                    more[more_bytes++] = digits[--n];
+                more_bytes += decimal_write(more + more_bytes, data.total - data.member_count);
             }
             if (!line({more, more_bytes}, {avatars_right, card.top + 14, right, card.top + 46}, theme.text_secondary,
                       text_style_subtext) ||

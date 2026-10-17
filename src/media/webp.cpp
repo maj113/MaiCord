@@ -58,10 +58,8 @@ __forceinline u64 peek_bits(const BitReader& reader) noexcept {
 
 // Reading past the end fails without consuming, like a bit-serial reader.
 u32 read_bits(BitReader* reader, u32 count) noexcept {
-    if (!reader || count > 24 || reader->bit_position + count > total_bits(*reader)) {
-        if (reader) {
-            reader->failed = true;
-        }
+    if (count > 24 || reader->bit_position + count > total_bits(*reader)) {
+        reader->failed = true;
         return 0;
     }
     const u32 value = static_cast<u32>(peek_bits(*reader)) & ((1u << count) - 1u);
@@ -85,7 +83,7 @@ struct SmallHuffmanCode {
 };
 
 bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* code) noexcept {
-    if (!lengths || !code || alphabet_size == 0 || alphabet_size > 19) {
+    if (alphabet_size == 0 || alphabet_size > 19) {
         return false;
     }
     *code = SmallHuffmanCode{};
@@ -130,7 +128,7 @@ bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* co
 // read bit is the codeword's most significant bit.
 template <typename Code, typename Symbol>
 bool decode_huffman(BitReader* reader, const Code& code, const Symbol* symbols, u16* symbol) noexcept {
-    if (!reader || !symbol || code.symbol_count == 0) {
+    if (code.symbol_count == 0) {
         return false;
     }
     if (code.symbol_count == 1) {
@@ -205,7 +203,7 @@ void build_lookup(Vp8lWorkspace* workspace, Vp8lHuffmanCode* code) noexcept {
 }
 
 bool build_code(Vp8lWorkspace* workspace, u32 alphabet_size, Vp8lHuffmanCode* code) noexcept {
-    if (!workspace || !code || alphabet_size == 0 || alphabet_size > kVp8lMaximumAlphabetSize) {
+    if (alphabet_size == 0 || alphabet_size > kVp8lMaximumAlphabetSize) {
         return false;
     }
     *code = Vp8lHuffmanCode{};
@@ -320,7 +318,7 @@ inline constexpr u8 kCodeLengthOrder[19] = {
 
 bool read_huffman_code(BitReader* reader, u32 alphabet_size, Vp8lWorkspace* workspace,
                        Vp8lHuffmanCode* code) noexcept {
-    if (!reader || !workspace || !code || alphabet_size == 0 || alphabet_size > kVp8lMaximumAlphabetSize) {
+    if (alphabet_size == 0 || alphabet_size > kVp8lMaximumAlphabetSize) {
         return false;
     }
     for (u32 index = 0; index < alphabet_size; ++index) {
@@ -567,7 +565,7 @@ struct DecodeState {
 };
 
 void set_error(DecodeState* state, WebpError error) noexcept {
-    if (state && state->error == WebpError::none) {
+    if (state->error == WebpError::none) {
         state->error = error;
     }
 }
@@ -609,8 +607,7 @@ __forceinline u32 distance_value(u32 code, u32 width) noexcept {
 
 bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_meta, u32* output,
                           u32 output_capacity) noexcept {
-    if (!state || !state->workspace || !output || width == 0 || height == 0 ||
-        static_cast<u64>(width) * height > output_capacity) {
+    if (width == 0 || height == 0 || static_cast<u64>(width) * height > output_capacity) {
         set_error(state, WebpError::resource_limit);
         return false;
     }
@@ -1075,7 +1072,7 @@ bool read_transforms(DecodeState* state, u32 original_width, u32 height, Transfo
 }
 
 bool remaining_padding_is_zero(BitReader* reader) noexcept {
-    if (!reader || reader->failed) {
+    if (reader->failed) {
         return false;
     }
     const u64 total_bits = static_cast<u64>(reader->bytes.count) * 8u;

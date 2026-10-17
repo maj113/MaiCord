@@ -9,14 +9,7 @@
 
 namespace maicord::call_stage {
 u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
-    if (!text.data)
-        return 0;
-    u32 bytes = minimum(text.bytes, capacity);
-    while (bytes && bytes < text.bytes && (static_cast<u8>(text.data[bytes]) & 0xc0) == 0x80)
-        --bytes;
-    if (bytes)
-        copy_bytes(destination, text.data, bytes);
-    return bytes;
+    return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
 }
 UiRect centered(float x, float y, float width, float height) noexcept {
     return {x - width * .5f, y - height * .5f, x + width * .5f, y + height * .5f};
@@ -35,12 +28,9 @@ constexpr float kPad = 12, kAvatar = 40, kAvatarStep = 48, kRowAvatar = 28, kInv
 u8 format(char* output, u32 capacity, Utf8View prefix, u32 value) noexcept {
     u32 at = copy_text(output, capacity, prefix);
     char digits[10];
-    u32 count = 0;
-    do
-        digits[count++] = static_cast<char>('0' + value % 10), value /= 10;
-    while (value && count < 10);
-    while (count && at < capacity)
-        output[at++] = digits[--count];
+    const u32 count = decimal_write(digits, value);
+    for (u32 i = 0; i < count && at < capacity; ++i)
+        output[at++] = digits[i];
     return static_cast<u8>(at);
 }
 UiRect control(const UiCallScene& s, UiCallControl c) noexcept {

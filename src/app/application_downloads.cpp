@@ -158,7 +158,7 @@ bool url_current(Utf8View url, u64 origin, u64 attachment) noexcept {
 }
 bool capture_payload(const MessageRecord& record, MessageHandle handle, const MessageRichStore& store,
                      u64 attachment_id, bool snapshot, DownloadSource* out) noexcept {
-    if (!out || !account_ready() || !attachment_id ||
+    if (!account_ready() || !attachment_id ||
         record.delivery != MessageDeliveryState::authoritative || !channel_current(record.channel_id))
         return false;
     const auto* message = &record;
@@ -207,7 +207,7 @@ bool capture_payload(const MessageRecord& record, MessageHandle handle, const Me
     return false;
 }
 bool capture(u64 message_id, u64 attachment_id, bool snapshot, DownloadSource* out) noexcept {
-    if (!out || !account_ready() || !message_id || !attachment_id)
+    if (!account_ready() || !message_id || !attachment_id)
         return false;
     const auto found = message_store_find(g_app.message_view.store, message_id);
     const auto* message =
@@ -219,7 +219,7 @@ bool capture(u64 message_id, u64 attachment_id, bool snapshot, DownloadSource* o
 bool capture_search(const ApplicationSearchSourceTicket& ticket, u64 attachment_id, bool snapshot,
                     DownloadSource* out) noexcept {
     ApplicationSearchSourceView view{};
-    if (!out || !application_search_source_resolve(ticket, snapshot, &view) || !view.message ||
+    if (!application_search_source_resolve(ticket, snapshot, &view) || !view.message ||
         !view.rich_store ||
         !capture_payload(*view.message, view.handle, *view.rich_store, attachment_id, snapshot, out))
         return false;
@@ -282,7 +282,7 @@ bool embed_filename(Utf8View url, MediaAttachmentFormat format, DownloadSource* 
 }
 bool capture_embed_payload(const MessageRecord& record, MessageHandle handle, const MessageRichStore& store,
                            u32 embed_index, bool snapshot, DownloadSource* out) noexcept {
-    if (!out || !account_ready() || record.delivery != MessageDeliveryState::authoritative ||
+    if (record.delivery != MessageDeliveryState::authoritative ||
         !channel_current(record.channel_id) || embed_index > 0xFF)
         return false;
     const auto* outer = message_rich_store_find(store, record.id);
@@ -322,7 +322,7 @@ bool capture_embed_payload(const MessageRecord& record, MessageHandle handle, co
     return true;
 }
 bool capture_embed(u64 message_id, u32 embed_index, bool snapshot, DownloadSource* out) noexcept {
-    if (!out || !account_ready() || !message_id)
+    if (!account_ready() || !message_id)
         return false;
     const auto found = message_store_find(g_app.message_view.store, message_id);
     const auto* message =
@@ -1050,7 +1050,7 @@ bool open_context(DownloadSource source, UiRect anchor) noexcept {
 // the image URL the official client's link rows name. Lottie stickers paint
 // on a canvas there, so they offer no link rows.
 bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) noexcept {
-    if (!g_app.account_ui || !g_app.message_scene.active || !out)
+    if (!g_app.account_ui || !g_app.message_scene.active)
         return false;
     const auto& scene = g_app.message_scene;
     const auto& store = g_app.account_ui->message_rich_store;
@@ -1114,7 +1114,7 @@ bool sticker_at(float x, float y, UiWidgetHandle focused, DownloadSource* out) n
 // pair for that image's original URL, as a sticker image does.
 bool embed_image_at(float x, float y, DownloadSource* out, u32* embed_index = nullptr,
                     bool* snapshot = nullptr) noexcept {
-    if (!g_app.account_ui || !g_app.message_scene.active || !out || !message_rich_display().embeds)
+    if (!g_app.account_ui || !g_app.message_scene.active || !message_rich_display().embeds)
         return false;
     const auto& scene = g_app.message_scene;
     const auto& store = g_app.account_ui->message_rich_store;

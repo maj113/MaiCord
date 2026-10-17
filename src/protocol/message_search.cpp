@@ -451,9 +451,6 @@ bool visit_tab(void* opaque, JsonString name, JsonValue value) noexcept {
     return true;
 }
 
-} // namespace
-
-namespace {
 constexpr const char* kHasNames[] = {"link",  "embed",   "file", "video",   "image",
                                      "sound", "sticker", "poll", "snapshot"};
 constexpr const char* kAuthorTypeNames[] = {"user", "bot", "webhook"};

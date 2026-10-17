@@ -2360,8 +2360,6 @@ GatewayClientDispatchRouteResult route_state_dispatch(const GatewayEnvelope& env
                                               structural_scratch, maximum_depth, &writer,
                                               &event->state.guild_details_bytes))
                 return route_error(GatewayClientDispatchRouteError::payload_capacity);
-        }
-        if ((guild_create && !unavailable) || guild_update) {
             GatewayEventDecodeResult appended =
                 append_role_array(object.roles, structural_scratch, Slice<u32>{object_scratch, 512},
                                   maximum_depth, &writer, &event->state.role_count);

@@ -11,16 +11,16 @@ namespace {
 bool image_size_valid(u32 size) noexcept {
     return size >= 16 && size <= 4'096 && (size & (size - 1)) == 0;
 }
+u32 literal_length(const char* literal) noexcept {
+    u32 bytes = 0;
+    while (literal[bytes] != 0) {
+        ++bytes;
+    }
+    return bytes;
+}
 
 bool ascii_equal(const char* value, u32 bytes, const char* literal) noexcept {
-    if (!value || !literal) {
-        return false;
-    }
-    u32 literal_bytes = 0;
-    while (literal[literal_bytes] != 0) {
-        ++literal_bytes;
-    }
-    if (bytes != literal_bytes) {
+    if (!value || bytes != literal_length(literal)) {
         return false;
     }
     for (u32 index = 0; index < bytes; ++index) {
@@ -32,13 +32,10 @@ bool ascii_equal(const char* value, u32 bytes, const char* literal) noexcept {
 }
 
 bool bytes_begin_with(ConstSlice<u8> value, u32 bytes, const char* literal) noexcept {
-    if (!value.data || !literal || bytes > value.count) {
+    if (!value.data || bytes > value.count) {
         return false;
     }
-    u32 literal_bytes = 0;
-    while (literal[literal_bytes] != 0) {
-        ++literal_bytes;
-    }
+    const u32 literal_bytes = literal_length(literal);
     if (literal_bytes > bytes) {
         return false;
     }
@@ -52,12 +49,12 @@ bool bytes_begin_with(ConstSlice<u8> value, u32 bytes, const char* literal) noex
 
 // Canonical decimal: no leading zero other than "0" itself.
 bool parse_decimal(const char* value, u32 bytes, u64* output) noexcept {
-    return value && output && bytes != 0 && (bytes == 1 || value[0] != '0') &&
+    return value && bytes != 0 && (bytes == 1 || value[0] != '0') &&
            decimal_parse({value, bytes}, output);
 }
 
 bool parse_hexadecimal(const char* value, u32 bytes, u64* output) noexcept {
-    if (!value || bytes == 0 || bytes > 16 || !output) {
+    if (!value || bytes == 0 || bytes > 16) {
         return false;
     }
     u64 parsed = 0;
@@ -617,11 +614,6 @@ u32 segment_count(const char* path, u32 bytes) noexcept {
     for (u32 i = 0; i < bytes; ++i) count += path[i] == '/';
     return count;
 }
-bool host_is(const char* host, u32 bytes, const char* name) noexcept {
-    u32 length = 0;
-    while (name[length]) ++length;
-    return ascii_equal(host, bytes, name) && bytes == length;
-}
 MediaUrlResult publish_provider(CdnHost host, const u8* target, u32 bytes, Slice<u8> output) noexcept {
     if (!catalog_provider_target_valid(host, {target, bytes}))
         return media_url_failure(MediaUrlError::invalid_target);
@@ -631,11 +623,11 @@ MediaUrlResult publish_provider(CdnHost host, const u8* target, u32 bytes, Slice
     return {bytes, host, MediaUrlError::none};
 }
 bool tenor_host(const char* host, u32 bytes) noexcept {
-    return host_is(host, bytes, "media.tenor.com") || host_is(host, bytes, "media.tenor.co") ||
-           host_is(host, bytes, "c.tenor.com") || host_is(host, bytes, "media1.tenor.com");
+    return ascii_equal(host, bytes, "media.tenor.com") || ascii_equal(host, bytes, "media.tenor.co") ||
+           ascii_equal(host, bytes, "c.tenor.com") || ascii_equal(host, bytes, "media1.tenor.com");
 }
 bool giphy_host(const char* host, u32 bytes) noexcept {
-    return host_is(host, bytes, "media.giphy.com") || host_is(host, bytes, "i.giphy.com") ||
+    return ascii_equal(host, bytes, "media.giphy.com") || ascii_equal(host, bytes, "i.giphy.com") ||
            (bytes == 16 && ascii_equal(host, 5, "media") && host[5] >= '0' && host[5] <= '4' &&
             ascii_equal(host + 6, 10, ".giphy.com"));
 }
@@ -690,8 +682,7 @@ MediaUrlResult provider_preview(const char* host, u32 host_bytes, const char* pa
     return publish_provider(CdnHost::catalog_giphy, target, 17 + part_bytes, output);
 }
 bool path_ends_with(const char* path, u32 bytes, const char* suffix) noexcept {
-    u32 length = 0;
-    while (suffix[length]) ++length;
+    const u32 length = literal_length(suffix);
     if (bytes < length) return false;
     for (u32 i = 0; i < length; ++i)
         if (ascii_lower(static_cast<u8>(path[bytes - length + i])) != static_cast<u8>(suffix[i])) return false;
@@ -814,7 +805,7 @@ MediaUrlResult video_favourite(Utf8View url, Slice<u8> output) noexcept {
     u32 host_bytes = 0, path_bytes = 0;
     if (!split_https(url.data, url.bytes, &host, &host_bytes, &path, &path_bytes))
         return media_url_failure(MediaUrlError::invalid_scheme);
-    if (host_is(host, host_bytes, kCatalogKlipyHost) || host_is(host, host_bytes, kCatalogKlipyStatic2Host)) {
+    if (ascii_equal(host, host_bytes, kCatalogKlipyHost) || ascii_equal(host, host_bytes, kCatalogKlipyStatic2Host)) {
         const ConstSlice<u8> target{reinterpret_cast<const u8*>(path),
                                     static_cast<u32>(url.data + url.bytes - path)};
         if (!klipy_asset_valid(target, ".mp4", 4))
@@ -823,8 +814,8 @@ MediaUrlResult video_favourite(Utf8View url, Slice<u8> output) noexcept {
             return media_url_failure(MediaUrlError::output_capacity);
         copy_bytes(output.data, target.data, target.count);
         return {target.count,
-                host_is(host, host_bytes, kCatalogKlipyHost) ? CdnHost::catalog_klipy
-                                                             : CdnHost::catalog_klipy2,
+                ascii_equal(host, host_bytes, kCatalogKlipyHost) ? CdnHost::catalog_klipy
+                                                                 : CdnHost::catalog_klipy2,
                 MediaUrlError::none};
     }
     u8 source[kCdnMaximumTargetBytes];
@@ -851,6 +842,18 @@ MediaUrlResult video_favourite(Utf8View url, Slice<u8> output) noexcept {
         return media_url_failure(MediaUrlError::output_capacity);
     copy_bytes(output.data, target.data, target.count);
     return {target.count, parsed.host, MediaUrlError::none};
+}
+// A Klipy favourite's bare asset path ending in suffix, fetched from its origin.
+MediaUrlResult klipy_favourite(Utf8View url, const KlipyOrigin& klipy, const char* suffix, u32 suffix_bytes,
+                               Slice<u8> output) noexcept {
+    const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + klipy.bytes), url.bytes - klipy.bytes};
+    const u32 path = klipy_favourite_path(target, suffix, suffix_bytes);
+    if (!path)
+        return media_url_failure(MediaUrlError::invalid_target);
+    if (path > output.count)
+        return media_url_failure(MediaUrlError::output_capacity);
+    copy_bytes(output.data, target.data, path);
+    return {path, klipy.host, MediaUrlError::none};
 }
 } // namespace
 
@@ -884,14 +887,7 @@ MediaUrlResult parse_catalog_preview_url(Utf8View url, Slice<u8> target_output,
     if (format == MediaAttachmentFormat::gif && klipy.bytes) {
         // A Klipy GIF favourite is stored as its gif_src (.gif), with
         // ?format=webp&animated=true appended when it came from a proxied embed.
-        const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + klipy.bytes), url.bytes - klipy.bytes};
-        const u32 path = klipy_favourite_path(target, ".gif", 4);
-        if (!path)
-            return media_url_failure(MediaUrlError::invalid_target);
-        if (path > target_output.count)
-            return media_url_failure(MediaUrlError::output_capacity);
-        copy_bytes(target_output.data, target.data, path);
-        return {path, klipy.host, MediaUrlError::none};
+        return klipy_favourite(url, klipy, ".gif", 4, target_output);
     }
     if (format == MediaAttachmentFormat::png || format == MediaAttachmentFormat::gif) {
         auto parsed = parse_media_url(url, target_output);
@@ -950,7 +946,7 @@ MediaUrlResult parse_catalog_preview_url(Utf8View url, Slice<u8> target_output,
         const char* host = nullptr; const char* path = nullptr;
         u32 host_bytes = 0, path_bytes = 0;
         if (split_https(url.data, url.bytes, &host, &host_bytes, &path, &path_bytes) && !klipy.bytes) {
-            if (host_is(host, host_bytes, kCdnHost) || host_is(host, host_bytes, kMediaProxyHost)) {
+            if (ascii_equal(host, host_bytes, kCdnHost) || ascii_equal(host, host_bytes, kMediaProxyHost)) {
                 // An attachment GIF/WebP favourited from a message: fetched as the
                 // media proxy's animated WebP.
                 u8 source[kCdnMaximumTargetBytes];
@@ -984,14 +980,7 @@ MediaUrlResult parse_catalog_preview_url(Utf8View url, Slice<u8> target_output,
     // A direct Klipy animated WebP, or an IMAGE favourite of a Klipy gifv embed
     // (its thumbnail, stored with ?animated=true), fetched as the bare asset
     // path. MP4 VIDEO favourites use the mp4 format.
-    const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + klipy.bytes), url.bytes - klipy.bytes};
-    const u32 path = klipy_favourite_path(target, ".webp", 5);
-    if (!path)
-        return media_url_failure(MediaUrlError::invalid_target);
-    if (path > target_output.count)
-        return media_url_failure(MediaUrlError::output_capacity);
-    copy_bytes(target_output.data, target.data, path);
-    return {path, klipy.host, MediaUrlError::none};
+    return klipy_favourite(url, klipy, ".webp", 5, target_output);
 }
 
 MediaAttachmentFormat catalog_favorite_format(Utf8View src) noexcept {
@@ -1169,67 +1158,43 @@ u32 cdn_guild_icon_variant(Utf8View icon_hash) noexcept {
     return value == 0 ? 1u : value;
 }
 
-CdnTargetResult write_guild_icon_cdn_target(u64 guild_id, Utf8View icon_hash, u32 size,
-                                            Slice<u8> output, bool animate) noexcept {
-    if (guild_id == 0 || !guild_icon_hash_valid(icon_hash) || !image_size_valid(size) ||
+namespace {
+// "<prefix><id>/<hash>.webp?size=<size>", animated when allowed and the hash is.
+template <usize N>
+CdnTargetResult write_hashed_asset_target(const char (&prefix)[N], u64 id, Utf8View hash, u32 size,
+                                          bool animate, Slice<u8> output) noexcept {
+    if (id == 0 || !guild_icon_hash_valid(hash) || !image_size_valid(size) ||
         (!output.data && output.count != 0)) {
         return failure(CdnTargetError::invalid_input);
     }
     u8 target[128]{};
     ProtocolWriter writer{Slice<u8>{target, sizeof(target)}, 0};
-    const bool animated = animate && asset_hash_animated(icon_hash);
+    const bool animated = animate && asset_hash_animated(hash);
     const bool written =
-        protocol_writer_append_literal(&writer, "/icons/") &&
-        protocol_writer_append_u64(&writer, guild_id) && protocol_writer_append_byte(&writer, '/') &&
-        protocol_writer_append_bytes(
-            &writer, ConstSlice<u8>{reinterpret_cast<const u8*>(icon_hash.data), icon_hash.bytes}) &&
+        protocol_writer_append_literal(&writer, prefix) &&
+        protocol_writer_append_u64(&writer, id) && protocol_writer_append_byte(&writer, '/') &&
+        protocol_writer_append_bytes(&writer, ConstSlice<u8>{reinterpret_cast<const u8*>(hash.data), hash.bytes}) &&
         protocol_writer_append_literal(&writer, ".webp?size=") &&
         protocol_writer_append_u64(&writer, size) &&
         (!animated || protocol_writer_append_literal(&writer, "&animated=true"));
     return written ? publish_target(ConstSlice<u8>{target, writer.used}, CdnHost::cdn, output)
                    : failure(CdnTargetError::output_capacity);
+}
+} // namespace
+
+CdnTargetResult write_guild_icon_cdn_target(u64 guild_id, Utf8View icon_hash, u32 size,
+                                            Slice<u8> output, bool animate) noexcept {
+    return write_hashed_asset_target("/icons/", guild_id, icon_hash, size, animate, output);
 }
 
 CdnTargetResult write_user_avatar_cdn_target(u64 user_id, Utf8View avatar_hash, u32 size,
                                              Slice<u8> output) noexcept {
-    if (user_id == 0 || !guild_icon_hash_valid(avatar_hash) || !image_size_valid(size) ||
-        (!output.data && output.count != 0)) {
-        return failure(CdnTargetError::invalid_input);
-    }
-    u8 target[128]{};
-    ProtocolWriter writer{Slice<u8>{target, sizeof(target)}, 0};
-    const bool animated = asset_hash_animated(avatar_hash);
-    const bool written =
-        protocol_writer_append_literal(&writer, "/avatars/") &&
-        protocol_writer_append_u64(&writer, user_id) && protocol_writer_append_byte(&writer, '/') &&
-        protocol_writer_append_bytes(
-            &writer, ConstSlice<u8>{reinterpret_cast<const u8*>(avatar_hash.data), avatar_hash.bytes}) &&
-        protocol_writer_append_literal(&writer, ".webp?size=") &&
-        protocol_writer_append_u64(&writer, size) &&
-        (!animated || protocol_writer_append_literal(&writer, "&animated=true"));
-    return written ? publish_target(ConstSlice<u8>{target, writer.used}, CdnHost::cdn, output)
-                   : failure(CdnTargetError::output_capacity);
+    return write_hashed_asset_target("/avatars/", user_id, avatar_hash, size, true, output);
 }
 
 CdnTargetResult write_channel_icon_cdn_target(u64 channel_id, Utf8View icon_hash, u32 size,
                                               Slice<u8> output) noexcept {
-    if (channel_id == 0 || !guild_icon_hash_valid(icon_hash) || !image_size_valid(size) ||
-        (!output.data && output.count != 0)) {
-        return failure(CdnTargetError::invalid_input);
-    }
-    u8 target[128]{};
-    ProtocolWriter writer{Slice<u8>{target, sizeof(target)}, 0};
-    const bool animated = asset_hash_animated(icon_hash);
-    const bool written =
-        protocol_writer_append_literal(&writer, "/channel-icons/") &&
-        protocol_writer_append_u64(&writer, channel_id) && protocol_writer_append_byte(&writer, '/') &&
-        protocol_writer_append_bytes(
-            &writer, ConstSlice<u8>{reinterpret_cast<const u8*>(icon_hash.data), icon_hash.bytes}) &&
-        protocol_writer_append_literal(&writer, ".webp?size=") &&
-        protocol_writer_append_u64(&writer, size) &&
-        (!animated || protocol_writer_append_literal(&writer, "&animated=true"));
-    return written ? publish_target(ConstSlice<u8>{target, writer.used}, CdnHost::cdn, output)
-                   : failure(CdnTargetError::output_capacity);
+    return write_hashed_asset_target("/channel-icons/", channel_id, icon_hash, size, true, output);
 }
 
 CdnTargetResult write_sticker_cdn_target(u64 sticker_id, u32 format_type,

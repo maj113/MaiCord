@@ -174,9 +174,6 @@ bool mark_message_field(MessageContext* context, u32 field) noexcept {
 }
 
 bool json_value_to_message_nonce(JsonValue value, u64* output) noexcept {
-    if (!output) {
-        return false;
-    }
     if (value.kind == JsonValueKind::null_value) {
         *output = 0;
         return true;

@@ -81,7 +81,9 @@ bool direct_planes(const GpuVideoFrame& frame, const D3D11_TEXTURE2D_DESC& input
            plane_matches(frame.chroma, frame.texture, DXGI_FORMAT_R8G8_UNORM);
 }
 
-HRESULT present(VideoFrameGpu* gpu, ID3D11Device* device,
+} // namespace
+
+HRESULT video_frame_gpu_present(VideoFrameGpu* gpu, ID3D11Device* device,
     ID3D11DeviceContext1* context, const GpuVideoFrame& frame,
     ID3D11UnorderedAccessView* destination, u32 x, u32 y, u32 step) noexcept {
     if (!gpu || !device || !context || !frame.texture || !destination || frame.rotation > 3 ||
@@ -166,14 +168,6 @@ HRESULT present(VideoFrameGpu* gpu, ID3D11Device* device,
     if (!direct) gpu->copied_bytes += static_cast<u64>(input.Width) * input.Height * 3u / 2u;
     gpu->converted_pixels += static_cast<u64>(width) * height;
     return S_OK;
-}
-
-} // namespace
-
-HRESULT video_frame_gpu_present(VideoFrameGpu* gpu, ID3D11Device* device,
-    ID3D11DeviceContext1* context, const GpuVideoFrame& frame,
-    ID3D11UnorderedAccessView* destination, u32 x, u32 y, u32 step) noexcept {
-    return present(gpu, device, context, frame, destination, x, y, step);
 }
 
 void video_frame_gpu_release(VideoFrameGpu* gpu) noexcept {

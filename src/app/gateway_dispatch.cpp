@@ -210,7 +210,7 @@ template <typename Value> bool append_packed(Slice<char> output, u32* cursor, co
 
 bool pack_text_range(Slice<char> output, u32 transient_bytes, Utf8View value,
                      GatewayClientMessageTextRange* range) noexcept {
-    if (!range || transient_bytes > output.count || value.bytes > 0xFFFFu) {
+    if (transient_bytes > output.count || value.bytes > 0xFFFFu) {
         return false;
     }
     *range = GatewayClientMessageTextRange{};
@@ -228,9 +228,6 @@ bool pack_text_range(Slice<char> output, u32 transient_bytes, Utf8View value,
 
 bool pack_embed_media(Slice<char> output, u32 transient_bytes, const GatewayMessageEmbedMedia& source,
                       GatewayClientMessageEmbedMediaMutation* destination) noexcept {
-    if (!destination) {
-        return false;
-    }
     *destination = GatewayClientMessageEmbedMediaMutation{};
     destination->width = source.width;
     destination->height = source.height;
@@ -283,7 +280,7 @@ bool append_poll_metadata(Slice<char> output, const GatewayMessageEvent& message
 
 bool append_message_rich_metadata(Slice<char> output, const GatewayMessageEvent& message, u32* cursor,
                                   u32* rich_payload_bytes) noexcept {
-    if (!cursor || !rich_payload_bytes || *cursor > output.count) {
+    if (!cursor || *cursor > output.count) {
         return false;
     }
     *rich_payload_bytes = 0;

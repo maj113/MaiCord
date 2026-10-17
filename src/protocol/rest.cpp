@@ -38,7 +38,7 @@ constexpr u32 rate_body_field_global = 1u << 1;
 constexpr u32 rate_body_field_code = 1u << 2;
 
 bool add_size(u32* total, u32 value) noexcept {
-    if (!total || value > ~0u - *total) {
+    if (value > ~0u - *total) {
         return false;
     }
     *total += value;
@@ -129,7 +129,7 @@ bool valid_token(ConstSlice<u8> token) noexcept {
 }
 
 bool parse_u32(ConstSlice<u8> value, u32* output) noexcept {
-    if (!output || !value.data || value.count == 0) {
+    if (!value.data || value.count == 0) {
         return false;
     }
     u32 result = 0;
@@ -145,7 +145,7 @@ bool parse_u32(ConstSlice<u8> value, u32* output) noexcept {
 }
 
 bool parse_decimal_milliseconds(ConstSlice<u8> value, u64* output) noexcept {
-    if (!output || !value.data || value.count == 0) {
+    if (!value.data || value.count == 0) {
         return false;
     }
     u32 offset = 0;
@@ -196,9 +196,6 @@ bool parse_decimal_milliseconds(ConstSlice<u8> value, u64* output) noexcept {
 }
 
 bool parse_bool_ascii(ConstSlice<u8> value, bool* output) noexcept {
-    if (!output) {
-        return false;
-    }
     if (http_ascii_equal_case_insensitive(value, "true")) {
         *output = true;
         return true;
@@ -221,13 +218,10 @@ bool begin_rate_field(RateHeadContext* context, u32 field, u32 offset) noexcept 
 }
 
 bool ascii_starts_with_case(ConstSlice<u8> value, const char* prefix) noexcept {
-    if (!prefix || (!value.data && value.count != 0)) {
+    if (!value.data && value.count != 0) {
         return false;
     }
-    u32 bytes = 0;
-    while (prefix[bytes] != 0) {
-        ++bytes;
-    }
+    const u32 bytes = literal_bytes(prefix);
     if (value.count < bytes) {
         return false;
     }
@@ -240,13 +234,10 @@ bool ascii_starts_with_case(ConstSlice<u8> value, const char* prefix) noexcept {
 }
 
 bool ascii_ends_with_case(ConstSlice<u8> value, const char* suffix) noexcept {
-    if (!suffix || (!value.data && value.count != 0)) {
+    if (!value.data && value.count != 0) {
         return false;
     }
-    u32 bytes = 0;
-    while (suffix[bytes] != 0) {
-        ++bytes;
-    }
+    const u32 bytes = literal_bytes(suffix);
     if (value.count < bytes) {
         return false;
     }

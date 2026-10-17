@@ -141,7 +141,7 @@ const MessagePollRecord* poll(const ApplicationPollSource& s) noexcept {
 }
 bool capture(u64 id, ApplicationPollSource* out) noexcept {
     const auto a = actor();
-    if (!out || !a.instance || !g_app.load_trace.channel_epoch)
+    if (!a.instance || !g_app.load_trace.channel_epoch)
         return false;
     const auto found = message_store_find(g_app.message_view.store, id);
     const auto* m = found.ok() ? message_store_resolve(g_app.message_view.store, found.handle) : nullptr;

@@ -7,7 +7,7 @@ namespace {
 struct PinInstant { u64 milliseconds; u32 submillisecond_ns; };
 
 bool cursor_instant(const MessagePinsCursor& cursor, PinInstant* instant) noexcept {
-    if (!instant || cursor.bytes < 20 || cursor.bytes > kMessagePinsCursorMaximumBytes)
+    if (cursor.bytes < 20 || cursor.bytes > kMessagePinsCursorMaximumBytes)
         return false;
     for (u32 at = 0; at < cursor.bytes; ++at) {
         const char c = cursor.timestamp[at];

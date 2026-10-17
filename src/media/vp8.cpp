@@ -826,7 +826,7 @@ bool vp8_bool_reader_initialize(Vp8BoolReader* reader, ConstSlice<u8> bytes) noe
     }
     *reader = Vp8BoolReader{};
     reader->bytes = bytes;
-    if ((!bytes.data && bytes.count != 0) || !bytes.data) {
+    if (!bytes.data) {
         reader->error = Vp8BoolError::invalid_input;
         return false;
     }

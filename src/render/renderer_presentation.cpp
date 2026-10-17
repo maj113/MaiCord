@@ -12,9 +12,6 @@ namespace maicord {
 namespace {
 
 bool presentation_stamp_push(RendererPresentationStamp* stamp, u64 value) noexcept {
-    if (!stamp) {
-        return false;
-    }
     if (stamp->count == ~0u) {
         stamp->valid = false;
         return false;
@@ -47,9 +44,6 @@ struct TimelineInputs {
 };
 
 bool presentation_stamp_bytes(RendererPresentationStamp* stamp, const void* bytes, u32 count) noexcept {
-    if (!stamp) {
-        return false;
-    }
     if (!bytes && count != 0) {
         stamp->valid = false;
         return false;
@@ -103,7 +97,7 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (d3d11_renderer_login_form_text(renderer)) {
         const auto& owned = *renderer.login_form_text;
         const auto* form =
-            renderer.text_form && renderer.text_form->scene && renderer.text_form->scene->active
+            d3d11_renderer_text_form_active(renderer)
                 ? renderer.text_form->scene
                 : nullptr;
         if (!presentation_stamp_push(&stamp, renderer.width) ||

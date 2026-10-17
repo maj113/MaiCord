@@ -34,9 +34,6 @@ bool valid_buffer_dimensions(u32 stride, u32 capacity) noexcept {
 
 HRESULT create_instance_buffer(ID3D11Device* device, u32 stride, u32 capacity,
                                ID3D11Buffer** buffer) noexcept {
-    if (!device || !buffer || !valid_buffer_dimensions(stride, capacity)) {
-        return E_INVALIDARG;
-    }
     D3D11_BUFFER_DESC description{};
     description.ByteWidth = stride * capacity;
     description.Usage = D3D11_USAGE_DYNAMIC;

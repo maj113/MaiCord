@@ -88,7 +88,6 @@ bool enumerated(IDataObject* object, CLIPFORMAT format) noexcept {
     formats->Release();
     return found;
 }
-u32 length(const wchar_t* text, u32 maximum) noexcept { u32 n = 0; while (n < maximum && text[n]) ++n; return n; }
 bool valid_drop(HGLOBAL block) noexcept {
     const SIZE_T bytes = GlobalSize(block);
     const auto* header = static_cast<const DROPFILES*>(GlobalLock(block));
@@ -177,7 +176,7 @@ DWORD visit_virtual_files(IDataObject* object, CLIPFORMAT descriptors, u32 maxim
         sizeof(UINT) + static_cast<u64>(group->cItems) * sizeof(FILEDESCRIPTORW) > bytes ? ERROR_INVALID_DATA : ERROR_SUCCESS;
     for (u32 i = 0; !error && i < group->cItems; ++i) {
         const auto& file = group->fgd[i];
-        const u32 units = length(file.cFileName, MAX_PATH);
+        const u32 units = wide_length(file.cFileName, MAX_PATH);
         const u64 size = (file.dwFlags & FD_FILESIZE) ? (static_cast<u64>(file.nFileSizeHigh) << 32) | file.nFileSizeLow : 0;
         if (!units || units == MAX_PATH || ((file.dwFlags & FD_ATTRIBUTES) && (file.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))) { error = ERROR_INVALID_DATA; break; }
         if (size > limit) { error = ERROR_FILE_TOO_LARGE; break; }

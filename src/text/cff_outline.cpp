@@ -449,15 +449,14 @@ template<bool Bold> SfntStatus decode(const CffFont& font, u16 glyph, double dx,
 }
 #pragma float_control(pop)
 
-} // namespace
-
-SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
+template<bool Bold> SfntStatus outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
     if (metrics) *metrics={};
     if (!output) return SfntStatus::invalid_input;
     auto* commands=output->commands; const u32 capacity=output->capacity;
     *output={}; output->commands=commands; output->capacity=capacity; output->fill_rule=GlyphFillRule::winding;
     if (!commands || !font.table.data || !font.charstrings.count) return SfntStatus::invalid_input;
-    auto status=decode<false>(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
+    auto status=decode<Bold>(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
+    if constexpr (Bold) { if(status==SfntStatus::ok)status=cff_bolden(font,*output,work_limit,oblique); }
     if(status!=SfntStatus::ok) {
         *output={}; output->commands=commands; output->capacity=capacity;
         output->fill_rule=GlyphFillRule::winding; output->rejected=1;
@@ -465,20 +464,14 @@ SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32
     }
     return status;
 }
+
+} // namespace
+
+SfntStatus cff_outline(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
+    return outline<false>(font,glyph,output,work_limit,metrics,oblique);
+}
 SfntStatus cff_outline_bold(const CffFont& font, u16 glyph, GlyphOutline* output, u32 work_limit, CffGlyphMetrics* metrics,bool oblique) noexcept {
-    if (metrics) *metrics={};
-    if (!output) return SfntStatus::invalid_input;
-    auto* commands=output->commands; const u32 capacity=output->capacity;
-    *output={}; output->commands=commands; output->capacity=capacity; output->fill_rule=GlyphFillRule::winding;
-    if (!commands || !font.table.data || !font.charstrings.count) return SfntStatus::invalid_input;
-    auto status=decode<true>(font,glyph,0,0,*output,work_limit,0,metrics,oblique);
-    if(status==SfntStatus::ok)status=cff_bolden(font,*output,work_limit,oblique);
-    if(status!=SfntStatus::ok) {
-        *output={}; output->commands=commands; output->capacity=capacity;
-        output->fill_rule=GlyphFillRule::winding; output->rejected=1;
-        if (metrics) *metrics={};
-    }
-    return status;
+    return outline<true>(font,glyph,output,work_limit,metrics,oblique);
 }
 
 } // namespace maicord

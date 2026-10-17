@@ -35,7 +35,8 @@ SfntStatus native_paragraph_geometry_visit(const NativeParagraphGeometry& g,u32 
     const u32 begin=source_at(g,cluster_at(g,first)),end=source_at(g,cluster_at(g,first+length));
     u32 lo=0,hi=g.runs.count;while(lo<hi){const u32 mid=lo+(hi-lo)/2;const auto& r=g.runs[mid];if(static_cast<u32>(r.source_first)+r.source_count<=begin)lo=mid+1;else hi=mid;}
     u32 run=lo;lo=0;hi=g.lines.count;while(lo<hi){const u32 mid=lo+(hi-lo)/2;if(g.lines[mid].first_run<=run)lo=mid+1;else hi=mid;}u32 line=lo?lo-1:0;bool accepted=true;
-    do{const auto& l=g.lines[line];const u32 limit=static_cast<u32>(l.first_run)+l.run_count;float left=l.extent,width=0;u32 source_end=maximum(begin,l.run_count?static_cast<u32>(g.runs[l.first_run].source_first):g.source_units);
+    do{const auto& l=g.lines[line];const u32 limit=static_cast<u32>(l.first_run)+l.run_count;float left=l.extent,width=0;
+        const u32 source_first=maximum(begin,l.run_count?static_cast<u32>(g.runs[l.first_run].source_first):g.source_units);u32 source_end=source_first;
         if(run<limit){left=g.runs[run].x;
             const bool whole=run==l.first_run&&begin<=g.runs[run].source_first&&end>=static_cast<u32>(g.runs[limit-1].source_first)+g.runs[limit-1].source_count;
             // A trimmed line can retain only a mandatory control positioned
@@ -48,7 +49,6 @@ SfntStatus native_paragraph_geometry_visit(const NativeParagraphGeometry& g,u32 
             }
         }
         if(terminal&&run<limit&&g.runs[run].source_first==end)terminal=false;
-        const u32 source_first=maximum(begin,l.run_count?static_cast<u32>(g.runs[l.first_run].source_first):g.source_units);
         const NativeParagraphHitMetric metric{static_cast<u16>(source_first),static_cast<u16>(source_end-source_first),left,l.top,width,l.height};
         if(accepted&&sink.emit)accepted=sink.emit(sink.context,metric);++*count;++line;
     }while(run<g.runs.count&&(g.runs[run].source_first<end||(terminal&&g.runs[run].source_first==end))&&line<g.lines.count);

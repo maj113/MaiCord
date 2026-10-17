@@ -385,7 +385,7 @@ HRESULT submit(State& s, const Mp4AccessUnit& unit, const HevcPicture& picture,
             copy_bytes(bytes + offset, unit.bytes.data + span.offset, span.bytes);
             offset += span.bytes;
         }
-        if (SUCCEEDED(result) && (offset != picture.bitstream_bytes || !picture.slice_count))
+        if (SUCCEEDED(result) && offset != picture.bitstream_bytes)
             result = E_INVALIDARG;
         if (SUCCEEDED(result)) {
             const u32 padding = static_cast<u32>(aligned) - offset;

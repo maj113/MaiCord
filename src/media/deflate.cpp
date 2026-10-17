@@ -339,7 +339,7 @@ bool advance_span(BitReader* reader) noexcept {
 }
 
 bool reader_initialize(BitReader* reader, ConstSlice<DeflateInputSpan> spans) noexcept {
-    if (!reader || !spans.data || spans.count == 0) {
+    if (!spans.data || spans.count == 0) {
         return false;
     }
     *reader = BitReader{};

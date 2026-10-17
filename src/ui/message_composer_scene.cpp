@@ -30,9 +30,6 @@ inline constexpr usize kMessageComposerSceneStorageBytes =
     alignof(UiWidget) + alignof(UiLayoutNode);
 
 bool initialize_owned_storage(MessageComposerScene* scene) noexcept {
-    if (!scene || scene->owned_storage.base) {
-        return false;
-    }
     if (!arena_initialize(&scene->owned_storage, kMessageComposerSceneStorageBytes, 0, 4 * 1024)) {
         return false;
     }
@@ -414,7 +411,7 @@ struct ProjectedToken {
 };
 
 bool decimal_id(Utf8View source, u32 first, u32 last, u64* value) noexcept {
-    if (!value || first >= last || last > source.bytes) {
+    if (first >= last || last > source.bytes) {
         return false;
     }
     u64 parsed = 0;
@@ -435,7 +432,7 @@ bool decimal_id(Utf8View source, u32 first, u32 last, u64* value) noexcept {
 
 bool projected_token_at(Utf8View source, u32 first, const MessageComposerProjectionContext* context,
                         ProjectedToken* token) noexcept {
-    if (!token || first >= source.bytes || source.data[first] != '<' || source.bytes - first < 4) {
+    if (first >= source.bytes || source.data[first] != '<' || source.bytes - first < 4) {
         return false;
     }
     u32 cursor = first + 1;

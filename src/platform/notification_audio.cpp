@@ -11,11 +11,6 @@ namespace { NotificationAudioFixtureHooks fixture_hooks{}; }
 void notification_audio_fixture_hooks(const NotificationAudioFixtureHooks* hooks) noexcept {fixture_hooks=hooks?*hooks:NotificationAudioFixtureHooks{};}
 #endif
 namespace {
-bool overlap(const void* a,usize an,const void* b,usize bn) noexcept {
-    if(!an||!bn)return false;
-    const usize x=reinterpret_cast<usize>(a),y=reinterpret_cast<usize>(b);
-    return !a||!b||x>~usize{0}-an||y>~usize{0}-bn||(x<y+bn&&y<x+an);
-}
 void add(u64& a,u32 n=1) noexcept {a=a>~u64{0}-n?~u64{0}:a+n;}
 NotificationAudioResult fail(NotificationAudioError e,u32 n=0) noexcept {return {e,n};}
 float clipped(float v) noexcept {return v>32767.0f?32767.0f:v< -32768.0f? -32768.0f:v;}
@@ -54,7 +49,7 @@ NotificationAudioResult notification_audio_prepare_request(const NotificationAud
 void notification_audio_mixer_reset(NotificationAudioMixer* m,u64 epoch) noexcept {if(m){clear_bytes(m,sizeof(*m));m->epoch=epoch;}}
 NotificationAudioResult notification_audio_mixer_add(NotificationAudioMixer* m,u64 epoch,NotificationAudioClip clip,float gain) noexcept {
     if(!m||!epoch||!notification_audio_clip_valid(clip)||!notification_audio_gain_valid(gain)||
-        overlap(m,sizeof(*m),clip.samples.data,usize(clip.samples.count)*sizeof(i16)))return fail(NotificationAudioError::invalid_input);
+        byte_ranges_conflict(m,sizeof(*m),clip.samples.data,usize(clip.samples.count)*sizeof(i16)))return fail(NotificationAudioError::invalid_input);
     if(epoch!=m->epoch)return fail(NotificationAudioError::stale_epoch);
     if(m->count==kNotificationAudioVoiceCapacity)return fail(NotificationAudioError::full_voices);
     const u64 position=submitted(*m,clip.sample_rate);
@@ -71,8 +66,8 @@ u32 notification_audio_mixer_needed_rate(const NotificationAudioMixer& m,u32 rat
 }
 NotificationAudioMixResult notification_audio_mixer_render_rate(NotificationAudioMixer* m,Slice<i16> output,u32 rate) noexcept {
     if(!m||!m->epoch||!rate_valid(rate)||!output.data||!output.count||(output.count&1u)||output.count>2*kNotificationAudioMixChunkFrames||
-        overlap(m,sizeof(*m),output.data,usize(output.count)*sizeof(i16)))return {NotificationAudioError::invalid_input};
-    for(u32 i=0;i<m->count;++i)if(overlap(output.data,usize(output.count)*sizeof(i16),
+        byte_ranges_conflict(m,sizeof(*m),output.data,usize(output.count)*sizeof(i16)))return {NotificationAudioError::invalid_input};
+    for(u32 i=0;i<m->count;++i)if(byte_ranges_conflict(output.data,usize(output.count)*sizeof(i16),
         m->voices[i].clip.samples.data,usize(m->voices[i].clip.samples.count)*sizeof(i16)))return {NotificationAudioError::invalid_input};
     const u32 frames=minimum(output.count/2,notification_audio_mixer_needed_rate(*m,rate));
     bool nonzero=false;

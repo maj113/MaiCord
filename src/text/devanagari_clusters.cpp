@@ -31,8 +31,8 @@ DevanagariCategory indic_category(SfntIndicProfile profile,u32 scalar) noexcept 
         if(scalar==0x1cfa)return Category::vowel;
         if(scalar==0xc82||scalar==0xcf3)return Category::visarga;
         if(scalar==0xcdd)return Category::consonant;
+        if(kannada_composite(scalar))return Category::post;
     }
-    if(profile==SfntIndicProfile::kannada&&kannada_composite(scalar))return Category::post;
     if(profile==SfntIndicProfile::malayalam){
         if(scalar==0xd04)return Category::other;
         if(scalar==0x1cfa)return Category::vowel;

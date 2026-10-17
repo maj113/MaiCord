@@ -15,7 +15,6 @@ struct GatewayStateRecovery {
 };
 
 inline GatewayStateRecoveryResult gateway_state_recovery_request(GatewayStateRecovery* state, bool ready) noexcept {
-    if (!state) return GatewayStateRecoveryResult::unavailable;
     if (state->pending || state->due_ms) return GatewayStateRecoveryResult::pending;
     if (!ready) return GatewayStateRecoveryResult::unavailable;
     if (state->attempts >= 3) return GatewayStateRecoveryResult::exhausted;
@@ -25,7 +24,7 @@ inline GatewayStateRecoveryResult gateway_state_recovery_request(GatewayStateRec
 }
 
 inline bool gateway_state_recovery_schedule(GatewayStateRecovery* state, u64 now_ms) noexcept {
-    if (!state || !state->pending || !state->attempts || state->attempts > 3) return false;
+    if (!state->pending || !state->attempts || state->attempts > 3) return false;
     constexpr u32 delays[] = {1000, 30'000, 300'000};
     state->due_ms = deadline_after(now_ms, delays[state->attempts - 1]);
     state->pending = false;
@@ -37,18 +36,19 @@ inline u64 gateway_state_recovery_deadline(const GatewayStateRecovery& state, bo
 }
 
 inline bool gateway_state_recovery_due(GatewayStateRecovery* state, bool ready, u64 now_ms) noexcept {
-    if (!state || !ready || !state->due_ms || now_ms < state->due_ms) return false;
+    if (!ready || !state->due_ms || now_ms < state->due_ms) return false;
     state->due_ms = 0;
     return true;
 }
 
 inline void gateway_state_recovery_ready(GatewayStateRecovery* state) noexcept {
-    if (state) { state->pending = false; state->due_ms = 0; }
+    state->pending = false;
+    state->due_ms = 0;
 }
 
 // Only used under the same owner lock when posting the worker wake failed.
 inline void gateway_state_recovery_cancel_post(GatewayStateRecovery* state) noexcept {
-    if (state && state->pending && state->attempts) {
+    if (state->pending && state->attempts) {
         state->pending = false;
         --state->attempts;
     }

@@ -55,9 +55,6 @@ bool storage_valid(const ReactionPickerModel* picker) noexcept {
 
 bool initialize_storage(ReactionPickerModel* picker, const ChatStateStore* state,
                         MessageComposer* borrowed_search) noexcept {
-    if (!picker) {
-        return false;
-    }
     *picker = ReactionPickerModel{};
     if (!arena_initialize(&picker->storage, kReactionPickerStorageBytes, 0, 4 * 1024)) {
         return false;
@@ -186,7 +183,7 @@ void sort_custom_emojis(ReactionPickerCustomEmoji* emojis, u32 count) noexcept {
 
 bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* state,
                             u64 guild_id) noexcept {
-    if (!picker || !picker->storage.base || !picker->custom_emojis || !picker->guilds) {
+    if (!picker->storage.base || !picker->custom_emojis || !picker->guilds) {
         return false;
     }
     picker->custom_emoji_count = picker->guild_count = 0;
@@ -236,9 +233,6 @@ bool snapshot_custom_emojis(ReactionPickerModel* picker, const ChatStateStore* s
 }
 
 bool find_exact_name(Utf8View name, u32* catalog_index) noexcept {
-    if (!catalog_index) {
-        return false;
-    }
     const ConstSlice<EmojiCatalogEntry> catalog = unicode_emoji_catalog();
     for (u32 index = 0; index < catalog.count; ++index) {
         if (utf8_equal(catalog[index].name(), name)) {
@@ -250,8 +244,8 @@ bool find_exact_name(Utf8View name, u32* catalog_index) noexcept {
 }
 
 bool seed_preferences(ReactionPreferenceStore* preferences, ReactionPreferenceKind kind, u64 now_ms) noexcept {
-    const auto* table = preferences ? reaction_preferences_table(*preferences, kind) : nullptr;
-    if (!preferences || (table && table->seeded)) {
+    const auto* table = reaction_preferences_table(*preferences, kind);
+    if (table && table->seeded) {
         return true;
     }
     if (!table || now_ms == 0) {

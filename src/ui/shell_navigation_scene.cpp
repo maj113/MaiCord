@@ -72,9 +72,6 @@ UiLayoutStyle mention_badge_style(u32 count, bool private_channel) noexcept {
 }
 
 void clear_materialization(ShellNavigationScene* scene) noexcept {
-    if (!scene) {
-        return;
-    }
     ui_widget_manager_reset(&scene->widgets);
     scene->root = ui_widget_invalid_handle();
     scene->first = 0;

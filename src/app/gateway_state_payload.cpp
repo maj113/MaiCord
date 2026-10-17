@@ -26,7 +26,7 @@ bool offset_output_disjoint(Slice<u32> output, u32 used, const void* input, u64 
 
 bool read_guild_role(ConstSlice<u8> payload, u32 offset, GatewayClientRoleMutation* role, Utf8View* name,
                      u32* next_offset) noexcept {
-    if (!role || !name || !next_offset || offset > payload.count ||
+    if (!role || !name || offset > payload.count ||
         sizeof(*role) > payload.count - offset) {
         return false;
     }
@@ -44,7 +44,7 @@ bool read_guild_role(ConstSlice<u8> payload, u32 offset, GatewayClientRoleMutati
 }
 
 bool guild_roles_end(const GatewayClientEvent& event, ConstSlice<u8> payload, u32* end) noexcept {
-    if (!end || gateway_client_guild_strings_bytes(event.state) > payload.count) {
+    if (gateway_client_guild_strings_bytes(event.state) > payload.count) {
         return false;
     }
     u32 cursor = gateway_client_guild_strings_bytes(event.state);

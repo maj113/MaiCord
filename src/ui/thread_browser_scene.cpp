@@ -109,9 +109,8 @@ void append(UiThreadBrowserScene& s, Utf8View text) noexcept {
 }
 void number(UiThreadBrowserScene& s, u64 value) noexcept {
     char digits[20];
-    u32 bytes = 0;
-    do { digits[bytes++] = static_cast<char>('0' + value % 10); value /= 10; } while (value);
-    while (bytes && s.page_bytes < sizeof(s.page_text)) s.page_text[s.page_bytes++] = digits[--bytes];
+    const u32 bytes = decimal_write(digits, value);
+    for (u32 i = 0; i < bytes && s.page_bytes < sizeof(s.page_text); ++i) s.page_text[s.page_bytes++] = digits[i];
 }
 bool rebuild(UiThreadBrowserScene& s) noexcept {
     ui_widget_manager_reset(&s.widgets);
@@ -159,11 +158,7 @@ bool rebuild(UiThreadBrowserScene& s) noexcept {
             if (!s.backing->chips[i].generation) return false;
         }
         for (u32 i = 0; i < s.count; ++i) {
-            u32 value = forum.posts[i].reply_count;
-            char digits[10];
-            u8 count = 0, bytes = 0;
-            do { digits[count++] = static_cast<char>('0' + value % 10); value /= 10; } while (value);
-            while (count) s.backing->replies[i][bytes++] = digits[--count];
+            const u8 bytes = static_cast<u8>(decimal_write(s.backing->replies[i], forum.posts[i].reply_count));
             s.backing->reply_bytes[i] = bytes;
         }
     }

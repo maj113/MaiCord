@@ -581,11 +581,7 @@ void describe_threads(void* context, const UiWidgetManager&, UiWidgetHandle hand
                 g_name.part(utf8_literal("by ")).add(post.author_name);
             if (post.metadata_known) {
                 char digits[12];
-                u32 bytes = 0, value = post.reply_count;
-                char reversed[12];
-                u32 count = 0;
-                do { reversed[count++] = static_cast<char>('0' + value % 10); value /= 10; } while (value);
-                while (count) digits[bytes++] = reversed[--count];
+                const u32 bytes = decimal_write(digits, post.reply_count);
                 g_name.part({digits, bytes}).add(post.reply_count == 1 ? utf8_literal(" message") : utf8_literal(" messages"));
             }
             if (post.activity.bytes)

@@ -155,13 +155,12 @@ bool build_crop(UiProfileDialogScene* s, UiWidgetHandle root, UiRect viewport) n
         !add(s, root, viewport, {editor.right - kRotateBox, middle - kRotateBox * .5f, editor.right, middle + kRotateBox * .5f},
              role_rotate, UiProfileDialogAction::rotate))
         return false;
-    const float footer_top = tools_top + kTool + kToolsPad + kFooterPad - kFooterPad;
     const auto t = ui_settings_tokens(kDefaultTheme);
     const float apply_w = ui_settings_button_width(t, UiSettingsButtonSize::regular,
                                                    ui_settings_text_width(s->content.apply_label, kUiSettingsDescriptionEm) * 1.08f);
     const float cancel_w = ui_settings_button_width(t, UiSettingsButtonSize::regular,
                                                     ui_settings_text_width(utf8_literal("Cancel"), kUiSettingsDescriptionEm) * 1.08f);
-    const float top = footer_top + kFooterPad;
+    const float top = tools_top + kTool + kToolsPad + kFooterPad;
     return add(s, root, viewport, {left, top, left + 64, top + kFooterButton}, role_reset, UiProfileDialogAction::reset,
                utf8_literal("Reset"), 0, text_style_subtext | text_style_bold) &&
            add(s, root, viewport, {right - apply_w, top, right, top + kFooterButton}, role_apply,

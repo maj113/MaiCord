@@ -32,8 +32,8 @@ SfntStatus native_font_fallback_range(Utf8View text,NativeFallbackSelect select,
         }
         if(!retain){if(!work)return SfntStatus::resource_limit;--work;NativeFallbackChoice choice{native_fallback_missing,native_fallback_missing};
             const auto status=select(context,cp.codepoint,&choice);if(status!=SfntStatus::ok)return status;
-            if(result.bytes&&(flags&native_fallback_selector)&&result.choice.font==native_fallback_missing&&choice.policy!=result.choice.policy){}
-            else{if(result.bytes&&(choice.font!=result.choice.font||choice.policy!=result.choice.policy))break;result.choice=choice;}}
+            const bool orphan_selector=result.bytes&&(flags&native_fallback_selector)&&result.choice.font==native_fallback_missing&&choice.policy!=result.choice.policy;
+            if(!orphan_selector){if(result.bytes&&(choice.font!=result.choice.font||choice.policy!=result.choice.policy))break;result.choice=choice;}}
         result.bytes+=cp.width;result.units+=cp.codepoint>0xffff?2u:1u;previous=flags;
     }*output=result;return SfntStatus::ok;
 }

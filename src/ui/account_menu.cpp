@@ -38,10 +38,7 @@ bool ui_account_menu_build(UiAccountMenuModel* model, const UiAccountMenuIdentit
                                                   : utf8_literal("Your account");
     // Labels are staged in `names` before *model is reset, so identity may point
     // into the old model. A status longer than the row keeps a valid UTF-8 prefix.
-    u32 status_bytes = minimum<u32>(identity.custom_status.bytes, kUiAccountMenuIdentityBytes);
-    while (status_bytes < identity.custom_status.bytes && status_bytes &&
-           (static_cast<u8>(identity.custom_status.data[status_bytes]) & 0xc0) == 0x80)
-        --status_bytes;
+    const u32 status_bytes = utf8_truncated_length(identity.custom_status, kUiAccountMenuIdentityBytes);
     char names[kUiAccountMenuIdentityBytes * 3]{};
     copy_bytes(names, name.data, name.bytes);
     if (identity.username.bytes)

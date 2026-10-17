@@ -9,37 +9,14 @@ namespace maicord {
 namespace {
 
 bool append_decimal(u32 value, Slice<char> output, u32* cursor) noexcept {
-    if (!cursor || *cursor > output.count) {
+    if (decimal_digits(value) > output.count - *cursor) {
         return false;
     }
-    char digits[10]{};
-    u32 count = 0;
-    do {
-        digits[count++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0);
-    if (count > output.count - *cursor) {
-        return false;
-    }
-    while (count != 0) {
-        output.data[(*cursor)++] = digits[--count];
-    }
+    *cursor += decimal_write(output.data + *cursor, value);
     return true;
 }
 
-u32 decimal_digits(u32 value) noexcept {
-    u32 count = 1;
-    while (value >= 10) {
-        value /= 10;
-        ++count;
-    }
-    return count;
-}
-
 bool label_bytes(const MessageRichStore& store, const MessageRichReaction& reaction, u32* bytes) noexcept {
-    if (!bytes) {
-        return false;
-    }
     u32 required = decimal_digits(reaction.count);
     if (reaction.emoji_id == 0 && !regional_flag_sequence(message_rich_store_string(store, reaction.name))) {
         const Utf8View name = message_rich_store_string(store, reaction.name);
@@ -57,9 +34,6 @@ bool label_bytes(const MessageRichStore& store, const MessageRichReaction& react
 
 bool append_label(const MessageRichStore& store, const MessageRichReaction& reaction, Slice<char> output,
                   u32* cursor, Utf8View* label) noexcept {
-    if (!cursor || !label || *cursor > output.count || (!output.data && output.count != 0)) {
-        return false;
-    }
     const u32 begin = *cursor;
     if (reaction.emoji_id == 0 && !regional_flag_sequence(message_rich_store_string(store, reaction.name))) {
         const Utf8View name = message_rich_store_string(store, reaction.name);
@@ -242,12 +216,7 @@ MessageReactionTooltipLabel message_reaction_tooltip_label(u64 emoji_id, Utf8Vie
     if (others) {
         out.add(shown == 1 ? utf8_literal(" and ") : utf8_literal(", and "));
         char digits[10];
-        u32 length = 0;
-        for (u32 value = others; value; value /= 10)
-            ++length;
-        for (u32 value = others, at = length; at; value /= 10)
-            digits[--at] = static_cast<char>('0' + value % 10);
-        out.add({digits, length});
+        out.add({digits, decimal_write(digits, others)});
         out.add(others == 1 ? utf8_literal(" other") : utf8_literal(" others"));
     }
     return out.ok ? MessageReactionTooltipLabel{out.bytes, shown} : MessageReactionTooltipLabel{heading, 0};

@@ -128,7 +128,7 @@ bool message_forward_synchronize(MessageForwardController* c, QuickSwitcherScope
         return did_change;
     }
     if (!message_forward_current(*c, scope, sources)) {
-        if (outbox) message_forward_cancel_pending(c, outbox);
+        message_forward_cancel_pending(c, outbox);
         c->candidates.count = 0; c->source.store = nullptr; c->initialized = false;
         return fail(c, same_scope(c->scope, scope) ? MessageForwardError::invalid_source : MessageForwardError::stale_scope);
     }

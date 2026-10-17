@@ -2,6 +2,7 @@
 namespace maicord {namespace {
 constexpr u32 nil=0xffffffffu;constexpr u8 alias=1,known=2,cached=4,owner=8;
 bool spend(u64* work,u64 n=1) noexcept {if(n>*work)return false;*work-=n;return true;}
+struct Report {u64 initial;const u64& left;u64* used;~Report() noexcept {if(used)*used=initial-left;}};
 u32 parent(const SfntComponentNode& n) noexcept {return n.flags&owner?nil:n.parent;}
 const SfntComponentGlyph& record(SfntGlyphView v,u32 i) noexcept {return *reinterpret_cast<const SfntComponentGlyph*>(&sfnt_glyph_at(v,i));}
 struct Tree {
@@ -72,7 +73,7 @@ SfntStatus sfnt_components_open(Slice<SfntComponentGlyph> glyphs,Slice<SfntCompo
 }
 SfntStatus sfnt_component_first_metadata(const SfntComponentForest& f,u32 node,u8* output,u64 work,u64* used) noexcept {
     if(used)*used=0;if(!output)return SfntStatus::invalid_input;*output=0;if(f.nodes.count&&!f.nodes.data)return SfntStatus::invalid_input;
-    struct Report {u64 initial;u64& remaining;u64* used;~Report() noexcept {if(used)*used=initial-remaining;}} report{work,work,used};
+    Report report{work,work,used};
     while(node!=nil){if(!spend(&work))return SfntStatus::resource_limit;if(node>=f.nodes.count)return SfntStatus::invalid_input;
         const auto& n=f.nodes[node];if((n.flags&alias)||n.left==nil){*output=static_cast<u8>(n.reserved>>8);return SfntStatus::ok;}node=n.left;}
     return SfntStatus::ok;
@@ -86,7 +87,7 @@ SfntStatus sfnt_component_location(const SfntComponentForest& f,u32 node,u32* ro
 SfntStatus sfnt_component_source_bounds(const SfntComponentForest& forest,u32 node,u32* first,u32* last,u64 work,u64* used) noexcept {
     if(used)*used=0;if(!first||!last)return SfntStatus::invalid_input;*first=nil;*last=0;
     if(node==nil)return SfntStatus::ok;if(node>=forest.nodes.count||!forest.nodes.data)return SfntStatus::invalid_input;
-    struct Report {u64 initial;u64& remaining;u64* used;~Report() noexcept {if(used)*used=initial-remaining;}} report{work,work,used};
+    Report report{work,work,used};
     u32 pending[64],depth=0,lo=nil,hi=0;pending[depth++]=node;
     while(depth){if(!spend(&work))return SfntStatus::resource_limit;
         const u32 at=pending[--depth];if(at>=forest.nodes.count)return SfntStatus::invalid_input;const auto& n=forest.nodes[at];
@@ -121,7 +122,7 @@ SfntStatus sfnt_components_edit(SfntComponentForest* forest,SfntGlyphView glyphs
     out->undo_count=t.used;return SfntStatus::ok;
 }
 SfntStatus sfnt_components_export(SfntComponentForest* f,SfntGlyphView glyphs,Slice<u32> targets,Slice<SfntMarkAssociation> associations,u32* target_count,u64 work,u64* used) noexcept {
-    const u64 initial=work;struct Report {u64 initial;u64& work;u64* used;~Report() noexcept {if(used)*used=initial-work;}} report{initial,work,used};
+    const u64 initial=work;Report report{initial,work,used};
     if(!target_count)return SfntStatus::invalid_input;*target_count=0;
     if(!f || !sfnt_glyph_view_valid(glyphs) || glyphs.record_size!=sizeof(SfntComponentGlyph) || (targets.count && !targets.data) || (associations.count && !associations.data))return SfntStatus::invalid_input;
     const u32 count=sfnt_glyph_count(glyphs);if(associations.count<count)return SfntStatus::output_too_small;

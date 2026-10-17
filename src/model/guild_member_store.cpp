@@ -84,7 +84,7 @@ u32 least_recent_slot(const GuildMemberStore& store) noexcept {
 }
 
 bool erase_slot(GuildMemberStore* store, u32 slot) noexcept {
-    if (!store || slot >= store->capacity || !store->records[slot].occupied) {
+    if (slot >= store->capacity || !store->records[slot].occupied) {
         return false;
     }
     const u64 guild_id = store->records[slot].guild_id;
@@ -122,6 +122,25 @@ bool role_ids_equal(const GuildMemberRecord& record, ConstSlice<u64> role_ids) n
         if (record.role_ids[index] != role_ids[index])
             return false;
     return true;
+}
+
+void store_nickname(GuildMemberRecord& record, Utf8View nickname) noexcept {
+    copy_bytes(record.nickname, nickname.data, nickname.bytes);
+    for (u32 index = nickname.bytes; index < kGuildMemberNicknameMaximumBytes; ++index)
+        record.nickname[index] = 0;
+    record.nickname_bytes = static_cast<u16>(nickname.bytes);
+}
+
+void store_roles(GuildMemberRecord& record, ConstSlice<u64> role_ids, u64 color_role_id, u32 role_color) noexcept {
+    record.color_role_id = color_role_id;
+    record.role_color = role_color;
+    record.role_count = static_cast<u16>(minimum<u32>(role_ids.count, 0xFFFFu));
+    record.roles_known = true;
+    record.truncated_roles = role_ids.count > 0xFFFFu;
+    const u32 retained = minimum(role_ids.count, kGuildMemberRoleIdCapacity);
+    for (u32 index = 0; index < kGuildMemberRoleIdCapacity; ++index)
+        record.role_ids[index] = index < retained ? role_ids[index] : 0;
+    record.role_ids_complete = role_ids.count <= kGuildMemberRoleIdCapacity;
 }
 
 // Per-list positions (MemberListPositionTable). Scope slots index store.lists.
@@ -490,25 +509,12 @@ GuildMemberStoreResult guild_member_store_upsert(
         record.generation = generation;
         record.occupied = true;
     }
-    if (nickname_changed) {
-        copy_bytes(record.nickname, nickname.data, nickname.bytes);
-        for (u32 index = nickname.bytes; index < kGuildMemberNicknameMaximumBytes; ++index) {
-            record.nickname[index] = 0;
-        }
-        record.nickname_bytes = static_cast<u16>(nickname.bytes);
-    }
+    if (nickname_changed)
+        store_nickname(record, nickname);
     if (roles_known) {
         record.group_role_id = group_role_id;
         record.group_position = group_position;
-        record.color_role_id = color_role_id;
-        record.role_color = role_color;
-        record.role_count = static_cast<u16>(minimum<u32>(role_ids.count, 0xFFFFu));
-        record.roles_known = true;
-        record.truncated_roles = role_ids.count > 0xFFFFu;
-        const u32 retained = minimum(role_ids.count, kGuildMemberRoleIdCapacity);
-        for (u32 index = 0; index < kGuildMemberRoleIdCapacity; ++index)
-            record.role_ids[index] = index < retained ? role_ids[index] : 0;
-        record.role_ids_complete = role_ids.count <= kGuildMemberRoleIdCapacity;
+        store_roles(record, role_ids, color_role_id, role_color);
     }
     record.status = resolved_status;
     record.list_index = resolved_list_index;
@@ -567,23 +573,10 @@ GuildMemberInPlaceResult guild_member_store_update_in_place(
     record.last_seen = store->clock;
     if (!result.changed)
         return result;
-    if (nickname_changed) {
-        copy_bytes(record.nickname, nickname.data, nickname.bytes);
-        for (u32 index = nickname.bytes; index < kGuildMemberNicknameMaximumBytes; ++index)
-            record.nickname[index] = 0;
-        record.nickname_bytes = static_cast<u16>(nickname.bytes);
-    }
-    if (roles_changed) {
-        record.color_role_id = color_role_id;
-        record.role_color = role_color;
-        record.role_count = static_cast<u16>(minimum<u32>(role_ids.count, 0xFFFFu));
-        record.roles_known = true;
-        record.truncated_roles = role_ids.count > 0xFFFFu;
-        const u32 retained = minimum(role_ids.count, kGuildMemberRoleIdCapacity);
-        for (u32 index = 0; index < kGuildMemberRoleIdCapacity; ++index)
-            record.role_ids[index] = index < retained ? role_ids[index] : 0;
-        record.role_ids_complete = role_ids.count <= kGuildMemberRoleIdCapacity;
-    }
+    if (nickname_changed)
+        store_nickname(record, nickname);
+    if (roles_changed)
+        store_roles(record, role_ids, color_role_id, role_color);
     result.label_changed = nickname_changed;
     record.status = resolved_status;
     saturating_increment(record.revision);
@@ -802,8 +795,6 @@ MemberListScope* mutable_list(GuildMemberStore* store, u64 guild_id, u64 list_id
         return nullptr;
     return const_cast<MemberListScope*>(guild_member_store_list(*store, guild_id, list_id));
 }
-} // namespace
-namespace {
 // Withdraws a list: its rows, record positions and resident headers.
 void drop_scope(GuildMemberStore* store, u8 scope) noexcept {
     auto& list = store->lists[scope];
@@ -815,6 +806,22 @@ void drop_scope(GuildMemberStore* store, u8 scope) noexcept {
             group.resident = false;
     list = {};
     saturating_increment(store->revision);
+}
+// A header row at index displaces the member recorded there. True when a
+// member record or a position changed.
+bool displace_header_row(GuildMemberStore* store, u64 guild_id, u64 list_id, u32 index) noexcept {
+    bool changed = false;
+    for (u32 order = 0; order < store->count; ++order) {
+        auto& member = store->records[store->order[order]];
+        if (member.guild_id == guild_id && member.list_id == list_id && member.list_index == index) {
+            member.list_index = ~0u;
+            saturating_increment(member.revision);
+            changed = true;
+        }
+    }
+    const u32 positions_before = store->positions.count;
+    positions_invalidate(store, guild_id, list_id, index, index);
+    return changed || positions_before != store->positions.count;
 }
 } // namespace
 u32 guild_member_store_list_users(const GuildMemberStore& store, u64 guild_id, u64 list_id, u32 first,
@@ -838,7 +845,6 @@ bool guild_member_store_observe_list(GuildMemberStore* store, u64 guild_id, u64 
     auto* list = mutable_list(store, guild_id, list_id);
     const bool fresh = !list;
     if (!list) {
-        list = nullptr;
         for (auto& candidate : store->lists) {
             bool keep = store->visible.guild_id == candidate.guild_id &&
                         store->visible.list_id == candidate.list_id && candidate.guild_id;
@@ -906,20 +912,9 @@ bool guild_member_store_group_summary(GuildMemberStore* store, u64 guild_id, u64
     auto* list = mutable_list(store, guild_id, list_id);
     if (!list || index == ~0u || count == ~0u)
         return false;
-    bool changed = false;
     // Every authoritative header position displaces a member, even when this
     // header itself is not retained in the bounded shared residency pool.
-    for (u32 order = 0; order < store->count; ++order) {
-        auto& member = store->records[store->order[order]];
-        if (member.guild_id == guild_id && member.list_id == list_id && member.list_index == index) {
-            member.list_index = ~0u;
-            saturating_increment(member.revision);
-            changed = true;
-        }
-    }
-    const u32 positions_before = store->positions.count;
-    positions_invalidate(store, guild_id, list_id, index, index);
-    changed |= positions_before != store->positions.count;
+    bool changed = displace_header_row(store, guild_id, list_id, index);
     const auto scope = static_cast<u8>(list - store->lists);
     for (auto& group : store->groups) {
         if (group.scope_slot == scope && group.resident && group.id == group_id) {
@@ -1004,14 +999,7 @@ bool guild_member_store_set_group(GuildMemberStore* store, u64 guild_id, u64 lis
         return true;
     if (!target)
         return true;
-    for (u32 order = 0; order < store->count; ++order) {
-        auto& member = store->records[store->order[order]];
-        if (member.guild_id == guild_id && member.list_id == list_id && member.list_index == index) {
-            member.list_index = ~0u;
-            saturating_increment(member.revision);
-        }
-    }
-    positions_invalidate(store, guild_id, list_id, index, index);
+    displace_header_row(store, guild_id, list_id, index);
     saturating_increment(store->clock);
     const u32 resolved_count = !count_known && existing && target->id == group_id ? target->count : count;
     *target = {group_id, index, resolved_count, true, false, scope, store->clock};

@@ -84,9 +84,6 @@ UiVirtualRange member_virtual_range(u32 count, float scroll, float viewport_heig
 }
 
 void clear_materialization(MemberListScene* scene) noexcept {
-    if (!scene) {
-        return;
-    }
     scene->source = nullptr;
     scene->members = nullptr;
     scene->users = nullptr;
@@ -277,10 +274,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
         if (resident && !member_row) {
             auto& text = scene->rows[local].group_label;
             const auto group_name = member_list_row_label(source_row, *members, *users, *state);
-            text.bytes = static_cast<u16>(minimum(128u, group_name.bytes));
-            while (text.bytes && text.bytes < group_name.bytes &&
-                   (static_cast<u8>(group_name.data[text.bytes]) & 0xC0) == 0x80)
-                --text.bytes;
+            text.bytes = static_cast<u16>(utf8_truncated_length(group_name, 128));
             // Group heading format: "ONLINE — 75,000" (ASCII letters uppercased,
             // em dash, grouped digits).
             for (u32 i = 0; i < text.bytes; ++i) {
@@ -295,17 +289,7 @@ MemberListSceneResult member_list_scene_update(MemberListScene* scene,
                 for (u32 i = source_index + 1;
                      i < source->count && source->rows[i].kind == MemberListRowKind::member; ++i)
                     ++count;
-            char digits[10];
-            u32 n = 0;
-            do {
-                digits[n++] = static_cast<char>('0' + count % 10);
-                count /= 10;
-            } while (count);
-            while (n) {
-                text.data[text.bytes++] = digits[--n];
-                if (n && n % 3 == 0)
-                    text.data[text.bytes++] = ',';
-            }
+            text.bytes = static_cast<u16>(text.bytes + decimal_write_grouped(text.data + text.bytes, count));
             if (source->thread_mode && source->incomplete) {
                 constexpr char partial[] = " (partial)";
                 copy_bytes(text.data + text.bytes, partial, sizeof(partial) - 1);

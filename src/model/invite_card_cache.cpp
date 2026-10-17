@@ -11,10 +11,7 @@ bool same_code(const InviteCardEntry& entry, Utf8View code) noexcept {
 }
 
 InviteCardEntry* find(InviteCardCache* cache, Utf8View code) noexcept {
-    for (auto& entry : cache->entries)
-        if (same_code(entry, code))
-            return &entry;
-    return nullptr;
+    return const_cast<InviteCardEntry*>(invite_card_cache_find(*cache, code));
 }
 
 } // namespace

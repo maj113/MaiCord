@@ -129,8 +129,7 @@ GlyphAtlasIndex* atlas_index(D3D11GlyphTextOwner* owner) noexcept {
 }
 
 bool initialize_storage(D3D11GlyphTextOwner* owner) noexcept {
-    if (!owner || owner->storage.base ||
-        !arena_initialize(&owner->storage,
+    if (!arena_initialize(&owner->storage,
                           sizeof(GlyphTextStorage) +
                               sizeof(D3D11GlyphTextFontFace) * kRendererFontFaceCapacity,
                           0, 4 * 1024)) {
@@ -222,7 +221,7 @@ u16 retain_run_font(D3D11GlyphTextOwner* owner, const ShapedText& text, const Te
 }
 
 bool retained_font_face_is_color(const D3D11GlyphTextOwner* owner, u16 face_id) noexcept {
-    return owner && face_id != 0 && face_id <= owner->font_face_count &&
+    return face_id != 0 && face_id <= owner->font_face_count &&
            (owner->font_faces[face_id - 1u].flags & color_face_flag) != 0;
 }
 
@@ -310,7 +309,7 @@ bool resolve_role_color(const D3D11GlyphTextAppendRequest& request, u64 role_id,
 
 bool role_color_for_run(const D3D11GlyphTextAppendRequest& request, const TextRun& run,
                         Color* color) noexcept {
-    if (!color || (run.style_flags & text_style_mention) == 0) {
+    if ((run.style_flags & text_style_mention) == 0) {
         return false;
     }
     const u32 run_end = run.text_position + run.text_length;
@@ -334,7 +333,7 @@ bool role_color_for_run(const D3D11GlyphTextAppendRequest& request, const TextRu
 
 bool role_color_for_decoration(const D3D11GlyphTextAppendRequest& request, const TextDecoration& decoration,
                                Color* color) noexcept {
-    if (!color || !request.text || (decoration.style_flags & text_style_mention) == 0) {
+    if ((decoration.style_flags & text_style_mention) == 0) {
         return false;
     }
     for (u32 index = 0; index < request.text->hit_region_count; ++index) {

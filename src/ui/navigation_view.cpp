@@ -47,7 +47,7 @@ bool key_less(const ChannelSortKey& left, const ChannelSortKey& right) noexcept 
 
 bool visual_key(const ChatStateStore& state, const ChannelRecord& channel,
                 ChannelSortKey* key) noexcept {
-    if (!key || !channel.occupied || channel.guild_id != state.selected_guild_id) {
+    if (!channel.occupied || channel.guild_id != state.selected_guild_id) {
         return false;
     }
     if (channel_is_private(channel.type)) {
@@ -432,11 +432,9 @@ NavigationViewResult navigation_view_rebuild(NavigationView* view,
         };
         if (view->event_count) {
             char digits[10];
-            u32 count = 0;
-            for (u32 value = view->event_count; value && count < 10; value /= 10)
-                digits[count++] = static_cast<char>('0' + value % 10);
-            while (count && used < sizeof(view->events_label))
-                view->events_label[used++] = digits[--count];
+            const u32 count = decimal_write(digits, view->event_count);
+            for (u32 i = 0; i < count && used < sizeof(view->events_label); ++i)
+                view->events_label[used++] = digits[i];
             add(view->event_count == 1 ? " Event" : " Events");
         } else {
             add("Events");

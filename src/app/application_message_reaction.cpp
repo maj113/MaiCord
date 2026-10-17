@@ -521,7 +521,6 @@ ApplicationMessageReactionEnqueueResult application_queue_message_reaction(u64 m
 Utf8View application_message_reaction_admission_text(ApplicationMessageReactionEnqueueResult result) noexcept {
     switch (result) {
     case ApplicationMessageReactionEnqueueResult::accepted:
-        return Utf8View{};
     case ApplicationMessageReactionEnqueueResult::coalesced:
         return Utf8View{};
     case ApplicationMessageReactionEnqueueResult::capacity:

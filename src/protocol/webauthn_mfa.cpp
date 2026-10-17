@@ -73,9 +73,7 @@ bool decode_string(JsonString string, Slice<char> output, u32* bytes) noexcept {
     if (!decoded.ok()) {
         return false;
     }
-    if (bytes) {
-        *bytes = decoded.bytes;
-    }
+    *bytes = decoded.bytes;
     return true;
 }
 

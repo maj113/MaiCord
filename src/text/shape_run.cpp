@@ -11,7 +11,6 @@ template<class T> bool valid(ConstSlice<T> s) noexcept {return !s.count||s.data;
 SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyphs,ShapeGlyphBounds glyph_bounds,ShapeGlyphBounds mark_bounds,
     u32 targets,float em,bool rtl,SfntShapeStorage s,SfntShapeRunResult* result,SfntShapeLimits limits,u64& work,bool defer_output) noexcept {
     const u32 count=sfnt_glyph_count(glyphs);SfntStatus status=SfntStatus::ok;
-    {
     for(u32 index=0;index<plan.positioning_roots.count;++index){const u16 root=plan.positioning_roots[index];SfntGposExecutionResult execution{};
         // The first successful root validates the whole run. GPOS cannot edit glyph
         // IDs, classes, nominal metrics or component/source associations, and
@@ -30,7 +29,6 @@ SfntStatus shape_position_prepared(const SfntShapePlan& plan,SfntGlyphView glyph
             {work,limits.match_work},&execution,plan.anchor_point,plan.anchor_context);
         result->lookup_operations+=execution.operations;result->position_matches+=execution.matches;
         work-=execution.operations;if(status!=SfntStatus::ok)return status;
-    }
     }
     if(!defer_output)status=sfnt_position_finalize({s.positions.data,count},{s.flags.data,count},em,plan.units_per_em,{s.placements.data,count},limits.stage_work,plan.compensate_consecutive_zeroes,plan.retain_zero_positioning);
     return status;
@@ -77,7 +75,6 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
         for(u32 i=0;i<count;++i){const auto glyph=sfnt_glyph_at(prepared,i).glyph;substitution_first=minimum(substitution_first,glyph);substitution_last=maximum(substitution_last,glyph);}
     }
     u64 work=limits.lookup_operations;
-    {
     const u32 roots=steps.count?steps.count:plan.substitution_roots.count;bool bounds_current=true,refresh=false,validated=false;
     u16 next_stage=0;
     const auto prepare_stages=[&](u16 last) noexcept {
@@ -116,7 +113,6 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
         refresh=plan.refresh_substitution_classes&&execution.edits!=0;
     }
     if(stages&&next_stage<stages->count){status=prepare_stages(static_cast<u16>(stages->count-1));if(status!=SfntStatus::ok)return status;}
-    }
     const u32 count=sfnt_glyph_count(sfnt_glyph_buffer_view(buffer));
     if(count>limits.stage_work)return SfntStatus::resource_limit;
     if(count>s.flags.count||count>s.advances.count||count>s.positions.count||count>s.placements.count||
@@ -130,7 +126,6 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
     u16 first_glyph=65535,last_glyph=0,first_mark=65535,last_mark=0;u64 metric_slots=0;
     const bool position_bounds=plan.positioning_roots.count>1;
     const u32 cache_size=plan.cache_advances?(s.targets.count>=64?64u:s.targets.count>=32?32u:0u):0u;
-    {
     for(u32 i=0;i<count;++i){auto& glyph=s.glyphs[i].glyph;
         if(!policy.prepare)glyph.glyph_class=sfnt_gdef_glyph_class(plan.gdef,glyph.glyph);
         if(position_bounds){first_glyph=minimum(first_glyph,glyph.glyph);last_glyph=maximum(last_glyph,glyph.glyph);
@@ -139,7 +134,6 @@ SfntStatus sfnt_shape_run(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph>
         if(cache_size&&(metric_slots&bit)&&s.glyphs[s.targets[slot]].glyph.glyph==glyph.glyph)s.advances[i]=s.advances[s.targets[slot]];
         else{status=plan.advance(plan.metric_context,glyph.glyph,&s.advances[i]);if(status!=SfntStatus::ok)return status;
             if(cache_size){s.targets[slot]=i;metric_slots|=bit;}}
-    }
     }
     status=sfnt_position_flags_from_clusters(clusters,glyphs,{s.flags.data,count},policy.prepare?ConstSlice<u8>{s.flags.data,count}:ConstSlice<u8>{},limits.stage_work);
     if(status!=SfntStatus::ok)return status;

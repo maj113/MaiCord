@@ -23,7 +23,7 @@ AnimatedWebpParseResult parse_failure(AnimatedWebpParseResult value, AnimatedWeb
 
 bool chunk_bounds(ConstSlice<u8> encoded, u32 cursor, u32 limit, u32* type, u32* size, u32* payload,
                   u32* end) noexcept {
-    if (!type || !size || !payload || !end || cursor > limit || limit - cursor < 8) {
+    if (cursor > limit || limit - cursor < 8) {
         return false;
     }
     *type = byte_load_le32(encoded.data + cursor);
@@ -51,7 +51,7 @@ u32 bgra_to_rgba(const u8* bytes) noexcept {
 
 AnimatedWebpError parse_frame(ConstSlice<u8> encoded, u32 payload, u32 size, AnimatedWebpImage* image,
                               AnimatedWebpFrame* frame, AnimatedWebpParseResult* result) noexcept {
-    if (!image || !frame || !result || size <= 16) {
+    if (size <= 16) {
         return AnimatedWebpError::chunk;
     }
     const u8* control = encoded.data + payload;

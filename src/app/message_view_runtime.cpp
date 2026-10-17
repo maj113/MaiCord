@@ -16,9 +16,6 @@ MessageViewRuntimeResult runtime_error(MessageViewRuntimeError error) noexcept {
 }
 
 bool prepare_owned_storage(MessageViewRuntime* runtime) noexcept {
-    if (!runtime) {
-        return false;
-    }
     if (runtime->storage.base) {
         if (!runtime->owns_storage) {
             return false;

@@ -128,9 +128,6 @@ bool avatar_hash_valid(Utf8View hash) noexcept {
     return true;
 }
 
-} // namespace
-
-namespace {
 bool initialize_store(UserStore* store, Slice<UserRecord> records, Slice<u32> order,
                       Slice<u8> double_buffered_names, bool zeroed) noexcept {
     if (!store || !records.data || records.count == 0 || records.count > 1'000'000 || !order.data ||

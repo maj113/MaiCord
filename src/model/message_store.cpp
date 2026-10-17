@@ -118,6 +118,19 @@ MessageStoreResult result_from_slot(const MessageStore& store, u32 slot, u32 ord
     };
 }
 
+// Metadata an upsert replaces on new and resident records alike.
+void assign_metadata(MessageRecord& record, const MessageInput& input) noexcept {
+    record.channel_id = input.channel_id;
+    record.author_id = input.author_id;
+    record.timestamp_ms = input.timestamp_ms != 0 ? input.timestamp_ms : snowflake_timestamp_ms(input.id);
+    record.edited_timestamp_ms = input.edited_timestamp_ms;
+    record.flags = input.flags;
+    record.presentation_flags = static_cast<u8>(input.presentation_flags);
+    record.type = input.type;
+    record.content_availability = input.content_availability;
+    record.delivery = input.delivery;
+}
+
 } // namespace
 
 bool message_store_initialize(MessageStore* store, Slice<MessageRecord> records, Slice<u32> order,
@@ -201,16 +214,7 @@ MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput&
                 store->text_used += input.content.bytes;
             }
         }
-        record.channel_id = input.channel_id;
-        record.author_id = input.author_id;
-        record.timestamp_ms =
-            input.timestamp_ms != 0 ? input.timestamp_ms : snowflake_timestamp_ms(input.id);
-        record.edited_timestamp_ms = input.edited_timestamp_ms;
-        record.flags = input.flags;
-        record.presentation_flags = static_cast<u8>(input.presentation_flags);
-        record.type = input.type;
-        record.content_availability = input.content_availability;
-        record.delivery = input.delivery;
+        assign_metadata(record, input);
         saturating_increment(record.revision);
         ++store->updated;
         return result_from_slot(*store, slot, order_index, false);
@@ -242,21 +246,12 @@ MessageStoreResult message_store_upsert(MessageStore* store, const MessageInput&
     const u16 generation = next_generation(record.generation);
     record = MessageRecord{};
     record.id = input.id;
-    record.channel_id = input.channel_id;
-    record.author_id = input.author_id;
-    record.timestamp_ms =
-        input.timestamp_ms != 0 ? input.timestamp_ms : snowflake_timestamp_ms(input.id);
-    record.edited_timestamp_ms = input.edited_timestamp_ms;
+    assign_metadata(record, input);
     record.content_offset = store->text_used;
     record.content_bytes = input.content.bytes;
-    record.flags = input.flags;
-    record.presentation_flags = static_cast<u8>(input.presentation_flags);
-    record.type = input.type;
     record.revision = 1;
     record.generation = generation;
     record.occupied = true;
-    record.content_availability = input.content_availability;
-    record.delivery = input.delivery;
     copy_bytes(store->text + store->text_used, reinterpret_cast<const u8*>(input.content.data),
                input.content.bytes);
     store->text_used += input.content.bytes;

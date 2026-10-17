@@ -189,11 +189,6 @@ void emoji_cluster(const WordText& t, u32 position, u32* first, u32* last) noexc
     }
 }
 
-bool scalar_boundary(Utf8View text, u32 position) noexcept {
-    return position <= text.bytes &&
-           (position == text.bytes || (static_cast<u8>(text.data[position]) & 0xC0) != 0x80);
-}
-
 // Ctrl+Arrow/Ctrl+Delete classes: ASCII whitespace (including line breaks),
 // word characters (ASCII letters/digits/underscore and every non-ASCII scalar)
 // or ASCII punctuation.
@@ -218,7 +213,7 @@ bool navigation_word_range(Utf8View text, u32 position, u32* first, u32* last) n
 }
 
 bool word_range(Utf8View text, u32 position, bool selection, u32* first, u32* last) noexcept {
-    if (!first || !last || !scalar_boundary(text, position) || !utf8_validate(text).valid) return false;
+    if (!first || !last || !utf8_is_boundary(text, position) || !utf8_validate(text).valid) return false;
     if (!text.bytes) { *first = *last = 0; return true; }
     if (!selection) return navigation_word_range(text, position, first, last);
     const WordText t{text};
@@ -253,7 +248,7 @@ bool utf8_word_range(Utf8View text, u32 position, u32* first, u32* last) noexcep
 }
 
 bool utf8_word_range_near(Utf8View text, u32 position, u32* first, u32* last) noexcept {
-    if (!scalar_boundary(text, position) || !utf8_validate(text).valid) return false;
+    if (!utf8_is_boundary(text, position) || !utf8_validate(text).valid) return false;
     if (position && text.bytes) {
         const WordText t{text};
         const u32 prior = t.previous(position);
@@ -269,7 +264,7 @@ bool utf8_word_range_near(Utf8View text, u32 position, u32* first, u32* last) no
 }
 
 bool utf8_line_range(Utf8View text, u32 position, u32* first, u32* last) noexcept {
-    if (!first || !last || !scalar_boundary(text, position) || !utf8_validate(text).valid) return false;
+    if (!first || !last || !utf8_is_boundary(text, position) || !utf8_validate(text).valid) return false;
     const WordText t{text};
     u32 begin = position, end = position;
     while (begin && t.raw(t.previous(begin)) != WordClass::line) begin = t.previous(begin);

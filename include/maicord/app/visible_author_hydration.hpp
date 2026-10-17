@@ -132,7 +132,7 @@ inline bool visible_voice_user_missing(const UserStore& users, const GuildMember
 inline bool visible_author_hydration_plan(VisibleAuthorHydration* owner, u64 guild, u64 channel,
                                           ConstSlice<u64> missing, u64 now_ms,
                                           GatewayGuildMemberRequest* request) noexcept {
-    if (!owner || !request || !guild || !channel || (!missing.data && missing.count))
+    if (!guild || !channel || (!missing.data && missing.count))
         return false;
     if (owner->guild_id != guild) {
         const u64 not_before = owner->send_not_before_ms, serial = owner->serial;
@@ -180,7 +180,7 @@ inline bool visible_author_hydration_plan(VisibleAuthorHydration* owner, u64 gui
 inline void visible_author_hydration_complete(VisibleAuthorHydration* owner,
                                               const GatewayGuildMemberRequest& request, u64 now_ms,
                                               bool admitted) noexcept {
-    if (!owner || owner->guild_id != request.guild_id || owner->channel_id != request.channel_id)
+    if (owner->guild_id != request.guild_id || owner->channel_id != request.channel_id)
         return;
     if (!admitted) {
         owner->retry_delay_ms = owner->retry_delay_ms ? minimum(owner->retry_delay_ms * 2u, 8'000u) : 250u;

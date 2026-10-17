@@ -168,14 +168,9 @@ u32 message_thread_card_detail(const MessageRichThread& thread, Slice<char> outp
     const auto count = [&](u32 value, const char* one, u32 one_bytes, const char* many, u32 many_bytes) noexcept {
         const bool singular = value == 1;
         char digits[10];
-        u32 n = 0;
-        do {
-            digits[n++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value);
+        const u32 n = decimal_write(digits, value);
         separator();
-        while (n)
-            append(&digits[--n], 1);
+        append(digits, n);
         append(" ", 1);
         if (singular)
             append(one, one_bytes);

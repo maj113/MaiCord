@@ -21,7 +21,7 @@ bool read_packed(ConstSlice<u8> payload, u32 limit, u32* cursor, Value* value) n
 
 bool unpack_text_range(ConstSlice<u8> payload, u32 transient_bytes, GatewayClientMessageTextRange range,
                        Utf8View* value) noexcept {
-    if (!value || range.reserved != 0 || transient_bytes > payload.count) {
+    if (range.reserved != 0 || transient_bytes > payload.count) {
         return false;
     }
     *value = Utf8View{};
@@ -50,7 +50,7 @@ bool reserved_zero(const u8* bytes, u32 count) noexcept {
 bool unpack_embed_media(ConstSlice<u8> payload, u32 text_limit,
                         const GatewayClientMessageEmbedMediaMutation& source,
                         GatewayMessageEmbedMedia* destination) noexcept {
-    if (!destination || !reserved_zero(source.reserved, sizeof(source.reserved)) ||
+    if (!reserved_zero(source.reserved, sizeof(source.reserved)) ||
         (source.state & ~3u) != 0) {
         return false;
     }
@@ -371,7 +371,7 @@ bool gateway_client_event_message_interaction_user(const GatewayClientEvent& eve
 static bool unpack_message_rich_metadata(ConstSlice<u8> payload, u32 role_offset, u32 cursor, u32 rich_end,
                                          u32 rich_fields, const GatewayMessageRichScratch& rich_scratch,
                                          GatewayMessageEvent* message) noexcept {
-    if (!message || (!rich_scratch.reactions.data && rich_scratch.reactions.count != 0) ||
+    if ((!rich_scratch.reactions.data && rich_scratch.reactions.count != 0) ||
         (!rich_scratch.attachments.data && rich_scratch.attachments.count != 0) ||
         (!rich_scratch.embeds.data && rich_scratch.embeds.count != 0) ||
         (!rich_scratch.embed_fields.data && rich_scratch.embed_fields.count != 0) ||

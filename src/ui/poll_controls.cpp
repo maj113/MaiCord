@@ -189,17 +189,10 @@ bool measure(const UiPollState& state, Utf8View text, u16 item, u32 flags, float
            positive(value->size.height) && ui_coordinate_valid(value->size.width);
 }
 template <u32 N> void number(char (&text)[N], u8& count, u64 value, bool grouped = false) noexcept {
-    char reverse[32]{};
-    u32 bytes{}, digits{};
-    do {
-        if (grouped && digits && digits % 3 == 0)
-            reverse[bytes++] = ',';
-        reverse[bytes++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-        ++digits;
-    } while (value);
-    while (bytes && count < N)
-        text[count++] = reverse[--bytes];
+    char digits[32];
+    const u32 bytes = grouped ? decimal_write_grouped(digits, value) : decimal_write(digits, value);
+    for (u32 i = 0; i < bytes && count < N; ++i)
+        text[count++] = digits[i];
 }
 template <u32 N> void literal(char (&text)[N], u8& count, const char* value) noexcept {
     while (*value && count < N)

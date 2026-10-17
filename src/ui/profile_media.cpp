@@ -33,16 +33,10 @@ bool append(ProfileString<384>* s, Utf8View text) noexcept {
     return true;
 }
 bool id(ProfileString<384>* s, u64 value) noexcept {
-    char digits[20];
-    u32 n = 0;
-    do {
-        digits[n++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value);
+    const u32 n = decimal_digits(value);
     if (n > 384u - s->bytes)
         return false;
-    while (n)
-        s->data[s->bytes++] = digits[--n];
+    s->bytes += static_cast<u16>(decimal_write(s->data + s->bytes, value));
     return true;
 }
 bool asset(Utf8View value) noexcept {

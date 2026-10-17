@@ -163,7 +163,7 @@ bool emoji_modifier(u32 codepoint) noexcept {
 }
 
 bool consume_codepoint(Utf8View source, u32* cursor, u32* codepoint) noexcept {
-    if (!cursor || !codepoint || *cursor >= source.bytes) {
+    if (*cursor >= source.bytes) {
         return false;
     }
     const Utf8DecodeResult decoded = utf8_decode_one(source.data + *cursor, source.bytes - *cursor);
@@ -176,7 +176,7 @@ bool consume_codepoint(Utf8View source, u32* cursor, u32* codepoint) noexcept {
 }
 
 bool consume_keycap(Utf8View source, u32* cursor) noexcept {
-    if (!cursor || *cursor >= source.bytes) {
+    if (*cursor >= source.bytes) {
         return false;
     }
     const u32 begin = *cursor;
@@ -200,7 +200,7 @@ bool consume_keycap(Utf8View source, u32* cursor) noexcept {
 }
 
 bool consume_custom_emoji(Utf8View source, u32* cursor) noexcept {
-    if (!cursor || *cursor >= source.bytes || source.data[*cursor] != '<') {
+    if (*cursor >= source.bytes || source.data[*cursor] != '<') {
         return false;
     }
     const u32 begin = *cursor;
@@ -231,9 +231,6 @@ bool consume_custom_emoji(Utf8View source, u32* cursor) noexcept {
 }
 
 bool consume_unicode_emoji(Utf8View source, u32* cursor) noexcept {
-    if (!cursor || *cursor >= source.bytes) {
-        return false;
-    }
     const u32 begin = *cursor;
     if (consume_keycap(source, cursor)) {
         return true;
@@ -1016,19 +1013,7 @@ bool decimal_range(Utf8View input, u32 begin, u32 end) noexcept {
 bool emit_view(Parser* parser, Utf8View value, u32 style) noexcept;
 
 bool decimal_u64(Utf8View input, u32 begin, u32 end, u64* value) noexcept {
-    if (!value || !decimal_range(input, begin, end)) {
-        return false;
-    }
-    u64 result = 0;
-    for (u32 offset = begin; offset < end; ++offset) {
-        const u32 digit = static_cast<u32>(input.data[offset] - '0');
-        if (result > (~0ull - digit) / 10ull) {
-            return false;
-        }
-        result = result * 10ull + digit;
-    }
-    *value = result;
-    return true;
+    return begin < end && decimal_parse({input.data + begin, end - begin}, value);
 }
 
 bool message_link_at(Utf8View input, u32 begin, MessageLink* link) noexcept {
@@ -1036,7 +1021,7 @@ bool message_link_at(Utf8View input, u32 begin, MessageLink* link) noexcept {
     constexpr const char* prefixes[] = {"https://discord.com/channels/", "https://ptb.discord.com/channels/",
                                         "https://canary.discord.com/channels/",
                                         "https://discordapp.com/channels/"};
-    if (!link || begin > input.bytes) {
+    if (begin > input.bytes) {
         return false;
     }
     u32 prefix_bytes = 0;
@@ -1098,14 +1083,10 @@ bool message_link_at(Utf8View input, u32 begin, MessageLink* link) noexcept {
 }
 
 bool emit_decimal(Parser* parser, u64 value, u32 style) noexcept {
-    char reversed[20]{};
-    u32 count = 0;
-    do {
-        reversed[count++] = static_cast<char>('0' + value % 10u);
-        value /= 10u;
-    } while (value != 0);
-    while (count != 0) {
-        if (!emit_byte(parser, reversed[--count], style)) {
+    char digits[20];
+    const u32 count = decimal_write(digits, value);
+    for (u32 index = 0; index < count; ++index) {
+        if (!emit_byte(parser, digits[index], style)) {
             return false;
         }
     }

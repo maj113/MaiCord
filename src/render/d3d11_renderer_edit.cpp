@@ -83,8 +83,7 @@ bool d3d11_renderer_measure_settings_edit(D3D11Renderer* renderer) noexcept {
     if (!scene || !scene->active || !editor || !editor->view.focused ||
         !(search ? ui_settings_scene_search_geometry(*scene, &geometry)
                  : ui_settings_scene_control_geometry(*scene, target, &geometry)) ||
-        ((renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active) ||
-         (renderer->forum_form && renderer->forum_form->scene && renderer->forum_form->scene->active)) ||
+        d3d11_renderer_form_active(*renderer) ||
         (renderer->popup_scene && renderer->popup_scene->active)) {
         text_edit_layout_invalidate(&renderer->media_picker_layout); return true;
     }

@@ -500,9 +500,6 @@ void autosave_if_due(AccountModuleRuntime* runtime, u64 monotonic_now_ms) noexce
 }
 
 AccountModuleStatus build_status(AccountModuleRuntime* runtime) noexcept {
-    if (!runtime) {
-        return module_failure(AccountModuleError::invalid_input);
-    }
     const UserAccountCoordinatorResult coordinator = user_account_coordinator_status(&runtime->coordinator);
     AccountModuleStatus status{};
     status.profile_id = coordinator.profile_id;
@@ -1263,8 +1260,7 @@ bool WINAPI module_guild_members_request(void* instance,
 void WINAPI module_guild_members_query_cancel(void* instance) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
-    if (gateway)
-        gateway_client_cancel_guild_member_query(gateway);
+    gateway_client_cancel_guild_member_query(gateway);
 }
 RestClientSubmitResult WINAPI module_gif_favorites(void* instance,
                                                    AccountGifFavoritesOperation operation,
@@ -1517,15 +1513,13 @@ bool WINAPI module_voice_request(void* instance, const GatewayVoiceStateUpdate* 
 bool WINAPI module_voice_snapshot(void* instance, GatewayClientVoiceSnapshot* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
-    if (gateway)
-        ensure_video_frames(runtime, gateway);
+    ensure_video_frames(runtime, gateway);
     return gateway && gateway_client_voice_snapshot(gateway, output);
 }
 bool WINAPI module_voice_video_snapshot(void* instance, GatewayClientVoiceVideoSnapshot* output) noexcept {
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     auto* gateway = runtime ? user_account_coordinator_gateway(&runtime->coordinator) : nullptr;
-    if (gateway)
-        ensure_video_frames(runtime, gateway);
+    ensure_video_frames(runtime, gateway);
     return gateway && gateway_client_voice_video_snapshot(gateway, output);
 }
 bool WINAPI module_voice_video_device(void* instance, ID3D11Device* device) noexcept {
@@ -1889,9 +1883,7 @@ bool WINAPI module_video_acknowledge(void* instance, const AccountVideoFrame* fr
     auto* runtime = static_cast<AccountModuleRuntime*>(instance);
     return runtime && frame && account_media_worker_video_acknowledge(&runtime->media, *frame);
 }
-AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64 monotonic_now_ms,
-                                       u64 unix_now_ms) noexcept {
-    static_cast<void>(monotonic_now_ms);
+AccountModuleStatus WINAPI module_stop(void** instance, u32 timeout_ms, u64, u64 unix_now_ms) noexcept {
     if (!instance || !*instance || timeout_ms == 0 || unix_now_ms == 0) {
         return module_failure(AccountModuleError::invalid_input);
     }

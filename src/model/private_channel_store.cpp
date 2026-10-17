@@ -81,9 +81,10 @@ void private_channel_store_clear(PrivateChannelStore* store) noexcept {
     saturating_increment(store->revision);
 }
 bool private_channel_store_touch_sort(PrivateChannelStore* store, u64 id) noexcept {
-    if (!store || !private_channel_store_find(*store, id)) return false;
+    const auto* found = store ? private_channel_store_find(*store, id) : nullptr;
+    if (!found) return false;
     if (store->sort_sequence != ~0ull) ++store->sort_sequence;
-    auto& record = store->records[lower_bound(*store, id)];
+    auto& record = store->records[static_cast<u32>(found - store->records.data)];
     record.sort_sequence = store->sort_sequence;
     saturating_increment(record.revision);
     saturating_increment(store->revision);
@@ -178,8 +179,9 @@ bool private_channel_store_replace(PrivateChannelStore* store, const PrivateChan
     return true;
 }
 bool private_channel_store_set_request(PrivateChannelStore* store, u64 id, u8 request_flags) noexcept {
-    if (!store || !private_channel_store_find(*store, id)) return false;
-    auto& record = store->records[lower_bound(*store, id)];
+    const auto* found = store ? private_channel_store_find(*store, id) : nullptr;
+    if (!found) return false;
+    auto& record = store->records[static_cast<u32>(found - store->records.data)];
     if (record.request_flags == request_flags) return true;
     record.request_flags = request_flags;
     saturating_increment(record.revision);
@@ -187,8 +189,9 @@ bool private_channel_store_set_request(PrivateChannelStore* store, u64 id, u8 re
     return true;
 }
 bool private_channel_store_clear_safety_warning(PrivateChannelStore* store, u64 id, u64 warning_id) noexcept {
-    if (!store || !private_channel_store_find(*store, id)) return false;
-    auto& record = store->records[lower_bound(*store, id)];
+    const auto* found = store ? private_channel_store_find(*store, id) : nullptr;
+    if (!found) return false;
+    auto& record = store->records[static_cast<u32>(found - store->records.data)];
     if (!record.safety_warning_id || (warning_id && record.safety_warning_id != warning_id)) return true;
     record.safety_warning_id = 0;
     record.safety_warning = PrivateSafetyWarning::none;
@@ -207,9 +210,10 @@ u32 private_channel_store_request_count(const PrivateChannelStore& store, bool s
     return count;
 }
 bool private_channel_store_remove(PrivateChannelStore* store, u64 id) noexcept {
-    if (!store || !private_channel_store_find(*store, id)) return false;
+    const auto* found = store ? private_channel_store_find(*store, id) : nullptr;
+    if (!found) return false;
+    const u32 index = static_cast<u32>(found - store->records.data);
     if (store->nickname_count && !private_channel_store_replace_nicknames(store, id, {})) return false;
-    const u32 index = lower_bound(*store, id);
     erase_recipients(store, index);
     for (u32 i = index + 1; i < store->count; ++i) store->records[i - 1] = store->records[i];
     --store->count;
@@ -276,7 +280,8 @@ bool private_channel_store_nicknames(const PrivateChannelStore& store, u64 chann
 bool private_channel_store_replace_nicknames(PrivateChannelStore* store, u64 channel_id,
     ConstSlice<PrivateNicknameInput> names) noexcept {
     if (!private_channel_store_prepare_nicknames(store, channel_id, names)) return false;
-    if (!private_channel_store_find(*store, channel_id)) return false;
+    const auto* channel = private_channel_store_find(*store, channel_id);
+    if (!channel) return false;
     auto* staged = names.count ? static_cast<PrivateNicknameRecord*>(
         _alloca(sizeof(PrivateNicknameRecord) * names.count)) : nullptr;
     for (u32 i = 0; i < names.count; ++i) {
@@ -304,8 +309,7 @@ bool private_channel_store_replace_nicknames(PrivateChannelStore* store, u64 cha
     }
     for (u32 i = 0; i < names.count; ++i) store->nicknames[first + i] = staged[i];
     store->nickname_count = store->nickname_count - old_count + names.count;
-    const u32 channel = lower_bound(*store, channel_id);
-    if (channel < store->count && store->records[channel].id == channel_id) saturating_increment(store->records[channel].revision);
+    saturating_increment(store->records[static_cast<u32>(channel - store->records.data)].revision);
     saturating_increment(store->revision);
     return true;
 }

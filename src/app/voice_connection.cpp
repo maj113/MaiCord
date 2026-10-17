@@ -385,9 +385,8 @@ bool voice_connection_media_start(VoiceConnection* connection, Slice<u8> receive
         connection->media_receive = receive;
         connection->media_context = context;
         connection->unannounced_rtp_packets = 0;
-    }
-    if (started)
         voice_log(kInfo, "media_started", "slots", receive_slots, "stream", connection->stream_context);
+    }
     if (!started && connection->media_io.error != VoiceUdpMediaError::none) {
         fail(connection, VoiceConnectionError::datagram, "media_start_failed",
              static_cast<u64>(connection->media_io.error));

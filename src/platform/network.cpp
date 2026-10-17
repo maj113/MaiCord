@@ -33,8 +33,7 @@ bool post_resolve_complete(NetworkResolver* resolver, DWORD native_error) noexce
 
 void CALLBACK resolve_complete(DWORD native_error, DWORD, OVERLAPPED* overlapped) noexcept {
     auto* operation = reinterpret_cast<NetworkOperation*>(overlapped);
-    auto* resolver = static_cast<NetworkResolver*>(operation->owner);
-    if (resolver) post_resolve_complete(resolver, native_error);
+    post_resolve_complete(static_cast<NetworkResolver*>(operation->owner), native_error);
 }
 
 bool bind_wildcard(SOCKET socket_value, i32 family) noexcept {

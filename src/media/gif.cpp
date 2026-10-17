@@ -53,9 +53,6 @@ bool palette_bounds(ConstSlice<u8> encoded, u32 offset, u32 count) noexcept {
 
 bool skip_subblocks(ConstSlice<u8> encoded, u32* cursor, GifParseResult* result,
                     u32* payload_bytes) noexcept {
-    if (!cursor || !result) {
-        return false;
-    }
     u32 total = 0;
     for (;;) {
         if (*cursor >= encoded.count) {

@@ -20,10 +20,8 @@ struct LineResult {
 
 u32 literal_length(const char* literal) noexcept {
     u32 bytes = 0;
-    if (literal) {
-        while (literal[bytes] != 0) {
-            ++bytes;
-        }
+    while (literal[bytes] != 0) {
+        ++bytes;
     }
     return bytes;
 }

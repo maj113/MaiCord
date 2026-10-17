@@ -5,7 +5,7 @@
 namespace maicord {namespace {
 NativeFontResult result(NativeFontError error,SfntStatus font=SfntStatus::ok,u32 native=0) noexcept {return {error,font,native};}
 bool valid(const NativeFontInstanceStore& s) noexcept {return s.fonts&&s.slots.data&&s.slots.count;}
-NativeFontInstanceSlot* slot(NativeFontInstanceStore& s,NativeFontInstanceHandle h) noexcept {
+NativeFontInstanceSlot* slot(const NativeFontInstanceStore& s,NativeFontInstanceHandle h) noexcept {
     if(!valid(s)||!h.slot||h.slot>s.slots.count||!h.generation)return nullptr;
     auto& p=s.slots[h.slot-1];return p.references&&p.generation==h.generation?&p:nullptr;
 }
@@ -82,7 +82,6 @@ bool native_font_instance_release(NativeFontInstanceStore* s,NativeFontInstanceH
     const auto face=p->instance.face;const u32 generation=p->generation;arena_release(&p->state);*p={};p->generation=generation;return native_font_release(s->fonts,face);
 }
 const NativeFontInstance* native_font_instance_get(const NativeFontInstanceStore& s,NativeFontInstanceHandle h) noexcept {
-    if(!valid(s)||!h.slot||h.slot>s.slots.count||!h.generation)return nullptr;
-    const auto& p=s.slots[h.slot-1];return p.references&&p.generation==h.generation?&p.instance:nullptr;
+    const auto* p=slot(s,h);return p?&p->instance:nullptr;
 }
 } // namespace maicord

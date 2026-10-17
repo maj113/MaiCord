@@ -181,20 +181,12 @@ UiRect effect_pill(const UiCallTile& tile, const UiCallParticipant& p) noexcept 
     const float middle = (r.left + r.right) * .5f;
     return {middle - width * .5f, r.top + kPillInset, middle + width * .5f, r.top + kPillInset + kPillHeight};
 }
-u32 digit_count(u32 value) noexcept {
-    u32 digits = 1;
-    while (value >= 10) {
-        value /= 10;
-        ++digits;
-    }
-    return digits;
-}
 // Viewer count (eye + number) beside the watched stream's LIVE badge.
 UiRect viewer_pill(const UiCallTile& tile, const UiCallParticipant& p) noexcept {
     const auto live = live_badge(tile, p);
     if (!ui_rect_has_area(live) || !watched(p) || !p.viewers || ui_rect_width(tile.display) < 160)
         return {};
-    const float width = 6 + 14 + 4 + static_cast<float>(digit_count(p.viewers)) * 7.5f + 8;
+    const float width = 6 + 14 + 4 + static_cast<float>(decimal_digits(p.viewers)) * 7.5f + 8;
     return {live.right + 4, live.top, live.right + 4 + width, live.top + kViewerHeight};
 }
 // A spinner while a watched stream has no picture to show yet (or reconnects).
@@ -516,10 +508,7 @@ bool ui_call_scene_update(UiCallScene* s, const UiCallContent& content, UiRect v
         p.effect = {s->effects[i], copy_text(s->effects[i], kUiCallEffectBytes, p.effect)};
         s->participants[i] = p;
         // Viewer counts are formatted once per projection, not per paint.
-        u32 value = p.viewers, digits = digit_count(value);
-        s->viewer_text[i][digits] = 0;
-        for (u32 d = digits; d > 0; --d, value /= 10)
-            s->viewer_text[i][d - 1] = static_cast<char>('0' + value % 10);
+        s->viewer_text[i][decimal_write(s->viewer_text[i], p.viewers)] = 0;
     }
     s->title_bytes = copy_text(s->title, kUiCallTitleBytes, content.title);
     s->focus_user = content.focus_user;

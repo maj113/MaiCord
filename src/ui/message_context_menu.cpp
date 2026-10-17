@@ -104,9 +104,6 @@ bool already_selected(const u16* selected, u32 count, u16 value) noexcept {
 
 bool append_quick_reactions(MessageContextMenuModel* model,
                             const ReactionPreferenceStore* preferences) noexcept {
-    if (!model) {
-        return false;
-    }
     const ConstSlice<EmojiCatalogEntry> catalog = unicode_emoji_catalog();
     u32 selected = 0;
     if (preferences) {
@@ -150,8 +147,7 @@ bool append_quick_reactions(MessageContextMenuModel* model,
 }
 
 bool append_bytes(Utf8View value, Slice<char> output, u32* used) noexcept {
-    if (!used || (!value.data && value.bytes != 0) || (!output.data && output.count != 0) ||
-        *used > output.count || value.bytes > output.count - *used) {
+    if (value.bytes > output.count - *used) {
         return false;
     }
     copy_bytes(output.data + *used, value.data, value.bytes);
@@ -317,19 +313,10 @@ u32 message_context_format_snowflake(u64 value, Slice<char> output) noexcept {
     if (value == 0 || !output.data || output.count == 0) {
         return 0;
     }
-    char reverse[20]{};
-    u32 digits = 0;
-    do {
-        reverse[digits++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0 && digits < static_cast<u32>(sizeof(reverse)));
-    if (digits > output.count) {
+    if (decimal_digits(value) > output.count) {
         return 0;
     }
-    for (u32 index = 0; index < digits; ++index) {
-        output[index] = reverse[digits - index - 1];
-    }
-    return digits;
+    return decimal_write(output.data, value);
 }
 
 u32 message_context_format_link(u64 guild_id, u64 channel_id, u64 message_id, Slice<char> output) noexcept {

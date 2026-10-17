@@ -332,7 +332,7 @@ bool overwrite_payload_valid(ConstSlice<u8> payload, u32 count) noexcept {
 bool guild_emojis_payload(
     const GatewayClientEvent& event, ConstSlice<u8> payload,
     Slice<CustomEmojiInput> emojis, u32* count) noexcept {
-    if (!count || !event.state.emojis_known ||
+    if (!event.state.emojis_known ||
         event.state.emoji_count > emojis.count ||
         event.state.emoji_count > kGuildEmojiMaximum ||
         (!emojis.data && event.state.emoji_count != 0)) {

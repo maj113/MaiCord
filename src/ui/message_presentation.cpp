@@ -24,8 +24,8 @@ bool append_media(MessageMediaCommandStream* stream, u64 id, MessageMediaCommand
                   u32 message_revision = 0, u8 embed_index = 0, u8 embed_resource = 0,
                   bool ordinary_video = false, bool snapshot = false,
                   MessageMediaObscure obscure = MessageMediaObscure::none) noexcept {
-    if (!stream || !stream->storage.data || id == 0 || !ui_rect_has_area(rectangle) || !owner.manager) {
-        saturating_increment_if(stream, stream->rejected);
+    if (id == 0 || !ui_rect_has_area(rectangle) || !owner.manager) {
+        saturating_increment(stream->rejected);
         return false;
     }
     if (stream->count >= stream->storage.count) {

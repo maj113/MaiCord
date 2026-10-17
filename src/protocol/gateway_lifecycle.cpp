@@ -15,6 +15,12 @@ GatewayLifecycleStep invalid_state(const GatewayLifecycle* lifecycle) noexcept {
                 lifecycle ? GatewayLifecycleError::invalid_state : GatewayLifecycleError::invalid_input);
 }
 
+// Heartbeats, dispatches and session invalidation apply once HELLO was answered.
+bool session_phase(const GatewayLifecycle& lifecycle) noexcept {
+    return lifecycle.phase == GatewayLifecyclePhase::awaiting_session ||
+           lifecycle.phase == GatewayLifecyclePhase::ready;
+}
+
 GatewayLifecycleAction reconnect_action(GatewayLifecycle* lifecycle, bool can_resume) noexcept {
     lifecycle->phase = GatewayLifecyclePhase::reconnecting;
     lifecycle->awaiting_heartbeat_ack = false;
@@ -73,8 +79,7 @@ GatewayLifecycleStep gateway_lifecycle_tick(GatewayLifecycle* lifecycle, u64 now
     if (!lifecycle) {
         return invalid_state(nullptr);
     }
-    if (lifecycle->phase != GatewayLifecyclePhase::awaiting_session &&
-        lifecycle->phase != GatewayLifecyclePhase::ready) {
+    if (!session_phase(*lifecycle)) {
         return step(GatewayLifecycleAction::none);
     }
     if (now_ms < lifecycle->next_heartbeat_ms) {
@@ -89,8 +94,7 @@ GatewayLifecycleStep gateway_lifecycle_tick(GatewayLifecycle* lifecycle, u64 now
 }
 
 GatewayLifecycleStep gateway_lifecycle_heartbeat_requested(GatewayLifecycle* lifecycle) noexcept {
-    if (!lifecycle || (lifecycle->phase != GatewayLifecyclePhase::awaiting_session &&
-                       lifecycle->phase != GatewayLifecyclePhase::ready)) {
+    if (!lifecycle || !session_phase(*lifecycle)) {
         return invalid_state(lifecycle);
     }
     lifecycle->awaiting_heartbeat_ack = true;
@@ -98,8 +102,7 @@ GatewayLifecycleStep gateway_lifecycle_heartbeat_requested(GatewayLifecycle* lif
 }
 
 GatewayLifecycleStep gateway_lifecycle_heartbeat_acknowledged(GatewayLifecycle* lifecycle) noexcept {
-    if (!lifecycle || (lifecycle->phase != GatewayLifecyclePhase::awaiting_session &&
-                       lifecycle->phase != GatewayLifecyclePhase::ready)) {
+    if (!lifecycle || !session_phase(*lifecycle)) {
         return invalid_state(lifecycle);
     }
     lifecycle->awaiting_heartbeat_ack = false;
@@ -107,8 +110,7 @@ GatewayLifecycleStep gateway_lifecycle_heartbeat_acknowledged(GatewayLifecycle* 
 }
 
 GatewayLifecycleStep gateway_lifecycle_dispatch(GatewayLifecycle* lifecycle, u64 sequence) noexcept {
-    if (!lifecycle || (lifecycle->phase != GatewayLifecyclePhase::awaiting_session &&
-                       lifecycle->phase != GatewayLifecyclePhase::ready)) {
+    if (!lifecycle || !session_phase(*lifecycle)) {
         return invalid_state(lifecycle);
     }
     lifecycle->last_sequence = sequence;
@@ -138,8 +140,7 @@ GatewayLifecycleStep gateway_lifecycle_reconnect_requested(GatewayLifecycle* lif
 
 GatewayLifecycleStep gateway_lifecycle_invalid_session(GatewayLifecycle* lifecycle,
                                                        bool resumable) noexcept {
-    if (!lifecycle || (lifecycle->phase != GatewayLifecyclePhase::awaiting_session &&
-                       lifecycle->phase != GatewayLifecyclePhase::ready)) {
+    if (!lifecycle || !session_phase(*lifecycle)) {
         return invalid_state(lifecycle);
     }
     const bool can_resume = resumable && lifecycle->resume_available && lifecycle->has_sequence;

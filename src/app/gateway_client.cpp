@@ -1215,7 +1215,7 @@ bool drive_tls_handshake(GatewayClientRuntime* runtime) noexcept {
 }
 
 bool queue_pong(GatewayClientRuntime* runtime, ConstSlice<u8> payload) noexcept {
-    if (!runtime || runtime->has_pending_pong || payload.count > sizeof(runtime->pending_pong)) {
+    if (runtime->has_pending_pong || payload.count > sizeof(runtime->pending_pong)) {
         return false;
     }
     for (u32 index = 0; index < payload.count; ++index) {
@@ -1227,7 +1227,7 @@ bool queue_pong(GatewayClientRuntime* runtime, ConstSlice<u8> payload) noexcept 
 }
 
 bool send_pending_pong(GatewayClientRuntime* runtime) noexcept {
-    if (!runtime || !runtime->has_pending_pong || runtime->send_purpose != SendPurpose::none) {
+    if (!runtime->has_pending_pong || runtime->send_purpose != SendPurpose::none) {
         return false;
     }
     u32 masking_key = 0;
@@ -1395,7 +1395,7 @@ OutboundDrive send_control_command(GatewayClientRuntime* runtime, GatewayCommand
 }
 
 OutboundDrive drive_guild_subscription(GatewayClientRuntime* runtime, u64 now_ms) noexcept {
-    if (!runtime || runtime->send_purpose != SendPurpose::none ||
+    if (runtime->send_purpose != SendPurpose::none ||
         runtime->identity != GatewayClientIdentity::normal_user ||
         runtime->session.lifecycle.phase != GatewayLifecyclePhase::ready) {
         return OutboundDrive::idle;

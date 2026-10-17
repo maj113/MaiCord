@@ -295,7 +295,7 @@ bool unavailable_poll(const MessageScene& scene, const MessageRecord& record) no
 bool poll_state(const MessageScene& scene, const MessageRecord& record, MessageHandle handle,
                 Slice<UiPollAnswer> answers, UiPollState* out) noexcept {
     const auto* poll = row_poll(scene, record);
-    if (!out || !poll || !answers.data || answers.count < poll->answer_count ||
+    if (!poll || !answers.data || answers.count < poll->answer_count ||
         poll->answer_count > kUiPollMaximumAnswers)
         return false;
     UiPollState state{};
@@ -378,9 +378,6 @@ bool poll_height(const MessageScene& scene, const MessageRecord& record, Message
 bool local_message_date(u64 timestamp_ms, u32* date) noexcept {
     constexpr u64 windows_to_unix_seconds = 11'644'473'600ull;
     constexpr u64 file_time_ticks_per_second = 10'000'000ull;
-    if (!date) {
-        return false;
-    }
     const u64 seconds = timestamp_ms / 1'000ull;
     if (seconds > ~0ull - windows_to_unix_seconds ||
         seconds + windows_to_unix_seconds > ~0ull / file_time_ticks_per_second) {
@@ -858,9 +855,6 @@ bool apply_row_specs(MessageScene* scene, MessageSceneRowWidget* row) noexcept {
 }
 
 void clear_materialization(MessageScene* scene) noexcept {
-    if (!scene) {
-        return;
-    }
     ui_widget_manager_reset(&scene->widgets);
     scene->root = ui_widget_invalid_handle();
     scene->first = 0;
@@ -912,7 +906,7 @@ bool refresh_row(MessageScene* scene, MessageSceneRowWidget* row, u32 source_ind
                  bool preserve_measurement, bool* data_changed) noexcept {
     const MessageHandle handle = message_scene_source_handle(*scene, source_index);
     const MessageRecord* record = message_store_resolve(*scene->timeline->store, handle);
-    if (!record || !data_changed) {
+    if (!record) {
         return false;
     }
     if (!preserve_measurement || row->message.slot != handle.slot ||
@@ -1019,7 +1013,7 @@ UiWidgetResult add_region(MessageScene* scene, UiWidgetHandle parent, u32 id, co
 }
 
 void rebase_retained_rows(MessageScene* scene, u32 first, u32 count) noexcept {
-    if (!scene || !scene->active || scene->count == 0 || count == 0) {
+    if (!scene->active || scene->count == 0 || count == 0) {
         return;
     }
     const u32 old_first = scene->first;

@@ -15,7 +15,7 @@ UiButtonKeyResult ui_button_keyboard_key(UiButtonKeyboard* state, const UiWidget
     const auto* widget = owner ? ui_widget_manager_resolve(*owner, owner->focused) : nullptr;
     const bool button = widget && widget->kind == UiWidgetKind::button &&
         ui_widget_manager_context_anchor(*owner, &visible);
-    if (!owner || !button) {
+    if (!button) {
         ui_button_keyboard_cancel(state);
         return {ui_widget_invalid_handle(), (key == UiButtonKey::space || key == UiButtonKey::escape) &&
             pressed.manager != nullptr, false};

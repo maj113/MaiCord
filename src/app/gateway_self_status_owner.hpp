@@ -19,7 +19,7 @@ struct GatewaySelfStatusOwner {
 static_assert(sizeof(GatewaySelfStatusOwner) <= 160);
 inline bool gateway_self_status_initialize(GatewaySelfStatusOwner* owner, u64 profile_id,
                                            GatewayPresenceUpdate presence) noexcept {
-    if (!owner || !profile_id || presence.status > GatewayUserStatus::invisible ||
+    if (!profile_id || presence.status > GatewayUserStatus::invisible ||
         (presence.has_since && presence.status != GatewayUserStatus::idle)) return false;
     *owner = {};
     owner->profile_id = profile_id;
@@ -28,13 +28,13 @@ inline bool gateway_self_status_initialize(GatewaySelfStatusOwner* owner, u64 pr
     return true;
 }
 inline bool gateway_self_status_bind(GatewaySelfStatusOwner* owner, u64 self_user_id) noexcept {
-    if (!owner || !self_user_id || (owner->self_user_id && owner->self_user_id != self_user_id)) return false;
+    if (!self_user_id || (owner->self_user_id && owner->self_user_id != self_user_id)) return false;
     owner->self_user_id = self_user_id;
     return true;
 }
 inline bool gateway_self_status_request(GatewaySelfStatusOwner* owner, u64 profile_id,
     u64 self_user_id, GatewayUserStatus status) noexcept {
-    if (!owner || !profile_id || profile_id != owner->profile_id || !self_user_id ||
+    if (!profile_id || profile_id != owner->profile_id || !self_user_id ||
         self_user_id != owner->self_user_id || !owner->authoritative || status > GatewayUserStatus::invisible) return false;
     if (owner->desired.status == status) return true;
     // Manual Idle is not automatic inactivity. since=null and afk=false match
@@ -47,7 +47,7 @@ inline bool gateway_self_status_request(GatewaySelfStatusOwner* owner, u64 profi
     return true;
 }
 inline void gateway_self_status_observe(GatewaySelfStatusOwner* owner, GatewayUserStatus status) noexcept {
-    if (!owner || status > GatewayUserStatus::invisible) return;
+    if (status > GatewayUserStatus::invisible) return;
     owner->authoritative = true;
     owner->confirmed_status = status;
     if (owner->desired.status != status) {
@@ -68,17 +68,15 @@ inline bool gateway_self_status_pending(const GatewaySelfStatusOwner& owner) noe
     return owner.self_user_id && owner.revision && owner.revision != owner.transmitted_revision;
 }
 inline void gateway_self_status_admit(GatewaySelfStatusOwner* owner, u64 revision, u64 now_ms) noexcept {
-    if (!owner || !revision || owner->count == kGatewayPresenceSendLimit) return;
+    if (!revision || owner->count == kGatewayPresenceSendLimit) return;
     owner->timestamps[(owner->head + owner->count++) % kGatewayPresenceSendLimit] = now_ms;
     owner->active_revision = revision;
 }
 inline void gateway_self_status_complete(GatewaySelfStatusOwner* owner, bool sent) noexcept {
-    if (!owner) return;
     if (sent && owner->active_revision) owner->transmitted_revision = owner->active_revision;
     owner->active_revision = 0;
 }
 inline void gateway_self_status_reset_connection(GatewaySelfStatusOwner* owner) noexcept {
-    if (!owner) return;
     owner->active_revision = 0;
     // Reapply desired state after READY or RESUMED. Keep the presence window
     // across reconnects so interrupted sends cannot bypass its separate cap.

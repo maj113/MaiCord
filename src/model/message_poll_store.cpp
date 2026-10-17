@@ -39,16 +39,10 @@ u32 position(const MessagePollStore& store, u64 id) noexcept {
     return first;
 }
 MessagePollRecord* find(MessagePollStore& store, u64 id) noexcept {
-    if (!id || !store.records)
-        return nullptr;
-    const u32 at = position(store, id);
-    return at < store.count && store.records[at].message_id == id ? store.records + at : nullptr;
+    return const_cast<MessagePollRecord*>(message_poll_store_find(store, id));
 }
 MessagePollAnswer* answer(MessagePollRecord& poll, u32 id) noexcept {
-    for (u32 i = 0; i < poll.answer_count; ++i)
-        if (poll.answers[i].id == id)
-            return poll.answers + i;
-    return nullptr;
+    return const_cast<MessagePollAnswer*>(message_poll_record_answer(poll, id));
 }
 void advance(u32& revision) noexcept {
     if (!++revision)
@@ -514,11 +508,10 @@ MessagePollStoreResult message_poll_store_own_vote(MessagePollStore* store, u64 
     return {poll, MessagePollStoreError::none, changed, false};
 }
 bool message_poll_store_delete(MessagePollStore* store, u64 id) noexcept {
-    if (!store || !store->records || !id)
+    const auto* poll = store ? message_poll_store_find(*store, id) : nullptr;
+    if (!poll)
         return false;
-    const u32 at = position(*store, id);
-    if (at == store->count || store->records[at].message_id != id)
-        return false;
+    const u32 at = static_cast<u32>(poll - store->records);
     store->text_wasted += string_bytes(store->records[at]);
     clear_observations(*store, id);
     for (u32 i = at + 1; i < store->count; ++i)

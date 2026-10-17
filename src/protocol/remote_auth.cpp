@@ -129,7 +129,7 @@ void copy_string(JsonString source, Slice<char> destination) noexcept {
 RemoteAuthDecodeResult parse(Utf8View body, Slice<u32> structural_scratch, u32 maximum_depth,
                              DecodeContext* context) noexcept {
     if (!body.data || body.bytes == 0 || body.bytes > kRemoteAuthMaximumPacketBytes ||
-        !structural_scratch.data || structural_scratch.count == 0 || maximum_depth == 0 || !context) {
+        !structural_scratch.data || structural_scratch.count == 0 || maximum_depth == 0) {
         return failure(body.bytes > kRemoteAuthMaximumPacketBytes ? RemoteAuthError::packet_too_large
                                                                   : RemoteAuthError::invalid_input);
     }

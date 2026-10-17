@@ -202,22 +202,6 @@ HRESULT create_decoder(Gpu* gpu, const H264Sps& sps, u8 surfaces_needed) noexcep
     return S_OK;
 }
 
-HRESULT upload(Gpu* gpu, D3D11_VIDEO_DECODER_BUFFER_TYPE type, const void* data, u32 bytes,
-               D3D11_VIDEO_DECODER_BUFFER_DESC* description) noexcept {
-    UINT capacity = 0;
-    void* destination = nullptr;
-    HRESULT status = gpu->context->GetDecoderBuffer(gpu->decoder, type, &capacity, &destination);
-    if (FAILED(status)) return status;
-    const bool fits = destination && bytes <= capacity;
-    if (fits) copy_bytes(destination, data, bytes);
-    status = gpu->context->ReleaseDecoderBuffer(gpu->decoder, type);
-    if (!fits) return E_OUTOFMEMORY;
-    *description = {};
-    description->BufferType = type;
-    description->DataSize = bytes;
-    return status;
-}
-
 // Fills the driver's mapped buffers directly from the validated input. A
 // picture larger than one bitstream buffer (4K keyframes) is submitted in
 // several slice batches inside the same Begin/EndFrame, each carrying the
@@ -251,11 +235,12 @@ HRESULT submit(H264StreamDecoder* decoder, const H264StreamDecode& decode, Const
     u32 next = 0;
     while (SUCCEEDED(status) && next < picture.slice_count) {
         D3D11_VIDEO_DECODER_BUFFER_DESC buffers[4]{};
-        status = upload(gpu, D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS, &parameters, sizeof(parameters),
-                        &buffers[0]);
+        status = dxva_upload_buffer(gpu->context, gpu->decoder, D3D11_VIDEO_DECODER_BUFFER_PICTURE_PARAMETERS,
+                                    &parameters, sizeof(parameters), &buffers[0]);
         if (SUCCEEDED(status))
-            status = upload(gpu, D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX, &matrix, sizeof(matrix),
-                            &buffers[1]);
+            status = dxva_upload_buffer(gpu->context, gpu->decoder,
+                                        D3D11_VIDEO_DECODER_BUFFER_INVERSE_QUANTIZATION_MATRIX, &matrix,
+                                        sizeof(matrix), &buffers[1]);
         if (FAILED(status)) break;
         UINT bit_capacity = 0, slice_capacity = 0;
         void* bit_data = nullptr;
@@ -452,10 +437,7 @@ DWORD WINAPI decode_main(void* parameter) {
             ReleaseSRWLockExclusive(&decoder->lock);
             if (idle && release_idle(decoder)) {
                 AcquireSRWLockExclusive(&decoder->lock);
-                const u32 received = decoder->stats.received, overflows = decoder->stats.overflows;
                 publish_stats(decoder);
-                decoder->stats.received = received;
-                decoder->stats.overflows = overflows;
                 ReleaseSRWLockExclusive(&decoder->lock);
             }
             continue;
@@ -484,10 +466,7 @@ DWORD WINAPI decode_main(void* parameter) {
             decode_input(decoder, {decoder->work.data, decoder->work.bytes}, decoder->work.rtp_timestamp,
                          decoder->work.intact, decoder->work.resynchronize);
             AcquireSRWLockExclusive(&decoder->lock);
-            const u32 received = decoder->stats.received, overflows = decoder->stats.overflows;
             publish_stats(decoder);
-            decoder->stats.received = received;
-            decoder->stats.overflows = overflows;
             ReleaseSRWLockExclusive(&decoder->lock);
         }
     }
@@ -533,9 +512,7 @@ bool h264_stream_decoder_push(H264StreamDecoder* decoder, ConstSlice<u8> annexb,
         const bool resynchronize = decoder->resynchronize_pending;
         decoder->resynchronize_pending = false;
         decode_input(decoder, annexb, rtp_timestamp, intact, resynchronize);
-        const u32 received = decoder->stats.received;
         publish_stats(decoder);
-        decoder->stats.received = received;
         return true;
     }
     AcquireSRWLockExclusive(&decoder->lock);
@@ -569,9 +546,7 @@ bool h264_stream_decoder_release_idle(H264StreamDecoder* decoder) noexcept {
     if (!decoder || !decoder->options.synchronous) return false;
     const bool released = release_idle(decoder);
     if (released) {
-        const u32 received = decoder->stats.received;
         publish_stats(decoder);
-        decoder->stats.received = received;
     }
     return released;
 }

@@ -11,7 +11,7 @@ MessageSendObserveResult observe_error(MessageSendTracker* tracker,
 }
 
 MessageSendAttempt* find_attempt(MessageSendTracker* tracker, u64 nonce) noexcept {
-    if (!tracker || nonce == 0) {
+    if (nonce == 0) {
         return nullptr;
     }
     for (u32 index = 0; index < kMessageSendTrackerCapacity; ++index) {
@@ -24,9 +24,6 @@ MessageSendAttempt* find_attempt(MessageSendTracker* tracker, u64 nonce) noexcep
 }
 
 MessageSendAttempt* empty_attempt(MessageSendTracker* tracker) noexcept {
-    if (!tracker) {
-        return nullptr;
-    }
     for (u32 index = 0; index < kMessageSendTrackerCapacity; ++index) {
         if (!tracker->attempts[index].active) {
             return &tracker->attempts[index];

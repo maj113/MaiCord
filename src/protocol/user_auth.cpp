@@ -75,7 +75,7 @@ struct ResponseContext {
 };
 
 bool captcha_headers_size(const UserAuthCaptchaHeaders& headers, bool allow_empty, u32* bytes) noexcept {
-    if (!bytes || (!allow_empty && headers.key.bytes == 0) ||
+    if ((!allow_empty && headers.key.bytes == 0) ||
         (headers.key.bytes == 0 && (headers.rqtoken.bytes != 0 || headers.session_id.bytes != 0)) ||
         !ascii_graphic_string(headers.key, kUserAuthMaximumCaptchaKeyBytes) ||
         !ascii_graphic_string(headers.rqtoken, kUserAuthMaximumCaptchaTokenBytes) ||
@@ -308,7 +308,7 @@ UserAuthDecodeResult classify_response(u16 status_code, Utf8View body, Slice<u32
     if (output) {
         *output = UserAuthResponse{};
     }
-    if (!context || !output || status_code < 200 || status_code > 599 || !body.data || body.bytes == 0 ||
+    if (!output || status_code < 200 || status_code > 599 || !body.data || body.bytes == 0 ||
         !structural_scratch.data || structural_scratch.count == 0 || maximum_depth == 0) {
         return decode_failure(UserAuthDecodeError::invalid_input);
     }
@@ -796,13 +796,9 @@ static UserAuthDecodeResult decode_response_impl(u16 status_code, Utf8View body,
     UserAuthResponse parsed{};
     const UserAuthDecodeResult classified =
         classify_response(status_code, body, structural_scratch, maximum_depth, &context, &parsed, false, reset_mode, phone_mode);
-    if (!classified.ok()) {
-        if (output) {
-            *output = UserAuthResponse{};
-        }
-        return classified;
-    }
     *output = UserAuthResponse{};
+    if (!classified.ok())
+        return classified;
 
     UserAuthDecodeError storage_error = preflight_field(&context.token, storage.token, true);
     if (storage_error == UserAuthDecodeError::none) {

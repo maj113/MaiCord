@@ -8,11 +8,14 @@ bool current(const VoiceHeartbeat* heartbeat, u64 generation) noexcept {
            (heartbeat->phase == VoiceHeartbeatPhase::awaiting_hello ||
             heartbeat->phase == VoiceHeartbeatPhase::running);
 }
-void fail(VoiceHeartbeat* heartbeat, VoiceHeartbeatFailure failure) noexcept {
-    heartbeat->phase = VoiceHeartbeatPhase::failed;
-    heartbeat->failure = failure;
+void halt(VoiceHeartbeat* heartbeat, VoiceHeartbeatPhase phase) noexcept {
+    heartbeat->phase = phase;
     heartbeat->queued = heartbeat->awaiting_ack = false;
     heartbeat->hello_deadline_ms = heartbeat->next_send_ms = heartbeat->ack_deadline_ms = 0;
+}
+void fail(VoiceHeartbeat* heartbeat, VoiceHeartbeatFailure failure) noexcept {
+    halt(heartbeat, VoiceHeartbeatPhase::failed);
+    heartbeat->failure = failure;
 }
 } // namespace
 
@@ -44,9 +47,7 @@ u64 voice_heartbeat_start(VoiceHeartbeat* heartbeat, u64 now_ms, bool resume) no
 
 void voice_heartbeat_disconnect(VoiceHeartbeat* heartbeat) noexcept {
     if (!heartbeat) return;
-    heartbeat->phase = VoiceHeartbeatPhase::stopped;
-    heartbeat->queued = heartbeat->awaiting_ack = false;
-    heartbeat->hello_deadline_ms = heartbeat->next_send_ms = heartbeat->ack_deadline_ms = 0;
+    halt(heartbeat, VoiceHeartbeatPhase::stopped);
 }
 
 bool voice_heartbeat_hello(VoiceHeartbeat* heartbeat, u64 generation, u32 interval_ms,

@@ -1362,9 +1362,8 @@ CdnAnimatedWebpResult cdn_media_pipeline_admit_animated_webp(CdnMediaPipeline* p
         }
         if (!response.store_allowed) {
             result.cache_generation = 0;
-        }
-        if (!response.store_allowed)
             pipeline->animated_webp_workspace->retained.content_identity = 0;
+        }
         finish_not_modified(pipeline, key, &cache_lease, response);
         return result;
     }
@@ -1468,7 +1467,7 @@ CdnImageType audio_http_type(MediaAssetKey key) noexcept {
 }
 EncodedAudioError parse_audio(EncodedAudioMetadata* metadata, MediaAttachmentFormat format,
                               ConstSlice<u8> bytes, OggOpusCancelled cancelled, void* context) noexcept {
-    if (!metadata || !bytes.data || !bytes.count)
+    if (!bytes.data || !bytes.count)
         return EncodedAudioError::invalid_input;
     if (cancelled && cancelled(context))
         return EncodedAudioError::cancelled;

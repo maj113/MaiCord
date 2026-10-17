@@ -55,9 +55,6 @@ void append_text(char* output, u32 capacity, u32* length, const char* text) noex
 
 void append_fixed_decimal(char* output, u32 capacity, u32* length, u32 value, u32 digits) noexcept {
     char buffer[10]{};
-    if (digits > 10) {
-        digits = 10;
-    }
     for (u32 index = 0; index < digits; ++index) {
         buffer[digits - index - 1] = static_cast<char>('0' + (value % 10));
         value /= 10;
@@ -289,7 +286,7 @@ void log_close() noexcept {
 void log_write(LogLevel level, const char* component, const char* message) noexcept {
     char line[kLineCapacity];
     u32 length = begin_line(line, kLineCapacity, level, component);
-    append_text(line, kLineCapacity, &length, message ? message : "");
+    append_text(line, kLineCapacity, &length, message);
     commit_line(line, &length, level);
 }
 

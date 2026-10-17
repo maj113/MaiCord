@@ -98,7 +98,7 @@ bool link_source(const SearchContentRequest& owner, const MessageTextHit& hit, U
 }
 bool embed_source(const SearchContentRequest& owner, Utf8View* source) noexcept {
     ApplicationSearchSourceView view{};
-    if (!source || !resolve(owner, owner.target.snapshot, &view) || !view.rich || !view.rich_store ||
+    if (!resolve(owner, owner.target.snapshot, &view) || !view.rich || !view.rich_store ||
         owner.target.action != UiSearchAction::rich_item || owner.target.rich_kind != MessageSceneRichItemKind::embed ||
         owner.target.resource != MediaEmbedResource::none || owner.target.save ||
         owner.target.rich_index >= view.rich->embed_count ||

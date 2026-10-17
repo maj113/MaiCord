@@ -36,7 +36,7 @@ bool same_handle(UiWidgetHandle a, UiWidgetHandle b) noexcept {
 }
 bool navigation_row(ReadScopeKind kind, u64 id, UiWidgetHandle* row, u32* revision,
                     u16* generation) noexcept {
-    if (!g_app.account_ui || !row || !revision || !generation)
+    if (!g_app.account_ui)
         return false;
     const auto& navigation = g_app.account_ui->navigation_view;
     if (kind == ReadScopeKind::guild) {

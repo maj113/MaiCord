@@ -218,11 +218,10 @@ bool ui_pinned_messages_scene_update(UiPinnedMessagesScene* s, const UiPinnedMes
     constexpr auto page_prefix = utf8_literal("Page ");
     copy_bytes(s->page_text, page_prefix.data, page_prefix.bytes);
     s->page_bytes = static_cast<u8>(page_prefix.bytes);
-    char digits[10]{};
-    u32 digit_count = 0;
-    u64 page_number = static_cast<u64>(content->page_index) + 1;
-    do { digits[digit_count++] = static_cast<char>('0' + page_number % 10); page_number /= 10; } while (page_number);
-    while (digit_count) s->page_text[s->page_bytes++] = digits[--digit_count];
+    char digits[20];
+    const u32 digit_count = decimal_write(digits, static_cast<u64>(content->page_index) + 1);
+    for (u32 i = 0; i < digit_count; ++i)
+        s->page_text[s->page_bytes++] = digits[i];
     copy_bytes(s->offsets, offsets, sizeof(offsets));
     s->scroll_dips = minimum(maximum(0.f, s->scroll_dips), ui_pinned_messages_scene_scroll_maximum(*s));
     s->overlay = ui_rect_width(viewport) < 720;

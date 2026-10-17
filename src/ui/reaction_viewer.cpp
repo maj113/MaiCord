@@ -12,27 +12,13 @@ ReactionViewerResult reject(ReactionViewer* viewer, ReactionViewerError error) n
 }
 
 u8 format_count(u32 value, char* output, u32 capacity) noexcept {
-    if (!output || capacity == 0) {
-        return 0;
-    }
-    char reversed[10]{};
-    u32 digits = 0;
-    do {
-        reversed[digits++] = static_cast<char>('0' + value % 10);
-        value /= 10;
-    } while (value != 0 && digits < 10);
-    if (digits > capacity || digits > 0xFFu) {
-        return 0;
-    }
-    for (u32 index = 0; index < digits; ++index) {
-        output[index] = reversed[digits - index - 1];
-    }
-    return static_cast<u8>(digits);
+    const u32 digits = decimal_digits(value);
+    return digits > capacity ? u8{0} : static_cast<u8>(decimal_write(output, value));
 }
 
 bool range_in_page(const ReactionViewer& viewer, Utf8View value, u32 page_begin, u32 page_bytes,
                    u32* offset) noexcept {
-    if (!offset || (!value.data && value.bytes != 0) || !viewer.text || page_begin > viewer.text_capacity ||
+    if ((!value.data && value.bytes != 0) || !viewer.text || page_begin > viewer.text_capacity ||
         page_bytes > viewer.text_capacity - page_begin) {
         return false;
     }
@@ -51,8 +37,7 @@ bool range_in_page(const ReactionViewer& viewer, Utf8View value, u32 page_begin,
 
 
 bool initialize_text_owner(ReactionViewer* viewer) noexcept {
-    if (!viewer ||
-        !ui_widget_manager_initialize(&viewer->widgets, Slice<UiWidget>{viewer->widget_storage, 1},
+    if (!ui_widget_manager_initialize(&viewer->widgets, Slice<UiWidget>{viewer->widget_storage, 1},
                                       Slice<UiLayoutNode>{viewer->layout_storage, 1})) {
         return false;
     }

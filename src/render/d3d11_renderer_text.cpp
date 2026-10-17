@@ -264,7 +264,7 @@ namespace {
 
 bool append_text_batch(RendererTextStorage* storage, const UiRect& clip, u32 first_quad,
                        bool force_new_batch = false) noexcept {
-    if (!storage || first_quad > storage->quad_count) {
+    if (first_quad > storage->quad_count) {
         return false;
     }
     const u32 count = storage->quad_count - first_quad;
@@ -419,10 +419,9 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
                          bool plain_flags = false, bool publish_semantics = true) noexcept {
     auto text_system = command_text_system(renderer, face);
     text_system.independent_letters = cluster_effect;
-    (void)layout_owner;
     RendererTextStorage* storage = renderer->content_text;
-    if (!storage || !shaped_height || !atlas_invalidated || storage->quad_count > storage->quad_capacity ||
-        (!input.data && input.bytes != 0) || maximum_width <= 0.0f || maximum_height <= 0.0f) {
+    if (storage->quad_count > storage->quad_capacity || (!input.data && input.bytes != 0) ||
+        maximum_width <= 0.0f || maximum_height <= 0.0f) {
         return false;
     }
     *shaped_height = 0.0f;
@@ -1088,8 +1087,7 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
                                  const MessageTextCommand& command, u32 command_index, const Theme& theme,
                                  bool* atlas_invalidated, bool search_result = false,
                                  bool force_new_batch = false) noexcept {
-    if (!renderer || !presentation || !atlas_invalidated ||
-        command.measurement_kind > MessageTextMeasurementKind::notice ||
+    if (command.measurement_kind > MessageTextMeasurementKind::notice ||
         (command.measurement_kind != MessageTextMeasurementKind::none &&
          command.measurement_index >= presentation->measurement_count)) {
         return false;
@@ -1167,7 +1165,6 @@ bool append_message_text_command(D3D11Renderer* renderer, const MessageTextPrese
             }
         }
     }
-    (void)shaped_height;
     return true;
 }
 
@@ -1410,8 +1407,8 @@ struct TextOverlayBoundaries {
 bool search_message_command(const D3D11Renderer& renderer, u32 index, MessageTextCommand* native,
                             UiTextCommand* neutral) noexcept {
     const auto* presentation = renderer.search_message_text;
-    if (!native || !neutral || !presentation || !presentation->active ||
-        !d3d11_renderer_search_visible(renderer) || index >= presentation->command_count)
+    if (!presentation || !presentation->active || !d3d11_renderer_search_visible(renderer) ||
+        index >= presentation->command_count)
         return false;
     *native = presentation->commands[index];
     native->clip = ui_search_scene_content_clip(*renderer.search_scene, native->clip);
@@ -1560,7 +1557,7 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     if (d3d11_renderer_login_form_text(*renderer)) {
         *boundaries = {};
         UiTextOutput output{nullptr, emitter};
-        return !renderer->text_form || !renderer->text_form->scene || !renderer->text_form->scene->active ||
+        return !d3d11_renderer_text_form_active(*renderer) ||
                (renderer->text_form->scene->content.confirmation_only &&
                 text_form_text_output(*renderer->text_form->scene, renderer->text_form->geometry, theme,
                                       &output));
@@ -1569,10 +1566,8 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     const bool friends = !settings && renderer->friends_scene && renderer->friends_scene->active;
     const bool requests =
         !settings && renderer->friends_requests_scene && renderer->friends_requests_scene->active;
-    const bool form =
-        renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active;
-    const bool forum =
-        renderer->forum_form && renderer->forum_form->scene && renderer->forum_form->scene->active;
+    const bool form = d3d11_renderer_text_form_active(*renderer);
+    const bool forum = d3d11_renderer_forum_form_active(*renderer);
     const auto popup_edit = settings ? UiEditGeometry{} : d3d11_renderer_popup_edit_geometry(*renderer);
     const auto profile_edit = settings ? UiEditGeometry{} : d3d11_renderer_profile_edit_geometry(*renderer);
     UiTextOutput output{nullptr, emitter};
@@ -1747,11 +1742,7 @@ bool raster_text_command(void* context, const UiTextCommand& command, u32 ordina
     if (raster.overlay) {
         const auto& bounds = *raster.boundaries;
         const bool settings = renderer_settings_page_visible(*renderer);
-        const bool form =
-            ((renderer->text_form && renderer->text_form->scene && renderer->text_form->scene->active) ||
-             (renderer->forum_form && renderer->forum_form->scene &&
-              renderer->forum_form->scene->active)) ||
-            d3d11_renderer_tooltip_visible(*renderer);
+        const bool form = d3d11_renderer_form_active(*renderer) || d3d11_renderer_tooltip_visible(*renderer);
         if (ordinal == bounds.friends_end)
             renderer->friends_requests_text_end_batch = renderer->content_text->batch_count;
         if (ordinal == bounds.media_picker_start)
@@ -2013,22 +2004,18 @@ ShellStaticMarks shell_static_marks(const RendererTextShellPrefix& prefix) noexc
 
 bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* atlas_invalidated,
                              bool* storage_modified, bool* prefix_reused, bool include_messages) noexcept {
-    const bool login_form = renderer && d3d11_renderer_login_form_text(*renderer);
-    const bool settings_active = renderer && !login_form && renderer_settings_page_visible(*renderer);
-    const bool friends_active = renderer && !login_form && !settings_active && renderer->friends_scene &&
+    const bool login_form = d3d11_renderer_login_form_text(*renderer);
+    const bool settings_active = !login_form && renderer_settings_page_visible(*renderer);
+    const bool friends_active = !login_form && !settings_active && renderer->friends_scene &&
                                 renderer->friends_scene->active;
-    const bool browser_active = renderer && !login_form && d3d11_renderer_thread_browser_visible(*renderer);
+    const bool browser_active = !login_form && d3d11_renderer_thread_browser_visible(*renderer);
     include_messages = include_messages && !login_form && !settings_active && !friends_active &&
-                       !browser_active && renderer && renderer->message_scene &&
-                       renderer->message_scene->active;
-    RendererTextStorage* storage = renderer ? renderer->content_text : nullptr;
-    const MessageTextPresentation* presentation = renderer ? renderer->message_text : nullptr;
-    if (!renderer ||
-        (!login_form && !settings_active && (!renderer->chat_state || !renderer->navigation_view)) ||
-        !storage || !atlas_invalidated || !storage_modified ||
-        (include_messages && (!presentation || !presentation->active ||
-                              presentation->command_count > presentation->commands.count ||
-                              presentation->measurement_count > presentation->measurements.count))) {
+                       !browser_active && renderer->message_scene && renderer->message_scene->active;
+    RendererTextStorage* storage = renderer->content_text;
+    const MessageTextPresentation* presentation = renderer->message_text;
+    if (include_messages && (!presentation || !presentation->active ||
+                             presentation->command_count > presentation->commands.count ||
+                             presentation->measurement_count > presentation->measurements.count)) {
         return false;
     }
     *atlas_invalidated = false;
@@ -2438,8 +2425,8 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
 }
 
 void discard_retained_overlay_text(D3D11Renderer* renderer) noexcept {
-    RendererTextStorage* storage = renderer ? renderer->content_text : nullptr;
-    if (!storage || renderer->overlay_text_first_batch > storage->batch_count) {
+    RendererTextStorage* storage = renderer->content_text;
+    if (renderer->overlay_text_first_batch > storage->batch_count) {
         return;
     }
     storage->batch_count = renderer->overlay_text_first_batch;

@@ -235,7 +235,6 @@ bool settle(CreationOwner& owner) noexcept {
     return true;
 }
 bool receipt_input(const ThreadCreationSnapshot& receipt, ChannelInput* output) noexcept {
-    if (!output) return false;
     const auto* old = channel(receipt.id);
     if (old && (old->parent_id != receipt.parent_id || old->guild_id != receipt.guild_id || old->type != receipt.type)) return false;
     *output = {receipt.id, receipt.guild_id, receipt.parent_id, thread_creation_name_view(receipt),

@@ -24,7 +24,7 @@ u32 find_record(const TypingStore& store, u64 channel_id, u64 user_id) noexcept 
 }
 
 void remove_record(TypingStore* store, u32 index) noexcept {
-    if (!store || index >= store->count) {
+    if (index >= store->count) {
         return;
     }
     for (u32 cursor = index + 1; cursor < store->count; ++cursor) {

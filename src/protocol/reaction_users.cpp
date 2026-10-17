@@ -120,7 +120,7 @@ enum class DecodeStringResult : u8 {
 DecodeStringResult decode_string(JsonString source, u32 maximum_bytes,
                                  Slice<char> output, u32* used,
                                  Utf8View* result, bool required) noexcept {
-    if (!used || !result || *used > output.count) {
+    if (*used > output.count) {
         return DecodeStringResult::invalid;
     }
     const JsonStringDecodeResult measured =

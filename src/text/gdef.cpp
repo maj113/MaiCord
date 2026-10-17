@@ -24,8 +24,9 @@ SfntStatus sfnt_gdef_open(ConstSlice<u8> bytes,u32 glyph_limit,SfntGdef* output)
     if(!span(bytes,0,4))return SfntStatus::truncated;const u16 major=read(bytes,0),minor=read(bytes,2);
     if(major!=1 || (minor!=0 && minor!=2 && minor!=3))return SfntStatus::unsupported;
     const u32 header=minor==3?18:minor==2?14:12;if(!span(bytes,0,header))return SfntStatus::truncated;
-    for(u32 at=4;at<12+(minor>=2?2u:0u);at+=2){const u32 offset=read(bytes,at);if(offset && (offset<header || !span(bytes,offset,2)))return offset<header?SfntStatus::malformed:SfntStatus::truncated;}
-    if(minor==3){const u32 offset=byte_load_be32(bytes.data+14);if(offset && (offset<header || !span(bytes,offset,2)))return offset<header?SfntStatus::malformed:SfntStatus::truncated;}
+    const auto check=[&](u32 offset) noexcept {return !offset||(offset>=header&&span(bytes,offset,2))?SfntStatus::ok:offset<header?SfntStatus::malformed:SfntStatus::truncated;};
+    for(u32 at=4;at<12+(minor>=2?2u:0u);at+=2){const auto status=check(read(bytes,at));if(status!=SfntStatus::ok)return status;}
+    if(minor==3){const auto status=check(byte_load_be32(bytes.data+14));if(status!=SfntStatus::ok)return status;}
     SfntGdef result{bytes,{},{},glyph_limit,minor};
     for(u32 at=4;at<=10;at+=6)if(read(bytes,at)) {
         ConstSlice<u8> data{};auto status=tail(bytes,read(bytes,at),header,&data);if(status!=SfntStatus::ok)return status;

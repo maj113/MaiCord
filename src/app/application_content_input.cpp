@@ -916,7 +916,6 @@ bool handle_content_click(LPARAM lparam) noexcept {
     case MessageMarkdownSemanticKind::channel_mention:
         return select_content_channel(hit.target);
     case MessageMarkdownSemanticKind::message_link:
-        return open_content_link(hit);
     case MessageMarkdownSemanticKind::link:
         return open_content_link(hit);
     case MessageMarkdownSemanticKind::command_mention:

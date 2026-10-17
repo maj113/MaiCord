@@ -662,8 +662,8 @@ void translate_state(const GatewayClientEvent& event, ConstSlice<u8> payload, co
     NativePluginSdkEvent out{};
     Utf8View name{};
     if (gateway_client_event_state_name(event, payload, &name)) out.name = name;
+    if (!state.id) return;
     if (kind == K::guild_create || kind == K::guild_update || kind == K::guild_delete) {
-        if (!state.id) return;
         out.kind = kind == K::guild_create ? MC_EVENT_GUILD_CREATE
                    : kind == K::guild_update ? MC_EVENT_GUILD_UPDATE
                                              : MC_EVENT_GUILD_DELETE;
@@ -672,7 +672,6 @@ void translate_state(const GatewayClientEvent& event, ConstSlice<u8> payload, co
             if (const auto* guild = chat_state_store_find_guild(ui->chat_state, state.id))
                 out.name = chat_state_store_guild_name(ui->chat_state, *guild);
     } else {
-        if (!state.id) return;
         out.kind = kind == K::channel_create ? MC_EVENT_CHANNEL_CREATE
                    : kind == K::channel_update ? MC_EVENT_CHANNEL_UPDATE
                                                : MC_EVENT_CHANNEL_DELETE;

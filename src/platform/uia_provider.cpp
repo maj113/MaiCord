@@ -406,7 +406,7 @@ struct WindowCall {
 // marshaled COM method; each method only adds its typed thunk.
 __declspec(noinline) HRESULT run_on_window_thread(UiaProviderHost* host, WindowCallFunction run,
                                                   const void* context) noexcept {
-    if (!host || !host->window || !host->call_message || GetCurrentThreadId() == host->thread)
+    if (!host->window || !host->call_message || GetCurrentThreadId() == host->thread)
         return run(context);
     WindowCall call{run, context, kTimeout, 0};
     AcquireSRWLockExclusive(host->call_lock.native());
@@ -446,8 +446,7 @@ ULONG element_add_ref(Element* element) noexcept {
 ULONG element_release(Element* element) noexcept {
     const LONG remaining = InterlockedDecrement(&element->references);
     if (remaining == 0) {
-        if (element->host)
-            InterlockedDecrement(&element->host->elements);
+        InterlockedDecrement(&element->host->elements);
         HeapFree(GetProcessHeap(), 0, element);
     }
     return static_cast<ULONG>(remaining);
@@ -461,7 +460,7 @@ struct Resolved {
 
 bool resolve_element(const Element* element, Resolved* out) noexcept {
     auto* host = element->host;
-    if (!host || !host->connected || !host->callbacks.tree)
+    if (!host->connected || !host->callbacks.tree)
         return false;
     const UiAccessTree* tree = host->callbacks.tree(host->callbacks.context);
     if (!tree || !tree->finished || !tree->count)
@@ -569,6 +568,14 @@ bool variant_string(const UiaRuntime* runtime, VARIANT* out, Utf8View text) noex
     return true;
 }
 
+bool variant_text(const UiaRuntime* runtime, VARIANT* out, Utf8View text) noexcept {
+    if (!variant_string(runtime, out, text)) {
+        V_VT(out) = VT_BSTR;
+        V_BSTR(out) = make_bstr(runtime, {});
+    }
+    return V_BSTR(out) != nullptr;
+}
+
 void variant_bool(VARIANT* out, bool value) noexcept {
     V_VT(out) = VT_BOOL;
     V_BOOL(out) = value ? VARIANT_TRUE : VARIANT_FALSE;
@@ -640,27 +647,28 @@ constexpr usize kGrid = offsetof(Element, grid);
 constexpr usize kGridItem = offsetof(Element, grid_item);
 constexpr usize kText = offsetof(Element, text);
 
+struct Pattern {
+    const GUID* iid;
+    int id;
+    usize offset;
+};
+constexpr Pattern kPatterns[]{
+    {&kIidInvoke, pattern_invoke, kInvoke},
+    {&kIidToggle, pattern_toggle, kToggle},
+    {&kIidSelection, pattern_selection, kSelection},
+    {&kIidSelectionItem, pattern_selection_item, kSelectionItem},
+    {&kIidValue, pattern_value, kValue},
+    {&kIidRangeValue, pattern_range_value, kRangeValue},
+    {&kIidScroll, pattern_scroll, kScroll},
+    {&kIidExpandCollapse, pattern_expand_collapse, kExpandCollapse},
+    {&kIidScrollItem, pattern_scroll_item, kScrollItem},
+    {&kIidGrid, pattern_grid, kGrid},
+    {&kIidGridItem, pattern_grid_item, kGridItem},
+    {&kIidText, pattern_text, kText},
+};
+
 void* pattern_interface(Element* element, const GUID& iid) noexcept {
-    struct Pattern {
-        const GUID* iid;
-        int id;
-        usize offset;
-    };
-    static constexpr Pattern patterns[]{
-        {&kIidInvoke, pattern_invoke, kInvoke},
-        {&kIidToggle, pattern_toggle, kToggle},
-        {&kIidSelection, pattern_selection, kSelection},
-        {&kIidSelectionItem, pattern_selection_item, kSelectionItem},
-        {&kIidValue, pattern_value, kValue},
-        {&kIidRangeValue, pattern_range_value, kRangeValue},
-        {&kIidScroll, pattern_scroll, kScroll},
-        {&kIidExpandCollapse, pattern_expand_collapse, kExpandCollapse},
-        {&kIidScrollItem, pattern_scroll_item, kScrollItem},
-        {&kIidGrid, pattern_grid, kGrid},
-        {&kIidGridItem, pattern_grid_item, kGridItem},
-        {&kIidText, pattern_text, kText},
-    };
-    for (const auto& pattern : patterns) {
+    for (const auto& pattern : kPatterns) {
         if (!guid_equal(iid, *pattern.iid))
             continue;
         Resolved r{};
@@ -721,24 +729,13 @@ HRESULT STDMETHODCALLTYPE simple_pattern_provider(void* self, int pattern, void*
         return kElementNotAvailable;
     if (!supports(r, pattern))
         return S_OK;
-    usize offset = 0;
-    switch (pattern) {
-    case pattern_invoke: offset = kInvoke; break;
-    case pattern_toggle: offset = kToggle; break;
-    case pattern_selection: offset = kSelection; break;
-    case pattern_selection_item: offset = kSelectionItem; break;
-    case pattern_value: offset = kValue; break;
-    case pattern_range_value: offset = kRangeValue; break;
-    case pattern_scroll: offset = kScroll; break;
-    case pattern_expand_collapse: offset = kExpandCollapse; break;
-    case pattern_scroll_item: offset = kScrollItem; break;
-    case pattern_grid: offset = kGrid; break;
-    case pattern_grid_item: offset = kGridItem; break;
-    case pattern_text: offset = kText; break;
-    default: return S_OK;
+    for (const auto& entry : kPatterns) {
+        if (entry.id != pattern)
+            continue;
+        element_add_ref(element);
+        *out = reinterpret_cast<char*>(element) + entry.offset;
+        break;
     }
-    element_add_ref(element);
-    *out = reinterpret_cast<char*>(element) + offset;
     return S_OK;
 }
 
@@ -827,7 +824,7 @@ HRESULT STDMETHODCALLTYPE simple_host_provider(void* self, void** out) noexcept 
     *out = nullptr;
     auto* element = element_from<kSimple>(self);
     auto* host = element->host;
-    if (!element->root || !host || !host->connected || !host->runtime)
+    if (!element->root || !host->connected || !host->runtime)
         return S_OK;
     return host->runtime->host_provider_from_hwnd(host->window, out);
 }
@@ -880,8 +877,12 @@ HRESULT STDMETHODCALLTYPE fragment_runtime_id(void* self, SAFEARRAY** out) noexc
     return *out ? S_OK : E_OUTOFMEMORY;
 }
 
+float host_scale(const UiaProviderHost* host) noexcept {
+    return host->callbacks.scale ? host->callbacks.scale(host->callbacks.context) : 1.0f;
+}
+
 UiaBounds screen_bounds(const UiaProviderHost* host, const UiRect& rectangle) noexcept {
-    const float scale = host->callbacks.scale ? host->callbacks.scale(host->callbacks.context) : 1.0f;
+    const float scale = host_scale(host);
     POINT origin{};
     ClientToScreen(host->window, &origin);
     UiaBounds bounds{};
@@ -923,7 +924,7 @@ HRESULT STDMETHODCALLTYPE fragment_root(void* self, void** out) noexcept {
         return E_POINTER;
     *out = nullptr;
     auto* element = element_from<kFragment>(self);
-    if (!element->host || !element->host->connected)
+    if (!element->host->connected)
         return kElementNotAvailable;
     void* root = element_create(element->host, 0, true);
     if (root)
@@ -942,10 +943,10 @@ HRESULT STDMETHODCALLTYPE root_from_point(void* self, double x, double y, void**
         return kElementNotAvailable;
     POINT point{static_cast<LONG>(x), static_cast<LONG>(y)};
     ScreenToClient(element->host->window, &point);
-    const float scale = element->host->callbacks.scale ? element->host->callbacks.scale(element->host->callbacks.context)
-                                                       : 1.0f;
-    const float dip_x = static_cast<float>(point.x) / (scale > 0 ? scale : 1.0f);
-    const float dip_y = static_cast<float>(point.y) / (scale > 0 ? scale : 1.0f);
+    const float scale = host_scale(element->host);
+    const float divisor = scale > 0 ? scale : 1.0f;
+    const float dip_x = static_cast<float>(point.x) / divisor;
+    const float dip_y = static_cast<float>(point.y) / divisor;
     const u32 hit = ui_access_hit_test(*r.tree, dip_x, dip_y);
     void* found = element_for_index(element, r, hit == kUiAccessNone ? 0 : hit);
     if (found)
@@ -1018,14 +1019,7 @@ HRESULT STDMETHODCALLTYPE selection_get(void* self, SAFEARRAY** out) noexcept {
     return S_OK;
 }
 
-HRESULT STDMETHODCALLTYPE selection_multiple(void*, BOOL* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    *out = FALSE;
-    return S_OK;
-}
-
-HRESULT STDMETHODCALLTYPE selection_required(void*, BOOL* out) noexcept {
+HRESULT STDMETHODCALLTYPE out_false(void*, BOOL* out) noexcept {
     if (!out)
         return E_POINTER;
     *out = FALSE;
@@ -1112,11 +1106,11 @@ HRESULT STDMETHODCALLTYPE value_get(void* self, BSTR* out) noexcept {
     return *out ? S_OK : E_OUTOFMEMORY;
 }
 
-HRESULT STDMETHODCALLTYPE value_read_only(void* self, BOOL* out) noexcept {
+template <usize Offset> HRESULT STDMETHODCALLTYPE read_only_get(void* self, BOOL* out) noexcept {
     if (!out)
         return E_POINTER;
     Resolved r{};
-    if (!resolve_element(element_from<kValue>(self), &r))
+    if (!resolve_element(element_from<Offset>(self), &r))
         return kElementNotAvailable;
     *out = (r.node->state & ui_access_read_only) ? TRUE : FALSE;
     return S_OK;
@@ -1157,16 +1151,6 @@ HRESULT STDMETHODCALLTYPE range_maximum(void* self, double* out) noexcept {
 }
 HRESULT STDMETHODCALLTYPE range_step(void* self, double* out) noexcept {
     return range_read<3>(self, out);
-}
-
-HRESULT STDMETHODCALLTYPE range_read_only(void* self, BOOL* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    Resolved r{};
-    if (!resolve_element(element_from<kRangeValue>(self), &r))
-        return kElementNotAvailable;
-    *out = (r.node->state & ui_access_read_only) ? TRUE : FALSE;
-    return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE scroll_scroll(void* self, int horizontal, int vertical) noexcept {
@@ -1219,13 +1203,6 @@ HRESULT STDMETHODCALLTYPE scroll_vertical_view(void* self, double* out) noexcept
     if (!resolve_element(element_from<kScroll>(self), &r))
         return kElementNotAvailable;
     *out = r.node->scroll.vertical_view_percent > 0 ? r.node->scroll.vertical_view_percent : 100.0;
-    return S_OK;
-}
-
-HRESULT STDMETHODCALLTYPE scroll_horizontally(void*, BOOL* out) noexcept {
-    if (!out)
-        return E_POINTER;
-    *out = FALSE;
     return S_OK;
 }
 
@@ -1373,7 +1350,7 @@ struct RangeText {
 };
 
 bool text_node(UiaProviderHost* host, u64 key, RangeText* out) noexcept {
-    if (!host || !host->connected || !host->callbacks.tree)
+    if (!host->connected || !host->callbacks.tree)
         return false;
     const UiAccessTree* tree = host->callbacks.tree(host->callbacks.context);
     if (!tree || !tree->finished)
@@ -1428,7 +1405,7 @@ HRESULT STDMETHODCALLTYPE text_selection(void* self, SAFEARRAY** out) noexcept {
     *out = nullptr;
     auto* element = element_from<kText>(self);
     RangeText text{};
-    if (!element->host || !text_node(element->host, element->key, &text))
+    if (!text_node(element->host, element->key, &text))
         return kElementNotAvailable;
     u32 start = 0, end = 0;
     ordered_selection(text, &start, &end);
@@ -1441,7 +1418,7 @@ HRESULT STDMETHODCALLTYPE text_visible_ranges(void* self, SAFEARRAY** out) noexc
     *out = nullptr;
     auto* element = element_from<kText>(self);
     RangeText text{};
-    if (!element->host || !text_node(element->host, element->key, &text))
+    if (!text_node(element->host, element->key, &text))
         return kElementNotAvailable;
     return range_array(element->host, text.node->key, 0, text.text.bytes, out);
 }
@@ -1452,7 +1429,7 @@ HRESULT text_range(void* self, void** out, bool caret) noexcept {
     *out = nullptr;
     auto* element = element_from<kText>(self);
     RangeText text{};
-    if (!element->host || !text_node(element->host, element->key, &text))
+    if (!text_node(element->host, element->key, &text))
         return kElementNotAvailable;
     u32 start = 0, end = text.text.bytes;
     if (caret) {
@@ -1514,8 +1491,7 @@ ULONG STDMETHODCALLTYPE range_release(void* self) noexcept {
     auto* range = static_cast<TextRange*>(self);
     const LONG remaining = InterlockedDecrement(&range->references);
     if (remaining == 0) {
-        if (range->host)
-            InterlockedDecrement(&range->host->ranges);
+        InterlockedDecrement(&range->host->ranges);
         HeapFree(GetProcessHeap(), 0, range);
     }
     return static_cast<ULONG>(remaining);
@@ -1587,10 +1563,6 @@ HRESULT STDMETHODCALLTYPE range_find_attribute(void* self, int, VARIANT, BOOL, v
     return range_resolve(static_cast<TextRange*>(self), &text) ? S_OK : kElementNotAvailable;
 }
 
-char lower_ascii(char c) noexcept {
-    return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
-}
-
 HRESULT STDMETHODCALLTYPE range_find_text(void* self, BSTR needle, BOOL backward, BOOL ignore_case,
                                           void** out) noexcept {
     if (!out)
@@ -1620,7 +1592,7 @@ HRESULT STDMETHODCALLTYPE range_find_text(void* self, BSTR needle, BOOL backward
         bool match = true;
         for (u32 index = 0; index < length && match; ++index) {
             const char a = text.text.data[at + index], b = pattern[index];
-            match = ignore_case ? lower_ascii(a) == lower_ascii(b) : a == b;
+            match = ignore_case ? ascii_lower(a) == ascii_lower(b) : a == b;
         }
         if (match) {
             *out = range_create(range->host, range->key, at, at + length);
@@ -1879,22 +1851,22 @@ constexpr InvokeVtbl kInvokeVtbl{unknown_vtbl<kInvoke>(), UIA_MARSHAL(kInvoke, i
 constexpr ToggleVtbl kToggleVtbl{unknown_vtbl<kToggle>(), UIA_MARSHAL(kToggle, toggle_toggle),
                                  UIA_MARSHAL(kToggle, toggle_state_get)};
 constexpr SelectionVtbl kSelectionVtbl{unknown_vtbl<kSelection>(), UIA_MARSHAL(kSelection, selection_get),
-                                       &selection_multiple, &selection_required};
+                                       &out_false, &out_false};
 constexpr SelectionItemVtbl kSelectionItemVtbl{
     unknown_vtbl<kSelectionItem>(), UIA_MARSHAL(kSelectionItem, selection_item_select),
     UIA_MARSHAL(kSelectionItem, selection_item_add), UIA_MARSHAL(kSelectionItem, selection_item_remove),
     UIA_MARSHAL(kSelectionItem, selection_item_selected), UIA_MARSHAL(kSelectionItem, selection_item_container)};
 constexpr ValueVtbl kValueVtbl{unknown_vtbl<kValue>(), UIA_MARSHAL(kValue, value_set),
-                               UIA_MARSHAL(kValue, value_get), UIA_MARSHAL(kValue, value_read_only)};
+                               UIA_MARSHAL(kValue, value_get), UIA_MARSHAL(kValue, read_only_get<kValue>)};
 constexpr RangeValueVtbl kRangeValueVtbl{
     unknown_vtbl<kRangeValue>(), UIA_MARSHAL(kRangeValue, range_set), UIA_MARSHAL(kRangeValue, range_value_get),
-    UIA_MARSHAL(kRangeValue, range_read_only), UIA_MARSHAL(kRangeValue, range_maximum),
+    UIA_MARSHAL(kRangeValue, read_only_get<kRangeValue>), UIA_MARSHAL(kRangeValue, range_maximum),
     UIA_MARSHAL(kRangeValue, range_minimum), UIA_MARSHAL(kRangeValue, range_step),
     UIA_MARSHAL(kRangeValue, range_step)};
 constexpr ScrollVtbl kScrollVtbl{unknown_vtbl<kScroll>(), UIA_MARSHAL(kScroll, scroll_scroll),
                                  &scroll_set_percent, &scroll_no_scroll,
                                  UIA_MARSHAL(kScroll, scroll_vertical_percent), &scroll_full_view,
-                                 UIA_MARSHAL(kScroll, scroll_vertical_view), &scroll_horizontally,
+                                 UIA_MARSHAL(kScroll, scroll_vertical_view), &out_false,
                                  UIA_MARSHAL(kScroll, scroll_vertically)};
 constexpr ExpandCollapseVtbl kExpandCollapseVtbl{unknown_vtbl<kExpandCollapse>(),
                                                  UIA_MARSHAL(kExpandCollapse, expand_expand),
@@ -1987,18 +1959,10 @@ bool property_values(const UiaProviderHost* host, const Resolved& r, const UiAcc
         *id = property_value_value;
         if (node.state & ui_access_password)
             return false;
-        if (!variant_string(host->runtime, new_value, ui_access_value(*r.tree, r.index))) {
-            V_VT(new_value) = VT_BSTR;
-            V_BSTR(new_value) = make_bstr(host->runtime, {});
-        }
-        return V_BSTR(new_value) != nullptr;
+        return variant_text(host->runtime, new_value, ui_access_value(*r.tree, r.index));
     case UiAccessProperty::name:
         *id = property_name;
-        if (!variant_string(host->runtime, new_value, ui_access_name(*r.tree, r.index))) {
-            V_VT(new_value) = VT_BSTR;
-            V_BSTR(new_value) = make_bstr(host->runtime, {});
-        }
-        return V_BSTR(new_value) != nullptr;
+        return variant_text(host->runtime, new_value, ui_access_name(*r.tree, r.index));
     default:
         return false;
     }
@@ -2008,6 +1972,17 @@ void variant_free(const UiaRuntime* runtime, VARIANT* value) noexcept {
     if (V_VT(value) == VT_BSTR && V_BSTR(value))
         runtime->free_string(V_BSTR(value));
     V_VT(value) = VT_EMPTY;
+}
+
+bool raise_event(UiaProviderHost* host, u64 key, int event) noexcept {
+    if (!host || !host->runtime || !host->connected)
+        return false;
+    void* element = element_create(host, key, key == 0);
+    if (!element)
+        return false;
+    const HRESULT hr = host->runtime->raise_automation_event(element, event);
+    element_release(static_cast<Element*>(element));
+    return SUCCEEDED(hr);
 }
 
 } // namespace
@@ -2078,25 +2053,11 @@ void* uia_host_element(UiaProviderHost* host, u64 key) noexcept {
 }
 
 bool uia_host_raise_focus(UiaProviderHost* host, u64 key) noexcept {
-    if (!host || !host->runtime || !host->connected)
-        return false;
-    void* element = element_create(host, key, key == 0);
-    if (!element)
-        return false;
-    const HRESULT hr = host->runtime->raise_automation_event(element, event_focus_changed);
-    element_release(static_cast<Element*>(element));
-    return SUCCEEDED(hr);
+    return raise_event(host, key, event_focus_changed);
 }
 
 bool uia_host_raise_live_region(UiaProviderHost* host, u64 key) noexcept {
-    if (!host || !host->runtime || !host->connected)
-        return false;
-    void* element = element_create(host, key, key == 0);
-    if (!element)
-        return false;
-    const HRESULT hr = host->runtime->raise_automation_event(element, event_live_region_changed);
-    element_release(static_cast<Element*>(element));
-    return SUCCEEDED(hr);
+    return raise_event(host, key, event_live_region_changed);
 }
 
 bool uia_host_raise_structure(UiaProviderHost* host, u64 key) noexcept {

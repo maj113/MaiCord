@@ -21,15 +21,13 @@ bool find_member(void* p, JsonString name, JsonValue value) noexcept {
     }
     return true;
 }
-JsonValue field(const JsonIndexedDocument& doc, JsonValue object, const char* name, bool* found = nullptr) noexcept {
+JsonValue field(const JsonIndexedDocument& doc, JsonValue object, const char* name) noexcept {
     u32 bytes = 0;
     while (name[bytes])
         ++bytes;
     Member member{{name, bytes}, {}, false};
     if (object.source.bytes && object.kind == JsonValueKind::object)
         json_visit_indexed_object(doc, object, depth_limit, find_member, &member);
-    if (found)
-        *found = member.found;
     return member.value;
 }
 } // namespace

@@ -79,7 +79,7 @@ NativeFilePickerResult collect(Runtime* runtime) noexcept {
     IFileOpenDialog* open = nullptr;
     HRESULT result = runtime->dialog->QueryInterface(__uuidof(IFileOpenDialog), reinterpret_cast<void**>(&open));
     if (SUCCEEDED(result) && open) result = open->GetResults(&items);
-    if (open) open->Release();
+    com_release(open);
     if (FAILED(result) || !items) return {0, static_cast<u32>(result), NativeFilePickerError::dialog};
     DWORD count = 0;
     result = items->GetCount(&count);
@@ -94,13 +94,12 @@ NativeFilePickerResult collect(Runtime* runtime) noexcept {
         PWSTR path = nullptr;
         result = items->GetItemAt(i, &item);
         if (SUCCEEDED(result) && item) result = item->GetDisplayName(SIGDN_FILESYSPATH, &path);
-        if (item) item->Release();
+        com_release(item);
         if (FAILED(result) || !path) {
             if (path) CoTaskMemFree(path);
             outcome.error = NativeFilePickerError::path; outcome.native_error = static_cast<u32>(result); break;
         }
-        u32 units = 0;
-        while (units <= kNativeFilePickerMaximumPathUnits && path[units]) ++units;
+        const u32 units = wide_length(path, kNativeFilePickerMaximumPathUnits + 1);
         if (snapshot_path({path, units}, &runtime->snapshots[i], &outcome)) {
             auto* copy = arena_allocate<wchar_t>(&runtime->paths, units + 1);
             if (!copy) outcome.error = NativeFilePickerError::memory;
@@ -162,11 +161,11 @@ NativeFilePickerResult collect_save(Runtime* runtime) noexcept {
     IShellItem* item = nullptr; PWSTR path = nullptr;
     HRESULT result = runtime->dialog->GetResult(&item);
     if (SUCCEEDED(result) && item) result = item->GetDisplayName(SIGDN_FILESYSPATH, &path);
-    if (item) item->Release();
+    com_release(item);
     NativeFilePickerResult outcome{};
     if (FAILED(result) || !path) { outcome.error = NativeFilePickerError::path; outcome.native_error = static_cast<u32>(result); }
     else {
-        u32 units = 0; while (units <= kNativeFilePickerMaximumPathUnits && path[units]) ++units;
+        const u32 units = wide_length(path, kNativeFilePickerMaximumPathUnits + 1);
         if (!native_file_picker_valid_path({path, units})) outcome.error = NativeFilePickerError::path;
         else {
             FileSnapshot current{};

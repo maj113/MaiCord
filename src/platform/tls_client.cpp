@@ -176,7 +176,7 @@ TlsHandshakeStep tls_client_handshake(TlsClient* client, ConstSlice<u8> incoming
                                               : TlsHandshakeState::need_receive};
     }
 
-    const u32 extra = client->context_valid ? extra_input_bytes(input_buffers) : 0;
+    const u32 extra = extra_input_bytes(input_buffers);
     const u32 consumed = extra <= incoming.count ? incoming.count - extra : 0;
     if (status == SEC_I_CONTINUE_NEEDED) {
         return TlsHandshakeStep{consumed, produced, status, TlsError::none,

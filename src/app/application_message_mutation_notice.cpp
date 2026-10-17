@@ -72,9 +72,7 @@ Utf8View navigation_text(ApplicationMessageNavigationStage stage, bool failed, u
     }
     switch (stage) {
     case Stage::waiting_channel:
-        return utf8_literal("Loading channel… Esc to cancel");
     case Stage::loading_channel:
-        return utf8_literal("Loading channel… Esc to cancel");
     case Stage::loading_parent:
         return utf8_literal("Loading channel… Esc to cancel");
     case Stage::waiting_membership:

@@ -6,13 +6,10 @@ namespace maicord {
 namespace {
 
 AnimationFramePresentation* presentations(AnimationFrameCacheGpu* gpu) noexcept {
-    return gpu ? stable_storage_data<AnimationFramePresentation>(gpu->storage.presentations) : nullptr;
+    return stable_storage_data<AnimationFramePresentation>(gpu->storage.presentations);
 }
 
 void release_storage(AnimationFrameCacheGpuStorage* storage) noexcept {
-    if (!storage) {
-        return;
-    }
     stable_storage_release(&storage->entries);
     stable_storage_release(&storage->buckets);
     stable_storage_release(&storage->allocations);
@@ -117,7 +114,7 @@ AnimationFrameCacheResult allocate_frame(AnimationFrameCacheGpu* gpu, ID3D11Devi
 
 bool publish_presentation(AnimationFrameCacheGpu* gpu, const MediaAtlasResult& media,
                           GlyphAtlasHandle frame, bool materialized) noexcept {
-    if (!gpu || media.handle.slot >= kAnimationFrameCacheGpuEntryCapacity || media.handle.generation == 0 ||
+    if (media.handle.slot >= kAnimationFrameCacheGpuEntryCapacity || media.handle.generation == 0 ||
         frame.generation == 0) {
         return false;
     }

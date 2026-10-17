@@ -15,7 +15,7 @@ MlsStatus group_init(KdfSha256Workspace& kdf, MlsGroup* group, const MlsRatchetT
                      const MlsGroupContext& context, const MlsTreeKemPrivate& tree_private,
                      const MlsEpochSecrets& epoch, const MlsTranscript& transcript,
                      ConstSlice<u8> external_sender, const MlsGroupArena& arena, bool validate) noexcept {
-    if (!group || !tree_private.initialized || !context.serialized.data || !tree.group_id ||
+    if (!tree_private.initialized || !context.serialized.data || !tree.group_id ||
         tree_private.leaf_index >= tree.leaf_count)
         return MlsStatus::invalid_argument;
     MlsExternalSender sender{};
