@@ -10,6 +10,11 @@ enum class HttpResponseStreamError : u8 {
     body_framing, size_mismatch, size_limit, unexpected_close, unexpected_data,
 };
 
+// An expected length the response decides: it must carry a Content-Length,
+// at most the maximum, which is exact from then on (expected_body_bytes
+// holds it once the head is parsed).
+inline constexpr u64 kHttpResponseLengthFromHead = ~u64{0};
+
 // Does not allocate. The caller keeps input storage and parser context alive.
 // body_bytes counts bytes acknowledged by consume, not merely received bytes.
 struct HttpResponseStream {

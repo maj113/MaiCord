@@ -65,13 +65,30 @@ u32 prefix_bytes(Utf8View text, u32 maximum_units, u32 maximum_bytes) noexcept {
     }
     return i;
 }
+// The credential-free GET for an origin-form target on a Discord host.
+AttachmentDownloadRequestResult write_get(ConstSlice<u8> target, CdnHost cdn_host,
+                                          Slice<u8> output) noexcept {
+    u8 request[kCdnMaximumTargetBytes + 192]{};
+    ProtocolWriter writer{{request, sizeof(request)}, 0};
+    const auto host = cdn_host_name(cdn_host);
+    if (!protocol_writer_append_literal(&writer, "GET ") ||
+        !protocol_writer_append_bytes(&writer, target) ||
+        !protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") ||
+        !protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(host.data), host.bytes) ||
+        !protocol_writer_append_literal(
+            &writer, "\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n") ||
+        writer.used > output.count)
+        return {0, CdnHost::none, AttachmentDownloadRequestError::output_capacity};
+    copy_bytes(output.data, request, writer.used);
+    return {writer.used, cdn_host, AttachmentDownloadRequestError::none};
+}
 } // namespace
 
 AttachmentDownloadRequestResult attachment_download_write_request(Utf8View url, u64 channel,
     u64 attachment, u64 now_seconds, Slice<u8> output) noexcept {
     if (!channel || !attachment || !url.data || !url.bytes || !output.data)
         return {0, CdnHost::none, AttachmentDownloadRequestError::invalid_input};
-    u8 target[kCdnMaximumTargetBytes]{}, prefix[80]{}, request[kCdnMaximumTargetBytes + 192]{};
+    u8 target[kCdnMaximumTargetBytes]{}, prefix[80]{};
     const auto parsed = parse_signed_attachment_url(url, attachment, {target, sizeof(target)});
     if (!parsed.ok()) return {0, CdnHost::none, AttachmentDownloadRequestError::invalid_url};
     ProtocolWriter path{{prefix, sizeof(prefix)}, 0};
@@ -85,17 +102,19 @@ AttachmentDownloadRequestResult attachment_download_write_request(Utf8View url, 
         return {0, CdnHost::none, AttachmentDownloadRequestError::origin_mismatch};
     if (parsed.expires_at_seconds <= now_seconds)
         return {0, CdnHost::none, AttachmentDownloadRequestError::expired};
-    ProtocolWriter writer{{request, sizeof(request)}, 0};
-    const auto host = cdn_host_name(parsed.host);
-    if (!protocol_writer_append_literal(&writer, "GET ") ||
-        !protocol_writer_append_bytes(&writer, {target, parsed.target_bytes}) ||
-        !protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") ||
-        !protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(host.data), host.bytes) ||
-        !protocol_writer_append_literal(&writer, "\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n") ||
-        writer.used > output.count)
-        return {0, CdnHost::none, AttachmentDownloadRequestError::output_capacity};
-    copy_bytes(output.data, request, writer.used);
-    return {writer.used, parsed.host, AttachmentDownloadRequestError::none};
+    return write_get({target, parsed.target_bytes}, parsed.host, output);
+}
+
+AttachmentDownloadRequestResult attachment_download_write_media_request(Utf8View url,
+                                                                        Slice<u8> output) noexcept {
+    if (!url.data || !url.bytes || !output.data)
+        return {0, CdnHost::none, AttachmentDownloadRequestError::invalid_input};
+    u8 target[kCdnMaximumTargetBytes]{};
+    const auto parsed = parse_media_url(url, {target, sizeof(target)});
+    if (!parsed.ok() || (parsed.host != CdnHost::cdn && parsed.host != CdnHost::media &&
+                         parsed.host != CdnHost::images_ext_1 && parsed.host != CdnHost::images_ext_2))
+        return {0, CdnHost::none, AttachmentDownloadRequestError::invalid_url};
+    return write_get({target, parsed.target_bytes}, parsed.host, output);
 }
 
 HttpHeadResult attachment_download_parse_response_head(void* context, ConstSlice<u8> input,
@@ -103,7 +122,8 @@ HttpHeadResult attachment_download_parse_response_head(void* context, ConstSlice
     auto* policy = static_cast<AttachmentDownloadResponsePolicy*>(context);
     if (!policy) return {{}, 0, HttpError::invalid_input, HttpParseState::error};
     policy->error = AttachmentDownloadResponseError::none;
-    if (policy->expected_size > policy->maximum_size)
+    const bool from_head = policy->expected_size == kHttpResponseLengthFromHead;
+    if (from_head ? !policy->maximum_size : policy->expected_size > policy->maximum_size)
         return rejected(policy, AttachmentDownloadResponseError::size_limit);
     EncodingCheck encoding{false, true};
     const auto parsed = http_parse_response_head(input, maximum_header, maximum_fields, visit_encoding, &encoding);
@@ -116,7 +136,9 @@ HttpHeadResult attachment_download_parse_response_head(void* context, ConstSlice
     if (parsed.head.status_code != 200) return rejected(policy, AttachmentDownloadResponseError::status, parsed.head);
     if (parsed.head.has_content_length && parsed.head.content_length > policy->maximum_size)
         return rejected(policy, AttachmentDownloadResponseError::size_limit, parsed.head);
-    if (parsed.head.has_content_length && parsed.head.content_length != policy->expected_size)
+    if (from_head && !parsed.head.has_content_length)
+        return rejected(policy, AttachmentDownloadResponseError::size_mismatch, parsed.head);
+    if (!from_head && parsed.head.has_content_length && parsed.head.content_length != policy->expected_size)
         return rejected(policy, AttachmentDownloadResponseError::size_mismatch, parsed.head);
     return parsed;
 }

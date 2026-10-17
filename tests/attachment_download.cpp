@@ -48,6 +48,38 @@ void test_attachment_download(void (*check)(bool, const char*) noexcept) noexcep
     const auto capacity = attachment_download_write_request(url, 77, 42, 2, {request, 4});
     check(capacity.error == AttachmentDownloadRequestError::output_capacity && request[0] == 0xa5,
         "attachment GET does not publish a partial request on insufficient capacity");
+    const auto media = attachment_download_write_media_request(
+        utf8_literal("https://media.discordapp.net/external/AbCdEf/https/media.tenor.com/abc/tenor.mp4"),
+        {request, sizeof(request)});
+    const auto media_get = utf8_literal(
+        "GET /external/AbCdEf/https/media.tenor.com/abc/tenor.mp4 HTTP/1.1\r\nHost: "
+        "media.discordapp.net\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n");
+    check(media.ok() && media.host == CdnHost::media && media.request_bytes == media_get.bytes &&
+              bytes_equal(request, media_get.data, media_get.bytes) &&
+              attachment_download_write_media_request(
+                  utf8_literal("https://images-ext-1.discordapp.net/external/AbC/https/example.com/a.gif"),
+                  {request, sizeof(request)})
+                      .host == CdnHost::images_ext_1 &&
+              !attachment_download_write_media_request(
+                   utf8_literal("https://media.tenor.com/abc/tenor.gif"), {request, sizeof(request)})
+                   .ok(),
+          "embed media GET uses Discord's media proxy target as is and refuses a direct third-party host");
+    AttachmentDownloadResponsePolicy unsized{kHttpResponseLengthFromHead, 100,
+                                             AttachmentDownloadResponseError::none};
+    check(
+        attachment_download_parse_response_head(
+            &unsized, bytes(utf8_literal("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n")), 1024, 32)
+                .ok() &&
+            !attachment_download_parse_response_head(
+                 &unsized, bytes(utf8_literal("HTTP/1.1 200 OK\r\nContent-Length: 101\r\n\r\n")), 1024, 32)
+                 .ok() &&
+            unsized.error == AttachmentDownloadResponseError::size_limit &&
+            !attachment_download_parse_response_head(
+                 &unsized, bytes(utf8_literal("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")),
+                 1024, 32)
+                 .ok() &&
+            unsized.error == AttachmentDownloadResponseError::size_mismatch,
+        "unsized response requires a Content-Length within the maximum");
 
     AttachmentDownloadResponsePolicy policy{5, 100, AttachmentDownloadResponseError::none};
     bool admitted = true;

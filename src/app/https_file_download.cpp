@@ -45,6 +45,15 @@ void drain(HttpsFileDownload* owner, Runtime* r, HttpsFileDownloadError error, u
     network_file_close(&r->staged.file);
     if (r->tls_initialized) tls_stream_close(&r->tls);
 }
+static_assert(kHttpsFileDownloadSizeFromResponse == kHttpResponseLengthFromHead);
+// The file's length, or 0 while a length from the response is still unknown.
+u64 known_bytes(const Runtime* r) noexcept {
+    return r->expected_bytes == kHttpsFileDownloadSizeFromResponse ? 0 : r->expected_bytes;
+}
+u64 maximum_bytes(const Runtime* r) noexcept {
+    return r->expected_bytes == kHttpsFileDownloadSizeFromResponse ? kHttpsFileDownloadMaximumUnsizedBytes
+                                                                   : r->expected_bytes;
+}
 void hex(wchar_t* output, u64 value, u32 digits) noexcept {
     for (u32 i = digits; i; --i, value >>= 4)
         output[i - 1] = L"0123456789abcdef"[value & 15];
@@ -64,8 +73,9 @@ StagedFileResult create_stage(NetworkLoop* loop, Runtime* r) noexcept {
         hex(suffix, static_cast<u32>(InterlockedIncrement(&serial)), 8); suffix += 8;
         constexpr wchar_t ending[] = L".part";
         copy_bytes(suffix, ending, sizeof(ending));
-        const auto opened = staged_file_begin(&r->staged, loop, r->path, r->stage, r->expected_bytes,
-            r->destination_exists, r->overwrite_authorized, r->destination);
+        const auto opened =
+            staged_file_begin(&r->staged, loop, r->path, r->stage, known_bytes(r), r->destination_exists,
+                              r->overwrite_authorized, r->destination);
         if (opened.ok()) return opened;
         if (opened.native_error != ERROR_FILE_EXISTS && opened.native_error != ERROR_ALREADY_EXISTS) return opened;
     }
@@ -83,7 +93,7 @@ NetworkWorkerStep finish(HttpsFileDownload* owner, Runtime* r) noexcept {
         r->result.cleanup_native_error = cleanup;
         if (!r->published) {
             r->result.elapsed_us = clock_microseconds(r->clock, r->started, clock_now());
-            r->result.file_bytes = r->expected_bytes;
+            r->result.file_bytes = known_bytes(r);
             r->result.committed_bytes = static_cast<u64>(InterlockedCompareExchange64(&owner->committed_bytes, 0, 0));
             r->result.phase = HttpsFileDownloadPhase::complete;
             if (cleanup && r->result.error == HttpsFileDownloadError::none) r->result.error = HttpsFileDownloadError::file_cleanup;
@@ -108,6 +118,12 @@ bool pump(Runtime* r) noexcept {
         const auto step = http_response_stream_feed(&r->response, input, r->plaintext_closed);
         r->plaintext_offset += step.accepted;
         r->result.status_code = r->response.parsed_head.status_code;
+        // A length from the response is exact once the head names it.
+        if (r->expected_bytes == kHttpsFileDownloadSizeFromResponse &&
+            r->response.expected_body_bytes != kHttpResponseLengthFromHead) {
+            r->expected_bytes = r->response.expected_body_bytes;
+            r->staged.expected_bytes = r->expected_bytes;
+        }
         if (!step.ok()) { r->response_failed = true; return false; }
         if (step.pending.count) return true;
         if (r->plaintext_offset == r->plaintext_bytes) {
@@ -211,10 +227,15 @@ NetworkWorkerStep worker(void* context, NetworkLoop* loop, const NetworkWorkerEv
             const auto opened = create_stage(loop, r);
             if (!opened.ok()) drain(owner, r, opened.error == StagedFileError::destination_changed ?
                 HttpsFileDownloadError::destination_changed : HttpsFileDownloadError::file_open, opened.native_error);
-            else if (!http_response_stream_initialize(&r->response, {r->response_input, sizeof(r->response_input)},
-                r->expected_bytes, r->expected_bytes, 16 * 1024, 64, attachment_download_parse_response_head, &r->policy) ||
-                !tls_stream_initialize(&r->tls, r->host, {{r->encrypted, sizeof(r->encrypted)},
-                {r->handshake, sizeof(r->handshake)}, {r->record, sizeof(r->record)}})) drain(owner, r, HttpsFileDownloadError::tls);
+            else if (!http_response_stream_initialize(
+                         &r->response, {r->response_input, sizeof(r->response_input)}, r->expected_bytes,
+                         maximum_bytes(r), 16 * 1024, 64, attachment_download_parse_response_head,
+                         &r->policy) ||
+                     !tls_stream_initialize(&r->tls, r->host,
+                                            {{r->encrypted, sizeof(r->encrypted)},
+                                             {r->handshake, sizeof(r->handshake)},
+                                             {r->record, sizeof(r->record)}}))
+                drain(owner, r, HttpsFileDownloadError::tls);
             else { r->tls_initialized = true; phase(owner, HttpsFileDownloadPhase::connecting); drive(owner, r, tls_stream_begin_connect(&r->tls, loop)); }
         }
     } else if (event.kind == NetworkWorkerEventKind::stop_requested) {
@@ -272,21 +293,31 @@ bool https_file_download_body_settled(const HttpResponseStream& response, u64 ex
 }
 HttpsFileDownloadError https_file_download_start(HttpsFileDownload* owner, const HttpsFileDownloadRequest& request) noexcept {
     if (!owner || owner->runtime || owner->worker.thread || !valid_path(request.path) ||
-        request.expected_bytes > 0x7fffffffffffffffull || !request.timeout_ms || request.timeout_ms > kHttpsFileDownloadMaximumTimeoutMs ||
-        (request.destination_exists && (!request.overwrite_authorized || !request.destination.identity.index))) return HttpsFileDownloadError::invalid_input;
+        (request.expected_bytes > 0x7fffffffffffffffull &&
+         request.expected_bytes != kHttpsFileDownloadSizeFromResponse) ||
+        (!request.attachment_id && request.expected_bytes != kHttpsFileDownloadSizeFromResponse) ||
+        !request.timeout_ms || request.timeout_ms > kHttpsFileDownloadMaximumTimeoutMs ||
+        (request.destination_exists &&
+         (!request.overwrite_authorized || !request.destination.identity.index)))
+        return HttpsFileDownloadError::invalid_input;
     *owner = {};
     owner->runtime = VirtualAlloc(nullptr, https_file_download_runtime_bytes(), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!owner->runtime) return HttpsFileDownloadError::memory;
     auto* r = static_cast<Runtime*>(owner->runtime);
-    const auto head = attachment_download_write_request(request.url, request.source_channel_id, request.attachment_id,
-        clock_unix_milliseconds() / 1000, {r->head, sizeof(r->head)});
+    // Embed media has no attachment identity: its media-proxy URL is fetched as is.
+    const auto head =
+        request.attachment_id
+            ? attachment_download_write_request(request.url, request.source_channel_id,
+                                                request.attachment_id, clock_unix_milliseconds() / 1000,
+                                                {r->head, sizeof(r->head)})
+            : attachment_download_write_media_request(request.url, {r->head, sizeof(r->head)});
     if (!head.ok()) { destroy(owner); return HttpsFileDownloadError::invalid_input; }
     const auto host = cdn_host_name(head.host);
     for (u32 i = 0; i < host.bytes; ++i) r->host[i] = static_cast<wchar_t>(host.data[i]);
     copy_bytes(r->path, request.path.data, request.path.count * sizeof(wchar_t));
     r->path_units = request.path.count; r->head_bytes = head.request_bytes; r->expected_bytes = request.expected_bytes;
     r->destination = request.destination; r->destination_exists = request.destination_exists; r->overwrite_authorized = request.overwrite_authorized;
-    r->policy = {request.expected_bytes, request.expected_bytes, AttachmentDownloadResponseError::none};
+    r->policy = {request.expected_bytes, maximum_bytes(r), AttachmentDownloadResponseError::none};
     r->deadline = GetTickCount64() + request.timeout_ms;
     owner->notification = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!owner->notification) { destroy(owner); return HttpsFileDownloadError::event; }
@@ -301,7 +332,9 @@ HttpsFileDownloadResult https_file_download_status(const HttpsFileDownload* owne
     if (current == HttpsFileDownloadPhase::complete) {
         AcquireSRWLockShared(&r->result_lock); const auto result = r->result; ReleaseSRWLockShared(&r->result_lock); return result;
     }
-    HttpsFileDownloadResult result{}; result.phase = current; result.file_bytes = r->expected_bytes;
+    HttpsFileDownloadResult result{};
+    result.phase = current;
+    result.file_bytes = known_bytes(r);
     result.committed_bytes = static_cast<u64>(InterlockedCompareExchange64(const_cast<volatile LONG64*>(&owner->committed_bytes), 0, 0));
     return result;
 }

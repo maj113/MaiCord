@@ -7,10 +7,12 @@ ConstSlice<u8> bytes(Utf8View value) noexcept {
     return {reinterpret_cast<const u8*>(value.data), value.bytes};
 }
 struct Run { HttpResponseStreamState state; HttpResponseStreamError error; u64 written; bool exact; };
-Run run(Utf8View wire, u64 expected, u32 segment, bool close, Utf8View body = {}) noexcept {
+Run run(Utf8View wire, u64 expected, u32 segment, bool close, Utf8View body = {},
+        u64 maximum = 0) noexcept {
     u8 storage[2048]{}, written[64]{};
     HttpResponseStream d{};
-    if (!http_response_stream_initialize(&d, {storage, sizeof(storage)}, expected, expected, 1024, 32))
+    if (!http_response_stream_initialize(&d, {storage, sizeof(storage)}, expected,
+                                         maximum ? maximum : expected, 1024, 32))
         return {HttpResponseStreamState::failed, HttpResponseStreamError::invalid_input, 0, false};
     u32 offset = 0, copied = 0;
     auto state = http_response_stream_feed(&d, {});
@@ -50,6 +52,21 @@ void test_http_response_stream(void (*check)(bool, const char*) noexcept) noexce
         }
     }
     check(partitions, "stream handles every small feed partition for length/chunked/until-close without body allocation");
+    bool from_head = true;
+    for (u32 segment = 1; segment <= fixed.bytes; ++segment) {
+        const auto result =
+            run(fixed, kHttpResponseLengthFromHead, segment, true, utf8_literal("hello"), 10);
+        from_head = from_head && result.state == HttpResponseStreamState::complete && result.written == 5 &&
+                    result.exact;
+    }
+    check(from_head &&
+              run(chunked, kHttpResponseLengthFromHead, 64, true, {}, 10).error ==
+                  HttpResponseStreamError::unsupported_body &&
+              run(until_close, kHttpResponseLengthFromHead, 64, true, {}, 10).error ==
+                  HttpResponseStreamError::unsupported_body &&
+              run(fixed, kHttpResponseLengthFromHead, 64, true, {}, 4).error ==
+                  HttpResponseStreamError::size_limit,
+          "stream takes an unknown length from a required Content-Length within the maximum");
     const auto uncl = run(until_close, 5, 1, false, utf8_literal("hello"));
     check(uncl.state == HttpResponseStreamState::body && uncl.written == 5,
         "until-close stream waits for peer closure after exact bytes");

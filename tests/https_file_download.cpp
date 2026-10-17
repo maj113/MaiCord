@@ -91,6 +91,29 @@ void test_https_file_download(void (*check)(bool, const char*) noexcept) noexcep
         "absent-selection download copies a stable absolute destination path");
     if (owner.runtime) { check(await_local_failure(&owner) && retained(path),
         "a destination appearing after absent selection fails before staging instead of overwriting it"); check(https_file_download_release(&owner, 5000), "appeared-destination worker releases"); }
+    // Embed media: a media-proxy URL with no attachment identity and a length
+    // only the response knows.
+    HttpsFileDownloadRequest media = request;
+    media.url =
+        utf8_literal("https://media.discordapp.net/external/AbCdEf/https/media.tenor.com/abc/tenor.mp4");
+    media.source_channel_id = media.attachment_id = 0;
+    media.expected_bytes = kHttpsFileDownloadSizeFromResponse;
+    check(https_file_download_start(&owner, media) == HttpsFileDownloadError::none,
+          "embed media download starts without an attachment identity or a known length");
+    if (owner.runtime) {
+        check(await_local_failure(&owner) && retained(path),
+              "embed media download keeps the same destination checks");
+        check(https_file_download_release(&owner, 5000), "embed media worker releases");
+    }
+    media.expected_bytes = 7;
+    check(https_file_download_start(&owner, media) == HttpsFileDownloadError::invalid_input &&
+              !owner.runtime,
+          "a download without an attachment identity must take its length from the response");
+    media.expected_bytes = kHttpsFileDownloadSizeFromResponse;
+    media.url = utf8_literal("https://media.tenor.com/abc/tenor.mp4");
+    check(https_file_download_start(&owner, media) == HttpsFileDownloadError::invalid_input &&
+              !owner.runtime,
+          "embed media download refuses a host outside Discord's media proxy");
     request.path = {L"relative.bin", 12};
     check(https_file_download_start(&owner, request) == HttpsFileDownloadError::invalid_input && !owner.runtime,
         "download refuses relative filesystem targets");

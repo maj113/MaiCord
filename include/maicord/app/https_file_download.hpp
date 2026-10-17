@@ -5,6 +5,11 @@
 namespace maicord {
 inline constexpr u32 kHttpsFileDownloadMaximumPathUnits = 32767;
 inline constexpr u32 kHttpsFileDownloadMaximumTimeoutMs = 60 * 60 * 1000;
+// expected_bytes for a file whose length only the response knows (embed
+// media): its Content-Length is required, at most the unsized maximum, and
+// exact from then on. A request without an attachment_id must use it.
+inline constexpr u64 kHttpsFileDownloadSizeFromResponse = ~u64{0};
+inline constexpr u64 kHttpsFileDownloadMaximumUnsizedBytes = 512ull << 20;
 enum class HttpsFileDownloadPhase : u8 { empty, opening, connecting, sending, receiving, writing, committing, draining, complete };
 enum class HttpsFileDownloadError : u8 {
     none, invalid_input, memory, event, worker, file_open, file_write, file_flush, file_commit,

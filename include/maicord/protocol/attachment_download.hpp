@@ -2,6 +2,7 @@
 
 #include "maicord/protocol/cdn_url.hpp"
 #include "maicord/protocol/http1.hpp"
+#include "maicord/protocol/http_response_stream.hpp"
 
 namespace maicord {
 
@@ -21,6 +22,10 @@ struct AttachmentDownloadRequestResult {
 AttachmentDownloadRequestResult attachment_download_write_request(
     Utf8View signed_url, u64 source_channel_id, u64 attachment_id,
     u64 now_seconds, Slice<u8> output) noexcept;
+// The same credential-free GET for embed media: a URL on Discord's CDN or
+// media proxy (images-ext-N, media.discordapp.net), never another host.
+AttachmentDownloadRequestResult attachment_download_write_media_request(Utf8View url,
+                                                                        Slice<u8> output) noexcept;
 
 enum class AttachmentDownloadResponseError : u8 {
     none, invalid_input, http_head, status, content_encoding, size_limit, size_mismatch,
@@ -33,7 +38,9 @@ struct AttachmentDownloadResponsePolicy {
 
 // HttpResponseHeadParser callback. Only HTTP 200 with absent or a single
 // identity Content-Encoding is accepted. Content-Length, if present, must
-// match the source attachment size. The streaming decoder verifies the body.
+// match the source attachment size; with kHttpResponseLengthFromHead as the
+// expected size it must be present and within the maximum. The streaming
+// decoder verifies the body.
 HttpHeadResult attachment_download_parse_response_head(
     void* context, ConstSlice<u8> input, u32 maximum_header_bytes,
     u32 maximum_fields) noexcept;

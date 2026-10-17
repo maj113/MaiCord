@@ -37,6 +37,11 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
             d->parsed_head = parsed.head;
             if (parsed.head.has_content_length && parsed.head.content_length > d->maximum_body_bytes)
                 return fail(d, HttpResponseStreamError::size_limit, accepted);
+            if (d->expected_body_bytes == kHttpResponseLengthFromHead) {
+                if (!parsed.head.has_content_length)
+                    return fail(d, HttpResponseStreamError::unsupported_body, accepted);
+                d->expected_body_bytes = parsed.head.content_length;
+            }
             if (parsed.head.has_content_length && parsed.head.content_length != d->expected_body_bytes)
                 return fail(d, HttpResponseStreamError::size_mismatch, accepted);
             if (!byte_queue_consume(&d->input, parsed.head.header_bytes))
@@ -102,7 +107,11 @@ bool http_response_stream_initialize(HttpResponseStream* d, Slice<u8> storage,
     u64 expected, u64 maximum, u32 maximum_header, u32 maximum_fields,
     HttpResponseHeadParser parser, void* context) noexcept {
     if (!d || !storage.data || storage.count < maximum_header || maximum_header < 4 ||
-        storage.count < 1026 || !maximum_fields || expected > maximum || (!parser && context)) return false;
+        storage.count < 1026 || !maximum_fields || (!parser && context))
+        return false;
+    const bool from_head = expected == kHttpResponseLengthFromHead;
+    if (from_head ? !maximum : expected > maximum)
+        return false;
     *d = {};
     d->expected_body_bytes = expected;
     d->maximum_body_bytes = maximum;
@@ -114,7 +123,11 @@ bool http_response_stream_initialize(HttpResponseStream* d, Slice<u8> storage,
     // The strict shared chunk parser excludes zero maximum. A zero-sized entity
     // uses a one-byte parser limit and rejects every nonzero chunk before output.
     return byte_queue_initialize(&d->input, storage) &&
-        http_chunk_decoder_initialize(&d->chunk_decoder, expected ? expected : 1, 1024, maximum_header, maximum_fields);
+           http_chunk_decoder_initialize(&d->chunk_decoder,
+                                         from_head  ? maximum
+                                         : expected ? expected
+                                                    : 1,
+                                         1024, maximum_header, maximum_fields);
 }
 
 HttpResponseStreamStep http_response_stream_feed(HttpResponseStream* d, ConstSlice<u8> input,
