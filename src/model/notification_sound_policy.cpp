@@ -34,10 +34,6 @@ NotificationMessageSoundDecision notification_message_sound_decide(const Notific
 }
 namespace {
 constexpr u64 wait_ms=1000;
-bool finite(float value) noexcept {
-    u32 bits{};copy_bytes(&bits,&value,sizeof(bits));
-    return (bits&0x7f800000u)!=0x7f800000u;
-}
 u64 deadline(u64 now,u64 wait) noexcept {return now>~u64{0}-wait?~u64{0}:now+wait;}
 bool should_invoke(const NotificationSoundThrottle& s,u64 now) noexcept {
     return !s.has_last_call||now<s.last_call_ms||now-s.last_call_ms>=wait_ms||
@@ -51,7 +47,7 @@ NotificationSoundInvocation invoke(NotificationSoundThrottle* s,u64 now) noexcep
 NotificationSoundInvocation notification_sound_throttle_request(NotificationSoundThrottle* s,u64 now,
     NotificationSoundRequest request) noexcept {
     if(!s||!request.generation||request.generation!=s->generation||static_cast<u8>(request.kind)>static_cast<u8>(NotificationSoundKind::message3)||
-        !finite(request.volume)||request.volume<0.0f||request.volume>1.0f)return {};
+        !is_finite(request.volume)||request.volume<0.0f||request.volume>1.0f)return {};
     const bool invoking=should_invoke(*s,now);
     s->pending_request=request;s->pending=true;s->last_call_ms=now;s->has_last_call=true;
     if(invoking) {

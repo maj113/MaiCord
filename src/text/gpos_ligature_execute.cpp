@@ -1,7 +1,6 @@
 #include "maicord/text/gpos_ligature_execute.hpp"
 #include "position_anchor.hpp"
 namespace maicord {namespace {
-bool finite(double value) noexcept {u64 bits=0;copy_bytes(&bits,&value,8);return (bits&0x7ff0000000000000ull)!=0x7ff0000000000000ull;}
 bool integral(double value) noexcept {
     u64 bits=0;copy_bytes(&bits,&value,8);bits&=0x7fffffffffffffffull;if(!bits)return true;
     const u32 exponent=static_cast<u32>(bits>>52);if(exponent<1023)return false;if(exponent>=1075)return true;
@@ -26,7 +25,7 @@ SfntStatus sfnt_position_execute_ligature_lookup(const SfntGposAttachmentLookup&
     for(u32 at=0;!selected && at<count;++at){if(!spend(out,&work))return SfntStatus::resource_limit;++out->scan_steps;
         const auto& glyph=sfnt_glyph_at(glyphs,at);const auto& association=associations.data[at];const double advance=positions.data[at].advance;
         if(glyph.glyph>=limit)return SfntStatus::glyph_out_of_range;
-        if(static_cast<u8>(glyph.glyph_class)>4 || (association.target!=0xffffffffu && (association.target>=targets.count || targets.data[association.target]>=at)) || !finite(nominal.data[at]) || !finite(advance))return SfntStatus::invalid_input;
+        if(static_cast<u8>(glyph.glyph_class)>4 || (association.target!=0xffffffffu && (association.target>=targets.count || targets.data[association.target]>=at)) || !is_finite(nominal.data[at]) || !is_finite(advance))return SfntStatus::invalid_input;
         if(exact){if(at==start)start_sum=sum;if(target_at<targets.count && targets.data[target_at]==at)prefix.data[target_at]=sum;
             magnitude+=advance<0?-advance:advance;exact=integral(advance) && magnitude<=4503599627370496.0;if(exact)sum+=advance;}
         if(target_at<targets.count && targets.data[target_at]==at)++target_at;
@@ -35,13 +34,13 @@ SfntStatus sfnt_position_execute_ligature_lookup(const SfntGposAttachmentLookup&
     double current_sum=start_sum;
     for(u32 at=start;at<end;++at){if(!spend(out,&work))return SfntStatus::resource_limit;++out->scan_steps;const double at_sum=current_sum;if(exact)current_sum+=positions.data[at].advance;
         const auto& glyph=sfnt_glyph_at(glyphs,at);const auto& association=associations.data[at];
-        if(selected){if(glyph.glyph>=limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(glyph.glyph_class)>4 || !finite(nominal.data[at]) || !finite(positions.data[at].advance) || (association.target!=0xffffffffu && (association.target>=targets.count || targets.data[association.target]>=at)))return SfntStatus::invalid_input;}
+        if(selected){if(glyph.glyph>=limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(glyph.glyph_class)>4 || !is_finite(nominal.data[at]) || !is_finite(positions.data[at].advance) || (association.target!=0xffffffffu && (association.target>=targets.count || targets.data[association.target]>=at)))return SfntStatus::invalid_input;}
         if(glyph.glyph_class!=SfntGlyphClass::mark || association.target==0xffffffffu || (!selected && sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class)))continue;
         const u32 target=targets.data[association.target];
-        if(selected){if(!spend(out,&work))return SfntStatus::resource_limit;const auto& parent=sfnt_glyph_at(glyphs,target);if(parent.glyph>=limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(parent.glyph_class)>4 || !finite(nominal.data[target]))return SfntStatus::invalid_input;}
+        if(selected){if(!spend(out,&work))return SfntStatus::resource_limit;const auto& parent=sfnt_glyph_at(glyphs,target);if(parent.glyph>=limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(parent.glyph_class)>4 || !is_finite(nominal.data[target]))return SfntStatus::invalid_input;}
         if(exact){distance=at_sum-prefix.data[association.target];++out->prefix_queries;}
         else {u32 from=target;if(previous_target==target)from=previous_at;else distance=0;
-            for(u32 i=from;i<at;++i){if(!spend(out,&work))return SfntStatus::resource_limit;++out->ordered_steps;distance+=positions.data[i].advance;if(!finite(distance))return SfntStatus::resource_limit;}
+            for(u32 i=from;i<at;++i){if(!spend(out,&work))return SfntStatus::resource_limit;++out->ordered_steps;distance+=positions.data[i].advance;if(!is_finite(distance))return SfntStatus::resource_limit;}
             previous_target=target;previous_at=at;}
         for(u32 i=0;i<lookup.subtables.count;++i){if(!spend(out,&work))return SfntStatus::resource_limit;const auto& sub=lookup.subtables.data[i];
             SfntGposMarkAnchor mark{};auto s=sfnt_gpos_mark_anchor(sub,glyph.glyph,&mark);if(s!=SfntStatus::ok)return s;if(!mark.covered)continue;

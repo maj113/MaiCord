@@ -11,7 +11,6 @@ bool disjoint(const void* a,u32 an,const void* b,u32 bn) noexcept {
     return byte_range_valid(x)&&byte_range_valid(y)&&!byte_ranges_overlap(x,y);
 }
 bool rate_valid(u32 rate) noexcept { return rate >= 8000 && rate <= 192000; }
-bool finite(float value) noexcept {u32 bits{};copy_bytes(&bits,&value,4);return (bits&0x7f800000u)!=0x7f800000u;}
 bool ring_valid(const MediaAudioRing& r) noexcept {
     if(!r.samples.data||(reinterpret_cast<usize>(r.samples.data)&3)||!r.epoch||!rate_valid(r.sample_rate)||(r.channels!=1&&r.channels!=2)||
         r.samples.count%r.channels||r.samples.count/r.channels<kMediaAudioMinimumRingFrames||r.samples.count/r.channels>kMediaAudioMaximumRingFrames||
@@ -20,7 +19,7 @@ bool ring_valid(const MediaAudioRing& r) noexcept {
 }
 MediaAudioResult fail(Error e,u32 native=0) noexcept {return {e,native};}
 }
-bool media_audio_gain_valid(float gain) noexcept {return finite(gain)&&gain>=0&&gain<=1;}
+bool media_audio_gain_valid(float gain) noexcept {return is_finite(gain)&&gain>=0&&gain<=1;}
 bool media_audio_ring_initialize(MediaAudioRing* r,Slice<float> samples,u32 rate,u32 channels,u64 epoch) noexcept {
     if(!r||!disjoint(r,sizeof(*r),samples.data,samples.count>32768?0:samples.count*4)||samples.count>32768)return false;
     MediaAudioRing candidate{samples,epoch,0,0,0,channels,rate,false};if(!ring_valid(candidate))return false;*r=candidate;return true;
@@ -35,7 +34,7 @@ MediaAudioResult media_audio_ring_write(MediaAudioRing* r,u64 epoch,ConstSlice<f
     if(epoch!=r->epoch)return fail(Error::stale_epoch);if(r->ended)return fail(Error::stopped);
     const u32 frames=pcm.count/r->channels;if(frames>media_audio_ring_free(*r))return fail(Error::capacity);
     if(r->written>~u64{0}-frames)return fail(Error::timeline);
-    for(u32 i=0;i<pcm.count;++i)if(!finite(pcm[i]))return fail(Error::invalid_input);
+    for(u32 i=0;i<pcm.count;++i)if(!is_finite(pcm[i]))return fail(Error::invalid_input);
     const u32 capacity=r->samples.count/r->channels;
     u32 frame_index=static_cast<u32>(r->written%capacity);
     for(u32 i=0;i<frames;++i){const u32 index=frame_index*r->channels;

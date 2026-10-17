@@ -2,14 +2,22 @@
 #include "maicord/core/slice.hpp"
 
 namespace maicord {
+inline bool byte_range_valid(const void* data, usize bytes) noexcept {
+    return bytes == 0 || (data && reinterpret_cast<usize>(data) <= ~usize{0} - bytes);
+}
 inline bool byte_range_valid(ConstSlice<u8> span) noexcept {
-    return span.count == 0 || (span.data && reinterpret_cast<usize>(span.data) <= ~usize{0} - span.count);
+    return byte_range_valid(span.data, span.count);
 }
+// Empty ranges overlap nothing.
+bool byte_ranges_overlap(const void* first, usize first_bytes, const void* second, usize second_bytes) noexcept;
 inline bool byte_ranges_overlap(ConstSlice<u8> a, ConstSlice<u8> b) noexcept {
-    if (!a.count || !b.count)
-        return false;
-    const usize begin_a = reinterpret_cast<usize>(a.data);
-    const usize begin_b = reinterpret_cast<usize>(b.data);
-    return begin_a <= begin_b ? begin_b - begin_a < a.count : begin_a - begin_b < b.count;
+    return byte_ranges_overlap(a.data, a.count, b.data, b.count);
 }
+// Also true when either range runs past the end of the address space; an
+// empty range never does.
+bool byte_ranges_overlap_or_wrap(const void* first, usize first_bytes, const void* second,
+                                 usize second_bytes) noexcept;
+// Two nonempty ranges that cannot be used together: either is null or runs
+// past the end of the address space, or they overlap. False when either is empty.
+bool byte_ranges_conflict(const void* first, usize first_bytes, const void* second, usize second_bytes) noexcept;
 } // namespace maicord

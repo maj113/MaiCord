@@ -49,13 +49,9 @@ constexpr u32 background_fx_builtin_mask(BackgroundEffect effect) noexcept {
                                                         : 0u;
 }
 
-// Bit test: /fp:fast may fold NaN comparisons.
-constexpr bool background_fx_finite(float value) noexcept {
-    return (__builtin_bit_cast(u32, value) & 0x7F80'0000u) != 0x7F80'0000u;
-}
 // sRGB to linear; cubic fit, within 0.2% of the exact curve over 0..1.
 constexpr float background_fx_linear(float value) noexcept {
-    const float c = !background_fx_finite(value) ? 0.f : value < 0 ? 0.f : value > 1 ? 1.f : value;
+    const float c = !is_finite(value) ? 0.f : value < 0 ? 0.f : value > 1 ? 1.f : value;
     return c * (c * (c * .305306011f + .682171111f) + .012522878f);
 }
 
@@ -88,8 +84,8 @@ constexpr void background_fx_palette(const Theme& theme, float (&palette)[kBackg
 // are left to the caller.
 constexpr bool background_fx_pack(BackgroundFxConstants* output, const Theme& theme, float time, float delta,
                                   UiRect canvas, float pixel_scale) noexcept {
-    if (!output || !background_fx_finite(pixel_scale) || !background_fx_finite(time) ||
-        !background_fx_finite(delta) || !(pixel_scale > 0 && pixel_scale <= 16) || time < 0 ||
+    if (!output || !is_finite(pixel_scale) || !is_finite(time) ||
+        !is_finite(delta) || !(pixel_scale > 0 && pixel_scale <= 16) || time < 0 ||
         !ui_coordinate_valid(canvas.left) || !ui_coordinate_valid(canvas.top) ||
         !ui_coordinate_valid(canvas.right) || !ui_coordinate_valid(canvas.bottom) ||
         !(canvas.right > canvas.left && canvas.bottom > canvas.top))
@@ -146,7 +142,7 @@ struct BackgroundFxGuard {
 // One measured frame (its CPU submission time and GPU milliseconds). True
 // when the effect must be turned off.
 constexpr bool background_fx_guard_sample(BackgroundFxGuard* guard, float gpu_ms, u64 frame_ms) noexcept {
-    if (!guard || !background_fx_finite(gpu_ms) || gpu_ms < 0)
+    if (!guard || !is_finite(gpu_ms) || gpu_ms < 0)
         return false;
     if (gpu_ms > kBackgroundFxStallMs && ++guard->stalls >= kBackgroundFxStallLimit)
         return true;

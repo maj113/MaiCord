@@ -249,9 +249,8 @@ void post() noexcept {
     if (busy() || !connected() || !poll_draft_build(p.draft, &p.poll))
         return;
     const u64 now_ms = clock_unix_milliseconds();
-    constexpr u64 kSnowflakeEpochMs = 1'420'070'400'000ull;
     // A snowflake-shaped nonce, like the official client's; the server deduplicates by it.
-    p.nonce = ((now_ms > kSnowflakeEpochMs ? now_ms - kSnowflakeEpochMs : now_ms) << 22) |
+    p.nonce = ((now_ms > kSnowflakeEpochMilliseconds ? now_ms - kSnowflakeEpochMilliseconds : now_ms) << 22) |
               (++nonce_sequence & 0x3FFFFFu);
     p.queued = true;
     p.failed = false;

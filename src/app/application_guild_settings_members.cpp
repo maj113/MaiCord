@@ -15,7 +15,6 @@ namespace {
 constexpr MemberModerationMenuActions kModerationActions{11, 12, 13, 14, 15, 100};
 // The search box applies 300 ms after typing stops.
 constexpr u64 kSearchDebounceMs = 300;
-constexpr u64 kSnowflakeEpochMs = 1'420'070'400'000ull;
 constexpr u64 kHourMs = 3'600'000ull, kDayMs = 86'400'000ull;
 // Member flags and user flags behind the Signals column.
 constexpr u32 kMemberQuarantined = 1u << 7;
@@ -374,7 +373,7 @@ void project_members(Bank& bank) noexcept {
         bank.add(utf8_literal("Member since "));
         relative(bank, m.joined_at_ms, now, false);
         bank.add(utf8_literal(" · Joined Discord "));
-        relative(bank, (m.user_id >> 22) + kSnowflakeEpochMs, now, true);
+        relative(bank, (m.user_id >> 22) + kSnowflakeEpochMilliseconds, now, true);
         if (manage()) {
             bank.add(utf8_literal(" · "));
             bank.add(join_method(bank, m));

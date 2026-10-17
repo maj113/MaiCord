@@ -17,10 +17,6 @@ bool current(const UiQuickSwitcherScene& s) noexcept {
         (!s.source || (s.source->revision == s.source_revision && s.source->count == s.accepted_count &&
                       (!s.source->current || s.source->current(s.source->context))));
 }
-bool finite(float value) noexcept {
-    u32 bits{}; copy_bytes(&bits, &value, sizeof(bits));
-    return (bits & 0x7f800000u) != 0x7f800000u;
-}
 bool row_valid(const UiQuickSwitcherRow& row) noexcept {
     return row.key && row.kind <= UiQuickSwitcherKind::user && row.presence <= UiPresence::offline &&
         row.label.bytes && row.label.bytes <= 256 &&
@@ -247,7 +243,7 @@ UiQuickSwitcherTarget ui_quick_switcher_scene_selected(const UiQuickSwitcherScen
     return current(s) ? row_target(s, s.selected) : UiQuickSwitcherTarget{};
 }
 bool ui_quick_switcher_scene_scroll(UiQuickSwitcherScene* s, float offset) noexcept {
-    if (!s || !current(*s) || !finite(offset)) return false;
+    if (!s || !current(*s) || !is_finite(offset)) return false;
     offset = minimum(maximum(0.f, offset), ui_quick_switcher_scene_scroll_maximum(*s));
     if (offset == s->scroll_dips) return true;
     cancel_row_capture(*s); s->scroll_dips = offset;

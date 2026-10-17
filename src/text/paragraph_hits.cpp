@@ -4,7 +4,7 @@ namespace maicord {namespace {
 float sub(float a,float b) noexcept {return _mm_cvtss_f32(_mm_sub_ss(_mm_set_ss(a),_mm_set_ss(b)));}
 bool valid(const NativeParagraphHits& h) noexcept {
     return h.source_units<=65535&&h.clusters.count<=65535&&h.visual_runs.count<=65535&&h.lines.count&&h.lines.data&&(!h.clusters.count||h.clusters.data)&&(!h.advances.count||h.advances.data)&&(!h.visual_runs.count||h.visual_runs.data)&&
-        (h.style_count?h.styles!=nullptr:layout_finite(h.uniform.height)&&h.uniform.height>0&&layout_finite(h.uniform.baseline));
+        (h.style_count?h.styles!=nullptr:is_finite(h.uniform.height)&&h.uniform.height>0&&is_finite(h.uniform.baseline));
 }
 u32 cluster_at(const NativeParagraphHits& h,u32 source) noexcept {
     u32 first=0,last=h.clusters.count;while(first<last){const u32 middle=first+(last-first)/2;
@@ -59,7 +59,7 @@ SfntStatus native_paragraph_hit_position(const NativeParagraphHits& h,u32 positi
     *out=metric(h,c,line);*x=(trailing!=((out->bidi_level&1)!=0))?layout_add(out->left,out->width):out->left;return SfntStatus::ok;
 }
 SfntStatus native_paragraph_hit_point(const NativeParagraphHits& h,float x,float y,NativeParagraphHitPoint* out,u32* character) noexcept {
-    if(!out)return SfntStatus::invalid_input;*out={};if(!valid(h)||!layout_finite(x)||!layout_finite(y))return SfntStatus::invalid_input;
+    if(!out)return SfntStatus::invalid_input;*out={};if(!valid(h)||!is_finite(x)||!is_finite(y))return SfntStatus::invalid_input;
     u32 first=0,last=h.lines.count;while(first<last){const u32 middle=first+(last-first)/2;if(h.lines[middle].top<=y)first=middle+1;else last=middle;}
     const u32 line=first?first-1:0;const auto& l=h.lines[line];
     if(l.first_cluster>h.clusters.count||l.cluster_count>h.clusters.count-l.first_cluster)return SfntStatus::invalid_input;
@@ -108,7 +108,7 @@ SfntStatus native_paragraph_hit_point(const NativeParagraphHits& h,float x,float
 }
 SfntStatus native_paragraph_hit_range(const NativeParagraphHits& h,u32 first,u32 length,float ox,float oy,Slice<NativeParagraphHitMetric> output,u32* count) noexcept {
     if(!count)return SfntStatus::invalid_input;*count=0;
-    if(!valid(h)||first>h.source_units||length>h.source_units-first||!layout_finite(ox)||!layout_finite(oy)||(output.count&&!output.data))return SfntStatus::invalid_input;
+    if(!valid(h)||first>h.source_units||length>h.source_units-first||!is_finite(ox)||!is_finite(oy)||(output.count&&!output.data))return SfntStatus::invalid_input;
     const u32 begin=cluster_at(h,first),end=cluster_at(h,first+length);u32 c=begin,line=line_at(h,begin);
     if(h.visual_runs.count){
         do{const auto& l=h.lines[line];const u32 limit=minimum(end,static_cast<u32>(l.first_cluster)+l.cluster_count);
@@ -150,9 +150,9 @@ SfntStatus native_paragraph_hit_range(const NativeParagraphHits& h,u32 first,u32
         for(u32 i=c;!whole&&i<limit;++i){const auto& item=h.clusters[i];if(item.advance_flags&native_hit_group_start){width=layout_add(width,group);group=0;}
             ConstSlice<float> advances{};if(!native_paragraph_hit_advances(h,i,&advances))return SfntStatus::invalid_input;
             for(u32 g=0;g<advances.count;++g)group=layout_add(group,advances[g]);}
-        width=layout_add(width,group);if(!layout_finite(width))return SfntStatus::resource_limit;
+        width=layout_add(width,group);if(!is_finite(width))return SfntStatus::resource_limit;
         const u32 source_end=limit<h.clusters.count?h.clusters[limit].source_first:h.source_units;
-        const float left=layout_add(ox,start_metric.left),top=layout_add(oy,l.top);if(!layout_finite(left)||!layout_finite(top))return SfntStatus::resource_limit;
+        const float left=layout_add(ox,start_metric.left),top=layout_add(oy,l.top);if(!is_finite(left)||!is_finite(top))return SfntStatus::resource_limit;
         if(*count<output.count)output[*count]={start_metric.source_first,static_cast<u16>(source_end-start_metric.source_first),left,top,width,line_height(h,l)};
         ++*count;c=limit;++line;
     }while(c<end&&line<h.lines.count);

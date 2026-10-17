@@ -2,9 +2,7 @@
 #include "maicord/text/base.hpp"
 #include <emmintrin.h>
 namespace maicord {namespace {
-bool finite(double x) noexcept {u64 bits=0;copy_bytes(&bits,&x,8);return (bits&0x7ff0000000000000ull)!=0x7ff0000000000000ull;}
-bool finite(float x) noexcept {u32 bits=0;copy_bytes(&bits,&x,4);return (bits&0x7f800000u)!=0x7f800000u;}
-bool valid(const SfntPosition& p) noexcept {return finite(p.advance)&&finite(p.advance_offset)&&finite(p.ascender_offset);}
+bool valid(const SfntPosition& p) noexcept {return is_finite(p.advance)&&is_finite(p.advance_offset)&&is_finite(p.ascender_offset);}
 bool spend(SfntPositionExecution* result,u64* remaining,u64 cost=1) noexcept {if(cost>*remaining)return false;*remaining-=cost;result->operations+=cost;return true;}
 SfntStatus resolve(const SfntValueRecord& record,const SfntPositionInstance& instance,SfntPositionAdjustment* out,SfntPositionExecution* result,u64* work) noexcept {
     if(!spend(result,work,9))return SfntStatus::resource_limit;
@@ -38,19 +36,19 @@ SfntStatus sfnt_trailing_spacing(Slice<SfntPlacement> placements,
     const auto spacing=_mm_set_ss(trailing);
     if(!flags.count){for(u32 i=0;i<placements.count;++i){
         const float value=_mm_cvtss_f32(_mm_add_ss(_mm_set_ss(placements[i].advance),spacing));
-        if(!finite(value))return SfntStatus::resource_limit;placements[i].advance=value;
+        if(!is_finite(value))return SfntStatus::resource_limit;placements[i].advance=value;
         if(rtl){const float offset=_mm_cvtss_f32(_mm_add_ss(_mm_set_ss(placements[i].advance_offset),spacing));
-            if(!finite(offset))return SfntStatus::resource_limit;placements[i].advance_offset=offset;}}return SfntStatus::ok;}
+            if(!is_finite(offset))return SfntStatus::resource_limit;placements[i].advance_offset=offset;}}return SfntStatus::ok;}
     if(placements.count&&!(flags[0]&sfnt_position_cluster_start))return SfntStatus::invalid_input;
     for(u32 first=0;first<placements.count;){
         u32 end=first,last=0xffffffffu;
         do{if(!(flags[end]&sfnt_position_zero_advance)&&(!rtl||last==0xffffffffu))last=end;++end;}while(end<placements.count&&!(flags[end]&sfnt_position_cluster_start));
         if(last!=0xffffffffu){const float advance=_mm_cvtss_f32(_mm_add_ss(_mm_set_ss(placements[last].advance),spacing));
-            if(!finite(advance))return SfntStatus::resource_limit;placements[last].advance=advance;
+            if(!is_finite(advance))return SfntStatus::resource_limit;placements[last].advance=advance;
             const u32 begin=rtl?first:last+1,limit=rtl?last+1:end;
             for(u32 i=begin;i<limit;++i){const __m128 original=_mm_set_ss(placements[i].advance_offset);
                 const float offset=_mm_cvtss_f32(rtl?_mm_add_ss(original,spacing):_mm_sub_ss(original,spacing));
-                if(!finite(offset))return SfntStatus::resource_limit;placements[i].advance_offset=offset;}}
+                if(!is_finite(offset))return SfntStatus::resource_limit;placements[i].advance_offset=offset;}}
         first=end;
     }
     return SfntStatus::ok;
@@ -58,7 +56,7 @@ SfntStatus sfnt_trailing_spacing(Slice<SfntPlacement> placements,
 SfntStatus sfnt_position_initialize(ConstSlice<double> advances,ConstSlice<u8> flags,bool rtl,Slice<SfntPosition> output,u64 work) noexcept {
     if(advances.count!=flags.count || (advances.count && (!advances.data || !flags.data)))return SfntStatus::invalid_input;if(output.count<advances.count)return SfntStatus::output_too_small;
     if(advances.count && !output.data)return SfntStatus::invalid_input;if(advances.count>work)return SfntStatus::resource_limit;
-    for(u32 i=0;i<advances.count;++i)if(!finite(advances.data[i]) || (flags.data[i]&~3u) || (!i && !(flags.data[i]&sfnt_position_cluster_start)))return SfntStatus::invalid_input;
+    for(u32 i=0;i<advances.count;++i)if(!is_finite(advances.data[i]) || (flags.data[i]&~3u) || (!i && !(flags.data[i]&sfnt_position_cluster_start)))return SfntStatus::invalid_input;
     for(u32 i=0;i<advances.count;++i){const bool zero=(flags.data[i]&sfnt_position_zero_advance)!=0;output.data[i]={zero?0:advances.data[i],zero&&rtl&&advances.data[i]!=0?-advances.data[i]:0,0};}return SfntStatus::ok;
 }
 SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntGdef& gdef,SfntGlyphView glyphs,Slice<SfntPosition> positions,u32 start,u32 end,bool rtl,const SfntPositionInstance& instance,SfntPositionExecution* result,u64 work,u32 match_limit,SfntPositionApplication application) noexcept {
@@ -84,9 +82,9 @@ SfntStatus sfnt_position_finalize(ConstSlice<SfntPosition> positions,ConstSlice<
     const __m128 scale=_mm_div_ss(_mm_set_ss(em),_mm_set_ss(static_cast<float>(upem)));double removed=0;
     for(u32 i=0;i<positions.count;++i){const auto& p=positions.data[i];const u8 f=flags.data[i];if((f&~3u) || (!i && !(f&sfnt_position_cluster_start)) || !valid(p))return SfntStatus::invalid_input;
         const bool zero=(f&sfnt_position_zero_advance)!=0&&!retain_zero_positioning;if(consecutive_zeroes?!zero:(f&sfnt_position_cluster_start)!=0)removed=0;
-        const double x=p.advance_offset+removed;if(!finite(x))return SfntStatus::resource_limit;const SfntPlacement value{scaled(zero?0:p.advance,scale),scaled(x,scale),scaled(p.ascender_offset,scale)};
-        if(!finite(value.advance)||!finite(value.advance_offset)||!finite(value.ascender_offset))return SfntStatus::resource_limit;output.data[i]=value;
-        if(zero){removed+=p.advance;if(!finite(removed))return SfntStatus::resource_limit;}
+        const double x=p.advance_offset+removed;if(!is_finite(x))return SfntStatus::resource_limit;const SfntPlacement value{scaled(zero?0:p.advance,scale),scaled(x,scale),scaled(p.ascender_offset,scale)};
+        if(!is_finite(value.advance)||!is_finite(value.advance_offset)||!is_finite(value.ascender_offset))return SfntStatus::resource_limit;output.data[i]=value;
+        if(zero){removed+=p.advance;if(!is_finite(removed))return SfntStatus::resource_limit;}
     }return SfntStatus::ok;
 }
 }

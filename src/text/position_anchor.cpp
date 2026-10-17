@@ -1,7 +1,6 @@
 #include "position_anchor.hpp"
 #include "maicord/text/base.hpp"
 namespace maicord::position_detail {namespace {
-bool finite(double value) noexcept {u64 bits=0;copy_bytes(&bits,&value,8);return (bits&0x7ff0000000000000ull)!=0x7ff0000000000000ull;}
 bool spend(u64* operations,u64* work,u64 amount=1) noexcept {if(amount>*work)return false;*work-=amount;*operations+=amount;return true;}
 }
 SfntStatus anchor_point(const SfntAnchor& anchor,u16 glyph,const SfntPositionInstance& instance,double* x,double* y,
@@ -12,7 +11,7 @@ SfntStatus anchor_point(const SfntAnchor& anchor,u16 glyph,const SfntPositionIns
     if(instance.variable && value.format==3)for(u32 i=0;i<2;++i){u32 index=0;if(!sfnt_device_variation_index(value.devices[i],&index) || index==0xffffffffu)continue;
         if(!instance.variations)return SfntStatus::missing_table;ItemVariationData data{};s=item_variation_data(instance.variations->store,static_cast<u16>(index>>16),&data);if(s!=SfntStatus::ok)return s;
         if(!spend(operations,work,static_cast<u64>(data.region_count)+1))return SfntStatus::resource_limit;double delta=0;s=item_variation_delta(*instance.variations,index,&delta,instance.arithmetic);if(s!=SfntStatus::ok)return s;if(i)*y+=delta;else *x+=delta;}
-    if(!finite(*x)||!finite(*y))return SfntStatus::resource_limit;
+    if(!is_finite(*x)||!is_finite(*y))return SfntStatus::resource_limit;
     if(instance.variable&&value.format==3&&instance.round_variable_anchors){
         double* values[]{x,y};for(auto* coordinate:values){const double biased=*coordinate+.5;
             if(biased<=-0x1p62||biased>=0x1p62)return SfntStatus::resource_limit;
@@ -34,7 +33,7 @@ SfntStatus mark_position(const SfntAnchor& base,const SfntAnchor& mark,ConstSlic
     const auto s=anchor_point(mark,mark_glyph,instance,&mx,&my,operations,work,resolver,context);if(s!=SfntStatus::ok)return s;
     auto candidate=*value;candidate.advance_offset=parent.advance_offset-distance+(rtl?target_nominal-mark_nominal-(bx-mx):bx-mx);
     candidate.ascender_offset=parent.ascender_offset+by-my;
-    if(!finite(candidate.advance) || !finite(candidate.advance_offset) || !finite(candidate.ascender_offset))return SfntStatus::resource_limit;
+    if(!is_finite(candidate.advance) || !is_finite(candidate.advance_offset) || !is_finite(candidate.ascender_offset))return SfntStatus::resource_limit;
     *value=candidate;*applied=true;return SfntStatus::ok;
 }
 }

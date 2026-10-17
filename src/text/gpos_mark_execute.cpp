@@ -2,7 +2,6 @@
 #include "position_anchor.hpp"
 #include "maicord/text/components.hpp"
 namespace maicord {namespace {
-bool finite(double value) noexcept {u64 bits=0;copy_bytes(&bits,&value,8);return (bits&0x7ff0000000000000ull)!=0x7ff0000000000000ull;}
 bool spend(SfntMarkExecution* out,u64* work,u64 amount=1) noexcept {if(amount>*work)return false;*work-=amount;out->operations+=amount;return true;}
 bool eligible(const SfntGsubGlyph& glyph,u8 type,const SfntGdef& gdef,const SfntLookupFilter& filter) noexcept {
     return type==4?glyph.glyph_class!=SfntGlyphClass::mark:!sfnt_lookup_ignores(gdef,filter,glyph.glyph,glyph.glyph_class);
@@ -26,7 +25,7 @@ SfntStatus sfnt_position_execute_mark_lookup(const SfntGposAttachmentLookup& loo
     // Windows attaches it to the preceding eligible mark across that boundary.
     for(u32 before=type==6 && sfnt_glyph_at(glyphs,start).glyph_class!=SfntGlyphClass::mark && (flags.data[start]&sfnt_position_cluster_start)?0:start;before;){if(!spend(out,&work))return SfntStatus::resource_limit;++out->search_steps;--before;
         const auto& glyph=sfnt_glyph_at(glyphs,before);auto s=glyph_check(glyph,limit);if(s!=SfntStatus::ok)return s;
-        distance+=positions.data[before].advance;if(!finite(distance))return SfntStatus::resource_limit;
+        distance+=positions.data[before].advance;if(!is_finite(distance))return SfntStatus::resource_limit;
         if(target_eligible(glyph)){target=before;break;}if(type==6 && glyph.glyph_class!=SfntGlyphClass::mark && (flags.data[before]&sfnt_position_cluster_start))break;}
     for(u32 at=start;at<end;++at){if(!spend(out,&work))return SfntStatus::resource_limit;++out->search_steps;
         const auto& glyph=sfnt_glyph_at(glyphs,at);auto s=glyph_check(glyph,limit);if(s!=SfntStatus::ok)return s;
@@ -39,7 +38,7 @@ SfntStatus sfnt_position_execute_mark_lookup(const SfntGposAttachmentLookup& loo
                 s=glyph_check(owner,limit);if(s!=SfntStatus::ok)return s;if(!target_eligible(owner))return SfntStatus::invalid_input;
                 if(attached_target!=target){attached_distance=0;
                     for(u32 i=attached_target;i<at;++i){if(!spend(out,&work))return SfntStatus::resource_limit;++out->search_steps;attached_distance+=positions[i].advance;}
-                    if(!finite(attached_distance))return SfntStatus::resource_limit;}}
+                    if(!is_finite(attached_distance))return SfntStatus::resource_limit;}}
         }
         if(glyph.glyph_class==SfntGlyphClass::mark && (selected || !sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class)) && target!=0xffffffffu && (type==4 || sfnt_glyph_at(glyphs,target).glyph_class==SfntGlyphClass::mark)){
             // Only two resolved owners can establish a component conflict.
@@ -56,7 +55,7 @@ SfntStatus sfnt_position_execute_mark_lookup(const SfntGposAttachmentLookup& loo
         }
         if(target_eligible(glyph)){target=at;distance=positions.data[at].advance;}
         else distance+=positions.data[at].advance;
-        if(!finite(distance))return SfntStatus::resource_limit;
+        if(!is_finite(distance))return SfntStatus::resource_limit;
     }return SfntStatus::ok;
 }
 }

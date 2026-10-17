@@ -1,8 +1,7 @@
 #include "maicord/text/gpos_cursive_execute.hpp"
 #include "position_anchor.hpp"
 namespace maicord {namespace {
-bool finite(double value) noexcept {u64 bits=0;copy_bytes(&bits,&value,8);return (bits&0x7ff0000000000000ull)!=0x7ff0000000000000ull;}
-bool valid(const SfntPosition& value) noexcept {return finite(value.advance)&&finite(value.advance_offset)&&finite(value.ascender_offset);}
+bool valid(const SfntPosition& value) noexcept {return is_finite(value.advance)&&is_finite(value.advance_offset)&&is_finite(value.ascender_offset);}
 bool spend(SfntCursiveExecution* out,u64* work,u64 cost=1) noexcept {if(cost>*work)return false;*work-=cost;out->operations+=cost;return true;}
 double magnitude(double x) noexcept {return x<0?-x:x;}
 bool bounded_integer(double value) noexcept {
@@ -12,10 +11,10 @@ bool bounded_integer(double value) noexcept {
 }
 SfntStatus flush(Slice<SfntPosition> positions,Slice<SfntCursiveChainNode> chains,SfntCursiveDeferred* pending,SfntCursiveExecution* out,u64* work) noexcept {
     if(!pending || pending->head==0xffffffffu)return SfntStatus::ok;
-    if(!positions.data || !chains.data || pending->next>=positions.count || pending->next>=chains.count || pending->head>=pending->next || !finite(pending->translation))return SfntStatus::invalid_input;
+    if(!positions.data || !chains.data || pending->next>=positions.count || pending->next>=chains.count || pending->head>=pending->next || !is_finite(pending->translation))return SfntStatus::invalid_input;
     u32 previous=pending->next,at=pending->head;
     while(at!=0xffffffffu){if(!spend(out,work))return SfntStatus::resource_limit;if(at>=previous)return SfntStatus::invalid_input;
-        const double y=positions.data[at].ascender_offset+pending->translation;if(!finite(y))return SfntStatus::resource_limit;positions.data[at].ascender_offset=y;previous=at;at=chains.data[at].child;
+        const double y=positions.data[at].ascender_offset+pending->translation;if(!is_finite(y))return SfntStatus::resource_limit;positions.data[at].ascender_offset=y;previous=at;at=chains.data[at].child;
     }
     *pending={};return SfntStatus::ok;
 }
@@ -32,7 +31,7 @@ SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& 
     for(u32 i=0;i<words;++i)bits.data[i]=0;out->chain_words=words;u32 previous=0xffffffffu;double gap_advance=0;
     for(u32 at=start;at<end;++at){if(!spend(out,&work))return SfntStatus::resource_limit;++out->scan_steps;const auto& glyph=sfnt_glyph_at(glyphs,at);
         if(glyph.glyph>=lookup.subtables.data[0].glyph_limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(glyph.glyph_class)>4)return SfntStatus::invalid_input;
-        if(sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class)){gap_advance+=positions.data[at].advance;if(!finite(gap_advance))return SfntStatus::resource_limit;continue;}
+        if(sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class)){gap_advance+=positions.data[at].advance;if(!is_finite(gap_advance))return SfntStatus::resource_limit;continue;}
         if(previous!=0xffffffffu){const auto& first=sfnt_glyph_at(glyphs,previous);
             for(u32 i=0;i<lookup.subtables.count;++i){if(!spend(out,&work))return SfntStatus::resource_limit;SfntGposCursiveAnchors a{},b{};
                 auto s=sfnt_gpos_cursive_anchors(lookup.subtables.data[i],first.glyph,&a);if(s!=SfntStatus::ok)return s;if(!a.covered || !a.exit.table.data)continue;
@@ -51,7 +50,7 @@ SfntStatus sfnt_position_execute_cursive_lookup(const SfntGposAttachmentLookup& 
     }
     if(backward){u32 next=0xffffffffu;for(u32 at=end;at>start;){--at;if(!spend(out,&work))return SfntStatus::resource_limit;++out->scan_steps;const auto& glyph=sfnt_glyph_at(glyphs,at);
         if(sfnt_lookup_ignores(gdef,lookup.filter,glyph.glyph,glyph.glyph_class))continue;const u32 slot=at-start;
-        if(bits.data[slot/64]&(1ull<<(slot%64))){if(next==0xffffffffu)return SfntStatus::malformed;const double y=positions.data[at].ascender_offset+positions.data[next].ascender_offset;if(!finite(y))return SfntStatus::resource_limit;positions.data[at].ascender_offset=y;}
+        if(bits.data[slot/64]&(1ull<<(slot%64))){if(next==0xffffffffu)return SfntStatus::malformed;const double y=positions.data[at].ascender_offset+positions.data[next].ascender_offset;if(!is_finite(y))return SfntStatus::resource_limit;positions.data[at].ascender_offset=y;}
         next=at;}}
     return SfntStatus::ok;
 }
@@ -70,7 +69,7 @@ SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup
     while(backward?other+1<end:other>0){other=backward?other+1:other-1;if(!spend(out,&work))return SfntStatus::resource_limit;++out->scan_steps;const auto& g=sfnt_glyph_at(glyphs,other);
         if(g.glyph>=limit)return SfntStatus::glyph_out_of_range;if(static_cast<u8>(g.glyph_class)>4)return SfntStatus::invalid_input;
         if(!sfnt_lookup_ignores(gdef,lookup.filter,g.glyph,g.glyph_class)){found=true;break;}
-        gap+=positions.data[other].advance;if(!finite(gap))return SfntStatus::resource_limit;
+        gap+=positions.data[other].advance;if(!is_finite(gap))return SfntStatus::resource_limit;
     }
     if(!found)return SfntStatus::ok;const u32 first=backward?at:other,second=backward?other:at;
     const u16 ag=sfnt_glyph_at(glyphs,first).glyph,bg=sfnt_glyph_at(glyphs,second).glyph;
@@ -84,7 +83,7 @@ SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup
         else p.advance=ax-bx+(backward?-q.advance_offset:p.advance_offset)-gap;
         if(backward)p.ascender_offset=q.ascender_offset+by-ay;else q.ascender_offset=p.ascender_offset+ay-by;
         if(!valid(p)||!valid(q))return SfntStatus::resource_limit;
-        if(backward){const double delta=p.ascender_offset-positions.data[first].ascender_offset;if(!finite(delta))return SfntStatus::resource_limit;
+        if(backward){const double delta=p.ascender_offset-positions.data[first].ascender_offset;if(!is_finite(delta))return SfntStatus::resource_limit;
             auto& node=chains.data[first];
             // Initial values and total absolute translation are <= 2^40.
             // Stored (new_y - translation) and materialized sums stay below
@@ -102,7 +101,7 @@ SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup
             // A parent has one live predecessor; a later attachment replaces it.
             u32 child=defer?0xffffffffu:node.child;
             while(child!=0xffffffffu){if(!spend(out,&work))return SfntStatus::resource_limit;if(child>=first)return SfntStatus::invalid_input;
-                const double y=positions.data[child].ascender_offset+delta;if(!finite(y))return SfntStatus::resource_limit;positions.data[child].ascender_offset=y;
+                const double y=positions.data[child].ascender_offset+delta;if(!is_finite(y))return SfntStatus::resource_limit;positions.data[child].ascender_offset=y;
                 child=chains.data[child].child;
             }
             if(defer){pending->translation+=delta;pending->magnitude+=magnitude(delta);pending->head=first;pending->next=second;p.ascender_offset-=pending->translation;}

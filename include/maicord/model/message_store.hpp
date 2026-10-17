@@ -1,12 +1,12 @@
 #pragma once
 
+#include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 
 namespace maicord {
 
 inline constexpr u32 kMaximumMessageContentBytes = 16 * 1024;
 inline constexpr u32 kMaximumMessageRecords = 1'048'576;
-inline constexpr u64 kSnowflakeEpochMilliseconds = 1'420'070'400'000ull;
 
 enum class MessageContentAvailability : u8 {
     unknown,

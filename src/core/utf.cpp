@@ -431,6 +431,21 @@ bool utf8_codepoint_for_utf16_position(Utf8View text, u32 utf16_position,
     return true;
 }
 
+u32 utf8_utf16_units(Utf8View text) noexcept {
+    u32 units = 0;
+    for (u32 i = 0; i < text.bytes; ++i) {
+        const u8 byte = static_cast<u8>(text.data[i]);
+        if ((byte & 0xC0) != 0x80)
+            units += byte >= 0xF0 ? 2 : 1;
+    }
+    return units;
+}
+
+bool utf8_is_boundary(Utf8View text, u32 offset) noexcept {
+    return offset <= text.bytes &&
+           (offset == 0 || offset == text.bytes || (static_cast<u8>(text.data[offset]) & 0xC0u) != 0x80u);
+}
+
 } // namespace maicord
 
 namespace maicord {

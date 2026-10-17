@@ -76,26 +76,21 @@ bool background_valid(const BackgroundTheme& background) noexcept {
             return false;
     return true; // A flat surface may have either a bounded effect or none.
 }
-bool finite(float value) noexcept {
-    u32 bits{};
-    copy_bytes(&bits, &value, sizeof(bits));
-    return (bits & 0x7f800000u) != 0x7f800000u;
-}
 bool real_values_finite(const ClientThemeDocument& document) noexcept {
     const auto colors = ui_theme_color_descriptors();
     for (u32 i = 0; i < colors.count; ++i) {
         const auto* color = ui_theme_color_get(document.theme, colors[i].id);
-        if (!color || !finite(color->red) || !finite(color->green) || !finite(color->blue) ||
-            !finite(color->alpha))
+        if (!color || !is_finite(color->red) || !is_finite(color->green) || !is_finite(color->blue) ||
+            !is_finite(color->alpha))
             return false;
     }
     for (const auto member : kTypographyValues)
-        if (!finite(document.typography.*member))
+        if (!is_finite(document.typography.*member))
             return false;
     const auto metrics = ui_theme_metric_descriptors();
     for (u32 i = 0; i < metrics.count; ++i) {
         float value{};
-        if (!ui_theme_metric_get(document.metrics, metrics[i].id, &value) || !finite(value))
+        if (!ui_theme_metric_get(document.metrics, metrics[i].id, &value) || !is_finite(value))
             return false;
     }
     return true;
@@ -158,7 +153,7 @@ bool decimal(JsonValue value, float* output) noexcept {
         }
     }
     const float result = static_cast<float>(negative ? -mantissa : mantissa);
-    if (!finite(result))
+    if (!is_finite(result))
         return false;
     *output = result;
     return true;

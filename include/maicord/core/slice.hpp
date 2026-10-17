@@ -30,6 +30,15 @@ template <typename T> struct ConstSlice {
     }
 };
 
+// A slice with elements has data; an empty one may be null.
+template <typename T> constexpr bool slice_data_valid(Slice<T> slice) noexcept {
+    return !slice.count || slice.data;
+}
+
+template <typename T> constexpr bool slice_data_valid(ConstSlice<T> slice) noexcept {
+    return !slice.count || slice.data;
+}
+
 template <typename T, u32 Capacity> struct FixedBuffer {
     static_assert(Capacity > 0);
 

@@ -6,7 +6,7 @@
 maicord_library(maicord_core
     src/core/arena.cpp src/core/byte_queue.cpp src/core/byte_order.cpp src/core/data_path.cpp
     src/core/json_reader.cpp src/core/json_scan.cpp src/core/reserved_bytes.cpp src/core/stable_storage.cpp
-    src/core/utf.cpp)
+    src/core/utf.cpp src/core/ascii.cpp src/core/byte_range.cpp)
 
 maicord_library(maicord_compression src/media/deflate.cpp LIBS maicord_core)
 

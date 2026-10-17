@@ -20,9 +20,6 @@ constexpr float kDestinationTileRadius = 8.f;
 UiRect destination_tile(UiRect row) noexcept {
     return {row.left + 10, row.top + 10, row.left + 42, row.top + 42};
 }
-bool finite(float value) noexcept {
-    u32 bits{}; copy_bytes(&bits, &value, sizeof(bits)); return (bits & 0x7f800000u) != 0x7f800000u;
-}
 bool view_valid(UiEditView view, u32 maximum_bytes) noexcept {
     if (view.text.bytes > maximum_bytes || view.anchor > view.text.bytes || view.caret > view.text.bytes ||
         !utf8_validate(view.text).valid) return false;
@@ -354,7 +351,7 @@ UiMessageForwardTarget ui_message_forward_scene_selected(const UiMessageForwardS
     return current(s) ? row_target(s, s.selected) : UiMessageForwardTarget{};
 }
 bool ui_message_forward_scene_scroll(UiMessageForwardScene* s, float offset) noexcept {
-    if (!s || !current(*s) || !finite(offset)) return false;
+    if (!s || !current(*s) || !is_finite(offset)) return false;
     offset = minimum(maximum(0.f, offset), ui_message_forward_scene_scroll_maximum(*s));
     if (offset == s->scroll_dips) return true;
     cancel_capture(*s); s->scroll_dips = offset;

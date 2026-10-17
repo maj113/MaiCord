@@ -21,13 +21,16 @@ inline u16 byte_load_be16(const u8* input) noexcept {
 u32 byte_load_le24(const u8* input) noexcept;
 u32 byte_load_le32(const u8* input) noexcept;
 u64 byte_load_le64(const u8* input) noexcept;
+u64 byte_load_be64(const u8* input) noexcept;
 inline u32 byte_load_be32(const u8* input) noexcept {
     u32 value; memcpy(&value, input, sizeof(value)); return _byteswap_ulong(value);
 }
 
+void byte_store_le16(u8* output, u16 value) noexcept;
 void byte_store_le32(u8* output, u32 value) noexcept;
 void byte_store_le64(u8* output, u64 value) noexcept;
 void byte_store_be32(u8* output, u32 value) noexcept;
+void byte_store_be64(u8* output, u64 value) noexcept;
 
 constexpr u32 byte_fourcc_le(char a, char b, char c, char d) noexcept {
     return static_cast<u32>(static_cast<u8>(a)) | static_cast<u32>(static_cast<u8>(b)) << 8u |

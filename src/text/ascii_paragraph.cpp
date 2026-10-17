@@ -33,12 +33,12 @@ bool native_ascii_break_after(Utf8View text,u32 at) noexcept {return (!text.byte
 SfntStatus native_line_trim_cut(ConstSlice<NativeParagraphCluster> clusters,float width,float extent,
     float box,float sign_width,bool force,ConstSlice<float> tabs,NativeLineTrimCut* output) noexcept {
     if(!output)return SfntStatus::invalid_input;*output={};
-    if((clusters.count&&!clusters.data)||(tabs.count&&!tabs.data)||!layout_finite(width)||width<0||!layout_finite(extent)||extent<0||
-        !layout_finite(box)||box<=0||!layout_finite(sign_width)||sign_width<0)return SfntStatus::invalid_input;
+    if((clusters.count&&!clusters.data)||(tabs.count&&!tabs.data)||!is_finite(width)||width<0||!is_finite(extent)||extent<0||
+        !is_finite(box)||box<=0||!is_finite(sign_width)||sign_width<0)return SfntStatus::invalid_input;
     u32 tab_count=0;
     for(u32 i=0;i<clusters.count;++i){const auto& c=clusters[i];
-        if(!layout_finite(c.width)||c.width<0||(c.flags&(native_paragraph_newline|native_paragraph_crlf_prefix)))return SfntStatus::invalid_input;
-        if(c.flags&native_paragraph_tab){if(tab_count==tabs.count||!layout_finite(tabs[tab_count])||tabs[tab_count]<0)return SfntStatus::invalid_input;++tab_count;}}
+        if(!is_finite(c.width)||c.width<0||(c.flags&(native_paragraph_newline|native_paragraph_crlf_prefix)))return SfntStatus::invalid_input;
+        if(c.flags&native_paragraph_tab){if(tab_count==tabs.count||!is_finite(tabs[tab_count])||tabs[tab_count]<0)return SfntStatus::invalid_input;++tab_count;}}
     if(tab_count!=tabs.count)return SfntStatus::invalid_input;
     NativeLineTrimCut result{clusters.count,width,extent,false};
     if(!force&&width<=box){*output=result;return SfntStatus::ok;}
@@ -60,7 +60,7 @@ SfntStatus native_line_trim_cut(ConstSlice<NativeParagraphCluster> clusters,floa
     // A height-trimmed indivisible whitespace line keeps its advance in the
     // reported width even when no source suffix can be replaced by a sign.
     else if(force)result.width=result.extent;
-    if(!layout_finite(result.width)||!layout_finite(result.extent))return SfntStatus::resource_limit;
+    if(!is_finite(result.width)||!is_finite(result.extent))return SfntStatus::resource_limit;
     *output=result;return SfntStatus::ok;
 }
 SfntStatus native_ascii_paragraph_shape(const NativeRunPlanStore& store,NativeRunPlanHandle plan,Utf8View input,bool independent,float em,
@@ -97,13 +97,13 @@ SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeP
     if(!output)return SfntStatus::invalid_input;*output={};
     if(hits){if(!hits->output)return SfntStatus::invalid_input;*hits->output={};
         if((hits->clusters.count&&!hits->clusters.data)||(hits->lines.count&&!hits->lines.data)||(hits->advances.count&&!hits->advances.data))return SfntStatus::invalid_input;}
-    if(!layout_finite(trimming_height)||trimming_height<0||(trimming_height&&hits))return SfntStatus::invalid_input;
-    if(clusters.count!=shape.cluster_count||placements.count!=shape.glyph_count||(clusters.count&&!clusters.data)||(placements.count&&!placements.data)||(runs.count&&!runs.data)||!layout_finite(width)||width<=0||!layout_finite(stop)||stop<=0||!layout_finite(shape.vertical.height)||shape.vertical.height<=0||!layout_finite(shape.vertical.baseline))return SfntStatus::invalid_input;
+    if(!is_finite(trimming_height)||trimming_height<0||(trimming_height&&hits))return SfntStatus::invalid_input;
+    if(clusters.count!=shape.cluster_count||placements.count!=shape.glyph_count||(clusters.count&&!clusters.data)||(placements.count&&!placements.data)||(runs.count&&!runs.data)||!is_finite(width)||width<=0||!is_finite(stop)||stop<=0||!is_finite(shape.vertical.height)||shape.vertical.height<=0||!is_finite(shape.vertical.baseline))return SfntStatus::invalid_input;
     if(shape.source_units>65535||(hits&&placements.count>native_hit_advance_mask))return SfntStatus::resource_limit;if((lines.count&&!lines.data)||(fit.count&&!fit.data))return SfntStatus::invalid_input;
     if(sink.trailing_reset.count&&(sink.trailing_reset.count!=clusters.count||!sink.trailing_reset.data))return SfntStatus::invalid_input;
     if(styles.count){if(!styles.data)return SfntStatus::invalid_input;
         if(hits&&(styles.count>65535||styles.count>hits->styles.count||!hits->styles.data))return SfntStatus::output_too_small;
-        for(u32 i=0;i<styles.count;++i){const auto& s=styles[i];if(!layout_finite(s.baseline)||!layout_finite(s.descent)||s.baseline<0||s.descent<0||!(layout_add(s.baseline,s.descent)>0))return SfntStatus::invalid_input;}}
+        for(u32 i=0;i<styles.count;++i){const auto& s=styles[i];if(!is_finite(s.baseline)||!is_finite(s.descent)||s.baseline<0||s.descent<0||!(layout_add(s.baseline,s.descent)>0))return SfntStatus::invalid_input;}}
     bool nominal_groups=styles.count&&clusters.count&&(clusters[0].flags&native_paragraph_metric_group)&&!(clusters[0].flags&native_paragraph_nonvisual);float nominal_done=0,nominal_part=0;
     for(u32 i=0;nominal_groups&&i<clusters.count;++i){const auto& c=clusters[i];
         if(c.flags&(native_paragraph_tab|native_paragraph_newline))nominal_groups=false;
@@ -118,7 +118,7 @@ SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeP
             if(c.flags&native_paragraph_crlf_prefix){if(end+1>=clusters.count||!(clusters[end+1].flags&native_paragraph_newline))return SfntStatus::invalid_input;end+=2;break;}
             if(end>start&&(c.flags&native_paragraph_break_before))last_break=end;
             const float next=(c.flags&native_paragraph_tab)?tab(pen,stop):layout_add(pen,c.width);
-            if(next<0||!layout_finite(next))return SfntStatus::resource_limit;
+            if(next<0||!is_finite(next))return SfntStatus::resource_limit;
             if(wrap&&!nominal_groups&&next>width&&!(c.flags&(native_paragraph_space|native_paragraph_tab))&&end>start){
                 if(last_break>start){end=last_break;break;}if(!trimming_height){layout.flags|=native_paragraph_emergency_break;break;}}
             pen=next;++end;
@@ -179,7 +179,7 @@ SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeP
                     for(u32 unit=0;unit<count;++unit)hits->clusters[hit_count++]={static_cast<u16>(item.source_first+unit),static_cast<u16>(newline&&!atomic?item.source_first+unit+1:item.source_end),
                         advance_first|(c==at&&unit==0?native_hit_group_start:0)|(newline?native_hit_newline:0),point_pen,hit_left,hit_width,style};}
             }
-            runs[layout.run_count-1].width=group_pen;x=layout_add(x,group_pen);if(!layout_finite(x))return SfntStatus::resource_limit;at=last;
+            runs[layout.run_count-1].width=group_pen;x=layout_add(x,group_pen);if(!is_finite(x))return SfntStatus::resource_limit;at=last;
         }
         if(fit.data){fit[layout.line_count].width=ink_metric;fit[layout.line_count].extent=metric;}
         if(hits){if(layout.line_count==hits->lines.count)return SfntStatus::output_too_small;hits->lines[layout.line_count]={static_cast<u16>(hit_first),static_cast<u16>(hit_count-hit_first),top,x,static_cast<u16>(ascent_style),static_cast<u16>(descent_style)};}
@@ -189,7 +189,7 @@ SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeP
         if(sink.emit){const u32 trailing_source=trailing<end?clusters[trailing].source_first:end?clusters[end-1].source_end:0;
             const auto status=sink.emit(sink.context,{runs.data?runs.data+run_first:nullptr,layout.run_count-run_first},run_first,trailing_source);if(status!=SfntStatus::ok)return status;}
         layout.width=maximum(layout.width,ink_metric);layout.extent=maximum(layout.extent,metric);++layout.line_count;top=layout_add(top,line_height);start=end;
-        if(!layout_finite(top)||!layout_finite(layout.extent))return SfntStatus::resource_limit;
+        if(!is_finite(top)||!is_finite(layout.extent))return SfntStatus::resource_limit;
     }while(start<clusters.count);
     if(clusters.count&&(clusters[clusters.count-1].flags&native_paragraph_newline)){
         if(hits){if(layout.line_count==hits->lines.count)return SfntStatus::output_too_small;const u16 style=styles.count?static_cast<u16>(clusters[clusters.count-1].flags>>native_paragraph_style_shift):0;hits->lines[layout.line_count]={static_cast<u16>(hit_count),0,top,0,style,style};}
@@ -202,7 +202,7 @@ SfntStatus paragraph_layout(const NativeParagraphShape& shape,ConstSlice<NativeP
         if(lines.data){if(layout.line_count==lines.count)return SfntStatus::output_too_small;lines[layout.line_count]={static_cast<u16>(layout.run_count),0,top,height,0};}
         if(sink.emit&&height){const auto status=sink.emit(sink.context,{},layout.run_count,shape.source_units);if(status!=SfntStatus::ok)return status;}
         ++layout.line_count;top=layout_add(top,height);}
-    if(!layout_finite(top))return SfntStatus::resource_limit;
+    if(!is_finite(top))return SfntStatus::resource_limit;
     if(hits){if(styles.count)copy_bytes(hits->styles.data,styles.data,styles.count*sizeof(SfntFontLineParts));
         NativeParagraphHits result{{hits->clusters.data,hit_count},{hits->lines.data,layout.line_count},{hits->advances.data,advance_count},shape.source_units,styles.count,{}};
         if(styles.count)result.styles=hits->styles.data;else result.uniform=shape.vertical;*hits->output=result;}

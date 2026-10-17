@@ -24,14 +24,14 @@ SfntStatus native_ascii_line(const NativeRunPlanStore& store,NativeRunPlanHandle
         for(u32 i=glyph;i<glyph_end;++i){const float advance=s.run.placements[i].advance;
             width=layout_add(width,advance);pen=layout_add(pen,advance);if(space)tail_pen=layout_add(tail_pen,advance);}
         line.width_including_trailing=layout_add(line.width_including_trailing,width);
-        if(!layout_finite(pen)||!layout_finite(width)||!layout_finite(line.width_including_trailing)||!layout_finite(tail_pen))return SfntStatus::resource_limit;
+        if(!is_finite(pen)||!is_finite(width)||!is_finite(line.width_including_trailing)||!is_finite(tail_pen))return SfntStatus::resource_limit;
         s.clusters[line.cluster_count++]={end,left,width};
         if(width<0||pen<left)line.geometry_flags&=~native_line_ordered_x;
         if(space)line.trailing_source_units+=end-at;
         else{line.width=line.width_including_trailing;line.trailing_source_units=0;last_nonspace_pen=pen;tail_pen=0;}
         at=end;
     }
-    line.caret_end=layout_add(last_nonspace_pen,tail_pen);if(!layout_finite(line.caret_end))return SfntStatus::resource_limit;
+    line.caret_end=layout_add(last_nonspace_pen,tail_pen);if(!is_finite(line.caret_end))return SfntStatus::resource_limit;
     *output=line;return SfntStatus::ok;
 }
 SfntStatus native_ascii_line_position(ConstSlice<NativeLineCluster> clusters,const NativeAsciiLineResult& line,

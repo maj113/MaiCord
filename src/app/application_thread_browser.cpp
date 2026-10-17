@@ -384,7 +384,6 @@ void forum_remember(ForumState& forum, const ThreadBrowserPostPage& page) noexce
     }
     if (page.post_count) ++forum.revision;
 }
-constexpr u64 kSnowflakeEpochMilliseconds = 1420070400000ull;
 void forum_card(ApplicationThreadBrowser& value, const ChannelRecord& row, u32 slot, u64 now_s) noexcept {
     auto& forum = *value.forum;
     auto& post = forum.posts[slot];

@@ -12,6 +12,9 @@ extern "C" __declspec(dllimport) void __stdcall GetSystemTimeAsFileTime(_FILETIM
 
 namespace maicord {
 
+// Snowflake IDs carry milliseconds since 2015-01-01T00:00:00Z above bit 22.
+inline constexpr u64 kSnowflakeEpochMilliseconds = 1'420'070'400'000ull;
+
 struct Clock {
     i64 frequency;
 };

@@ -16,7 +16,7 @@ SfntStatus native_unicode_line_geometry(const SfntFontLayoutMetrics& metrics,Utf
             space=unicode_properties(first.codepoint)->has(UnicodeFlag::white_space);}float width=0;const float left=pen;
         for(u32 i=glyph;i<glyph_end;++i){const float advance=s.run.placements[i].advance;width=layout_add(width,advance);pen=layout_add(pen,advance);if(space)tail_pen=layout_add(tail_pen,advance);}
         line.width_including_trailing=layout_add(line.width_including_trailing,width);
-        if(!layout_finite(pen)||!layout_finite(width)||!layout_finite(line.width_including_trailing)||!layout_finite(tail_pen))return SfntStatus::resource_limit;
+        if(!is_finite(pen)||!is_finite(width)||!is_finite(line.width_including_trailing)||!is_finite(tail_pen))return SfntStatus::resource_limit;
         s.clusters[line.cluster_count++]={end,left,width};if(width<0||pen<left)line.geometry_flags&=~native_line_ordered_x;
         if(!paragraph_only){
         if(space)line.trailing_source_units+=end-at;else{line.width=line.width_including_trailing;line.trailing_source_units=0;last_nonspace=pen;tail_pen=0;}
@@ -25,6 +25,6 @@ SfntStatus native_unicode_line_geometry(const SfntFontLayoutMetrics& metrics,Utf
         }
         at=end;
     }
-    line.caret_end=layout_add(last_nonspace,tail_pen);return layout_finite(line.caret_end)?SfntStatus::ok:SfntStatus::resource_limit;
+    line.caret_end=layout_add(last_nonspace,tail_pen);return is_finite(line.caret_end)?SfntStatus::ok:SfntStatus::resource_limit;
 }
 }

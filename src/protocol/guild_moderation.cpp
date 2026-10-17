@@ -1,6 +1,7 @@
 #include "maicord/protocol/guild_moderation.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/time.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/writer.hpp"
@@ -12,8 +13,6 @@ namespace {
 
 using Op = GuildModerationOperation;
 constexpr u32 kDepth = 32;
-// 2015-01-01T00:00:00Z, the snowflake epoch.
-constexpr u64 kSnowflakeEpochMs = 1'420'070'400'000ull;
 constexpr u32 kSearchPieces = 64;
 
 bool view_valid(Utf8View text) noexcept {
@@ -744,7 +743,7 @@ bool guild_member_search_snowflake(Utf8View text) noexcept {
 u32 guild_member_search_snowflake_at(u64 unix_ms, Slice<char> output) noexcept {
     if (!output.data || !output.count)
         return 0;
-    const u64 value = unix_ms > kSnowflakeEpochMs ? (unix_ms - kSnowflakeEpochMs) << 22 : 0;
+    const u64 value = unix_ms > kSnowflakeEpochMilliseconds ? (unix_ms - kSnowflakeEpochMilliseconds) << 22 : 0;
     char digits[20];
     u32 count = 0;
     u64 rest = value;

@@ -97,7 +97,6 @@ SfntStatus sfnt_gpos_program_prepare(const SfntLayout& layout,const SfntGdef& gd
     *output={{compact?nullptr:storage.lookups.data,layout.lookup_count},gdef,limit,compact?storage.entries.data:nullptr};return SfntStatus::ok;
 }
 namespace {
-bool finite(double x) noexcept {u64 bits=0;copy_bytes(&bits,&x,8);return (bits&0x7ff0000000000000ull)!=0x7ff0000000000000ull;}
 struct Executor {
     const SfntGposProgram& program;SfntGlyphView glyphs;ConstSlice<double> nominal;ConstSlice<u8> flags;ConstSlice<SfntMarkAssociation> associations;ConstSlice<u32> targets;Slice<SfntPosition> positions;
     bool rtl;const SfntPositionInstance& instance;SfntNullAnchorPolicy null_policy;SfntComponentAnchorPolicy component_policy;SfntGposExecutionScratch scratch;SfntGposExecutionResult& result;
@@ -172,7 +171,7 @@ SfntStatus sfnt_gpos_execute_program_lookup(const SfntGposProgram& program,u16 l
     u16 first_glyph=65535,last_glyph=0;
     for(u32 i=0;i<n;++i){if(!spend(&work)){output->operations=limits.operations-work;return SfntStatus::resource_limit;}const auto& g=sfnt_glyph_at(glyphs,i);const auto& p=positions.data[i];
         first_glyph=minimum(first_glyph,g.glyph);last_glyph=maximum(last_glyph,g.glyph);
-        if(g.glyph>=program.glyph_limit || static_cast<u8>(g.glyph_class)>4 || (flags.data[i]&~3u) || (!i && !(flags.data[i]&sfnt_position_cluster_start)) || !finite(nominal.data[i]) || !finite(p.advance) || !finite(p.advance_offset) || !finite(p.ascender_offset))return SfntStatus::invalid_input;
+        if(g.glyph>=program.glyph_limit || static_cast<u8>(g.glyph_class)>4 || (flags.data[i]&~3u) || (!i && !(flags.data[i]&sfnt_position_cluster_start)) || !is_finite(nominal.data[i]) || !is_finite(p.advance) || !is_finite(p.advance_offset) || !is_finite(p.ascender_offset))return SfntStatus::invalid_input;
         if(associations.count && associations.data[i].target!=0xffffffffu && (associations.data[i].target>=targets.count || targets.data[associations.data[i].target]>=i))return SfntStatus::invalid_input;
     }
     if(sfnt_lookup_bounds_disjoint(root->bounds,first_glyph,last_glyph)){output->operations=limits.operations-work;return SfntStatus::ok;}

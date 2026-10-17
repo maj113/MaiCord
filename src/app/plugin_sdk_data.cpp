@@ -537,11 +537,6 @@ mc_status MC_CALL action_set_modal_handler(void* handle, uint64_t generation, mc
 
 // ---- mc.fx@1 ---------------------------------------------------------------------------
 
-bool finite(float value) noexcept {
-    u32 bits{};
-    copy_bytes(&bits, &value, 4);
-    return (bits & 0x7F80'0000u) != 0x7F80'0000u;
-}
 Effect* find_effect(NativePluginSdkBinding& binding, u64 id) noexcept {
     for (auto& effect : binding.effects)
         if (effect.registered && effect.id == id) return &effect;
@@ -559,7 +554,7 @@ mc_status MC_CALL fx_register(void* handle, uint64_t generation, const mc_fx_eff
     if (!native_plugin_sdk_effect_bytecode_valid({static_cast<const u8*>(effect.bytecode), effect.bytecode_bytes}))
         return MC_E_INVALID;
     for (u32 i = 0; i < effect.parameter_count; ++i)
-        if (!finite(effect.parameters[i])) return MC_E_INVALID;
+        if (!is_finite(effect.parameters[i])) return MC_E_INVALID;
     Effect* slot = find_effect(*binding, effect.effect_id);
     if (!slot)
         for (auto& candidate : binding->effects)
@@ -596,7 +591,7 @@ mc_status MC_CALL fx_parameters(void* handle, uint64_t generation, uint64_t id, 
     float copy[MC_FX_PARAMETERS]{};
     copy_bytes(copy, values, count * 4);
     for (u32 i = 0; i < count; ++i)
-        if (!finite(copy[i])) return MC_E_INVALID;
+        if (!is_finite(copy[i])) return MC_E_INVALID;
     Effect* effect = find_effect(*binding, id);
     if (!effect) return MC_E_NOT_FOUND;
     copy_bytes(effect->parameters, copy, count * 4);

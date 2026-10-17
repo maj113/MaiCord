@@ -40,6 +40,14 @@ template <typename T> constexpr T maximum(T a, T b) noexcept {
     return a > b ? a : b;
 }
 
+template <typename T> constexpr T clamp_value(T value, T low, T high) noexcept {
+    return value < low ? low : value > high ? high : value;
+}
+
+template <typename T> constexpr T absolute_value(T value) noexcept {
+    return value < 0 ? -value : value;
+}
+
 constexpr void saturating_increment(u32& value) noexcept {
     if (value != ~u32{0}) {
         ++value;
@@ -58,6 +66,57 @@ constexpr void saturating_accumulate(u32& value, u32 addend = 1) noexcept {
 
 constexpr void saturating_accumulate(u64& value, u64 addend) noexcept {
     value = addend > ~u64{0} - value ? ~u64{0} : value + addend;
+}
+
+// alignment must be a power of two.
+template <typename T> constexpr T align_up_pow2(T value, T alignment) noexcept {
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+
+// Pays cost from a work budget; a budget that cannot pay is left unchanged.
+constexpr bool budget_spend(u32& budget, u32 cost = 1) noexcept {
+    if (cost > budget)
+        return false;
+    budget -= cost;
+    return true;
+}
+
+constexpr bool budget_spend(u64& budget, u64 cost = 1) noexcept {
+    if (cost > budget)
+        return false;
+    budget -= cost;
+    return true;
+}
+
+// budget_spend that also adds what was paid to an operation count.
+constexpr bool budget_spend_counted(u64& budget, u64& operations, u64 cost = 1) noexcept {
+    if (cost > budget)
+        return false;
+    budget -= cost;
+    operations += cost;
+    return true;
+}
+
+// Float classification reads the bit pattern: /fp:fast may fold NaN and
+// infinity comparisons, so these never compare floating-point values.
+constexpr bool is_finite(float value) noexcept {
+    return (__builtin_bit_cast(u32, value) & 0x7f800000u) != 0x7f800000u;
+}
+
+constexpr bool is_finite(double value) noexcept {
+    return (__builtin_bit_cast(u64, value) & 0x7ff0000000000000ull) != 0x7ff0000000000000ull;
+}
+
+// Finite and greater than zero.
+constexpr bool is_finite_positive(float value) noexcept {
+    const u32 bits = __builtin_bit_cast(u32, value);
+    return bits != 0 && bits < 0x7f800000u;
+}
+
+// Finite and not below zero; negative zero counts as zero.
+constexpr bool is_finite_nonnegative(float value) noexcept {
+    const u32 bits = __builtin_bit_cast(u32, value);
+    return bits < 0x7f800000u || bits == 0x80000000u;
 }
 
 } // namespace maicord

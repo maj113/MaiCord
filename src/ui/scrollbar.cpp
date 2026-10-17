@@ -1,16 +1,8 @@
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/paint.hpp"
 #include "maicord/ui/background_surface.hpp"
-#include "maicord/core/memory.hpp"
 
 namespace maicord {
-namespace {
-bool finite_scroll_scalar(float value) noexcept {
-    u32 bits = 0;
-    copy_bytes(&bits, &value, sizeof(bits));
-    return (bits & 0x7f800000u) != 0x7f800000u;
-}
-} // namespace
 
 bool ui_scrollbar_paint(PaintStream* paint, const UiScrollbarGeometry& geometry, const Theme& theme,
                         UiScrollbarVisualState state) noexcept {
@@ -36,16 +28,16 @@ bool ui_scrollbar_paint(PaintStream* paint, const UiScrollbarGeometry& geometry,
 UiScrollbarGeometry ui_scrollbar_geometry(UiRect viewport, float scroll_dips,
                                           float content_height_dips) noexcept {
     UiScrollbarGeometry result{};
-    if (!finite_scroll_scalar(viewport.left) || !finite_scroll_scalar(viewport.top) ||
-        !finite_scroll_scalar(viewport.right) || !finite_scroll_scalar(viewport.bottom) ||
-        !finite_scroll_scalar(content_height_dips) || !finite_scroll_scalar(scroll_dips))
+    if (!is_finite(viewport.left) || !is_finite(viewport.top) ||
+        !is_finite(viewport.right) || !is_finite(viewport.bottom) ||
+        !is_finite(content_height_dips) || !is_finite(scroll_dips))
         return result;
     const float viewport_height = ui_rect_height(viewport);
     // Logical list length can exceed local layout bounds; the thumb still
     // occupies only the validated viewport. Reject nonfinite scalar inputs.
     if (!ui_rect_valid_or_empty(viewport) || !ui_rect_has_area(viewport) ||
         !ui_extent_valid(viewport_height) || !(content_height_dips > viewport_height) ||
-        !finite_scroll_scalar(viewport_height)) {
+        !is_finite(viewport_height)) {
         return result;
     }
     constexpr float gutter = 12.0f;
@@ -81,8 +73,8 @@ bool ui_scrollbar_thumb_hit(const UiScrollbarGeometry& geometry, float x, float 
 
 float ui_scrollbar_scroll_from_pointer(const UiScrollbarGeometry& geometry, float pointer_y,
                                        float thumb_grab_offset) noexcept {
-    if (!geometry.visible || geometry.maximum_scroll <= 0.0f || !finite_scroll_scalar(pointer_y) ||
-        !finite_scroll_scalar(thumb_grab_offset) || !ui_coordinate_valid(pointer_y) ||
+    if (!geometry.visible || geometry.maximum_scroll <= 0.0f || !is_finite(pointer_y) ||
+        !is_finite(thumb_grab_offset) || !ui_coordinate_valid(pointer_y) ||
         !ui_coordinate_valid(thumb_grab_offset)) {
         return 0.0f;
     }

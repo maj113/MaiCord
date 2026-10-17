@@ -46,6 +46,15 @@ bool utf8_utf16_position_for_codepoint(Utf8View text, u32 codepoint_index,
                                        u32* utf16_position) noexcept;
 bool utf8_codepoint_for_utf16_position(Utf8View text, u32 utf16_position,
                                        u32* codepoint_index) noexcept;
+// UTF-16 code units of text, assumed valid: one per scalar, two from a
+// four-byte sequence.
+u32 utf8_utf16_units(Utf8View text) noexcept;
+// offset is within text and does not split a UTF-8 sequence.
+bool utf8_is_boundary(Utf8View text, u32 offset) noexcept;
+
+constexpr bool utf8_is_continuation(char byte) noexcept {
+    return (static_cast<u8>(byte) & 0xC0) == 0x80;
+}
 
 // The longest prefix of text within maximum_bytes that does not split a
 // UTF-8 sequence.

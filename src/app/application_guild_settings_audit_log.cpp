@@ -6,7 +6,6 @@
 namespace maicord::app_detail::server_settings {
 namespace {
 
-constexpr u64 kSnowflakeEpochMs = 1'420'070'400'000ull;
 struct AuditAction {
     u16 type;
     Utf8View verb;
@@ -134,7 +133,7 @@ void project_audit(Bank& bank) noexcept {
         }
         const auto label = bank.since(start);
         const u32 detail = bank.mark();
-        relative_time(bank, (entry.id >> 22) + kSnowflakeEpochMs, now, false);
+        relative_time(bank, (entry.id >> 22) + kSnowflakeEpochMilliseconds, now, false);
         if (entry.reason_bytes) {
             bank.add(utf8_literal(" · "));
             bank.add({entry.reason, entry.reason_bytes});
