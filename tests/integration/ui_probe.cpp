@@ -8299,25 +8299,36 @@ bool probe_profile_card() noexcept {
     const u32 shaped = g_probe.renderer.content_text->rebuilds,
               uploads = g_probe.renderer.text_instance_uploads;
     const u64 deadline = g_probe.renderer.text_effect_next_ms;
-    Sleep(60);
     const u32 effect_builds = g_probe.renderer.paint_stream_builds;
-    valid = valid && probe_present(&g_probe.renderer, kDefaultTheme) &&
-            g_probe.renderer.text_effect_next_ms > deadline &&
-            g_probe.renderer.content_text->rebuilds == shaped &&
-            g_probe.renderer.text_instance_uploads == uploads &&
-            // Shader-time effects repaint through damage, not a scene rebuild.
-            g_probe.renderer.paint_stream_builds == effect_builds &&
-            probe_capture_frame(L"member-profile-name-animated.bmp");
+    const bool effect_tick = valid && renderer_note_text_effect_damage(&g_probe.renderer, deadline) &&
+                             g_probe.renderer.text_effect_next_ms == deadline + 42 &&
+                             probe_present(&g_probe.renderer, kDefaultTheme) &&
+                             g_probe.renderer.content_text->rebuilds == shaped &&
+                             g_probe.renderer.text_instance_uploads == uploads &&
+                             // Shader-time effects repaint through damage, not a scene rebuild.
+                             g_probe.renderer.paint_stream_builds == effect_builds &&
+                             probe_capture_frame(L"member-profile-name-animated.bmp");
+    if (valid && !effect_tick)
+        log_write(LogLevel::error, "probe", "profile_name_effect_damage_retention_failed");
+    valid = valid && effect_tick;
     {
         // The next tick, with both flip buffers synchronized, repaints only
         // the animated name's bounds.
         const auto& r = g_probe.renderer;
-        const u32 full = r.full_present_draws, partial = r.partial_present_draws, builds = r.paint_stream_builds;
+        const u32 full = r.full_present_draws, partial = r.partial_present_draws,
+                  builds = r.paint_stream_builds;
         const u64 damaged = r.partial_present_pixels;
-        Sleep(45);
-        valid = valid && probe_present(&g_probe.renderer, kDefaultTheme) && r.paint_stream_builds == builds &&
-                r.full_present_draws == full && r.partial_present_draws == partial + 1 &&
-                r.partial_present_pixels - damaged < static_cast<u64>(r.width) * r.height / 16;
+        const u64 next_tick = r.text_effect_next_ms;
+        const bool partial_tick =
+            valid && renderer_note_text_effect_damage(&g_probe.renderer, next_tick) &&
+            r.text_effect_next_ms == next_tick + 42 && probe_present(&g_probe.renderer, kDefaultTheme) &&
+            r.paint_stream_builds == builds && r.content_text->rebuilds == shaped &&
+            r.text_instance_uploads == uploads && r.full_present_draws == full &&
+            r.partial_present_draws == partial + 1 &&
+            r.partial_present_pixels - damaged < static_cast<u64>(r.width) * r.height / 16;
+        if (valid && !partial_tick)
+            log_write(LogLevel::error, "probe", "profile_name_effect_partial_damage_failed");
+        valid = valid && partial_tick;
     }
     scene.edit.caret_visible = false;
     valid = valid && probe_present(&g_probe.renderer, kDefaultTheme) &&
