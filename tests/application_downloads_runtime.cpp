@@ -534,6 +534,9 @@ void dismiss_all() noexcept {
     auto* q = g_app.downloads;
     if (!q)
         return;
+    // Receipts are dismissed from the panel, which a Save no longer opens.
+    if (!q->active)
+        application_downloads_open();
     for (auto& j : q->jobs)
         if (j.occupied && terminal(j.phase))
             activate(*q, {UiDownloadAction::dismiss, j.id});
