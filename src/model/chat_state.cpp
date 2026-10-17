@@ -77,12 +77,16 @@ u32 empty_guild_slot(const ChatStateStore& store) noexcept {
     return store.guild_capacity;
 }
 
-// Backs the first `required` channel slots (records and order) before use.
+// Backs the first `required` channel slots (records and order) before use. A
+// store without a backing callback is fully backed.
 bool back_channels(const ChatStateStore& store, u32 required) noexcept {
     if (required <= store.channel_backed_count)
         return true;
-    if (required > store.channel_capacity || !store.backing_reserve ||
-        !store.backing_reserve(store.backing_context, ChatStateBacking::channels, 0, required))
+    if (required > store.channel_capacity)
+        return false;
+    if (!store.backing_reserve)
+        return true;
+    if (!store.backing_reserve(store.backing_context, ChatStateBacking::channels, 0, required))
         return false;
     store.channel_backed_count = required;
     return true;
@@ -92,8 +96,11 @@ bool back_channels(const ChatStateStore& store, u32 required) noexcept {
 bool back_names(const ChatStateStore& store, u32 bank, u32 bytes) noexcept {
     if (bytes <= store.name_backed_bytes[bank])
         return true;
-    if (bytes > store.name_bank_bytes || !store.backing_reserve ||
-        !store.backing_reserve(store.backing_context, ChatStateBacking::names, bank, bytes))
+    if (bytes > store.name_bank_bytes)
+        return false;
+    if (!store.backing_reserve)
+        return true;
+    if (!store.backing_reserve(store.backing_context, ChatStateBacking::names, bank, bytes))
         return false;
     store.name_backed_bytes[bank] = bytes;
     return true;
@@ -543,7 +550,8 @@ bool chat_state_store_bind_backing(ChatStateStore* store, ChatStateBackingReserv
 }
 
 u32 chat_state_store_channel_slot_bound(const ChatStateStore& store) noexcept {
-    return minimum(store.channel_backed_count, store.channel_capacity);
+    return store.backing_reserve ? minimum(store.channel_backed_count, store.channel_capacity)
+                                 : store.channel_capacity;
 }
 
 static bool merge_guild_settings(GuildSettings* out, const GuildSettings& in) noexcept {

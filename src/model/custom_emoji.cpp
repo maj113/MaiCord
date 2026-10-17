@@ -56,8 +56,11 @@ bool back_emojis(const ChatStateStore& store, ChatStateBacking backing, u32& bac
                  u32 required) noexcept {
     if (required <= backed)
         return true;
-    if (required > capacity || !store.backing_reserve ||
-        !store.backing_reserve(store.backing_context, backing, 0, required))
+    if (required > capacity)
+        return false;
+    if (!store.backing_reserve)
+        return true;
+    if (!store.backing_reserve(store.backing_context, backing, 0, required))
         return false;
     backed = required;
     return true;

@@ -542,7 +542,8 @@ bool chat_state_store_bind_permissions_reserved(ChatStateStore* store, Slice<Rol
 bool chat_state_store_bind_backing(ChatStateStore* store, ChatStateBackingReserve reserve,
                                    void* context) noexcept;
 // Channel slots at or above this are unbacked and never occupied: scans over
-// every slot stop here instead of at channel_capacity.
+// every slot stop here instead of at channel_capacity. Without a backing
+// callback every slot is backed.
 u32 chat_state_store_channel_slot_bound(const ChatStateStore& store) noexcept;
 bool chat_state_store_prepare_permissions(ChatStateStore* store, u32 required_roles,
                                              u32 required_overwrites) noexcept;
