@@ -1,4 +1,5 @@
 #include "maicord/app/https_file_download.hpp"
+#include "maicord/protocol/http_response_stream.hpp"
 
 namespace maicord {
 namespace {
@@ -27,6 +28,24 @@ bool retained(const wchar_t* path) noexcept {
 }
 }
 void test_https_file_download(void (*check)(bool, const char*) noexcept) noexcept {
+    // A connection error after the last byte is written still commits; one
+    // while body bytes are unwritten or missing does not.
+    constexpr char wire[] = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello";
+    u8 response_storage[2048]{};
+    HttpResponseStream response{};
+    bool settled_rule = http_response_stream_initialize(
+        &response, {response_storage, sizeof(response_storage)}, 5, 5, 1024, 32);
+    auto step = http_response_stream_feed(&response, {reinterpret_cast<const u8*>(wire), sizeof(wire) - 1});
+    settled_rule = settled_rule && step.ok() && step.pending.count == 5 &&
+                   !https_file_download_body_settled(response, 5);
+    step = http_response_stream_consume(&response, 3);
+    settled_rule = settled_rule && step.ok() && !https_file_download_body_settled(response, 5);
+    step = http_response_stream_consume(&response, step.pending.count);
+    if (step.ok() && step.state != HttpResponseStreamState::complete)
+        step = http_response_stream_feed(&response, {});
+    check(settled_rule && step.ok() && https_file_download_body_settled(response, 5) &&
+              !https_file_download_body_settled(response, 6),
+          "download settles only when the response is complete and every expected byte is written");
     wchar_t directory[MAX_PATH]{}, path[MAX_PATH]{}, replacement[MAX_PATH]{};
     if (!GetTempPathW(MAX_PATH, directory) || !GetTempFileNameW(directory, L"mcd", 0, path) ||
         !GetTempFileNameW(directory, L"mcd", 0, replacement)) { check(false, "download fixture creates isolated paths"); return; }

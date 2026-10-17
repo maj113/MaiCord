@@ -51,4 +51,9 @@ bool https_file_download_cancel(HttpsFileDownload* download) noexcept;
 // cancelled file/TLS operations, until a later successful reap.
 bool https_file_download_release(HttpsFileDownload* download, u32 timeout_ms = 0) noexcept;
 u32 https_file_download_runtime_bytes() noexcept;
+struct HttpResponseStream;
+// True once the response is complete and every byte of the expected length
+// has been written: the transfer no longer depends on the connection, so a
+// connection error after this point still commits the file.
+bool https_file_download_body_settled(const HttpResponseStream& response, u64 expected_bytes) noexcept;
 } // namespace maicord

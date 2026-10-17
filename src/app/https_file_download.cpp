@@ -152,7 +152,20 @@ void drive(HttpsFileDownload* owner, Runtime* r, TlsStreamEvent step) noexcept {
         if (cancelled(owner)) { drain(owner, r, HttpsFileDownloadError::cancelled, ERROR_OPERATION_ABORTED); return; }
         if (GetTickCount64() >= r->deadline) { drain(owner, r, HttpsFileDownloadError::timeout, WAIT_TIMEOUT); return; }
         if (!step.ok()) {
-            drain(owner, r, r->response_failed ? HttpsFileDownloadError::http : HttpsFileDownloadError::tls, step.native_error); return;
+            // A close the TLS layer rejects (the server's shutdown arriving
+            // with the last record) must not discard a complete file.
+            if (https_file_download_body_settled(r->response, r->expected_bytes)) {
+                commit(owner, r);
+                return;
+            }
+            // A TLS failure without a Windows error reports the Schannel
+            // status, or 0x10000 plus the TLS stream error, as its native code.
+            const u32 detail = step.native_error   ? step.native_error
+                               : r->tls.tls_status ? static_cast<u32>(r->tls.tls_status)
+                                                   : 0x10000u | static_cast<u32>(step.error);
+            drain(owner, r, r->response_failed ? HttpsFileDownloadError::http : HttpsFileDownloadError::tls,
+                  detail);
+            return;
         }
         switch (step.kind) {
         case TlsStreamEventKind::waiting: return;
@@ -253,6 +266,10 @@ bool valid_path(ConstSlice<wchar_t> path) noexcept {
 }
 }
 u32 https_file_download_runtime_bytes() noexcept { return static_cast<u32>((sizeof(Runtime) + 4095) & ~4095ull); }
+bool https_file_download_body_settled(const HttpResponseStream& response, u64 expected_bytes) noexcept {
+    return response.state == HttpResponseStreamState::complete && !response.pending.count &&
+           response.body_bytes == expected_bytes;
+}
 HttpsFileDownloadError https_file_download_start(HttpsFileDownload* owner, const HttpsFileDownloadRequest& request) noexcept {
     if (!owner || owner->runtime || owner->worker.thread || !valid_path(request.path) ||
         request.expected_bytes > 0x7fffffffffffffffull || !request.timeout_ms || request.timeout_ms > kHttpsFileDownloadMaximumTimeoutMs ||
