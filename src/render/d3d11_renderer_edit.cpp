@@ -5,7 +5,7 @@
 #include "maicord/core/utf.hpp"
 #include "d3d11_renderer_interaction_state.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -84,7 +84,7 @@ bool d3d11_renderer_measure_settings_edit(D3D11Renderer* renderer) noexcept {
         !(search ? ui_settings_scene_search_geometry(*scene, &geometry)
                  : ui_settings_scene_control_geometry(*scene, target, &geometry)) ||
         d3d11_renderer_form_active(*renderer) ||
-        (renderer->popup_scene && renderer->popup_scene->active)) {
+        d3d11_renderer_active(renderer->popup_scene)) {
         text_edit_layout_invalidate(&renderer->media_picker_layout); return true;
     }
     const auto& edit=editor->view;

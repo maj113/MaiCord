@@ -73,8 +73,6 @@ enum class D3D11GlyphTextInitializeError : u8 {
     shaped_storage,
     atlas_storage,
     atlas_gpu,
-    title_shape,
-    title_cache,
 };
 
 struct D3D11GlyphTextInitializeResult {

@@ -10,7 +10,6 @@ bool ui_badge_attach(UiBadgeWidget* badge, UiWidgetManager* manager, UiWidgetHan
     if (!removable)
         return true;
     auto layout = ui_layout_style();
-    layout.flow = UiLayoutFlow::overlay;
     layout.width = ui_layout_fixed(22);
     layout.height = ui_layout_fill();
     layout.horizontal_alignment = UiLayoutAlignment::end;

@@ -740,7 +740,7 @@ u32 glyph_atlas_growth_trim(GlyphAtlasGrowth* growth, GlyphAtlasAllocator* atlas
         const GlyphAtlasRow& row = atlas->rows[index];
         if (row.occupied_entries != 0 && !row_has_pinned_entry(*atlas, index) &&
             !row_protected(row, protect_after)) {
-            growth->trimmed_entries += invalidate_row(atlas, index);
+            invalidate_row(atlas, index);
         }
     }
     // 2. Move live tail shelves into the highest empty shelf that fits. Pixel
@@ -782,7 +782,6 @@ u32 glyph_atlas_growth_trim(GlyphAtlasGrowth* growth, GlyphAtlasAllocator* atlas
         tail.pinned_entries = 0;
         tail.visibility_epoch = 0;
     }
-    growth->relocated_rows += moved;
     // 3. Drop empty tail shelves and shrink to the step covering the rest.
     while (atlas->row_count != 0 && atlas->rows[atlas->row_count - 1u].occupied_entries == 0) {
         atlas->rows[--atlas->row_count] = GlyphAtlasRow{};

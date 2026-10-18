@@ -39,22 +39,12 @@ UiMotionScope morph_scope(const UiCallScene& s) noexcept {
     return {kMorphOwner, s.morph_generation};
 }
 bool initialize(UiCallScene& s) noexcept {
-    if (s.owner.manager == &s.widgets)
-        return true;
-    if (!ui_widget_manager_initialize(&s.widgets, {s.widget_storage, 1}, {s.layout_storage, 1}))
-        return false;
-    auto style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.flags = ui_layout_node_visible | ui_layout_node_allow_overlap | ui_layout_node_clip_children;
-    const auto root = ui_widget_manager_add(
-        &s.widgets, ui_widget_invalid_handle(),
-        {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Call"), style, {}, 0, 1}});
-    if (!root.ok())
-        return false;
-    s.owner = {&s.widgets, root.handle};
-    return true;
+    return s.owner.manager == &s.widgets ||
+           ui_widget_manager_initialize_fill_root(&s.widgets, {s.widget_storage, 1}, {s.layout_storage, 1},
+                                                  utf8_literal("Call"),
+                                                  ui_layout_node_visible | ui_layout_node_allow_overlap |
+                                                      ui_layout_node_clip_children,
+                                                  &s.owner);
 }
 const UiCallParticipant* participant_of(const UiCallScene& s, const UiCallTile& tile) noexcept {
     return tile.participant < s.participant_count ? &s.participants[tile.participant] : nullptr;

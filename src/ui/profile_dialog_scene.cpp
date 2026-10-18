@@ -58,7 +58,6 @@ UiProfileDialogPart* add(UiProfileDialogScene* s, UiWidgetHandle parent, UiRect 
     if (s->part_count >= kUiProfileDialogPartCapacity || !ui_rect_has_area(r))
         return nullptr;
     auto layout = ui_layout_style();
-    layout.flow = UiLayoutFlow::overlay;
     layout.width = ui_layout_fixed(ui_rect_width(r));
     layout.height = ui_layout_fixed(ui_rect_height(r));
     layout.margin.left = r.left - origin.left;
@@ -287,10 +286,7 @@ bool ui_profile_dialog_update(UiProfileDialogScene* s, const UiProfileDialogCont
     s->content = content;
     s->viewport = viewport;
     s->part_count = 0;
-    auto style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
-    style.width = style.height = ui_layout_fill();
-    style.flags = ui_layout_node_visible | ui_layout_node_allow_overlap;
+    auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap);
     const auto root = ui_widget_manager_add(&s->widgets, ui_widget_invalid_handle(),
                                             {1, UiWidgetKind::container, ui_widget_enabled,
                                              {utf8_literal("ProfileDialog"), style, {}, 0, 1}});

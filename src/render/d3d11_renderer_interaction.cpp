@@ -294,8 +294,8 @@ bool renderer_message_composer_edit_hit_test(const D3D11Renderer& renderer, i32 
                                              i32 client_y_pixels, u32* model_byte_offset) noexcept {
     const MessageComposerScene* scene = renderer.message_composer_scene;
     if (!model_byte_offset || !scene || !scene->active || !scene->model ||
-        (renderer.friends_scene && renderer.friends_scene->active) ||
-        (renderer.settings_scene && renderer.settings_scene->active) || !renderer.composer_layout.active ||
+        d3d11_renderer_active(renderer.friends_scene) ||
+        d3d11_renderer_active(renderer.settings_scene) || !renderer.composer_layout.active ||
         renderer.dpi == 0) {
         return false;
     }
@@ -326,8 +326,8 @@ bool renderer_message_composer_edit_move_vertical(const D3D11Renderer& renderer,
                                                   u32* model_byte_offset) noexcept {
     const MessageComposerScene* scene = renderer.message_composer_scene;
     if (!model_byte_offset || !scene || !scene->active || !scene->model ||
-        (renderer.friends_scene && renderer.friends_scene->active) ||
-        (renderer.settings_scene && renderer.settings_scene->active) || !renderer.composer_layout.active) {
+        d3d11_renderer_active(renderer.friends_scene) ||
+        d3d11_renderer_active(renderer.settings_scene) || !renderer.composer_layout.active) {
         return false;
     }
     const UiLayoutNode* edit = message_composer_scene_layout_node(*scene, MessageComposerControl::edit);

@@ -239,6 +239,15 @@ constexpr UiLayoutStyle ui_layout_style() noexcept {
     };
 }
 
+// A node that stacks its children and fills its parent.
+constexpr UiLayoutStyle ui_layout_fill_style(u16 flags) noexcept {
+    UiLayoutStyle style = ui_layout_style();
+    style.width = ui_layout_fill();
+    style.height = ui_layout_fill();
+    style.flags = flags;
+    return style;
+}
+
 // The viewport of a virtualized list: fills its parent, stretches its rows and
 // clips and scrolls them vertically.
 constexpr UiLayoutStyle ui_layout_scroll_root_style() noexcept {

@@ -12,7 +12,7 @@
 #include "maicord/ui/audio_controls.hpp"
 #include "maicord/model/message_poll_store.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 enum class UiSearchItemKind : u8 {
@@ -1042,11 +1042,8 @@ bool rebuild(UiSearchScene& s) noexcept {
                                      : UiSearchTarget{};
     ui_widget_manager_reset(&s.widgets);
     ZeroMemory(s.targets, s.storage.widgets.count * sizeof(UiSearchTarget));
-    auto root_style = ui_layout_style();
-    root_style.flow = UiLayoutFlow::overlay;
-    root_style.width = ui_layout_fill();
-    root_style.height = ui_layout_fill();
-    root_style.flags |= ui_layout_node_allow_overlap | ui_layout_node_clip_children;
+    auto root_style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap |
+                                           ui_layout_node_clip_children);
     const auto root =
         ui_widget_manager_add_prevalidated(&s.widgets, ui_widget_invalid_handle(),
                                            {1,

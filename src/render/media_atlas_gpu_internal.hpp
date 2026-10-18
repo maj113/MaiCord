@@ -149,8 +149,26 @@ static_assert(sizeof(JpegAtlasConstants) == 560);
 
 MediaAtlasGpuResult failure(MediaAtlasGpuError error, HRESULT native_error = S_OK,
                             MediaAtlasResult allocation = {}) noexcept;
+// A failure that also counts as a rejected request (gpu may be null).
+MediaAtlasGpuResult reject(MediaAtlasGpu* gpu, MediaAtlasGpuError error, HRESULT native_error = S_OK,
+                           MediaAtlasResult allocation = {}) noexcept;
 
 bool dimensions_valid(u16 width, u16 height) noexcept;
+
+// The atlas texture and its views exist and match the allocation grid.
+inline bool animation_target_ready(const MediaAtlasGpu* gpu, const MediaAtlas* atlas, ID3D11Device* device,
+                                   ID3D11DeviceContext1* context, MediaAssetKey key) noexcept {
+    return gpu && atlas && device && context && gpu->texture && gpu->texture_view && gpu->target &&
+           gpu->texture_uav && media_asset_key_valid(key) && gpu->width == atlas->allocations.width &&
+           gpu->height == atlas->allocations.height;
+}
+
+// A first frame's canvas is non-empty and fits the grid with its padding.
+inline bool animation_canvas_fits(const MediaAtlas& atlas, u16 canvas_width, u16 canvas_height) noexcept {
+    return canvas_width != 0 && canvas_height != 0 &&
+           static_cast<u32>(canvas_width) + atlas.allocations.padding * 2u <= atlas.allocations.width &&
+           static_cast<u32>(canvas_height) + atlas.allocations.padding * 2u <= atlas.allocations.height;
+}
 
 u32 retained_upload_capacity(u32 current, u32 required) noexcept;
 

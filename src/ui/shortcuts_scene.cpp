@@ -34,10 +34,7 @@ bool initialize(UiShortcutsScene& s) noexcept {
         !ui_widget_manager_initialize(&s.widgets, s.storage.widgets, s.storage.layout_nodes))
         return false;
     const auto add = [&](UiWidgetHandle parent, UiWidgetKind kind, Utf8View name) noexcept {
-        auto style = ui_layout_style();
-        style.flags |= ui_layout_node_clip_children | ui_layout_node_allow_overlap | ui_layout_node_allow_zero_size;
-        return ui_widget_manager_add_prevalidated(&s.widgets, parent,
-                                                  {s.widgets.count + 1, kind, ui_widget_none, {name, style}});
+        return ui_widget_manager_add_part(&s.widgets, parent, kind, name);
     };
     const auto root = add(ui_widget_invalid_handle(), UiWidgetKind::container, utf8_literal("Keyboard shortcuts"));
     if (!root.ok())

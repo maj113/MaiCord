@@ -196,11 +196,7 @@ bool ui_image_viewer_open(UiImageViewer* v, UiRect viewport, UiSize pixels) noex
     constexpr u32 capacity = ui_image_viewer_button_count + 1;
     if (!ui_widget_manager_initialize(&v->widgets, {v->widget_storage, capacity}, {v->layout_storage, capacity}))
         return false;
-    auto style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.flags = ui_layout_node_visible | ui_layout_node_allow_overlap;
+    auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap);
     const auto root = ui_widget_manager_add(
         &v->widgets, ui_widget_invalid_handle(),
         {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("ImageViewer"), style, {}, 0, 1}});

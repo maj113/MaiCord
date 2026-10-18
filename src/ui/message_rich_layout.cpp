@@ -473,34 +473,32 @@ Utf8View message_rich_embed_footer_icon(const MessageRichStore& store, const Mes
                : Utf8View{};
 }
 
-bool message_rich_embed_author_icon_rect(const MessageRichStore& store, const MessageRichEmbed& embed,
-                                         const MessageRichItemLayout& layout, u32 index, UiRect content,
-                                         UiRect* output) noexcept {
+// The small icon beside an embed's author or footer line.
+static bool embed_icon_rect(bool present, const float* tops, u32 index, float extent, UiRect content,
+                            UiRect* output) noexcept {
     if (!output)
         return false;
     *output = {};
-    if (index >= kGatewayMessageEmbedMaximum || !message_rich_embed_author_icon(store, embed).bytes ||
-        !(layout.embed_author_tops[index] > 0.0f))
+    if (index >= kGatewayMessageEmbedMaximum || !present || !(tops[index] > 0.0f))
         return false;
     const float left = content.left + kMessageEmbedContentInset;
-    const float top = content.top + layout.embed_author_tops[index];
-    *output = {left, top, left + kMessageEmbedAuthorIcon, top + kMessageEmbedAuthorIcon};
+    const float top = content.top + tops[index];
+    *output = {left, top, left + extent, top + extent};
     return true;
+}
+
+bool message_rich_embed_author_icon_rect(const MessageRichStore& store, const MessageRichEmbed& embed,
+                                         const MessageRichItemLayout& layout, u32 index, UiRect content,
+                                         UiRect* output) noexcept {
+    return embed_icon_rect(message_rich_embed_author_icon(store, embed).bytes != 0,
+                           layout.embed_author_tops, index, kMessageEmbedAuthorIcon, content, output);
 }
 
 bool message_rich_embed_footer_icon_rect(const MessageRichStore& store, const MessageRichEmbed& embed,
                                          const MessageRichItemLayout& layout, u32 index, UiRect content,
                                          UiRect* output) noexcept {
-    if (!output)
-        return false;
-    *output = {};
-    if (index >= kGatewayMessageEmbedMaximum || !message_rich_embed_footer_icon(store, embed).bytes ||
-        !(layout.embed_footer_tops[index] > 0.0f))
-        return false;
-    const float left = content.left + kMessageEmbedContentInset;
-    const float top = content.top + layout.embed_footer_tops[index];
-    *output = {left, top, left + kMessageEmbedFooterIcon, top + kMessageEmbedFooterIcon};
-    return true;
+    return embed_icon_rect(message_rich_embed_footer_icon(store, embed).bytes != 0,
+                           layout.embed_footer_tops, index, kMessageEmbedFooterIcon, content, output);
 }
 
 MediaAttachmentFormat message_rich_embed_icon_format(Utf8View url) noexcept {

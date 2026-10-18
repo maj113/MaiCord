@@ -105,27 +105,8 @@ u32 message_event_cover_url(const ScheduledEvent& event, Slice<char> output) noe
 u32 message_invite_icon_url(const GuildInvite& invite, Slice<char> output) noexcept {
     if (!invite.guild_id || !invite.icon_bytes || !output.data)
         return 0;
-    char id[24];
-    u32 id_bytes = 0;
-    for (u64 value = invite.guild_id; value; value /= 10u)
-        id[id_bytes++] = static_cast<char>('0' + value % 10u);
-    const Utf8View parts[] = {utf8_literal("https://cdn.discordapp.com/icons/"), {}, utf8_literal("/"),
-                              {invite.icon, invite.icon_bytes}, utf8_literal(".png?size=128")};
-    u32 bytes = 0;
-    for (u32 p = 0; p < 5; ++p) {
-        if (p == 1) {
-            if (id_bytes > output.count - bytes)
-                return 0;
-            for (u32 i = 0; i < id_bytes; ++i)
-                output.data[bytes++] = id[id_bytes - 1u - i];
-            continue;
-        }
-        if (parts[p].bytes > output.count - bytes)
-            return 0;
-        copy_bytes(output.data + bytes, parts[p].data, parts[p].bytes);
-        bytes += parts[p].bytes;
-    }
-    return bytes;
+    return cdn_url(utf8_literal("https://cdn.discordapp.com/icons/"), invite.guild_id,
+                   {invite.icon, invite.icon_bytes}, utf8_literal(".png?size=128"), output);
 }
 
 } // namespace maicord

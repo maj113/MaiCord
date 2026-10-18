@@ -40,10 +40,7 @@ bool initialize(UiQuickSwitcherScene& s) noexcept {
         !ui_widget_manager_initialize(&s.widgets, s.storage.widgets, s.storage.layout_nodes)) return false;
     s.accepted = ui_fixed_widget_storage_sidecar<UiQuickSwitcherRow>(s.storage);
     const auto add = [&](UiWidgetHandle parent, UiWidgetKind kind, Utf8View label) noexcept {
-        auto style = ui_layout_style();
-        style.flags |= ui_layout_node_clip_children | ui_layout_node_allow_overlap | ui_layout_node_allow_zero_size;
-        return ui_widget_manager_add_prevalidated(&s.widgets, parent,
-            {s.widgets.count + 1, kind, ui_widget_none, {label, style}});
+        return ui_widget_manager_add_part(&s.widgets, parent, kind, label);
     };
     const auto root = add(ui_widget_invalid_handle(), UiWidgetKind::container, utf8_literal("Quick switcher"));
     if (!root.ok()) return false;
@@ -65,22 +62,7 @@ bool initialize(UiQuickSwitcherScene& s) noexcept {
 }
 bool rectangle(UiQuickSwitcherScene& s, UiWidgetHandle handle, UiRect r, UiRect parent,
                bool visible, bool enabled, bool focusable = true) noexcept {
-    auto* widget = ui_widget_manager_resolve(&s.widgets, handle);
-    auto* node = widget ? ui_layout_engine_resolve(&s.widgets.layout, widget->layout) : nullptr;
-    if (!node) return false;
-    auto& style = node->spec.style;
-    const float width = visible ? ui_rect_width(r) : 0.f, height = visible ? ui_rect_height(r) : 0.f;
-    const float left = visible ? r.left - parent.left : 0.f, top = visible ? r.top - parent.top : 0.f;
-    const u16 flags = static_cast<u16>(ui_layout_node_clip_children | ui_layout_node_allow_overlap |
-        ui_layout_node_allow_zero_size | (visible ? ui_layout_node_visible : 0));
-    const bool changed = style.width.mode != UiLayoutLengthMode::fixed || style.width.value != width ||
-        style.height.mode != UiLayoutLengthMode::fixed || style.height.value != height ||
-        style.margin.left != left || style.margin.top != top || style.flags != flags;
-    style.width = ui_layout_fixed(width); style.height = ui_layout_fixed(height);
-    style.margin = {left, top, 0, 0}; style.flags = flags;
-    widget->flags = static_cast<u16>(visible && enabled ? ui_widget_enabled | ui_widget_hit_test |
-        (focusable ? ui_widget_focusable : 0) : 0);
-    return changed;
+    return ui_widget_manager_place_part(&s.widgets, handle, r, parent, visible, enabled, focusable);
 }
 void cancel_row_capture(UiQuickSwitcherScene& s) noexcept {
     for (auto row : s.rows) if (ui_widget_handle_matches(row, s.widgets.captured)) {

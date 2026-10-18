@@ -135,6 +135,18 @@ UiLayoutStyle fixed_height(float height) noexcept {
     return style;
 }
 
+// A 36 x 32 title bar button at the end of the row.
+bool add_title_button(UiScene* scene, UiSemantic semantic, UiWidgetHandle title,
+                      u16 extra_flags = 0) noexcept {
+    UiLayoutStyle style = fixed_width(36.f);
+    style.height = ui_layout_fixed(32.f);
+    style.vertical_alignment = UiLayoutAlignment::center;
+    style.horizontal_alignment = UiLayoutAlignment::end;
+    style.padding = {8.f, 0, 8.f, 0};
+    style.flags |= static_cast<u16>(ui_layout_node_clip_children | extra_flags);
+    return add_node(scene, semantic, title, style);
+}
+
 bool shell_flag(const UiShellLayoutMetrics& metrics, UiShellLayoutFlags flag) noexcept {
     return (metrics.flags & static_cast<u16>(flag)) != 0;
 }
@@ -285,11 +297,7 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
         scene->semantics[index] = ui_widget_invalid_handle();
     }
 
-    UiLayoutStyle root_style = ui_layout_style();
-    root_style.flow = UiLayoutFlow::overlay;
-    root_style.width = ui_layout_fill();
-    root_style.height = ui_layout_fill();
-    root_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children);
+    UiLayoutStyle root_style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_clip_children);
     if (!add_node(scene, UiSemantic::root, ui_widget_invalid_handle(), root_style)) {
         return false;
     }
@@ -444,61 +452,22 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
     }
     // The member-list toggle is part of the guild-channel title bar even
     // while the list itself is hidden. Friends views have no member width.
-    if (metrics.member_sidebar_width > 0.0f) {
-        UiLayoutStyle toggle_style = fixed_width(36.0f);
-        toggle_style.height = ui_layout_fixed(32.0f);
-        toggle_style.vertical_alignment = UiLayoutAlignment::center;
-        toggle_style.horizontal_alignment = UiLayoutAlignment::end;
-        toggle_style.padding = UiInsets{8.0f, 0.0f, 8.0f, 0.0f};
-        toggle_style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_clip_children |
-                                              ui_layout_node_text_content);
-        if (!add_node(scene, UiSemantic::member_toggle, title, toggle_style)) {
-            return false;
-        }
+    if (metrics.member_sidebar_width > 0.0f &&
+        !add_title_button(scene, UiSemantic::member_toggle, title, ui_layout_node_text_content)) {
+        return false;
     }
-    if (view != UiShellView::friends && shell_flag(metrics, ui_shell_layout_pins)) {
-        UiLayoutStyle pins_style = fixed_width(36.f);
-        pins_style.height = ui_layout_fixed(32.f);
-        pins_style.vertical_alignment = UiLayoutAlignment::center;
-        pins_style.horizontal_alignment = UiLayoutAlignment::end;
-        pins_style.padding = {8.f, 0, 8.f, 0};
-        pins_style.flags |= ui_layout_node_clip_children;
-        if (!add_node(scene, UiSemantic::pins_toggle, title, pins_style))
-            return false;
-    }
-    if (view != UiShellView::friends && (variant & 16u)) {
-        UiLayoutStyle threads_style = fixed_width(36.f);
-        threads_style.height = ui_layout_fixed(32.f);
-        threads_style.vertical_alignment = UiLayoutAlignment::center;
-        threads_style.horizontal_alignment = UiLayoutAlignment::end;
-        threads_style.padding = {8.f, 0, 8.f, 0};
-        threads_style.flags |= ui_layout_node_clip_children;
-        if (!add_node(scene, UiSemantic::threads_toggle, title, threads_style))
-            return false;
-    }
-    if (view == UiShellView::private_channels && (variant & 32u)) {
-        const UiSemantic buttons[]{UiSemantic::private_add, UiSemantic::private_call};
-        for (const auto semantic : buttons) {
-            UiLayoutStyle style = fixed_width(36.f);
-            style.height = ui_layout_fixed(32.f);
-            style.vertical_alignment = UiLayoutAlignment::center;
-            style.horizontal_alignment = UiLayoutAlignment::end;
-            style.padding = {8.f, 0, 8.f, 0};
-            style.flags |= ui_layout_node_clip_children;
-            if (!add_node(scene, semantic, title, style))
-                return false;
-        }
-    }
-    if (variant & 64u) {
-        UiLayoutStyle inbox_style = fixed_width(36.f);
-        inbox_style.height = ui_layout_fixed(32.f);
-        inbox_style.vertical_alignment = UiLayoutAlignment::center;
-        inbox_style.horizontal_alignment = UiLayoutAlignment::end;
-        inbox_style.padding = {8.f, 0, 8.f, 0};
-        inbox_style.flags |= ui_layout_node_clip_children;
-        if (!add_node(scene, UiSemantic::inbox_toggle, title, inbox_style))
-            return false;
-    }
+    if (view != UiShellView::friends && shell_flag(metrics, ui_shell_layout_pins) &&
+        !add_title_button(scene, UiSemantic::pins_toggle, title))
+        return false;
+    if (view != UiShellView::friends && (variant & 16u) &&
+        !add_title_button(scene, UiSemantic::threads_toggle, title))
+        return false;
+    if (view == UiShellView::private_channels && (variant & 32u) &&
+        (!add_title_button(scene, UiSemantic::private_add, title) ||
+         !add_title_button(scene, UiSemantic::private_call, title)))
+        return false;
+    if ((variant & 64u) && !add_title_button(scene, UiSemantic::inbox_toggle, title))
+        return false;
     UiLayoutStyle message_style = ui_layout_style();
     message_style.width = ui_layout_fill();
     message_style.height = ui_layout_fill();
@@ -550,9 +519,7 @@ bool build_shell(UiScene* scene, UiShellView view, const UiShellLayoutMetrics& m
 
 } // namespace
 
-const UiBootstrapMetrics kDefaultUiBootstrapMetrics{
-    16.0f, 12.0f, 40.0f, 58.0f, 8.0f, 34.0f, 34.0f, 68.0f, 40.0f, 72.0f, 46.0f, 32.0f,
-};
+const UiBootstrapMetrics kDefaultUiBootstrapMetrics{68.0f};
 
 bool ui_scene_initialize_bootstrap(UiScene* scene) noexcept {
     if (!scene || scene->storage.arena.base) {

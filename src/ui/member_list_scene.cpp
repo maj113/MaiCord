@@ -18,7 +18,6 @@ inline constexpr u32 kMemberListRootId = 1;
 
 UiLayoutStyle row_style() noexcept {
     UiLayoutStyle style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
     style.width = ui_layout_fill();
     style.height = ui_layout_fixed(kMemberListRowHeight);
     style.horizontal_alignment = UiLayoutAlignment::stretch;

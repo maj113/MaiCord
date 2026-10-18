@@ -44,10 +44,7 @@ MediaAtlasGpuResult media_atlas_gpu_initialize(MediaAtlasGpu* gpu, ID3D11Device*
         gpu->vp8_coefficient_view || gpu->vp8_yuv_buffer || gpu->vp8_yuv_view || gpu->vp8_yuv_uav ||
         gpu->vp8_constants || gpu->vp8_tile_constants || gpu->vp8_reconstruct_shader || gpu->vp8_idct_shader || gpu->vp8_filter_constants ||
         gpu->vp8_filter_shader || gpu->vp8_atlas_constants || gpu->vp8_atlas_shader) {
-        if (gpu) {
-            ++gpu->rejected;
-        }
-        return failure(MediaAtlasGpuError::invalid_input);
+        return reject(gpu, MediaAtlasGpuError::invalid_input);
     }
     const HRESULT result = create_media_surface(device, context, width, height, &gpu->texture,
                                                 &gpu->texture_view, &gpu->target, &gpu->texture_uav);
@@ -67,10 +64,7 @@ MediaAtlasGpuResult media_atlas_gpu_initialize_preview(MediaAtlasGpu* gpu, ID3D1
     if (!gpu || !device || !context || !gpu->texture || !gpu->texture_view ||
         !dimensions_valid(width, height) || gpu->preview_texture || gpu->preview_texture_view ||
         gpu->preview_target || gpu->preview_texture_uav) {
-        if (gpu) {
-            ++gpu->rejected;
-        }
-        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     const HRESULT result =
         create_media_surface(device, context, width, height, &gpu->preview_texture,
@@ -80,8 +74,7 @@ MediaAtlasGpuResult media_atlas_gpu_initialize_preview(MediaAtlasGpu* gpu, ID3D1
         com_release(gpu->preview_target);
         com_release(gpu->preview_texture_view);
         com_release(gpu->preview_texture);
-        ++gpu->rejected;
-        return failure(MediaAtlasGpuError::device_failure, result);
+        return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
     gpu->preview_width = width;
     gpu->preview_height = height;
@@ -98,16 +91,12 @@ MediaAtlasGpuResult media_atlas_gpu_upload_rgba8(MediaAtlasGpu* gpu, MediaAtlas*
         height == 0 || row_pitch < minimum_pitch || required > premultiplied_rgba8.count ||
         (!premultiplied_rgba8.data && premultiplied_rgba8.count != 0) ||
         gpu->width != atlas->allocations.width || gpu->height != atlas->allocations.height) {
-        if (gpu) {
-            ++gpu->rejected;
-        }
-        return failure(MediaAtlasGpuError::invalid_input);
+        return reject(gpu, MediaAtlasGpuError::invalid_input);
     }
 
     const MediaAtlasResult allocation = allocate_and_clear(gpu, atlas, context, key, width, height);
     if (!allocation.ok()) {
-        ++gpu->rejected;
-        return failure(MediaAtlasGpuError::atlas_failure, S_OK, allocation);
+        return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
 
     const D3D11_BOX destination{
@@ -138,24 +127,19 @@ static MediaAtlasGpuResult upload_straight_rgba8_surface(
         surface_width != atlas->allocations.width || surface_height != atlas->allocations.height ||
         static_cast<u32>(width) + atlas->allocations.padding * 2u > atlas->allocations.width ||
         static_cast<u32>(height) + atlas->allocations.padding * 2u > atlas->allocations.height) {
-        if (gpu) {
-            ++gpu->rejected;
-        }
-        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
     const HRESULT result = upload_png_shader_inputs(gpu, device, context, straight_rgba8,
                                                     static_cast<u32>(required), nullptr, 0);
     if (FAILED(result)) {
-        ++gpu->rejected;
-        return failure(MediaAtlasGpuError::device_failure, result);
+        return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
 
     const MediaAtlasResult allocation = allocate_and_clear_surface(
         gpu, atlas, context, target, surface_width, surface_height, key, width, height);
     if (!allocation.ok()) {
-        ++gpu->rejected;
-        return failure(MediaAtlasGpuError::atlas_failure, S_OK, allocation);
+        return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
     const PngAtlasConstants constants{row_pitch, width, height, 8, 7, allocation.x, allocation.y, 0,
                                        0,         0,     0,      0, {}};
@@ -183,10 +167,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_preview_straight_rgba8(
     ID3D11DeviceContext1* context, MediaAssetKey key, u16 width, u16 height,
     u32 row_pitch, ConstSlice<u8> straight_rgba8) noexcept {
     if (!media_asset_large_preview(key)) {
-        if (gpu) {
-            ++gpu->rejected;
-        }
-        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     return upload_straight_rgba8_surface(
         gpu, atlas, device, context, key, width, height, row_pitch, straight_rgba8,
@@ -205,23 +186,18 @@ static MediaAtlasGpuResult upload_png_surface(MediaAtlasGpu* gpu, MediaAtlas* at
         surface_width != atlas->allocations.width || surface_height != atlas->allocations.height ||
         image.width + atlas->allocations.padding * 2u > atlas->allocations.width ||
         image.height + atlas->allocations.padding * 2u > atlas->allocations.height) {
-        if (gpu) {
-            ++gpu->rejected;
-        }
-        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     const HRESULT result = upload_png_inputs(gpu, device, context, image, reconstructed_scanlines);
     if (FAILED(result)) {
-        ++gpu->rejected;
-        return failure(MediaAtlasGpuError::device_failure, result);
+        return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
 
     const MediaAtlasResult allocation =
         allocate_and_clear_surface(gpu, atlas, context, target, surface_width, surface_height, key,
                                    static_cast<u16>(image.width), static_cast<u16>(image.height));
     if (!allocation.ok()) {
-        ++gpu->rejected;
-        return failure(MediaAtlasGpuError::atlas_failure, S_OK, allocation);
+        return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
     const PngAtlasConstants constants{
         image.row_stride,
@@ -261,10 +237,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_preview_png(MediaAtlasGpu* gpu, Media
                                                        MediaAssetKey key, const PngImage& image,
                                                        ConstSlice<u8> reconstructed_scanlines) noexcept {
     if (!media_asset_large_preview(key)) {
-        if (gpu) {
-            ++gpu->rejected;
-        }
-        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     return upload_png_surface(gpu, atlas, device, context, key, image, reconstructed_scanlines,
                               gpu ? gpu->preview_target : nullptr, gpu ? gpu->preview_texture_uav : nullptr,
@@ -285,10 +258,7 @@ static MediaAtlasGpuResult upload_jpeg_surface(MediaAtlasGpu* gpu, MediaAtlas* a
             atlas->allocations.width ||
         static_cast<u32>(jpeg_display_height(image)) + atlas->allocations.padding * 2u >
             atlas->allocations.height) {
-        if (gpu) {
-            ++gpu->rejected;
-        }
-        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
 
     u32 sample_offsets[kJpegComponentMaximum]{};
@@ -310,8 +280,7 @@ static MediaAtlasGpuResult upload_jpeg_surface(MediaAtlasGpu* gpu, MediaAtlas* a
                                  image.maximum_vertical_sampling - 1u) /
                                 image.maximum_vertical_sampling;
         if (count > ~0u - sample_count) {
-            ++gpu->rejected;
-            return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+            return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
         }
         sample_count += count;
     }
@@ -338,8 +307,7 @@ static MediaAtlasGpuResult upload_jpeg_surface(MediaAtlasGpu* gpu, MediaAtlas* a
         result = ensure_vp8_yuv_buffer(gpu, device, sample_bytes);
     }
     if (FAILED(result)) {
-        ++gpu->rejected;
-        return failure(MediaAtlasGpuError::device_failure, result);
+        return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
 
     result = upload_discard(context, gpu->vp8_coefficient_buffer, coefficients.blocks,
@@ -365,8 +333,7 @@ static MediaAtlasGpuResult upload_jpeg_surface(MediaAtlasGpu* gpu, MediaAtlas* a
         }
     }
     if (FAILED(result)) {
-        ++gpu->rejected;
-        return failure(MediaAtlasGpuError::device_failure, result);
+        return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
 
     const u16 display_width = jpeg_display_width(image);
@@ -374,8 +341,7 @@ static MediaAtlasGpuResult upload_jpeg_surface(MediaAtlasGpu* gpu, MediaAtlas* a
     const MediaAtlasResult allocation = allocate_and_clear_surface(
         gpu, atlas, context, target, surface_width, surface_height, key, display_width, display_height);
     if (!allocation.ok()) {
-        ++gpu->rejected;
-        return failure(MediaAtlasGpuError::atlas_failure, S_OK, allocation);
+        return reject(gpu, MediaAtlasGpuError::atlas_failure, S_OK, allocation);
     }
 
     JpegIdctConstants idct_constants{};
@@ -478,10 +444,7 @@ MediaAtlasGpuResult media_atlas_gpu_upload_preview_jpeg(
     MediaAtlasGpu* gpu, MediaAtlas* atlas, ID3D11Device* device, ID3D11DeviceContext1* context,
     MediaAssetKey key, const JpegImage& image, const JpegCoefficientWorkspace& coefficients) noexcept {
     if (!media_asset_large_preview(key)) {
-        if (gpu) {
-            ++gpu->rejected;
-        }
-        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     return upload_jpeg_surface(gpu, atlas, device, context, key, image, coefficients,
                                gpu ? gpu->preview_target : nullptr,
@@ -546,8 +509,7 @@ MediaAtlasGpuResult media_atlas_gpu_resize(MediaAtlasGpu* gpu, ID3D11Device* dev
         return MediaAtlasGpuResult{{}, S_OK, MediaAtlasGpuError::none};
     }
     if (!dimensions_valid(width, height)) {
-        ++gpu->rejected;
-        return failure(MediaAtlasGpuError::invalid_input, E_INVALIDARG);
+        return reject(gpu, MediaAtlasGpuError::invalid_input, E_INVALIDARG);
     }
     ID3D11Texture2D* texture = nullptr;
     ID3D11ShaderResourceView* view = nullptr;
@@ -559,8 +521,7 @@ MediaAtlasGpuResult media_atlas_gpu_resize(MediaAtlasGpu* gpu, ID3D11Device* dev
         com_release(target);
         com_release(view);
         com_release(texture);
-        ++gpu->rejected;
-        return failure(MediaAtlasGpuError::device_failure, result);
+        return reject(gpu, MediaAtlasGpuError::device_failure, result);
     }
     unbind_apng_atlas(context);
     copy_rows(context, texture, *slot.texture, width, minimum<u32>(old_height, height), moves, old_height, height);

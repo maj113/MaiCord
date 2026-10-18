@@ -51,30 +51,13 @@ Utf8View auth_cooldown_action(const LoginView& view) noexcept {
 }
 
 Utf8View backup_acknowledgement_action(u8 seconds) noexcept {
-    switch (seconds) {
-    case 10:
-        return utf8_literal("Continue in 10");
-    case 9:
-        return utf8_literal("Continue in 9");
-    case 8:
-        return utf8_literal("Continue in 8");
-    case 7:
-        return utf8_literal("Continue in 7");
-    case 6:
-        return utf8_literal("Continue in 6");
-    case 5:
-        return utf8_literal("Continue in 5");
-    case 4:
-        return utf8_literal("Continue in 4");
-    case 3:
-        return utf8_literal("Continue in 3");
-    case 2:
-        return utf8_literal("Continue in 2");
-    case 1:
-        return utf8_literal("Continue in 1");
-    default:
-        return utf8_literal("Continue");
-    }
+    static constexpr Utf8View labels[]{utf8_literal("Continue"),       utf8_literal("Continue in 1"),
+                                       utf8_literal("Continue in 2"),  utf8_literal("Continue in 3"),
+                                       utf8_literal("Continue in 4"),  utf8_literal("Continue in 5"),
+                                       utf8_literal("Continue in 6"),  utf8_literal("Continue in 7"),
+                                       utf8_literal("Continue in 8"),  utf8_literal("Continue in 9"),
+                                       utf8_literal("Continue in 10")};
+    return labels[seconds <= 10 ? seconds : 0];
 }
 
 Utf8View captcha_action_label(LoginCaptchaStatus status) noexcept {

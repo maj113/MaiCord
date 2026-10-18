@@ -356,7 +356,6 @@ bool tree(Builder& b, const ColrPaintElement& e, ColrMatrix m, u32 depth) noexce
     case ColrPaintKind::color_glyph:
         return children(b, 1, m, depth, false) && clip(b, p.colorGlyph.clipBox, m);
     case ColrPaintKind::composite: {
-        b.p->general_paints |= p.composite.mode != 3u;
         if (!children(b, 2, m, depth, false))
             return false;
         auto* n = emit(b, 6);
@@ -380,7 +379,6 @@ bool tree(Builder& b, const ColrPaintElement& e, ColrMatrix m, u32 depth) noexce
     case ColrPaintKind::linear_gradient:
     case ColrPaintKind::radial_gradient:
     case ColrPaintKind::sweep_gradient: {
-        b.p->general_paints |= e.kind == ColrPaintKind::sweep_gradient;
         auto* n = emit(b, static_cast<u32>(e.kind) - 3, &m);
         if (!n)
             return false;
@@ -436,7 +434,6 @@ bool colr_program_build(ColrPaintProgram* p, const ColrPaintSource& source,
     arena_reset(&p->storage);
     p->first = p->last = none;
     p->nodes = p->stack = p->peak_stack = p->paint_types = 0;
-    p->general_paints = false;
     p->bounds = {};
     p->mask_count = p->mask_pixels = 0;
     Builder b{p, &source, scale};

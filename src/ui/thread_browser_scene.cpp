@@ -119,10 +119,8 @@ bool rebuild(UiThreadBrowserScene& s) noexcept {
     s.retry = {};
     s.create_post = {};
     s.forum_sort = s.forum_list = s.forum_gallery = {};
-    auto layout = ui_layout_style();
-    layout.flow = UiLayoutFlow::overlay;
-    layout.width = layout.height = ui_layout_fill();
-    layout.flags |= ui_layout_node_allow_overlap | ui_layout_node_clip_children;
+    auto layout = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap |
+                                       ui_layout_node_clip_children);
     const auto root = ui_widget_manager_add_prevalidated(&s.widgets, ui_widget_invalid_handle(),
         {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Thread browser"), layout}});
     if (!root.ok()) return false;

@@ -11,25 +11,6 @@
 namespace maicord {
 namespace {
 
-bool presentation_stamp_push(RendererPresentationStamp* stamp, u64 value) noexcept {
-    if (stamp->count == ~0u) {
-        stamp->valid = false;
-        return false;
-    }
-    const u64 ordinal = stamp->count++;
-    const u64 first = value + 0x9E3779B97F4A7C15ull + ordinal;
-    stamp->primary = (stamp->primary ^ first) * 0x100000001B3ull;
-    const u64 rotated = (value << 29) | (value >> 35);
-    const u64 second = rotated ^ (ordinal * 0xD6E8FEB86659FD93ull);
-    const u64 mixed = (stamp->secondary ^ second) * 0xC2B2AE3D27D4EB4Full;
-    stamp->secondary = (mixed << 23) | (mixed >> 41);
-    if (!stamp->timeline) {
-        const u64 shell = stamp->shell ^ (value + 0x9E3779B97F4A7C15ull * ++stamp->shell_count);
-        stamp->shell = (shell ^ (shell >> 31)) * 0xC2B2AE3D27D4EB4Full;
-    }
-    return true;
-}
-
 // Inputs only the message timeline reads stay out of the shell hash.
 struct TimelineInputs {
     RendererPresentationStamp* stamp;
@@ -43,43 +24,74 @@ struct TimelineInputs {
     }
 };
 
-bool presentation_stamp_bytes(RendererPresentationStamp* stamp, const void* bytes, u32 count) noexcept {
-    if (!bytes && count != 0) {
+// Folds the inputs a frame depends on into the stamp. An unusable input
+// (counter overflow, a null block with a length) invalidates the stamp for good.
+class StampWriter {
+public:
+    explicit StampWriter(RendererPresentationStamp* stamp) noexcept : stamp_(stamp) {}
+    StampWriter& push(u64 value) noexcept;
+    StampWriter& bytes(const void* bytes, u32 count) noexcept;
+    StampWriter& widgets(const UiWidgetManager& widgets) noexcept;
+    StampWriter& pointer(const void* pointer) noexcept {
+        return push(static_cast<u64>(reinterpret_cast<ULONG_PTR>(pointer)));
+    }
+    StampWriter& caret(bool visible) noexcept {
+        return push(!stamp_->structural && visible);
+    }
+
+private:
+    RendererPresentationStamp* stamp_;
+};
+
+StampWriter& StampWriter::push(u64 value) noexcept {
+    RendererPresentationStamp* stamp = stamp_;
+    if (!stamp->valid)
+        return *this;
+    if (stamp->count == ~0u) {
         stamp->valid = false;
-        return false;
+        return *this;
+    }
+    const u64 ordinal = stamp->count++;
+    const u64 first = value + 0x9E3779B97F4A7C15ull + ordinal;
+    stamp->primary = (stamp->primary ^ first) * 0x100000001B3ull;
+    const u64 rotated = (value << 29) | (value >> 35);
+    const u64 second = rotated ^ (ordinal * 0xD6E8FEB86659FD93ull);
+    const u64 mixed = (stamp->secondary ^ second) * 0xC2B2AE3D27D4EB4Full;
+    stamp->secondary = (mixed << 23) | (mixed >> 41);
+    if (!stamp->timeline) {
+        const u64 shell = stamp->shell ^ (value + 0x9E3779B97F4A7C15ull * ++stamp->shell_count);
+        stamp->shell = (shell ^ (shell >> 31)) * 0xC2B2AE3D27D4EB4Full;
+    }
+    return *this;
+}
+
+StampWriter& StampWriter::bytes(const void* bytes, u32 count) noexcept {
+    if (!bytes && count != 0) {
+        stamp_->valid = false;
+        return *this;
     }
     const u8* source = static_cast<const u8*>(bytes);
-    while (count != 0) {
+    while (count != 0 && stamp_->valid) {
         const u32 chunk = minimum<u32>(count, sizeof(u64));
         u64 value = 0;
         CopyMemory(&value, source, chunk);
-        if (!presentation_stamp_push(stamp, value)) {
-            return false;
-        }
+        push(value);
         source += chunk;
         count -= chunk;
     }
-    return true;
+    return *this;
 }
 
 u64 presentation_handle(UiWidgetHandle handle) noexcept {
     return static_cast<u64>(handle.slot) | (static_cast<u64>(handle.generation) << 16);
 }
 
-bool presentation_stamp_widgets(RendererPresentationStamp* stamp, const UiWidgetManager& widgets) noexcept {
-    return presentation_stamp_push(stamp, widgets.generation) &&
-           presentation_stamp_push(stamp, widgets.layout.revision) &&
-           presentation_stamp_push(stamp, presentation_handle(widgets.focused)) &&
-           presentation_stamp_push(stamp, stamp->structural ? 0 : presentation_handle(widgets.hovered)) &&
-           presentation_stamp_push(stamp, presentation_handle(widgets.captured));
-}
-
-bool presentation_stamp_caret(RendererPresentationStamp* stamp, bool visible) noexcept {
-    return presentation_stamp_push(stamp, !stamp->structural && visible);
-}
-
-bool presentation_stamp_pointer(RendererPresentationStamp* stamp, const void* pointer) noexcept {
-    return presentation_stamp_push(stamp, static_cast<u64>(reinterpret_cast<ULONG_PTR>(pointer)));
+StampWriter& StampWriter::widgets(const UiWidgetManager& widgets) noexcept {
+    return push(widgets.generation)
+        .push(widgets.layout.revision)
+        .push(presentation_handle(widgets.focused))
+        .push(stamp_->structural ? 0 : presentation_handle(widgets.hovered))
+        .push(presentation_handle(widgets.captured));
 }
 
 } // namespace
@@ -92,57 +104,44 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     stamp.shell = 0x243F6A8885A308D3ull;
     stamp.valid = true;
     stamp.structural = structural;
-    if (!presentation_stamp_push(&stamp, renderer.typography_revision))
-        return stamp;
+    StampWriter s(&stamp);
+    s.push(renderer.typography_revision);
     if (d3d11_renderer_login_form_text(renderer)) {
         const auto& owned = *renderer.login_form_text;
-        const auto* form =
-            d3d11_renderer_text_form_active(renderer)
-                ? renderer.text_form->scene
-                : nullptr;
-        if (!presentation_stamp_push(&stamp, renderer.width) ||
-            !presentation_stamp_push(&stamp, renderer.height) ||
-            !presentation_stamp_push(&stamp, renderer.dpi) ||
-            !presentation_stamp_bytes(&stamp, &theme, sizeof(theme)) ||
-            !presentation_stamp_pointer(&stamp, renderer.login_scene) ||
-            (renderer.login_scene && !presentation_stamp_widgets(&stamp, renderer.login_scene->widgets)) ||
-            !presentation_stamp_push(&stamp, owned.valid) ||
-            !presentation_stamp_push(&stamp, owned.projection.signature) ||
-            !presentation_stamp_push(&stamp, renderer.content_text->rebuilds) ||
-            !presentation_stamp_push(&stamp, renderer.content_text->quad_count) ||
-            !presentation_stamp_push(&stamp, renderer.content_text->batch_count) ||
-            !presentation_stamp_push(&stamp, renderer.overlay_text_first_batch) ||
-            !presentation_stamp_push(&stamp, renderer.form_text_first_batch) ||
-            !presentation_stamp_push(&stamp, renderer.login_qr_ready) ||
-            (renderer.login_qr_ready &&
-             !presentation_stamp_bytes(&stamp, &renderer.login_qr_code, sizeof(renderer.login_qr_code))) ||
-            !presentation_stamp_pointer(&stamp, renderer.text_form) ||
-            !presentation_stamp_pointer(&stamp, form) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_form_revision))
-            return stamp;
-        if (form && (!presentation_stamp_push(&stamp, form->revision) ||
-                     !presentation_stamp_widgets(&stamp, form->widgets) ||
-                     !presentation_stamp_bytes(&stamp, &form->viewport, sizeof(form->viewport))))
-            return stamp;
-        if (!form && (!presentation_stamp_push(&stamp, renderer.login_caret_visible) ||
-                      !presentation_stamp_bytes(&stamp, &renderer.login_edit.caret,
-                                                sizeof(renderer.login_edit.caret)) ||
-                      !presentation_stamp_push(&stamp, renderer.login_edit.selection_count) ||
-                      !presentation_stamp_bytes(&stamp, renderer.login_edit.selections,
-                                                renderer.login_edit.selection_count *
-                                                    sizeof(TextEditMetric))))
-            return stamp;
+        const auto* form = d3d11_renderer_text_form_active(renderer) ? renderer.text_form->scene : nullptr;
+        s.push(renderer.width).push(renderer.height).push(renderer.dpi).bytes(&theme, sizeof(theme));
+        s.pointer(renderer.login_scene);
+        if (renderer.login_scene)
+            s.widgets(renderer.login_scene->widgets);
+        s.push(owned.valid)
+            .push(owned.projection.signature)
+            .push(renderer.content_text->rebuilds)
+            .push(renderer.content_text->quad_count)
+            .push(renderer.content_text->batch_count)
+            .push(renderer.overlay_text_first_batch)
+            .push(renderer.form_text_first_batch)
+            .push(renderer.login_qr_ready);
+        if (renderer.login_qr_ready)
+            s.bytes(&renderer.login_qr_code, sizeof(renderer.login_qr_code));
+        s.pointer(renderer.text_form).pointer(form).push(renderer.interaction_text_form_revision);
+        if (form)
+            s.push(form->revision).widgets(form->widgets).bytes(&form->viewport, sizeof(form->viewport));
+        else
+            s.push(renderer.login_caret_visible)
+                .bytes(&renderer.login_edit.caret, sizeof(renderer.login_edit.caret))
+                .push(renderer.login_edit.selection_count)
+                .bytes(renderer.login_edit.selections,
+                       renderer.login_edit.selection_count * sizeof(TextEditMetric));
         return stamp;
     }
     if (renderer.forum_form && renderer.forum_form->scene) {
         const auto& form = *renderer.forum_form->scene;
-        if (!presentation_stamp_pointer(&stamp, renderer.forum_form) ||
-            !presentation_stamp_push(&stamp, form.content.owner_serial) ||
-            !presentation_stamp_push(&stamp, form.active) ||
-            !presentation_stamp_push(&stamp, form.revision) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_forum_form_revision) ||
-            !presentation_stamp_widgets(&stamp, form.widgets))
-            return stamp;
+        s.pointer(renderer.forum_form)
+            .push(form.content.owner_serial)
+            .push(form.active)
+            .push(form.revision)
+            .push(renderer.interaction_text_forum_form_revision)
+            .widgets(form.widgets);
         if (form.active)
             for (u32 field = 0; field < 2; ++field) {
                 const auto& geometry = renderer.forum_form->geometry[field];
@@ -153,611 +152,499 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
                     stamp.valid = false;
                     return stamp;
                 }
-                if (!presentation_stamp_bytes(&stamp, &geometry.text_rectangle, sizeof(UiRect)) ||
-                    !presentation_stamp_bytes(&stamp, &geometry.caret, sizeof(UiRect)) ||
-                    !presentation_stamp_push(&stamp, geometry.selections.count) ||
-                    !presentation_stamp_bytes(&stamp, geometry.selections.data,
-                                              geometry.selections.count * sizeof(UiRect)) ||
-                    !presentation_stamp_push(&stamp, geometry.composition.count) ||
-                    !presentation_stamp_bytes(&stamp, geometry.composition.data,
-                                              geometry.composition.count * sizeof(TextFormCompositionMark)))
-                    return stamp;
+                s.bytes(&geometry.text_rectangle, sizeof(UiRect))
+                    .bytes(&geometry.caret, sizeof(UiRect))
+                    .push(geometry.selections.count)
+                    .bytes(geometry.selections.data, geometry.selections.count * sizeof(UiRect))
+                    .push(geometry.composition.count)
+                    .bytes(geometry.composition.data,
+                           geometry.composition.count * sizeof(TextFormCompositionMark));
             }
     }
     if (renderer_settings_page_visible(renderer)) {
         const auto& settings = *renderer.settings_scene;
         const auto* popup = d3d11_renderer_settings_popup(renderer);
-        if (!presentation_stamp_pointer(&stamp, renderer.settings_scene) ||
-            !presentation_stamp_push(&stamp, settings.revision) ||
-            !presentation_stamp_push(&stamp, settings.motion_revision) ||
-            !presentation_stamp_widgets(&stamp, settings.widgets) ||
-            !presentation_stamp_bytes(&stamp, &settings.viewport, sizeof(settings.viewport)) ||
-            !presentation_stamp_push(&stamp, renderer.width) ||
-            !presentation_stamp_push(&stamp, renderer.height) ||
-            !presentation_stamp_push(&stamp, renderer.dpi) ||
-            !presentation_stamp_push(&stamp, renderer.login_visible) ||
-            !presentation_stamp_bytes(&stamp, &theme, sizeof(theme)) ||
-            !presentation_stamp_pointer(&stamp, renderer.content_text) ||
-            !presentation_stamp_push(&stamp, renderer.glyph_text.allocator.evicted_entries) ||
-            !presentation_stamp_push(&stamp, renderer.glyph_text.allocator.full_resets) ||
-            !presentation_stamp_push(&stamp, renderer.glyph_text.ready) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_settings_revision) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_active_mask) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_popup_revision) ||
-            !presentation_stamp_pointer(&stamp, popup) ||
-            (popup && (!presentation_stamp_push(&stamp, popup->revision) ||
-                       !presentation_stamp_widgets(&stamp, popup->widgets) ||
-                       !presentation_stamp_bytes(&stamp, &popup->rectangle, sizeof(UiRect)))))
-            return stamp;
-        if (renderer.content_text &&
-            (!presentation_stamp_push(&stamp, renderer.content_text->rebuilds) ||
-             !presentation_stamp_push(&stamp, renderer.content_text->quad_count) ||
-             !presentation_stamp_push(&stamp, renderer.content_text->batch_count) ||
-             !presentation_stamp_push(&stamp, renderer.overlay_text_first_batch) ||
-             !presentation_stamp_push(&stamp, renderer.form_text_first_batch)))
-            return stamp;
+        s.pointer(renderer.settings_scene)
+            .push(settings.revision)
+            .push(settings.motion_revision)
+            .widgets(settings.widgets)
+            .bytes(&settings.viewport, sizeof(settings.viewport))
+            .push(renderer.width)
+            .push(renderer.height)
+            .push(renderer.dpi)
+            .push(renderer.login_visible)
+            .bytes(&theme, sizeof(theme))
+            .pointer(renderer.content_text)
+            .push(renderer.glyph_text.allocator.evicted_entries)
+            .push(renderer.glyph_text.allocator.full_resets)
+            .push(renderer.glyph_text.ready)
+            .push(renderer.interaction_text_settings_revision)
+            .push(renderer.interaction_text_active_mask)
+            .push(renderer.interaction_text_popup_revision)
+            .pointer(popup);
+        if (popup)
+            s.push(popup->revision).widgets(popup->widgets).bytes(&popup->rectangle, sizeof(UiRect));
+        if (renderer.content_text)
+            s.push(renderer.content_text->rebuilds)
+                .push(renderer.content_text->quad_count)
+                .push(renderer.content_text->batch_count)
+                .push(renderer.overlay_text_first_batch)
+                .push(renderer.form_text_first_batch);
         return stamp;
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.theme_editor_scene) ||
-        (renderer_theme_editor_visible(renderer) &&
-         (!presentation_stamp_push(&stamp, renderer.theme_editor_scene->revision) ||
-          !presentation_stamp_push(&stamp, renderer.theme_editor_scene->generation) ||
-          !presentation_stamp_widgets(&stamp, renderer.theme_editor_scene->widgets))))
-        return stamp;
-    const bool friends_active = renderer.friends_scene && renderer.friends_scene->active;
+    s.pointer(renderer.theme_editor_scene);
+    if (renderer_theme_editor_visible(renderer))
+        s.push(renderer.theme_editor_scene->revision)
+            .push(renderer.theme_editor_scene->generation)
+            .widgets(renderer.theme_editor_scene->widgets);
+    const bool friends_active = d3d11_renderer_active(renderer.friends_scene);
     const bool browser_active = d3d11_renderer_thread_browser_visible(renderer);
     const bool content_hidden = friends_active || browser_active;
-    if (!presentation_stamp_pointer(&stamp, renderer.thread_browser_scene) ||
-        !presentation_stamp_push(&stamp, browser_active))
-        return stamp;
+    s.pointer(renderer.thread_browser_scene).push(browser_active);
     if (browser_active) {
         const auto& browser = *renderer.thread_browser_scene;
-        if (!presentation_stamp_push(&stamp, browser.revision) ||
-            !presentation_stamp_push(&stamp, stamp.structural ? 0 : browser.spinner_phase) ||
-            !presentation_stamp_push(&stamp, browser.view->parent_id) ||
-            !presentation_stamp_push(&stamp, browser.content_revision) ||
-            !presentation_stamp_push(&stamp, browser.source_publication) ||
-            !presentation_stamp_push(&stamp, browser.view->revision) ||
-            !presentation_stamp_push(&stamp, browser.view->source_publication) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_thread_browser_revision) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_thread_browser_publication) ||
-            !presentation_stamp_widgets(&stamp, browser.widgets) ||
-            !presentation_stamp_bytes(&stamp, &browser.panel, sizeof(browser.panel)) ||
-            !presentation_stamp_bytes(&stamp, &browser.style, sizeof(browser.style)) ||
-            !presentation_stamp_bytes(&stamp, &browser.scroll_dips, sizeof(browser.scroll_dips)))
-            return stamp;
+        s.push(browser.revision)
+            .push(stamp.structural ? 0 : browser.spinner_phase)
+            .push(browser.view->parent_id)
+            .push(browser.content_revision)
+            .push(browser.source_publication)
+            .push(browser.view->revision)
+            .push(browser.view->source_publication)
+            .push(renderer.interaction_text_thread_browser_revision)
+            .push(renderer.interaction_text_thread_browser_publication)
+            .widgets(browser.widgets)
+            .bytes(&browser.panel, sizeof(browser.panel))
+            .bytes(&browser.style, sizeof(browser.style))
+            .bytes(&browser.scroll_dips, sizeof(browser.scroll_dips));
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.media_picker_scene) ||
-        !presentation_stamp_push(&stamp, d3d11_renderer_media_picker_visible(renderer)))
-        return stamp;
+    s.pointer(renderer.media_picker_scene).push(d3d11_renderer_media_picker_visible(renderer));
     if (renderer.media_picker_scene) {
         const auto& gallery = *renderer.media_picker_scene;
-        if (!presentation_stamp_push(&stamp, gallery.active) ||
-            !presentation_stamp_push(&stamp, gallery.revision) ||
-            !presentation_stamp_push(&stamp, gallery.generation) ||
-            !presentation_stamp_push(&stamp, gallery.account_scope) ||
-            !presentation_stamp_push(&stamp, gallery.query_generation) ||
-            !presentation_stamp_push(&stamp, gallery.source_revision) ||
-            !presentation_stamp_pointer(&stamp, gallery.source) ||
-            !presentation_stamp_pointer(&stamp, gallery.content) ||
-            (gallery.source && (!presentation_stamp_push(&stamp, gallery.source->revision) ||
-                                !presentation_stamp_push(&stamp, gallery.source->account_scope) ||
-                                !presentation_stamp_push(&stamp, gallery.source->query_generation))) ||
-            (gallery.content && (!presentation_stamp_push(&stamp, gallery.content->revision) ||
-                                 !presentation_stamp_push(&stamp, gallery.content->account_scope) ||
-                                 !presentation_stamp_push(&stamp, gallery.content->query_generation))))
-            return stamp;
-        if (d3d11_renderer_media_picker_visible(renderer) &&
-            (!presentation_stamp_widgets(&stamp, gallery.widgets) ||
-             !presentation_stamp_bytes(&stamp, &gallery.panel, sizeof(gallery.panel)) ||
-             !presentation_stamp_bytes(&stamp, &renderer.media_picker_edit_geometry,
-                                       sizeof(renderer.media_picker_edit_geometry)) ||
-             !presentation_stamp_push(&stamp, renderer.interaction_text_media_picker_revision)))
-            return stamp;
+        s.push(gallery.active)
+            .push(gallery.revision)
+            .push(gallery.generation)
+            .push(gallery.account_scope)
+            .push(gallery.query_generation)
+            .push(gallery.source_revision)
+            .pointer(gallery.source)
+            .pointer(gallery.content);
+        if (gallery.source)
+            s.push(gallery.source->revision)
+                .push(gallery.source->account_scope)
+                .push(gallery.source->query_generation);
+        if (gallery.content)
+            s.push(gallery.content->revision)
+                .push(gallery.content->account_scope)
+                .push(gallery.content->query_generation);
+        if (d3d11_renderer_media_picker_visible(renderer))
+            s.widgets(gallery.widgets)
+                .bytes(&gallery.panel, sizeof(gallery.panel))
+                .bytes(&renderer.media_picker_edit_geometry, sizeof(renderer.media_picker_edit_geometry))
+                .push(renderer.interaction_text_media_picker_revision);
     }
-    if (d3d11_renderer_search_visible(renderer) &&
-        (!presentation_stamp_pointer(&stamp, renderer.search_scene) ||
-         !presentation_stamp_push(&stamp, renderer.search_scene->revision) ||
-         !presentation_stamp_push(&stamp, renderer.interaction_text_search_revision) ||
-         !presentation_stamp_bytes(&stamp, &renderer.search_edit_geometry,
-                                   sizeof(renderer.search_edit_geometry)) ||
-         !presentation_stamp_widgets(&stamp, renderer.search_scene->widgets)))
-        return stamp;
     if (d3d11_renderer_search_visible(renderer)) {
-        const auto* scene = ui_search_scene_message_scene(*renderer.search_scene);
-        if (scene &&
-            (!presentation_stamp_pointer(&stamp, scene) ||
-             !presentation_stamp_widgets(&stamp, scene->widgets) ||
-             !presentation_stamp_push(&stamp, scene->rebuilds) ||
-             !presentation_stamp_push(&stamp, scene->layout_passes) ||
-             !presentation_stamp_pointer(&stamp, renderer.search_message_text) ||
-             !presentation_stamp_push(&stamp, renderer.search_message_text
-                                                  ? renderer.search_message_text->projection_signature
-                                                  : 0)))
-            return stamp;
+        s.pointer(renderer.search_scene)
+            .push(renderer.search_scene->revision)
+            .push(renderer.interaction_text_search_revision)
+            .bytes(&renderer.search_edit_geometry, sizeof(renderer.search_edit_geometry))
+            .widgets(renderer.search_scene->widgets);
+        if (const auto* scene = ui_search_scene_message_scene(*renderer.search_scene))
+            s.pointer(scene)
+                .widgets(scene->widgets)
+                .push(scene->rebuilds)
+                .push(scene->layout_passes)
+                .pointer(renderer.search_message_text)
+                .push(renderer.search_message_text ? renderer.search_message_text->projection_signature : 0);
     }
     if (d3d11_renderer_pinned_messages_visible(renderer)) {
         const auto& pins = *renderer.pinned_messages_scene;
-        if (!presentation_stamp_pointer(&stamp, renderer.pinned_messages_scene) ||
-            !presentation_stamp_push(&stamp, pins.revision) ||
-            !presentation_stamp_push(&stamp, stamp.structural ? 0 : pins.spinner_phase) ||
-            !presentation_stamp_push(&stamp, pins.source_revision) ||
-            !presentation_stamp_push(&stamp, pins.content_revision) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_pinned_messages_revision) ||
-            !presentation_stamp_widgets(&stamp, pins.widgets) ||
-            !presentation_stamp_bytes(&stamp, &pins.panel, sizeof(pins.panel)))
-            return stamp;
+        s.pointer(renderer.pinned_messages_scene)
+            .push(pins.revision)
+            .push(stamp.structural ? 0 : pins.spinner_phase)
+            .push(pins.source_revision)
+            .push(pins.content_revision)
+            .push(renderer.interaction_text_pinned_messages_revision)
+            .widgets(pins.widgets)
+            .bytes(&pins.panel, sizeof(pins.panel));
     }
     if (d3d11_renderer_inbox_visible(renderer)) {
         const auto& inbox = *renderer.inbox_scene;
-        if (!presentation_stamp_pointer(&stamp, renderer.inbox_scene) ||
-            !presentation_stamp_push(&stamp, inbox.revision) ||
-            !presentation_stamp_push(&stamp, stamp.structural ? 0 : inbox.spinner_phase) ||
-            !presentation_stamp_push(&stamp, inbox.source_revision) ||
-            !presentation_stamp_push(&stamp, inbox.content_revision) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_inbox_revision) ||
-            !presentation_stamp_widgets(&stamp, inbox.widgets) ||
-            !presentation_stamp_bytes(&stamp, &inbox.panel, sizeof(inbox.panel)))
-            return stamp;
+        s.pointer(renderer.inbox_scene)
+            .push(inbox.revision)
+            .push(stamp.structural ? 0 : inbox.spinner_phase)
+            .push(inbox.source_revision)
+            .push(inbox.content_revision)
+            .push(renderer.interaction_text_inbox_revision)
+            .widgets(inbox.widgets)
+            .bytes(&inbox.panel, sizeof(inbox.panel));
     }
     if (d3d11_renderer_quick_switcher_visible(renderer)) {
         const auto& quick = *renderer.quick_switcher_scene;
-        if (!presentation_stamp_pointer(&stamp, renderer.quick_switcher_scene) ||
-            !presentation_stamp_push(&stamp, quick.revision) ||
-            !presentation_stamp_push(&stamp, quick.source_revision) ||
-            !presentation_stamp_push(&stamp, quick.content_revision) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_quick_switcher_revision) ||
-            !presentation_stamp_widgets(&stamp, quick.widgets) ||
-            !presentation_stamp_bytes(&stamp, &quick.panel, sizeof(quick.panel)) ||
-            !presentation_stamp_bytes(&stamp, &renderer.media_picker_edit_geometry,
-                                      sizeof(renderer.media_picker_edit_geometry)))
-            return stamp;
+        s.pointer(renderer.quick_switcher_scene)
+            .push(quick.revision)
+            .push(quick.source_revision)
+            .push(quick.content_revision)
+            .push(renderer.interaction_text_quick_switcher_revision)
+            .widgets(quick.widgets)
+            .bytes(&quick.panel, sizeof(quick.panel))
+            .bytes(&renderer.media_picker_edit_geometry, sizeof(renderer.media_picker_edit_geometry));
     }
     if (d3d11_renderer_message_forward_visible(renderer)) {
         const auto& forward = *renderer.message_forward_scene;
         const auto caption = d3d11_renderer_popup_edit_geometry(renderer);
-        if (!presentation_stamp_pointer(&stamp, renderer.message_forward_scene) ||
-            !presentation_stamp_push(&stamp, forward.revision) ||
-            !presentation_stamp_push(&stamp, forward.source_revision) ||
-            !presentation_stamp_push(&stamp, forward.content_revision) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_message_forward_revision) ||
-            !presentation_stamp_widgets(&stamp, forward.widgets) ||
-            !presentation_stamp_bytes(&stamp, &forward.panel, sizeof(forward.panel)) ||
-            !presentation_stamp_bytes(&stamp, &renderer.media_picker_edit_geometry,
-                                      sizeof(renderer.media_picker_edit_geometry)) ||
-            !presentation_stamp_bytes(&stamp, &caption, sizeof(caption)))
-            return stamp;
+        s.pointer(renderer.message_forward_scene)
+            .push(forward.revision)
+            .push(forward.source_revision)
+            .push(forward.content_revision)
+            .push(renderer.interaction_text_message_forward_revision)
+            .widgets(forward.widgets)
+            .bytes(&forward.panel, sizeof(forward.panel))
+            .bytes(&renderer.media_picker_edit_geometry, sizeof(renderer.media_picker_edit_geometry))
+            .bytes(&caption, sizeof(caption));
     }
-    if (d3d11_renderer_call_visible(renderer) &&
-        (!presentation_stamp_pointer(&stamp, renderer.call_scene) ||
-         !presentation_stamp_push(&stamp, renderer.call_scene->revision) ||
-         !presentation_stamp_push(&stamp, stamp.structural ? 0 : renderer.call_scene->spinner_phase) ||
-         !presentation_stamp_push(&stamp, renderer.interaction_text_call_revision) ||
-         !presentation_stamp_bytes(&stamp, &renderer.call_scene->viewport, sizeof(renderer.call_scene->viewport))))
-        return stamp;
-    if (d3d11_renderer_stream_card_visible(renderer) &&
-        (!presentation_stamp_pointer(&stamp, renderer.stream_card_scene) ||
-         !presentation_stamp_push(&stamp, renderer.stream_card_scene->revision) ||
-         !presentation_stamp_push(&stamp, stamp.structural ? 0 : renderer.stream_card_scene->spinner_phase) ||
-         !presentation_stamp_push(&stamp, renderer.interaction_text_stream_card_revision) ||
-         !presentation_stamp_bytes(&stamp, &renderer.stream_card_scene->panel,
-                                   sizeof(renderer.stream_card_scene->panel))))
-        return stamp;
-    if (d3d11_renderer_guild_card_visible(renderer) &&
-        (!presentation_stamp_pointer(&stamp, renderer.guild_card_scene) ||
-         !presentation_stamp_push(&stamp, renderer.guild_card_scene->revision) ||
-         !presentation_stamp_push(&stamp, stamp.structural ? 0 : renderer.guild_card_scene->spinner_phase) ||
-         !presentation_stamp_push(&stamp, renderer.interaction_text_guild_card_revision) ||
-         !presentation_stamp_bytes(&stamp, &renderer.guild_card_scene->panel,
-                                   sizeof(renderer.guild_card_scene->panel))))
-        return stamp;
+    if (d3d11_renderer_call_visible(renderer))
+        s.pointer(renderer.call_scene)
+            .push(renderer.call_scene->revision)
+            .push(stamp.structural ? 0 : renderer.call_scene->spinner_phase)
+            .push(renderer.interaction_text_call_revision)
+            .bytes(&renderer.call_scene->viewport, sizeof(renderer.call_scene->viewport));
+    if (d3d11_renderer_stream_card_visible(renderer))
+        s.pointer(renderer.stream_card_scene)
+            .push(renderer.stream_card_scene->revision)
+            .push(stamp.structural ? 0 : renderer.stream_card_scene->spinner_phase)
+            .push(renderer.interaction_text_stream_card_revision)
+            .bytes(&renderer.stream_card_scene->panel, sizeof(renderer.stream_card_scene->panel));
+    if (d3d11_renderer_guild_card_visible(renderer))
+        s.pointer(renderer.guild_card_scene)
+            .push(renderer.guild_card_scene->revision)
+            .push(stamp.structural ? 0 : renderer.guild_card_scene->spinner_phase)
+            .push(renderer.interaction_text_guild_card_revision)
+            .bytes(&renderer.guild_card_scene->panel, sizeof(renderer.guild_card_scene->panel));
     if (d3d11_renderer_shortcuts_visible(renderer)) {
         const auto& shortcuts = *renderer.shortcuts_scene;
-        if (!presentation_stamp_pointer(&stamp, renderer.shortcuts_scene) ||
-            !presentation_stamp_push(&stamp, shortcuts.revision) ||
-            !presentation_stamp_push(&stamp, shortcuts.content_revision) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_shortcuts_revision) ||
-            !presentation_stamp_widgets(&stamp, shortcuts.widgets) ||
-            !presentation_stamp_bytes(&stamp, &shortcuts.panel, sizeof(shortcuts.panel)) ||
-            !presentation_stamp_bytes(&stamp, &shortcuts.scroll, sizeof(shortcuts.scroll)))
-            return stamp;
+        s.pointer(renderer.shortcuts_scene)
+            .push(shortcuts.revision)
+            .push(shortcuts.content_revision)
+            .push(renderer.interaction_text_shortcuts_revision)
+            .widgets(shortcuts.widgets)
+            .bytes(&shortcuts.panel, sizeof(shortcuts.panel))
+            .bytes(&shortcuts.scroll, sizeof(shortcuts.scroll));
     }
     if (d3d11_renderer_download_visible(renderer)) {
         const auto& downloads = *renderer.download_scene;
-        if (!presentation_stamp_pointer(&stamp, renderer.download_scene) ||
-            !presentation_stamp_push(&stamp, downloads.revision) ||
-            !presentation_stamp_push(&stamp, downloads.source_revision) ||
-            !presentation_stamp_push(&stamp, downloads.content_revision) ||
-            !presentation_stamp_push(&stamp, renderer.interaction_text_download_revision) ||
-            !presentation_stamp_widgets(&stamp, downloads.widgets) ||
-            !presentation_stamp_bytes(&stamp, &downloads.panel, sizeof(downloads.panel)) ||
-            !presentation_stamp_bytes(&stamp, &downloads.viewport, sizeof(downloads.viewport)))
-            return stamp;
+        s.pointer(renderer.download_scene)
+            .push(downloads.revision)
+            .push(downloads.source_revision)
+            .push(downloads.content_revision)
+            .push(renderer.interaction_text_download_revision)
+            .widgets(downloads.widgets)
+            .bytes(&downloads.panel, sizeof(downloads.panel))
+            .bytes(&downloads.viewport, sizeof(downloads.viewport));
     }
-    if (d3d11_renderer_unread_banner_visible(renderer) &&
-        (!presentation_stamp_pointer(&stamp, renderer.unread_banner_scene) ||
-         !presentation_stamp_push(&stamp, renderer.unread_banner_scene->revision)))
-        return stamp;
+    if (d3d11_renderer_unread_banner_visible(renderer))
+        s.pointer(renderer.unread_banner_scene).push(renderer.unread_banner_scene->revision);
     // A hidden tooltip contributes nothing to the stamp.
-    if (d3d11_renderer_tooltip_visible(renderer) &&
-        (!presentation_stamp_pointer(&stamp, renderer.tooltip_scene) ||
-         !presentation_stamp_push(&stamp, renderer.tooltip_scene->revision)))
-        return stamp;
-    if (!presentation_stamp_pointer(&stamp, renderer.friends_requests_scene) ||
-        (renderer.friends_requests_scene &&
-         (!presentation_stamp_push(&stamp, renderer.friends_requests_scene->active) ||
-          !presentation_stamp_push(&stamp, renderer.friends_requests_scene->revision) ||
-          !presentation_stamp_push(&stamp, renderer.friends_requests_scene->source_revision) ||
-          !presentation_stamp_push(&stamp, renderer.friends_requests_scene->source_count) ||
-          !presentation_stamp_push(&stamp, renderer.interaction_text_friends_requests_revision) ||
-          !presentation_stamp_widgets(&stamp, renderer.friends_requests_scene->widgets) ||
-          !presentation_stamp_bytes(&stamp, &renderer.friends_requests_scene->viewport,
-                                    sizeof(renderer.friends_requests_scene->viewport)) ||
-          (renderer.friends_requests_scene->source &&
-           (!presentation_stamp_push(&stamp, renderer.friends_requests_scene->source->revision) ||
-            !presentation_stamp_push(&stamp, renderer.friends_requests_scene->source->count))))))
-        return stamp;
-    if (friends_active &&
-        (!presentation_stamp_bytes(&stamp, &renderer.friends_search_geometry,
-                                   sizeof(renderer.friends_search_geometry)) ||
-         (renderer.friends_scene->content &&
-          (!presentation_stamp_push(&stamp, renderer.friends_scene->content->revision) ||
-           !presentation_stamp_push(&stamp, renderer.friends_scene->content->search.focused) ||
-           !presentation_stamp_caret(&stamp, renderer.friends_scene->content->search.caret_visible)))))
-        return stamp;
-    if (!presentation_stamp_pointer(&stamp, renderer.friends_scene) ||
-        (renderer.friends_scene &&
-         (!presentation_stamp_push(&stamp, renderer.friends_scene->active) ||
-          !presentation_stamp_push(&stamp, renderer.friends_scene->revision) ||
-          !presentation_stamp_push(&stamp, renderer.friends_scene->source_revision) ||
-          !presentation_stamp_push(&stamp, renderer.friends_scene->source_count) ||
-          !presentation_stamp_push(&stamp, renderer.interaction_text_friends_revision) ||
-          !presentation_stamp_widgets(&stamp, renderer.friends_scene->widgets) ||
-          !presentation_stamp_bytes(&stamp, &renderer.friends_scene->viewport,
-                                    sizeof(renderer.friends_scene->viewport)) ||
-          (renderer.friends_scene->source &&
-           (!presentation_stamp_push(&stamp, renderer.friends_scene->source->revision) ||
-            !presentation_stamp_push(&stamp, renderer.friends_scene->source->count))))))
-        return stamp;
-    if (!presentation_stamp_push(&stamp, renderer.reduced_motion) ||
-        !presentation_stamp_pointer(&stamp, renderer.settings_scene) ||
-        (renderer.settings_scene && (!presentation_stamp_push(&stamp, renderer.settings_scene->revision) ||
-                                     !presentation_stamp_push(&stamp, renderer.settings_scene->active) ||
-                                     !presentation_stamp_push(&stamp, renderer.settings_scene->spinner_phase))))
-        return stamp;
+    if (d3d11_renderer_tooltip_visible(renderer))
+        s.pointer(renderer.tooltip_scene).push(renderer.tooltip_scene->revision);
+    s.pointer(renderer.friends_requests_scene);
+    if (const auto* requests = renderer.friends_requests_scene) {
+        s.push(requests->active)
+            .push(requests->revision)
+            .push(requests->source_revision)
+            .push(requests->source_count)
+            .push(renderer.interaction_text_friends_requests_revision)
+            .widgets(requests->widgets)
+            .bytes(&requests->viewport, sizeof(requests->viewport));
+        if (requests->source)
+            s.push(requests->source->revision).push(requests->source->count);
+    }
+    if (friends_active) {
+        s.bytes(&renderer.friends_search_geometry, sizeof(renderer.friends_search_geometry));
+        if (const auto* content = renderer.friends_scene->content)
+            s.push(content->revision).push(content->search.focused).caret(content->search.caret_visible);
+    }
+    s.pointer(renderer.friends_scene);
+    if (const auto* friends = renderer.friends_scene) {
+        s.push(friends->active)
+            .push(friends->revision)
+            .push(friends->source_revision)
+            .push(friends->source_count)
+            .push(renderer.interaction_text_friends_revision)
+            .widgets(friends->widgets)
+            .bytes(&friends->viewport, sizeof(friends->viewport));
+        if (friends->source)
+            s.push(friends->source->revision).push(friends->source->count);
+    }
+    s.push(renderer.reduced_motion).pointer(renderer.settings_scene);
+    if (renderer.settings_scene)
+        s.push(renderer.settings_scene->revision)
+            .push(renderer.settings_scene->active)
+            .push(renderer.settings_scene->spinner_phase);
     // Name effects are shader-time driven and repaint through bounded damage
     // (renderer_note_text_effect_damage). Profile effect layers select media
     // on the CPU each tick, so they rebuild the scene.
     const u64 now_ms = renderer.profile_scene ? GetTickCount64() : 0;
-    if (profile_scene_animating(renderer.profile_scene, now_ms) &&
-        !presentation_stamp_push(&stamp, now_ms / 42))
-        return stamp;
-    if (!presentation_stamp_pointer(&stamp, renderer.profile_scene) ||
-        (renderer.profile_scene &&
-         (!presentation_stamp_push(&stamp, renderer.profile_scene->revision) ||
-          !presentation_stamp_caret(&stamp, renderer.profile_scene->edit.caret_visible) ||
-          !presentation_stamp_push(&stamp, renderer.profile_scene->active) ||
-          !presentation_stamp_widgets(&stamp, renderer.profile_scene->widgets))))
-        return stamp;
-    if (!presentation_stamp_bytes(&stamp, &renderer.scrollbar_viewport,
-                                  sizeof(renderer.scrollbar_viewport)))
-        return stamp;
+    if (profile_scene_animating(renderer.profile_scene, now_ms))
+        s.push(now_ms / 42);
+    s.pointer(renderer.profile_scene);
+    if (renderer.profile_scene)
+        s.push(renderer.profile_scene->revision)
+            .caret(renderer.profile_scene->edit.caret_visible)
+            .push(renderer.profile_scene->active)
+            .widgets(renderer.profile_scene->widgets);
+    s.bytes(&renderer.scrollbar_viewport, sizeof(renderer.scrollbar_viewport));
     // The loading spinner's phase repaints without rebuilding the viewer's text.
-    if (!presentation_stamp_pointer(&stamp, renderer.image_viewer) ||
-        (renderer.image_viewer && (!presentation_stamp_push(&stamp, renderer.image_viewer->revision) ||
-                                   !presentation_stamp_push(&stamp, renderer.image_viewer->spinner_phase))))
-        return stamp;
-    if (!presentation_stamp_push(&stamp, renderer.gif_favorite_owner.slot) ||
-        !presentation_stamp_push(&stamp, renderer.gif_favorite_owner.generation) ||
-        !presentation_stamp_push(&stamp, renderer.gif_favorite) ||
-        !presentation_stamp_push(&stamp, renderer.gif_favorite_pending))
-        return stamp;
+    s.pointer(renderer.image_viewer);
+    if (renderer.image_viewer)
+        s.push(renderer.image_viewer->revision).push(renderer.image_viewer->spinner_phase);
+    s.push(renderer.gif_favorite_owner.slot)
+        .push(renderer.gif_favorite_owner.generation)
+        .push(renderer.gif_favorite)
+        .push(renderer.gif_favorite_pending);
     const auto* video = d3d11_renderer_video_scene_visible(renderer) || d3d11_renderer_viewer_video_visible(renderer)
                             ? renderer.video_scene
                             : nullptr;
-
-    if (!presentation_stamp_pointer(&stamp, video) ||
-        (video && !presentation_stamp_push(&stamp, ui_video_scene_paint_revision(*video))) ||
-        !presentation_stamp_push(&stamp, renderer.interaction_text_video_revision))
-        return stamp;
+    s.pointer(video);
+    if (video)
+        s.push(ui_video_scene_paint_revision(*video));
+    s.push(renderer.interaction_text_video_revision);
     const auto* audio = d3d11_renderer_audio_scene_visible(renderer) ? renderer.audio_scene : nullptr;
-    if (!presentation_stamp_pointer(&stamp, audio) ||
-        (audio && !presentation_stamp_push(&stamp, ui_audio_scene_paint_revision(*audio))) ||
-        !presentation_stamp_push(&stamp, renderer.interaction_text_audio_revision))
-        return stamp;
+    s.pointer(audio);
+    if (audio)
+        s.push(ui_audio_scene_paint_revision(*audio));
+    s.push(renderer.interaction_text_audio_revision);
     const auto* poll = d3d11_renderer_poll_scene_visible(renderer) ? renderer.poll_scene : nullptr;
-    const auto* voters =
-        d3d11_renderer_poll_voters_visible(renderer) ? renderer.poll_voters_scene : nullptr;
-    if (!presentation_stamp_pointer(&stamp, poll) ||
-        (poll && !presentation_stamp_push(&stamp, ui_poll_scene_paint_revision(*poll))) ||
-        !presentation_stamp_push(&stamp, renderer.interaction_text_poll_revision) ||
-        !presentation_stamp_pointer(&stamp, voters) ||
-        (voters && !presentation_stamp_push(&stamp, ui_poll_voters_scene_paint_revision(*voters))) ||
-        !presentation_stamp_push(&stamp, renderer.interaction_text_poll_voters_revision))
-        return stamp;
+    const auto* voters = d3d11_renderer_poll_voters_visible(renderer) ? renderer.poll_voters_scene : nullptr;
+    s.pointer(poll);
+    if (poll)
+        s.push(ui_poll_scene_paint_revision(*poll));
+    s.push(renderer.interaction_text_poll_revision).pointer(voters);
+    if (voters)
+        s.push(ui_poll_voters_scene_paint_revision(*voters));
+    s.push(renderer.interaction_text_poll_voters_revision);
     if (renderer.message_scene && renderer.message_scene->polls && renderer.message_scene->polls->store) {
         const TimelineInputs timeline(&stamp);
-        if (!presentation_stamp_push(&stamp, renderer.message_scene->polls->store->revision))
-            return stamp;
+        s.push(renderer.message_scene->polls->store->revision);
     }
-    const auto* poll_search = d3d11_renderer_search_visible(renderer)
-                                  ? ui_search_scene_message_scene(*renderer.search_scene)
-                                  : nullptr;
-    if (poll_search && poll_search->polls && poll_search->polls->store &&
-        !presentation_stamp_push(&stamp, poll_search->polls->store->revision))
-        return stamp;
+    const auto* poll_search =
+        d3d11_renderer_search_visible(renderer) ? ui_search_scene_message_scene(*renderer.search_scene) : nullptr;
+    if (poll_search && poll_search->polls && poll_search->polls->store)
+        s.push(poll_search->polls->store->revision);
     const auto* focus_owner = d3d11_renderer_visible_focus_owner(renderer);
-    if (!presentation_stamp_pointer(&stamp, focus_owner) ||
-        (focus_owner && !presentation_stamp_widgets(&stamp, *focus_owner)))
-        return stamp;
-    if (!presentation_stamp_push(&stamp, renderer.width) ||
-        !presentation_stamp_push(&stamp, renderer.height) ||
-        !presentation_stamp_push(&stamp, renderer.dpi) ||
-        !presentation_stamp_push(&stamp, renderer.login_visible) ||
-        !presentation_stamp_bytes(&stamp, &theme, sizeof(theme)) ||
-        !presentation_stamp_pointer(&stamp, renderer.content_text) ||
-        !presentation_stamp_pointer(&stamp, renderer.media_atlas) ||
-        !presentation_stamp_pointer(&stamp, renderer.preview_media_atlas)) {
-        return stamp;
-    }
-    if (renderer.preview_media_atlas &&
-        (!presentation_stamp_push(&stamp, renderer.preview_media_atlas->entry_count) ||
-         !presentation_stamp_push(&stamp, renderer.preview_media_atlas->insertions) ||
-         !presentation_stamp_push(&stamp, renderer.preview_media_atlas->stale_entries) ||
-         !presentation_stamp_push(&stamp, renderer.preview_media_atlas->allocations.evicted_entries) ||
-         !presentation_stamp_push(&stamp, renderer.preview_media_atlas->allocations.full_resets) ||
-         !presentation_stamp_push(&stamp, renderer.preview_media_atlas->next_allocation_key))) {
-        return stamp;
+    s.pointer(focus_owner);
+    if (focus_owner)
+        s.widgets(*focus_owner);
+    s.push(renderer.width)
+        .push(renderer.height)
+        .push(renderer.dpi)
+        .push(renderer.login_visible)
+        .bytes(&theme, sizeof(theme))
+        .pointer(renderer.content_text)
+        .pointer(renderer.media_atlas)
+        .pointer(renderer.preview_media_atlas);
+    if (renderer.preview_media_atlas) {
+        const auto& atlas = *renderer.preview_media_atlas;
+        s.push(atlas.entry_count)
+            .push(atlas.insertions)
+            .push(atlas.stale_entries)
+            .push(atlas.allocations.evicted_entries)
+            .push(atlas.allocations.full_resets)
+            .push(atlas.next_allocation_key);
     }
     if (renderer.content_text) {
         const TimelineInputs timeline(&stamp);
-        if (!presentation_stamp_push(&stamp, renderer.content_text->rebuilds) ||
-            !presentation_stamp_push(&stamp, renderer.content_text->quad_count) ||
-            !presentation_stamp_push(&stamp, renderer.content_text->batch_count) ||
-            !presentation_stamp_push(&stamp, renderer.content_text->message_geometry_quads) ||
-            !presentation_stamp_push(&stamp, renderer.content_text->content_semantic_count) ||
-            !presentation_stamp_push(&stamp, renderer.content_text->content_hit_region_count))
-            return stamp;
+        s.push(renderer.content_text->rebuilds)
+            .push(renderer.content_text->quad_count)
+            .push(renderer.content_text->batch_count)
+            .push(renderer.content_text->message_geometry_quads)
+            .push(renderer.content_text->content_semantic_count)
+            .push(renderer.content_text->content_hit_region_count);
     }
-    if (renderer.media_atlas &&
-        (!presentation_stamp_push(&stamp, renderer.media_atlas->entry_count) ||
-         !presentation_stamp_push(&stamp, renderer.media_atlas->insertions) ||
-         !presentation_stamp_push(&stamp, renderer.media_atlas->stale_entries) ||
-         !presentation_stamp_push(&stamp, renderer.media_atlas->allocations.evicted_entries) ||
-         !presentation_stamp_push(&stamp, renderer.media_atlas->allocations.full_resets) ||
-         !presentation_stamp_push(&stamp, renderer.media_atlas->next_allocation_key))) {
-        return stamp;
+    if (renderer.media_atlas) {
+        const auto& atlas = *renderer.media_atlas;
+        s.push(atlas.entry_count)
+            .push(atlas.insertions)
+            .push(atlas.stale_entries)
+            .push(atlas.allocations.evicted_entries)
+            .push(atlas.allocations.full_resets)
+            .push(atlas.next_allocation_key);
     }
-    if (!content_hidden &&
-        (!presentation_stamp_pointer(&stamp, renderer.thread_header) ||
-         (renderer.thread_header && (!presentation_stamp_push(&stamp, renderer.thread_header->revision) ||
-                                     !presentation_stamp_push(&stamp, renderer.thread_header->active))))) {
-        return stamp;
+    if (!content_hidden) {
+        s.pointer(renderer.thread_header);
+        if (renderer.thread_header)
+            s.push(renderer.thread_header->revision).push(renderer.thread_header->active);
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.ui_scene)) {
-        return stamp;
+    s.pointer(renderer.ui_scene);
+    if (renderer.ui_scene) {
+        const auto& scene = *renderer.ui_scene;
+        s.push(scene.count)
+            .push(scene.layout_rebuilds)
+            .push(scene.layout_passes)
+            .push(scene.layout_metrics_revision)
+            .push(scene.generation)
+            .push(static_cast<u64>(scene.view))
+            .push(scene.guild_menu_expanded)
+            .bytes(&scene.width, sizeof(scene.width))
+            .bytes(&scene.height, sizeof(scene.height))
+            .widgets(scene.widgets);
     }
-    if (renderer.ui_scene &&
-        (!presentation_stamp_push(&stamp, renderer.ui_scene->count) ||
-         !presentation_stamp_push(&stamp, renderer.ui_scene->layout_rebuilds) ||
-         !presentation_stamp_push(&stamp, renderer.ui_scene->layout_passes) ||
-         !presentation_stamp_push(&stamp, renderer.ui_scene->layout_metrics_revision) ||
-         !presentation_stamp_push(&stamp, renderer.ui_scene->generation) ||
-         !presentation_stamp_push(&stamp, static_cast<u64>(renderer.ui_scene->view)) ||
-         !presentation_stamp_push(&stamp, renderer.ui_scene->guild_menu_expanded) ||
-         !presentation_stamp_bytes(&stamp, &renderer.ui_scene->width, sizeof(renderer.ui_scene->width)) ||
-         !presentation_stamp_bytes(&stamp, &renderer.ui_scene->height, sizeof(renderer.ui_scene->height)) ||
-         !presentation_stamp_widgets(&stamp, renderer.ui_scene->widgets))) {
-        return stamp;
-    }
-    if (!presentation_stamp_pointer(&stamp, renderer.guild_rail_scene)) {
-        return stamp;
-    }
+    s.pointer(renderer.guild_rail_scene);
     if (renderer.guild_rail_scene) {
         const GuildRailScene& scene = *renderer.guild_rail_scene;
-        if (!presentation_stamp_push(&stamp, scene.active) ||
-            !presentation_stamp_push(&stamp, scene.source_revision) ||
-            !presentation_stamp_push(&stamp, scene.source_count) ||
-            !presentation_stamp_push(&stamp, scene.first) ||
-            !presentation_stamp_push(&stamp, scene.count) ||
-            !presentation_stamp_push(&stamp, scene.rebuilds) ||
-            !presentation_stamp_push(&stamp, scene.layout_passes) ||
-            !presentation_stamp_push(&stamp, scene.data_updates) ||
-            !presentation_stamp_push(&stamp, scene.focused_guild_id) ||
-            !presentation_stamp_bytes(&stamp, &scene.scroll_dips, sizeof(scene.scroll_dips)) ||
-            !presentation_stamp_widgets(&stamp, scene.widgets)) {
-            return stamp;
-        }
+        s.push(scene.active)
+            .push(scene.source_revision)
+            .push(scene.source_count)
+            .push(scene.first)
+            .push(scene.count)
+            .push(scene.rebuilds)
+            .push(scene.layout_passes)
+            .push(scene.data_updates)
+            .push(scene.focused_guild_id)
+            .bytes(&scene.scroll_dips, sizeof(scene.scroll_dips))
+            .widgets(scene.widgets);
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.shell_navigation_scene)) {
-        return stamp;
-    }
+    s.pointer(renderer.shell_navigation_scene);
     if (renderer.shell_navigation_scene) {
         const ShellNavigationScene& scene = *renderer.shell_navigation_scene;
-        if (!presentation_stamp_push(&stamp, scene.active) ||
-            !presentation_stamp_push(&stamp, scene.source_revision) ||
-            !presentation_stamp_push(&stamp, scene.source_count) ||
-            !presentation_stamp_push(&stamp, scene.first) ||
-            !presentation_stamp_push(&stamp, scene.count) ||
-            !presentation_stamp_push(&stamp, scene.rebuilds) ||
-            !presentation_stamp_push(&stamp, scene.layout_passes) ||
-            !presentation_stamp_push(&stamp, scene.focused_channel_id) ||
-            !presentation_stamp_bytes(&stamp, &scene.scroll_dips, sizeof(scene.scroll_dips)) ||
-            !presentation_stamp_push(&stamp, scene.banner_revision) ||
-            !presentation_stamp_widgets(&stamp, scene.widgets)) {
-            return stamp;
-        }
+        s.push(scene.active)
+            .push(scene.source_revision)
+            .push(scene.source_count)
+            .push(scene.first)
+            .push(scene.count)
+            .push(scene.rebuilds)
+            .push(scene.layout_passes)
+            .push(scene.focused_channel_id)
+            .bytes(&scene.scroll_dips, sizeof(scene.scroll_dips))
+            .push(scene.banner_revision)
+            .widgets(scene.widgets);
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.message_scene)) {
-        return stamp;
-    }
+    s.pointer(renderer.message_scene);
     if (!content_hidden && renderer.message_scene) {
         const TimelineInputs timeline(&stamp);
         const MessageScene& scene = *renderer.message_scene;
-        if (!presentation_stamp_push(&stamp, scene.active) ||
-            !presentation_stamp_push(&stamp, scene.dirty) ||
-            !presentation_stamp_push(&stamp, scene.focused_message_id) ||
-            !presentation_stamp_push(&stamp, scene.observed_scroll_units) ||
-            !presentation_stamp_push(&stamp, scene.first) ||
-            !presentation_stamp_push(&stamp, scene.count) ||
-            !presentation_stamp_push(&stamp, scene.source_count) ||
-            !presentation_stamp_push(&stamp, scene.observed_created) ||
-            !presentation_stamp_push(&stamp, scene.observed_updated) ||
-            !presentation_stamp_push(&stamp, scene.observed_deleted) ||
-            !presentation_stamp_push(&stamp, scene.observed_height_updates) ||
-            !presentation_stamp_push(&stamp, scene.observed_structural_updates) ||
-            !presentation_stamp_push(&stamp, scene.unread_revision) ||
-            !presentation_stamp_push(&stamp, scene.unread_first_message_id) ||
-            !presentation_stamp_push(&stamp, scene.highlight_revision) ||
-            !presentation_stamp_push(&stamp, scene.rebuilds) ||
-            !presentation_stamp_push(&stamp, scene.layout_passes) ||
-            !presentation_stamp_push(&stamp, scene.data_updates) ||
-            !presentation_stamp_push(&stamp, scene.measurement_updates) ||
-            !presentation_stamp_widgets(&stamp, scene.widgets)) {
-            return stamp;
-        }
+        s.push(scene.active)
+            .push(scene.dirty)
+            .push(scene.focused_message_id)
+            .push(scene.observed_scroll_units)
+            .push(scene.first)
+            .push(scene.count)
+            .push(scene.source_count)
+            .push(scene.observed_created)
+            .push(scene.observed_updated)
+            .push(scene.observed_deleted)
+            .push(scene.observed_height_updates)
+            .push(scene.observed_structural_updates)
+            .push(scene.unread_revision)
+            .push(scene.unread_first_message_id)
+            .push(scene.highlight_revision)
+            .push(scene.rebuilds)
+            .push(scene.layout_passes)
+            .push(scene.data_updates)
+            .push(scene.measurement_updates)
+            .widgets(scene.widgets);
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.message_action_bar)) {
-        return stamp;
-    }
+    s.pointer(renderer.message_action_bar);
     if (!content_hidden && renderer.message_action_bar) {
         const MessageActionBar& bar = *renderer.message_action_bar;
-        if (!presentation_stamp_push(&stamp, bar.active) ||
-            !presentation_stamp_push(&stamp, bar.message_id) ||
-            !presentation_stamp_push(&stamp, bar.revision) ||
-            !presentation_stamp_push(&stamp, bar.preference_revision) ||
-            !presentation_stamp_push(&stamp, bar.hovered_index) ||
-            !presentation_stamp_push(&stamp, bar.item_count)) {
-            return stamp;
-        }
+        s.push(bar.active)
+            .push(bar.message_id)
+            .push(bar.revision)
+            .push(bar.preference_revision)
+            .push(bar.hovered_index)
+            .push(bar.item_count);
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.reaction_viewer)) {
-        return stamp;
-    }
+    s.pointer(renderer.reaction_viewer);
     if (renderer.reaction_viewer) {
         const ReactionViewer& viewer = *renderer.reaction_viewer;
-        if (!presentation_stamp_push(&stamp, viewer.active) ||
-            !presentation_stamp_push(&stamp, viewer.revision) ||
-            !presentation_stamp_push(&stamp, viewer.message_id)) {
-            return stamp;
-        }
+        s.push(viewer.active).push(viewer.revision).push(viewer.message_id);
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.message_composer_scene)) {
-        return stamp;
-    }
+    s.pointer(renderer.message_composer_scene);
     if (!content_hidden && renderer.message_composer_scene) {
         const MessageComposerScene& scene = *renderer.message_composer_scene;
-        if (!presentation_stamp_push(&stamp, scene.active) ||
-            !presentation_stamp_pointer(&stamp, scene.model) ||
-            !presentation_stamp_push(&stamp, scene.observed_revision) ||
-            !presentation_stamp_push(&stamp, scene.command.name_bytes) ||
-            !presentation_stamp_push(&stamp, scene.command.bot_id) ||
-            !presentation_stamp_push(&stamp, scene.command.avatar_variant) ||
-            !presentation_stamp_push(&stamp, scene.command.animated) ||
-            !presentation_stamp_push(&stamp, scene.composition_revision) ||
-            !presentation_stamp_push(&stamp, scene.reply_message_id) ||
-            !presentation_stamp_push(&stamp, scene.mention_reply_author) ||
-            !presentation_stamp_push(&stamp, scene.reply_mention_visible) ||
-            !presentation_stamp_push(&stamp, scene.reply_sendable) ||
-            !presentation_stamp_push(&stamp, scene.retained_content) ||
-            !presentation_stamp_push(&stamp, scene.status_is_error) ||
-            !presentation_stamp_push(&stamp, scene.status_tone) ||
-            !presentation_stamp_push(&stamp, scene.reply_label_bytes) ||
-            !presentation_stamp_push(&stamp, scene.typing_label_bytes) ||
-            !presentation_stamp_push(&stamp, scene.layout_passes) ||
-            !presentation_stamp_push(&stamp, scene.channel_allows_send) ||
-            !presentation_stamp_caret(&stamp, scene.caret_visible) ||
-            !presentation_stamp_widgets(&stamp, scene.widgets)) {
-            return stamp;
-        }
+        s.push(scene.active)
+            .pointer(scene.model)
+            .push(scene.observed_revision)
+            .push(scene.command.name_bytes)
+            .push(scene.command.bot_id)
+            .push(scene.command.avatar_variant)
+            .push(scene.command.animated)
+            .push(scene.composition_revision)
+            .push(scene.reply_message_id)
+            .push(scene.mention_reply_author)
+            .push(scene.reply_mention_visible)
+            .push(scene.reply_sendable)
+            .push(scene.retained_content)
+            .push(scene.status_is_error)
+            .push(scene.status_tone)
+            .push(scene.reply_label_bytes)
+            .push(scene.typing_label_bytes)
+            .push(scene.layout_passes)
+            .push(scene.channel_allows_send)
+            .caret(scene.caret_visible)
+            .widgets(scene.widgets);
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.member_list_scene)) {
-        return stamp;
-    }
+    s.pointer(renderer.member_list_scene);
     if (!content_hidden && renderer.member_list_scene) {
         const MemberListScene& scene = *renderer.member_list_scene;
-        if (!presentation_stamp_push(&stamp, scene.active) ||
-            !presentation_stamp_pointer(&stamp, scene.source) ||
-            !presentation_stamp_push(&stamp, scene.source_revision) ||
-            !presentation_stamp_push(&stamp, scene.source_count) ||
-            !presentation_stamp_push(&stamp, scene.first) ||
-            !presentation_stamp_push(&stamp, scene.count) ||
-            !presentation_stamp_push(&stamp, scene.rebuilds) ||
-            !presentation_stamp_push(&stamp, scene.layout_passes) ||
-            !presentation_stamp_push(&stamp, scene.focused_user_id) ||
-            !presentation_stamp_bytes(&stamp, &scene.scroll_dips, sizeof(scene.scroll_dips)) ||
-            !presentation_stamp_widgets(&stamp, scene.widgets)) {
-            return stamp;
-        }
+        s.push(scene.active)
+            .pointer(scene.source)
+            .push(scene.source_revision)
+            .push(scene.source_count)
+            .push(scene.first)
+            .push(scene.count)
+            .push(scene.rebuilds)
+            .push(scene.layout_passes)
+            .push(scene.focused_user_id)
+            .bytes(&scene.scroll_dips, sizeof(scene.scroll_dips))
+            .widgets(scene.widgets);
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.popup_scene)) {
-        return stamp;
-    }
+    s.pointer(renderer.popup_scene);
     if (renderer.popup_scene) {
         const PopupScene& scene = *renderer.popup_scene;
-        if (!presentation_stamp_push(&stamp, scene.active) ||
-            !presentation_stamp_push(&stamp, scene.revision) ||
-            !presentation_stamp_push(&stamp, scene.owner_id) ||
-            !presentation_stamp_push(&stamp, scene.item_count) ||
-            !presentation_stamp_push(&stamp, scene.selected_index) ||
-            !presentation_stamp_push(&stamp, static_cast<u64>(scene.kind)) ||
-            !presentation_stamp_widgets(&stamp, scene.widgets)) {
-            return stamp;
-        }
+        s.push(scene.active)
+            .push(scene.revision)
+            .push(scene.owner_id)
+            .push(scene.item_count)
+            .push(scene.selected_index)
+            .push(static_cast<u64>(scene.kind))
+            .widgets(scene.widgets);
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.text_form))
-        return stamp;
+    s.pointer(renderer.text_form);
     if (renderer.text_form && renderer.text_form->scene) {
         const auto& form = *renderer.text_form->scene;
-        if (!presentation_stamp_push(&stamp, form.active) ||
-            !presentation_stamp_push(&stamp, form.revision) ||
-            !presentation_stamp_widgets(&stamp, form.widgets))
-            return stamp;
+        s.push(form.active).push(form.revision).widgets(form.widgets);
     }
-    if (!presentation_stamp_pointer(&stamp, renderer.navigation_view) ||
-        !presentation_stamp_pointer(&stamp, renderer.chat_state) ||
-        !presentation_stamp_pointer(&stamp, renderer.user_store)) {
-        return stamp;
-    }
-    if (renderer.navigation_view && !presentation_stamp_push(&stamp, renderer.navigation_view->revision)) {
-        return stamp;
-    }
+    s.pointer(renderer.navigation_view).pointer(renderer.chat_state).pointer(renderer.user_store);
+    if (renderer.navigation_view)
+        s.push(renderer.navigation_view->revision);
     // Conversation rows paint presence dots and typing subtitles from these
     // sources; only the Home view shows them (typing elsewhere repaints nothing).
     if (const auto* rows = renderer.navigation_view && renderer.chat_state && renderer.chat_state->home_selected
                                ? renderer.navigation_view->private_rows
-                               : nullptr;
-        rows && ((rows->relationships && !presentation_stamp_push(&stamp, rows->relationships->revision)) ||
-                 (rows->typing && !presentation_stamp_push(&stamp, rows->typing->revision)))) {
-        return stamp;
+                               : nullptr) {
+        if (rows->relationships)
+            s.push(rows->relationships->revision);
+        if (rows->typing)
+            s.push(rows->typing->revision);
     }
-    if (renderer.chat_state &&
-        (!presentation_stamp_push(&stamp, renderer.chat_state->guild_mutations) ||
-         !presentation_stamp_push(&stamp, renderer.chat_state->channel_mutations) ||
-         !presentation_stamp_push(&stamp, renderer.chat_state->permission_mutations) ||
-         !presentation_stamp_push(&stamp, renderer.chat_state->activity_mutations) ||
-         !presentation_stamp_push(&stamp, renderer.chat_state->emoji_mutations) ||
-         !presentation_stamp_push(&stamp, renderer.chat_state->selection_revision))) {
-        return stamp;
-    }
-    if (renderer.user_store && (!presentation_stamp_push(&stamp, renderer.user_store->revision) ||
-                                   !presentation_stamp_push(&stamp, renderer.user_store->mutations))) {
-        return stamp;
-    }
-    if (!content_hidden &&
-        (!presentation_stamp_push(&stamp, renderer.composer_layout.active) ||
-         !presentation_stamp_push(&stamp, renderer.composer_layout.selection_count))) {
-        return stamp;
-    }
+    if (renderer.chat_state)
+        s.push(renderer.chat_state->guild_mutations)
+            .push(renderer.chat_state->channel_mutations)
+            .push(renderer.chat_state->permission_mutations)
+            .push(renderer.chat_state->activity_mutations)
+            .push(renderer.chat_state->emoji_mutations)
+            .push(renderer.chat_state->selection_revision);
+    if (renderer.user_store)
+        s.push(renderer.user_store->revision).push(renderer.user_store->mutations);
     if (!content_hidden) {
+        s.push(renderer.composer_layout.active).push(renderer.composer_layout.selection_count);
         const TimelineInputs timeline(&stamp);
-        if (!presentation_stamp_push(&stamp, renderer.message_text_selection_message_id) ||
-            !presentation_stamp_push(&stamp, renderer.message_text_selection_command_identity) ||
-            !presentation_stamp_push(&stamp, renderer.message_text_selection_revision) ||
-            !presentation_stamp_push(&stamp, renderer.message_text_selection_command_index) ||
-            !presentation_stamp_push(&stamp, renderer.message_text_selection_anchor) ||
-            !presentation_stamp_push(&stamp, renderer.message_text_selection_caret))
-            return stamp;
+        s.push(renderer.message_text_selection_message_id)
+            .push(renderer.message_text_selection_command_identity)
+            .push(renderer.message_text_selection_revision)
+            .push(renderer.message_text_selection_command_index)
+            .push(renderer.message_text_selection_anchor)
+            .push(renderer.message_text_selection_caret);
     }
     return stamp;
 }

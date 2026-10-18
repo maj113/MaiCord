@@ -268,7 +268,6 @@ ProfilePart* add(ProfileScene* s, UiWidgetHandle parent, UiRect r, Utf8View labe
     if (!interactive(*s))
         action = ProfileAction::none;
     auto style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
     style.width = ui_layout_fixed(ui_rect_width(r));
     style.height = ui_layout_fixed(ui_rect_height(r));
     style.margin.left = r.left;
@@ -1919,10 +1918,7 @@ bool profile_scene_layout(ProfileScene* s, UiRect viewport, bool force) noexcept
     }
     s->note_editing = s->note_editing && s->note_visible && !self(*s) && modal(*s);
     s->edit.active = interactive(*s) && (s->note_editing || (!modal(*s) && can_message(*s)));
-    auto root_style = ui_layout_style();
-    root_style.flow = UiLayoutFlow::overlay;
-    root_style.width = root_style.height = ui_layout_fill();
-    root_style.flags = ui_layout_node_visible | ui_layout_node_allow_overlap;
+    auto root_style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap);
     const auto root = ui_widget_manager_add(&s->widgets, ui_widget_invalid_handle(),
                                             {1,
                                              UiWidgetKind::container,

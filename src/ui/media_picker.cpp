@@ -4,7 +4,7 @@
 #include "maicord/ui/scrollbar.hpp"
 #include "maicord/ui/regional_flag.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -329,11 +329,8 @@ bool rebuild(UiMediaPickerScene& scene, bool reuse = false) noexcept {
     scene.cell_count = scene.header_count = scene.rail_count = scene.media_count = 0;
     if (++scene.generation == 0)
         ++scene.generation;
-    auto style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.flags |= ui_layout_node_clip_children | ui_layout_node_allow_overlap;
+    auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_clip_children |
+                                      ui_layout_node_allow_overlap);
     const auto root = ui_widget_manager_add_prevalidated(
         &scene.widgets, ui_widget_invalid_handle(),
         {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Media picker"), style, {}, 0, 1}});

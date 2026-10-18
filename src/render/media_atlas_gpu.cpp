@@ -11,6 +11,14 @@ MediaAtlasGpuResult failure(MediaAtlasGpuError error, HRESULT native_error,
     return MediaAtlasGpuResult{allocation, native_error, error};
 }
 
+MediaAtlasGpuResult reject(MediaAtlasGpu* gpu, MediaAtlasGpuError error, HRESULT native_error,
+                           MediaAtlasResult allocation) noexcept {
+    if (gpu) {
+        ++gpu->rejected;
+    }
+    return failure(error, native_error, allocation);
+}
+
 bool dimensions_valid(u16 width, u16 height) noexcept {
     return width >= 16 && height >= 16 && width <= 4'096 && height <= 4'096;
 }
@@ -83,41 +91,8 @@ bool png_scanlines_reconstructed(const PngImage& image, ConstSlice<u8> scanlines
 }
 
 HRESULT create_png_scanline_buffer(MediaAtlasGpu* gpu, ID3D11Device* device, u32 required_bytes) noexcept {
-    if (gpu->png_scanline_buffer && gpu->png_scanline_capacity >= required_bytes) {
-        return S_OK;
-    }
-    const u32 capacity = retained_upload_capacity(gpu->png_scanline_capacity, required_bytes);
-    if (capacity == 0) {
-        return E_INVALIDARG;
-    }
-    ID3D11Buffer* replacement_buffer = nullptr;
-    ID3D11ShaderResourceView* replacement_view = nullptr;
-    D3D11_BUFFER_DESC description{};
-    description.ByteWidth = capacity;
-    description.Usage = D3D11_USAGE_DYNAMIC;
-    description.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-    description.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
-    HRESULT result = device->CreateBuffer(&description, nullptr, &replacement_buffer);
-    if (SUCCEEDED(result)) {
-        D3D11_SHADER_RESOURCE_VIEW_DESC view{};
-        view.Format = DXGI_FORMAT_R32_TYPELESS;
-        view.ViewDimension = D3D11_SRV_DIMENSION_BUFFEREX;
-        view.BufferEx.NumElements = capacity / 4;
-        view.BufferEx.Flags = D3D11_BUFFEREX_SRV_FLAG_RAW;
-        result = device->CreateShaderResourceView(replacement_buffer, &view, &replacement_view);
-    }
-    if (FAILED(result)) {
-        com_release(replacement_view);
-        com_release(replacement_buffer);
-        return result;
-    }
-    com_release(gpu->png_scanline_view);
-    com_release(gpu->png_scanline_buffer);
-    gpu->png_scanline_buffer = replacement_buffer;
-    gpu->png_scanline_view = replacement_view;
-    gpu->png_scanline_capacity = capacity;
-    return S_OK;
+    return ensure_dynamic_raw_buffer(device, required_bytes, &gpu->png_scanline_buffer,
+                                     &gpu->png_scanline_view, &gpu->png_scanline_capacity);
 }
 
 HRESULT create_png_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept {
@@ -283,56 +258,46 @@ HRESULT create_vp8_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept 
     return S_OK;
 }
 
-HRESULT create_vp8_filter_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept {
-    if (gpu->vp8_filter_constants && gpu->vp8_filter_shader) {
-        return S_OK;
-    }
+// A constant buffer and the compute shader that reads it, replaced together.
+static HRESULT replace_constants_and_shader(ID3D11Device* device, u32 constant_bytes,
+                                            ShaderId shader_id, ID3D11Buffer** constants,
+                                            ID3D11ComputeShader** shader) noexcept {
     ID3D11Buffer* replacement_constants = nullptr;
     ID3D11ComputeShader* replacement_shader = nullptr;
     D3D11_BUFFER_DESC constant_description{};
-    constant_description.ByteWidth = sizeof(Vp8FilterConstants);
+    constant_description.ByteWidth = constant_bytes;
     constant_description.Usage = D3D11_USAGE_DEFAULT;
     constant_description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     HRESULT result = device->CreateBuffer(&constant_description, nullptr, &replacement_constants);
     if (SUCCEEDED(result)) {
-        result = shader_create_compute(device, ShaderId::vp8_filter, &replacement_shader);
+        result = shader_create_compute(device, shader_id, &replacement_shader);
     }
     if (FAILED(result)) {
         com_release(replacement_shader);
         com_release(replacement_constants);
         return result;
     }
-    com_release(gpu->vp8_filter_shader);
-    com_release(gpu->vp8_filter_constants);
-    gpu->vp8_filter_constants = replacement_constants;
-    gpu->vp8_filter_shader = replacement_shader;
+    com_release(*shader);
+    com_release(*constants);
+    *constants = replacement_constants;
+    *shader = replacement_shader;
     return S_OK;
+}
+
+HRESULT create_vp8_filter_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept {
+    if (gpu->vp8_filter_constants && gpu->vp8_filter_shader) {
+        return S_OK;
+    }
+    return replace_constants_and_shader(device, sizeof(Vp8FilterConstants), ShaderId::vp8_filter,
+                                        &gpu->vp8_filter_constants, &gpu->vp8_filter_shader);
 }
 
 HRESULT create_vp8_atlas_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept {
     if (gpu->vp8_atlas_constants && gpu->vp8_atlas_shader) {
         return S_OK;
     }
-    ID3D11Buffer* replacement_constants = nullptr;
-    ID3D11ComputeShader* replacement_shader = nullptr;
-    D3D11_BUFFER_DESC constant_description{};
-    constant_description.ByteWidth = sizeof(Vp8AtlasConstants);
-    constant_description.Usage = D3D11_USAGE_DEFAULT;
-    constant_description.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    HRESULT result = device->CreateBuffer(&constant_description, nullptr, &replacement_constants);
-    if (SUCCEEDED(result)) {
-        result = shader_create_compute(device, ShaderId::vp8_atlas, &replacement_shader);
-    }
-    if (FAILED(result)) {
-        com_release(replacement_shader);
-        com_release(replacement_constants);
-        return result;
-    }
-    com_release(gpu->vp8_atlas_shader);
-    com_release(gpu->vp8_atlas_constants);
-    gpu->vp8_atlas_constants = replacement_constants;
-    gpu->vp8_atlas_shader = replacement_shader;
-    return S_OK;
+    return replace_constants_and_shader(device, sizeof(Vp8AtlasConstants), ShaderId::vp8_atlas,
+                                        &gpu->vp8_atlas_constants, &gpu->vp8_atlas_shader);
 }
 
 HRESULT create_jpeg_resources(MediaAtlasGpu* gpu, ID3D11Device* device) noexcept {

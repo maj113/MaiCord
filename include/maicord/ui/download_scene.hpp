@@ -64,6 +64,6 @@ UiDownloadTarget ui_download_scene_target(const UiDownloadScene&, UiWidgetHandle
 UiDownloadTarget ui_download_scene_hit_test(const UiDownloadScene&, float x, float y) noexcept;
 bool ui_download_scene_page(UiDownloadScene*, u32 page) noexcept;
 bool ui_download_scene_set_hover(UiDownloadScene*, float x, float y, bool* changed) noexcept;
-bool ui_download_scene_paint(const UiDownloadScene&, const Theme&, PaintStream*, u32 dpi = 96) noexcept;
+bool ui_download_scene_paint(const UiDownloadScene&, const Theme&, PaintStream*) noexcept;
 bool ui_download_scene_text_output(const UiDownloadScene&, const Theme&, UiTextOutput*) noexcept;
 } // namespace maicord

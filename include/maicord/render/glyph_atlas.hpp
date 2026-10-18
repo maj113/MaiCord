@@ -128,8 +128,6 @@ struct GlyphAtlasGrowth {
     u32 protect_ms;
     u32 growths;
     u32 shrinks;
-    u32 relocated_rows;
-    u32 trimmed_entries;
     u16 minimum_height;
     u16 maximum_height; // zero: fixed-size atlas
     u16 step;

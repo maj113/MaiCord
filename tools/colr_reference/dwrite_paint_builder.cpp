@@ -533,7 +533,6 @@ bool tree(Builder& b, const DWRITE_PAINT_ELEMENT& e, DWRITE_MATRIX m, u32 depth)
     case DWRITE_PAINT_TYPE_COLOR_GLYPH:
         return children(b, 1, m, depth, false) && clip(b, p.colorGlyph.clipBox, m);
     case DWRITE_PAINT_TYPE_COMPOSITE: {
-        b.p->general_paints |= p.composite.mode != DWRITE_COLOR_COMPOSITE_SRC_OVER;
         if (!children(b, 2, m, depth, false))
             return false;
         auto* n = emit(b, 6);
@@ -557,7 +556,6 @@ bool tree(Builder& b, const DWRITE_PAINT_ELEMENT& e, DWRITE_MATRIX m, u32 depth)
     case DWRITE_PAINT_TYPE_LINEAR_GRADIENT:
     case DWRITE_PAINT_TYPE_RADIAL_GRADIENT:
     case DWRITE_PAINT_TYPE_SWEEP_GRADIENT: {
-        b.p->general_paints |= e.paintType == DWRITE_PAINT_TYPE_SWEEP_GRADIENT;
         auto* n = emit(b, static_cast<u32>(e.paintType) - 3, m);
         if (!n)
             return false;
@@ -613,7 +611,6 @@ bool colr_paint_build(ColrPaintProgram* p, IDWritePaintReader* reader, IDWriteFo
     arena_reset(&p->storage);
     p->first = p->last = none;
     p->nodes = p->stack = p->peak_stack = p->paint_types = 0;
-    p->general_paints = false;
     p->bounds = {};
     p->mask_count = p->mask_pixels = 0;
     FontOutlines outlines(face);

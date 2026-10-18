@@ -2,7 +2,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/text_style.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

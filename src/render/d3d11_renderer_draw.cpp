@@ -852,9 +852,9 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         login_form ||
         (!renderer->login_visible &&
          (renderer_theme_editor_visible(*renderer) || (renderer_settings_page_visible(*renderer)) ||
-          (renderer->profile_scene && renderer->profile_scene->active) ||
-          (renderer->friends_requests_scene && renderer->friends_requests_scene->active) ||
-          (renderer->image_viewer && renderer->image_viewer->active) ||
+          d3d11_renderer_active(renderer->profile_scene) ||
+          d3d11_renderer_active(renderer->friends_requests_scene) ||
+          d3d11_renderer_active(renderer->image_viewer) ||
           d3d11_renderer_video_scene_visible(*renderer) || d3d11_renderer_audio_scene_visible(*renderer) ||
           d3d11_renderer_poll_scene_visible(*renderer) || d3d11_renderer_poll_voters_visible(*renderer) ||
           d3d11_renderer_tooltip_visible(*renderer) || d3d11_renderer_search_visible(*renderer) ||
@@ -865,10 +865,10 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
           d3d11_renderer_shortcuts_visible(*renderer) || d3d11_renderer_media_picker_visible(*renderer) ||
           d3d11_renderer_call_visible(*renderer) || d3d11_renderer_stream_card_visible(*renderer) ||
           d3d11_renderer_guild_card_visible(*renderer) ||
-          (renderer->message_action_bar && renderer->message_action_bar->active) ||
-          (renderer->popup_scene && renderer->popup_scene->active) ||
+          d3d11_renderer_active(renderer->message_action_bar) ||
+          d3d11_renderer_active(renderer->popup_scene) ||
           d3d11_renderer_form_active(*renderer) ||
-          (renderer->reaction_viewer && renderer->reaction_viewer->active)));
+          d3d11_renderer_active(renderer->reaction_viewer)));
     const bool interaction_text_current = d3d11_renderer_interaction_text_state_current(*renderer);
     const u32 base_paint_end =
         interaction_overlay ? renderer->overlay_paint_first_batch : paint_batch_count;
@@ -883,11 +883,11 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         saturating_increment(renderer->stale_interaction_text_suppressions);
     }
     const u32 profile_foreground =
-        renderer->profile_scene && renderer->profile_scene->active
+        d3d11_renderer_active(renderer->profile_scene)
             ? minimum(renderer->profile_foreground_first_batch, paint_batch_count)
             : paint_batch_count;
     const u32 profile_controls =
-        renderer->profile_scene && renderer->profile_scene->active
+        d3d11_renderer_active(renderer->profile_scene)
             ? maximum(profile_foreground,
                       minimum(renderer->profile_controls_first_batch, paint_batch_count))
             : paint_batch_count;
@@ -905,7 +905,7 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
         maximum(gallery_media_first, minimum(renderer->media_picker_media_end_batch, popup_media_first));
     const bool friends_requests_active =
         !renderer->login_visible && !(renderer_settings_page_visible(*renderer)) &&
-        ((renderer->friends_requests_scene && renderer->friends_requests_scene->active) ||
+        ((d3d11_renderer_active(renderer->friends_requests_scene)) ||
          d3d11_renderer_search_visible(*renderer) || d3d11_renderer_pinned_messages_visible(*renderer) ||
          d3d11_renderer_call_visible(*renderer));
     const u32 requests_foreground =
@@ -967,14 +967,14 @@ bool d3d11_renderer_draw_stream(D3D11Renderer* renderer, const Theme& theme, boo
                                d3d11_renderer_message_forward_visible(*renderer) ||
                                d3d11_renderer_download_visible(*renderer) ||
                                d3d11_renderer_shortcuts_visible(*renderer) ||
-                               (renderer->popup_scene && renderer->popup_scene->active &&
+                               (d3d11_renderer_active(renderer->popup_scene) &&
                                 !renderer->login_visible && !settings_active);
     const bool choice_current = settings_active && d3d11_renderer_settings_popup(*renderer);
     const float popup_opacity = popup_current ? renderer->layer_opacity.popup : 1;
     // Scale popouts (the server header menu) grow from their anchor edge.
     const float popup_scale = popup_current ? renderer->popup_layer_scale : 1;
     const float popup_x = renderer->popup_layer_origin_x, popup_y = renderer->popup_layer_origin_y;
-    const float profile_opacity = renderer->profile_scene && renderer->profile_scene->active &&
+    const float profile_opacity = d3d11_renderer_active(renderer->profile_scene) &&
                                           !renderer->login_visible && !settings_active
                                       ? renderer->layer_opacity.profile
                                       : 1;

@@ -25,22 +25,11 @@ u32 copy_text(char* destination, u32 capacity, Utf8View text) noexcept {
     return text.data ? utf8_copy_truncated(destination, capacity, text) : 0;
 }
 bool initialize(UiGuildCardScene& s) noexcept {
-    if (s.owner.manager == &s.widgets)
-        return true;
-    if (!ui_widget_manager_initialize(&s.widgets, {s.widget_storage, 1}, {s.layout_storage, 1}))
-        return false;
-    auto style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.flags = ui_layout_node_visible | ui_layout_node_allow_overlap;
-    const auto root = ui_widget_manager_add(
-        &s.widgets, ui_widget_invalid_handle(),
-        {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Server profile"), style, {}, 0, 1}});
-    if (!root.ok())
-        return false;
-    s.owner = {&s.widgets, root.handle};
-    return true;
+    return s.owner.manager == &s.widgets ||
+           ui_widget_manager_initialize_fill_root(&s.widgets, {s.widget_storage, 1}, {s.layout_storage, 1},
+                                                  utf8_literal("Server profile"),
+                                                  ui_layout_node_visible | ui_layout_node_allow_overlap,
+                                                  &s.owner);
 }
 // Measured size of text in a box width wide (wrapping unless single).
 UiSize measure(UiTextMeasureCache* cache, Utf8View text, u32 style, float width, bool single, u16 item) noexcept {

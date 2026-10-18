@@ -3,7 +3,6 @@
 
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -88,7 +87,7 @@ SecureEditResult replace_selection(SecureEdit* edit, const char* inserted, u32 i
     }
     const u32 new_bytes = retained + inserted_bytes;
     if (new_bytes < old_bytes) {
-        SecureZeroMemory(edit->storage.data + new_bytes, old_bytes - new_bytes);
+        secure_clear_bytes(edit->storage.data + new_bytes, old_bytes - new_bytes);
     }
     edit->storage.bytes = new_bytes;
     edit->anchor = begin + inserted_bytes;
@@ -609,7 +608,7 @@ SecureEditResult secure_edit_replace_utf16(SecureEdit* edit, u32 start, u32 end,
     }
     const u32 new_bytes = retained_bytes + inserted_bytes;
     if (new_bytes < old_bytes) {
-        SecureZeroMemory(edit->storage.data + new_bytes, old_bytes - new_bytes);
+        secure_clear_bytes(edit->storage.data + new_bytes, old_bytes - new_bytes);
     }
     edit->storage.bytes = new_bytes;
     edit->anchor = destination;

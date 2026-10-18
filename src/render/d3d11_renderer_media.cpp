@@ -164,6 +164,44 @@ public:
     AnimationAtlasTarget& operator=(const AnimationAtlasTarget&) = delete;
 };
 
+// Shared tail of the still-image uploads: both surfaces up, room made, the
+// upload run on the chosen atlas, failure and damage accounted.
+template <class Upload>
+MediaAtlasGpuResult upload_to_atlas(D3D11Renderer* renderer, MediaAssetKey key, bool preview, MediaAtlas* atlas,
+                                    u32 width, u32 height, const char* failure_event, Upload upload) noexcept {
+    const MediaAtlasGpuResult initialized = ensure_primary_media_gpu(renderer);
+    if (!initialized.ok()) return initialized;
+    const MediaAtlasGpuResult preview_initialized = ensure_upload_preview_gpu(renderer, preview, atlas);
+    if (!preview_initialized.ok()) return preview_initialized;
+    const MediaAtlasGpuResult prepared = prepare_media_surface(renderer, atlas, preview, key, width, height);
+    if (!prepared.ok()) return prepared;
+    const MediaAtlasGpuResult uploaded = upload();
+    if (!uploaded.ok()) {
+        ++renderer->media_rejected;
+        log_media_upload_failure(uploaded, failure_event);
+    } else if (preview) {
+        ++renderer->preview_media_uploads;
+        saturating_accumulate(renderer->preview_media_uploaded_pixels, static_cast<u64>(width) * height);
+    }
+    note_media_mutation(renderer, uploaded, preview ? 1 : 0);
+    return uploaded;
+}
+
+// Animation entry points: the surface owning `key` is borrowed for `upload`.
+template <class Upload>
+MediaAtlasGpuResult upload_animation(D3D11Renderer* renderer, MediaAssetKey key, u32 canvas_width,
+                                     u32 canvas_height, const char* failure_event, Upload upload) noexcept {
+    AnimationAtlasTarget target(renderer, key, canvas_width, canvas_height);
+    if (!target.initialized.ok()) return target.initialized;
+    const MediaAtlasGpuResult uploaded = upload(target.atlas);
+    if (!uploaded.ok()) {
+        ++renderer->media_rejected;
+        log_media_upload_failure(uploaded, failure_event);
+    }
+    note_media_mutation(renderer, uploaded, target.preview ? 1 : 0);
+    return uploaded;
+}
+
 } // namespace
 
 MediaAtlasGpuResult renderer_present_video_frame(D3D11Renderer* renderer,
@@ -418,36 +456,15 @@ MediaAtlasGpuResult renderer_upload_media_straight_rgba8(D3D11Renderer* renderer
         static_cast<u32>(height) + atlas->allocations.padding * 2u > media_atlas_capacity_height(*atlas)) {
         return reject_media_request(renderer);
     }
-    const MediaAtlasGpuResult initialized = ensure_primary_media_gpu(renderer);
-    if (!initialized.ok()) {
-        return initialized;
-    }
-    const MediaAtlasGpuResult preview_initialized = ensure_upload_preview_gpu(renderer, preview, atlas);
-    if (!preview_initialized.ok()) {
-        return preview_initialized;
-    }
-    const MediaAtlasGpuResult prepared = prepare_media_surface(renderer, atlas, preview, key, width, height);
-    if (!prepared.ok()) {
-        return prepared;
-    }
-    const MediaAtlasGpuResult uploaded =
-        preview ? media_atlas_gpu_upload_preview_straight_rgba8(
-                      &renderer->media_gpu, atlas, renderer->graphics.device,
-                      renderer->graphics.context1, key, width, height, row_pitch, straight_rgba8)
-                : media_atlas_gpu_upload_straight_rgba8(
-                      &renderer->media_gpu, atlas, renderer->graphics.device,
-                      renderer->graphics.context1, key, width, height, row_pitch, straight_rgba8);
-    if (!uploaded.ok()) {
-        ++renderer->media_rejected;
-        log_media_upload_failure(uploaded, "straight_rgba8_atlas_upload_failed");
-    }
-    if (uploaded.ok() && preview) {
-        ++renderer->preview_media_uploads;
-        saturating_accumulate(renderer->preview_media_uploaded_pixels,
-                              static_cast<u64>(width) * height);
-    }
-    note_media_mutation(renderer, uploaded, preview ? 1 : 0);
-    return uploaded;
+    return upload_to_atlas(renderer, key, preview, atlas, width, height, "straight_rgba8_atlas_upload_failed",
+        [&]() noexcept {
+            return preview ? media_atlas_gpu_upload_preview_straight_rgba8(
+                                 &renderer->media_gpu, atlas, renderer->graphics.device,
+                                 renderer->graphics.context1, key, width, height, row_pitch, straight_rgba8)
+                           : media_atlas_gpu_upload_straight_rgba8(
+                                 &renderer->media_gpu, atlas, renderer->graphics.device,
+                                 renderer->graphics.context1, key, width, height, row_pitch, straight_rgba8);
+        });
 }
 
 MediaAtlasGpuResult renderer_upload_png_scanlines(D3D11Renderer* renderer, MediaAssetKey key,
@@ -459,36 +476,16 @@ MediaAtlasGpuResult renderer_upload_png_scanlines(D3D11Renderer* renderer, Media
         !media_asset_key_valid(key)) {
         return reject_media_request(renderer);
     }
-    const MediaAtlasGpuResult initialized = ensure_primary_media_gpu(renderer);
-    if (!initialized.ok()) {
-        return initialized;
-    }
-    const MediaAtlasGpuResult preview_initialized = ensure_upload_preview_gpu(renderer, preview, atlas);
-    if (!preview_initialized.ok()) {
-        return preview_initialized;
-    }
-    const MediaAtlasGpuResult prepared =
-        prepare_media_surface(renderer, atlas, preview, key, image.width, image.height);
-    if (!prepared.ok()) {
-        return prepared;
-    }
-    const MediaAtlasGpuResult uploaded =
-        preview
-            ? media_atlas_gpu_upload_preview_png(&renderer->media_gpu, atlas, renderer->graphics.device,
-                                                 renderer->graphics.context1, key, image,
-                                                 reconstructed_scanlines)
-            : media_atlas_gpu_upload_png(&renderer->media_gpu, atlas, renderer->graphics.device,
-                                         renderer->graphics.context1, key, image, reconstructed_scanlines);
-    if (!uploaded.ok()) {
-        ++renderer->media_rejected;
-        log_media_upload_failure(uploaded, "png_atlas_upload_failed");
-    } else if (preview) {
-        ++renderer->preview_media_uploads;
-        const u64 pixels = static_cast<u64>(image.width) * image.height;
-        saturating_accumulate(renderer->preview_media_uploaded_pixels, pixels);
-    }
-    note_media_mutation(renderer, uploaded, preview ? 1 : 0);
-    return uploaded;
+    return upload_to_atlas(renderer, key, preview, atlas, image.width, image.height, "png_atlas_upload_failed",
+        [&]() noexcept {
+            return preview ? media_atlas_gpu_upload_preview_png(&renderer->media_gpu, atlas,
+                                                                renderer->graphics.device,
+                                                                renderer->graphics.context1, key, image,
+                                                                reconstructed_scanlines)
+                           : media_atlas_gpu_upload_png(&renderer->media_gpu, atlas, renderer->graphics.device,
+                                                        renderer->graphics.context1, key, image,
+                                                        reconstructed_scanlines);
+        });
 }
 
 MediaAtlasGpuResult renderer_upload_jpeg(D3D11Renderer* renderer, MediaAssetKey key, const JpegImage& image,
@@ -499,35 +496,15 @@ MediaAtlasGpuResult renderer_upload_jpeg(D3D11Renderer* renderer, MediaAssetKey 
         !media_asset_key_valid(key)) {
         return reject_media_request(renderer);
     }
-    const MediaAtlasGpuResult initialized = ensure_primary_media_gpu(renderer);
-    if (!initialized.ok()) {
-        return initialized;
-    }
-    const MediaAtlasGpuResult preview_initialized = ensure_upload_preview_gpu(renderer, preview, atlas);
-    if (!preview_initialized.ok()) {
-        return preview_initialized;
-    }
-    const MediaAtlasGpuResult prepared = prepare_media_surface(renderer, atlas, preview, key,
-                                                               jpeg_display_width(image), jpeg_display_height(image));
-    if (!prepared.ok()) {
-        return prepared;
-    }
-    const MediaAtlasGpuResult uploaded =
-        preview
-            ? media_atlas_gpu_upload_preview_jpeg(&renderer->media_gpu, atlas, renderer->graphics.device,
-                                                  renderer->graphics.context1, key, image, coefficients)
-            : media_atlas_gpu_upload_jpeg(&renderer->media_gpu, atlas, renderer->graphics.device,
-                                          renderer->graphics.context1, key, image, coefficients);
-    if (!uploaded.ok()) {
-        ++renderer->media_rejected;
-        log_media_upload_failure(uploaded, "jpeg_atlas_upload_failed");
-    } else if (preview) {
-        ++renderer->preview_media_uploads;
-        const u64 pixels = static_cast<u64>(jpeg_display_width(image)) * jpeg_display_height(image);
-        saturating_accumulate(renderer->preview_media_uploaded_pixels, pixels);
-    }
-    note_media_mutation(renderer, uploaded, preview ? 1 : 0);
-    return uploaded;
+    return upload_to_atlas(renderer, key, preview, atlas, jpeg_display_width(image), jpeg_display_height(image),
+        "jpeg_atlas_upload_failed", [&]() noexcept {
+            return preview ? media_atlas_gpu_upload_preview_jpeg(&renderer->media_gpu, atlas,
+                                                                 renderer->graphics.device,
+                                                                 renderer->graphics.context1, key, image,
+                                                                 coefficients)
+                           : media_atlas_gpu_upload_jpeg(&renderer->media_gpu, atlas, renderer->graphics.device,
+                                                         renderer->graphics.context1, key, image, coefficients);
+        });
 }
 
 MediaAtlasGpuResult renderer_begin_apng(D3D11Renderer* renderer, MediaAssetKey key, u16 canvas_width,
@@ -537,17 +514,12 @@ MediaAtlasGpuResult renderer_begin_apng(D3D11Renderer* renderer, MediaAssetKey k
     if (!media_request_ready(renderer, key)) {
         return reject_media_request(renderer);
     }
-    AnimationAtlasTarget target(renderer, key, canvas_width, canvas_height);
-    if(!target.initialized.ok())return target.initialized;
-    const MediaAtlasGpuResult uploaded = media_atlas_gpu_begin_apng(
-        &renderer->media_gpu, target.atlas, renderer->graphics.device, renderer->graphics.context1,
-        key, canvas_width, canvas_height, frame, frame_image, reconstructed_scanlines);
-    if (!uploaded.ok()) {
-        ++renderer->media_rejected;
-        log_media_upload_failure(uploaded, "apng_atlas_begin_failed");
-    }
-    note_media_mutation(renderer, uploaded,target.preview?1:0);
-    return uploaded;
+    return upload_animation(renderer, key, canvas_width, canvas_height, "apng_atlas_begin_failed",
+        [&](MediaAtlas* atlas) noexcept {
+            return media_atlas_gpu_begin_apng(&renderer->media_gpu, atlas, renderer->graphics.device,
+                                              renderer->graphics.context1, key, canvas_width, canvas_height,
+                                              frame, frame_image, reconstructed_scanlines);
+        });
 }
 
 MediaAtlasGpuResult renderer_advance_apng(D3D11Renderer* renderer, MediaAssetKey key,
@@ -557,17 +529,11 @@ MediaAtlasGpuResult renderer_advance_apng(D3D11Renderer* renderer, MediaAssetKey
     if (!media_request_ready(renderer, key) || !renderer->media_gpu.texture) {
         return reject_media_request(renderer);
     }
-    AnimationAtlasTarget target(renderer,key);
-    if(!target.initialized.ok())return target.initialized;
-    const MediaAtlasGpuResult uploaded = media_atlas_gpu_advance_apng(
-        &renderer->media_gpu, target.atlas, renderer->graphics.device, renderer->graphics.context1,
-        key, previous_frame, frame, frame_image, reconstructed_scanlines);
-    if (!uploaded.ok()) {
-        ++renderer->media_rejected;
-        log_write(LogLevel::error, "render", "apng_atlas_advance_failed");
-    }
-    note_media_mutation(renderer, uploaded,target.preview?1:0);
-    return uploaded;
+    return upload_animation(renderer, key, 0, 0, "apng_atlas_advance_failed", [&](MediaAtlas* atlas) noexcept {
+        return media_atlas_gpu_advance_apng(&renderer->media_gpu, atlas, renderer->graphics.device,
+                                            renderer->graphics.context1, key, previous_frame, frame,
+                                            frame_image, reconstructed_scanlines);
+    });
 }
 
 MediaAtlasGpuResult renderer_begin_gif(D3D11Renderer* renderer, MediaAssetKey key, u16 canvas_width,
@@ -576,17 +542,12 @@ MediaAtlasGpuResult renderer_begin_gif(D3D11Renderer* renderer, MediaAssetKey ke
     if (!media_request_ready(renderer, key)) {
         return reject_media_request(renderer);
     }
-    AnimationAtlasTarget target(renderer, key, canvas_width, canvas_height);
-    if (!target.initialized.ok()) return target.initialized;
-    const MediaAtlasGpuResult uploaded = media_atlas_gpu_begin_gif(
-        &renderer->media_gpu, target.atlas, renderer->graphics.device, renderer->graphics.context1,
-        key, canvas_width, canvas_height, frame, palette, indices);
-    if (!uploaded.ok()) {
-        ++renderer->media_rejected;
-        log_media_upload_failure(uploaded, "gif_atlas_begin_failed");
-    }
-    note_media_mutation(renderer, uploaded, target.preview ? 1 : 0);
-    return uploaded;
+    return upload_animation(renderer, key, canvas_width, canvas_height, "gif_atlas_begin_failed",
+        [&](MediaAtlas* atlas) noexcept {
+            return media_atlas_gpu_begin_gif(&renderer->media_gpu, atlas, renderer->graphics.device,
+                                             renderer->graphics.context1, key, canvas_width, canvas_height,
+                                             frame, palette, indices);
+        });
 }
 
 MediaAtlasGpuResult renderer_advance_gif(D3D11Renderer* renderer, MediaAssetKey key,
@@ -595,17 +556,11 @@ MediaAtlasGpuResult renderer_advance_gif(D3D11Renderer* renderer, MediaAssetKey 
     if (!media_request_ready(renderer, key)) {
         return reject_media_request(renderer);
     }
-    AnimationAtlasTarget target(renderer, key);
-    if (!target.initialized.ok()) return target.initialized;
-    const MediaAtlasGpuResult uploaded = media_atlas_gpu_advance_gif(
-        &renderer->media_gpu, target.atlas, renderer->graphics.device, renderer->graphics.context1,
-        key, previous_frame, frame, palette, indices);
-    if (!uploaded.ok()) {
-        ++renderer->media_rejected;
-        log_write(LogLevel::error, "render", "gif_atlas_advance_failed");
-    }
-    note_media_mutation(renderer, uploaded, target.preview ? 1 : 0);
-    return uploaded;
+    return upload_animation(renderer, key, 0, 0, "gif_atlas_advance_failed", [&](MediaAtlas* atlas) noexcept {
+        return media_atlas_gpu_advance_gif(&renderer->media_gpu, atlas, renderer->graphics.device,
+                                           renderer->graphics.context1, key, previous_frame, frame, palette,
+                                           indices);
+    });
 }
 
 MediaAtlasGpuResult renderer_begin_animated_webp(D3D11Renderer* renderer, MediaAssetKey key,
@@ -615,17 +570,12 @@ MediaAtlasGpuResult renderer_begin_animated_webp(D3D11Renderer* renderer, MediaA
     if (!media_request_ready(renderer, key)) {
         return reject_media_request(renderer);
     }
-    AnimationAtlasTarget target(renderer, key, canvas_width, canvas_height);
-    if (!target.initialized.ok()) return target.initialized;
-    const MediaAtlasGpuResult uploaded = media_atlas_gpu_begin_animated_webp(
-        &renderer->media_gpu, target.atlas, renderer->graphics.device, renderer->graphics.context1,
-        key, canvas_width, canvas_height, background_rgba, frame, straight_rgba8);
-    if (!uploaded.ok()) {
-        ++renderer->media_rejected;
-        log_media_upload_failure(uploaded, "animated_webp_atlas_begin_failed");
-    }
-    note_media_mutation(renderer, uploaded, target.preview ? 1 : 0);
-    return uploaded;
+    return upload_animation(renderer, key, canvas_width, canvas_height, "animated_webp_atlas_begin_failed",
+        [&](MediaAtlas* atlas) noexcept {
+            return media_atlas_gpu_begin_animated_webp(&renderer->media_gpu, atlas, renderer->graphics.device,
+                                                       renderer->graphics.context1, key, canvas_width,
+                                                       canvas_height, background_rgba, frame, straight_rgba8);
+        });
 }
 
 MediaAtlasGpuResult renderer_advance_animated_webp(D3D11Renderer* renderer, MediaAssetKey key,
@@ -636,17 +586,13 @@ MediaAtlasGpuResult renderer_advance_animated_webp(D3D11Renderer* renderer, Medi
     if (!media_request_ready(renderer, key)) {
         return reject_media_request(renderer);
     }
-    AnimationAtlasTarget target(renderer, key);
-    if (!target.initialized.ok()) return target.initialized;
-    const MediaAtlasGpuResult uploaded = media_atlas_gpu_advance_animated_webp(
-        &renderer->media_gpu, target.atlas, renderer->graphics.device, renderer->graphics.context1,
-        key, background_rgba, previous_frame, frame, straight_rgba8);
-    if (!uploaded.ok()) {
-        ++renderer->media_rejected;
-        log_write(LogLevel::error, "render", "animated_webp_atlas_advance_failed");
-    }
-    note_media_mutation(renderer, uploaded, target.preview ? 1 : 0);
-    return uploaded;
+    return upload_animation(renderer, key, 0, 0, "animated_webp_atlas_advance_failed",
+        [&](MediaAtlas* atlas) noexcept {
+            return media_atlas_gpu_advance_animated_webp(&renderer->media_gpu, atlas,
+                                                         renderer->graphics.device,
+                                                         renderer->graphics.context1, key, background_rgba,
+                                                         previous_frame, frame, straight_rgba8);
+        });
 }
 
 MediaAtlasGpuResult renderer_reconstruct_vp8_keyframe(
@@ -706,31 +652,15 @@ MediaAtlasGpuResult renderer_upload_vp8_keyframe(D3D11Renderer* renderer, MediaA
     if (!result.ok()) {
         return result;
     }
-    const MediaAtlasGpuResult preview_initialized = ensure_upload_preview_gpu(renderer, preview, atlas);
-    if (!preview_initialized.ok()) {
-        return preview_initialized;
-    }
-    result = prepare_media_surface(renderer, atlas, preview, key, frame.width, frame.height);
-    if (!result.ok()) {
-        return result;
-    }
-    result = preview ? media_atlas_gpu_upload_preview_vp8_keyframe(
-                           &renderer->media_gpu, atlas, renderer->graphics.device,
-                           renderer->graphics.context1, key, frame, alpha)
-                     : media_atlas_gpu_upload_vp8_keyframe(
-                           &renderer->media_gpu, atlas, renderer->graphics.device,
-                           renderer->graphics.context1, key, frame, alpha);
-    if (!result.ok()) {
-        ++renderer->media_rejected;
-        log_media_upload_failure(result, "vp8_atlas_upload_failed");
-    }
-    if (result.ok() && preview) {
-        ++renderer->preview_media_uploads;
-        saturating_accumulate(renderer->preview_media_uploaded_pixels,
-                              static_cast<u64>(frame.width) * frame.height);
-    }
-    note_media_mutation(renderer, result, preview ? 1 : 0);
-    return result;
+    return upload_to_atlas(renderer, key, preview, atlas, frame.width, frame.height, "vp8_atlas_upload_failed",
+        [&]() noexcept {
+            return preview ? media_atlas_gpu_upload_preview_vp8_keyframe(
+                                 &renderer->media_gpu, atlas, renderer->graphics.device,
+                                 renderer->graphics.context1, key, frame, alpha)
+                           : media_atlas_gpu_upload_vp8_keyframe(
+                                 &renderer->media_gpu, atlas, renderer->graphics.device,
+                                 renderer->graphics.context1, key, frame, alpha);
+        });
 }
 
 MediaAtlasGpuResult renderer_begin_animated_webp_vp8(
@@ -750,17 +680,12 @@ MediaAtlasGpuResult renderer_begin_animated_webp_vp8(
     if (!result.ok()) {
         return result;
     }
-    AnimationAtlasTarget target(renderer, key, canvas_width, canvas_height);
-    if (!target.initialized.ok()) return target.initialized;
-    result = media_atlas_gpu_begin_animated_webp_vp8(
-        &renderer->media_gpu, target.atlas, renderer->graphics.device, renderer->graphics.context1,
-        key, canvas_width, canvas_height, background_rgba, animation_frame, vp8_frame, alpha);
-    if (!result.ok()) {
-        ++renderer->media_rejected;
-        log_media_upload_failure(result, "animated_webp_vp8_atlas_begin_failed");
-    }
-    note_media_mutation(renderer, result, target.preview ? 1 : 0);
-    return result;
+    return upload_animation(renderer, key, canvas_width, canvas_height, "animated_webp_vp8_atlas_begin_failed",
+        [&](MediaAtlas* atlas) noexcept {
+            return media_atlas_gpu_begin_animated_webp_vp8(
+                &renderer->media_gpu, atlas, renderer->graphics.device, renderer->graphics.context1, key,
+                canvas_width, canvas_height, background_rgba, animation_frame, vp8_frame, alpha);
+        });
 }
 
 MediaAtlasGpuResult renderer_advance_animated_webp_vp8(
@@ -780,17 +705,12 @@ MediaAtlasGpuResult renderer_advance_animated_webp_vp8(
     if (!result.ok()) {
         return result;
     }
-    AnimationAtlasTarget target(renderer, key);
-    if (!target.initialized.ok()) return target.initialized;
-    result = media_atlas_gpu_advance_animated_webp_vp8(
-        &renderer->media_gpu, target.atlas, renderer->graphics.device, renderer->graphics.context1,
-        key, background_rgba, previous_frame, animation_frame, vp8_frame, alpha);
-    if (!result.ok()) {
-        ++renderer->media_rejected;
-        log_write(LogLevel::error, "render", "animated_webp_vp8_atlas_advance_failed");
-    }
-    note_media_mutation(renderer, result, target.preview ? 1 : 0);
-    return result;
+    return upload_animation(renderer, key, 0, 0, "animated_webp_vp8_atlas_advance_failed",
+        [&](MediaAtlas* atlas) noexcept {
+            return media_atlas_gpu_advance_animated_webp_vp8(
+                &renderer->media_gpu, atlas, renderer->graphics.device, renderer->graphics.context1, key,
+                background_rgba, previous_frame, animation_frame, vp8_frame, alpha);
+        });
 }
 
 bool renderer_read_media_rgba(D3D11Renderer* renderer, MediaAssetKey key, Slice<u8> rgba, u32* width,

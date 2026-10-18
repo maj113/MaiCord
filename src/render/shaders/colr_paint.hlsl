@@ -16,7 +16,6 @@ uint load1(uint at){return program.Load(program_base+at);}
 uint2 load2(uint at){return program.Load2(program_base+at);}
 uint4 load4(uint at){return program.Load4(program_base+at);}
 float4 premultiply(float4 c) { return float4(c.rgb*c.a,c.a); }
-#if COLR_GENERAL
 float3 clip_color(float3 c) {
     float l=dot(c,float3(.3,.59,.11)),lo=min(c.r,min(c.g,c.b)),hi=max(c.r,max(c.g,c.b));
     if(lo<0)c=l+(c-l)*l/max(l-lo,1e-8);
@@ -61,9 +60,6 @@ float4 composite(float4 s,float4 d,uint mode) {
     if(mode==27)c=set_lum(b,dot(a,float3(.3,.59,.11)));
     return float4(s.rgb*(1-d.a)+d.rgb*(1-s.a)+s.a*d.a*c,s.a+d.a-s.a*d.a);
 }
-#else
-float4 composite(float4 s,float4 d,uint mode) {return s+d*(1-s.a);}
-#endif
 // Match Windows DrawPaintGlyphRun: interpolate straight sRGB stops, then
 // premultiply. Premultiplying stops first changes transparent-gradient hues.
 float4 gradient(uint offset,uint count,uint extend,float t) {
@@ -185,7 +181,6 @@ void colr_paint(uint3 thread : SV_DispatchThreadID) {
                     valid=valid&&(v0||v1);t=v0&&v1?max(t0,t1):(v0?t0:t1);
                 }
             }
-#if COLR_GENERAL
             else {
                 float2 d=q-a.xy;float angle=atan2(-d.y,d.x)*57.2957795131;
                 if(angle<0)angle+=360;
@@ -194,7 +189,6 @@ void colr_paint(uint3 thread : SV_DispatchThreadID) {
                     t=angle<a.z?-1e20:1e20;
                 } else t=(angle-a.z)/(a.w-a.z);
             }
-#endif
 #if COLR_LAYERS
             leaf=valid?gradient(data,count,mode,t):float4(0,0,0,0);
 #else

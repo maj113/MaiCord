@@ -183,18 +183,7 @@ struct UiShellHeaderGeometry {
 };
 
 struct UiBootstrapMetrics {
-    float guild_item_left;
-    float guild_item_top;
-    float guild_item_extent;
-    float guild_item_stride;
-    float channel_inset;
-    float channel_selection_top;
-    float channel_selection_height;
     float message_row_height;
-    float message_avatar_extent;
-    float message_text_offset;
-    float member_row_height;
-    float member_avatar_extent;
 };
 
 extern const UiBootstrapMetrics kDefaultUiBootstrapMetrics;

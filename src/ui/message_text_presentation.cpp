@@ -668,6 +668,31 @@ bool begin_flow_item_clamped(UiTextFlowLayout* flow, float left_inset, float rig
     return ui_text_flow_begin_item(flow, clamped_left, clamped_right, rectangle);
 }
 
+// Opens the next flow item; a failure records the flow's error.
+bool begin_item(MessageTextPresentation* presentation, UiTextFlowLayout* flow, float left_inset,
+                float right_inset, UiRect* rectangle) noexcept {
+    set_failure_operation(presentation, MessageTextPresentationOperation::begin_flow_item);
+    if (begin_flow_item_clamped(flow, left_inset, right_inset, rectangle)) {
+        return true;
+    }
+    if (presentation) {
+        presentation->failure_flow_error = flow->last_error;
+    }
+    return fail(presentation, MessageTextPresentationError::layout);
+}
+
+// Commits the command just appended as the flow's next item.
+bool commit_last_command(MessageTextPresentation* presentation, UiTextFlowLayout* flow) noexcept {
+    const MessageTextCommand& command = presentation->commands[presentation->command_count - 1];
+    set_failure_operation(presentation, MessageTextPresentationOperation::commit_flow_item);
+    if (!ui_text_flow_commit_item(flow, command.measured_height, command.minimum_height, command.gap_after)) {
+        presentation->failure_flow_error = flow->last_error;
+        return fail(presentation, MessageTextPresentationError::layout);
+    }
+    saturating_accumulate(presentation->rich.flow_items);
+    return true;
+}
+
 bool append_rich_line(MessageTextPresentation* presentation, Utf8View text, UiTextFlowLayout* flow,
                       float left_inset, float right_inset, const Color& color, UiWidgetReference owner,
                       u64 message_id, u32 message_revision,
@@ -681,12 +706,8 @@ bool append_rich_line(MessageTextPresentation* presentation, Utf8View text, UiTe
         return true;
     }
     UiRect rectangle{};
-    set_failure_operation(presentation, MessageTextPresentationOperation::begin_flow_item);
-    if (!begin_flow_item_clamped(flow, left_inset, right_inset, &rectangle)) {
-        if (presentation && flow) {
-            presentation->failure_flow_error = flow->last_error;
-        }
-        return fail(presentation, MessageTextPresentationError::layout);
+    if (!begin_item(presentation, flow, left_inset, right_inset, &rectangle)) {
+        return false;
     }
     if (!append_command(presentation, text, ConstSlice<TextStyleSpan>{},
                         ConstSlice<MessageMarkdownSemantic>{}, owner, rectangle, flow->clip_rectangle,
@@ -694,15 +715,7 @@ bool append_rich_line(MessageTextPresentation* presentation, Utf8View text, UiTe
                         gap_after, false)) {
         return false;
     }
-    const MessageTextCommand& command = presentation->commands[presentation->command_count - 1];
-    set_failure_operation(presentation, MessageTextPresentationOperation::commit_flow_item);
-    if (!ui_text_flow_commit_item(flow, command.measured_height, command.minimum_height,
-                                  command.gap_after)) {
-        presentation->failure_flow_error = flow->last_error;
-        return fail(presentation, MessageTextPresentationError::layout);
-    }
-    saturating_accumulate(presentation->rich.flow_items);
-    return true;
+    return commit_last_command(presentation, flow);
 }
 
 struct RetainedReplySummary {
@@ -1082,10 +1095,8 @@ bool append_reply_line(MessageTextPresentation* presentation, Utf8View text,
     UiRect rectangle{};
     // Reserve the leading 16-DIP referenced-author avatar plus a 4-DIP gap,
     // and room for a trailing 20-DIP icon (4-DIP gap) when one follows.
-    set_failure_operation(presentation, MessageTextPresentationOperation::begin_flow_item);
-    if (!begin_flow_item_clamped(flow, 20.0f, right_inset, &rectangle)) {
-        presentation->failure_flow_error = flow->last_error;
-        return fail(presentation, MessageTextPresentationError::layout);
+    if (!begin_item(presentation, flow, 20.0f, right_inset, &rectangle)) {
+        return false;
     }
     // Bound shaping to one line; the renderer applies character-granularity
     // ellipsis inside this retained width.
@@ -1097,15 +1108,7 @@ bool append_reply_line(MessageTextPresentation* presentation, Utf8View text,
                         overflow, inline_role_color)) {
         return false;
     }
-    const MessageTextCommand& command = presentation->commands[presentation->command_count - 1];
-    set_failure_operation(presentation, MessageTextPresentationOperation::commit_flow_item);
-    if (!ui_text_flow_commit_item(flow, command.measured_height, command.minimum_height,
-                                  command.gap_after)) {
-        presentation->failure_flow_error = flow->last_error;
-        return fail(presentation, MessageTextPresentationError::layout);
-    }
-    saturating_accumulate(presentation->rich.flow_items);
-    return true;
+    return commit_last_command(presentation, flow);
 }
 
 bool initialize_flow(MessageTextPresentation* presentation, const UiLayoutNode& region, float text_left,
@@ -1467,10 +1470,8 @@ bool append_rich_markdown_line(MessageTextPresentation* presentation, BuildConte
             right += maximum(0.0f, width - quote_text_inset() - quote_text_width(width));
         }
         UiRect rectangle{};
-        set_failure_operation(presentation, MessageTextPresentationOperation::begin_flow_item);
-        if (!begin_flow_item_clamped(flow, left, right, &rectangle)) {
-            presentation->failure_flow_error = flow->last_error;
-            return fail(presentation, MessageTextPresentationError::layout);
+        if (!begin_item(presentation, flow, left, right, &rectangle)) {
+            return false;
         }
         if (!append_command(presentation, segment.text, segment.styles, segment.semantics, owner, rectangle,
                             flow->clip_rectangle, color, message_id, message_revision, measurement_index,
@@ -1479,14 +1480,9 @@ bool append_rich_markdown_line(MessageTextPresentation* presentation, BuildConte
                             UiTextWrapping::wrap, 0, UiTextOverflow::clip, Color{}, context->source_id)) {
             return false;
         }
-        const MessageTextCommand& command = presentation->commands[presentation->command_count - 1];
-        set_failure_operation(presentation, MessageTextPresentationOperation::commit_flow_item);
-        if (!ui_text_flow_commit_item(flow, command.measured_height, command.minimum_height,
-                                      command.gap_after)) {
-            presentation->failure_flow_error = flow->last_error;
-            return fail(presentation, MessageTextPresentationError::layout);
+        if (!commit_last_command(presentation, flow)) {
+            return false;
         }
-        saturating_accumulate(presentation->rich.flow_items);
     }
     return true;
 }
@@ -1523,24 +1519,15 @@ bool append_embed_plain_line(MessageTextPresentation* presentation, BuildContext
         semantics = {presentation->semantics.data + presentation->semantic_count++, 1};
     }
     UiRect rectangle{};
-    set_failure_operation(presentation, MessageTextPresentationOperation::begin_flow_item);
-    if (!begin_flow_item_clamped(flow, left_inset, right_inset, &rectangle)) {
-        presentation->failure_flow_error = flow->last_error;
-        return fail(presentation, MessageTextPresentationError::layout);
+    if (!begin_item(presentation, flow, left_inset, right_inset, &rectangle)) {
+        return false;
     }
     if (!append_command(presentation, text, styles, semantics, owner, rectangle, flow->clip_rectangle, color,
                         message_id, message_revision, measurement_index, MessageTextMeasurementKind::embed,
                         minimum_height, 0.0f, styles.count != 0, UiTextAlignment::start, UiTextAlignment::start,
                         UiTextWrapping::wrap, 0, UiTextOverflow::clip, Color{}, source_id))
         return false;
-    const MessageTextCommand& command = presentation->commands[presentation->command_count - 1];
-    set_failure_operation(presentation, MessageTextPresentationOperation::commit_flow_item);
-    if (!ui_text_flow_commit_item(flow, command.measured_height, command.minimum_height, 0.0f)) {
-        presentation->failure_flow_error = flow->last_error;
-        return fail(presentation, MessageTextPresentationError::layout);
-    }
-    saturating_accumulate(presentation->rich.flow_items);
-    return true;
+    return commit_last_command(presentation, flow);
 }
 
 // A rich embed markdown block (title, description, field); non-rich embeds

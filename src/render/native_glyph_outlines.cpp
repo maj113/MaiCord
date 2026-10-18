@@ -6,7 +6,7 @@
 #include "maicord/text/font_run.hpp"
 #include "maicord/render/colr_source.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {
 namespace {constexpr u32 capacity=glyph_font_maximum_capacity;}
 struct NativeColorOutline {

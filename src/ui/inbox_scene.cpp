@@ -91,10 +91,8 @@ bool rebuild(UiInboxScene& s) noexcept {
     s.body_owner = s.more = {};
     clear_bytes(s.chips, sizeof(s.chips));
     s.first = s.count = 0;
-    auto style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
-    style.width = style.height = ui_layout_fill();
-    style.flags |= ui_layout_node_allow_overlap | ui_layout_node_clip_children;
+    auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap |
+                                      ui_layout_node_clip_children);
     const auto root = ui_widget_manager_add_prevalidated(&s.widgets, ui_widget_invalid_handle(),
                                                          {1, UiWidgetKind::container, ui_widget_none,
                                                           {utf8_literal("Inbox"), style}});

@@ -62,10 +62,7 @@ bool initialize(UiDownloadScene& s) noexcept {
         !ui_widget_manager_initialize(&s.widgets, s.storage.widgets, s.storage.layout_nodes)) return false;
     s.accepted = ui_fixed_widget_storage_sidecar<UiDownloadRow>(s.storage);
     const auto add = [&](UiWidgetHandle parent, UiWidgetKind kind, Utf8View name) noexcept {
-        auto style = ui_layout_style();
-        style.flags |= ui_layout_node_clip_children | ui_layout_node_allow_overlap | ui_layout_node_allow_zero_size;
-        return ui_widget_manager_add_prevalidated(&s.widgets, parent,
-            {s.widgets.count + 1, kind, ui_widget_none, {name, style}});
+        return ui_widget_manager_add_part(&s.widgets, parent, kind, name);
     };
     const auto root = add(ui_widget_invalid_handle(), UiWidgetKind::container, utf8_literal("Downloads"));
     if (!root.ok()) return false;
@@ -89,21 +86,7 @@ bool initialize(UiDownloadScene& s) noexcept {
     return true;
 }
 bool rectangle(UiDownloadScene& s, UiWidgetHandle handle, UiRect r, bool visible, bool enabled) noexcept {
-    auto* widget = ui_widget_manager_resolve(&s.widgets, handle);
-    auto* node = widget ? ui_layout_engine_resolve(&s.widgets.layout, widget->layout) : nullptr;
-    if (!node) return false;
-    auto& style = node->spec.style;
-    const float width = visible ? ui_rect_width(r) : 0, height = visible ? ui_rect_height(r) : 0;
-    const float left = visible ? r.left - s.panel.left : 0, top = visible ? r.top - s.panel.top : 0;
-    const u16 flags = static_cast<u16>(ui_layout_node_clip_children | ui_layout_node_allow_overlap |
-        ui_layout_node_allow_zero_size | (visible ? ui_layout_node_visible : 0));
-    const bool changed = style.width.mode != UiLayoutLengthMode::fixed || style.width.value != width ||
-        style.height.mode != UiLayoutLengthMode::fixed || style.height.value != height ||
-        style.margin.left != left || style.margin.top != top || style.flags != flags;
-    style.width = ui_layout_fixed(width); style.height = ui_layout_fixed(height);
-    style.margin = {left, top, 0, 0}; style.flags = flags;
-    widget->flags = static_cast<u16>(visible && enabled ? ui_widget_enabled | ui_widget_hit_test | ui_widget_focusable : 0);
-    return changed;
+    return ui_widget_manager_place_part(&s.widgets, handle, r, s.panel, visible, enabled);
 }
 void cancel_capture(UiDownloadScene& s) noexcept {
     ui_widget_manager_capture(&s.widgets, ui_widget_invalid_handle());
@@ -314,7 +297,7 @@ bool ui_download_scene_set_hover(UiDownloadScene* s, float x, float y, bool* cha
     if (changed) *changed = delta;
     return true;
 }
-bool ui_download_scene_paint(const UiDownloadScene& s, const Theme& t, PaintStream* out, u32) noexcept {
+bool ui_download_scene_paint(const UiDownloadScene& s, const Theme& t, PaintStream* out) noexcept {
     if (!current(s)) return true;
     if (!out || !paint_stream_push_clip(out,s.viewport.left,s.viewport.top,s.viewport.right,s.viewport.bottom)) return false;
     const auto p = s.panel;

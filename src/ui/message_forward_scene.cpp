@@ -78,10 +78,7 @@ bool initialize(UiMessageForwardScene& s) noexcept {
         !ui_widget_manager_initialize(&s.widgets, s.storage.widgets, s.storage.layout_nodes)) return false;
     s.accepted = ui_fixed_widget_storage_sidecar<UiMessageForwardRow>(s.storage);
     const auto add = [&](UiWidgetHandle parent, UiWidgetKind kind, Utf8View name) noexcept {
-        auto style = ui_layout_style();
-        style.flags |= ui_layout_node_clip_children | ui_layout_node_allow_overlap | ui_layout_node_allow_zero_size;
-        return ui_widget_manager_add_prevalidated(&s.widgets, parent,
-            {s.widgets.count + 1, kind, ui_widget_none, {name, style}});
+        return ui_widget_manager_add_part(&s.widgets, parent, kind, name);
     };
     auto root = add(ui_widget_invalid_handle(), UiWidgetKind::container, utf8_literal("Forward message"));
     if (!root.ok()) return false;
@@ -111,22 +108,7 @@ bool initialize(UiMessageForwardScene& s) noexcept {
 }
 bool rectangle(UiMessageForwardScene& s, UiWidgetHandle handle, UiRect r, UiRect parent,
     bool visible, bool enabled, bool focusable = true) noexcept {
-    auto* widget = ui_widget_manager_resolve(&s.widgets, handle);
-    auto* node = widget ? ui_layout_engine_resolve(&s.widgets.layout, widget->layout) : nullptr;
-    if (!node) return false;
-    auto& style = node->spec.style;
-    const float width = visible ? ui_rect_width(r) : 0, height = visible ? ui_rect_height(r) : 0;
-    const float left = visible ? r.left - parent.left : 0, top = visible ? r.top - parent.top : 0;
-    const u16 flags = static_cast<u16>(ui_layout_node_clip_children | ui_layout_node_allow_overlap |
-        ui_layout_node_allow_zero_size | (visible ? ui_layout_node_visible : 0));
-    const bool changed = style.width.mode != UiLayoutLengthMode::fixed || style.width.value != width ||
-        style.height.mode != UiLayoutLengthMode::fixed || style.height.value != height ||
-        style.margin.left != left || style.margin.top != top || style.flags != flags;
-    style.width = ui_layout_fixed(width); style.height = ui_layout_fixed(height);
-    style.margin = {left, top, 0, 0}; style.flags = flags;
-    widget->flags = static_cast<u16>(visible && enabled ? ui_widget_enabled | ui_widget_hit_test |
-        (focusable ? ui_widget_focusable : 0) : 0);
-    return changed;
+    return ui_widget_manager_place_part(&s.widgets, handle, r, parent, visible, enabled, focusable);
 }
 void cancel_capture(UiMessageForwardScene& s) noexcept {
     ui_widget_manager_capture(&s.widgets, ui_widget_invalid_handle());

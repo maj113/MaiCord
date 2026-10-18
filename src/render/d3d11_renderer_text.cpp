@@ -28,7 +28,8 @@
 #include "d3d11_renderer_layout.hpp"
 #include "d3d11_renderer_login_form.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 struct RendererTypographyOwner {
@@ -123,23 +124,19 @@ bool append_login_text_command(D3D11Renderer* renderer, const UiTextCommand& com
     const TextStyleSpan span{0, command.text.bytes, command.style_flags};
     const float maximum_width = maximum(ui_rect_width(command.rectangle), 1.0f);
     const float maximum_height = maximum(ui_rect_height(command.rectangle), 1.0f);
+    const TextWrapping wrapping =
+        command.wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap;
+    const TextOverflow overflow =
+        command.overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip;
     const TextShapeResult shaped =
         command.style_flags == text_style_none
             ? text_shape_utf8(&renderer->glyph_text.system, command.text, maximum_width, maximum_height,
                               Slice<wchar_t>{renderer->glyph_text.utf16, kRendererGlyphCapacity},
-                              &renderer->glyph_text.title,
-                              command.wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap
-                                                                          : TextWrapping::wrap,
-                              command.overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis
-                                                                           : TextOverflow::clip)
+                              &renderer->glyph_text.title, wrapping, overflow)
             : text_shape_utf8_styled(&renderer->glyph_text.system, command.text,
                                      ConstSlice<TextStyleSpan>{&span, 1}, maximum_width, maximum_height,
                                      Slice<wchar_t>{renderer->glyph_text.utf16, kRendererGlyphCapacity},
-                                     &renderer->glyph_text.title,
-                                     command.wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap
-                                                                                 : TextWrapping::wrap,
-                                     command.overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis
-                                                                                  : TextOverflow::clip);
+                                     &renderer->glyph_text.title, wrapping, overflow);
     if (!shaped.ok()) {
         return false;
     }
@@ -585,6 +582,18 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
         // A result that no longer fits takes the substitution path below.
         from_cache = cached.glyph_count <= room && cached.decoration_count <= room - cached.glyph_count;
     }
+    const auto shape_plain = [&](Utf8View text) noexcept {
+        return text_shape_utf8(&text_system, text, maximum_width, maximum_height,
+                               Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
+                               shape_wrapping, shape_overflow);
+    };
+    const auto shape_styled = [&]() noexcept {
+        return styles.count == 0
+                   ? shape_plain(input)
+                   : text_shape_utf8_styled(&text_system, input, styles, maximum_width, maximum_height,
+                                            Slice<wchar_t>{storage->utf16, storage->utf16_capacity},
+                                            &storage->scratch, shape_wrapping, shape_overflow);
+    };
     bool primary_shape = true;
     TextShapeResult shaped =
         from_cache ? TextShapeResult{}
@@ -593,20 +602,8 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
                   &text_system, input, styles,
                   ConstSlice<TextHitSpan>{storage->hit_spans, interactive_count}, maximum_width,
                   maximum_height, Slice<wchar_t>{storage->utf16, storage->utf16_capacity},
-                  &storage->scratch,
-                  wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
-                  overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip)
-        : styles.count == 0
-            ? text_shape_utf8(
-                  &text_system, input, maximum_width, maximum_height,
-                  Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
-                  wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
-                  overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip)
-            : text_shape_utf8_styled(
-                  &text_system, input, styles, maximum_width, maximum_height,
-                  Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
-                  wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
-                  overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip);
+                  &storage->scratch, shape_wrapping, shape_overflow)
+            : shape_styled();
     if (interactive_count != 0 && shaped.error == TextShapeError::output_too_small) {
         primary_shape = false;
         shaped_text_reset(&storage->scratch);
@@ -619,18 +616,7 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
         semantic_count = 0;
         selection_active = false;
         saturating_increment(storage->semantic_truncations);
-        shaped =
-            styles.count == 0
-                ? text_shape_utf8(
-                      &text_system, input, maximum_width, maximum_height,
-                      Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
-                      wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
-                      overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip)
-                : text_shape_utf8_styled(
-                      &text_system, input, styles, maximum_width, maximum_height,
-                      Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
-                      wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
-                      overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip);
+        shaped = shape_styled();
     }
     if (shaped.error == TextShapeError::output_too_small) {
         primary_shape = false;
@@ -639,11 +625,7 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
         if (storage->substitutions != 0xFFFF) {
             ++storage->substitutions;
         }
-        shaped = text_shape_utf8(
-            &text_system, overflow_text, maximum_width, maximum_height,
-            Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
-            wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
-            overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip);
+        shaped = shape_plain(overflow_text);
         interactive_count = 0;
         semantic_count = 0;
         selection_active = false;
@@ -664,11 +646,7 @@ bool append_content_text(D3D11Renderer* renderer, Utf8View input, float maximum_
         if (!substituted && storage->substitutions != 0xFFFF) {
             ++storage->substitutions;
         }
-        shaped = text_shape_utf8(
-            &text_system, overflow_text, maximum_width, maximum_height,
-            Slice<wchar_t>{storage->utf16, storage->utf16_capacity}, &storage->scratch,
-            wrapping == UiTextWrapping::no_wrap ? TextWrapping::no_wrap : TextWrapping::wrap,
-            overflow == UiTextOverflow::ellipsis ? TextOverflow::ellipsis : TextOverflow::clip);
+        shaped = shape_plain(overflow_text);
         interactive_count = 0;
         semantic_count = 0;
         selection_active = false;
@@ -1190,7 +1168,7 @@ ContentTextRetentionKey content_text_retention_key(const D3D11Renderer& renderer
     const MessageTextPresentation* presentation = renderer.message_text;
     const bool settings_active = renderer_settings_page_visible(renderer);
     const bool friends_active =
-        !settings_active && renderer.friends_scene && renderer.friends_scene->active;
+        !settings_active && d3d11_renderer_active(renderer.friends_scene);
     const bool browser_active = d3d11_renderer_thread_browser_visible(renderer);
     const auto* composer =
         settings_active || friends_active || browser_active ? nullptr : renderer.message_composer_scene;
@@ -1257,7 +1235,7 @@ bool measure_content_search(D3D11Renderer* renderer) noexcept {
     renderer->friends_search_geometry = {};
     const auto* scene = renderer->friends_scene;
     if (!scene || !scene->active || !scene->content || !scene->content->search.active ||
-        (renderer->friends_requests_scene && renderer->friends_requests_scene->active)) {
+        d3d11_renderer_active(renderer->friends_requests_scene)) {
         text_edit_layout_invalidate(&renderer->composer_layout);
         return true;
     }
@@ -1491,7 +1469,7 @@ bool project_shell_static_text(D3D11Renderer* renderer, const Theme& theme,
         return true;
     }
     const bool settings = renderer_settings_page_visible(*renderer);
-    const bool friends = !settings && renderer->friends_scene && renderer->friends_scene->active;
+    const bool friends = !settings && d3d11_renderer_active(renderer->friends_scene);
     const bool browser = d3d11_renderer_thread_browser_visible(*renderer);
     const bool hidden = friends || browser;
     BrowserShellTextFilter filter{emitter, browser ? renderer->thread_browser_scene->panel : UiRect{}};
@@ -1542,7 +1520,7 @@ bool project_shell_static_text(D3D11Renderer* renderer, const Theme& theme,
 bool project_shell_member_text(D3D11Renderer* renderer, const Theme& theme,
                                UiTextEmitter* emitter) noexcept {
     if (d3d11_renderer_login_form_text(*renderer) || renderer_settings_page_visible(*renderer) ||
-        (renderer->friends_scene && renderer->friends_scene->active) ||
+        d3d11_renderer_active(renderer->friends_scene) ||
         d3d11_renderer_thread_browser_visible(*renderer) || !renderer->member_list_scene)
         return true;
     UiTextOutput output{nullptr, emitter};
@@ -1563,9 +1541,9 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
                                       &output));
     }
     const bool settings = renderer_settings_page_visible(*renderer);
-    const bool friends = !settings && renderer->friends_scene && renderer->friends_scene->active;
+    const bool friends = !settings && d3d11_renderer_active(renderer->friends_scene);
     const bool requests =
-        !settings && renderer->friends_requests_scene && renderer->friends_requests_scene->active;
+        !settings && d3d11_renderer_active(renderer->friends_requests_scene);
     const bool form = d3d11_renderer_text_form_active(*renderer);
     const bool forum = d3d11_renderer_forum_form_active(*renderer);
     const auto popup_edit = settings ? UiEditGeometry{} : d3d11_renderer_popup_edit_geometry(*renderer);
@@ -1644,7 +1622,7 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     // Beside a call its text chat keeps the toolbar (as painted in layout).
     if (!friends && !d3d11_renderer_thread_browser_visible(*renderer) &&
         (!d3d11_renderer_call_visible(*renderer) || renderer->call_scene->chat_open) &&
-        !(renderer->profile_scene && renderer->profile_scene->active) &&
+        !d3d11_renderer_active(renderer->profile_scene) &&
         !d3d11_renderer_media_picker_visible(*renderer) && renderer->message_action_bar &&
         !d3d11_renderer_message_modal_active(*renderer) && renderer->message_action_bar->active &&
         !message_action_bar_text_presentation_build_output(*renderer->message_action_bar, theme, &output))
@@ -1692,13 +1670,13 @@ bool project_overlay_text(D3D11Renderer* renderer, const Theme& theme, UiTextEmi
     if (d3d11_renderer_shortcuts_visible(*renderer) &&
         !ui_shortcuts_scene_text_output(*renderer->shortcuts_scene, theme, &output))
         return false;
-    if (renderer->popup_scene && renderer->popup_scene->active &&
+    if (d3d11_renderer_active(renderer->popup_scene) &&
         !popup_text_presentation_build_output(*renderer->popup_scene, theme, &output,
                                                renderer->message_measure_cache))
         return false;
     boundaries->popup_end = emitter->count;
     boundaries->settings_choice_start = boundaries->settings_choice_end = emitter->count;
-    if (renderer->reaction_viewer && renderer->reaction_viewer->active &&
+    if (d3d11_renderer_active(renderer->reaction_viewer) &&
         !reaction_viewer_text_presentation_build_output(*renderer->reaction_viewer, theme, &output))
         return false;
     if (!settings && renderer->image_viewer &&
@@ -2010,7 +1988,7 @@ bool build_content_text_once(D3D11Renderer* renderer, const Theme& theme, bool* 
                                 renderer->friends_scene->active;
     const bool browser_active = !login_form && d3d11_renderer_thread_browser_visible(*renderer);
     include_messages = include_messages && !login_form && !settings_active && !friends_active &&
-                       !browser_active && renderer->message_scene && renderer->message_scene->active;
+                       !browser_active && d3d11_renderer_active(renderer->message_scene);
     RendererTextStorage* storage = renderer->content_text;
     const MessageTextPresentation* presentation = renderer->message_text;
     if (include_messages && (!presentation || !presentation->active ||

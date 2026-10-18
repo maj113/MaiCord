@@ -167,7 +167,7 @@ int main(int argc, char** argv) {
         return 10;
     }
     fprintf(timings, "glyph,em,nodes,bytes,types,build_us,raster_readback_us,reference_readback_us,masks,mask_"
-                     "pixels,peak_stack,general_paints\n");
+                     "pixels,peak_stack\n");
     printf("Provider: %s\n",use_native?"first-party":"existing app");
     printf("Pixel reference: %s\n",app_provider?"native app ownership, shared app shader":paired?"first-party, shared app shader":"Direct2D");
     ColrPaintProgram program{};
@@ -284,11 +284,11 @@ int main(int argc, char** argv) {
             }
         context->Unmap(reference, 0);
         }
-        fprintf(timings, "%u,%u,%u,%zu,%u,%.3f,%.3f,%.3f,%u,%u,%u,%u\n", gid, em, program.nodes,
+        fprintf(timings, "%u,%u,%u,%zu,%u,%.3f,%.3f,%.3f,%u,%u,%u\n", gid, em, program.nodes,
                 program.storage.offset, program.paint_types, (t1.QuadPart - t0.QuadPart) * 1e6 / f.QuadPart,
                 (t2.QuadPart - t1.QuadPart) * 1e6 / f.QuadPart,
                 (t3.QuadPart - t2.QuadPart) * 1e6 / f.QuadPart, program.mask_count, program.mask_pixels,
-                program.peak_stack, program.general_paints);
+                program.peak_stack);
         if (++total % 100 == 0) {
             printf("%u glyphs\n", total);
             fflush(stdout);

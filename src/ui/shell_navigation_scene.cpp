@@ -24,7 +24,6 @@ ShellNavigationSceneResult scene_error(ShellNavigationScene* scene,
 
 UiLayoutStyle row_style(const ChannelViewRow& row) noexcept {
     UiLayoutStyle style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
     style.width = ui_layout_fill();
     style.height = ui_layout_fixed(shell_navigation_row_height(row));
     style.horizontal_alignment = UiLayoutAlignment::stretch;

@@ -37,24 +37,10 @@ bool range_in_page(const ReactionViewer& viewer, Utf8View value, u32 page_begin,
 
 
 bool initialize_text_owner(ReactionViewer* viewer) noexcept {
-    if (!ui_widget_manager_initialize(&viewer->widgets, Slice<UiWidget>{viewer->widget_storage, 1},
-                                      Slice<UiLayoutNode>{viewer->layout_storage, 1})) {
-        return false;
-    }
-    UiLayoutStyle style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_overlap);
-    const UiWidgetResult root = ui_widget_manager_add(
-        &viewer->widgets, ui_widget_invalid_handle(),
-        UiWidgetDesc{1, UiWidgetKind::container, ui_widget_none,
-                     UiLayoutNodeSpec{utf8_literal("ReactionViewer"), style, UiSize{}, 0.0f, 1}});
-    if (!root.ok()) {
-        return false;
-    }
-    viewer->text_owner = UiWidgetReference{&viewer->widgets, root.handle};
-    return true;
+    return ui_widget_manager_initialize_fill_root(
+        &viewer->widgets, Slice<UiWidget>{viewer->widget_storage, 1},
+        Slice<UiLayoutNode>{viewer->layout_storage, 1}, utf8_literal("ReactionViewer"),
+        ui_layout_node_visible | ui_layout_node_allow_overlap, &viewer->text_owner);
 }
 
 } // namespace

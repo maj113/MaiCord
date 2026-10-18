@@ -11,7 +11,8 @@
 #include "maicord/model/member_list.hpp"
 #include "maicord/ui/member_list_scene.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 namespace maicord {
 bool profile_media_use_compatibility_banner(ProfileScene* scene) noexcept {
     if (!scene || scene->banner_compatibility) return false;

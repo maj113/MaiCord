@@ -55,7 +55,6 @@ struct ColrPaintProgram {
     u32 first,last,nodes,stack,peak_stack;
     GlyphOutline bounds;
     u32 paint_types;
-    bool general_paints;
     u32 mask_count,mask_pixels;
 };
 static_assert(sizeof(ColrPaintNode)==72);

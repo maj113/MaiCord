@@ -66,10 +66,8 @@ bool rebuild(UiPinnedMessagesScene& s) noexcept {
     s.retry = {};
     s.previous = s.next = {};
     s.first = s.count = 0;
-    auto style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
-    style.width = style.height = ui_layout_fill();
-    style.flags |= ui_layout_node_allow_overlap | ui_layout_node_clip_children;
+    auto style = ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap |
+                                      ui_layout_node_clip_children);
     const auto root = ui_widget_manager_add_prevalidated(&s.widgets, ui_widget_invalid_handle(),
         {1, UiWidgetKind::container, ui_widget_none, {utf8_literal("Pinned messages"), style}});
     if (!root.ok()) return false;
@@ -355,7 +353,8 @@ bool ui_pinned_messages_scene_spinner_visible(const UiPinnedMessagesScene& s) no
             ui_rect_has_area(ui_rect_intersection(s.cards[i], s.body))) return true;
     return false;
 }
-bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene& s, const Theme& theme, PaintStream* out, u32) noexcept {
+bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene& s, const Theme& theme,
+                                    PaintStream* out) noexcept {
     if (!current(s)) return true;
     if (!out || !ui_surface_shadow_paint_isolated(out, s.panel, theme, UiElevation::popover, 0) ||
         !paint_stream_push_clip(out, s.panel.left, s.panel.top, s.panel.right, s.panel.bottom)) return false;

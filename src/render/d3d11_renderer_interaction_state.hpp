@@ -16,6 +16,16 @@ enum : u32 {
     d3d11_interaction_text_forum_form = 1u << 16,
 };
 
+template <class Scene> inline bool d3d11_renderer_active(const Scene* scene) noexcept {
+    return scene && scene->active;
+}
+
+// Login, the settings pages and the theme editor replace the shell.
+inline bool d3d11_renderer_page_open(const D3D11Renderer& renderer) noexcept {
+    return renderer.login_visible || renderer_settings_page_visible(renderer) ||
+           renderer_theme_editor_visible(renderer);
+}
+
 inline const PopupScene* d3d11_renderer_settings_popup(const D3D11Renderer& renderer) noexcept {
     const auto* popup = renderer.popup_scene;
     return popup && popup->active && popup->kind == PopupKind::settings_choice ? popup : nullptr;
@@ -41,106 +51,85 @@ inline u32 d3d11_renderer_settings_overlay_revision(const D3D11Renderer& rendere
     return a ^ (b * 0x9E3779B1u);
 }
 
+// No page, viewer, menu or form sits above a modal dialog.
+inline bool d3d11_renderer_modal_uncovered(const D3D11Renderer& renderer) noexcept {
+    return !d3d11_renderer_page_open(renderer) && !d3d11_renderer_active(renderer.profile_scene) &&
+           !d3d11_renderer_active(renderer.image_viewer) && !d3d11_renderer_active(renderer.popup_scene) &&
+           !d3d11_renderer_active(renderer.reaction_viewer) && !d3d11_renderer_form_active(renderer);
+}
+
 inline bool d3d11_renderer_quick_switcher_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.quick_switcher_scene &&
-           ui_quick_switcher_scene_current(*renderer.quick_switcher_scene) && !renderer.login_visible &&
-           !renderer_settings_page_visible(renderer) && !renderer_theme_editor_visible(renderer) &&
-           !(renderer.profile_scene && renderer.profile_scene->active) &&
-           !(renderer.image_viewer && renderer.image_viewer->active) &&
-           !(renderer.popup_scene && renderer.popup_scene->active) &&
-           !(renderer.reaction_viewer && renderer.reaction_viewer->active) &&
-           !d3d11_renderer_form_active(renderer);
+           ui_quick_switcher_scene_current(*renderer.quick_switcher_scene) &&
+           d3d11_renderer_modal_uncovered(renderer);
 }
 
 inline bool d3d11_renderer_inbox_visible(const D3D11Renderer& renderer) noexcept {
-    return renderer.inbox_scene && ui_inbox_scene_current(*renderer.inbox_scene) && !renderer.login_visible &&
-           !renderer_settings_page_visible(renderer) && !renderer_theme_editor_visible(renderer) &&
-           !(renderer.profile_scene && renderer.profile_scene->active) &&
-           !(renderer.image_viewer && renderer.image_viewer->active) &&
-           !(renderer.popup_scene && renderer.popup_scene->active) &&
-           !d3d11_renderer_quick_switcher_visible(renderer) &&
-           !d3d11_renderer_form_active(renderer);
+    return renderer.inbox_scene && ui_inbox_scene_current(*renderer.inbox_scene) &&
+           !d3d11_renderer_page_open(renderer) && !d3d11_renderer_active(renderer.profile_scene) &&
+           !d3d11_renderer_active(renderer.image_viewer) && !d3d11_renderer_active(renderer.popup_scene) &&
+           !d3d11_renderer_quick_switcher_visible(renderer) && !d3d11_renderer_form_active(renderer);
 }
 
 inline bool d3d11_renderer_thread_browser_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.thread_browser_scene &&
-           ui_thread_browser_scene_current(*renderer.thread_browser_scene) && !renderer.login_visible &&
-           !renderer_settings_page_visible(renderer) && !renderer_theme_editor_visible(renderer) &&
-           !(renderer.friends_scene && renderer.friends_scene->active);
+           ui_thread_browser_scene_current(*renderer.thread_browser_scene) &&
+           !d3d11_renderer_page_open(renderer) && !d3d11_renderer_active(renderer.friends_scene);
 }
 
 // Call view over the content column (or the whole window in fullscreen). The
 // application closes it before search, pins or the thread browser show.
 inline bool d3d11_renderer_call_visible(const D3D11Renderer& renderer) noexcept {
-    return renderer.call_scene && renderer.call_scene->active && !renderer.login_visible &&
-           !renderer_settings_page_visible(renderer) && !renderer_theme_editor_visible(renderer) &&
-           !(renderer.friends_requests_scene && renderer.friends_requests_scene->active) &&
+    return d3d11_renderer_active(renderer.call_scene) && !d3d11_renderer_page_open(renderer) &&
+           !d3d11_renderer_active(renderer.friends_requests_scene) &&
            !d3d11_renderer_thread_browser_visible(renderer);
 }
 
 // Server tag popout (popup layer); menus and modal surfaces hide it.
 inline bool d3d11_renderer_guild_card_visible(const D3D11Renderer& renderer) noexcept {
-    return renderer.guild_card_scene && renderer.guild_card_scene->active && !renderer.login_visible &&
-           !renderer_settings_page_visible(renderer) && !renderer_theme_editor_visible(renderer) &&
-           !(renderer.image_viewer && renderer.image_viewer->active) &&
-           !(renderer.popup_scene && renderer.popup_scene->active) &&
+    return d3d11_renderer_active(renderer.guild_card_scene) && !d3d11_renderer_page_open(renderer) &&
+           !d3d11_renderer_active(renderer.image_viewer) && !d3d11_renderer_active(renderer.popup_scene) &&
            !d3d11_renderer_form_active(renderer);
 }
 // Go Live preview card (popup layer); menus and modal surfaces hide it.
 inline bool d3d11_renderer_stream_card_visible(const D3D11Renderer& renderer) noexcept {
-    return renderer.stream_card_scene && renderer.stream_card_scene->active && !renderer.login_visible &&
-           !renderer_settings_page_visible(renderer) && !renderer_theme_editor_visible(renderer) &&
-           !(renderer.profile_scene && renderer.profile_scene->active) &&
-           !(renderer.image_viewer && renderer.image_viewer->active) &&
-           !(renderer.popup_scene && renderer.popup_scene->active) &&
+    return d3d11_renderer_active(renderer.stream_card_scene) && !d3d11_renderer_page_open(renderer) &&
+           !d3d11_renderer_active(renderer.profile_scene) &&
+           !d3d11_renderer_active(renderer.image_viewer) && !d3d11_renderer_active(renderer.popup_scene) &&
            !d3d11_renderer_form_active(renderer);
 }
-
 
 inline bool d3d11_renderer_message_forward_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.message_forward_scene &&
-           ui_message_forward_scene_current(*renderer.message_forward_scene) && !renderer.login_visible &&
-           !renderer_settings_page_visible(renderer) && !renderer_theme_editor_visible(renderer) &&
-           !(renderer.profile_scene && renderer.profile_scene->active) &&
-           !(renderer.image_viewer && renderer.image_viewer->active) &&
-           !(renderer.popup_scene && renderer.popup_scene->active) &&
-           !(renderer.reaction_viewer && renderer.reaction_viewer->active) &&
-           !d3d11_renderer_form_active(renderer);
+           ui_message_forward_scene_current(*renderer.message_forward_scene) &&
+           d3d11_renderer_modal_uncovered(renderer);
 }
 
 inline bool d3d11_renderer_message_modal_active(const D3D11Renderer& renderer) noexcept {
-    return (renderer.quick_switcher_scene && renderer.quick_switcher_scene->active) ||
-           (renderer.message_forward_scene && renderer.message_forward_scene->active) ||
-           (renderer.download_scene && renderer.download_scene->active) ||
-           (renderer.shortcuts_scene && renderer.shortcuts_scene->active);
+    return d3d11_renderer_active(renderer.quick_switcher_scene) ||
+           d3d11_renderer_active(renderer.message_forward_scene) ||
+           d3d11_renderer_active(renderer.download_scene) ||
+           d3d11_renderer_active(renderer.shortcuts_scene);
 }
 
 inline bool d3d11_renderer_shortcuts_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.shortcuts_scene && ui_shortcuts_scene_current(*renderer.shortcuts_scene) &&
-           !renderer.login_visible && !renderer_settings_page_visible(renderer) &&
-           !renderer_theme_editor_visible(renderer) &&
-           !(renderer.image_viewer && renderer.image_viewer->active) &&
+           !d3d11_renderer_page_open(renderer) && !d3d11_renderer_active(renderer.image_viewer) &&
            !d3d11_renderer_form_active(renderer);
 }
 
 inline bool d3d11_renderer_download_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.download_scene && ui_download_scene_current(*renderer.download_scene) &&
-           !renderer.login_visible && !renderer_settings_page_visible(renderer) &&
-           !renderer_theme_editor_visible(renderer) &&
-           !(renderer.profile_scene && renderer.profile_scene->active) &&
-           !(renderer.image_viewer && renderer.image_viewer->active) &&
-           !(renderer.popup_scene && renderer.popup_scene->active) &&
-           !(renderer.reaction_viewer && renderer.reaction_viewer->active) &&
-           !d3d11_renderer_form_active(renderer);
+           d3d11_renderer_modal_uncovered(renderer);
 }
 
 inline bool d3d11_renderer_media_picker_visible(const D3D11Renderer& renderer) noexcept {
     return !d3d11_renderer_thread_browser_visible(renderer) && !renderer_theme_editor_visible(renderer) &&
            renderer.media_picker_scene && ui_media_picker_scene_current(*renderer.media_picker_scene) &&
            !renderer.login_visible && !(renderer_settings_page_visible(renderer)) &&
-           !(renderer.friends_scene && renderer.friends_scene->active) &&
-           !(renderer.friends_requests_scene && renderer.friends_requests_scene->active) &&
-           !(renderer.image_viewer && renderer.image_viewer->active);
+           !d3d11_renderer_active(renderer.friends_scene) &&
+           !d3d11_renderer_active(renderer.friends_requests_scene) &&
+           !d3d11_renderer_active(renderer.image_viewer);
 }
 
 inline const UiWidgetManager* d3d11_renderer_visible_focus_owner(const D3D11Renderer& renderer) noexcept {
@@ -160,7 +149,7 @@ inline const UiWidgetManager* d3d11_renderer_visible_focus_owner(const D3D11Rend
     if (renderer_settings_page_visible(renderer)) {
         const auto* popup = d3d11_renderer_settings_popup(renderer);
         const UiWidgetManager* front = popup ? &popup->widgets : &renderer.settings_scene->widgets;
-        if (renderer.settings_profile_dialog && renderer.settings_profile_dialog->active)
+        if (d3d11_renderer_active(renderer.settings_profile_dialog))
             front = &renderer.settings_profile_dialog->widgets;
         if (d3d11_renderer_text_form_active(renderer))
             front = &renderer.text_form->scene->widgets;
@@ -178,35 +167,35 @@ inline const UiWidgetManager* d3d11_renderer_visible_focus_owner(const D3D11Rend
         return owner == &renderer.download_scene->widgets ? owner : nullptr;
     if (d3d11_renderer_media_picker_visible(renderer)) {
         const UiWidgetManager* front = &renderer.media_picker_scene->widgets;
-        if (renderer.profile_scene && renderer.profile_scene->active)
+        if (d3d11_renderer_active(renderer.profile_scene))
             front = &renderer.profile_scene->widgets;
-        if (renderer.popup_scene && renderer.popup_scene->active)
+        if (d3d11_renderer_active(renderer.popup_scene))
             front = &renderer.popup_scene->widgets;
         if (d3d11_renderer_text_form_active(renderer))
             front = &renderer.text_form->scene->widgets;
         return owner == front ? owner : nullptr;
     }
-    if (renderer.poll_voters_scene && renderer.poll_voters_scene->active) {
+    if (d3d11_renderer_active(renderer.poll_voters_scene)) {
         const UiWidgetManager* front = renderer.poll_voters_scene->owner.manager;
-        if (renderer.profile_scene && renderer.profile_scene->active)
+        if (d3d11_renderer_active(renderer.profile_scene))
             front = &renderer.profile_scene->widgets;
-        if (renderer.popup_scene && renderer.popup_scene->active)
+        if (d3d11_renderer_active(renderer.popup_scene))
             front = &renderer.popup_scene->widgets;
         if (d3d11_renderer_text_form_active(renderer))
             front = &renderer.text_form->scene->widgets;
         return owner == front ? owner : nullptr;
     }
-    if (renderer.friends_requests_scene && renderer.friends_requests_scene->active) {
+    if (d3d11_renderer_active(renderer.friends_requests_scene)) {
         const UiWidgetManager* front = &renderer.friends_requests_scene->widgets;
-        if (renderer.profile_scene && renderer.profile_scene->active)
+        if (d3d11_renderer_active(renderer.profile_scene))
             front = &renderer.profile_scene->widgets;
-        if (renderer.popup_scene && renderer.popup_scene->active)
+        if (d3d11_renderer_active(renderer.popup_scene))
             front = &renderer.popup_scene->widgets;
         if (d3d11_renderer_text_form_active(renderer))
             front = &renderer.text_form->scene->widgets;
         return owner == front ? owner : nullptr;
     }
-    if (renderer.friends_scene && renderer.friends_scene->active &&
+    if (d3d11_renderer_active(renderer.friends_scene) &&
         ((renderer.message_scene && owner == &renderer.message_scene->widgets) ||
          (renderer.message_composer_scene && owner == &renderer.message_composer_scene->widgets) ||
          (renderer.member_list_scene && owner == &renderer.member_list_scene->widgets)))
@@ -222,25 +211,23 @@ inline const UiWidgetManager* d3d11_renderer_visible_focus_owner(const D3D11Rend
 // Inline controls have one host-owned scene and disappear beneath front
 // surfaces. Keep paint, text emission and stale guards on this same predicate.
 inline bool d3d11_renderer_video_scene_visible(const D3D11Renderer& renderer) noexcept {
-    return !(renderer.poll_voters_scene && renderer.poll_voters_scene->active) &&
+    return !d3d11_renderer_active(renderer.poll_voters_scene) &&
            !d3d11_renderer_thread_browser_visible(renderer) && !d3d11_renderer_call_visible(renderer) &&
-           renderer.video_scene && renderer.video_scene->active && !renderer.login_visible &&
+           d3d11_renderer_active(renderer.video_scene) && !renderer.login_visible &&
            (!renderer.video_scene_search_result ||
             (renderer.search_scene && ui_search_scene_current(*renderer.search_scene))) &&
            !d3d11_renderer_message_modal_active(renderer) && !(renderer_settings_page_visible(renderer)) &&
-           !(renderer.friends_scene && renderer.friends_scene->active) &&
-           !(renderer.friends_requests_scene && renderer.friends_requests_scene->active) &&
-           !(renderer.profile_scene && renderer.profile_scene->active) &&
-           !(renderer.image_viewer && renderer.image_viewer->active) &&
-           !d3d11_renderer_media_picker_visible(renderer) &&
-           !(renderer.popup_scene && renderer.popup_scene->active) &&
-           !(renderer.reaction_viewer && renderer.reaction_viewer->active) &&
-           !d3d11_renderer_form_active(renderer);
+           !d3d11_renderer_active(renderer.friends_scene) &&
+           !d3d11_renderer_active(renderer.friends_requests_scene) &&
+           !d3d11_renderer_active(renderer.profile_scene) &&
+           !d3d11_renderer_active(renderer.image_viewer) &&
+           !d3d11_renderer_media_picker_visible(renderer) && !d3d11_renderer_active(renderer.popup_scene) &&
+           !d3d11_renderer_active(renderer.reaction_viewer) && !d3d11_renderer_form_active(renderer);
 }
 // The media viewer hosts the same scene above its media quad.
 inline bool d3d11_renderer_viewer_video_visible(const D3D11Renderer& renderer) noexcept {
-    return renderer.video_scene_viewer && renderer.video_scene && renderer.video_scene->active &&
-           renderer.image_viewer && renderer.image_viewer->active && !renderer.login_visible &&
+    return renderer.video_scene_viewer && d3d11_renderer_active(renderer.video_scene) &&
+           d3d11_renderer_active(renderer.image_viewer) && !renderer.login_visible &&
            !renderer_settings_page_visible(renderer);
 }
 inline u64 d3d11_renderer_video_text_revision(const D3D11Renderer& renderer) noexcept {
@@ -251,13 +238,11 @@ inline u64 d3d11_renderer_video_text_revision(const D3D11Renderer& renderer) noe
 
 inline bool d3d11_renderer_tooltip_visible(const D3D11Renderer& renderer) noexcept {
     return renderer.tooltip_scene && !renderer.login_visible &&
-           !(renderer.poll_voters_scene && renderer.poll_voters_scene->active) &&
+           !d3d11_renderer_active(renderer.poll_voters_scene) &&
            !d3d11_renderer_message_modal_active(renderer) && !(renderer_settings_page_visible(renderer)) &&
-           !(renderer.friends_requests_scene && renderer.friends_requests_scene->active) &&
-           !(renderer.profile_scene && renderer.profile_scene->active) &&
-           !(renderer.popup_scene && renderer.popup_scene->active) &&
-           !(renderer.reaction_viewer && renderer.reaction_viewer->active) &&
-           !d3d11_renderer_form_active(renderer) &&
+           !d3d11_renderer_active(renderer.friends_requests_scene) &&
+           !d3d11_renderer_active(renderer.profile_scene) && !d3d11_renderer_active(renderer.popup_scene) &&
+           !d3d11_renderer_active(renderer.reaction_viewer) && !d3d11_renderer_form_active(renderer) &&
            ui_tooltip_visible(*renderer.tooltip_scene);
 }
 inline u32 d3d11_renderer_tooltip_revision(const D3D11Renderer& renderer) noexcept {
@@ -265,12 +250,12 @@ inline u32 d3d11_renderer_tooltip_revision(const D3D11Renderer& renderer) noexce
 }
 // Timeline overlay below every popup/modal layer; covering surfaces hide it.
 inline bool d3d11_renderer_unread_banner_visible(const D3D11Renderer& renderer) noexcept {
-    return renderer.unread_banner_scene && !renderer.login_visible && !renderer_settings_page_visible(renderer) &&
-           !renderer_theme_editor_visible(renderer) && !(renderer.friends_scene && renderer.friends_scene->active) &&
-           !(renderer.friends_requests_scene && renderer.friends_requests_scene->active) &&
-           !(renderer.image_viewer && renderer.image_viewer->active) &&
+    return renderer.unread_banner_scene && !d3d11_renderer_page_open(renderer) &&
+           !d3d11_renderer_active(renderer.friends_scene) &&
+           !d3d11_renderer_active(renderer.friends_requests_scene) &&
+           !d3d11_renderer_active(renderer.image_viewer) &&
            !d3d11_renderer_thread_browser_visible(renderer) && !d3d11_renderer_call_visible(renderer) &&
-           renderer.message_scene && renderer.message_scene->active &&
+           d3d11_renderer_active(renderer.message_scene) &&
            ui_unread_banner_visible(*renderer.unread_banner_scene);
 }
 inline u32 d3d11_renderer_unread_banner_revision(const D3D11Renderer& renderer) noexcept {
@@ -279,37 +264,35 @@ inline u32 d3d11_renderer_unread_banner_revision(const D3D11Renderer& renderer) 
 // The header search bar stays over the thread browser as its search entry
 // point; the host never opens the results pane while the browser is open.
 inline bool d3d11_renderer_search_visible(const D3D11Renderer& renderer) noexcept {
-    return renderer.search_scene && ui_search_scene_current(*renderer.search_scene) && !renderer.login_visible &&
-           !(renderer_settings_page_visible(renderer)) &&
-           !(renderer.friends_requests_scene && renderer.friends_requests_scene->active) &&
-           !(renderer.friends_scene && renderer.friends_scene->active);
+    return renderer.search_scene && ui_search_scene_current(*renderer.search_scene) &&
+           !renderer.login_visible && !(renderer_settings_page_visible(renderer)) &&
+           !d3d11_renderer_active(renderer.friends_requests_scene) &&
+           !d3d11_renderer_active(renderer.friends_scene);
 }
 inline bool d3d11_renderer_pinned_messages_visible(const D3D11Renderer& renderer) noexcept {
     return !d3d11_renderer_thread_browser_visible(renderer) && renderer.pinned_messages_scene &&
            ui_pinned_messages_scene_current(*renderer.pinned_messages_scene) && !renderer.login_visible &&
            !renderer_theme_editor_visible(renderer) && !renderer_settings_page_visible(renderer) &&
-           !(renderer.friends_scene && renderer.friends_scene->active) &&
-           !(renderer.friends_requests_scene && renderer.friends_requests_scene->active) &&
-           !(renderer.image_viewer && renderer.image_viewer->active);
+           !d3d11_renderer_active(renderer.friends_scene) &&
+           !d3d11_renderer_active(renderer.friends_requests_scene) &&
+           !d3d11_renderer_active(renderer.image_viewer);
 }
 // Surfaces that hide an inline audio or poll scene beneath them.
 inline bool d3d11_renderer_inline_scene_covered(const D3D11Renderer& renderer) noexcept {
     return renderer.login_visible || d3d11_renderer_thread_browser_visible(renderer) ||
            renderer_settings_page_visible(renderer) || renderer_theme_editor_visible(renderer) ||
-           (renderer.friends_scene && renderer.friends_scene->active) ||
-           (renderer.friends_requests_scene && renderer.friends_requests_scene->active) ||
-           (renderer.profile_scene && renderer.profile_scene->active) ||
-           (renderer.image_viewer && renderer.image_viewer->active) ||
-           d3d11_renderer_media_picker_visible(renderer) || d3d11_renderer_quick_switcher_visible(renderer) ||
-           d3d11_renderer_download_visible(renderer) ||
-           (renderer.popup_scene && renderer.popup_scene->active) ||
-           (renderer.reaction_viewer && renderer.reaction_viewer->active) ||
+           d3d11_renderer_active(renderer.friends_scene) ||
+           d3d11_renderer_active(renderer.friends_requests_scene) ||
+           d3d11_renderer_active(renderer.profile_scene) || d3d11_renderer_active(renderer.image_viewer) ||
+           d3d11_renderer_media_picker_visible(renderer) ||
+           d3d11_renderer_quick_switcher_visible(renderer) || d3d11_renderer_download_visible(renderer) ||
+           d3d11_renderer_active(renderer.popup_scene) || d3d11_renderer_active(renderer.reaction_viewer) ||
            d3d11_renderer_form_active(renderer);
 }
 inline bool d3d11_renderer_audio_scene_visible(const D3D11Renderer& renderer) noexcept {
     const auto* scene = renderer.audio_scene;
     if (!scene || !scene->active || !scene->owner.manager || renderer.video_scene ||
-        (renderer.poll_voters_scene && renderer.poll_voters_scene->active) ||
+        d3d11_renderer_active(renderer.poll_voters_scene) ||
         d3d11_renderer_inline_scene_covered(renderer))
         return false;
     const auto* widget = ui_widget_manager_resolve(*scene->owner.manager, scene->owner.handle);
@@ -350,12 +333,13 @@ inline bool d3d11_renderer_poll_voters_visible(const D3D11Renderer& renderer) no
     const auto* scene = renderer.poll_voters_scene;
     return scene && scene->active && scene->owner.manager &&
            ui_widget_manager_resolve(*scene->owner.manager, scene->owner.handle) &&
-           !d3d11_renderer_inline_scene_covered(renderer) && !d3d11_renderer_message_forward_visible(renderer);
+           !d3d11_renderer_inline_scene_covered(renderer) &&
+           !d3d11_renderer_message_forward_visible(renderer);
 }
 inline bool d3d11_renderer_poll_scene_visible(const D3D11Renderer& renderer) noexcept {
     const auto* scene = renderer.poll_scene;
     if (!scene || !scene->active || !scene->owner.manager ||
-        (renderer.poll_voters_scene && renderer.poll_voters_scene->active) ||
+        d3d11_renderer_active(renderer.poll_voters_scene) ||
         d3d11_renderer_inline_scene_covered(renderer))
         return false;
     const MessageScene* messages =
@@ -429,23 +413,23 @@ inline u32 d3d11_renderer_interaction_text_active_mask(const D3D11Renderer& rend
         mask |= 1u << 18;
     if (d3d11_renderer_poll_voters_visible(renderer))
         mask |= 1u << 19;
-    const bool friends = renderer.friends_scene && renderer.friends_scene->active;
+    const bool friends = d3d11_renderer_active(renderer.friends_scene);
     if (friends)
         mask |= 1u << 7;
-    if (renderer.friends_requests_scene && renderer.friends_requests_scene->active)
+    if (d3d11_renderer_active(renderer.friends_requests_scene))
         mask |= 1u << 8;
-    if (renderer.profile_scene && renderer.profile_scene->active)
+    if (d3d11_renderer_active(renderer.profile_scene))
         mask |= 1u << 5;
-    if (renderer.image_viewer && renderer.image_viewer->active)
+    if (d3d11_renderer_active(renderer.image_viewer))
         mask |= 1u << 4;
     if (!friends && !d3d11_renderer_thread_browser_visible(renderer) && !d3d11_renderer_call_visible(renderer) &&
-        renderer.message_action_bar && renderer.message_action_bar->active) {
+        d3d11_renderer_active(renderer.message_action_bar)) {
         mask |= d3d11_interaction_text_action_bar;
     }
-    if (renderer.popup_scene && renderer.popup_scene->active) {
+    if (d3d11_renderer_active(renderer.popup_scene)) {
         mask |= d3d11_interaction_text_popup;
     }
-    if (renderer.reaction_viewer && renderer.reaction_viewer->active) {
+    if (d3d11_renderer_active(renderer.reaction_viewer)) {
         mask |= d3d11_interaction_text_reaction_viewer;
     }
     if (d3d11_renderer_text_form_active(renderer))
@@ -455,48 +439,68 @@ inline u32 d3d11_renderer_interaction_text_active_mask(const D3D11Renderer& rend
     return mask;
 }
 
+// The sources whose revision the committed interaction text depends on:
+// the commit stores them, the staleness check compares them.
+template <class Visit>
+inline bool d3d11_renderer_visit_interaction_text_sources(const D3D11Renderer& renderer, Visit visit) noexcept {
+    const bool thread_browser = d3d11_renderer_thread_browser_visible(renderer);
+    return visit(&D3D11Renderer::interaction_text_forum_form_revision,
+                 renderer.forum_form && renderer.forum_form->scene ? renderer.forum_form->scene->revision : 0) &&
+           visit(&D3D11Renderer::interaction_text_theme_editor_revision,
+                 renderer_theme_editor_visible(renderer) ? renderer.theme_editor_scene->revision : 0) &&
+           visit(&D3D11Renderer::interaction_text_settings_revision,
+                 renderer.settings_scene ? renderer.settings_scene->revision : 0) &&
+           visit(&D3D11Renderer::interaction_text_active_mask,
+                 d3d11_renderer_interaction_text_active_mask(renderer)) &&
+           visit(&D3D11Renderer::interaction_text_thread_browser_revision,
+                 thread_browser ? renderer.thread_browser_scene->revision : 0) &&
+           visit(&D3D11Renderer::interaction_text_thread_browser_publication,
+                 thread_browser ? renderer.thread_browser_scene->source_publication : 0) &&
+           visit(&D3D11Renderer::interaction_text_video_revision,
+                 d3d11_renderer_video_text_revision(renderer)) &&
+           visit(&D3D11Renderer::interaction_text_audio_revision,
+                 d3d11_renderer_audio_text_revision(renderer)) &&
+           visit(&D3D11Renderer::interaction_text_poll_revision, d3d11_renderer_poll_text_revision(renderer)) &&
+           visit(&D3D11Renderer::interaction_text_poll_voters_revision,
+                 d3d11_renderer_poll_voters_text_revision(renderer)) &&
+           visit(&D3D11Renderer::interaction_text_tooltip_revision, d3d11_renderer_tooltip_revision(renderer)) &&
+           visit(&D3D11Renderer::interaction_text_unread_banner_revision,
+                 d3d11_renderer_unread_banner_revision(renderer)) &&
+           visit(&D3D11Renderer::interaction_text_search_revision,
+                 d3d11_renderer_search_visible(renderer) ? renderer.search_scene->revision : 0) &&
+           visit(&D3D11Renderer::interaction_text_pinned_messages_revision,
+                 d3d11_renderer_pinned_messages_visible(renderer)
+                     ? renderer.pinned_messages_scene->revision
+                     : 0) &&
+           visit(&D3D11Renderer::interaction_text_quick_switcher_revision,
+                 d3d11_renderer_quick_switcher_visible(renderer)
+                     ? renderer.quick_switcher_scene->revision
+                     : 0) &&
+           visit(&D3D11Renderer::interaction_text_inbox_revision,
+                 d3d11_renderer_inbox_visible(renderer) ? renderer.inbox_scene->revision : 0) &&
+           visit(&D3D11Renderer::interaction_text_message_forward_revision,
+                 d3d11_renderer_message_forward_visible(renderer)
+                     ? renderer.message_forward_scene->revision
+                     : 0) &&
+           visit(&D3D11Renderer::interaction_text_download_revision,
+                 d3d11_renderer_download_visible(renderer) ? renderer.download_scene->revision : 0) &&
+           visit(&D3D11Renderer::interaction_text_shortcuts_revision,
+                 d3d11_renderer_shortcuts_visible(renderer) ? renderer.shortcuts_scene->revision : 0) &&
+           visit(&D3D11Renderer::interaction_text_call_revision,
+                 d3d11_renderer_call_visible(renderer) ? renderer.call_scene->revision : 0) &&
+           visit(&D3D11Renderer::interaction_text_stream_card_revision,
+                 d3d11_renderer_stream_card_visible(renderer) ? renderer.stream_card_scene->revision : 0) &&
+           visit(&D3D11Renderer::interaction_text_guild_card_revision,
+                 d3d11_renderer_guild_card_visible(renderer) ? renderer.guild_card_scene->revision : 0) &&
+           visit(&D3D11Renderer::interaction_text_media_picker_revision,
+                 d3d11_renderer_media_picker_visible(renderer) ? renderer.media_picker_scene->revision : 0);
+}
+
 inline void d3d11_renderer_commit_interaction_text_state(D3D11Renderer* renderer) noexcept {
-    renderer->interaction_text_forum_form_revision =
-        renderer->forum_form && renderer->forum_form->scene ? renderer->forum_form->scene->revision : 0;
-    renderer->interaction_text_theme_editor_revision =
-        renderer_theme_editor_visible(*renderer) ? renderer->theme_editor_scene->revision : 0;
-    renderer->interaction_text_settings_revision =
-        renderer->settings_scene ? renderer->settings_scene->revision : 0;
-    renderer->interaction_text_active_mask = d3d11_renderer_interaction_text_active_mask(*renderer);
-    renderer->interaction_text_thread_browser_revision =
-        d3d11_renderer_thread_browser_visible(*renderer) ? renderer->thread_browser_scene->revision : 0;
-    renderer->interaction_text_thread_browser_publication =
-        d3d11_renderer_thread_browser_visible(*renderer)
-            ? renderer->thread_browser_scene->source_publication
-            : 0;
-    renderer->interaction_text_video_revision = d3d11_renderer_video_text_revision(*renderer);
-    renderer->interaction_text_audio_revision = d3d11_renderer_audio_text_revision(*renderer);
-    renderer->interaction_text_poll_revision = d3d11_renderer_poll_text_revision(*renderer);
-    renderer->interaction_text_poll_voters_revision = d3d11_renderer_poll_voters_text_revision(*renderer);
-    renderer->interaction_text_tooltip_revision = d3d11_renderer_tooltip_revision(*renderer);
-    renderer->interaction_text_unread_banner_revision = d3d11_renderer_unread_banner_revision(*renderer);
-    renderer->interaction_text_search_revision =
-        d3d11_renderer_search_visible(*renderer) ? renderer->search_scene->revision : 0;
-    renderer->interaction_text_pinned_messages_revision =
-        d3d11_renderer_pinned_messages_visible(*renderer) ? renderer->pinned_messages_scene->revision : 0;
-    renderer->interaction_text_quick_switcher_revision =
-        d3d11_renderer_quick_switcher_visible(*renderer) ? renderer->quick_switcher_scene->revision : 0;
-    renderer->interaction_text_inbox_revision =
-        d3d11_renderer_inbox_visible(*renderer) ? renderer->inbox_scene->revision : 0;
-    renderer->interaction_text_message_forward_revision =
-        d3d11_renderer_message_forward_visible(*renderer) ? renderer->message_forward_scene->revision : 0;
-    renderer->interaction_text_download_revision =
-        d3d11_renderer_download_visible(*renderer) ? renderer->download_scene->revision : 0;
-    renderer->interaction_text_shortcuts_revision =
-        d3d11_renderer_shortcuts_visible(*renderer) ? renderer->shortcuts_scene->revision : 0;
-    renderer->interaction_text_call_revision =
-        d3d11_renderer_call_visible(*renderer) ? renderer->call_scene->revision : 0;
-    renderer->interaction_text_stream_card_revision =
-        d3d11_renderer_stream_card_visible(*renderer) ? renderer->stream_card_scene->revision : 0;
-    renderer->interaction_text_guild_card_revision =
-        d3d11_renderer_guild_card_visible(*renderer) ? renderer->guild_card_scene->revision : 0;
-    renderer->interaction_text_media_picker_revision =
-        d3d11_renderer_media_picker_visible(*renderer) ? renderer->media_picker_scene->revision : 0;
+    d3d11_renderer_visit_interaction_text_sources(*renderer, [renderer](auto member, auto value) noexcept {
+        renderer->*member = value;
+        return true;
+    });
     if (renderer_settings_page_visible(*renderer)) {
         const auto* popup = d3d11_renderer_settings_popup(*renderer);
         renderer->interaction_text_popup_revision = popup ? popup->revision : 0;
@@ -523,73 +527,12 @@ inline void d3d11_renderer_commit_interaction_text_state(D3D11Renderer* renderer
 }
 
 inline bool d3d11_renderer_interaction_text_state_current(const D3D11Renderer& renderer) noexcept {
-    if (renderer.interaction_text_forum_form_revision !=
-        (renderer.forum_form && renderer.forum_form->scene ? renderer.forum_form->scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_thread_browser_revision !=
-            (d3d11_renderer_thread_browser_visible(renderer) ? renderer.thread_browser_scene->revision
-                                                             : 0) ||
-        renderer.interaction_text_thread_browser_publication !=
-            (d3d11_renderer_thread_browser_visible(renderer)
-                 ? renderer.thread_browser_scene->source_publication
-                 : 0))
-        return false;
-    if (renderer.interaction_text_theme_editor_revision !=
-        (renderer_theme_editor_visible(renderer) ? renderer.theme_editor_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_media_picker_revision !=
-        (d3d11_renderer_media_picker_visible(renderer) ? renderer.media_picker_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_search_revision !=
-        (d3d11_renderer_search_visible(renderer) ? renderer.search_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_pinned_messages_revision !=
-        (d3d11_renderer_pinned_messages_visible(renderer) ? renderer.pinned_messages_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_quick_switcher_revision !=
-        (d3d11_renderer_quick_switcher_visible(renderer) ? renderer.quick_switcher_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_inbox_revision !=
-        (d3d11_renderer_inbox_visible(renderer) ? renderer.inbox_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_message_forward_revision !=
-        (d3d11_renderer_message_forward_visible(renderer) ? renderer.message_forward_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_download_revision !=
-        (d3d11_renderer_download_visible(renderer) ? renderer.download_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_shortcuts_revision !=
-        (d3d11_renderer_shortcuts_visible(renderer) ? renderer.shortcuts_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_call_revision !=
-        (d3d11_renderer_call_visible(renderer) ? renderer.call_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_stream_card_revision !=
-        (d3d11_renderer_stream_card_visible(renderer) ? renderer.stream_card_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_guild_card_revision !=
-        (d3d11_renderer_guild_card_visible(renderer) ? renderer.guild_card_scene->revision : 0))
-        return false;
-    if (renderer.interaction_text_tooltip_revision != d3d11_renderer_tooltip_revision(renderer))
-        return false;
-    if (renderer.interaction_text_unread_banner_revision != d3d11_renderer_unread_banner_revision(renderer))
-        return false;
-    if (renderer.interaction_text_video_revision != d3d11_renderer_video_text_revision(renderer))
-        return false;
-    if (renderer.interaction_text_audio_revision != d3d11_renderer_audio_text_revision(renderer))
-        return false;
-    if (renderer.interaction_text_poll_revision != d3d11_renderer_poll_text_revision(renderer) ||
-        renderer.interaction_text_poll_voters_revision !=
-            d3d11_renderer_poll_voters_text_revision(renderer))
-        return false;
-    if (renderer.interaction_text_settings_revision !=
-        (renderer.settings_scene ? renderer.settings_scene->revision : 0))
+    if (!d3d11_renderer_visit_interaction_text_sources(
+            renderer, [&renderer](auto member, auto value) noexcept { return renderer.*member == value; }))
         return false;
     if (renderer_settings_page_visible(renderer)) {
         const auto* popup = d3d11_renderer_settings_popup(renderer);
-        return renderer.interaction_text_active_mask ==
-                   d3d11_renderer_interaction_text_active_mask(renderer) &&
-               renderer.interaction_text_popup_revision == (popup ? popup->revision : 0) &&
+        return renderer.interaction_text_popup_revision == (popup ? popup->revision : 0) &&
                renderer.interaction_text_profile_revision == d3d11_renderer_settings_overlay_revision(renderer) &&
                renderer.interaction_text_form_revision == (renderer.text_form && renderer.text_form->scene
                                                                ? renderer.text_form->scene->revision
@@ -605,8 +548,7 @@ inline bool d3d11_renderer_interaction_text_state_current(const D3D11Renderer& r
                (renderer.profile_scene ? renderer.profile_scene->revision : 0) &&
            renderer.interaction_text_image_viewer_revision ==
                (renderer.image_viewer ? renderer.image_viewer->revision : 0) &&
-           renderer.interaction_text_active_mask == d3d11_renderer_interaction_text_active_mask(renderer) &&
-           ((renderer.friends_scene && renderer.friends_scene->active) ||
+           (d3d11_renderer_active(renderer.friends_scene) ||
             d3d11_renderer_thread_browser_visible(renderer) ||
             renderer.interaction_text_action_bar_revision ==
                 (renderer.message_action_bar ? renderer.message_action_bar->revision : 0)) &&

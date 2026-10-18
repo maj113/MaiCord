@@ -87,6 +87,6 @@ bool ui_pinned_messages_scene_avatar(const UiPinnedMessagesScene&, u32 visible_s
                                     UiRect* rectangle, UiRect* clip) noexcept;
 // True while the panel paints a loading spinner (initial page or a pending unpin).
 bool ui_pinned_messages_scene_spinner_visible(const UiPinnedMessagesScene&) noexcept;
-bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene&, const Theme&, PaintStream*, u32 dpi = 96) noexcept;
+bool ui_pinned_messages_scene_paint(const UiPinnedMessagesScene&, const Theme&, PaintStream*) noexcept;
 bool ui_pinned_messages_scene_text_output(const UiPinnedMessagesScene&, const Theme&, UiTextOutput*) noexcept;
 } // namespace maicord

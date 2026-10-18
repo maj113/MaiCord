@@ -80,12 +80,7 @@ bool contains_rectangle(UiRect outer, UiRect inner) noexcept {
 }
 
 UiLayoutStyle root_style() noexcept {
-    UiLayoutStyle style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
-    style.width = ui_layout_fill();
-    style.height = ui_layout_fill();
-    style.flags = static_cast<u16>(ui_layout_node_visible | ui_layout_node_allow_overlap);
-    return style;
+    return ui_layout_fill_style(ui_layout_node_visible | ui_layout_node_allow_overlap);
 }
 
 UiLayoutStyle panel_style(float left, float top, float width, float height, bool overlay, bool scrollable,
@@ -137,7 +132,6 @@ float context_item_top(ConstSlice<PopupItem> items, u32 target) noexcept {
 UiLayoutStyle row_style(const PopupItem& item, u32 index, bool quick_strip, ConstSlice<PopupItem> items,
                         float content_width, const UiResolvedThemeStyles* styles = nullptr) noexcept {
     UiLayoutStyle style = ui_layout_style();
-    style.flow = UiLayoutFlow::overlay;
     if (items.count && (items[0].flags & popup_item_command_header)) {
         const auto& metrics = menu_metrics(styles);
         const bool close = (item.flags & popup_item_command_close) != 0;
@@ -632,7 +626,6 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
     if (commands || command_selected) {
         for (u32 column = command_selected ? 1u : 0u; column != 2; ++column) {
             auto style = ui_layout_style();
-            style.flow = UiLayoutFlow::overlay;
             style.width =
                 ui_layout_fixed(command_selected ? maximum(1.f, width - 2.f * padding) :
                     column ? maximum(1.0f, width - 2 * kPopupPanelPadding - 48) : 48.0f);

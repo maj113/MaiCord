@@ -35,7 +35,7 @@
 #include "maicord/text/font_run.hpp"
 #include <emmintrin.h>
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
 constexpr u32 capacity=32;
