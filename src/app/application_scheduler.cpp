@@ -213,6 +213,7 @@ u32 application_wait_timeout(u64 now_ms, u64 now_us, bool frame_clock_armed, boo
         limit_timeout(timeout, now_ms, application_video_next_wake());
         limit_timeout(timeout, now_ms, application_tooltip_next_wake());
         limit_timeout(timeout, now_ms, application_guild_banner_next_wake());
+        limit_timeout(timeout, now_ms, application_voice_timer_next_wake());
         limit_timeout(timeout, now_ms, application_surface_motion_next_wake(now_ms));
         limit_timeout(timeout, now_ms, application_loading_spinner_wake());
         // Once a visual frame is due, DXGI paces it. An overdue visual timer
@@ -289,6 +290,7 @@ bool application_visual_frame_requested(u64 now_ms, u64 now_us) noexcept {
            deadline_due(now_ms, application_video_next_wake()) ||
            deadline_due(now_ms, application_tooltip_next_wake()) ||
            deadline_due(now_ms, application_guild_banner_next_wake()) ||
+           deadline_due(now_ms, application_voice_timer_next_wake()) ||
            deadline_due(now_ms, application_surface_motion_next_wake(now_ms)) ||
            deadline_due(now_ms, application_search_edit_next_wake()) ||
            deadline_due(now_ms, application_media_picker_caret_wake()) ||

@@ -1664,6 +1664,9 @@ void application_voice_pump() noexcept {
 u64 application_voice_next_wake() noexcept {
     return 0;
 }
+u64 application_voice_timer_next_wake() noexcept {
+    return 0;
+}
 u64 application_soundboard_next_wake(bool) noexcept {
     return 0;
 }

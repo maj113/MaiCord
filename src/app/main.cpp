@@ -72,6 +72,7 @@
 #include "application_background.hpp"
 #include "application_load_trace.hpp"
 #include "application_perf_mark.hpp"
+#include "application_voice.hpp"
 #include "application_voice_message.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
@@ -688,6 +689,7 @@ int application_run() noexcept {
             application_forum_form_tick(restart_now_ms);
             application_friends_tick(restart_now_ms);
             application_search_tick(restart_now_ms);
+            application_voice_timer_tick(restart_now_ms);
             application_inbox_trim();
             const u64 poll_wake = application_poll_next_wake();
             if (poll_wake && restart_now_ms >= poll_wake) {

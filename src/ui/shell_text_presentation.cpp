@@ -366,6 +366,22 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                         return false;
                     }
                 }
+                // The connected channel's elapsed timer ends the name line.
+                if (const auto* timer = navigation.voice_panel ? navigation.voice_panel->elapsed : nullptr;
+                    timer && timer->label_bytes && timer->channel_id == row.id) {
+                    UiRect line = label_layout->content_rectangle;
+                    line.right = text_right;
+                    const UiRect box =
+                        ui_voice_elapsed_rectangle(line, timer->label_bytes, theme.scale.space_4, &text_right);
+                    name_rectangle.right = minimum(name_rectangle.right, text_right);
+                    if (!append_command(channel_scene.widgets, row_widget.label, {timer->label, timer->label_bytes},
+                                        box, visible_clip, theme.tokens.text.positive, stream, UiTextAlignment::end,
+                                        UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::clip,
+                                        text_style_subtext)) {
+                        reject_atomically(stream);
+                        return false;
+                    }
+                }
                 if (name.bytes != 0 &&
                     !append_command(
                         channel_scene.widgets, row_widget.label, name, name_rectangle, visible_clip,

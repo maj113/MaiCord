@@ -5,6 +5,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/protocol/guild_folders.hpp"
+#include "maicord/ui/voice_channel_rows.hpp"
+#include "maicord/ui/voice_panel.hpp"
 
 namespace maicord {
 namespace {
@@ -38,6 +40,28 @@ bool navigation_gaps_ui_probe(D3D11Renderer& renderer, NavigationView* view, con
     if (!banner_drawn || (capture && !capture(L"navigation-unread-banner.bmp")))
         return fail(3);
     renderer.unread_banner_scene = nullptr;
+
+    // Voice elapsed timer on a voice row (else the first channel row).
+    static UiVoiceElapsedClock timer;
+    timer = {};
+    for (u32 i = 0; i < view->channel_count && !timer.channel_id; ++i)
+        if (view->channel_rows[i].type == 2)
+            timer.channel_id = view->channel_rows[i].id;
+    for (u32 i = 0; i < view->channel_count && !timer.channel_id; ++i)
+        if (view->channel_rows[i].type != 4)
+            timer.channel_id = view->channel_rows[i].id;
+    timer.started_ms = 1;
+    timer.label_bytes = static_cast<u8>(ui_voice_elapsed_format(3'723'000, timer.label, sizeof(timer.label)));
+    static UiVoicePanelView panel;
+    panel = {};
+    panel.elapsed = &timer;
+    const UiVoicePanelView* previous_panel = view->voice_panel;
+    view->voice_panel = &panel;
+    const bool timer_drawn = timer.channel_id && present(renderer, sync);
+    log_u64(LogLevel::info, "probe", "navigation_voice_timer_drawn", timer_drawn);
+    view->voice_panel = previous_panel;
+    if (!timer_drawn || (capture && !capture(L"navigation-voice-timer.bmp")))
+        return fail(6);
 
     // One folder holding the first two guilds, collapsed then expanded.
     if (state.guild_count < 2 || state.guild_count + 1 > view->guild_capacity)

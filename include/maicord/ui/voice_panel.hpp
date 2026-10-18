@@ -32,6 +32,8 @@ struct UiVoicePanelView {
     UiVoiceSignal signal;
     bool self_mute, self_deaf, server_mute, server_deaf, speaking;
     UiVoiceControl hovered, pressed;
+    // Borrowed elapsed timer drawn on its channel's row; may be null.
+    const struct UiVoiceElapsedClock* elapsed;
 };
 inline constexpr float kUiVoicePanelHeight = 52, kUiVoicePanelGap = 8;
 // Extra sidebar height reserved above the account panel while the card shows.

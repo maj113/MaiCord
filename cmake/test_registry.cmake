@@ -455,7 +455,8 @@ maicord_test(MaiCordVoiceTests ENTRY maicord_voice_tests_entry
         tests/account_session_identity.cpp tests/voice_gateway.cpp tests/voice_heartbeat.cpp
         tests/voice_session.cpp tests/tls_stream_lifecycle.cpp tests/voice_socket.cpp tests/voice_connection.cpp
         tests/voice_media_events.cpp tests/voice_udp.cpp tests/voice_udp_handoff.cpp tests/gateway_voice.cpp
-        tests/voice_state_store.cpp tests/voice_gateway_policy.cpp tests/dave_session.cpp
+        tests/voice_state_store.cpp tests/voice_elapsed_timer.cpp tests/voice_gateway_policy.cpp
+        tests/dave_session.cpp
         tests/video_rtp_receive.cpp tests/voice_jitter_buffer.cpp tests/voice_playback.cpp
         tests/voice_receive.cpp tests/call_view.cpp tests/stream_watch.cpp tests/stage_channel.cpp
         tests/voice_video_signaling.cpp tests/dave_video_frames.cpp tests/voice_video_sink.cpp
