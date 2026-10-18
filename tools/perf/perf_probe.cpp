@@ -890,15 +890,16 @@ enum class Phase : u32 {
     churn,
     settings,
     idle_animated,
+    idle_fx,
     idle_final,
     idle_hidden,
     report,
     done,
     count
 };
-const char* const kPhaseNames[] = {"startup",  "history",       "idle_static",  "scroll",
-                                   "switch",   "member_list",   "churn",        "settings",
-                                   "idle_anim", "idle_final",   "idle_hidden",  "report",       "done"};
+const char* const kPhaseNames[] = {"startup",     "history",     "idle_static", "scroll",    "switch",
+                                   "member_list", "churn",       "settings",    "idle_anim", "idle_fx",
+                                   "idle_final",  "idle_hidden", "report",      "done"};
 
 constexpr u32 kFrameSampleCapacity = 8192;
 // Retained text and paint work: parser runs against cache hits, content text
@@ -970,6 +971,7 @@ struct Probe {
     u32 client_width, client_height;
     u32 zero_streak;
     u32 final_messages, final_guilds, final_channels, final_members;
+    BackgroundTheme gradient;
 };
 Probe g_probe{};
 // Phase tick (see arm_phase_tick).
@@ -2411,6 +2413,7 @@ u64 phase_deadline_qpc() noexcept {
         return next > at(600) ? next : at(600);
     }
     case Phase::idle_animated: return at(3'000);
+    case Phase::idle_fx: return at(3'000);
     case Phase::idle_final: return at(4'000);
     case Phase::idle_hidden: return at(4'000);
     default: return 0;
@@ -2612,6 +2615,22 @@ bool probe_step_phases(int* exit_code) noexcept {
         if (phase_ms > 3'000) {
             if (!select_channel(g_probe.lab_guild, g_probe.text_channel))
                 fail("select_text_channel_final");
+            // The text channel under the built-in Stars effect: the steady
+            // cost of an animated backdrop (shell and title bar).
+            g_probe.gradient = g_app.preferences.gradient;
+            const auto stars = background_effect_settings_defaults(BackgroundEffect::stars);
+            g_app.preferences.gradient.effect = BackgroundEffect::stars;
+            g_app.preferences.gradient.speed = stars.speed;
+            g_app.preferences.gradient.strength = stars.strength;
+            g_app.preferences.gradient.density = stars.density;
+            app_detail::application_request_frame();
+            next_phase(Phase::idle_fx);
+        }
+        break;
+    case Phase::idle_fx:
+        if (phase_ms > 3'000) {
+            g_app.preferences.gradient = g_probe.gradient;
+            app_detail::application_request_frame();
             next_phase(Phase::idle_final);
             collect_threads(true);
         }

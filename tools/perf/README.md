@@ -84,7 +84,8 @@ The offline workload always uses its synthetic account module and does not measu
 Each launch runs one window through these phases, in order: `startup` (process
 start to restored shell), `history`, `idle_static` (text-only channel), `scroll`,
 `switch` (channel switches), `member_list`, `churn`, `settings`, `idle_anim`
-(animated content visible), `idle_final` and `idle_hidden` (minimized; the end
+(animated content visible), `idle_fx` (text channel under the built-in Stars
+background effect), `idle_final` and `idle_hidden` (minimized; the end
 memory snapshot is taken before minimizing).
 
 An idle client may not wake on its own, so the probe arms one timer for its next
