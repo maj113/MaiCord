@@ -6,7 +6,11 @@
 maicord_library(maicord_core
     src/core/arena.cpp src/core/byte_queue.cpp src/core/byte_order.cpp src/core/data_path.cpp
     src/core/json_reader.cpp src/core/json_scan.cpp src/core/reserved_bytes.cpp src/core/stable_storage.cpp
-    src/core/utf.cpp src/core/ascii.cpp src/core/byte_range.cpp)
+    src/core/utf.cpp src/core/byte_range.cpp)
+# Checks the narrow Win32 declarations against the SDK on every client build
+# (a MaiCord dependency); it defines nothing, so no image links it.
+add_library(maicord_win32_conformance OBJECT src/core/win32_sdk_conformance.cpp)
+target_link_libraries(maicord_win32_conformance PRIVATE maicord_compile_contract)
 
 maicord_library(maicord_compression src/media/deflate.cpp LIBS maicord_core)
 

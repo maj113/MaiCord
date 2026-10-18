@@ -504,9 +504,7 @@ maicord_test(MaiCordTests ENTRY maicord_tests_entry
         maicord_message_media maicord_render_core maicord_media_core maicord_media_codec maicord_cdn_media
         maicord_account_media kernel32 user32 ws2_32 secur32 bcrypt crypt32 dwrite
     USES_CLIENT MaiCordAccount
-    ENVIRONMENT MAICORD_TEST_TEXT_INPUT=0
     TEST maicord_core)
-maicord_add_tests(MaiCordTests TIMEOUT 2 ENVIRONMENT MAICORD_TEST_TEXT_INPUT=1 TEST maicord_text_input)
 maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
     SOURCES tests/application_commands_ui.cpp src/app/application_commands.cpp src/app/application_state.cpp
         src/app/application_message_feedback.cpp
@@ -1124,17 +1122,8 @@ maicord_test(MaiCordArabicPlanTests ENTRY maicord_arabic_plan_tests_entry
     SOURCES tests/arabic_plan_test.cpp
     LIBS maicord_core maicord_unicode maicord_font kernel32
     TEST maicord_native_arabic_plan)
-maicord_test(MaiCordArabicOwnedTests ENTRY maicord_arabic_plan_tests_entry
-    SOURCES tests/arabic_plan_test.cpp
-    LIBS maicord_core maicord_unicode maicord_font kernel32
-    DEFINES MAICORD_ARABIC_OWNED=1
-    TEST maicord_native_arabic_owned)
-maicord_test(MaiCordArabicRunTests ENTRY maicord_arabic_plan_tests_entry
-    SOURCES tests/arabic_plan_test.cpp
-    LIBS maicord_core maicord_unicode maicord_font kernel32
-    DEFINES MAICORD_ARABIC_OWNED=1 MAICORD_ARABIC_RUN=1
-    TIMEOUT 5 LABELS native-text-arabic-run
-    TEST maicord_native_arabic_run)
+maicord_add_tests(MaiCordArabicPlanTests TIMEOUT 5 LABELS native-text-arabic-run
+    TEST maicord_native_arabic_run --run)
 maicord_font_test(MaiCordArabicMarksTests maicord_arabic_marks_tests_entry arabic_marks_test
     TEST maicord_native_arabic_marks)
 maicord_test(MaiCordBidiTests ENTRY maicord_bidi_tests_entry
@@ -1212,12 +1201,10 @@ maicord_add_tests(MaiCordMyanmarShapeTests TIMEOUT 2 LABELS native-text-myanmar-
 maicord_font_test(MaiCordMyanmarInputTests maicord_myanmar_input_entry myanmar_input_test
     TIMEOUT 2 LABELS native-text-myanmar-input
     TEST maicord_native_myanmar_input)
-maicord_font_test(MaiCordMyanmarPlanTests maicord_use_plan_entry myanmar_plan_test)
-maicord_font_test(MaiCordTibetanPlanTests maicord_use_plan_entry tibetan_plan_test
-    TIMEOUT 2 LABELS native-text-tibetan-plan
-    TEST maicord_native_tibetan_plan)
-maicord_add_tests(MaiCordMyanmarPlanTests TIMEOUT 2 LABELS native-text-myanmar-plan
-    TEST maicord_native_myanmar_plan)
+maicord_add_tests(MaiCordUsePlanTests TIMEOUT 2 LABELS native-text-tibetan-plan
+    TEST maicord_native_tibetan_plan --tibetan)
+maicord_add_tests(MaiCordUsePlanTests TIMEOUT 2 LABELS native-text-myanmar-plan
+    TEST maicord_native_myanmar_plan --myanmar)
 maicord_font_test(MaiCordKhmerPlanTests maicord_khmer_plan_entry khmer_plan_test
     TIMEOUT 2 LABELS native-text-khmer-plan
     TEST maicord_native_khmer_plan)
@@ -1363,10 +1350,7 @@ foreach(sample RANGE 0 5)
 endforeach()
 maicord_add_tests(MaiCordNativeAppLineTests
     TEST maicord_native_standard_scripts --standard-script-profile --family "Segoe UI" 400)
-maicord_native_profile_tests(5 tamil-direction-shape "Nirmala UI")
 maicord_native_profile_tests(5 tamil-direction "Nirmala UI")
-maicord_native_profile_tests(5 tamil-tracking-shape "Nirmala UI")
-maicord_native_profile_tests(5 tamil-tracking "Nirmala UI")
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-tamil-app
     TEST maicord_native_tamil_app --tamil-profile --family "Nirmala UI" 400)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-telugu-cpu
@@ -1374,19 +1358,12 @@ maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-telugu-
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-kannada-cpu
     TEST maicord_native_kannada_cpu --smoke --kannada-bench)
 maicord_native_profile_tests(5 telugu-app "Nirmala UI")
-maicord_native_profile_tests(5 telugu-tracking "Nirmala UI")
 maicord_native_profile_tests(5 kannada-app "Nirmala UI")
-maicord_native_profile_tests(5 kannada-tracking "Nirmala UI")
 maicord_native_profile_tests(5 sinhala-app "Nirmala UI")
-maicord_native_profile_tests(5 sinhala-tracking "Nirmala UI")
 maicord_native_profile_tests(5 khmer-app "Leelawadee UI")
-maicord_native_profile_tests(5 khmer-tracking "Leelawadee UI")
 maicord_native_profile_tests(5 myanmar-app "Myanmar Text")
-maicord_native_profile_tests(5 myanmar-tracking "Myanmar Text")
 maicord_native_profile_tests(5 tibetan-app "Microsoft Himalaya")
-maicord_native_profile_tests(5 tibetan-tracking "Microsoft Himalaya")
 maicord_native_profile_tests(5 malayalam-app "Nirmala UI")
-maicord_native_profile_tests(5 malayalam-tracking "Nirmala UI")
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-odia-app
     TEST maicord_native_odia_app --odia-profile --family "Nirmala UI" 400)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-odia-cpu
@@ -1394,13 +1371,9 @@ maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-odia-cp
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-odia-app
     TEST maicord_native_odia_app_default --odia-profile --family "Segoe UI" 400
     TEST maicord_native_odia_app_private --odia-profile "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BioRhyme.ttf")
-maicord_native_profile_tests(5 odia-tracking "Nirmala UI")
 maicord_native_profile_tests(5 gurmukhi-app "Nirmala UI")
-maicord_native_profile_tests(5 gurmukhi-tracking "Nirmala UI")
 maicord_native_profile_tests(5 gujarati-app "Nirmala UI")
-maicord_native_profile_tests(5 gujarati-tracking "Nirmala UI")
 maicord_native_profile_tests(5 bengali-app "Nirmala UI")
-maicord_native_profile_tests(5 bengali-tracking "Nirmala UI")
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-tamil-app
     TEST maicord_native_tamil_app_default --tamil-profile --family "Segoe UI" 400
     TEST maicord_native_tamil_app_private --tamil-profile
@@ -1410,6 +1383,23 @@ maicord_native_profile_tests(5 devanagari-direction "Nirmala UI")
 maicord_native_profile_tests(5 direction-tracking "Nirmala UI")
 maicord_native_profile_tests(5 arabic-context "Nirmala UI")
 maicord_native_profile_tests(10 devanagari-tracking "Nirmala UI")
+# Every app profile above keeps its fallback variants (_default: Segoe UI,
+# _private: a private font). Tracking under a fallback font runs only in the
+# devanagari, direction, Arabic context and Tamil direction profiles; the other
+# scripts' tracking profiles use their own family.
+foreach(maicord_tracking_profile IN ITEMS tamil-direction-shape tamil-tracking-shape tamil-tracking telugu-tracking
+        kannada-tracking sinhala-tracking malayalam-tracking odia-tracking gurmukhi-tracking gujarati-tracking
+        bengali-tracking)
+    string(REPLACE "-" "_" maicord_tracking_test "maicord_native_${maicord_tracking_profile}")
+    maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-${maicord_tracking_profile}
+        TEST ${maicord_tracking_test} --${maicord_tracking_profile}-profile --family "Nirmala UI" 400)
+endforeach()
+maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-khmer-tracking
+    TEST maicord_native_khmer_tracking --khmer-tracking-profile --family "Leelawadee UI" 400)
+maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-myanmar-tracking
+    TEST maicord_native_myanmar_tracking --myanmar-tracking-profile --family "Myanmar Text" 400)
+maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-tibetan-tracking
+    TEST maicord_native_tibetan_tracking --tibetan-tracking-profile --family "Microsoft Himalaya" 400)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 10 LABELS native-text-devanagari-memory
     TEST maicord_native_devanagari_memory --devanagari-memory-check)
 maicord_add_tests(MaiCordNativeAppLineTests TIMEOUT 5 LABELS native-text-extended-scripts
@@ -1541,18 +1531,10 @@ maicord_font_test(MaiCordFontInstanceTests maicord_font_store_entry font_store_t
     TIMEOUT 5 LABELS native-text-font-instance
     TEST maicord_native_font_instances)
 maicord_font_test(MaiCordGposTests maicord_gpos_tests_entry gpos_test)
-maicord_font_test(MaiCordGposExecuteTests maicord_gpos_execute_tests_entry gpos_execute_test)
-maicord_font_test(MaiCordGposMarkExecuteTests maicord_gpos_execute_tests_entry gpos_execute_test
-    DEFINES MAICORD_MARK_POSITION_TESTS=1)
-maicord_font_test(MaiCordGposCursiveExecuteTests maicord_gpos_execute_tests_entry gpos_execute_test
-    DEFINES MAICORD_MARK_POSITION_TESTS=1 MAICORD_CURSIVE_POSITION_TESTS=1)
-maicord_font_test(MaiCordGposLigatureExecuteTests maicord_gpos_execute_tests_entry gpos_execute_test
-    DEFINES MAICORD_MARK_POSITION_TESTS=1 MAICORD_CURSIVE_POSITION_TESTS=1 MAICORD_LIGATURE_POSITION_TESTS=1
-    TEST maicord_native_gpos_ligature_execute)
-maicord_add_tests(MaiCordGposCursiveExecuteTests TEST maicord_native_gpos_cursive_execute)
-maicord_add_tests(MaiCordGposMarkExecuteTests TIMEOUT 5 LABELS native-text-gpos-marks
-    TEST maicord_native_gpos_mark_execute)
-maicord_add_tests(MaiCordGposExecuteTests TEST maicord_native_gpos_execute)
+# Basic, mark, cursive and ligature placement corpora in one run.
+maicord_font_test(MaiCordGposExecuteTests maicord_gpos_execute_tests_entry gpos_execute_test
+    TIMEOUT 5 LABELS native-text-gpos-marks
+    TEST maicord_native_gpos_execute)
 maicord_font_test(MaiCordGposAttachmentTests maicord_gpos_attachment_tests_entry gpos_attachment_test
     TEST maicord_native_gpos_attachments)
 maicord_add_tests(MaiCordGposTests TEST maicord_native_gpos)

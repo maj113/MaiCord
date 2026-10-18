@@ -19,6 +19,16 @@ struct SrwLock {
     }
 };
 
+// POINT.
+struct Win32Point {
+    LONG x;
+    LONG y;
+
+    POINT* native() noexcept {
+        return reinterpret_cast<POINT*>(this);
+    }
+};
+
 // RECT.
 struct Win32Rect {
     LONG left;

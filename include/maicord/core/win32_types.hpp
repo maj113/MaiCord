@@ -7,6 +7,8 @@
 #define WINAPI __stdcall
 #define CALLBACK __stdcall
 typedef int BOOL;
+#define FALSE 0
+#define TRUE 1
 typedef unsigned short WORD;
 typedef long LONG;
 typedef __int64 LONG64;

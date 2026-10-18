@@ -144,11 +144,11 @@ maicord_shader(MAICORD_MEDIA_PIXEL_HEADER maicord_media_ps.hpp ps_4_0 media_pixe
 maicord_shader(MAICORD_GLYPH_COMPUTE_HEADER maicord_glyph_cs.hpp cs_5_0 glyph_coverage g_maicord_glyph_compute_shader
     ${maicord_shaders}/glyph_atlas.hlsl PACK glyph_compute)
 maicord_shader(MAICORD_COLR_COMPUTE_HEADER maicord_colr_cs.hpp cs_5_0 colr_paint g_maicord_colr_compute_shader
-    ${maicord_shaders}/colr_paint.hlsl PACK colr_compute COLR_GENERAL=1)
+    ${maicord_shaders}/colr_paint.hlsl PACK colr_compute)
 maicord_shader(MAICORD_COLR_WIDE_HEADER maicord_colr_wide_cs.hpp cs_5_0 colr_paint g_maicord_colr_wide_compute_shader
-    ${maicord_shaders}/colr_paint.hlsl PACK colr_wide_compute COLR_STACK_SIZE=64 COLR_GENERAL=1)
+    ${maicord_shaders}/colr_paint.hlsl PACK colr_wide_compute COLR_STACK_SIZE=64)
 maicord_shader(MAICORD_COLR_LAYERS_HEADER maicord_colr_layers_cs.hpp cs_5_0 colr_paint g_maicord_colr_layers_compute_shader
-    ${maicord_shaders}/colr_paint.hlsl PACK colr_layers_compute COLR_LAYERS=1 COLR_GENERAL=1)
+    ${maicord_shaders}/colr_paint.hlsl PACK colr_layers_compute COLR_LAYERS=1)
 maicord_shader(MAICORD_PNG_COMPUTE_HEADER maicord_png_cs.hpp cs_5_0 png_expand g_maicord_png_compute_shader
     ${maicord_shaders}/png_atlas.hlsl PACK png_compute)
 maicord_shader(MAICORD_VP8_RECONSTRUCT_HEADER maicord_vp8_reconstruct_cs.hpp cs_5_0 vp8_reconstruct

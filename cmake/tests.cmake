@@ -41,14 +41,13 @@ include(cmake/test_registry.cmake)
 maicord_copy_fonts(MaiCordUiProbe MaiCordMessageLinkUiProbe MaiCordComposerUiProbe MaiCordAccountLogoutUiProbe
     MaiCordScopedReadUiProbe MaiCordFontCatalogTests)
 
-# Every test target, the non-/GL library twins, shared objects and PCH
-# providers are temporary: tools/build.ps1 builds the ones the selected tests
+# Every test target, the non-/GL library twins and shared objects are
+# temporary: tools/build.ps1 builds the ones the selected tests
 # need and maintain_build_outputs.ps1 removes their outputs by this manifest.
 get_property(maicord_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 list(REMOVE_ITEM maicord_test_targets ${maicord_production_targets})
 maicord_add_test_codegen_twins(maicord_test_targets)
 maicord_share_test_objects(maicord_test_targets)
-maicord_add_test_precompiled_headers(maicord_test_targets)
 set_property(TARGET ${maicord_test_targets} PROPERTY EXCLUDE_FROM_ALL TRUE)
 list(JOIN maicord_test_targets "\n" maicord_test_target_manifest)
 file(WRITE "${CMAKE_BINARY_DIR}/maicord-test-targets.txt" "${maicord_test_target_manifest}\n")

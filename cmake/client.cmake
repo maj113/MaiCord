@@ -5,7 +5,7 @@ option(MAICORD_STARTUP_PROBE "Measure isolated production-path startup" OFF)
 
 add_library(MaiCordAccount SHARED
     src/app/account_message_poll.cpp src/app/account_guild_invite.cpp src/app/account_settings_rest.cpp
-    src/app/account_self_status.cpp src/app/account_module.cpp src/app/account_message_search.cpp
+    src/app/account_module.cpp src/app/account_message_search.cpp
     src/app/account_media_catalog.cpp src/app/account_guild_assets.cpp src/app/guild_image.cpp
     src/app/profile_image.cpp src/app/account_profile_edit.cpp
     $<TARGET_OBJECTS:maicord_runtime>)
@@ -146,7 +146,7 @@ set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll secur32.dll ole3
 list(TRANSFORM MAICORD_CLIENT_DELAY_LOADS PREPEND /DELAYLOAD: OUTPUT_VARIABLE MAICORD_CLIENT_DELAY_LOAD_OPTIONS)
 target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
 target_link_libraries(MaiCord PRIVATE dloadhelper)
-add_dependencies(MaiCord MaiCordAccount maicord_app_icon)
+add_dependencies(MaiCord MaiCordAccount maicord_app_icon maicord_win32_conformance)
 
 # Self-updater publisher. Environment variables override the official defaults,
 # as the release workflow does; setting both empty compiles the updater disabled.
@@ -357,7 +357,7 @@ maicord_compact_sources(
         src/app/account_pinned_messages.cpp src/app/account_channel_overview.cpp
         src/app/account_private_channel.cpp src/app/account_message_search.cpp
         src/app/account_guild_invite.cpp src/app/account_settings_rest.cpp
-        src/app/account_media_catalog.cpp src/app/account_message_poll.cpp src/app/account_self_status.cpp
+        src/app/account_media_catalog.cpp src/app/account_message_poll.cpp
         src/app/hpke_derivation.cpp src/app/hpke_context.cpp src/app/mls_hpke.cpp
         src/app/mls_key_schedule.cpp src/app/mls_key_package.cpp src/app/mls_signature.cpp
         src/app/mls_exporter.cpp src/app/dave_key_package.cpp src/app/dave_welcome.cpp
@@ -449,21 +449,9 @@ function(maicord_reaches_application_state variable source)
     set(${variable} ${app} PARENT_SCOPE)
 endfunction()
 
-# maicord_pch_stub(<stub> <header> <pch> <O2|Os> [<source property> <value>...])
-# Writes <stub>, which includes <header>, and creates <pch> from it (/Yc). The
-# Os stub carries /Os first, the position of the cold sources' own option.
-function(maicord_pch_stub stub header pch mode)
-    file(CONFIGURE OUTPUT "${stub}" CONTENT "#include \"${header}\"\n")
-    set(options "/Yc${header}" "/Fp${pch}")
-    if(mode STREQUAL "Os")
-        list(PREPEND options "$<$<CONFIG:Release>:/Os>")
-    endif()
-    set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options}" ${ARGN})
-endfunction()
-
 # MaiCord's application sources share a precompiled header (src/app/
-# application_pch.hpp: <Windows.h> and application_state.hpp), most of each
-# source's front-end time. A /Yu object also leaves the header's inline code
+# application_pch.hpp: application_state.hpp), about half of each source's
+# front-end time. A /Yu object also leaves the header's inline code
 # to the PCH object, which shrinks the LTCG link input. One PCH per
 # optimization mode, since cold sources carry /Os and MSVC rejects a PCH built
 # with other options. A source qualifies when it reaches application_state.hpp
@@ -510,7 +498,13 @@ function(maicord_precompile_application_sources target)
     foreach(mode IN LISTS modes)
         set(stub "${directory}/application_pch_${mode}.cpp")
         set(pch "${directory}/application_pch_${mode}.pch")
-        maicord_pch_stub("${stub}" "${header}" "${pch}" ${mode} OBJECT_OUTPUTS "${pch}")
+        file(CONFIGURE OUTPUT "${stub}" CONTENT "#include \"${header}\"\n")
+        # The Os stub carries /Os first, the position of the cold sources' own option.
+        set(options "/Yc${header}" "/Fp${pch}")
+        if(mode STREQUAL "Os")
+            list(PREPEND options "$<$<CONFIG:Release>:/Os>")
+        endif()
+        set_source_files_properties("${stub}" PROPERTIES COMPILE_OPTIONS "${options}" OBJECT_OUTPUTS "${pch}")
         # The PCH object holds the header's code; every image using the PCH links it.
         target_sources(${target} PRIVATE "${stub}")
     endforeach()
