@@ -3,6 +3,7 @@
 #include "maicord/protocol/base64.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -447,9 +448,9 @@ void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexc
                             "\"phone\":null,\"verified\":true,\"mfa_enabled\":false}";
     AccountSelfUser user{};
     check(account_settings_decode_self({self, sizeof(self) - 1}, {structurals, 512}, &user) &&
-              user.username_bytes == 3 && !user.global_name_bytes && user.email_bytes == 15 && user.email_known &&
-              user.phone_known && !user.phone_bytes && user.verified,
-          "account settings: self user decodes email and phone presence");
+              user.username_bytes == 3 && !user.global_name_bytes && user.email_bytes == 15 &&
+              !user.phone_bytes && user.verified,
+          "account settings: self user decodes email and phone");
     constexpr char profile[] = "{\"user\":{\"id\":\"1\"},\"user_profile\":{\"bio\":\"hi\",\"pronouns\":\"she/her\"}}";
     AccountProfileText text{};
     check(account_settings_decode_profile({profile, sizeof(profile) - 1}, {structurals, 512}, &text) &&

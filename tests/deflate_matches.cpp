@@ -41,7 +41,7 @@ bool grow(void* opaque, u32 required, Slice<u8>* backed) noexcept {
     return true;
 }
 void clear(Growth& owner) noexcept {
-    if (owner.storage.arena.base) SecureZeroMemory(owner.storage.arena.base, owner.storage.arena.committed);
+    if (owner.storage.arena.base) secure_clear_bytes(owner.storage.arena.base, owner.storage.arena.committed);
     stable_storage_release(&owner.storage);
     owner = {};
 }

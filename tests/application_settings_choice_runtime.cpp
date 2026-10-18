@@ -4,6 +4,8 @@
 #include "maicord/ui/settings_choice.hpp"
 #include "settings_runtime_keys.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace settings_runtime_test {
 void measurement(const char*, u64) noexcept;

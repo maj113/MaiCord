@@ -9,6 +9,8 @@
 #include "maicord/ui/audio_presentation.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::video_focus_runtime_test {
 u32 confirmations, media_refreshes;
 UiSearchScene* mutable_search_scene;

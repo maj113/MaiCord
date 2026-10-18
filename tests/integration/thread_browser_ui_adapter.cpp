@@ -4,6 +4,8 @@
 #include "maicord/protocol/thread_browser.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace {

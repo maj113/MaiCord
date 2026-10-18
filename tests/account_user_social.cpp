@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 // Capture-the-submission: notes, report menus and submissions, and message
 // flag edits reach the transport with the official client's target, method,

@@ -10,6 +10,7 @@
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/ui/profile_scene.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::profile_activity_test {
 u32 failures = 0;

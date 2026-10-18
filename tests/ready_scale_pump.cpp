@@ -13,6 +13,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "fixtures/oversized_guild.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::ready_scale_pump_test {
 u32 failures = 0;
@@ -578,10 +579,10 @@ void oversized_guild() noexcept {
     check(drained.ok() && drained.popped == 1 && !drained.apply_failures && resident && last &&
               last->overwrite_count == fixture::kOverwrites,
           "oversized guild: the pump applies every channel and overwrite of the oversized record");
-    MEMORY_BASIC_INFORMATION region{};
+    Win32MemoryInformation region{};
     check(stores.pump.large_payload.base && !stores.pump.large_payload.committed &&
               stores.pump.large_payload.peak == 256 * 1024 && !worker_large.committed &&
-              VirtualQuery(stores.pump.large_payload.base, &region, sizeof(region)) &&
+              VirtualQuery(stores.pump.large_payload.base, region.native(), sizeof(region)) &&
               region.State == MEM_RESERVE,
           "oversized guild: both reservations are decommitted once the record is applied");
     reserved_bytes_release(&worker_large);

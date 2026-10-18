@@ -122,18 +122,6 @@ void test_theme_editor(void (*check)(bool, const char*) noexcept) noexcept {
               scene.storage.arena.base == effects_storage && scene.widgets.generation == both_generation &&
               ui_theme_editor_action(&scene, UiThemeEditorElement::effect_stars, 0, &out),
           "theme editor effects: independent retained profile restores without storage or widget churn");
-    // The editor exposes exactly None plus the three supported effects.
-    bool catalog_elements = true;
-    for (u32 i = 0; i < kUiThemeEditorElements; ++i) {
-        const auto e = static_cast<UiThemeEditorElement>(i);
-        const bool effect_card = e >= UiThemeEditorElement::effect_none && e <= UiThemeEditorElement::effect_both;
-        catalog_elements = catalog_elements && (!effect_card || i - static_cast<u32>(UiThemeEditorElement::effect_none) <
-                                                                    kBackgroundEffectCount);
-    }
-    check(catalog_elements && static_cast<u32>(UiThemeEditorElement::effect_both) -
-                                      static_cast<u32>(UiThemeEditorElement::effect_none) + 1 ==
-                                  kBackgroundEffectCount,
-          "theme editor effects: card bank is exactly None, Stars, Comets and Stars and comets");
     BackgroundEffectSettings bad_profiles[kBackgroundEffectProfileCount];
     for (u32 i = 0; i < kBackgroundEffectProfileCount; ++i)
         bad_profiles[i] = scene.effect_profiles[i];

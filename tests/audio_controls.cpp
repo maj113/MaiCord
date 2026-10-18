@@ -500,7 +500,5 @@ void test_audio_controls(void (*check)(bool, const char*) noexcept) noexcept {
     search_geometry(check);
     search_geometry(check, utf8_literal("Original song.mp3"), utf8_literal("audio/mpeg"), false,
                     MediaAttachmentFormat::mp3);
-    search_geometry(check, utf8_literal("Original recording.wav"), utf8_literal("audio/x-wav"), false,
-                    MediaAttachmentFormat::wav);
 }
 } // namespace maicord

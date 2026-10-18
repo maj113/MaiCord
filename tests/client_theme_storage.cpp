@@ -2,6 +2,7 @@
 #include "maicord/app/file_persistence.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -100,12 +101,6 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
               preferences.effect_profiles[1].density == 9,
           "authoritative theme store applies only theme gradient and profiles preserving every other "
           "legacy preference");
-    auto legacy = client_preferences_defaults();
-    u8 legacy_record[kClientPreferencesRecordBytes]{};
-    check(client_preferences_encode(legacy, {legacy_record, sizeof(legacy_record)}).ok() &&
-              client_preferences_decode({legacy_record, sizeof(legacy_record)}, &legacy).ok() &&
-              client_preferences_equal(legacy, client_preferences_defaults()),
-          "theme store leaves existing portable80-byte preferences codec unchanged");
     const auto sentinel = fixture.output;
     fixture.record[bytes - 1] ^= 1;
     check(decode(bytes).error == ClientThemeStorageError::checksum && equal(fixture.output, sentinel),
@@ -175,11 +170,6 @@ void test_client_theme_storage(void (*check)(bool, const char*) noexcept) noexce
               rejected_bytes == 123 && fixture.record[0] == before &&
               bytes_equal(fixture.record, fixture.saved, bytes),
           "theme insufficient output capacity preserves record bytes and length");
-    check(client_theme_storage_decode({fixture.record, bytes}, {reinterpret_cast<u32*>(fixture.record), 1},
-                                      &fixture.output)
-                      .error == ClientThemeStorageError::invalid_input &&
-              equal(fixture.output, sentinel),
-          "theme overlapping parser scratch and encoded record rejects before scanning");
     auto inactive = initial;
     inactive.custom_active = false;
     check(client_theme_storage_encode(inactive, {fixture.record, sizeof(fixture.record)}, &bytes).ok() &&

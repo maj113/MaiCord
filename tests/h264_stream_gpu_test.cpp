@@ -4,6 +4,7 @@
 #include "maicord/platform/h264_gpu_stream_decoder.hpp"
 #include "maicord/app/video_stream_decoders.hpp"
 #include "h264_stream_fixture.hpp"
+#include <Windows.h>
 #include <d3d11_4.h>
 #include <new>
 

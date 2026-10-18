@@ -5,6 +5,7 @@
 #include "maicord/model/permission_compute.hpp"
 #include "maicord/protocol/guild_moderation.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace guild_admin_gateway_test {

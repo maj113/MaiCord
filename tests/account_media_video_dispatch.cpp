@@ -3,6 +3,7 @@
 // seams; no codec, GPU, audio endpoint, account or network is created.
 #include "../src/app/account_media_video_internal.hpp"
 #include "maicord/core/memory.hpp"
+#include <Windows.h>
 #include <objbase.h>
 
 namespace maicord {

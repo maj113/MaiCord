@@ -1,5 +1,6 @@
 #include "test_output.hpp"
 #include "maicord/model/message_notifications.hpp"
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {
 namespace {
 bool reject_reserve(void*,u32,u32,u32) noexcept{return false;}

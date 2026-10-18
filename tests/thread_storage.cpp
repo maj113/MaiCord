@@ -1,5 +1,6 @@
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/model/thread_member_store.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace thread_storage_probe {
@@ -10,8 +11,8 @@ struct Fixture {
 };
 Fixture fixture{};
 bool state(const void* address, DWORD expected) noexcept {
-    MEMORY_BASIC_INFORMATION info{};
-    return address && VirtualQuery(address, &info, sizeof(info)) == sizeof(info) && info.State == expected;
+    Win32MemoryInformation info{};
+    return address && VirtualQuery(address, info.native(), sizeof(info)) == sizeof(info) && info.State == expected;
 }
 bool reserve(void* context, u32 count) noexcept {
     auto& f = *static_cast<Fixture*>(context);
@@ -47,7 +48,7 @@ void test_thread_storage(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace thread_storage_probe;
     auto& f = fixture;
     release(&f); f.reserve_calls = 0;
-    SYSTEM_INFO system{}; GetSystemInfo(&system);
+    Win32SystemInfo system{}; GetSystemInfo(system.native());
     const u32 page_size = system.dwPageSize;
     const bool valid_page = page_size && !(page_size & (page_size - 1));
     check(valid_page, "thread storage system page size supports arena alignment");

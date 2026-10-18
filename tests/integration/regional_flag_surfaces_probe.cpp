@@ -11,6 +11,7 @@
 #include "colr_binding_probe.hpp"
 #include "regional_flag_upload_probe.hpp"
 #include "probe_present.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -69,8 +70,8 @@ bool upload_flags(D3D11Renderer& renderer) noexcept {
         for (u32 i=kRegionalFlagSvgTargetPrefixBytes;i<target_bytes;++i) path[used++]=static_cast<wchar_t>(target[i]);
         HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
         if (file==INVALID_HANDLE_VALUE) return false;
-        LARGE_INTEGER size{};DWORD read=0;
-        const bool valid=GetFileSizeEx(file,&size) && size.QuadPart>0 && size.QuadPart<=kRegionalFlagSvgMaximumBytes &&
+        Win32LargeInteger size{};DWORD read=0;
+        const bool valid=GetFileSizeEx(file,size.native()) && size.QuadPart>0 && size.QuadPart<=kRegionalFlagSvgMaximumBytes &&
             ReadFile(file,encoded,static_cast<DWORD>(size.QuadPart),&read,nullptr) && read==static_cast<DWORD>(size.QuadPart);
         const bool closed=CloseHandle(file)!=FALSE;
         if (!valid || !closed) return false;

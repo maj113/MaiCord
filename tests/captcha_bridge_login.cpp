@@ -2,6 +2,7 @@
 // boundary; the real loopback bridge carries the solution. No browser, no
 // service request and no profile file is involved.
 #pragma warning(disable : 4505) // shared TU-local login helpers unused here
+#include <Windows.h>
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #include "../src/app/user_auth_coordinator.cpp"

@@ -3,6 +3,7 @@
 #include "../src/app/application_search_navigation.cpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::search_navigation_test {
 using namespace app_detail;

@@ -3,6 +3,7 @@
 #include "maicord/ui/secure_edit.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace text_pointer_selection_test {

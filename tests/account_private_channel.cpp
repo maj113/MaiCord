@@ -2,8 +2,8 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
-#include <stddef.h>
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace private_channel_account_test {
@@ -131,21 +131,15 @@ void transport() noexcept {
           "private channel: exact cancellation only");
 }
 void dormant_abi() noexcept {
-    static_assert(sizeof(AccountModuleApi) == 1176 && sizeof(AccountHost) == 1424);
-    static_assert(offsetof(AccountModuleApi, private_channel) == 760);
     AccountHost host{};
-    check(account_host_load(&host).ok(), "private channel: current ABI DLL loads without credentials");
+    check(account_host_load(&host).ok(), "private channel: current DLL loads without credentials");
     if (!host.module)
         return;
     const auto leave = action(PrivateChannelActionKind::leave);
-    check(host.api.version == 133 && host.api.bytes == 1176 && host.api.private_channel &&
-              host.api.private_channel(nullptr, &leave, 1).error == RestClientSubmitError::invalid_input &&
+    check(host.api.private_channel(nullptr, &leave, 1).error == RestClientSubmitError::invalid_input &&
               host.api.private_channel(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               !host.instance && !host.login_instance,
           "private channel: dormant callback creates no account or worker");
-    auto missing = host.api;
-    missing.private_channel = nullptr;
-    check(!account_host_api_valid(missing), "private channel: new callback is mandatory");
     account_host_release(&host);
 }
 } // namespace private_channel_account_test

@@ -1,5 +1,6 @@
 #include "maicord/platform/p256.hpp"
 #include "maicord/core/memory.hpp"
+#include <Windows.h>
 #include <bcrypt.h>
 #include "test_output.hpp"
 

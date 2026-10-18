@@ -2,6 +2,7 @@
 #include "maicord/protocol/relationships.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::friends_storage_test {
 using namespace app_detail;
@@ -10,8 +11,8 @@ void check(bool success, const char* message) noexcept {
     test_check(&failures, success, message);
 }
 bool state(const void* address, DWORD expected) noexcept {
-    MEMORY_BASIC_INFORMATION memory{};
-    return VirtualQuery(address, &memory, sizeof(memory)) == sizeof(memory) && memory.State == expected;
+    Win32MemoryInformation memory{};
+    return VirtualQuery(address, memory.native(), sizeof(memory)) == sizeof(memory) && memory.State == expected;
 }
 RelationshipRecord record(u64 id) noexcept {
     RelationshipRecord value{};value.user_id = id;value.type = RelationshipType::friend_;

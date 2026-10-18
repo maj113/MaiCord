@@ -1,5 +1,6 @@
 #include "maicord/ui/secure_text_store.hpp"
 #include "maicord/core/memory.hpp"
+#include <Windows.h>
 #include <msctf.h>
 #include <objbase.h>
 

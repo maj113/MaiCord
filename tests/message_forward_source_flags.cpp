@@ -23,8 +23,6 @@ const MessageRecord* record(const MessageStore& store) noexcept {
 }
 }
 void test_message_forward_source_flags(void (*check)(bool, const char*) noexcept) noexcept {
-    static_assert(sizeof(MessageRecord) == 64);
-    static_assert(sizeof(GatewayClientMessageMutation) == 88);
     GatewayMessageEvent event{};
     const bool decoded = decode(create, false, &event);
     check(decoded && event.forwarding_features == (gateway_message_forwarding_poll |

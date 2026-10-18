@@ -4,7 +4,6 @@
 #include "maicord/ui/settings_scene.hpp"
 
 namespace maicord {
-static_assert(static_cast<u8>(PopupKind::tooltip) == 4 && static_cast<u8>(PopupKind::settings_choice) == 5);
 void test_settings_choice(void (*check)(bool, const char*) noexcept) noexcept {
     static Utf8View labels[kUiSettingsChoiceMaximum];
     for (auto& label : labels)

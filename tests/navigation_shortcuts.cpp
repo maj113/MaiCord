@@ -2,6 +2,7 @@
 #include "maicord/ui/guild_rail_scene.hpp"
 #include "maicord/ui/shell_navigation_scene.hpp"
 #include "maicord/ui/list_navigation.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 

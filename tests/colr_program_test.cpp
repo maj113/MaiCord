@@ -3,6 +3,7 @@
 #include "maicord/core/utf.hpp"
 #include "colr_program_equal.hpp"
 #include "../src/render/colr_segment_bounds.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -23,7 +24,7 @@ bool packed_bounds_cases() noexcept {
             const u32 bits=trial<256?edge[(trial+i)%14]:random;copy_bytes(values+i,&bits,4);}
         if(!check(values,count))return false;
     }
-    SYSTEM_INFO info{};GetSystemInfo(&info);
+    Win32SystemInfo info{};GetSystemInfo(info.native());
     auto* allocation=static_cast<u8*>(VirtualAlloc(nullptr,info.dwPageSize*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
     if(!allocation)return false;
     struct Release {u8* p;~Release() noexcept {VirtualFree(p,0,MEM_RELEASE);}} release{allocation};

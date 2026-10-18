@@ -2,6 +2,7 @@
 #include "maicord/media/opus_encoder.hpp"
 #include "maicord/media/opus_decoder.hpp"
 #include "fixtures/opus_voice_signal.hpp"
+#include <Windows.h>
 #include <opus.h>
 
 namespace maicord {

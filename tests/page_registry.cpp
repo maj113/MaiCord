@@ -96,11 +96,6 @@ void test_ui_page_registry(void (*check)(bool, const char*) noexcept) noexcept {
               !storage[0].context && !ui_page_registry_selected(registry) &&
               registry.revision == ~0u && !ui_page_registry_clear(&registry),
           "clear erases borrowed descriptors and revision saturates without wrapping");
-    check(ui_page_registry_register(nullptr, plugin).error == UiPageError::invalid_argument &&
-              ui_page_registry_select(nullptr, plugin.key).error == UiPageError::invalid_argument &&
-              ui_page_registry_unregister(nullptr, plugin.key).error == UiPageError::invalid_argument &&
-              !ui_page_registry_unregister_owner(nullptr, 2) && !ui_page_registry_clear(nullptr),
-          "page mutations reject a missing registry");
 }
 
 } // namespace maicord

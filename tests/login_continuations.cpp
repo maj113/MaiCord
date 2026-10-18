@@ -1,5 +1,4 @@
 #include "maicord/app/login_continuations.hpp"
-#include "maicord/app/account_host.hpp"
 #include "maicord/protocol/login_continuations.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -82,7 +81,7 @@ void test_login_continuations(void (*check)(bool, const char*) noexcept) noexcep
     check(login_verification_consume_link({long_link, sizeof(long_link)}, &token).error ==
               LoginVerificationLinkError::token_too_large && cleared(token),
           "verification rejects and clears over-limit tokens");
-    SecureZeroMemory(long_link, sizeof(long_link));
+    secure_clear_bytes(long_link, sizeof(long_link));
     u8 request[128]{};
     const auto written = login_verification_write_request(utf8_literal("a\"b\\c"), {request, sizeof(request)});
     check(written.ok() && same({reinterpret_cast<const char*>(request), written.bytes},
@@ -151,20 +150,7 @@ void test_login_continuations(void (*check)(bool, const char*) noexcept) noexcep
               {scratch, 128}, 8, response_storage, &decoded).ok() && decoded.kind == UserAuthResponseKind::authenticated &&
               decoded.has_user_id && decoded.user_id == 123 && decoded.token_bytes == 23,
           "observed verification token/user_id response reuses bounded auth decoder");
-    SecureZeroMemory(credential, sizeof(credential));
-    check(account_host_login_submit_verification(nullptr, &token).error == AccountLoginError::invalid_input,
-          "verification host validates opaque login owner before ABI forwarding");
-    AccountHost host{};
-    const auto loaded = account_host_load(&host);
-    check(loaded.ok(), "verification module ABI loads at the updated ordinal");
-    if (loaded.ok()) {
-        AccountModuleApi missing = host.api;
-        missing.login_submit_verification = nullptr;
-        check(!account_host_api_valid(missing) && host.api.login_submit_verification &&
-                  host.api.login_submit_verification(nullptr, &token).error == AccountLoginError::invalid_input,
-              "verification ABI entry is mandatory and rejects missing instance without transport");
-        check(account_host_release(&host).ok(), "verification ABI probe releases module");
-    }
+    secure_clear_bytes(credential, sizeof(credential));
     secure_buffer_release(&token);
 }
 } // namespace maicord

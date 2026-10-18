@@ -2,7 +2,7 @@
 #include "maicord/text/detail/bidi_internal.hpp"
 #include "maicord/text/bidi_ltr.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -173,7 +173,7 @@ struct Reader {
 };
 bool corpus(const wchar_t* path) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;
-    LARGE_INTEGER size{};if(!GetFileSizeEx(file,&size) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
+    Win32LargeInteger size{};if(!GetFileSizeEx(file,size.native()) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
     HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return false;}
     const auto* bytes=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));
     bool ok=bytes && bytes_equal(bytes,"MCBIDI1",8);u32 total=0,failures=0,classes=0,characters=0,scalars=0,order_checks=0;

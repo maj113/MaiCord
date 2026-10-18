@@ -1,5 +1,6 @@
 #include "maicord/ui/emoji_presentation.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0,cases=0;
 void print(Utf8View text) noexcept {DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text.data,text.bytes,&done,nullptr);}

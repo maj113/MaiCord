@@ -1,6 +1,8 @@
 #include "maicord/app/https_file_download.hpp"
 #include "maicord/protocol/http_response_stream.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 bool await_local_failure(HttpsFileDownload* download) noexcept {

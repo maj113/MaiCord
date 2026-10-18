@@ -5,6 +5,8 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/trace_record.hpp"
 #include "test_output.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::gif_favorites_runtime_test {
 using namespace app_detail;
@@ -26,12 +28,12 @@ void check(bool pass, const char* message) noexcept {
     test_check(&failures, pass, message);
 }
 bool is_free(const void* pointer) noexcept {
-    MEMORY_BASIC_INFORMATION memory{};
-    return VirtualQuery(pointer, &memory, sizeof(memory)) && memory.State == MEM_FREE;
+    Win32MemoryInformation memory{};
+    return VirtualQuery(pointer, memory.native(), sizeof(memory)) && memory.State == MEM_FREE;
 }
 usize committed(const void* pointer) noexcept {
-    MEMORY_BASIC_INFORMATION memory{};
-    return pointer && VirtualQuery(pointer, &memory, sizeof(memory)) && memory.State == MEM_COMMIT
+    Win32MemoryInformation memory{};
+    return pointer && VirtualQuery(pointer, memory.native(), sizeof(memory)) && memory.State == MEM_COMMIT
                ? memory.RegionSize
                : 0;
 }
@@ -153,7 +155,7 @@ bool complete(const RestClientResponse& result, Utf8View body) noexcept {
         result, {reinterpret_cast<const char*>(buffer.data), body.bytes});
     // Match Main's erase guard: erase first, then release the temporary bank.
     if (body.bytes)
-        SecureZeroMemory(buffer.data, body.bytes);
+        secure_clear_bytes(buffer.data, body.bytes);
     application_gif_favorites_response_drained();
     return accepted;
 }
@@ -175,8 +177,8 @@ RestClientSubmitResult WINAPI submit(void*, AccountGifFavoritesOperation operati
     if (patch.count <= sizeof(captured_patch))
         copy_bytes(captured_patch, patch.data, patch.count);
     if (operation == AccountGifFavoritesOperation::update) {
-        MEMORY_BASIC_INFORMATION allocation{};
-        check(VirtualQuery(patch.data, &allocation, sizeof(allocation)) && allocation.State == MEM_COMMIT,
+        Win32MemoryInformation allocation{};
+        check(VirtualQuery(patch.data, allocation.native(), sizeof(allocation)) && allocation.State == MEM_COMMIT,
               "conditional write holds owned transient storage during synchronous admission");
         transient_base = allocation.AllocationBase;
         transient_bytes = allocation.RegionSize;
@@ -531,7 +533,7 @@ void run() noexcept {
           "verified result swaps immutable bank with callback before borrowed old bank free and defers "
           "take buffer drain");
     watch_bank = nullptr;
-    SecureZeroMemory(held.data, updated.bytes);
+    secure_clear_bytes(held.data, updated.bytes);
     application_gif_favorites_response_drained();
     check(is_free(held.data) && !application_gif_favorites_response_buffer().data,
           "take buffer remains writable for RAII erase then is freed by exact response drain");
@@ -764,9 +766,9 @@ namespace maicord::app_detail {
 void application_media_picker_favorites_changed() noexcept {
     ++gif_favorites_runtime_test::callbacks;
     if (gif_favorites_runtime_test::watch_bank) {
-        MEMORY_BASIC_INFORMATION memory{};
+        Win32MemoryInformation memory{};
         gif_favorites_runtime_test::callback_before_free |=
-            VirtualQuery(gif_favorites_runtime_test::watch_bank, &memory, sizeof(memory)) &&
+            VirtualQuery(gif_favorites_runtime_test::watch_bank, memory.native(), sizeof(memory)) &&
             memory.State == MEM_COMMIT &&
             (!g_app.gif_favorites || g_app.gif_favorites->bank != gif_favorites_runtime_test::watch_bank);
     }

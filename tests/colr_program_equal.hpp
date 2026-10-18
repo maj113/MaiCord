@@ -47,7 +47,7 @@ inline bool mask(const ColrPaintProgram& a,u32 x,const ColrPaintProgram& b,u32 y
     return true;
 }
 inline bool equal(const ColrPaintProgram& a,const ColrPaintProgram& b) noexcept {
-    if(a.nodes!=b.nodes||a.stack!=b.stack||a.peak_stack!=b.peak_stack||a.general_paints!=b.general_paints||
+    if(a.nodes!=b.nodes||a.stack!=b.stack||a.peak_stack!=b.peak_stack||
        a.mask_count!=b.mask_count||a.mask_pixels!=b.mask_pixels||a.paint_types!=b.paint_types||
        a.bounds.has_bounds!=b.bounds.has_bounds||a.bounds.minimum_x!=b.bounds.minimum_x||
        a.bounds.minimum_y!=b.bounds.minimum_y||a.bounds.maximum_x!=b.bounds.maximum_x||a.bounds.maximum_y!=b.bounds.maximum_y)return false;

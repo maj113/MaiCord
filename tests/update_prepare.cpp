@@ -1,5 +1,7 @@
 #include "maicord/app/update_prepare.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 constexpr u8 kPreparedAbcDigest[32]{

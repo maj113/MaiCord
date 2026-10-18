@@ -5,6 +5,7 @@
 #undef maicord_read_state_runtime_entry
 #include "application_scoped_read.hpp"
 #include "maicord/protocol/bulk_message_ack.hpp"
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord::scoped_read_runtime_test {
 using namespace app_detail;
 using namespace read_state_runtime_test;

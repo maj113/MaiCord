@@ -9,6 +9,7 @@
 #include "maicord/ui/text.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/popup_scene.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord { namespace {
 constexpr auto tajikistan = utf8_literal("\xF0\x9F\x87\xB9\xF0\x9F\x87\xAF");
@@ -281,7 +282,7 @@ void escape_geometry_case(void (*check)(bool, const char*) noexcept) noexcept {
 }
 } // namespace
 void test_flag_surfaces(void (*check)(bool, const char*) noexcept) noexcept {
-    static_assert(sizeof(PopupItem) == 64 && sizeof(MessageComposerProjectionSpan) == 40);
+    static_assert(sizeof(MessageComposerProjectionSpan) == 40);
     scanner_cases(check); markdown_cases(check); composer_cases(check); composer_capacity_case(check); popup_identity_case(check);
     geometry_cases(check);
     escape_geometry_case(check);

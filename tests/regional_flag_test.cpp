@@ -3,6 +3,7 @@
 #include "maicord/protocol/cdn_http.hpp"
 #include "maicord/media/asset.hpp"
 #include "maicord/ui/inline_flag_projection.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

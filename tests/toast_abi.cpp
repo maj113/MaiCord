@@ -4,6 +4,7 @@
 // value and the HSTRING reference layout.
 #include "../src/platform/toast_abi.hpp"
 #include "maicord/core/memory.hpp"
+#include <Windows.h>
 #include <activation.h>
 #include <windows.data.xml.dom.h>
 #include <windows.ui.notifications.h>

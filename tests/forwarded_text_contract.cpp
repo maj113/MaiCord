@@ -1,5 +1,6 @@
 #include "maicord/ui/message_text_presentation.hpp"
 #include "maicord/ui/navigation_view.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord { namespace {
 u32 failures;

@@ -10,6 +10,8 @@
 #include "maicord/app/message_draft_persistence.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/button_keyboard.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace {

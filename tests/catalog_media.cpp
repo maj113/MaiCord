@@ -5,6 +5,8 @@
 #include "maicord/protocol/base64.hpp"
 #include "maicord/ui/message_rich_layout.hpp"
 #include "media_fixture.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -89,7 +91,7 @@ void catalog_worker_case(Check check, u32 encoded_bytes) noexcept {
         const auto admitted =
             account_media_worker_request_catalog_preview(&worker, request, 100 + index, 100);
         // The catalog may replace its source bank immediately after admission.
-        SecureZeroMemory(borrowed, sizeof(borrowed));
+        secure_clear_bytes(borrowed, sizeof(borrowed));
         queued = queued && stored.stored() && admitted.state == AccountMediaRequestState::queued;
         shared = shared && worker.lanes[index].media.pipeline.cache == &worker.lanes[0].media.cache &&
                  worker.lanes[index].media.owns_cache == (index == 0);

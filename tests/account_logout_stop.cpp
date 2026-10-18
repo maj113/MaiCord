@@ -1,4 +1,6 @@
 #include "maicord/app/account_logout_stop.hpp"
+#include "maicord/core/interlocked.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -100,7 +102,7 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
     check(entered && account_logout_stop_owned(held->owner) && completion &&
         WaitForSingleObject(completion, 0) == WAIT_TIMEOUT &&
         WaitForSingleObject(held->allowed, 0) == WAIT_TIMEOUT &&
-        held->worker_id != GetCurrentThreadId() && ReadAcquire(&held->calls) == 1 &&
+        held->worker_id != GetCurrentThreadId() && read_acquire(&held->calls) == 1 &&
         held->received_timeout == 250 && held->received_monotonic == 1234 && held->received_unix == 5678,
         "logout stop: actual background thread alone receives exact immutable stop arguments without a UI wait");
     const auto duplicate = account_logout_stop_start(&held->owner, &held->host, 500, 9999, 9999, held_stop);
@@ -113,7 +115,7 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
         !account_logout_stop_join_for_shutdown(&held->owner, 1, &result) &&
         !account_logout_stop_join_for_shutdown(&held->owner, INFINITE, &result) &&
         same_live(held->owner, completion, &held->host) && result.native_error == 91 &&
-        result.error == AccountHostError::module_release && ReadAcquire(&held->calls) == 1,
+        result.error == AccountHostError::module_release && read_acquire(&held->calls) == 1,
         "logout stop: duplicate, 64 pending polls and cancelled bounded joins retain all context and unpublished result");
     SetEvent(held->allowed);
     const bool terminal = WaitForSingleObject(completion, 3'000) == WAIT_OBJECT_0;
@@ -137,7 +139,7 @@ void test_account_logout_stop(void (*check)(bool, const char*) noexcept) noexcep
     held->fail = false;
     const bool retry = account_logout_stop_start(&held->owner, &held->host, 250, 1234, 5678, held_stop).ok();
     check(retry && WaitForSingleObject(held->entered, 3'000) == WAIT_OBJECT_0 &&
-        ReadAcquire(&held->calls) == 2 && !account_logout_stop_join_for_shutdown(&held->owner, 0, &result),
+        read_acquire(&held->calls) == 2 && !account_logout_stop_join_for_shutdown(&held->owner, 0, &result),
         "logout stop: explicit retry uses same retained host and bounded shutdown cannot abandon it");
     if (!retry) { cleanup(held, check); return; }
     SetEvent(held->allowed);

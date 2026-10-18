@@ -4,6 +4,8 @@
 #include "maicord/ui/shortcuts_scene.hpp"
 #include "maicord/core/log.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 // Fixture projections copied from src/app/application_shortcuts.cpp (overlay)

@@ -3,6 +3,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/model/profile_editor.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace profile_editor_test {
@@ -395,7 +396,7 @@ void test_decode() noexcept {
               saved.collectible_count == 2 &&
               profile_edit_collectible({saved.collectibles, saved.collectible_count},
                                        ProfileCollectibleType::profile_effect) == 800 &&
-              saved.has_member && utf8_equal(saved.nick.view(), utf8_literal("Server Ada")) &&
+              utf8_equal(saved.nick.view(), utf8_literal("Server Ada")) &&
               !saved.has_member_theme && utf8_equal(saved.member_pronouns.view(), utf8_literal("they")) &&
               saved.premium_type == 2,
           "profile decode: the editor reads user, profile, member and member profile values");

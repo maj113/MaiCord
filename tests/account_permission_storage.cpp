@@ -1,6 +1,7 @@
 #include "account_ui_runtime.hpp"
 #include "account_permission_storage.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::account_permission_storage_test {
 using namespace app_detail;
@@ -12,8 +13,8 @@ void measurement(const char* name, usize value) noexcept {
     test_write_metric(name, value);
 }
 bool vm(const void* address, DWORD expected) noexcept {
-    MEMORY_BASIC_INFORMATION info{};
-    return address && VirtualQuery(address, &info, sizeof(info)) == sizeof(info) && info.State == expected;
+    Win32MemoryInformation info{};
+    return address && VirtualQuery(address, info.native(), sizeof(info)) == sizeof(info) && info.State == expected;
 }
 usize pages(usize bytes, usize page) noexcept { return (bytes + page - 1) & ~(page - 1); }
 bool prefix(const StableStorage& storage, u32 capacity, usize page) noexcept {
@@ -51,7 +52,7 @@ bool live_unchanged(const AccountUiRuntime& owner, const ChatStateStore& before,
         current_overwrite.type == overwrite.type;
 }
 void run() noexcept {
-    SYSTEM_INFO system{}; GetSystemInfo(&system);
+    Win32SystemInfo system{}; GetSystemInfo(system.native());
     const usize page = system.dwPageSize;
     check(page && !(page & (page - 1)), "permission owner OS page alignment");
     if (!page || (page & (page - 1))) return;
@@ -59,8 +60,8 @@ void run() noexcept {
         MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(owner != nullptr, "permission production owner allocation");
     if (!owner) return;
-    MEMORY_BASIC_INFORMATION owner_vm{};
-    check(VirtualQuery(owner, &owner_vm, sizeof(owner_vm)) == sizeof(owner_vm) &&
+    Win32MemoryInformation owner_vm{};
+    check(VirtualQuery(owner, owner_vm.native(), sizeof(owner_vm)) == sizeof(owner_vm) &&
         owner_vm.State == MEM_COMMIT && owner_vm.AllocationBase == owner &&
         owner_vm.RegionSize == pages(sizeof(AccountUiRuntime), page), "permission actual owner commitment follows compiled size");
     measurement("MEASURE account_ui_owner_bytes=", sizeof(AccountUiRuntime));

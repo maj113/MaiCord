@@ -1,4 +1,6 @@
 #include "file_drop_fixture.hpp"
+
+#include <Windows.h>
 namespace maicord {
 void test_file_drop(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace file_drop_fixture;

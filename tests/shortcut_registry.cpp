@@ -3,6 +3,8 @@
 #include "maicord/ui/shortcuts_scene.hpp"
 #include "maicord/core/memory.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;

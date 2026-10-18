@@ -2,6 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
+#include <Windows.h>
 #include <WS2tcpip.h>
 #include "test_output.hpp"
 

@@ -1,6 +1,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/media/yuv_convert.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 

@@ -114,7 +114,8 @@ void test_message_forward_scene(void (*check)(bool, const char*) noexcept) noexc
     bool visual = paint_stream_initialize(&paint) && ui_text_command_stream_initialize(&stream, {commands, 128});
     const Theme themes[]{kDefaultTheme, kLightTheme, kAmoledTheme};
     const UiRect viewports[]{viewport, {0,0,320,480}, {0,0,240,300}, {0,0,1920,1080}};
-    for (u32 t = 0; t < 3; ++t) for (auto v : viewports) {
+    for (u32 variant = 0; variant < 4; ++variant) {
+        const u32 t = variant % 3; const auto v = viewports[variant];
         visual &= ui_message_forward_scene_update(&s, &source, &c, v);
         paint_stream_reset(&paint, v.right, v.bottom); ui_text_command_stream_reset(&stream);
         visual &= ui_message_forward_scene_paint(s, themes[t], &paint, nullptr, nullptr, t ? 144 : 96) &&

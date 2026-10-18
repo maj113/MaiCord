@@ -1,5 +1,6 @@
 #include "maicord/app/plugin_catalog.hpp"
 #include "maicord/core/byte_range.hpp"
+#include <Windows.h>
 #include <winioctl.h>
 
 namespace maicord {

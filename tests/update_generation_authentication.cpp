@@ -1,6 +1,5 @@
 #include "maicord/app/update_generation_authentication.hpp"
 #include "update_signed_fixture_helpers.hpp"
-#include <bcrypt.h>
 
 namespace maicord {
 using namespace signed_update_fixture;

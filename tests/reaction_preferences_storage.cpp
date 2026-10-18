@@ -1,7 +1,8 @@
 #include "maicord/model/reaction_preferences.hpp"
 #include "maicord/core/memory.hpp"
-#include "account_ui_runtime.hpp"
 #include "test_output.hpp"
+
+#include <Windows.h>
 
 namespace maicord::reaction_preference_storage_test {
 u32 failures;
@@ -95,7 +96,6 @@ void commit_failure() noexcept {
 extern "C" __declspec(noreturn) void WINAPI maicord_reaction_preference_storage_entry() noexcept {
     using namespace maicord::reaction_preference_storage_test;
     measurement("MEASURE reaction_preference_owner_bytes=", sizeof(maicord::ReactionPreferenceStore));
-    measurement("MEASURE account_ui_owner_bytes=", sizeof(maicord::app_detail::AccountUiRuntime));
     DWORD before = 0, after = 0;
     const bool counted = GetProcessHandleCount(GetCurrentProcess(), &before) != FALSE;
     ownership(); commit_failure();

@@ -7,18 +7,20 @@
 namespace maicord {
 void test_gateway_self_status(void (*check)(bool, const char*) noexcept) noexcept {
     u8 wire[512]{};
-    auto result = gateway_write_presence_update({0, GatewayUserStatus::invisible, false, false}, {wire, sizeof(wire)});
+    auto result = gateway_write_presence_update({0, GatewayUserStatus::invisible, false, false}, nullptr, nullptr,
+                                                {wire, sizeof(wire)});
     check(result.ok() && utf8_equal({reinterpret_cast<const char*>(wire), result.bytes},
         utf8_literal("{\"op\":3,\"d\":{\"since\":null,\"activities\":[],\"status\":\"invisible\",\"afk\":false}}")),
         "self status: opcode3 Invisible is explicit desired status rather than Offline presence");
     wire[0] = 77;
-    check(gateway_write_presence_update({0, static_cast<GatewayUserStatus>(4), false, false}, {wire, sizeof(wire)}).error ==
-              GatewayCommandError::invalid_input && wire[0] == 77 &&
-          gateway_write_presence_update({42, GatewayUserStatus::online, true, false}, {wire, sizeof(wire)}).error ==
-              GatewayCommandError::invalid_input,
+    check(gateway_write_presence_update({0, static_cast<GatewayUserStatus>(4), false, false}, nullptr, nullptr,
+                                        {wire, sizeof(wire)}).error == GatewayCommandError::invalid_input &&
+              wire[0] == 77 &&
+          gateway_write_presence_update({42, GatewayUserStatus::online, true, false}, nullptr, nullptr,
+                                        {wire, sizeof(wire)}).error == GatewayCommandError::invalid_input,
           "self status: unsupported status and nonIdle since are rejected before output");
-    check(gateway_write_presence_update({~u64{0}, GatewayUserStatus::idle, true, true}, {wire, 1}).error ==
-              GatewayCommandError::output_too_small && wire[0] == 77,
+    check(gateway_write_presence_update({~u64{0}, GatewayUserStatus::idle, true, true}, nullptr, nullptr, {wire, 1})
+                  .error == GatewayCommandError::output_too_small && wire[0] == 77,
           "self status: presence writer checks complete frame capacity first");
 
     constexpr u8 original_group[] = {

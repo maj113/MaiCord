@@ -2,6 +2,7 @@
 // (included by rest_client_probe.hpp) for its private allocation/layout and
 // exercises its real erasure helpers. Part of rest_client_fixtures.cpp.
 #include "rest_client_probe.hpp"
+#include <Windows.h>
 #include <psapi.h>
 #include <WS2tcpip.h>
 

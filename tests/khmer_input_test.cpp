@@ -3,7 +3,7 @@
 #include "maicord/text/khmer_input.hpp"
 #include "../src/text/khmer_character.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -65,7 +65,7 @@ bool units() noexcept {
     const u32 opaque[]{0x17d2,0x17be,0x1780,0x17b7,0x17c4};
     CHECK(sfnt_khmer_expand_cluster({opaque,5},{actual,16},&result)==SfntStatus::ok&&result.scalar_count==5);
     for(u32 i=0;i<5;++i)CHECK(actual[i].scalar==opaque[i]&&actual[i].source==i);
-    SYSTEM_INFO system{};GetSystemInfo(&system);const u32 page=system.dwPageSize;
+    Win32SystemInfo system{};GetSystemInfo(system.native());const u32 page=system.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
     const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
     bool good=false;

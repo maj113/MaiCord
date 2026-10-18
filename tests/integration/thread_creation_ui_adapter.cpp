@@ -3,6 +3,8 @@
 #include "application_account_presentation.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/message_context_controller.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 namespace maicord {
 namespace {
 using namespace app_detail;

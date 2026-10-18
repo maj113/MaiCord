@@ -17,6 +17,7 @@
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/popup_scene.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::navigation_wave_test {
 u32 failures = 0;

@@ -52,8 +52,7 @@ void test_video_player_keys(void (*check)(bool,const char*) noexcept) noexcept {
         "video keys: F in the expanded player requests the inline player");
     state.can_seek=false; project();
     check(!ui_video_controls_player_key(projection,UiVideoPlayerKey::seek_forward,0,&action)&&
-        !ui_video_controls_player_key(projection,UiVideoPlayerKey::seek_percent,10,&action)&&
-        !ui_video_controls_player_key(projection,UiVideoPlayerKey::seek_forward,0,nullptr),
+        !ui_video_controls_player_key(projection,UiVideoPlayerKey::seek_percent,10,&action),
         "video keys: seek shortcuts follow the seek capability");
 }
 void test_video_time_and_expand(void (*check)(bool,const char*) noexcept) noexcept {

@@ -5,6 +5,8 @@
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::content_navigation_test {
 using namespace app_detail;
 u32 failures, history_calls, selections, stops;

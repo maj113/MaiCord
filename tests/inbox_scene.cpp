@@ -75,11 +75,9 @@ void test_inbox_scene(void (*check)(bool, const char*) noexcept) noexcept {
               ui_inbox_scene_avatar(scene, 1, &avatar_rect, &avatar_clip),
           "inbox scene: mention cards resolve their author's avatar identity; default avatars keep the placeholder");
     check(ui_inbox_scene_scroll(&scene, 10000) && scene.scroll_dips == ui_inbox_scene_scroll_maximum(scene) &&
-              !inbox_avatar_media_current(scene, avatar.key) && ui_inbox_scene_scroll(&scene, 0),
+              scene.scroll_dips > 0 && !inbox_avatar_media_current(scene, avatar.key) &&
+              ui_inbox_scene_scroll(&scene, 0) && scene.first == 0,
           "inbox scene: a scrolled-out card's avatar is no longer current media");
-    check(ui_inbox_scene_scroll(&scene, 10000) && scene.scroll_dips == ui_inbox_scene_scroll_maximum(scene) &&
-              scene.scroll_dips > 0 && ui_inbox_scene_scroll(&scene, 0) && scene.first == 0,
-          "inbox scene: scrolling clamps to the measured list");
     check(ui_inbox_scene_focus(&scene, {UiInboxAction::jump, 511, 70 + 11 % 3}) && scene.scroll_dips > 0 &&
               ui_inbox_scene_focused_target(scene).id == 511,
           "inbox scene: focusing an offscreen mention reveals it");

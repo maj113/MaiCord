@@ -5,7 +5,6 @@
 #include "rest_client_probe.hpp"
 #include "maicord/app/account_host.hpp"
 #include "maicord/app/account_bulk_message_ack.hpp"
-#include <stddef.h>
 #include "test_output.hpp"
 
 namespace maicord {
@@ -165,19 +164,10 @@ void maximum() noexcept {
     publish_request_error(&p.client, p.runtime, RestClientError::cancelled, 0);
 }
 void abi() noexcept {
-    static_assert(kAccountModuleApiVersion == 133 && kAccountModuleApiOrdinal == 133);
-    static_assert(sizeof(AccountModuleApi) == 1176 && sizeof(AccountHost) == 1424);
-    static_assert(offsetof(AccountModuleApi, bulk_message_ack) == 624);
-    static_assert(offsetof(AccountModuleApi, poll) == 632);
-    static_assert(sizeof(BulkMessageAckEntry) == 24);
     AccountHost host{};
-    check(account_host_load(&host).ok(),
-          "bulk transport: ABI94 dormant module loads without account startup");
+    check(account_host_load(&host).ok(), "bulk transport: dormant module loads without account startup");
     if (!host.module)
         return;
-    auto missing = host.api;
-    missing.bulk_message_ack = nullptr;
-    check(!account_host_api_valid(missing), "bulk transport: typed callback is mandatory ABI tail");
     const BulkMessageAckEntry entry{1, 2, 0};
     check(host.api.bulk_message_ack(nullptr, &entry, 1, 1).error ==
                   RestClientSubmitError::invalid_input &&
@@ -185,12 +175,6 @@ void abi() noexcept {
                   RestClientSubmitError::invalid_input &&
               !host.instance && !host.login_instance,
           "bulk transport: dormant callback cannot allocate account or acquire credentials");
-    const auto get_api =
-        reinterpret_cast<AccountModuleGetApiFunction>(GetProcAddress(host.module, MAKEINTRESOURCEA(kAccountModuleApiOrdinal)));
-    AccountModuleApi older{};
-    older.bytes = 0x12345678;
-    check(get_api && !get_api(90, &older) && older.bytes == 0x12345678,
-          "bulk transport: previous ABI rejects without touching caller output");
     account_host_release(&host);
 }
 u32 run() noexcept {

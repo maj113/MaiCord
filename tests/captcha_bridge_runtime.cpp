@@ -1,5 +1,6 @@
 // Actual loopback bridge worker driven by a synthetic native client. No
 // browser is launched and nothing leaves 127.0.0.1.
+#include <Windows.h>
 #include <WinSock2.h>
 #include "maicord/app/captcha_bridge.hpp"
 #include "maicord/core/byte_range.hpp"

@@ -1,6 +1,6 @@
 #include "maicord/text/font_match.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "generated/font_matching_fixture.inc"
 u32 checks=0,cases=0,groups=0;
@@ -26,7 +26,7 @@ bool guards() noexcept {
     CHECK(native_font_match({&normal,1},normal,&result,0)==SfntStatus::resource_limit&&!result.properties.weight);
     const NativeFontProperties invalid[]{{0,5,0},{1001,5,0},{400,0,0},{400,10,0},{400,5,3}};
     for(auto bad:invalid){CHECK(native_font_match({&normal,1},bad,&result)==SfntStatus::invalid_input);const NativeFontProperties list[]{normal,bad};CHECK(native_font_match({list,2},normal,&result)==SfntStatus::invalid_input&&!result.properties.weight);}
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
     struct Cleanup{u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};DWORD old=0;
     CHECK(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)&&VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old));

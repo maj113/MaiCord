@@ -1,5 +1,6 @@
 #include "maicord/protocol/http_response_stream.hpp"
 #include "maicord/core/memory.hpp"
+#include <Windows.h>
 #include <initializer_list>
 
 namespace maicord { namespace {

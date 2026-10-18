@@ -4,6 +4,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 // Soundboard: Gateway effect and sound decoding, capture-the-submission
 // request bodies, send gating, upload checks with generated MP3/Ogg files,

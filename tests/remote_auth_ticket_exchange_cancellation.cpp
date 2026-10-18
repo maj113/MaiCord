@@ -3,6 +3,7 @@
 #include "maicord/app/remote_auth_ticket_exchange.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/base64.hpp"
+#include <Windows.h>
 #include <bcrypt.h>
 // Include the actual client owner so the quarantine regression can construct
 // an already-joined outer thread without opening any network connection.

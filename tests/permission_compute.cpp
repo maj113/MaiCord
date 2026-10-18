@@ -4,6 +4,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild_member_store.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace permission_compute_test {

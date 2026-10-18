@@ -1,5 +1,7 @@
 #include "maicord/app/account_media_worker.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 // Original minimal Ogg/Opus container: 312 pre-skip and 100 end trim leave

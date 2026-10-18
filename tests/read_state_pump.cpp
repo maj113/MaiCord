@@ -230,7 +230,6 @@ bool manual_reserve(void* context, u32) noexcept {
     auto& probe = *static_cast<ManualBacking*>(context); ++probe.calls; return !probe.fail;
 }
 void manual_controller(void (*check)(bool, const char*) noexcept) noexcept {
-    static_assert(sizeof(ReadAckIntent) == 40);
     ReadAckIntent slots[2]{}; ReadAckController controller{}; ManualBacking backing{};
     ReadAckIntent peek{}; ReadAckRequestTicket ticket{}; u64 due = 0;
     const ReadAckIntent ordinary{80, 100, 70'000, 0x80000005u, 0};

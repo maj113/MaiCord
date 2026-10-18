@@ -1,6 +1,6 @@
 #include "maicord/text/shape_run.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 void print(const char* text) noexcept {u32 size=0;while(text[size])++size;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,size,&written,nullptr);}
 bool failed(u32 line) noexcept {char digits[16];u32 count=0;do{digits[count++]=static_cast<char>('0'+line%10);line/=10;}while(line);print("FAIL shape stages line ");while(count){char next[]{digits[--count],0};print(next);}print("\n");return false;}

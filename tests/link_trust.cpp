@@ -1,5 +1,6 @@
 #include "maicord/app/link_trust.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

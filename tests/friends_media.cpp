@@ -116,7 +116,7 @@ void test_friends_media(void (*check)(bool, const char*) noexcept) noexcept {
         "friends media: current viewport scroll rejects late completion from a formerly visible friend");
     const auto bank = scene.storage.arena.base;
     check(ui_friends_scene_update(&scene, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, {0, 0, 800, 8192}) &&
-        ui_friends_scene_visible_count(scene) <= kUiFriendsMaximumVisibleRows && sizeof(FriendsAvatarMedia) <= 80 &&
+        ui_friends_scene_visible_count(scene) <= kUiFriendsMaximumVisibleRows &&
         scene.capacity < 800 && scene.storage.arena.base && bank,
         "friends media: maximum native viewport keeps retained state bounded independently of 16384 logical rows");
     scene.active = false;probe.requests = 0;

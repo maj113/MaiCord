@@ -1,5 +1,5 @@
 #include "maicord/text/glyph_buffer.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
 struct Record {SfntGsubGlyph glyph;u32 source,color,flags;u64 provenance;};
@@ -73,7 +73,7 @@ bool streaming() noexcept {
     for(u32 i=0;i<n;++i)if(sfnt_glyph_at(view,i*2).glyph!=i || sfnt_glyph_at(view,i*2+1).glyph!=i+8192 || sfnt_glyph_at(view,i*2+1).glyph_class!=SfntGlyphClass::mark)return false;return true;
 }
 bool guards() noexcept {
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;DWORD old=0;if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;DWORD old=0;if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
     bool ok=true;Record replacement=make_record(17);
     for(u32 capacity=1;capacity<=32 && ok;++capacity){auto* b=memory+page-capacity*sizeof(Record);SfntGlyphBuffer buffer{};for(u32 i=0;i<capacity;++i)copy_bytes(b+i*sizeof(Record),&replacement,sizeof(Record));
         ok=sfnt_glyph_buffer_open({b,capacity*sizeof(Record)},sizeof(Record),capacity,&buffer)==SfntStatus::ok;

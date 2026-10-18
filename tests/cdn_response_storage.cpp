@@ -1,6 +1,8 @@
 // Exercise the shipping private response owner without a network or test-only API.
 #include "../src/app/cdn_client.cpp"
 
+#include <Windows.h>
+
 namespace maicord {
 void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexcept {
     constexpr char audio_head[] = "HTTP/1.1 200 OK\r\nContent-Length: 120\r\nContent-Type: audio/ogg\r\n\r\n";
@@ -45,8 +47,10 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
                               CdnHttpError::body_too_large;
     check(image_caps, "cdn_video_larger_reservation_does_not_expand_ordinary_image_header_admission");
     CdnClient client{};
-    auto* runtime = static_cast<CdnClientRuntime*>(VirtualAlloc(
-        nullptr, allocation_bytes(kMediaMaximumEncodedVideoBytes), MEM_RESERVE, PAGE_READWRITE));
+    const u32 reserved = static_cast<u32>(
+        (sizeof(CdnClientRuntime) + fixed_storage_bytes() + kMediaMaximumEncodedVideoBytes + 4095u) & ~4095ull);
+    auto* runtime =
+        static_cast<CdnClientRuntime*>(VirtualAlloc(nullptr, reserved, MEM_RESERVE, PAGE_READWRITE));
     if (!runtime) {
         check(false, "cdn_response_storage_reserve");
         return;
@@ -57,7 +61,7 @@ void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexce
         check(false, "cdn_response_storage_initial_commit");
         return;
     }
-    runtime->allocation_bytes = allocation_bytes(kMediaMaximumEncodedVideoBytes);
+    runtime->allocation_bytes = reserved;
     runtime->storage_committed_bytes = initial;
     runtime->response_capacity = kMediaMaximumEncodedVideoBytes;
     assign_storage(runtime);

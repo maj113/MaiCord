@@ -21,6 +21,8 @@
 #include "maicord/ui/presence.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::quick_switcher_runtime_test {
 using namespace app_detail;
 u32 failures, underlying_input, suspends, synchronizations, private_requests, channel_routes, scoped_shortcuts;

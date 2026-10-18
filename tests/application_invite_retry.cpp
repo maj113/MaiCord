@@ -1,4 +1,5 @@
 #include "../src/app/application_guild_invite.cpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::app_detail {
 // The owner fixture exercises no browser, modal or navigation admission.

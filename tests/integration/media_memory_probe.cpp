@@ -8,6 +8,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/platform/h264_gpu_stream_decoder.hpp"
 #include "../h264_stream_fixture.hpp"
+#include <Windows.h>
 #include <dxgi1_4.h>
 #include <d3d11_1.h>
 

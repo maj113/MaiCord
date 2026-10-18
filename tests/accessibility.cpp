@@ -15,6 +15,7 @@
 #include "maicord/ui/widget_builder.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
 #include <ole2.h>
 #include <UIAutomation.h>
 

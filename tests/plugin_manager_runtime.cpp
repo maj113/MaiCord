@@ -43,7 +43,7 @@ void capture_log(LogLevel, const char*, const char* line) noexcept {
     if (InterlockedCompareExchange(&g_probe_log_armed, 0, 0)) {
         PluginBrowserWorkerView view{};
         if (plugin_browser_worker_view(&view, ~u64{0}) && view.phase == PluginBrowserPhase::idle &&
-            view.command == PluginBrowserCommandKind::probe && view.address_error == PluginProviderAddressError::none &&
+            view.address_error == PluginProviderAddressError::none &&
             view.probe.error == PluginProviderProbeError::none && view.probe.signed_provider &&
             InterlockedCompareExchange(&g_probe_log_armed, 0, 1) == 1) {
             // Hold the completed command before its worker function returns.

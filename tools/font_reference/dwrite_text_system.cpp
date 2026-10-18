@@ -10,6 +10,7 @@
 #include "maicord/ui/ansi_text.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
 #include "maicord/ui/regional_flag.hpp"
+#include <Windows.h>
 #include <d2d1.h>
 // Placement new without <new>: its STL CRT record would clash with the /MT
 // probe executables that link this reference next to /MD test libraries.

@@ -1,5 +1,6 @@
 #include "maicord/app/plugin_bundle_install.hpp"
 #include "maicord/core/utf.hpp"
+#include <Windows.h>
 #include <bcrypt.h>
 #include "test_output.hpp"
 
@@ -244,11 +245,6 @@ void test_plugin_bundle_install(void (*check)(bool,const char*) noexcept) noexce
     check(start(f,f.owner,0)&&await(f.owner,Phase::prepared),"bundle install: worker stages off caller with final manifest absent");
     if(native_plugin_bundle_install_status(&f.owner).phase!=Phase::prepared)return;
     const auto resources=native_plugin_bundle_install_resources(&f.owner);
-    measurement("plugin_install_owner_bytes=",resources.owned_bytes);
-    measurement("plugin_install_owner_committed_bytes=",resources.committed_bytes);
-    measurement("plugin_install_copy_scratch_bytes=",resources.copy_scratch_bytes);
-    measurement("plugin_install_prepared_owned_handle_tokens=",resources.attached_handles);
-    measurement("plugin_install_peak_checkpoint_handle_tokens=",resources.peak_checkpoint_handles);
     check(resources.published&&resources.copy_scratch_bytes==8192&&
         resources.owned_bytes<=96*1024&&resources.committed_bytes>=resources.owned_bytes,
         "bundle install: bounded VM metadata and streaming scratch are published");

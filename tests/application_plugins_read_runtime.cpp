@@ -6,6 +6,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/model/relationship_store.hpp"
 #include "maicord/protocol/client_status.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace plugins_read_runtime {

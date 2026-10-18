@@ -108,13 +108,6 @@ void test_forwarded_message_pages(void (*check)(bool, const char*) noexcept) noe
         distinct(page_fixture.pins[0].message, page_fixture.pins[1].message) && pinned.page.text_bytes ==
         page_fixture.pins[0].message.transient_bytes + page_fixture.pins[1].message.transient_bytes,
         "pins preserve full independent forwarded media pools and include all child text in the page arena accounting");
-    auto malformed = scratch; malformed.snapshot.mention_users = {nullptr, 1};
-    check(history(history_body(false), malformed).error == MessageHistoryDecodeError::invalid_input,
-        "history rejects malformed child mention scratch before decoding");
-    check(decode_message_pins_page(pins_body(false), {7, {}, 50}, {page_fixture.page_structurals, 32768},
-        {page_fixture.message_structurals, 16384}, 32, {page_fixture.text, sizeof(page_fixture.text)},
-        {page_fixture.pins, 2}, {}, malformed).error == MessagePinsDecodeError::invalid_input,
-        "pins reject malformed child mention scratch before decoding");
     body = history_body(false);
     const auto legacy = decode_message_history_page(body, {page_fixture.page_structurals, 32768},
         {page_fixture.message_structurals, 16384}, 32, {page_fixture.text, sizeof(page_fixture.text)}, {page_fixture.messages, 2});
@@ -122,7 +115,7 @@ void test_forwarded_message_pages(void (*check)(bool, const char*) noexcept) noe
         "legacy non-rich history continues accepting forwarded messages without snapshot storage");
     const auto legacy_pins = decode_message_pins_page(pins_body(false), {7, {}, 50},
         {page_fixture.page_structurals, 32768}, {page_fixture.message_structurals, 16384}, 32,
-        {page_fixture.text, sizeof(page_fixture.text)}, {page_fixture.pins, 2});
+        {page_fixture.text, sizeof(page_fixture.text)}, {page_fixture.pins, 2}, {}, {});
     check(legacy_pins.ok() && !page_fixture.pins[0].message.snapshot.present,
         "legacy non-rich pins continue accepting forwarded messages without snapshot storage");
     const Utf8View empty_snapshots[] = {

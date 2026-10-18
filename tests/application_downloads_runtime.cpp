@@ -3,6 +3,8 @@
 #include "../src/app/application_downloads.cpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::downloads_runtime_test {
 using namespace app_detail;
 u32 failures, picker_starts, picker_cancels, starts, cancels, suspends;

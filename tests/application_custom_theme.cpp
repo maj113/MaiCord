@@ -4,6 +4,7 @@
 #include "application_account_logout.hpp"
 #include "maicord/app/client_theme_storage.hpp"
 #include "maicord/platform/file_picker.hpp"
+#include "maicord/core/win32_types.hpp"
 
 // This fixture includes the shipping owner under isolated names. The parser,
 // owned document/storage snapshots and page registry are real; picker/IO and

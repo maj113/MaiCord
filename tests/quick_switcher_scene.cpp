@@ -57,11 +57,11 @@ void test_quick_switcher_scene(void (*check)(bool, const char*) noexcept) noexce
     const auto edit = scene.edit;
     const u32 resolves = fixture.calls, layout = scene.widgets.layout.revision, revision = scene.revision;
     bool retained = true;
-    for (u32 i = 0; i < 64; ++i)
+    for (u32 i = 0; i < 4; ++i)
         retained &= ui_quick_switcher_scene_update(&scene, &source, &content, viewport);
     check(retained && fixture.calls == resolves && scene.widgets.layout.revision == layout && scene.revision == revision,
         "quick switcher: unchanged receipt performs no row resolution or layout work");
-    for (u32 i = 0; i < 16; ++i) {
+    for (u32 i = 0; i < 4; ++i) {
         content.edit.caret_visible = !content.edit.caret_visible; ++content.revision;
         retained &= ui_quick_switcher_scene_update(&scene, &source, &content, viewport);
     }

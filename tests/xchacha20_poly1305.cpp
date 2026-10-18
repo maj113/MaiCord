@@ -1,6 +1,7 @@
 #include "maicord/platform/xchacha20_poly1305.hpp"
 #include "maicord/core/memory.hpp"
 
+#include <Windows.h>
 #include <bcrypt.h>
 #include "test_output.hpp"
 

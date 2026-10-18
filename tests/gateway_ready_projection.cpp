@@ -3,7 +3,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/reserved_bytes.hpp"
 #include "maicord/core/stable_storage.hpp"
-#include "maicord/core/trace_record.hpp"
 #include "maicord/model/chat_state.hpp"
 #include "maicord/model/permission_compute.hpp"
 #include "maicord/protocol/gateway_runtime.hpp"
@@ -175,17 +174,7 @@ void nested_record_growth(void (*check)(bool, const char*) noexcept) noexcept {
             stable_storage_data<u32>(index.storage) == base && hash(input) == immutable,
             "READY nested index grows only on failed typed scans; denial and moved backing publish no prefix; "
             "an unreadable guild is left unavailable while READY completes");
-        if (!mode) {
-            TraceRecord memory("gateway_ready_record_high_water");
-            memory.field("reserved_bytes", index.storage.arena.reserved);
-            memory.field("initial_committed_bytes", 4096);
-            memory.field("committed_bytes", index.storage.arena.committed);
-            memory.field("commit_count", index.storage.arena.commit_count);
-            DWORD written = 0;
-            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), memory.text, memory.used, &written, nullptr);
-            WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), "\n", 1, &written, nullptr);
-        }
-        SecureZeroMemory(index.storage.arena.base, index.storage.arena.committed);
+        secure_clear_bytes(index.storage.arena.base, index.storage.arena.committed);
         stable_storage_release(&index.storage);
     }
 }
@@ -675,16 +664,6 @@ void channel_create_projection(void (*check)(bool, const char*) noexcept) noexce
     }
     check(successes && failures && overflows && partial_failures && joined,
         "channel receipt cases cover success, errors, overflow, partial state and self-member hydration");
-    GatewayClientEvent event = seed;
-    ConstSlice<u8> output{&sentinel, 1};
-    const JsonValue data{cases[0], 0, JsonValueKind::object};
-    check(gateway_client_route_channel_create(data, {records, 16384}, 64, {actual_storage, 4096}, 1,
-              nullptr, &output).error == GatewayClientDispatchRouteError::invalid_input &&
-        output.data == &sentinel && output.count == 1 &&
-        gateway_client_route_channel_create(data, {records, 16384}, 64, {actual_storage, 4096}, 1,
-              &event, nullptr).error == GatewayClientDispatchRouteError::invalid_input &&
-        channel_state_equal(event.state, seed.state),
-        "channel receipt rejects null outputs before it changes caller state");
 }
 struct SelfMemberProbe {
     ChatStateStore store;

@@ -1,5 +1,6 @@
 #include "maicord/render/colr_source.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

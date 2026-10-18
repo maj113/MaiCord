@@ -21,6 +21,7 @@
 #include "maicord/render/media_atlas_gpu.hpp"
 #include "webp_fixture.hpp"
 
+#include <Windows.h>
 #include <d3d11_1.h>
 
 namespace maicord {

@@ -1,4 +1,5 @@
 #include "maicord/core/slice.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace {
 void (*after_release)(volatile LONG*) noexcept;

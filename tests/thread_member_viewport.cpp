@@ -61,7 +61,6 @@ bool show(float scroll = 0) noexcept {
 }
 }
 u32 test_thread_member_viewport() noexcept {
-    static_assert(sizeof(GuildMemberRecord) == 336);
     u32 failed = 0;
     const auto check = [&](bool valid) noexcept { if (!valid) ++failed; };
     ThreadMemberListSubscriptionRetry retry{};

@@ -1,6 +1,6 @@
 #include "maicord/text/sfnt.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 bool truetype_outline_tests() noexcept;

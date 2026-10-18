@@ -1,11 +1,12 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
+
+#include <d3d11_1.h>
+
 #include "vp8_reference_reconstruct.hpp"
 #include "vp8_reference_idct.hpp"
 #include "vp8_reference_filter.hpp"
-
-#include <d3d11_1.h>
 
 namespace maicord {
 namespace {

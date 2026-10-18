@@ -3,7 +3,7 @@
 #include "maicord/text/myanmar_input.hpp"
 #include "../src/text/myanmar_character.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -51,7 +51,7 @@ bool preparation() noexcept {
     CHECK(sfnt_myanmar_prepare_input({reinterpret_cast<u32*>(output),16},{output,32},&result)==SfntStatus::invalid_input);
     for(const auto& v:output)CHECK(v.scalar==0xffffffffu&&v.source==0xffffffffu);
     CHECK(sfnt_myanmar_prepare_input({},{},&result,0)==SfntStatus::ok&&!result.scalar_count&&!result.source_units);
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
     const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);bool exact=false;
     if(committed){auto* original=reinterpret_cast<u32*>(memory+page-sizeof(selectors));auto* target=reinterpret_cast<SfntIndicInputScalar*>(memory+page*3-sizeof(selected));
@@ -78,7 +78,7 @@ bool units() noexcept {
     CHECK(sfnt_myanmar_cluster_boundaries({long_input,8},{reinterpret_cast<u8*>(long_input)+4,8})==SfntStatus::invalid_input);
     CHECK(sfnt_myanmar_cluster_boundaries({},{},0)==SfntStatus::ok);
     for(u8 v:output)CHECK(v==255);
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
     const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
     bool exact=false;

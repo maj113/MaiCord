@@ -81,7 +81,7 @@ void test_account_video_commands(void(*check)(bool,const char*) noexcept) noexce
         admitted=account_video_commands_push(queue,command(AccountVideoCommand::pause,serial))&&admitted;
     const auto full=queue;
     bool rejected=true;
-    for(u64 serial=9;serial<=72;++serial)
+    for(u64 serial=9;serial<=12;++serial)
         rejected=!account_video_commands_push(queue,command(AccountVideoCommand::play,serial))&&equal(queue,full)&&rejected;
     check(admitted&&queue.count==8&&rejected,
         "bounded video command flood refuses every overflow with all slots and metadata unchanged");

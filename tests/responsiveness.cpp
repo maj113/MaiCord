@@ -7,6 +7,8 @@
 #include "maicord/model/user_profile.hpp"
 #include "../src/app/gateway_relationship_dispatch.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 

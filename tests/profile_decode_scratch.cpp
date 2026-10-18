@@ -1,4 +1,5 @@
 #include "../src/app/account_ui_runtime.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 void test_profile_decode_scratch(void (*check)(bool, const char*) noexcept) noexcept {

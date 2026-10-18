@@ -1,7 +1,7 @@
 #include "maicord/text/tt_outline.hpp"
 #include "maicord/text/font_geometry.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 namespace bold_oblique_fixture {
 #include "generated/tt_bold_oblique_fixture.inc"
@@ -20,7 +20,7 @@ namespace normal_fixture {
 #include "generated/tt_recovery_fixture.inc"
 }
 static_assert(sizeof(SfntOutlineScratch)==64);
-static_assert(sizeof(TtOutlineInstance)==248,"Preparation recovery must fit the existing instance footprint.");
+static_assert(sizeof(TtOutlineInstance)==240,"Preparation recovery must fit the existing instance footprint.");
 enum class OutlineMode : u8 { normal,bold,bold_oblique,oblique,position };
 bool simulate_oblique=false,simulate_bold=false;
 template<usize Count> bool mode_name(const wchar_t* value,u32 count,const wchar_t (&name)[Count]) noexcept {

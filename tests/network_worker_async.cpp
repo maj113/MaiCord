@@ -1,5 +1,6 @@
 #include "maicord/platform/network_worker.hpp"
 #include "../src/platform/network_worker_startup.hpp"
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {
 namespace {
 struct Context {

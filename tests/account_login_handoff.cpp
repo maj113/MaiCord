@@ -2,6 +2,7 @@
 // coordinator receipts and a persistence boundary that performs no file I/O.
 #include "account_login_handoff.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::login_handoff_test {
 bool prepare_remote(RemoteAuthClient*, HANDLE*) noexcept;

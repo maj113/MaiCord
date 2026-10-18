@@ -2,6 +2,7 @@
 #include "maicord/platform/media_audio.hpp"
 #include "maicord/media/encoded_audio.hpp"
 #include "fixtures/mp3_original_tone.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

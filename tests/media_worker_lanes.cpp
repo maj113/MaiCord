@@ -11,6 +11,8 @@
 #include "png_growth_fixture.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 u32 failures;

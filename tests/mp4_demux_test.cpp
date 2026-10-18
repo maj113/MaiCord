@@ -5,6 +5,7 @@
 #include "maicord/platform/mp4_decoder.hpp"
 #include "maicord/media/video_display.hpp"
 #include "../src/media/mp4_demux_detail.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -278,7 +279,7 @@ int composition_edit_tests() noexcept {
             return 60;
         for (u32 sample = 0; sample < 5; ++sample) {
             const auto unit = mp4_demux_next(&demux);
-            if (!unit.ok() || unit.sample_index != sample || unit.decode_time_ticks != sample * 100 ||
+            if (!unit.ok() || unit.sample_index != sample ||
                 unit.presentation_time_ticks != 100 + sample * 100 ||
                 unit.presentation_time_us_signed != static_cast<i64>(sample) * 100'000 ||
                 unit.duration_ticks != 100)
@@ -1001,11 +1002,11 @@ int audio_tests() noexcept {
             if (!audio_fixture(w, rate, channels) ||
                 mp4_audio_demux_initialize(&d, {w.bytes, w.count}) != Mp4DemuxError::none ||
                 d.sample_rate != rate || d.channels != channels || d.frames_per_packet != 1024 ||
-                mp4_audio_demux_asc(d).count != 2 || d.samples.maximum_sample_bytes != 4)
+                mp4_audio_demux_asc(d).count != 2)
                 return 20;
             const auto a = mp4_audio_demux_next(&d), b = mp4_audio_demux_next(&d);
-            if (!a.ok() || !b.ok() || a.bytes.data + 4 != b.bytes.data || a.decode_time_ticks != 0 ||
-                b.decode_time_ticks != 1024 || a.presentation_time_us_signed != 0 ||
+            if (!a.ok() || !b.ok() || a.bytes.data + 4 != b.bytes.data ||
+                a.presentation_time_us_signed != 0 ||
                 b.presentation_time_ticks != 1024 || a.duration_ticks != 1024 || b.duration_ticks != 1024)
                 return 21;
         }

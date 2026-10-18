@@ -1,4 +1,5 @@
 #include "../src/render/glyph_effect_ordinals.hpp"
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;u64 color_calls=0;
 void print(const char* p) noexcept {u32 n=0;while(p[n])++n;DWORD wrote=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),p,n,&wrote,nullptr);}

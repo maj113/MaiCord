@@ -1,8 +1,7 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 

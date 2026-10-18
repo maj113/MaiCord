@@ -1,6 +1,7 @@
 #include "maicord/app/dave_frame_crypto.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -226,8 +227,8 @@ void aliases(Check check) noexcept {
           "DAVE rejects a retired generation key");
 }
 void guards(Check check) noexcept {
-    SYSTEM_INFO info{};
-    GetSystemInfo(&info);
+    Win32SystemInfo info{};
+    GetSystemInfo(info.native());
     auto* pages = static_cast<u8*>(
         VirtualAlloc(nullptr, info.dwPageSize * 2, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(pages != nullptr, "DAVE receive guard allocation");

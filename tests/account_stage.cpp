@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 // Capture-the-submission: every stage request reaches the transport with the
 // official client's exact target, method, route bucket and JSON body.

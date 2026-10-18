@@ -4,6 +4,7 @@
 #include "maicord/text/font_session.hpp"
 #include "maicord/text/font_run.hpp"
 #include "maicord/text/paragraph_hits.hpp"
+#include <Windows.h>
 #include <psapi.h>
 #include <stddef.h>
 namespace maicord {namespace {

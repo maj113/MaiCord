@@ -1,5 +1,6 @@
 #include "maicord/media/notification_pcm.hpp"
 #include "fixtures/notification_pcm_fixture.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 void test_notification_pcm(void(*check)(bool,const char*)noexcept) noexcept {

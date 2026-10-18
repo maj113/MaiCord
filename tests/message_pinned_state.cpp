@@ -5,6 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include <stddef.h>
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::message_pinned_state_test {
 static_assert(sizeof(MessageRecord) == 64);

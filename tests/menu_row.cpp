@@ -39,7 +39,6 @@ struct MenuFixture {
 } // namespace
 
 void test_menu_row(void (*check)(bool, const char*) noexcept) noexcept {
-    static_assert(sizeof(PopupItem) == 64 && offsetof(PopupItem, regional_flag) == 34);
     {
         PaintStream icons{};
         bool bounded = paint_stream_initialize(&icons);

@@ -4,6 +4,7 @@
 #include "maicord/model/stage_policy.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 
+#include <Windows.h>
 #include <d3d11_1.h>
 
 namespace maicord {

@@ -6,10 +6,6 @@
 #include "maicord/ui/background_surface.hpp"
 
 namespace maicord {
-static_assert(static_cast<u32>(UiAccountMenuAction::status_online) == 0x41430004 &&
-              static_cast<u32>(UiAccountMenuAction::status_invisible) == 0x41430007 &&
-              static_cast<u32>(UiAccountMenuAction::downloads) == 0x41430008 &&
-              static_cast<u32>(UiAccountMenuAction::log_out) == 0x41430009);
 void test_account_menu(void (*check)(bool, const char*) noexcept) noexcept {
     UiAccountMenuModel model{};
     char display[]{'N', 'a', 't', 'i', 'v', 'e'};

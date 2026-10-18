@@ -1,7 +1,7 @@
 #include "maicord/ui/reaction_picker.hpp"
+#include "maicord/ui/emoji_catalog.hpp"
+#include "maicord/model/message_composer.hpp"
 #include "maicord/core/memory.hpp"
-#include "application_state.hpp"
-#include "account_ui_runtime.hpp"
 #include "test_output.hpp"
 
 namespace maicord {
@@ -26,8 +26,6 @@ void test_reaction_sections(void (*check)(bool, const char*) noexcept) noexcept 
     measurement("MEASURE reaction_picker_owner_bytes=", sizeof(ReactionPickerModel));
     measurement("MEASURE reaction_section_descriptor_bytes=", sizeof(ReactionPickerSection));
     measurement("MEASURE reaction_preference_owner_bytes=", sizeof(ReactionPreferenceStore));
-    measurement("MEASURE reaction_application_bytes=", sizeof(app_detail::Application));
-    measurement("MEASURE reaction_account_ui_bytes=", sizeof(app_detail::AccountUiRuntime));
 
     ReactionPreferenceStore preferences{};
     ReactionPickerModel picker{};

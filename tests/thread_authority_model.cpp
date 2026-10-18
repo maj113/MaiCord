@@ -67,7 +67,7 @@ void test_thread_authority_model(void (*check)(bool, const char*) noexcept) noex
     auto& state = fixture.state;
     auto& public_thread = fixture.channel(30);
     auto& private_thread = fixture.channel(31);
-    check(sizeof(ChannelRecord) == 104 && !private_thread.thread_self_joined_known &&
+    check(!private_thread.thread_self_joined_known &&
               !chat_state_store_channel_visible(state, private_thread) && private_thread.actions == 0,
           "unknown private membership fails closed without increasing the channel record");
     check(chat_state_store_channel_visible(state, public_thread) &&

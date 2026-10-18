@@ -1,5 +1,5 @@
 #include "maicord/text/font_fallback_range.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0,classes=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -66,7 +66,7 @@ bool guards() noexcept {
     mock={0,0,0,false};CHECK(native_font_fallback_range({"b\xcc\x81",3},select,coverage,&mock,&result)==SfntStatus::ok&&result.bytes==1&&result.choice.font==1&&mock.probes==1);
     const char invalid[]{'a',static_cast<char>(0xc0),static_cast<char>(0xaf)};mock={};CHECK(native_font_fallback_range({invalid,3},select,coverage,&mock,&result)==SfntStatus::invalid_input&&empty(result));
     const u32 invalid_scalars[]{0xd800,0xdfff,0x110000,0xffffffffu};for(u32 cp:invalid_scalars)CHECK(native_font_fallback_class(cp)==native_fallback_invalid);
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
     struct Cleanup {u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};DWORD old=0;
     char* text=reinterpret_cast<char*>(memory+page-5);copy_bytes(text,"b\xe2\x80\x8d" "a",5);auto* guarded=reinterpret_cast<NativeFallbackRangeResult*>(memory+page*3)-1;
     auto* canary=reinterpret_cast<u32*>(guarded)-1;*canary=0x197ac05d;
@@ -79,7 +79,7 @@ bool guards() noexcept {
 bool fixture(const wchar_t* path) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);const u8* data=nullptr;
     struct Cleanup {HANDLE file;const u8*& data;~Cleanup() noexcept{if(data)UnmapViewOfFile(data);CloseHandle(file);}} cleanup{file,data};
-    LARGE_INTEGER size{};CHECK(GetFileSizeEx(file,&size)&&size.QuadPart==0x110000);HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);CHECK(mapping);
+    Win32LargeInteger size{};CHECK(GetFileSizeEx(file,size.native())&&size.QuadPart==0x110000);HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);CHECK(mapping);
     data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));CloseHandle(mapping);CHECK(data);
     for(;classes<0x110000;++classes)CHECK(native_font_fallback_class(classes)==data[classes]);return true;
 }

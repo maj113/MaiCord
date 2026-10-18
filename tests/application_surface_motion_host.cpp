@@ -5,6 +5,8 @@
 #include "application_background.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::surface_motion_host_test {
 using namespace app_detail;
 u32 failures{};

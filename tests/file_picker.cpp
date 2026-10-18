@@ -1,5 +1,7 @@
 #include "maicord/platform/file_picker.hpp"
 
+#include <Windows.h>
+
 
 namespace maicord {
 namespace {

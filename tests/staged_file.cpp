@@ -1,4 +1,6 @@
 #include "maicord/platform/staged_file.hpp"
+
+#include <Windows.h>
 namespace maicord { namespace {
 bool seed_target(const wchar_t* path, FileSnapshot* snapshot) noexcept {
     const HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY, nullptr);

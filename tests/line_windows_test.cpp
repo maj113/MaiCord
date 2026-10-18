@@ -1,6 +1,6 @@
 #include "maicord/text/detail/line_break_windows.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 cases=0,checks=0;
 void print(Utf8View text) noexcept {DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text.data,text.bytes,&done,nullptr);}
@@ -32,8 +32,8 @@ bool units() noexcept {
 }
 bool corpus(const wchar_t* path) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;
-    struct Close {HANDLE file;u8* bytes=nullptr;~Close() noexcept {if(bytes)VirtualFree(bytes,0,MEM_RELEASE);CloseHandle(file);}} close{file};LARGE_INTEGER length{};
-    if(!GetFileSizeEx(file,&length)||length.QuadPart<12||length.QuadPart>32*1024*1024)return false;const u32 size=static_cast<u32>(length.QuadPart);
+    struct Close {HANDLE file;u8* bytes=nullptr;~Close() noexcept {if(bytes)VirtualFree(bytes,0,MEM_RELEASE);CloseHandle(file);}} close{file};Win32LargeInteger length{};
+    if(!GetFileSizeEx(file,length.native())||length.QuadPart<12||length.QuadPart>32*1024*1024)return false;const u32 size=static_cast<u32>(length.QuadPart);
     close.bytes=static_cast<u8*>(VirtualAlloc(nullptr,size,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!close.bytes)return false;DWORD done=0;
     if(!ReadFile(file,close.bytes,size,&done,nullptr)||done!=size||!bytes_equal(close.bytes,"MCWINLB1",8))return false;
     const u32 count=byte_load_le32(close.bytes+8);if(!count)return false;u32 at=12,text[256];

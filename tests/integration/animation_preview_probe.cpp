@@ -3,6 +3,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/theme.hpp"
 
+#include <Windows.h>
 #include <d3d11_1.h>
 
 namespace maicord {

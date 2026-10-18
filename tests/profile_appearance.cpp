@@ -9,6 +9,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/scroll_host.hpp"
 #include "maicord/model/user_store.hpp"
+
+#include <Windows.h>
 namespace maicord {
 namespace {
 bool same_handle(UiWidgetHandle a, UiWidgetHandle b) noexcept {

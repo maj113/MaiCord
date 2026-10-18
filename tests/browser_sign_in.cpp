@@ -154,7 +154,7 @@ void test_browser_sign_in(void (*check)(bool, const char*) noexcept) noexcept {
         {reinterpret_cast<const char*>(large + token_begin), kBrowserSignInMaximumTokenBytes}, {input, sizeof(input)});
     check(expanded.error == BrowserSignInError::capacity && expanded.bytes > kBrowserSignInMaximumBodyBytes,
         "exchange JSON expansion cannot exceed the8KiB transport contract");
-    SecureZeroMemory(large, sizeof(large));
-    SecureZeroMemory(input, sizeof(input)); SecureZeroMemory(query, sizeof(query)); SecureZeroMemory(output, sizeof(output)); SecureZeroMemory(token, sizeof(token));
+    secure_clear_bytes(large, sizeof(large));
+    secure_clear_bytes(input, sizeof(input)); secure_clear_bytes(query, sizeof(query)); secure_clear_bytes(output, sizeof(output)); secure_clear_bytes(token, sizeof(token));
 }
 } // namespace maicord

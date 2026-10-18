@@ -25,7 +25,6 @@ struct ContentPolicyFixture {
 ContentPolicyFixture policy_fixture{};
 } // namespace
 void test_channel_content_policy(void (*check)(bool, const char*) noexcept) noexcept {
-    static_assert(sizeof(ChannelRecord) == 104 && sizeof(GatewayClientStateMutation) == 168);
     auto& f = policy_fixture;
     check(chat_state_store_initialize(&f.state, {&f.guild, 1}, {f.guild_order, 1}, {f.channels, 8}, {f.channel_order, 8},
         {f.names, sizeof(f.names)}) && chat_state_store_bind_permissions(&f.state, {f.roles, 4}, {f.overwrites, 4}),

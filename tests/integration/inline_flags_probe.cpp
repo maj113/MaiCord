@@ -7,6 +7,7 @@
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/regional_flag.hpp"
 
+#include <Windows.h>
 #include <d3d11_1.h>
 
 namespace maicord {

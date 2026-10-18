@@ -1,5 +1,7 @@
 #include "maicord/core/spsc_mailbox.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 struct Stamp {

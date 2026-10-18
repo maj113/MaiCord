@@ -1,5 +1,6 @@
 #include "maicord/core/base.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 void test_aes_gcm(void (*check)(bool, const char*) noexcept) noexcept;

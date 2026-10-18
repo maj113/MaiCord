@@ -2,6 +2,7 @@
 #include "maicord/protocol/login_continuations.hpp"
 #include "maicord/app/login_continuations.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -101,7 +102,7 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
             {maximum_body.data, maximum_body.capacity}).ok(), "maximum expanded reset request fits its exact measured locked capacity");
         secure_buffer_release(&maximum_body);
     }
-    SecureZeroMemory(maximum_token, sizeof(maximum_token)); SecureZeroMemory(maximum_password, sizeof(maximum_password));
+    secure_clear_bytes(maximum_token, sizeof(maximum_token)); secure_clear_bytes(maximum_password, sizeof(maximum_password));
     u8 head[1024]{};
     const auto initial_head = user_auth_write_request_head(UserAuthOperation::reset_password, 37, {}, {head, sizeof(head)});
     constexpr Utf8View head_prefix = utf8_literal("POST /api/v9/auth/reset HTTP/1.1\r\n");
@@ -207,10 +208,10 @@ void test_password_reset_protocol(void (*check)(bool, const char*) noexcept) noe
         link_token.bytes == kLoginResetMaximumTokenBytes &&
         login_reset_consume_link({long_link, sizeof(long_link)}, &link_token).error == LoginResetLinkError::token_too_large &&
         filled_reset({link_token.data, link_token.capacity}, 0), "reset URI enforces the exact 4096-byte token boundary");
-    SecureZeroMemory(long_link, sizeof(long_link));
+    secure_clear_bytes(long_link, sizeof(long_link));
     secure_buffer_release(&link_token);
-    SecureZeroMemory(token, sizeof(token)); SecureZeroMemory(ticket, sizeof(ticket));
-    SecureZeroMemory(challenge, sizeof(challenge)); SecureZeroMemory(body, sizeof(body));
+    secure_clear_bytes(token, sizeof(token)); secure_clear_bytes(ticket, sizeof(ticket));
+    secure_clear_bytes(challenge, sizeof(challenge)); secure_clear_bytes(body, sizeof(body));
 }
 } // namespace maicord
 

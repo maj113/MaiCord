@@ -2,6 +2,7 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace thread_browser_account_test {
@@ -137,21 +138,15 @@ void transport() noexcept {
 void dormant_abi() noexcept {
     AccountHost host{};
     const auto loaded = account_host_load(&host);
-    check(loaded.ok(), "thread browser account: ABI94 ordinal DLL loads without profile or credential");
+    check(loaded.ok(), "thread browser account: DLL loads without profile or credential");
     if (!loaded.ok())
         return;
     ThreadBrowserRequest request{20, 10, {}, 0, ThreadBrowserMode::archived, {}};
-    check(host.api.thread_browser && host.api.version == 133 && host.api.bytes == 1176 &&
-              sizeof(AccountHost) == 1424 &&
-              host.api.thread_browser(nullptr, &request, 1).error == RestClientSubmitError::invalid_input &&
+    check(host.api.thread_browser(nullptr, &request, 1).error == RestClientSubmitError::invalid_input &&
               host.api.thread_browser(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               !host.instance && !host.login_instance,
           "thread browser account: appended callback rejects absent owner for submit/cancel without "
           "creating workers");
-    auto missing = host.api;
-    missing.thread_browser = nullptr;
-    check(!account_host_api_valid(missing),
-          "thread browser account: host rejects absent mandatory browser callback");
     account_host_release(&host);
 }
 } // namespace thread_browser_account_test

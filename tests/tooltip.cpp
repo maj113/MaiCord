@@ -66,10 +66,9 @@ void test_tooltip(void (*check)(bool, const char*) noexcept) noexcept {
     UiTextCommand command{};
     UiTextCommandStream text{};
     UiTextOutput output{};
-    check(ui_text_command_stream_initialize(&text, {&command, 1}),
-          "tooltip: single native text command initializes");
     output.stream = &text;
-    check(ui_tooltip_text_output(scene, kDefaultTheme, &output) && text.count == 1 &&
+    check(ui_text_command_stream_initialize(&text, {&command, 1}) &&
+              ui_tooltip_text_output(scene, kDefaultTheme, &output) && text.count == 1 &&
               command.owner.handle.slot == root.handle.slot && command.rectangle.left >= viewport.left &&
               command.rectangle.right <= viewport.right,
           "tooltip: text owns viewport root rather than smaller source control clip");

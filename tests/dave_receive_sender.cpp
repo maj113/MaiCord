@@ -1,6 +1,7 @@
 #include "maicord/app/dave_receive_sender.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -190,8 +191,8 @@ void many_epochs(Check check, KdfSha256Workspace& workspace) noexcept {
     dave_receive_sender_release(&sender);
 }
 void guarded_retry(Check check, KdfSha256Workspace& workspace) noexcept {
-    SYSTEM_INFO info{};
-    GetSystemInfo(&info);
+    Win32SystemInfo info{};
+    GetSystemInfo(info.native());
     u8* pages[3]{};
     bool ready = true;
     for (auto& page : pages) {

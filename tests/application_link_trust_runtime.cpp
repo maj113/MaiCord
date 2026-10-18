@@ -3,6 +3,7 @@
 // a checked trust is saved per account so the host opens directly next time.
 #include "application_state.hpp"
 #include "application_text_form_state.hpp"
+#include <Windows.h>
 #include <shellapi.h>
 #include "maicord/core/memory.hpp"
 

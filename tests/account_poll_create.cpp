@@ -2,8 +2,8 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
-#include <stddef.h>
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace poll_create_account_test {
@@ -106,23 +106,15 @@ void transport() noexcept {
           "poll create: exact cancellation only");
 }
 void dormant_abi() noexcept {
-    static_assert(sizeof(AccountModuleApi) == 1176 && sizeof(AccountHost) == 1424);
-    static_assert(offsetof(AccountModuleApi, poll_create) == 752);
     AccountHost host{};
-    check(account_host_load(&host).ok(), "poll create: current ABI DLL loads without credentials");
+    check(account_host_load(&host).ok(), "poll create: current DLL loads without credentials");
     if (!host.module)
         return;
     const auto poll = lunch();
-    check(host.api.version == 133 && host.api.bytes == 1176 && host.api.poll_create &&
-              host.api.poll_create(nullptr, 20, 77, &poll, 1).error ==
-                  RestClientSubmitError::invalid_input &&
-              host.api.poll_create(nullptr, 20, 77, nullptr, 1).error ==
-                  RestClientSubmitError::invalid_input &&
+    check(host.api.poll_create(nullptr, 20, 77, &poll, 1).error == RestClientSubmitError::invalid_input &&
+              host.api.poll_create(nullptr, 20, 77, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               !host.instance && !host.login_instance,
           "poll create: dormant callback creates no account or worker");
-    auto missing = host.api;
-    missing.poll_create = nullptr;
-    check(!account_host_api_valid(missing), "poll create: new callback is mandatory");
     account_host_release(&host);
 }
 } // namespace poll_create_account_test

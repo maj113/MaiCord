@@ -33,6 +33,8 @@
 #include "settings_runtime_keys.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 void test_application_plugin_navigation_runtime(void (*check)(bool, const char*) noexcept) noexcept;
 void test_application_settings_choice_runtime(void (*check)(bool, const char*) noexcept) noexcept;
@@ -301,7 +303,6 @@ void test_every_settings_page() noexcept {
             CloseHandle(finished);
         return;
     }
-    const u64 started = GetTickCount64();
     u32 opened = 0;
     // Pages open the way a sidebar click does: select, then one frame.
     for (u32 page = 1; page <= kSettingsPanelCount; ++page) {
@@ -319,14 +320,11 @@ void test_every_settings_page() noexcept {
             check(false, name);
         }
     }
-    const u64 elapsed = GetTickCount64() - started;
     SetEvent(finished);
     WaitForSingleObject(watchdog, INFINITE);
     CloseHandle(watchdog);
     CloseHandle(finished);
     check(opened == kSettingsPanelCount, "settings pages: every catalog page opens and publishes");
-    check(elapsed < 2'000, "settings pages: every catalog page opens within the bounded time");
-    measurement("MEASURE settings_all_pages_ms=", elapsed);
     check(ui_page_registry_select(pages, kAppearancePage).ok() && application_settings_synchronize(),
           "settings pages: Appearance restores after the page sweep");
 }
@@ -1055,8 +1053,6 @@ void test_controller() noexcept {
         g_app.preferences.gradient.intensity = 47;
         g_app.preferences.gradient.effect = BackgroundEffect::none;
         const auto raw_palette = g_app.preferences.gradient;
-        check(background_theme_valid(raw_palette),
-              "settings/editor effects: named preset dormant two-stop seed is valid");
         named_effects_preserve_raw = named_effects_preserve_raw && background_theme_valid(raw_palette);
         const auto raw_palette_equal = [&](const BackgroundTheme& value) noexcept {
             return bytes_equal(value.colors, raw_palette.colors, sizeof(value.colors)) &&

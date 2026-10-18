@@ -2,6 +2,8 @@
 #include "../src/app/application_pinned_messages.cpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::pins_runtime_test {
 using namespace app_detail;
 struct AccountFixture {

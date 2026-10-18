@@ -2,8 +2,8 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
-#include <stddef.h>
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace notification_settings_account_test {
@@ -80,27 +80,20 @@ void transport() noexcept {
           "notification requests: cancellation is exact");
 }
 void dormant_abi() noexcept {
-    static_assert(offsetof(AccountModuleApi, custom_status_snapshot) == 768 &&
-                  offsetof(AccountModuleApi, custom_status_submit) == 776 &&
-                  offsetof(AccountModuleApi, guild_settings) == 784 && offsetof(AccountModuleApi, mentions) == 792);
     AccountHost host{};
-    check(account_host_load(&host).ok(), "notification settings: current ABI DLL loads without credentials");
+    check(account_host_load(&host).ok(), "notification settings: current DLL loads without credentials");
     if (!host.module)
         return;
     SelfCustomStatus status{};
     const UserGuildSettingsPatch patch{10, 0, 0, 0, user_guild_settings_suppress_roles};
     const MentionsQuery query{0, 0, kMentionsPageLimit, true, true};
-    check(host.api.version == kAccountModuleApiVersion && host.api.bytes == sizeof(AccountModuleApi) &&
-              !host.api.custom_status_snapshot(nullptr, &status) &&
+    check(!host.api.custom_status_snapshot(nullptr, &status) &&
               host.api.custom_status_submit(nullptr, 1, 2, &status, 3).error ==
                   RestClientSubmitError::invalid_input &&
               host.api.guild_settings(nullptr, &patch, 1).error == RestClientSubmitError::invalid_input &&
               host.api.mentions(nullptr, &query, 1).error == RestClientSubmitError::invalid_input &&
               !host.instance && !host.login_instance,
           "notification settings: dormant callbacks create no account or worker");
-    auto missing = host.api;
-    missing.mentions = nullptr;
-    check(!account_host_api_valid(missing), "notification settings: new callbacks are mandatory");
     account_host_release(&host);
 }
 } // namespace notification_settings_account_test

@@ -4,7 +4,6 @@
 // Part of rest_client_fixtures.cpp.
 #include "rest_client_probe.hpp"
 #include "maicord/app/account_host.hpp"
-#include <stddef.h>
 #include "test_output.hpp"
 
 namespace maicord {
@@ -259,17 +258,10 @@ void preemption() noexcept {
 }
 
 void abi() noexcept {
-    static_assert(kAccountModuleApiVersion == 133 && kAccountModuleApiOrdinal == 133);
-    static_assert(sizeof(AccountModuleApi) == 1176 && sizeof(AccountHost) == 1424);
-    static_assert(offsetof(AccountModuleApi, logout) == 616);
-    static_assert(offsetof(AccountLogoutResponse, http_status) == 28);
     AccountHost host{};
-    check(account_host_load(&host).ok(), "logout: ABI94 dormant module loads without account startup");
+    check(account_host_load(&host).ok(), "logout: dormant module loads without account startup");
     if (!host.module)
         return;
-    auto missing = host.api;
-    missing.logout = nullptr;
-    check(!account_host_api_valid(missing), "logout: callback is mandatory at shared ABI validation");
     AccountLogoutResponse response{777};
     constexpr AccountLogoutOperation operations[]{
         AccountLogoutOperation::begin, AccountLogoutOperation::cancel, AccountLogoutOperation::take};
@@ -278,12 +270,6 @@ void abi() noexcept {
                       RestClientSubmitError::invalid_input &&
                   response.request_id == 777,
               "logout: dormant callback cannot allocate owner or overwrite response");
-    const auto get_api = reinterpret_cast<AccountModuleGetApiFunction>(
-        GetProcAddress(host.module, MAKEINTRESOURCEA(kAccountModuleApiOrdinal)));
-    AccountModuleApi previous{};
-    previous.bytes = 0x12345678;
-    check(get_api && !get_api(89, &previous) && previous.bytes == 0x12345678,
-          "logout: previous ABI rejects before touching caller bank");
     account_host_release(&host);
 }
 u32 run() noexcept {

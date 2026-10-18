@@ -2,6 +2,8 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 // Independent v1 wire fixture, encrypted for the test process's Windows user.

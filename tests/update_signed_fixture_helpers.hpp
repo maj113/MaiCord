@@ -3,6 +3,7 @@
 // authorizes production. The public point is the fixture scalar-one signer.
 #include "maicord/app/update_install.hpp"
 #include "test_output.hpp"
+#include <Windows.h>
 #include <bcrypt.h>
 
 namespace maicord::signed_update_fixture {

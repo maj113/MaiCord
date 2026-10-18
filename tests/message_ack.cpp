@@ -169,6 +169,5 @@ void test_message_ack(void (*check)(bool, const char*) noexcept) noexcept {
         unchanged(previous, response), "ack_response_unknown_invalid_utf8_atomic");
     check(!decode_message_ack_response(utf8_literal("{\"token\":\"a\"}"), {structurals, 1}, &response) &&
         unchanged(previous, response), "ack_response_scratch_capacity_atomic");
-    check(!decode_message_ack_response(utf8_literal("{}"), {structurals, 128}, nullptr), "ack_response_null_output");
 }
 } // namespace maicord

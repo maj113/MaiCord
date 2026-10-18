@@ -1,4 +1,5 @@
 #include "maicord/platform/notification_identity.hpp"
+#include <Windows.h>
 #include <NotificationActivationCallback.h>
 #include "../../src/platform/toast_abi.hpp"
 

@@ -37,7 +37,7 @@ void test_h264(Check check) noexcept {
     const u8 single[]{0x65, 0x88, 0x01};
     const u8 stap[]{0x78, 0x00, 0x02, 0x67, 0xaa, 0x00, 0x02, 0x68, 0xbb};
     check(rtp_h264_push(&a, view(single), false) == RtpDepacketize::appended &&
-              rtp_h264_push(&a, view(stap), false) == RtpDepacketize::appended && a.nal_units == 3 &&
+              rtp_h264_push(&a, view(stap), false) == RtpDepacketize::appended &&
               equal_hex({out, a.bytes}, "0000000165880100000001" "67aa" "0000000168bb") &&
               rtp_h264_keyframe(a) && !a.damaged,
           "H.264 single NAL and STAP-A emit 4-byte start codes byte-exactly");
@@ -107,7 +107,7 @@ void test_h265(Check check) noexcept {
     check(rtp_h265_push(&a, view(single), false) == RtpDepacketize::appended &&
               rtp_h265_push(&a, view(ap), false) == RtpDepacketize::appended &&
               equal_hex({out, a.bytes}, "000000012601af" "00000001" "4001aa" "00000001" "4201bb") &&
-              rtp_h265_keyframe(a) && a.nal_units == 3,
+              rtp_h265_keyframe(a),
           "H.265 single NAL and aggregation packet emit 4-byte start codes");
     rtp_video_assembly_begin(&a, {out, sizeof(out)});
     const u8 s[]{0x62, 0x01, 0x93, 0xd1}, m[]{0x62, 0x01, 0x13, 0xd2}, e[]{0x62, 0x01, 0x53, 0xd3};

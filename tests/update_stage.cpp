@@ -1,5 +1,7 @@
 #include "maicord/app/update_stage.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 constexpr u8 kStageAbcDigest[32]{

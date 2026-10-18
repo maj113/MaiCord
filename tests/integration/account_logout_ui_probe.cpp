@@ -2,6 +2,7 @@
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"
 #include "probe_glyph_ink.hpp"
+#include "probe_capture.hpp"
 #include "application_state.hpp"
 #include "application_account_logout.hpp"
 #include "application_account_module.hpp"
@@ -37,6 +38,7 @@
 #include "../../src/render/d3d11_renderer_layout.hpp"
 #include "maicord/render/renderer_presentation.hpp"
 
+#include <Windows.h>
 #include <d3d11_1.h>
 
 namespace maicord::app_detail {
@@ -626,83 +628,14 @@ bool capture(const wchar_t* filename) noexcept {
                                      renderer_capture_presentation_stamp(r, fixture->theme)) ||
         !d3d11_renderer_draw_stream(&r, fixture->theme, true, true, nullptr, 10000))
         return require(false, 231);
-    ID3D11Resource* resource{};
-    ID3D11Texture2D* source{};
-    ID3D11Texture2D* staging{};
-    struct Release {
-        ID3D11Resource*& resource;
-        ID3D11Texture2D*& source;
-        ID3D11Texture2D*& staging;
-        ~Release() noexcept {
-            com_release(resource);
-            com_release(source);
-            com_release(staging);
-        }
-    } release{resource, source, staging};
-    r.graphics.target->GetResource(&resource);
-    if (FAILED(resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source))))
-        return require(false, 232);
-    D3D11_TEXTURE2D_DESC description{};
-    source->GetDesc(&description);
-    if (!r.width || !r.height || r.width > description.Width || r.height > description.Height ||
-        static_cast<u64>(r.width) * r.height * 4 >
-            MAXDWORD - sizeof(BITMAPFILEHEADER) - sizeof(BITMAPINFOHEADER))
-        return require(false, 233);
-    description.Usage = D3D11_USAGE_STAGING;
-    description.BindFlags = description.MiscFlags = 0;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    if (FAILED(r.graphics.device->CreateTexture2D(&description, nullptr, &staging)))
-        return require(false, 234);
-    // Read precisely this current draw, before flip-model Present advances.
-    r.graphics.context->CopyResource(staging, source);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(r.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)))
-        return require(false, 235);
-    struct Unmap {
-        ID3D11DeviceContext* context;
-        ID3D11Texture2D* texture;
-        ~Unmap() noexcept {
-            context->Unmap(texture, 0);
-        }
-    } unmap{r.graphics.context, staging};
+    ProbeTargetReadback readback;
+    if (const u32 failure = probe_target_readback(r, &readback))
+        return require(false, 231 + failure);
+    const auto& mapped = readback.mapped;
     if (!visual(mapped))
         return false;
-    wchar_t path[1024]{};
-    u32 end = GetEnvironmentVariableW(L"MAICORD_UI_PROBE_CAPTURE_DIR", path, 900);
-    if (end >= 900)
+    if (!require(probe_write_capture(readback, filename), 237))
         return false;
-    if (end) {
-        path[end++] = L'/';
-        for (u32 i = 0; filename[i]; ++i) {
-            if (end + 1 >= 1024)
-                return false;
-            path[end++] = filename[i];
-        }
-        const HANDLE file =
-            CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (file == INVALID_HANDLE_VALUE)
-            return require(false, 236);
-        const auto output = [&](const void* data, u32 bytes) noexcept {
-            DWORD count{};
-            return WriteFile(file, data, bytes, &count, nullptr) && count == bytes;
-        };
-        BITMAPFILEHEADER header{};
-        header.bfType = 0x4d42;
-        header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
-        header.bfSize = header.bfOffBits + r.width * r.height * 4;
-        BITMAPINFOHEADER info{};
-        info.biSize = sizeof(info);
-        info.biWidth = r.width;
-        info.biHeight = -static_cast<LONG>(r.height);
-        info.biPlanes = 1;
-        info.biBitCount = 32;
-        bool valid = output(&header, sizeof(header)) && output(&info, sizeof(info));
-        for (u32 y = 0; valid && y < r.height; ++y)
-            valid = output(static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch, r.width * 4);
-        valid = CloseHandle(file) && valid;
-        if (!require(valid, 237))
-            return false;
-    }
     ++fixture->captures;
     return true;
 }

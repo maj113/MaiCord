@@ -1,7 +1,7 @@
 #pragma once
-#include "maicord_glyph_distance_reference_cs.hpp"
-
 #include <d3d11_1.h>
+
+#include "maicord_glyph_distance_reference_cs.hpp"
 
 namespace maicord {
 struct ProbeGlyphRasterReference {

@@ -5,6 +5,7 @@
 #include "application_text_form_state.hpp"
 #include "maicord/app/account_media_worker.hpp"
 #include "../media_fixture.hpp"
+#include <Windows.h>
 #include <shobjidl.h>
 #include "application_forum_form_state.hpp"
 #include "application_state.hpp"

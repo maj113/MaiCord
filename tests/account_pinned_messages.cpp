@@ -1,6 +1,7 @@
 #include "maicord/app/account_pinned_messages.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace pinned_transport_test {

@@ -1,6 +1,6 @@
 #include "maicord/text/layout_directory.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
 #include "generated/layout_directory_fixture.inc"
@@ -99,7 +99,7 @@ bool units() noexcept {
     return ok;
 }
 bool guards() noexcept {
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;constexpr u32 seed_size=sizeof(layout_directory_fixture);if(seed_size>page)return false;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;constexpr u32 seed_size=sizeof(layout_directory_fixture);if(seed_size>page)return false;
     auto* mem=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!mem)return false;DWORD old=0;if(!VirtualProtect(mem+page,page,PAGE_NOACCESS,&old)){VirtualFree(mem,0,MEM_RELEASE);return false;}
     u32 random=0x52a2b783;for(u32 i=0;i<20000;++i){random^=random<<13;random^=random>>17;random^=random<<5;const u32 size=i<=seed_size?i:random%(seed_size+1);u8* b=mem+page-size;
         for(u32 j=0;j<size;++j)b[j]=layout_directory_fixture[j];if(i>seed_size && size)b[(random>>8)%size]^=static_cast<u8>(random>>16);
@@ -124,7 +124,7 @@ bool indices(Reader& r,u32 count,ConstSlice<u8> actual,bool* match,u64* checks) 
 i16 coordinates[65535];
 bool corpus(const wchar_t* path) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;
-    LARGE_INTEGER len{};if(!GetFileSizeEx(file,&len) || len.QuadPart<12 || len.QuadPart>0xffffffffll){CloseHandle(file);return false;}
+    Win32LargeInteger len{};if(!GetFileSizeEx(file,len.native()) || len.QuadPart<12 || len.QuadPart>0xffffffffll){CloseHandle(file);return false;}
     HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return false;}auto* bytes=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));Reader r{bytes,static_cast<u32>(len.QuadPart),8};u32 total=0,failures=0;u64 script_checks=0,language_checks=0,feature_checks=0,lookup_checks=0,subtable_checks=0,variation_checks=0,index_checks=0;
     bool ok=bytes && bytes_equal(bytes,"MCLDIR1",8) && r.word(&total) && total;
     for(u32 record=0;record<total && ok;++record){u32 kind=0,size=0,axes=0,count=0;const u8* raw=nullptr;ok=r.word(&kind)&&r.word(&size)&&r.word(&axes)&&kind<2&&axes<=65535&&r.take(size,&raw)&&r.word(&count)&&count<=65535;if(!ok)break;

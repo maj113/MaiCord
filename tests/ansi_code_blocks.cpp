@@ -5,7 +5,6 @@
 #include "maicord/ui/text.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
 
-#include <windows.h>
 
 namespace maicord {
 namespace {

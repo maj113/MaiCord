@@ -1,5 +1,6 @@
 #include "maicord/app/account_message_search.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace search_transport_test {

@@ -1,6 +1,7 @@
 #include "maicord/protocol/thread_creation.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::thread_creation_test {
 u32 failures;

@@ -3,6 +3,8 @@
 #include "../src/app/application_thread_browser.hpp"
 #include "../src/app/application_state.hpp"
 #include "test_output.hpp"
+
+#include <Windows.h>
 namespace maicord::thread_browser_test { u64 now = 1000; }
 namespace maicord { static u64 browser_fixture_now() noexcept { return thread_browser_test::now; } }
 #define clock_monotonic_milliseconds browser_fixture_now

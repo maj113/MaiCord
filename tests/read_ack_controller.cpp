@@ -224,8 +224,6 @@ void test_read_ack_controller(void (*check)(bool, const char*) noexcept) noexcep
 void test_read_ack_visibility(void (*check)(bool, const char*) noexcept) noexcept {
     constexpr ReadAckVisibility visible{true, true, true, true, false, false, false, false, false, false};
     static_assert(read_ack_automatic_eligible(visible));
-    check(read_ack_automatic_eligible(visible),
-        "automatic ACK: foreground visible live history following bottom admits newly caught-up metadata");
     bool ReadAckVisibility::* const required[]{&ReadAckVisibility::foreground, &ReadAckVisibility::chat_visible,
         &ReadAckVisibility::following_bottom, &ReadAckVisibility::current_history};
     for (const auto gate : required) {

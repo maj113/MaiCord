@@ -1,7 +1,7 @@
 #include "maicord/text/font_names.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "font_names_reference.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;bool print_ok=true;char print_buffer[65536];u32 output_count=0;u16 decoded[32768];
 void flush() noexcept {DWORD written=0;if(output_count&&(!WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),print_buffer,output_count,&written,nullptr)||written!=output_count))print_ok=false;output_count=0;}
@@ -70,7 +70,7 @@ bool selection_permutations() noexcept {
     }return true;
 }
 bool guards() noexcept {
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
     struct Cleanup{u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};
     DWORD old=0;CHECK(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old));CHECK(VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old));
@@ -110,7 +110,7 @@ bool argument(const wchar_t** command,wchar_t* output,u32 available) noexcept {
 bool audit(const wchar_t* path,u32 index) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);
     HANDLE mapping=nullptr;const u8* data=nullptr;struct Cleanup{HANDLE& f;HANDLE& m;const u8*& p;~Cleanup() noexcept{if(p)UnmapViewOfFile(p);if(m)CloseHandle(m);CloseHandle(f);}} cleanup{file,mapping,data};
-    LARGE_INTEGER size{};CHECK(GetFileSizeEx(file,&size)&&size.QuadPart>0&&size.QuadPart<=0xffffffffll);
+    Win32LargeInteger size{};CHECK(GetFileSizeEx(file,size.native())&&size.QuadPart>0&&size.QuadPart<=0xffffffffll);
     mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);CHECK(mapping);data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));CHECK(data);
     SfntFace face{};CHECK(sfnt_open({data,static_cast<u32>(size.QuadPart)},index,&face)==SfntStatus::ok);
     ConstSlice<u8> table{};CHECK(sfnt_table(face,sfnt_tag('n','a','m','e'),&table)==SfntStatus::ok);SfntNames names{};CHECK(sfnt_names_open(table,&names)==SfntStatus::ok);

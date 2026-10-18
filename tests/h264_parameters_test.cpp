@@ -2,6 +2,7 @@
 #include "maicord/media/h264_slice.hpp"
 #include "maicord/core/memory.hpp"
 #include "../src/media/h264_bits.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 int h264_state_tests() noexcept;

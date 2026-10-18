@@ -1,5 +1,6 @@
 #include "maicord/app/search_recent.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

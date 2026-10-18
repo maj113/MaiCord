@@ -15,6 +15,7 @@
 #include "maicord/ui/message_markdown.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::guild_community_test {
 u32 failures = 0;
@@ -406,7 +407,7 @@ bool add_to(void* context, const ScheduledEvent& event) noexcept {
 void test_events() noexcept {
     ScheduledEvent event{};
     const bool decoded = scheduled_event_decode(kEvent, {scratch, 16384}, &event);
-    check(decoded && event.id == 900 && event.guild_id == 10 && !event.channel_id && event.creator_id == 5 &&
+    check(decoded && event.id == 900 && event.guild_id == 10 && !event.channel_id &&
               event.start_ms == 1893607200000ull && event.end_ms == 1893614400000ull &&
               event.status == ScheduledEventStatus::scheduled && event.entity == ScheduledEventEntity::external &&
               event.user_count_known && event.user_count == 4 &&

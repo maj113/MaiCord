@@ -1,5 +1,5 @@
 #include "maicord/text/font_fallback.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -31,7 +31,7 @@ bool guards() noexcept {
     CHECK(native_fallback_cascade_find(c,0,&token,0,&used)==SfntStatus::ok&&token==native_fallback_missing&&!used);
     const u16 end=65535;const NativeFallbackRange one{0,0,1};
     CHECK(native_fallback_cascade_open({&one,1},{&end,1},65536,&c)==SfntStatus::ok);
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
     struct Cleanup {u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};DWORD old=0;
     CHECK(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)&&VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old));

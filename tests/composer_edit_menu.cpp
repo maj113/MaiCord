@@ -5,6 +5,7 @@
 #include "maicord/protocol/message_create.hpp"
 #include "maicord/protocol/message_edit.hpp"
 #include "maicord/ui/popup_presentation.hpp"
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord::app_detail {
 namespace { bool composing; u32 applied; }
 bool application_composer_text_input_composing() noexcept { return composing; }

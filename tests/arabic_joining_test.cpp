@@ -1,7 +1,7 @@
 #include "maicord/text/arabic_joining.hpp"
 #include "maicord/text/glyph_buffer.hpp"
 #include "maicord/core/utf.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
 #include "generated/arabic_joining_fixture.inc"

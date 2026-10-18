@@ -1,4 +1,6 @@
 #include "maicord/app/dave_key_package.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -34,14 +36,14 @@ void retained_key(Check check, const P256Key& private_key, ConstSlice<u8> point)
     check(p256_ecdh(private_key, peer, {a, 32}).ok() && p256_ecdh(peer, public_key, {b, 32}).ok() &&
               bytes_equal(a, b, 32),
           "DAVE retained private key agrees with serialized public key");
-    SecureZeroMemory(a, sizeof(a));
-    SecureZeroMemory(b, sizeof(b));
+    secure_clear_bytes(a, sizeof(a));
+    secure_clear_bytes(b, sizeof(b));
     p256_release(&peer);
     p256_release(&public_key);
 }
 void guards(Check check, KdfSha256Workspace& workspace, ConstSlice<u8> scalar) noexcept {
-    SYSTEM_INFO system{};
-    GetSystemInfo(&system);
+    Win32SystemInfo system{};
+    GetSystemInfo(system.native());
     const u32 page = system.dwPageSize;
     auto* memory =
         static_cast<u8*>(VirtualAlloc(nullptr, page * 4, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));

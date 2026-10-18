@@ -5,7 +5,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/trace_record.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace json_string_probe {

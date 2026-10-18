@@ -10,6 +10,8 @@
 #include "maicord/ui/clipboard.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::confirmation_runtime_test {
 using namespace app_detail;
 struct Observations {

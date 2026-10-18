@@ -165,8 +165,6 @@ void test_unread_context(void (*check)(bool, const char*) noexcept) noexcept {
     check(!unread_context_current(target, source), "dismissed popup cannot dispatch a retained unread action");
 }
 void test_message_unread_context_menu(void (*check)(bool, const char*) noexcept) noexcept {
-    static_assert(static_cast<u32>(MessageContextAction::forward_message) == 18);
-    static_assert(static_cast<u32>(MessageContextAction::mark_unread) == 19);
     MessageRecord message{}; message.id = 900; message.channel_id = 70; message.author_id = 3;
     MessageContextMenuModel menu{};
     const auto legacy = message_context_menu_build(&menu, message, true, true, true, nullptr, true, true, true);

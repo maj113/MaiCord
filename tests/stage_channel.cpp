@@ -6,6 +6,7 @@
 #include "maicord/model/stage_policy.hpp"
 #include "maicord/protocol/stage_channel.hpp"
 #include "maicord/ui/call_scene.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 // Stage channels: gateway fixtures (stage instances, suppress and
 // request_to_speak), moderator permission gating, the call view's stage

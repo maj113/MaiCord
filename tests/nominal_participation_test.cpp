@@ -1,7 +1,7 @@
 #include "maicord/text/nominal_participation.hpp"
 #include "maicord/text/nominal_sources.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "generated/nominal_participation_fixture.inc"
 void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
@@ -16,7 +16,7 @@ bool boundaries() noexcept {
     put(raw,26,1);put(raw,28,4);put(raw,30,1);put(raw,34,1);put(raw,36,8);put(raw,38,1);put(raw,40,6);put(raw,44,2);put(raw,46,4);
     const u16 ranges[][3]{{0,0,0},{63,130,1},{511,512,69},{65534,65535,71}};
     for(u32 i=0;i<4;++i)for(u32 j=0;j<3;++j)put(raw,48+i*6+j*2,ranges[i][j]);
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;if(page!=4096)return false;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;if(page!=4096)return false;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*6,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
     bool ok=VirtualProtect(memory+page*2,page,PAGE_NOACCESS,&old)!=0 && VirtualProtect(memory+page*4,page,PAGE_NOACCESS,&old)!=0;
     auto* bitmap=reinterpret_cast<u64*>(memory);auto* scratch=reinterpret_cast<u64*>(memory+page*4-16);SfntLayout layout{};SfntNominalParticipationResult result{};
@@ -42,7 +42,7 @@ bool boundaries() noexcept {
 }
 bool corpus() noexcept {
     ConstSlice<u8> all{participation_fixture,sizeof(participation_fixture)};if(all.count<12 || !bytes_equal(all.data,"MCNOM01\0",8))return false;const u32 count=byte_load_le32(all.data+8);u32 at=12;
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*6,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*6,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;DWORD old=0;
     bool ok=VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)!=0 && VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old)!=0 && VirtualProtect(memory+page*5,page,PAGE_NOACCESS,&old)!=0;
     for(u32 i=0;i<count && ok;++i){if(all.count-at<20){ok=false;break;}const u32 size=byte_load_le32(all.data+at),kind=byte_load_le32(all.data+at+4),limit=byte_load_le32(all.data+at+8);u64 expected=0;copy_bytes(&expected,all.data+at+12,8);at+=20;if(size>all.count-at || kind>1 || !limit || limit>64){ok=false;break;}
         SfntFace face{};SfntLayout layout{};ConstSlice<u8> table{};ok=sfnt_open({all.data+at,size},0,&face)==SfntStatus::ok && sfnt_table(face,kind?sfnt_tag('G','P','O','S'):sfnt_tag('G','S','U','B'),&table)==SfntStatus::ok && sfnt_layout_open(table,static_cast<SfntLayoutKind>(kind),&layout)==SfntStatus::ok;at+=size;if(!ok)break;
@@ -79,8 +79,8 @@ bool corpus() noexcept {
     VirtualFree(memory,0,MEM_RELEASE);return ok && at==all.count && lazy_built && lazy_skipped;
 }
 int font_bitmap(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return 2;LARGE_INTEGER len{};
-    if(!GetFileSizeEx(file,&len) || len.QuadPart<12 || len.QuadPart>0xffffffffll){CloseHandle(file);return 2;}HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return 2;}
+    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return 2;Win32LargeInteger len{};
+    if(!GetFileSizeEx(file,len.native()) || len.QuadPart<12 || len.QuadPart>0xffffffffll){CloseHandle(file);return 2;}HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return 2;}
     auto* bytes=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));if(!bytes){CloseHandle(mapping);CloseHandle(file);return 2;}
     SfntFace face{};SfntCmap cmap{};u16 count=0;auto s=sfnt_open({bytes,static_cast<u32>(len.QuadPart)},0,&face);if(s==SfntStatus::ok)s=sfnt_glyph_count(face,&count);u64 bits[1024]{},scratch[2048]{},sources[1024]{},source_work=0,work=0,lazy_bits[1024]{},lazy_sources[1024]{},lazy_work=0;SfntNominalSourceCache lazy{&cmap,{lazy_sources,1024},false};
     if(s==SfntStatus::ok)s=sfnt_cmap_open(face,&cmap);if(s==SfntStatus::ok)s=sfnt_nominal_sources(cmap,{sources,1024},&source_work);

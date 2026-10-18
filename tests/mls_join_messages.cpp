@@ -1,4 +1,5 @@
 #include "maicord/protocol/mls_objects.hpp"
+#include <Windows.h>
 #include <bcrypt.h>
 #include "test_output.hpp"
 

@@ -55,7 +55,7 @@ void test_application_forum_form(void (*check)(bool, const char*) noexcept) noex
           "forum_form_selection_projection_keeps_independent_edit_allocations");
     secure_edit_release(&title);
     secure_edit_release(&body);
-    SecureZeroMemory(unicode, sizeof(unicode));
+    secure_clear_bytes(unicode, sizeof(unicode));
     check(!title.storage.data && !body.storage.data, "forum_form_edit_models_release_both_lazy_buffers");
 }
 } // namespace maicord

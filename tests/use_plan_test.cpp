@@ -1,21 +1,17 @@
 #include "maicord/text/use_plan.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "generated/devanagari_plan_fixture.inc"
-#ifdef MAICORD_MYANMAR_PLAN_QA
-constexpr bool myanmar=true,tibetan=false;
-#define lookup_plan sfnt_myanmar_lookup_plan
-constexpr u32 profile_tag=sfnt_tag('m','y','m','2');
-#elif defined(MAICORD_TIBETAN_PLAN_QA)
-constexpr bool myanmar=false,tibetan=true;
-#define lookup_plan sfnt_tibetan_lookup_plan
-constexpr u32 profile_tag=sfnt_tag('t','i','b','t');
-#else
-constexpr bool myanmar=false,tibetan=false;
-#define lookup_plan sfnt_sinhala_lookup_plan
-constexpr u32 profile_tag=sfnt_tag('s','i','n','h');
-#endif
+// One schedule contract suite runs against the Sinhala, Myanmar and Tibetan
+// profiles; --myanmar or --tibetan selects the profile (default Sinhala).
+bool myanmar=false,tibetan=false;u32 profile_tag=sfnt_tag('s','i','n','h');
+SfntStatus lookup_plan(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,bool independent,
+    Slice<u8> scratch,Slice<SfntLookupStep> output,SfntLookupPlanResult* result,u64 work_limit=1000000) noexcept {
+    return myanmar?sfnt_myanmar_lookup_plan(layout,variations,independent,scratch,output,result,work_limit):
+        tibetan?sfnt_tibetan_lookup_plan(layout,variations,independent,scratch,output,result,work_limit):
+        sfnt_sinhala_lookup_plan(layout,variations,independent,scratch,output,result,work_limit);
+}
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&written,nullptr);}
 void number(u64 v) noexcept {char b[32];u32 n=0;do{b[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);while(n){char c[]{b[--n],0};print(c);}}
@@ -71,7 +67,7 @@ bool units() noexcept {
         poison(steps);alternate[16]=255;alternate[17]=255;
         CHECK(lookup_plan(layout,variations,false,{scratch,8},{steps,32},&result)==SfntStatus::malformed&&untouched(steps));
         // Exact-size caller buffers end immediately before inaccessible pages.
-        SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
+        Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
         auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
         const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
         bool guarded=false;
@@ -87,12 +83,10 @@ bool units() noexcept {
             CHECK(lookup_plan(layout,{},false,{scratch,8},{steps,32},&result)==SfntStatus::ok&&result.language_found&&
                 result.script_tag==sfnt_tag('D','F','L','T')&&result.lookup_count==full.lookup_count&&bytes_equal(steps,saved,full.lookup_count*sizeof(SfntLookupStep)));}
         byte_store_be32(bytes+tag_at,profile_tag);
-#ifdef MAICORD_MYANMAR_PLAN_QA
-        byte_store_be32(bytes+tag_at,sfnt_tag('m','y','m','r'));
-        CHECK(sfnt_myanmar_lookup_plan(layout,{},false,{scratch,8},{steps,32},&result,1000000,false)==SfntStatus::ok&&
-            result.lookup_count==full.lookup_count&&bytes_equal(saved,steps,full.lookup_count*sizeof(SfntLookupStep)));
-        byte_store_be32(bytes+tag_at,profile_tag);
-#endif
+        if(myanmar){byte_store_be32(bytes+tag_at,sfnt_tag('m','y','m','r'));
+            CHECK(sfnt_myanmar_lookup_plan(layout,{},false,{scratch,8},{steps,32},&result,1000000,false)==SfntStatus::ok&&
+                result.lookup_count==full.lookup_count&&bytes_equal(saved,steps,full.lookup_count*sizeof(SfntLookupStep)));
+            byte_store_be32(bytes+tag_at,profile_tag);}
         // Two equal feature tags keep the first LangSys-listed record. The
         // later half lookup must not leak into any selected group.
         const u32 feature_at=byte_load_be16(bytes+6);
@@ -112,16 +106,14 @@ bool units() noexcept {
             for(u64 budget=0;budget<full.operations;++budget){poison(steps);
                 CHECK(lookup_plan(layout,{},mode!=0,{scratch,8},{steps,32},&result,budget)==SfntStatus::resource_limit&&result.operations<=budget&&untouched(steps));}
         }
-#ifdef MAICORD_MYANMAR_PLAN_QA
-        byte_store_be32(bytes+tag_at,sfnt_tag('m','y','m','r'));poison(steps);
-        CHECK(sfnt_myanmar_lookup_plan(layout,{},false,{scratch,8},{steps,32},&result,1000000,false)==SfntStatus::ok&&
-            !result.lookup_count&&!result.language_found&&untouched(steps));
-        CHECK(sfnt_myanmar_lookup_plan(layout,{},false,{scratch,8},{steps,32},&result,0,false)==SfntStatus::resource_limit&&untouched(steps));
-        const u32 fallbacks[]{sfnt_tag('l','a','t','n'),sfnt_tag('D','F','L','T')};
-        for(u32 tag:fallbacks){byte_store_be32(bytes+tag_at,tag);
+        if(myanmar){byte_store_be32(bytes+tag_at,sfnt_tag('m','y','m','r'));poison(steps);
             CHECK(sfnt_myanmar_lookup_plan(layout,{},false,{scratch,8},{steps,32},&result,1000000,false)==SfntStatus::ok&&
-                result.script_tag==tag&&result.language_found&&result.lookup_count==6+required);}
-#endif
+                !result.lookup_count&&!result.language_found&&untouched(steps));
+            CHECK(sfnt_myanmar_lookup_plan(layout,{},false,{scratch,8},{steps,32},&result,0,false)==SfntStatus::resource_limit&&untouched(steps));
+            const u32 fallbacks[]{sfnt_tag('l','a','t','n'),sfnt_tag('D','F','L','T')};
+            for(u32 tag:fallbacks){byte_store_be32(bytes+tag_at,tag);
+                CHECK(sfnt_myanmar_lookup_plan(layout,{},false,{scratch,8},{steps,32},&result,1000000,false)==SfntStatus::ok&&
+                    result.script_tag==tag&&result.language_found&&result.lookup_count==6+required);}}
     }
     print(tibetan?"PASS Tibetan schedule, required features, script isolation and atomic limits; checks=":myanmar?"PASS Myanmar schedule, required features, script isolation and atomic limits; checks=":"PASS USE schedule, required features, script isolation and atomic limits; checks=");number(checks);print("\n");return true;
 }
@@ -140,16 +132,24 @@ bool plans(ConstSlice<u8> bytes) noexcept {
         }
     }return true;
 }
+bool option(const wchar_t*& command,const wchar_t* flag) noexcept {
+    u32 i=0;while(flag[i]&&command[i]==flag[i])++i;
+    if(flag[i]||(command[i]&&command[i]!=' '&&command[i]!='\t'))return false;
+    command+=i;while(*command==' '||*command=='\t')++command;return true;
+}
 int run() noexcept {
     const wchar_t* command=GetCommandLineW();bool quote=false;
     while(*command){if(*command=='"')quote=!quote;else if(!quote&&(*command==' '||*command=='\t'))break;++command;}
-    while(*command==' '||*command=='\t')++command;if(!*command)return units()?0:1;
+    while(*command==' '||*command=='\t')++command;
+    if(option(command,L"--myanmar")){myanmar=true;profile_tag=sfnt_tag('m','y','m','2');}
+    else if(option(command,L"--tibetan")){tibetan=true;profile_tag=sfnt_tag('t','i','b','t');}
+    if(!*command)return units()?0:1;
     wchar_t path[32768];u32 n=0;quote=*command=='"';if(quote)++command;
     while(*command&&!(quote?*command=='"':(*command==' '||*command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}
     if(quote){if(*command!='"')return 2;++command;}while(*command==' '||*command=='\t')++command;if(*command||!n)return 2;path[n]=0;
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
-    if(file==INVALID_HANDLE_VALUE)return 2;LARGE_INTEGER size{};
-    if(!GetFileSizeEx(file,&size)||size.QuadPart<12||size.QuadPart>0xffffffffll){CloseHandle(file);return 2;}
+    if(file==INVALID_HANDLE_VALUE)return 2;Win32LargeInteger size{};
+    if(!GetFileSizeEx(file,size.native())||size.QuadPart<12||size.QuadPart>0xffffffffll){CloseHandle(file);return 2;}
     HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);
     const auto* bytes=mapping?static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0)):nullptr;
     const bool ok=bytes&&plans({bytes,static_cast<u32>(size.QuadPart)});

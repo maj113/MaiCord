@@ -260,9 +260,6 @@ void test_message_composer_stickers(void (*check)(bool, const char*) noexcept) n
         submit.sticker_count == 1 && submit.sticker_ids[0] == 505 &&
         submit.reply_message_id == 99 && submit.mention_reply_author,
         "text and sticker submit retains actual text after earlier sticker request is discarded");
-    check(message_composer_controller_prepare_submit(nullptr, 505, &submit).error ==
-        MessageComposerControllerError::invalid_input && !submit.reply_message_id && !submit.mention_reply_author,
-        "failed submit preparation clears stale reply author mention policy");
     // Separate fixture state from the preceding ordinary sends.
     check(message_timeline_reset(&timeline) && message_composer_controller_initialize(&controller,
         &composer, &drafts, &timeline, {request_text, sizeof(request_text)}), "forward outbox fixture resets");

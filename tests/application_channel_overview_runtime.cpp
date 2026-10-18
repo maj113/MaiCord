@@ -6,6 +6,8 @@
 #include "maicord/ui/clipboard.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::channel_overview_runtime_test {
 using namespace app_detail;
 u32 failures, submissions, discard_prompts;

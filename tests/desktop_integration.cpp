@@ -3,6 +3,7 @@
 #include "maicord/platform/taskbar_attention.hpp"
 #include "maicord/core/memory.hpp"
 
+#include <Windows.h>
 #include <shobjidl.h>
 
 namespace maicord {

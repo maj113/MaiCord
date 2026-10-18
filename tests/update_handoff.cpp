@@ -8,6 +8,8 @@
 #define update_handoff_child_acknowledge fixture_handoff_child_acknowledge
 #define update_handoff_child_release fixture_handoff_child_release
 #include "maicord/app/update_handoff.hpp"
+
+#include <Windows.h>
 namespace maicord::handoff_fault_test {
 bool fail_close{}, fail_unmap{}, fail_launch{}, fail_signal{};
 BOOL WINAPI close(HANDLE h) noexcept {

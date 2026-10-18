@@ -9,6 +9,8 @@
 #include "maicord/app/account_logout_stop.hpp"
 #include "maicord/core/time.hpp"
 #include "test_output.hpp"
+#include "maicord/core/interlocked.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::logout_fixture {
 AccountPaths paths{};
@@ -99,7 +101,7 @@ AccountCredentialForgetResult logout_fixture_forget(
     const AccountPaths& paths, bool joined, const AccountCredentialForgetIo* io = nullptr) noexcept {
     ++logout_fixture::forgets;
     if (!joined || app_detail::application_account_logout_host_owned() ||
-        ReadAcquire(&logout_fixture::stop_active))
+        read_acquire(&logout_fixture::stop_active))
         logout_fixture::file_order_violation = true;
     return account_credential_forget_complete_after_join(paths, joined, io);
 }
@@ -199,7 +201,7 @@ namespace maicord::logout_fixture {
 using namespace app_detail;
 AccountLogoutResult WINAPI server(void* instance, AccountLogoutOperation operation, u64 id,
                                   AccountLogoutResponse* output) noexcept {
-    if (ReadAcquire(&stop_active) || instance != &paths || !id)
+    if (read_acquire(&stop_active) || instance != &paths || !id)
         ownership_violation = true;
     if (operation == AccountLogoutOperation::begin) {
         ++begins;
@@ -390,7 +392,7 @@ void run() noexcept {
         application_account_logout_release();
     }
     check(
-        pure && accepted_posts == 1 && ReadAcquire(&stop_calls) == 1 && takes == before_takes &&
+        pure && accepted_posts == 1 && read_acquire(&stop_calls) == 1 && takes == before_takes &&
             frames == before_frames && view().revision == before_revision && !forgets && !published &&
             g_app.account_logout && !ownership_violation,
         "logout controller: repeated owned polls are stable, pure, single-POST, single-stop and retain owner VM");
@@ -488,7 +490,7 @@ void run() noexcept {
     accept();
     if (!wait_for_stop())
         return;
-    check(accepted_posts == 1 && ReadAcquire(&stop_calls) == 2 && !g_app.account.instance,
+    check(accepted_posts == 1 && read_acquire(&stop_calls) == 2 && !g_app.account.instance,
           "logout controller: explicit stop Retry transfers retained host without another POST");
     if (!finish_stop())
         return;
@@ -517,7 +519,7 @@ void run() noexcept {
     CloseHandle(blocked_profile);
     accept();
     check(credentials_absent() && !exists(marker) && published == 1 && accepted_posts == 1 &&
-              ReadAcquire(&stop_calls) == 1 && !file_order_violation,
+              read_acquire(&stop_calls) == 1 && !file_order_violation,
           "logout controller: explicit forget Retry uses real files without POST or additional worker");
 
     if (!seed())
@@ -528,12 +530,12 @@ void run() noexcept {
           "logout controller: interrupted logout marker seeded through real durable helper");
     check(!application_account_logout_prepare_startup(&paths) && application_account_logout_blocked() &&
               form_visible && form.login_owner && !view().can_cancel && !begins &&
-              !ReadAcquire(&stop_calls),
+              !read_acquire(&stop_calls),
           "logout controller: restart probes marker before attachment and opens non-dismissible login "
           "recovery without POST");
     accept();
     check(
-        credentials_absent() && !exists(marker) && published == 1 && !begins && !ReadAcquire(&stop_calls),
+        credentials_absent() && !exists(marker) && published == 1 && !begins && !read_acquire(&stop_calls),
         "logout controller: explicit startup cleanup requires empty host and never replays server request");
     application_account_logout_release();
     check(application_account_logout_prepare_startup(&paths),
@@ -562,7 +564,7 @@ void run() noexcept {
           "logout controller: scheduled allocation recovery constructs the actual login Retry owner");
     accept();
     check(
-        credentials_absent() && !exists(marker) && !begins && !ReadAcquire(&stop_calls),
+        credentials_absent() && !exists(marker) && !begins && !read_acquire(&stop_calls),
         "logout controller: recovered startup owner completes explicit real cleanup without server replay");
 
     if (!seed() || !open())

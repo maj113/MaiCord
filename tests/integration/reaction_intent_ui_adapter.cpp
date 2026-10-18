@@ -6,6 +6,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/model/reaction_preferences.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

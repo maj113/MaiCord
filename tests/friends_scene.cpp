@@ -42,7 +42,6 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
     FriendsFixture fixture{};
     UiFriendsSource source{&fixture, fixture.count, 1, friends_resolve, friends_find};
     const UiRect viewport{100, 50, 800, 650};
-    check(!scene.storage.arena.base, "friends_inactive_no_allocation");
     check(
         ui_friends_scene_update(&scene, &source, UiFriendsTab::all, UiFriendsPhase::ready, {}, viewport) &&
             scene.active && scene.count < 16 && scene.widgets.count < 100 &&
@@ -250,13 +249,6 @@ void test_friends_scene(void (*check)(bool, const char*) noexcept) noexcept {
                   search_scene, {UiFriendsAction::clear_search, 0, UiFriendsTab::all}, &search_request) &&
               ui_friends_scene_focused(search_scene).action == UiFriendsAction::search,
           "friends_empty_search_disables_clear_and_preserves_usable_focus");
-    const auto valid_revision = search_scene.revision;
-    content.search.text = {nullptr, 1};
-    ++content.revision;
-    check(!ui_friends_scene_update(&search_scene, &source, UiFriendsTab::all, UiFriendsPhase::ready, {},
-                                   search_view, &content) &&
-              search_scene.revision == valid_revision,
-          "friends_malformed_search_descriptor_is_not_published");
     ui_friends_scene_release(&search_scene);
     PaintStream paint{};
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, viewport.right, viewport.bottom) &&

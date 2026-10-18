@@ -1,6 +1,7 @@
 #include "maicord/app/user_account_coordinator.hpp"
 #include "maicord/ui/login_presentation.hpp"
 #include "maicord/ui/login_text_presentation.hpp"
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 static_assert(static_cast<u8>(LoginStatus::idle) == 0 &&
@@ -29,7 +30,7 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
     // released owners must still complete coordinator cleanup.
     check(user_account_coordinator_stop(&account, 1, nullptr).phase == UserAccountCoordinatorPhase::stopped,
           "prior gateway failure does not turn completed cleanup into another stop failure");
-    SecureZeroMemory(&account, sizeof(account));
+    secure_clear_bytes(&account, sizeof(account));
     account.state.phase = UserAccountCoordinatorPhase::gateway_connecting;
     account.gateway.phase = static_cast<LONG>(GatewayClientPhase::ready);
     account.rest.authentication_rejected = 1;
@@ -37,7 +38,7 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
               user_account_coordinator_pump(&account).error ==
                   UserAccountCoordinatorError::authentication_rejected,
           "REST session rejection wins over concurrently ready gateway");
-    SecureZeroMemory(&account, sizeof(account));
+    secure_clear_bytes(&account, sizeof(account));
     account.state.phase = UserAccountCoordinatorPhase::running;
     account.gateway.phase = static_cast<LONG>(GatewayClientPhase::reconnect_wait);
     account.gateway.close_code = 4009;
@@ -78,7 +79,7 @@ void test_account_auth_transition(void (*check)(bool, const char*) noexcept) noe
                                                           UserAccountCoordinatorPhase::running};
     for (const auto phase : active_phases) {
         for (u16 close_code = 4010; close_code <= 4014; ++close_code) {
-            SecureZeroMemory(&account, sizeof(account));
+            secure_clear_bytes(&account, sizeof(account));
             account.metadata.profile_id = 17;
             account.state.profile_id = 17;
             account.state.phase = phase;

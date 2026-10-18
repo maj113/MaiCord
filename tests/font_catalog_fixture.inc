@@ -30,7 +30,7 @@ struct CatalogFixture {
         const ConstSlice<u8> bytes{close.data,item.bytes};SfntFace face{};if(sfnt_open(bytes,0,&face)!=SfntStatus::ok)return false;
         u32 path_units=0;while(path[path_units])++path_units;const u32 face_count=default_only?1u:face.face_count;
         if(n.files>=file_limit||path_units>=32768||path_units+1>string_limit-n.strings||face_count>face_limit-n.faces)return false;
-        item.path_offset=n.strings;item.path_units=static_cast<u16>(path_units);item.first_face=n.faces;item.face_count_minus_one=static_cast<u16>(face_count-1);
+        item.path_offset=n.strings;item.path_units=static_cast<u16>(path_units);
         copy_bytes(c.strings.data+n.strings,path,(path_units+1)*2);n.strings+=path_units+1;
         static u16 name[32768];
         for(u32 i=0;i<face_count;++i){if(i&&sfnt_open(bytes,i,&face)!=SfntStatus::ok)return false;

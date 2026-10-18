@@ -15,6 +15,7 @@
 #include "maicord/core/memory.hpp"
 #include "application_action_captcha_stubs.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::history_decode_storage_test {
 using namespace app_detail;
@@ -31,8 +32,8 @@ void measurement(const char* name, usize value) noexcept {
     test_write_metric(name, value);
 }
 bool vm(const void* address, DWORD expected) noexcept {
-    MEMORY_BASIC_INFORMATION info{};
-    return address && VirtualQuery(address, &info, sizeof(info)) == sizeof(info) && info.State == expected;
+    Win32MemoryInformation info{};
+    return address && VirtualQuery(address, info.native(), sizeof(info)) == sizeof(info) && info.State == expected;
 }
 bool zero(const void* address, usize bytes) noexcept {
     const auto* data = static_cast<const u8*>(address);
@@ -671,13 +672,13 @@ void caption_edit(AccountUiRuntime& ui) noexcept {
 }
 
 void run() noexcept {
-    SYSTEM_INFO system{}; GetSystemInfo(&system); const usize page = system.dwPageSize;
+    Win32SystemInfo system{}; GetSystemInfo(system.native()); const usize page = system.dwPageSize;
     check(page && !(page & (page - 1)), "history OS page size valid"); if (!page || (page & (page - 1))) return;
     auto* owner = static_cast<AccountUiRuntime*>(VirtualAlloc(nullptr, sizeof(AccountUiRuntime), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(owner != nullptr, "history actual production owner allocates"); if (!owner) return;
     g_app.account_ui = owner;
-    MEMORY_BASIC_INFORMATION info{};
-    check(VirtualQuery(owner, &info, sizeof(info)) == sizeof(info) && info.State == MEM_COMMIT &&
+    Win32MemoryInformation info{};
+    check(VirtualQuery(owner, info.native(), sizeof(info)) == sizeof(info) && info.State == MEM_COMMIT &&
         info.RegionSize == ((sizeof(AccountUiRuntime) + page - 1) & ~(page - 1)),
         "history production owner commitment follows actual compiled size");
     measurement("MEASURE account_ui_owner_bytes=", sizeof(AccountUiRuntime));

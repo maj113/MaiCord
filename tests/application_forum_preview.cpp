@@ -8,6 +8,7 @@
 #include "maicord/core/utf.hpp"
 #include "../src/app/application_forum_preview.cpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::forum_preview_test {
 using namespace app_detail;

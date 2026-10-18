@@ -1,5 +1,6 @@
 #include "maicord/platform/tls_stream.hpp"
 
+#include <Windows.h>
 #include <WS2tcpip.h>
 
 // Dedicated executable: production tls_stream.cpp links to these synthetic

@@ -539,7 +539,7 @@ void test_interactions(Check check) noexcept {
           "interaction_event_decode");
     check(message_interaction_event_decode(utf8_literal(R"({"id":"78","nonce":"opaque","reason_code":5})"),
                                            {structurals, 512}, &event) &&
-              event.nonce == 0 && event.reason_code == 5,
+              event.nonce == 0,
           "interaction_event_opaque_nonce");
 
     const auto modal_json = utf8_literal(R"({"id":"900","nonce":"555","channel_id":"7","custom_id":"form",

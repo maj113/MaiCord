@@ -4,6 +4,7 @@
 #include "application_user_settings.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/ui/timestamp_format.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 // Guild folder layout writes share the settings lane; none run here.

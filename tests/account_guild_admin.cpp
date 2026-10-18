@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace guild_admin_test {
@@ -958,8 +959,7 @@ void test_cdn_urls(const AccountHost& host) noexcept {
     const auto attachment = m.parse_signed_attachment_url(signed_url, 200, sa);
     const auto attachment_local = parse_signed_attachment_url(signed_url, 200, sb);
     const auto mismatch = m.parse_signed_attachment_url(signed_url, 201, sa);
-    bool same = offsetof(AccountModuleApi, cdn_urls) == 1032 && sizeof(AccountModuleCdnUrls) == 128 &&
-                bytes_equal(&attachment, &attachment_local, sizeof(attachment)) &&
+    bool same = bytes_equal(&attachment, &attachment_local, sizeof(attachment)) &&
                 bytes_equal(a, b, attachment.target_bytes) &&
                 mismatch.error == parse_signed_attachment_url(signed_url, 201, sb).error;
     const Utf8View urls[]{utf8_literal("https://media.discordapp.net/stickers/7.png?size=160"),
@@ -1008,14 +1008,7 @@ void test_cdn_urls(const AccountHost& host) noexcept {
             m.write_media_proxy_target(avatar, CdnHost::cdn, 64, 64, CdnMediaFormat::webp, sa, true),
             write_media_proxy_target(avatar, CdnHost::cdn, 64, 64, CdnMediaFormat::webp, sb, true), a, b);
     check(same && attachment.ok() && !mismatch.ok(),
-          "cdn urls account: the v122 entries return exactly the protocol functions' results");
-    bool required = true;
-    for (u32 entry = 0; entry < sizeof(AccountModuleCdnUrls) / sizeof(void*); ++entry) {
-        auto missing = host.api;
-        reinterpret_cast<void**>(&missing.cdn_urls)[entry] = nullptr;
-        required = required && !account_host_api_valid(missing);
-    }
-    check(required, "cdn urls account: the host requires every CDN URL entry");
+          "cdn urls account: the entries return exactly the protocol functions' results");
 }
 
 // Server Profile, Boost Perks and the custom invite link at the transport.
@@ -1105,55 +1098,28 @@ void test_abi() noexcept {
     check(loaded.ok(), "guild admin account: shipping DLL loads without profile or credential");
     if (!loaded.ok())
         return;
-    check(host.api.version == 133 && kAccountModuleApiVersion == 133 && kAccountModuleApiOrdinal == 133 &&
-              host.api.bytes == sizeof(AccountModuleApi) &&
-              offsetof(AccountModuleApi, guild_admin) == 640 && host.api.guild_admin &&
-              host.api.guild_admin(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
+    check(host.api.guild_admin(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
           "guild admin account: appended entry rejects an absent owner without creating runtime");
-    auto missing = host.api;
-    missing.guild_admin = nullptr;
-    check(!account_host_api_valid(missing), "guild admin account: the host requires the guild admin entry");
-    check(host.api.bytes == 1176 && offsetof(AccountModuleApi, guild_moderation) == 1160 && host.api.guild_moderation &&
-              host.api.guild_moderation(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
-          "guild moderation account: the appended v125 entry rejects an absent owner without creating runtime");
-    missing = host.api;
-    missing.guild_moderation = nullptr;
-    check(!account_host_api_valid(missing), "guild moderation account: the host requires the guild moderation entry");
+    check(host.api.guild_moderation(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input,
+          "guild moderation account: the appended entry rejects an absent owner without creating runtime");
     GuildAssetRequest probe{};
     probe.operation = GuildAssetOperation::image_probe;
     probe.image = {reinterpret_cast<const u8*>("x"), 1};
-    check(offsetof(AccountModuleApi, guild_assets) == 800 && host.api.guild_assets &&
-              host.api.guild_assets(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
+    check(host.api.guild_assets(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               host.api.guild_assets(nullptr, &probe, 0).error == RestClientSubmitError::invalid_input,
-          "guild assets account: the appended v104 entry rejects an absent owner without creating runtime");
-    missing = host.api;
-    missing.guild_assets = nullptr;
-    check(!account_host_api_valid(missing), "guild assets account: the host requires the guild assets entry");
+          "guild assets account: the appended entry rejects an absent owner without creating runtime");
     StageRequest stage{};
     stage.operation = StageOperation::lower_hand;
     stage.guild_id = 10;
     stage.channel_id = 20;
-    check(offsetof(AccountModuleApi, stage) == 872 && host.api.stage &&
-              host.api.stage(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
+    check(host.api.stage(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               host.api.stage(nullptr, &stage, 0).error == RestClientSubmitError::invalid_input,
-          "stage account: the appended v109 entry rejects an absent owner without creating runtime");
-    missing = host.api;
-    missing.stage = nullptr;
-    check(!account_host_api_valid(missing), "stage account: the host requires the stage entry");
+          "stage account: the appended entry rejects an absent owner without creating runtime");
     GatewayClientVoiceVideoSnapshot video{};
     video.count = 7;
-    check(offsetof(AccountModuleApi, voice_video_snapshot) == 808 &&
-              offsetof(AccountModuleApi, voice_video_wanted) == 816 && host.api.voice_video_snapshot &&
-              host.api.voice_video_wanted && !host.api.voice_video_snapshot(nullptr, &video) && video.count == 7 &&
+    check(!host.api.voice_video_snapshot(nullptr, &video) && video.count == 7 &&
               !host.api.voice_video_wanted(nullptr, 42, false),
-          "voice video account: the appended v106 entries reject an absent owner without creating runtime");
-    missing = host.api;
-    missing.voice_video_snapshot = nullptr;
-    const bool snapshot_required = !account_host_api_valid(missing);
-    missing = host.api;
-    missing.voice_video_wanted = nullptr;
-    check(snapshot_required && !account_host_api_valid(missing),
-          "voice video account: the host requires both voice video entries");
+          "voice video account: the appended entries reject an absent owner without creating runtime");
     test_cdn_urls(host);
     check(!host.instance && !host.login_instance, "guild admin account: inspection creates no account actors");
     account_host_release(&host);

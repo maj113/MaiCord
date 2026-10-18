@@ -2,7 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 
 #include "glyph_view_check.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
 volatile u32 observations=0;
@@ -95,7 +95,7 @@ bool prefix_units() noexcept {
     return true;
 }
 bool guards() noexcept {
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!mem)return false;DWORD old=0;if(!VirtualProtect(mem+page,page,PAGE_NOACCESS,&old)){VirtualFree(mem,0,MEM_RELEASE);return false;}
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* mem=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!mem)return false;DWORD old=0;if(!VirtualProtect(mem+page,page,PAGE_NOACCESS,&old)){VirtualFree(mem,0,MEM_RELEASE);return false;}
     u8 seeds[3][80]{};const u16 single[]{2,10,2,2,3,1,2,1,4},sequence[]{1,8,1,14,1,1,1,3,2,3,4};
     const u32 sizes[]{words(seeds[0],{single,9}),words(seeds[1],{sequence,11}),ligature_fixture(seeds[2])};u32 random=0xf3629ee3;SfntGsubGlyph input[]{{1,SfntGlyphClass::base,0},{4,SfntGlyphClass::mark,0},{2,SfntGlyphClass::base,0},{3,SfntGlyphClass::base,0}};u32 positions[4];SfntLookupFilter filter{{},8};
     for(u32 i=0;i<20000;++i){random^=random<<13;random^=random>>17;random^=random<<5;const u32 seed=i%3,total=sizes[seed],size=i<123?minimum(i/3,total):random%(total+1);u8* b=mem+page-size;for(u32 j=0;j<size;++j)b[j]=seeds[seed][j];if(i>=123 && size)b[(random>>8)%size]^=static_cast<u8>(random>>16);
@@ -109,8 +109,8 @@ struct Reader {const u8* data;u32 size,at;
 };
 u32 mapping[65536];SfntGsubGlyph glyphs[65536];u32 consumed[65536];SfntGsubExecutableSubtable lookup_storage[65535];
 bool corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;LARGE_INTEGER len{};
-    if(!GetFileSizeEx(file,&len) || len.QuadPart<12 || len.QuadPart>0xffffffffll){CloseHandle(file);return false;}HANDLE map=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!map){CloseHandle(file);return false;}
+    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;Win32LargeInteger len{};
+    if(!GetFileSizeEx(file,len.native()) || len.QuadPart<12 || len.QuadPart>0xffffffffll){CloseHandle(file);return false;}HANDLE map=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!map){CloseHandle(file);return false;}
     auto* bytes=static_cast<const u8*>(MapViewOfFile(map,FILE_MAP_READ,0,0,0));Reader r{bytes,static_cast<u32>(len.QuadPart),8};u32 fonts=0,failures=0,type_counts[5]{};u64 queries=0,replacements=0,ligature_queries=0,prepared_lookups=0,coverage_checks=0;
     bool ok=bytes && bytes_equal(bytes,"MCGSUB1",8) && r.word(&fonts) && fonts>0;
     for(u32 font=0;font<fonts && ok;++font){u32 limit=0,size=0,gdef_size=0,count=0;const u8 *raw=nullptr,*gd=nullptr;ok=r.word(&limit)&&r.word(&size)&&r.word(&gdef_size)&&r.word(&count)&&limit>0&&limit<=65536&&count<=1000000&&r.take(size,&raw)&&r.take(gdef_size,&gd);if(!ok)break;

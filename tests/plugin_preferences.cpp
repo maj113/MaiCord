@@ -3,6 +3,8 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 
+#include <Windows.h>
+
 // Test-only imported Win32 wrappers exercise the production source, with no
 // shipping fault seam. No DLL is created or loaded by these fixtures.
 namespace maicord::preference_fault_test {

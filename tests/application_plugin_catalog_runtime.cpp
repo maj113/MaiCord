@@ -5,6 +5,7 @@
 #include "application_text_form.hpp"
 #include "fixtures/native_plugin_fixture.hpp"
 #include "maicord/core/utf.hpp"
+#include <Windows.h>
 #include <bcrypt.h>
 
 namespace maicord {

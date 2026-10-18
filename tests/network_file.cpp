@@ -1,6 +1,8 @@
 #include "maicord/platform/network.hpp"
 #include "maicord/app/https_file_upload.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 void test_network_file(void (*check)(bool, const char*) noexcept) noexcept {
     wchar_t directory[MAX_PATH]{}, path[MAX_PATH]{};

@@ -5,6 +5,8 @@
 #include "../src/app/application_media_context.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::image_viewer_runtime_test {
 using namespace app_detail;
 u32 failures, saves, suspends;

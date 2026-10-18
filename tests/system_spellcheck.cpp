@@ -3,6 +3,7 @@
 // adds or ignores words, so the user's dictionary is untouched.
 #include "maicord/core/memory.hpp"
 #include "maicord/platform/spell_checker.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

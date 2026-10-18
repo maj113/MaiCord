@@ -2,6 +2,7 @@
 #include "../src/app/application_composer_preview.hpp"
 #include "../src/app/application_state.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 // Shipping composer preview owner with a controlled account boundary: MP4/MOV
 // drafts request a GPU poster (with the renderer's device), unsupported video

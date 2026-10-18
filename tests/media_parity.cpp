@@ -8,6 +8,8 @@
 #include "maicord/ui/message_rich_layout.hpp"
 #include "media_fixture.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 using Check = void (*)(bool, const char*) noexcept;

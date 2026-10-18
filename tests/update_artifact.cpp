@@ -1,4 +1,5 @@
 #include "maicord/app/update_artifact.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -85,9 +86,9 @@ void test_update_artifact(void (*check)(bool, const char*) noexcept) noexcept {
         "update artifact: retained verified handle denies file writes and deletion before handoff");
     const HANDLE verified_handle = artifact.file;
     const UpdateArtifact empty{};
-    LARGE_INTEGER closed_size{};
+    Win32LargeInteger closed_size{};
     check(update_artifact_release(&artifact).ok() && bytes_equal(&artifact, &empty, sizeof(artifact)) &&
-        !GetFileSizeEx(verified_handle, &closed_size) && GetLastError() == ERROR_INVALID_HANDLE &&
+        !GetFileSizeEx(verified_handle, closed_size.native()) && GetLastError() == ERROR_INVALID_HANDLE &&
         update_artifact_release(&artifact).ok(), "update artifact: explicit release closes handle, clears identity and is idempotent");
 
     UpdateArtifact sentinel{};

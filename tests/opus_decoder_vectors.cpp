@@ -1,6 +1,7 @@
 #include "fixtures/opus_decoder_vectors.inc"
 #include "opus_vector_decode.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 // Fast in-suite subset of tools/opus_conformance.ps1: synthetic streams that
 // reach every decoder mode, bandwidth class, frame size, frame-count code,

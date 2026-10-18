@@ -10,6 +10,8 @@
 #include "maicord/ui/input_router.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::account_menu_runtime_test {
 using namespace app_detail;
@@ -116,9 +118,9 @@ void run() noexcept {
               g_app.popup_scene.items[0].status == 0,
           "account menu runtime: actual footer opens copied native identity without inventing desired "
           "status");
-    MEMORY_BASIC_INFORMATION region{};
+    Win32MemoryInformation region{};
     check(g_app.account_menu &&
-              VirtualQuery(g_app.account_menu, &region, sizeof(region)) == sizeof(region) &&
+              VirtualQuery(g_app.account_menu, region.native(), sizeof(region)) == sizeof(region) &&
               region.RegionSize <= 4096 && application_account_menu_owner_bytes() <= 4096,
           "account menu runtime: lazy private menu owner commits at most one page");
     metric("account_menu_model_bytes=", sizeof(UiAccountMenuModel));

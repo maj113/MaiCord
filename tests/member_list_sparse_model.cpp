@@ -274,7 +274,7 @@ void test_member_list_visible_users(void (*check)(bool, const char*) noexcept) n
             record->avatar_hash_bytes == 32 && bytes_equal(user_store_name(f.users, *record).data, display, 128) &&
             bytes_equal(user_store_username(f.users, *record).data, login, 128);
     }
-    check(inserted && retained && f.users.evictions >= 192 && !user_store_find(f.users, 1000) && sizeof(UserRecord) == 64,
+    check(inserted && retained && f.users.evictions >= 192 && !user_store_find(f.users, 1000),
         "name-bank LRU evicts unprotected profiles while retaining all visible names usernames and avatars without record growth");
     const auto old_visible = f.members.visible;
     check(!guild_member_store_set_visible_range(&f.members, 7, 70, 0, 128) &&

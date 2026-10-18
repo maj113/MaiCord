@@ -7,7 +7,7 @@
 #include "maicord/media/lossy_webp.hpp"
 #include "maicord/media/png.hpp"
 #include "maicord/media/webp.hpp"
-#include <windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

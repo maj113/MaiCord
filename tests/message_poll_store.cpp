@@ -1,5 +1,6 @@
 #include "maicord/model/message_poll_store.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -63,8 +64,8 @@ void test_message_poll_store(void (*check)(bool, const char*) noexcept) noexcept
               poll->answers[1].me_voted,
           "poll model: no decode-scratch borrowing and independent typed emoji/count/own state");
     costs = message_poll_store_metrics(store);
-    SYSTEM_INFO system{};
-    GetSystemInfo(&system);
+    Win32SystemInfo system{};
+    GetSystemInfo(system.native());
     check(costs.committed_bytes == 3 * static_cast<usize>(system.dwPageSize) && costs.commit_count == 3,
           "poll model: first small poll commits only owner, record and active text pages");
     const auto stable_costs = costs;

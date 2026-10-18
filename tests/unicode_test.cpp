@@ -1,6 +1,6 @@
 #include "maicord/text/unicode.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 bool unicode_grapheme_tests() noexcept;

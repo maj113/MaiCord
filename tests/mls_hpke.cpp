@@ -1,6 +1,7 @@
 #include "maicord/app/mls_hpke.hpp"
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -193,8 +194,8 @@ void boundaries(Check check, KdfSha256Workspace& workspace, const P256Key& key, 
           "Prefixed HMAC invalid prefix is atomic");
 }
 void guards(Check check, KdfSha256Workspace& workspace, const P256Key& key) noexcept {
-    SYSTEM_INFO system{};
-    GetSystemInfo(&system);
+    Win32SystemInfo system{};
+    GetSystemInfo(system.native());
     const u32 page = system.dwPageSize;
     auto* mem = static_cast<u8*>(VirtualAlloc(nullptr, page * 4, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
     check(mem != nullptr, "MLS HPKE guard allocation");
@@ -270,6 +271,6 @@ void test_mls_hpke(Check check) noexcept {
         CloseHandle(file);
     p256_release(&key);
     kdf_sha256_release(&workspace);
-    SecureZeroMemory(scalar, 32);
+    secure_clear_bytes(scalar, 32);
 }
 } // namespace maicord

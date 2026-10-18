@@ -2,6 +2,7 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/core/log.hpp"
 #include <dxgi1_4.h>
+#include <Windows.h>
 #include <psapi.h>
 
 namespace maicord {

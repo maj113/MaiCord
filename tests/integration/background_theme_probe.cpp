@@ -11,6 +11,9 @@
 #include "maicord/render/renderer_presentation.hpp"
 #include "maicord/render/content_text_retention.hpp"
 #include "maicord/render/background_fx.hpp"
+
+#include <d3d11_1.h>
+
 #include "maicord_fx_plugin_reference_ps.hpp"
 
 namespace maicord {

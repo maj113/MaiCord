@@ -3,6 +3,8 @@
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/media/asset.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 bool unchanged_tail(const u8* text, u32 count, u8 value) noexcept {

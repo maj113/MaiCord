@@ -209,8 +209,6 @@ void test_received_attachment_menu(void (*check)(bool, const char*) noexcept) no
 } // namespace
 
 void test_message_context_controller_extensions(void (*check)(bool, const char*) noexcept) noexcept {
-    static_assert(kMessageContextMaximumExtraItems == 8);
-    static_assert(kMessageContextMaximumPopupItems == 33);
     PopupFixture fixture{};
     check(fixture.initialize(), "message context extras: initialize bounded popup");
     MessageRecord message{};
@@ -332,9 +330,6 @@ void test_message_context_controller_extensions(void (*check)(bool, const char*)
     message_context_controller_close(&controller);
     check(!message_context_controller_resolve_quick_reaction(controller, quick_action, &quick),
         "message context extras: closed controller rejects stale quick reaction actions");
-    check(message_context_controller_open(nullptr, &fixture.popup, message,
-        false, false, false, nullptr, anchor, viewport).error == MessageContextControllerError::invalid_input,
-        "message context extras: null controller rejection does not dereference it");
     invalid = extras[0]; invalid.label = {oversized, kMessageContextMaximumExtraLabelBytes};
     check(message_context_controller_open(&controller, &fixture.popup, message,
         false, false, false, nullptr, anchor, viewport, false, {&invalid, 1}).ok() &&
@@ -435,7 +430,6 @@ void test_message_context_controller_extensions(void (*check)(bool, const char*)
     check(forward_extra.error == MessageContextControllerError::invalid_input &&
         pin_popup.popup.revision == forward_revision,
         "message context forward: plugin extras cannot collide with absent built-in forward action");
-    static_assert(static_cast<u32>(MessageContextAction::create_thread) == 20);
     check(message_context_controller_open(&controller, &pin_popup.popup, message,
         true, true, true, nullptr, anchor, viewport, true, {extras, 8}, true, true, true, false, true).ok() &&
         controller.menu.count == 17 && pin_popup.popup.item_count == 25,

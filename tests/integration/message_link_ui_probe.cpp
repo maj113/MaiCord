@@ -1,6 +1,7 @@
 #include "message_link_ui_probe.hpp"
 #include "probe_present.hpp"
 #include "probe_glyph_ink.hpp"
+#include "probe_capture.hpp"
 #include "application_state.hpp"
 #include "application_content_input.hpp"
 #include "application_search_navigation.hpp"
@@ -20,6 +21,7 @@
 #include "../../src/render/d3d11_renderer_layout.hpp"
 #include "maicord/render/renderer_presentation.hpp"
 
+#include <Windows.h>
 #include <d3d11_1.h>
 
 namespace maicord::app_detail {
@@ -566,57 +568,10 @@ bool capture(const wchar_t* filename) noexcept {
             measured.size.height > ui_rect_height(bounds) + .01f)
             return require(false, 101);
     }
-    wchar_t path[1024]{};
-    u32 end = GetEnvironmentVariableW(L"MAICORD_UI_PROBE_CAPTURE_DIR", path, 900);
-    if (end >= 900)
-        return false;
-    const bool write_capture = end != 0;
-    path[end++] = L'/';
-    for (u32 i = 0; filename[i]; ++i) {
-        if (end + 1 >= 1024)
-            return false;
-        path[end++] = filename[i];
-    }
-    ID3D11Resource* resource{};
-    ID3D11Texture2D* source{};
-    ID3D11Texture2D* staging{};
-    struct Release {
-        ID3D11Resource*& resource;
-        ID3D11Texture2D*& source;
-        ID3D11Texture2D*& staging;
-        ~Release() noexcept {
-            com_release(resource);
-            com_release(source);
-            com_release(staging);
-        }
-    } release{resource, source, staging};
-    r.graphics.target->GetResource(&resource);
-    if (FAILED(resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source))))
-        return false;
-    D3D11_TEXTURE2D_DESC description{};
-    source->GetDesc(&description);
-    // Resize may retain a larger backing texture. Evidence represents only
-    // the active viewport; each source row still follows the mapped pitch.
-    if (!r.width || !r.height || r.width > description.Width || r.height > description.Height ||
-        static_cast<u64>(r.width) * r.height * 4 >
-            MAXDWORD - sizeof(BITMAPFILEHEADER) - sizeof(BITMAPINFOHEADER))
-        return require(false, 102);
-    description.Usage = D3D11_USAGE_STAGING;
-    description.BindFlags = description.MiscFlags = 0;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    if (FAILED(r.graphics.device->CreateTexture2D(&description, nullptr, &staging)))
-        return false;
-    r.graphics.context->CopyResource(staging, source);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(r.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)))
-        return false;
-    struct Unmap {
-        ID3D11DeviceContext* context;
-        ID3D11Texture2D* texture;
-        ~Unmap() noexcept {
-            context->Unmap(texture, 0);
-        }
-    } unmap{r.graphics.context, staging};
+    ProbeTargetReadback readback;
+    if (const u32 failure = probe_target_readback(r, &readback))
+        return failure == 2 ? require(false, 102) : false;
+    const auto& mapped = readback.mapped;
     if (notice.bytes && !probe_glyph_ink(mapped, notice_bounds))
         return require(false, 105);
     bool body_present{}, body_pixels{};
@@ -634,37 +589,7 @@ bool capture(const wchar_t* filename) noexcept {
     }
     if (g_app.message_view.store.count && (!body_present || !body_pixels))
         return require(false, 106);
-    if (!write_capture)
-        return true;
-    HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (file == INVALID_HANDLE_VALUE)
-        return false;
-    struct Close {
-        HANDLE file;
-        ~Close() noexcept {
-            CloseHandle(file);
-        }
-    } close{file};
-    const auto write = [&](const void* data, u32 bytes) noexcept {
-        DWORD written{};
-        return WriteFile(file, data, bytes, &written, nullptr) && written == bytes;
-    };
-    BITMAPFILEHEADER header{};
-    header.bfType = 0x4d42;
-    header.bfOffBits = sizeof(header) + sizeof(BITMAPINFOHEADER);
-    header.bfSize = header.bfOffBits + r.width * r.height * 4;
-    BITMAPINFOHEADER info{};
-    info.biSize = sizeof(info);
-    info.biWidth = r.width;
-    info.biHeight = -static_cast<LONG>(r.height);
-    info.biPlanes = 1;
-    info.biBitCount = 32;
-    if (!write(&header, sizeof(header)) || !write(&info, sizeof(info)))
-        return false;
-    for (u32 y = 0; y < r.height; ++y)
-        if (!write(static_cast<const u8*>(mapped.pData) + y * mapped.RowPitch, r.width * 4))
-            return false;
-    return true;
+    return probe_write_capture(readback, filename);
 }
 
 bool gallery_activation() noexcept {

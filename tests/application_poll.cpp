@@ -4,6 +4,8 @@
 #include "../src/app/application_poll.hpp"
 #include "../src/app/application_state.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 namespace maicord::poll_app_test {
 u64 now = 1000, unix_now = 1000;
 }

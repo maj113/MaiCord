@@ -5,13 +5,9 @@
 #include "maicord/render/background_fx.hpp"
 #include "maicord/ui/background_animation.hpp"
 #include "maicord/ui/background_surface.hpp"
-#include <cstddef>
 
 namespace maicord {
 void test_background_effect_policy(void (*check)(bool, const char*) noexcept) noexcept {
-    static_assert(sizeof(BackgroundTheme) == 28);
-    static_assert(offsetof(Theme, background) == 20 * sizeof(Color) + sizeof(UiThemeTokens) + sizeof(UiThemeScale) +
-                                                 sizeof(UiThemeMotion));
     static_assert(sizeof(Theme) <= 2048); // room for the ANSI code block palette tokens
     auto authored_dark = kDefaultTheme;
     authored_dark.text_primary = {0, 1, 0, 1};
@@ -232,7 +228,6 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
           "phase catchup");
 
     // ---- Effect pass (mc.fx@1 constants, canvases, selection, GPU guard) ----
-    static_assert(offsetof(BackgroundFxConstants, resolution) == 16 && offsetof(BackgroundFxConstants, origin) == 24);
     const BackgroundTheme none{};
     check(background_animation_allowed(none, true, true, false, false, false, true, false) &&
               !background_animation_allowed(none, false, true, false, false, false, true, false) &&
@@ -310,7 +305,7 @@ void test_background_effect_policy(void (*check)(bool, const char*) noexcept) no
     const bool third_stall = background_fx_guard_sample(&stalls, 20, 40);
     BackgroundFxGuard nan{};
     check(average && tripped && slow.window_frames == 0 && first_stalls && third_stall &&
-              !background_fx_guard_sample(&nan, nan_value, 5) && !background_fx_guard_sample(nullptr, 99, 5),
+              !background_fx_guard_sample(&nan, nan_value, 5),
           "effect pass: GPU guard trips above 2 ms average over a second or on the third 8 ms frame");
 
     u8 record[kBackgroundFxChoiceBytes]{};

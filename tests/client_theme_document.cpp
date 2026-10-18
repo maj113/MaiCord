@@ -19,8 +19,7 @@ bool refused(Utf8View input, const ClientThemeDocument& defaults) noexcept {
 void test_client_theme_document(void (*check)(bool, const char*) noexcept) noexcept {
     auto defaults = client_theme_document_defaults();
     check(client_theme_document_valid(defaults) && defaults.base == ClientThemeBase::dark &&
-              defaults.theme.appearance == ThemeAppearance::dark && !defaults.theme.styles &&
-              !defaults.theme.style_revision,
+              defaults.theme.appearance == ThemeAppearance::dark,
           "theme document: defaults are complete typed dark data with no runtime style pointer");
     defaults.theme.accent = {.125f, .25f, .375f, .5f};
     defaults.theme = ui_theme_resolve_defaults(defaults.theme); // semantic tokens follow core colours

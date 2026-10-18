@@ -2,6 +2,7 @@
 #include "probe_present.hpp"
 #include "../../tools/perf/probe_window.hpp"
 #include "probe_glyph_ink.hpp"
+#include "probe_capture.hpp"
 #include "application_state.hpp"
 #include "application_scoped_read.hpp"
 #include "application_scoped_read_menu.hpp"
@@ -38,6 +39,7 @@
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "../../src/render/d3d11_renderer_layout.hpp"
 
+#include <Windows.h>
 #include <d3d11_1.h>
 
 namespace maicord::app_detail {
@@ -465,45 +467,10 @@ bool capture(const wchar_t* filename) noexcept {
                                      renderer_capture_presentation_stamp(r, fixture->theme)) ||
         !d3d11_renderer_draw_stream(&r, fixture->theme, true, true, nullptr, 10000))
         return SCOPED_READ_REQUIRE(false, 231);
-    ID3D11Resource* resource{};
-    ID3D11Texture2D* source{};
-    ID3D11Texture2D* staging{};
-    struct Release {
-        ID3D11Resource*& resource;
-        ID3D11Texture2D*& source;
-        ID3D11Texture2D*& staging;
-        ~Release() noexcept {
-            com_release(resource);
-            com_release(source);
-            com_release(staging);
-        }
-    } release{resource, source, staging};
-    r.graphics.target->GetResource(&resource);
-    if (FAILED(resource->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&source))))
-        return SCOPED_READ_REQUIRE(false, 232);
-    D3D11_TEXTURE2D_DESC description{};
-    source->GetDesc(&description);
-    if (!r.width || !r.height || r.width > description.Width || r.height > description.Height ||
-        static_cast<u64>(r.width) * r.height * 4 >
-            MAXDWORD - sizeof(BITMAPFILEHEADER) - sizeof(BITMAPINFOHEADER))
-        return SCOPED_READ_REQUIRE(false, 233);
-    description.Usage = D3D11_USAGE_STAGING;
-    description.BindFlags = description.MiscFlags = 0;
-    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-    if (FAILED(r.graphics.device->CreateTexture2D(&description, nullptr, &staging)))
-        return SCOPED_READ_REQUIRE(false, 234);
-    // Read precisely this current draw, before flip-model Present advances.
-    r.graphics.context->CopyResource(staging, source);
-    D3D11_MAPPED_SUBRESOURCE mapped{};
-    if (FAILED(r.graphics.context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped)))
-        return SCOPED_READ_REQUIRE(false, 235);
-    struct Unmap {
-        ID3D11DeviceContext* context;
-        ID3D11Texture2D* texture;
-        ~Unmap() noexcept {
-            context->Unmap(texture, 0);
-        }
-    } unmap{r.graphics.context, staging};
+    ProbeTargetReadback readback;
+    if (const u32 failure = probe_target_readback(r, &readback))
+        return SCOPED_READ_REQUIRE(false, 231 + failure);
+    const auto& mapped = readback.mapped;
     if (!visual(mapped))
         return fail_at(__LINE__);
     // Verify the current native frame in memory; never write capture artifacts.

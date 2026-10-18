@@ -1,7 +1,7 @@
 #include "maicord/text/run_plan.hpp"
 #include "maicord/text/font_prepare.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u64 checks=0,glyphs=0,base_bytes=0,bold_bytes=0;u32 faces=0;
 void print(const char* s) noexcept{u32 n=0;while(s[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&written,nullptr);}
@@ -51,7 +51,7 @@ bool run() noexcept {
     wchar_t path[32768];u32 n=0;quoted=*p=='"';if(quoted)++p;while(*p&&!(quoted?*p=='"':*p==' '||*p=='\t')){CHECK(n<32767);path[n++]=*p++;}path[n]=0;CHECK(n);
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr),mapping=nullptr;const u8* bytes=nullptr;
     struct Release {HANDLE& f;HANDLE& m;const u8*& p;~Release() noexcept{if(p)UnmapViewOfFile(p);if(m)CloseHandle(m);if(f!=INVALID_HANDLE_VALUE)CloseHandle(f);}} release{file,mapping,bytes};
-    LARGE_INTEGER size{};CHECK(file!=INVALID_HANDLE_VALUE&&GetFileSizeEx(file,&size)&&size.QuadPart>=4&&size.QuadPart<=64*1024*1024);
+    Win32LargeInteger size{};CHECK(file!=INVALID_HANDLE_VALUE&&GetFileSizeEx(file,size.native())&&size.QuadPart>=4&&size.QuadPart<=64*1024*1024);
     mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);CHECK(mapping);bytes=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));CHECK(bytes);
     if(byte_load_le32(bytes)!=0x3150534du)return exercise(path,0,0,nullptr);
     Reader reader{bytes+4,static_cast<u32>(size.QuadPart)-4};u32 records=0;CHECK(reader.word(&records)&&records<=256);

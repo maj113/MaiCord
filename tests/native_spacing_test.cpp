@@ -1,5 +1,6 @@
 // QA only: compare the production spacing primitive with installed Windows.
 #include "maicord/text/gpos_execute.hpp"
+#include <Windows.h>
 #include <dwrite_1.h>
 namespace maicord {namespace {
 bool output_ok=true;

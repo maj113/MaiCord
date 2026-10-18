@@ -1,4 +1,5 @@
 #include "maicord/platform/notification_audio.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

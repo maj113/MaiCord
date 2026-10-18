@@ -1,6 +1,7 @@
 #include "maicord/render/shader_bytecode.hpp"
 #include "../test_output.hpp"
 
+#include <Windows.h>
 #include <d3d11_1.h>
 namespace maicord { namespace {
 #define CHECK(x) do{if(!(x)){test_write_text("FAIL: " #x "\n");return false;}}while(0)

@@ -8,6 +8,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/guild_detail_store.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace guild_settings_test {

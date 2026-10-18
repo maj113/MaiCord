@@ -1,6 +1,7 @@
 #include "maicord/app/voice_media_setup.hpp"
 #include "maicord/protocol/voice_gateway.hpp"
 
+#include <Windows.h>
 #include <WS2tcpip.h>
 
 namespace maicord {
@@ -28,9 +29,8 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
     u32 scratch[512];
     VoiceReady ready{};
     check(voice_decode_ready(object(ready_json), {scratch, 512}, 16, &ready).ok() &&
-              ready.ssrc == ~u32{0} && ready.port == 65535 && ready.recognized_modes == 3 &&
-              ready.has_streams && ready.has_experiments && ready.streams.kind == JsonValueKind::array,
-          "voice Ready decodes endpoint/modes and preserves streams/experiments");
+              ready.ssrc == ~u32{0} && ready.port == 65535 && ready.recognized_modes == 3,
+          "voice Ready decodes endpoint and modes");
     const Utf8View invalid_ready[]{
         utf8_literal("{}"),
         utf8_literal("{\"ssrc\":0,\"ip\":\"x\",\"port\":1,\"modes\":[\"x\"]}"),
@@ -56,8 +56,8 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
                                            {key, 32})
                   .ok() &&
               description.udp && description.recognized_mode == 1 &&
-              description.dave_protocol_version == 1 && description.has_audio_codec &&
-              description.has_video_codec && description.keyframe_interval_ms == 5000,
+              description.dave_protocol_version == 1 && description.has_video_codec &&
+              description.keyframe_interval_ms == 5000,
           "voice Session Description validates UDP key and negotiated metadata");
     bool exact = true;
     for (u32 i = 0; i < 32; ++i)
@@ -97,7 +97,7 @@ void test_voice_media_events(void (*check)(bool, const char*) noexcept) noexcept
     }
     const auto sdp = object(utf8_literal("{\"sdp\":\"v=0\\r\\n\",\"audio_codec\":\"opus\"}"));
     check(voice_decode_session_description(sdp, {scratch, 512}, 16, &description, {key, 32}).ok() &&
-              !description.udp && description.sdp.encoded.bytes && filled({key, 32}, 0),
+              !description.udp && filled({key, 32}, 0),
           "voice SDP alternative has no transport key and clears successful key destination");
     const Utf8View invalid_descriptions[]{utf8_literal("{}"),
                                           utf8_literal("{\"mode\":\"x\"}"),

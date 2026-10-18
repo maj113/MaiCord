@@ -2,6 +2,8 @@
 #include "../src/app/user_auth_coordinator.cpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::phone_coordinator_test {
 struct Fixture {
     SecureBuffer request, response, headers;

@@ -2,6 +2,7 @@
 #include "maicord/media/progressive_source.hpp"
 #include "maicord/protocol/cdn_http.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 // Progressive MP4 playback: Range/206 parsing, sparse-source bookkeeping, moov
 // probing, pending reads, scheduling, signed-URL refresh, the resident memory

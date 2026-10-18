@@ -42,6 +42,7 @@
 #include "maicord/text/detail/paragraph_layout.hpp"
 #include "maicord/text/latin_paragraph.hpp"
 #include "maicord/core/utf.hpp"
+#include <Windows.h>
 #include <dwrite_3.h>
 #include <psapi.h>
 #include <emmintrin.h>

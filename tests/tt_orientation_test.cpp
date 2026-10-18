@@ -1,6 +1,6 @@
 #include "maicord/text/tt_orientation.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "generated/orientation_fixture.inc"
 bool corpus() noexcept {

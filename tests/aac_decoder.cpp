@@ -1,6 +1,7 @@
 #include "maicord/platform/aac_decoder.hpp"
 #include "maicord/media/aac_configuration.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
@@ -13,8 +14,7 @@ void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
           "blocks remain16KiB");
     capacity = 77;
     check(!aac_decoder_output_capacity(65537, &capacity) && capacity == 77 &&
-              !aac_decoder_output_capacity(~u32{0}, &capacity) && capacity == 77 &&
-              !aac_decoder_output_capacity(49152, nullptr),
+              !aac_decoder_output_capacity(~u32{0}, &capacity) && capacity == 77,
           "AAC buffers: unbounded native capacity requirements refuse atomically");
     u32 mask = 77;
     check(aac_decoder_alignment_mask(0, &mask) && mask == 0 && aac_decoder_alignment_mask(1, &mask) &&
@@ -24,8 +24,7 @@ void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
           "maximum");
     mask = 77;
     check(!aac_decoder_alignment_mask(3, &mask) && mask == 77 && !aac_decoder_alignment_mask(4097, &mask) &&
-              mask == 77 && !aac_decoder_alignment_mask(~u32{0}, &mask) && mask == 77 &&
-              !aac_decoder_alignment_mask(16, nullptr),
+              mask == 77 && !aac_decoder_alignment_mask(~u32{0}, &mask) && mask == 77,
           "AAC buffers: malformed and overflow-sized native alignment requirements refuse atomically");
     const u8 stereo44[]{0x12, 0x10}, mono48[]{0x11, 0x88}, absent_sbr[]{0x12, 0x10, 0x56, 0xe5, 0};
     check(aac_decoder_configuration_valid({stereo44, 2}, 44100, 2) &&
@@ -81,10 +80,8 @@ void test_aac_decoder(void (*check)(bool, const char*) noexcept) noexcept {
     const HMODULE before = GetModuleHandleW(L"mfplat.dll");
     AacDecoder decoder{};
     check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).ok() && decoder.initialized &&
-              !decoder.runtime && !decoder.thread_id && decoder.format == AacPcmFormat::float32 &&
-              decoder.native_stage == AacNativeStage::none && !decoder.native_output_formats,
-          "AAC lifecycle: initialization is copied metadata with no native decoder allocation or synthetic "
-          "native stage");
+              !decoder.runtime && !decoder.thread_id && decoder.format == AacPcmFormat::float32,
+          "AAC lifecycle: initialization is copied metadata with no native decoder allocation");
     check(aac_decoder_initialize(&decoder, {stereo44, 2}, 44100, 2).error == AacDecodeError::busy &&
               aac_decoder_submit(&decoder, {}, 0, 1024).error == AacDecodeError::invalid_input,
           "AAC lifecycle: busy initialization and invalid packet cannot open a native transform");

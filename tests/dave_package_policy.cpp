@@ -1,5 +1,6 @@
 #include "maicord/app/mls_key_package.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -13,8 +14,8 @@ bool filled(const void* value, u32 count) noexcept {
     return true;
 }
 void guard(Check check, KdfSha256Workspace& workspace, ConstSlice<u8> input) noexcept {
-    SYSTEM_INFO system{};
-    GetSystemInfo(&system);
+    Win32SystemInfo system{};
+    GetSystemInfo(system.native());
     const u32 page = system.dwPageSize;
     auto* memory =
         static_cast<u8*>(VirtualAlloc(nullptr, page * 4, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));

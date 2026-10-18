@@ -1,5 +1,6 @@
 #include "maicord/protocol/dave_frame.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -183,8 +184,8 @@ void invalid(Check check) noexcept {
         "DAVE supports the complete wire-format clear-range count without a smaller implementation limit");
 }
 void guarded(Check check) noexcept {
-    SYSTEM_INFO info{};
-    GetSystemInfo(&info);
+    Win32SystemInfo info{};
+    GetSystemInfo(info.native());
     const u32 page = info.dwPageSize;
     auto* memory =
         static_cast<u8*>(VirtualAlloc(nullptr, page * 3, MEM_RESERVE | MEM_COMMIT, PAGE_NOACCESS));

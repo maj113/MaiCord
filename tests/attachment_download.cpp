@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/cdn_url.hpp"
+#include <Windows.h>
 #include <initializer_list>
 
 namespace maicord { namespace {

@@ -11,6 +11,7 @@
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/guild_rail_scene.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::navigation_gaps_test {
 u32 failures = 0;

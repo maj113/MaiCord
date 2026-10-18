@@ -1,6 +1,7 @@
 #include "test_output.hpp"
 #include "maicord/platform/desktop_notifications.hpp"
 #include "maicord/platform/notification_identity.hpp"
+#include <Windows.h>
 #include <NotificationActivationCallback.h>
 #include <objbase.h>
 namespace maicord {

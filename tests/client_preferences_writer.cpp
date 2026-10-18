@@ -1,4 +1,5 @@
 #include "maicord/app/client_preferences_writer.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -32,14 +33,9 @@ void test_client_preferences_writer(void (*check)(bool, const char*) noexcept) n
     ClientPreferencesResult result{93, ClientPreferencesError::checksum};
     bool ready = true;
     const auto defaults = client_preferences_defaults();
-    check(!client_preferences_writer_create(nullptr) &&
-          !client_preferences_writer_create(&writer, L"") && !writer &&
-          !client_preferences_writer_submit(nullptr, defaults, &revision) && revision == 91 &&
-          !client_preferences_writer_poll(nullptr, &completed, &result, &ready) &&
-          completed == 92 && result.native_error == 93 && ready &&
+    check(!client_preferences_writer_create(&writer, L"") && !writer &&
           !client_preferences_writer_completion_event(nullptr) &&
-          client_preferences_writer_stop(&writer, 0) && !writer &&
-          !client_preferences_writer_stop(nullptr, 0),
+          client_preferences_writer_stop(&writer, 0) && !writer,
           "preferences writer: invalid arguments preserve outputs and null stop is idempotent");
 
     // Only an external temporary fixture is ever supplied to the writer.
@@ -79,9 +75,7 @@ void test_client_preferences_writer(void (*check)(bool, const char*) noexcept) n
           completed == 92 && result.native_error == 93 && result.error == ClientPreferencesError::checksum,
           "preferences writer: empty poll preserves revision/result and clears ready");
     const ClientPreferences invalid{static_cast<ClientTheme>(255), false, false, false};
-    check(!client_preferences_writer_submit(writer, invalid, &revision) && revision == 91 &&
-          !client_preferences_writer_submit(writer, defaults, nullptr) &&
-          !client_preferences_writer_poll(writer, nullptr, &result, &ready),
+    check(!client_preferences_writer_submit(writer, invalid, &revision) && revision == 91,
           "preferences writer: malformed requests cannot consume revisions or enqueue disk IO");
 
     auto invalid_pack=defaults;invalid_pack.soundpack=static_cast<NotificationSoundpack>(9);

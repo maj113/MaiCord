@@ -2,6 +2,7 @@
 #include "maicord/protocol/channel_overview.hpp"
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace thread_action_test {

@@ -3,6 +3,7 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::received_attachment_test {
 u32 failures{};

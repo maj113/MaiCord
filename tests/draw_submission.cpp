@@ -3,6 +3,7 @@
 // one pass under the same scissor draw as one call.
 #include "maicord/render/draw_submission.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::draw_submission_test {
 namespace {

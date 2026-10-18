@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_host.hpp"
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord {
 namespace {

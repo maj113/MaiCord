@@ -12,6 +12,7 @@
 #include "maicord/core/memory.hpp"
 #include "application_action_captcha_stubs.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::reaction_history_test {
 using namespace app_detail;

@@ -1,6 +1,5 @@
 #include "maicord/app/read_scope.hpp"
 #include "maicord/model/permission_bits.hpp"
-#include <limits>
 
 namespace maicord {
 namespace {
@@ -188,9 +187,8 @@ void test_read_scope(void (*check)(bool, const char*) noexcept) noexcept {
     check(plan.valid && !find({entries, plan.count}, 204)->outbound &&
               !find({entries, plan.count}, 205)->outbound,
           "clock before snowflake epoch clamps forum/media cursor to local-only zero");
-    plan = read_scope_plan(state, ReadScopeKind::guild, 1, std::numeric_limits<u64>::max(), {entries, 24});
-    check(plan.valid && find({entries, plan.count}, 204)->message_id ==
-                            ((std::numeric_limits<u64>::max() >> 22) << 22),
+    plan = read_scope_plan(state, ReadScopeKind::guild, 1, ~u64{0}, {entries, 24});
+    check(plan.valid && find({entries, plan.count}, 204)->message_id == ((~u64{0} >> 22) << 22),
           "action snowflake timestamp clamps overflow without wrapping backward");
     ReadScopeSource unchanged{};
     unchanged.id = 555;

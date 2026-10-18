@@ -13,6 +13,8 @@
 #include "maicord/protocol/writer.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::app_detail {
 // No voice message recording in this runtime.
 void application_voice_message_pointer(UiButtonPointerEvent, bool, bool) noexcept {}

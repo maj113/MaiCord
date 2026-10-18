@@ -1,6 +1,7 @@
 // Actual QR owner implementation with a synthetic, held terminal worker.
 // No DNS, socket, service request, or user credential is involved.
 #include "../src/app/remote_auth_client.cpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::login_handoff_test {
 struct HeldWorker { RemoteAuthClient* client; HANDLE release; } held{};

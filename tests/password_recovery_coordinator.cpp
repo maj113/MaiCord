@@ -1,6 +1,7 @@
 // Actual shipping coordinator with a synchronous, non-network REST boundary.
 #include "../src/app/user_auth_coordinator.cpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::recovery_coordinator_test {
 struct Fixture {

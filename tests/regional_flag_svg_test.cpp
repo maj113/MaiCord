@@ -1,5 +1,6 @@
 #include "maicord/media/regional_flag_svg.hpp"
 #include "maicord/ui/regional_flag.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord { namespace {
 void print(const char* value) noexcept {u32 n=0;while(value[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),value,n,&written,nullptr);}

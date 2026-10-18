@@ -2,18 +2,10 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
-#include <stddef.h>
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
-static_assert(sizeof(AccountUploadResult) == 48);
-static_assert(offsetof(AccountUploadResult, owns_transfer) == 42);
-static_assert(sizeof(ForumPostRequest) == 144);
-static_assert(offsetof(ForumPostRequest, attachments) == 96);
-static_assert(offsetof(ForumPostRequest, upload_filename) == 112);
-static_assert(offsetof(ForumPostRequest, upload_bytes) == 128);
-static_assert(offsetof(ForumPostRequest, upload_id) == 136);
-static_assert(offsetof(ForumPostRequest, upload_reserved) == 140);
 namespace forum_account_test {
 u32 failures;
 struct Capture {
@@ -208,40 +200,18 @@ void transport() noexcept {
           "forum account: published receipt remains available for exact drain");
 }
 void dormant_abi() noexcept {
-    static_assert(sizeof(AccountModuleApi) == 1176 && sizeof(AccountHost) == 1424);
-    static_assert(offsetof(AccountModuleApi, thread_creation) == 592 &&
-                  offsetof(AccountModuleApi, forum_post) == 600);
     AccountHost host{};
-    check(account_host_load(&host).ok(), "forum account: cold ABI94 DLL loads without credentials");
+    check(account_host_load(&host).ok(), "forum account: cold DLL loads without credentials");
     if (!host.module)
         return;
     ForumPostRequest request{};
     request.parent_id = 20;
     request.guild_id = 10;
     request.operation = ForumPostOperation::parent_metadata;
-    check(host.api.version == 133 && host.api.bytes == 1176 && host.api.forum_post &&
-              host.api.forum_post(nullptr, &request, 1).error == RestClientSubmitError::invalid_input &&
+    check(host.api.forum_post(nullptr, &request, 1).error == RestClientSubmitError::invalid_input &&
               host.api.forum_post(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               !host.instance && !host.login_instance,
           "forum account: dormant callback allocates no account or worker");
-    auto missing = host.api;
-    missing.media_local_preview = nullptr;
-    check(!account_host_api_valid(missing), "forum account: local preview callback is mandatory");
-    check(host.api.media_local_preview &&
-              host.api.media_local_preview(nullptr, AccountLocalPreviewOperation::request, nullptr, 1, 1)
-                      .error == AccountMediaError::invalid_input,
-          "forum account: dormant local preview allocates no worker");
-    AccountMediaLocalPreviewRequest poster_receipt{};
-    poster_receipt.lease_serial = 17;
-    check(host.api.media_local_preview &&
-              host.api.media_local_preview(nullptr, AccountLocalPreviewOperation::uploaded, &poster_receipt, 0, 0)
-                      .error == AccountMediaError::invalid_input &&
-              host.api.media_local_preview(nullptr, AccountLocalPreviewOperation::presented, nullptr, 0, 0)
-                      .error == AccountMediaError::invalid_input && !host.instance && !host.login_instance,
-          "forum account: poster upload and presentation require an account owner");
-    missing = host.api;
-    missing.forum_post = nullptr;
-    check(!account_host_api_valid(missing), "forum account: mandatory callback absence rejects");
     account_host_release(&host);
 }
 } // namespace forum_account_test

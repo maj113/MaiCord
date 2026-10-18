@@ -7,6 +7,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/text_presentation.hpp"
+
+#include <Windows.h>
 namespace maicord {
 namespace {
 void test_image_gallery(void (*check)(bool, const char*) noexcept) noexcept {

@@ -3,6 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::search_content_test {
 bool target_current(const UiSearchScene&, UiSearchTarget) noexcept;

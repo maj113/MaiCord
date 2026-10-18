@@ -9,6 +9,7 @@
 #include "probe_present.hpp"
 #include "standalone_title_geometry.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -43,8 +44,8 @@ bool read_flag(const wchar_t* directory, u32 chars, u16 sequence, Slice<u8> byte
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,
                             FILE_ATTRIBUTE_NORMAL,nullptr);
     if (file==INVALID_HANDLE_VALUE) return false;
-    LARGE_INTEGER size{};DWORD read=0;
-    const bool valid=GetFileSizeEx(file,&size) && size.QuadPart>0 &&
+    Win32LargeInteger size{};DWORD read=0;
+    const bool valid=GetFileSizeEx(file,size.native()) && size.QuadPart>0 &&
         size.QuadPart<=kRegionalFlagSvgMaximumBytes && size.QuadPart<=bytes.count &&
         ReadFile(file,bytes.data,static_cast<DWORD>(size.QuadPart),&read,nullptr) &&
         read==static_cast<DWORD>(size.QuadPart);

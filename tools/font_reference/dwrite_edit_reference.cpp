@@ -5,6 +5,8 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/ui/geometry.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 bool text_edit_layout_measure(TextEditLayoutOwner* owner, const TextEditLayoutInput& input,
                               const DWriteTextSystem& text_system) noexcept {

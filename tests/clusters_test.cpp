@@ -1,6 +1,6 @@
 #include "gsub_program_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "generated/cluster_execute_fixture.inc"
 void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}
@@ -90,7 +90,7 @@ bool units() noexcept {
     return sfnt_cluster_map_split(&map,0)==SfntStatus::invalid_input;
 }
 bool guards() noexcept {
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*17,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*17,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));if(!memory)return false;
     DWORD old=0;if(!VirtualProtect(memory+page*16,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}bool ok=true;
     const u32 lengths[]{1,63,64,65,4096,4097,262145};
     for(u32 count:lengths){const u32 words=sfnt_cluster_map_words(count);if(static_cast<u64>(words)*8>page*16){ok=false;break;}
@@ -149,7 +149,7 @@ bool corpus(ConstSlice<u8> bytes) noexcept {
     }return r.at==r.data.count;
 }
 bool file_corpus(const wchar_t* path) noexcept {
-    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;LARGE_INTEGER size{};if(!GetFileSizeEx(file,&size) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
+    HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;Win32LargeInteger size{};if(!GetFileSizeEx(file,size.native()) || size.QuadPart<12 || size.QuadPart>0xffffffffll){CloseHandle(file);return false;}
     HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return false;}
     const auto* data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));const bool ok=data && corpus({data,static_cast<u32>(size.QuadPart)});if(data)UnmapViewOfFile(data);CloseHandle(mapping);CloseHandle(file);return ok;
 }

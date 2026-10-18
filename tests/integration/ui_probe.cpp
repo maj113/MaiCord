@@ -112,6 +112,8 @@
 #include "unified_picker_ui_probe.hpp"
 #include "maicord/ui/settings_choice.hpp"
 
+#include <Windows.h>
+
 namespace maicord::app_detail {
 // Search rendering fixtures bind caller-owned scenes directly. They do not
 // select the application search editor or its authenticated REST owner.

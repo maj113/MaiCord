@@ -1,6 +1,8 @@
 // Actual shipping coordinator with a synchronous, non-network REST boundary.
 #include "../src/app/user_auth_coordinator.cpp"
 #include "test_output.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::reset_coordinator_test {
 struct Fixture {
@@ -257,8 +259,8 @@ void run() noexcept {
     // Exercise the real 72 KiB request admission with every maximum expanded
     // secret, while the ordinary transport profile remains 32 KiB.
     if (!start_fixture(&coordinator)) return;
-    SecureZeroMemory(token.data, token.capacity); token.bytes = kLoginResetMaximumTokenBytes;
-    SecureZeroMemory(password.data, password.capacity); password.bytes = kUserAuthMaximumPasswordBytes;
+    secure_clear_bytes(token.data, token.capacity); token.bytes = kLoginResetMaximumTokenBytes;
+    secure_clear_bytes(password.data, password.capacity); password.bytes = kUserAuthMaximumPasswordBytes;
     check(user_auth_coordinator_submit_reset(&coordinator, &token, &password).ok(),
         "reset coordinator: maximum expanded initial token and password fit protected request arena");
     assign(&fixture.response, utf8_literal(R"({"mfa":true,"totp":true,"sms":true,"backup":true,"webauthn":"challenge","ticket":")"));
@@ -298,7 +300,7 @@ void run() noexcept {
         prefix == runtime->continuation_token_bytes, "reset coordinator: explicit rejection retains only encoded token prefix");
     for (u32 i = prefix; i < runtime->secrets.capacity; ++i) check(!runtime->secrets.data[i], "reset coordinator: rejected password and challenges erased");
     const auto retry_generation = runtime->flow.generation;
-    SecureZeroMemory(password.data, password.capacity); password.bytes = kUserAuthMaximumPasswordBytes + 1;
+    secure_clear_bytes(password.data, password.capacity); password.bytes = kUserAuthMaximumPasswordBytes + 1;
     check(!user_auth_coordinator_submit_reset(&coordinator, nullptr, &password).ok() && runtime->flow.generation == retry_generation &&
         runtime->continuation_token_bytes == prefix, "reset coordinator: oversized retry rejected atomically before usable prefix changes");
     assign(&password, utf8_literal("new-password")); fixture.fail_submit = true;

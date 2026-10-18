@@ -1,11 +1,12 @@
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;bool print_ok=true;
 void print(const char* text) noexcept {u32 n=0;while(text[n])++n;DWORD written=0;print_ok=print_ok&&WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,n,&written,nullptr)&&written==n;}
 void number(u32 v) noexcept {char digits[12];u32 n=0;do{digits[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);while(n){char text[]{digits[--n],0};print(text);}}
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line=");number(__LINE__);print("\n");return false;}}while(0)
 bool run() noexcept {
-    SYSTEM_INFO system{};GetSystemInfo(&system);const u32 page=system.dwPageSize;
+    Win32SystemInfo system{};GetSystemInfo(system.native());const u32 page=system.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*3,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
     struct Release {u8* p;~Release() noexcept {VirtualFree(p,0,MEM_RELEASE);}} release{memory};DWORD old=0;
     CHECK(VirtualProtect(memory,page,PAGE_NOACCESS,&old)&&VirtualProtect(memory+page*2,page,PAGE_NOACCESS,&old));

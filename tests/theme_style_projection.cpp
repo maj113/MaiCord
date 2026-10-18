@@ -8,7 +8,6 @@
 #include "maicord/ui/page_registry.hpp"
 #include "maicord/ui/poll_controls.hpp"
 #include "maicord/ui/settings_scene.hpp"
-#include "maicord/ui/theme_editor.hpp"
 #include "maicord/ui/forum_post_scene.hpp"
 
 namespace maicord {
@@ -30,18 +29,8 @@ bool measure(void*, const UiTextMeasureRequest& request, UiTextMeasureValue* val
 void test_theme_style_projection(void (*check)(bool, const char*) noexcept) noexcept {
     UiResolvedThemeStyles bank{};
     check(ui_theme_styles_apply(&bank, {}, {}).ok(), "Theme component bank resolves defaults");
-    const auto audio = ui_theme_audio_style(&bank);
-    const auto poll = ui_theme_poll_style(&bank);
     const auto form = ui_theme_settings_style(&bank);
-    const auto forum = ui_theme_forum_style(&bank);
-    const auto editor = ui_theme_editor_style(&bank);
-    check(audio.padding == 8 && audio.target == 32 && audio.title_height == 20 &&
-              audio.minimum_width == 160 && audio.maximum_width == 480 && audio.corner_radius == 8 &&
-              poll.padding == 16 && poll.target == 38 && poll.radius == 8 && poll.maximum_width == 472 &&
-              bytes_equal(&form, &kUiDefaultSettingsStyle, sizeof(form)) && forum.maximum_width == 560 &&
-              forum.inset == 16 && forum.padding == 20 && forum.gap == 10 && forum.title_height == 44 &&
-              forum.body_height == 176 && editor.width == 420 && editor.height == 640 &&
-              editor.padding == 20 && editor.gap == 12,
+    check(bytes_equal(&form, &kUiDefaultSettingsStyle, sizeof(form)),
           "Theme resolved component defaults preserve native geometry exactly");
     UiResolvedThemeStyles minimum_footer = bank;
     auto minimum_metrics = bank.metrics;

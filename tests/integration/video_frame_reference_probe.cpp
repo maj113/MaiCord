@@ -6,9 +6,10 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
-#include "video_frame_reference.hpp"
 
 #include <d3d11_1.h>
+
+#include "video_frame_reference.hpp"
 
 namespace maicord {
 namespace {

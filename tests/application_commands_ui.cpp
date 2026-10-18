@@ -9,6 +9,8 @@
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 void test_activity_retry(void (*)(bool, const char*) noexcept) noexcept;

@@ -7,6 +7,7 @@
 #include "maicord/protocol/thread_browser.hpp"
 #include "maicord/protocol/message_history.hpp"
 #include "maicord/protocol/message_create.hpp"
+#include <Windows.h>
 #if defined(MAICORD_REST_STORAGE_BENCHMARK)
 #include <psapi.h>
 #endif

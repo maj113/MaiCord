@@ -1,5 +1,6 @@
 #include "../src/media/png_common.hpp"
 #include "fixtures/png_crc_reference.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 void test_png_crc(void (*check)(bool, const char*) noexcept) noexcept {

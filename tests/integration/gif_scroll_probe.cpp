@@ -5,6 +5,8 @@
 #include "maicord/media/presentation_policy.hpp"
 #include "../../src/render/d3d11_renderer_layout.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 constexpr u32 count = 4;

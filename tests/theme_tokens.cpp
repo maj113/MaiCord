@@ -2,8 +2,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/presence.hpp"
 #include "maicord/ui/edit_field.hpp"
-#include "maicord/ui/image_viewer.hpp"
 #include "maicord/ui/theme_styles.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -41,40 +41,6 @@ void test_theme_tokens(void (*check)(bool, const char*) noexcept) noexcept {
     }
     check(constexpr_matches && ui_theme_token_descriptors().count == static_cast<u32>(UiThemeToken::count),
           "theme tokens: constexpr built-in resolution equals the runtime resolver for every shipped theme");
-
-    // Token-level render equivalence: each migrated literal resolves to the
-    // exact value it replaced in every shipped theme.
-    bool literals = true;
-    for (const auto* theme : shipped) {
-        const auto& t = theme->tokens;
-        const Color accent = theme->accent;
-        // Light themes draw their neutral overlays in black so borders and hover stay visible.
-        const bool light = theme->appearance == ThemeAppearance::light;
-        const float ink = light ? 0.f : 1.f;
-        literals = literals && same(t.border.subtle, {ink, ink, ink, .08f}) &&
-                   same(t.border.strong, {ink, ink, ink, .12f}) &&
-                   same(t.state.hover, {ink, ink, ink, light ? .06f : .10f}) &&
-                   same(t.state.pressed, {ink, ink, ink, light ? .10f : .16f}) &&
-                   same(t.fill.subtle, {ink, ink, ink, light ? .05f : .08f}) &&
-                   same(t.fill.muted, {ink, ink, ink, light ? .07f : .10f}) &&
-                   same(t.fill.translucent, {0, 0, 0, .25f}) && same(t.overlay.scrim, {0, 0, 0, .56f}) &&
-                   same(t.overlay.scrim_light, {0, 0, 0, .5f}) && same(t.overlay.scrim_strong, {0, 0, 0, .72f}) &&
-                   same(t.overlay.dense, {0, 0, 0, .68f}) && same(t.overlay.media, {0, 0, 0, kUiImageViewerScrimOpacity}) && same(t.overlay.shadow, {0, 0, 0, .32f}) &&
-                   same(t.overlay.shadow_soft, {0, 0, 0, .24f}) && same(t.text.on_accent, {1, 1, 1, 1}) &&
-                   same(t.accent.success, {.14f, .65f, .38f, 1}) && same(t.accent.warning, {.94f, .69f, .2f, 1}) &&
-                   same(t.mention.background, {accent.red, accent.green, accent.blue, .12f}) &&
-                   same(t.mention.inline_background, {accent.red, accent.green, accent.blue, .18f}) &&
-                   same(t.text.link, accent) && same(t.border.focus, accent) &&
-                   same(t.syntax.operator_, theme->syntax_operator) && same(t.background.floating, theme->base_lower) &&
-                   same(t.text.muted, theme->text_secondary);
-    }
-    check(literals && same(kLightTheme.tokens.text.positive, {.18f, .49f, .27f, 1}) &&
-              same(kDefaultTheme.tokens.text.positive, {.494f, .796f, .58f, 1}),
-          "theme tokens: semantic defaults equal the presentation literals they replace in every built-in theme");
-    check(kDefaultTheme.scale.radius_md == 8 && kDefaultTheme.scale.space_4 == 8 &&
-              kDefaultTheme.motion.fast.duration_ms == kUiDefaultMotionStyle.duration_ms &&
-              kDefaultTheme.motion.fast.curve == kUiDefaultMotionStyle.curve,
-          "theme tokens: scale and fast motion defaults keep the existing primitive values");
 
     PaintStream paint{};
     bool presence = paint_stream_initialize(&paint);

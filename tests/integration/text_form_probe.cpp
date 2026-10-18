@@ -4,6 +4,7 @@
 #include "maicord/ui/secure_edit.hpp"
 #include "maicord/core/log.hpp"
 #include "../../tools/font_reference/dwrite_text_system.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 bool text_form_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache) noexcept {

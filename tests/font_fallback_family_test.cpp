@@ -1,12 +1,12 @@
 #include "maicord/text/font_fallback_catalog.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
 void number(u64 v) noexcept {char s[32],out[32];u32 n=0;do{s[n++]=static_cast<char>('0'+v%10);v/=10;}while(v);for(u32 i=0;i<n;++i)out[i]=s[n-i-1];out[n]=0;print(out);}
 #define CHECK(x) do{++checks;if(!(x)){print("FAIL line=");number(__LINE__);print("\n");return false;}}while(0)
 bool memory_guards() noexcept {
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;CHECK(page>=4096);
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;CHECK(page>=4096);
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,static_cast<SIZE_T>(page)*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
     struct Cleanup {u8* memory;~Cleanup() noexcept{VirtualFree(memory,0,MEM_RELEASE);}} cleanup{memory};
     auto* input=reinterpret_cast<NativeFontProperties*>(memory+page)-4;const NativeFontProperties source[]{{400,5,0},{300,5,0},{700,5,0},{400,5,2}};copy_bytes(input,source,sizeof(source));

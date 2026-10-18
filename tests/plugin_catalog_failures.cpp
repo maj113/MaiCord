@@ -1,4 +1,5 @@
 #include "maicord/app/plugin_module_loader.hpp"
+#include <Windows.h>
 #include <bcrypt.h>
 #include "test_output.hpp"
 

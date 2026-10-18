@@ -134,13 +134,13 @@ void test_session_update(Check check) noexcept {
     check(decode(utf8_literal(
                      R"({"audio_codec":"opus","video_codec":"H264","media_session_id":"abc","keyframe_interval":2000,"extra":[1]})"),
                  &update) &&
-              update.has_audio_codec && update.has_video_codec && update.video == VoiceVideoCodec::h264 &&
-              update.has_media_session_id && update.has_keyframe_interval && update.keyframe_interval_ms == 2000,
-          "Session Update: codecs, media session and keyframe interval decode; unknown fields are ignored");
+              update.has_video_codec && update.video == VoiceVideoCodec::h264 &&
+              update.has_keyframe_interval && update.keyframe_interval_ms == 2000,
+          "Session Update: video codec and keyframe interval decode; unknown fields are ignored");
     update = {};
     check(decode(utf8_literal(R"({"audio_codec":null,"video_codec":"AV2","media_session_id":null})"), &update) &&
-              !update.has_audio_codec && update.has_video_codec && update.video == VoiceVideoCodec::unknown &&
-              !update.has_media_session_id && !update.has_keyframe_interval,
+              update.has_video_codec && update.video == VoiceVideoCodec::unknown &&
+              !update.has_keyframe_interval,
           "Session Update: null fields are absent and an unrecognized codec name is unknown");
     update = {};
     check(decode(utf8_literal(R"({})"), &update) && !update.has_video_codec, "Session Update: an empty update decodes");

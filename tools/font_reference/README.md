@@ -444,8 +444,9 @@ python tools/font_reference/gpos_execution_oracle.py record <fixtures> --exe <bi
 Each `export-*` mode takes `<fixtures> --observations <windows>.json --out
 <corpus>.bin [--header <path>]` and keeps the full font bytes, scheduled lookup
 indices, recorded glyphs and shaping flags, and exact disabled and enabled Windows
-placement bits. Glyphs and shaping flags stay reference inputs. The four native
-targets share `tests/gpos_execute_test.cpp`, selected by defines.
+placement bits. Glyphs and shaping flags stay reference inputs. `MaiCordGposExecuteTests`
+(`tests/gpos_execute_test.cpp`) runs all four built-in corpora; given a corpus file, it
+reads the file's format from its magic.
 `export-basic` (`MCGPX01`) selects fixtures with only single/pair lookups,
 including extensions.
 
@@ -455,26 +456,26 @@ cmake --build <build> --config Release --target MaiCordGposExecuteTests
 MaiCordGposExecuteTests.exe <positions>.bin
 ```
 
-`export-marks` (`MCGMK01`, `MAICORD_MARK_POSITION_TESTS`) adds mark-to-base and
+`export-marks` (`MCGMK01`) adds mark-to-base and
 mark-to-mark lookups; exact floats are compared under the Windows null-target
 compatibility policy.
 
 ```powershell
 python tools/font_reference/gpos_execution_oracle.py export-marks <fixtures> --observations <windows>.json --out <marks>.bin --header tests/generated/gpos_mark_execute_fixture.inc
-cmake --build <build> --config Release --target MaiCordGposMarkExecuteTests
-MaiCordGposMarkExecuteTests.exe <marks>.bin
+cmake --build <build> --config Release --target MaiCordGposExecuteTests
+MaiCordGposExecuteTests.exe <marks>.bin
 ```
 
-`export-cursive` (`MCGCU01`, `MAICORD_CURSIVE_POSITION_TESTS`) adds cursive
+`export-cursive` (`MCGCU01`) adds cursive
 lookups.
 
 ```powershell
 python tools/font_reference/gpos_execution_oracle.py export-cursive <fixtures> --observations <windows>.json --out <cursive>.bin --header tests/generated/gpos_cursive_execute_fixture.inc
-cmake --build <build> --config Release --target MaiCordGposCursiveExecuteTests
-MaiCordGposCursiveExecuteTests.exe <cursive>.bin
+cmake --build <build> --config Release --target MaiCordGposExecuteTests
+MaiCordGposExecuteTests.exe <cursive>.bin
 ```
 
-`export-ligatures` (`MCGLP01`, `MAICORD_LIGATURE_POSITION_TESTS`) selects root GPOS
+`export-ligatures` (`MCGLP01`) selects root GPOS
 types 1 through 6 and writes attachment seeds for the ligature fixtures (unknown
 history has its own component sentinel because the measured null-anchor behavior
 differs). The seeds are first-party fixture inputs; no GSUB provenance is derived.
@@ -483,8 +484,8 @@ lookups.
 
 ```powershell
 python tools/font_reference/gpos_execution_oracle.py export-ligatures <fixtures> --observations <windows>.json --out <ligatures>.bin --header tests/generated/gpos_ligature_execute_fixture.inc
-cmake --build <build> --config Release --target MaiCordGposLigatureExecuteTests
-MaiCordGposLigatureExecuteTests.exe <ligatures>.bin
+cmake --build <build> --config Release --target MaiCordGposExecuteTests
+MaiCordGposExecuteTests.exe <ligatures>.bin
 ```
 
 `component_shaping_oracle.py` (`MCCMP01`) exports the valid ligature-positioning

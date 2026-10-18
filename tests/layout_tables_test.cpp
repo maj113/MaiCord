@@ -1,6 +1,6 @@
 #include "maicord/text/layout_tables.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
 u32 expected[65536];u8 seen[65536];
@@ -52,7 +52,7 @@ bool units() noexcept {
            sfnt_device_open({},&device)==SfntStatus::invalid_input && sfnt_class_value({},123)==0;
 }
 bool guards() noexcept {
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));if(!memory)return false;
     DWORD old=0;if(!VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)){VirtualFree(memory,0,MEM_RELEASE);return false;}
     u8 base[32]{};put(base,0,2);put(base,2,2);put(base,4,1);put(base,6,3);put(base,8,0);put(base,10,6);put(base,12,7);put(base,14,3);
@@ -76,7 +76,7 @@ struct Reader {const u8* data;u32 size,at;
 };
 bool corpus(const wchar_t* path) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);if(file==INVALID_HANDLE_VALUE)return false;
-    LARGE_INTEGER length{};if(!GetFileSizeEx(file,&length) || length.QuadPart<12 || length.QuadPart>0xffffffffll){CloseHandle(file);return false;}
+    Win32LargeInteger length{};if(!GetFileSizeEx(file,length.native()) || length.QuadPart<12 || length.QuadPart>0xffffffffll){CloseHandle(file);return false;}
     HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);if(!mapping){CloseHandle(file);return false;}
     auto* bytes=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));Reader reader{bytes,static_cast<u32>(length.QuadPart),8};u32 total=0,counts[5]{},failures=0;u64 queries=0,reverse=0;
     bool ok=bytes && bytes_equal(bytes,"MCOTCM1",8) && reader.word(&total) && total>0;

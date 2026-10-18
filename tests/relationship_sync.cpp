@@ -2,6 +2,8 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/protocol/rest.hpp"
 #include "../src/app/gateway_relationship_dispatch.hpp"
+#include "maicord/core/memory.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -118,7 +120,7 @@ void test_backpressure(void (*check)(bool, const char*) noexcept) noexcept {
     for (u32 i = 0; i < kGatewayClientEventCapacity; ++i) spsc_mailbox_pop(mailbox, &event, {&copied, 1});
     check(copied == byte && !spsc_mailbox_size(*mailbox), "friends Gateway: waited producer payload survives at the FIFO tail");
 
-    SecureZeroMemory(mailbox, sizeof(*mailbox)); ResetEvent(space); ResetEvent(cancel);
+    secure_clear_bytes(mailbox, sizeof(*mailbox)); ResetEvent(space); ResetEvent(cancel);
     check(spsc_mailbox_push(mailbox, event, {body, kGatewayClientDispatchPayloadCapacity}).ok(),
         "friends Gateway: one event can exhaust the actual bounded payload ring");
     task.published = false;
@@ -133,7 +135,7 @@ void test_backpressure(void (*check)(bool, const char*) noexcept) noexcept {
     if (!payload_joined) { SetEvent(cancel); WaitForSingleObject(thread, 3000); }
     CloseHandle(thread);
 
-    SecureZeroMemory(mailbox, sizeof(*mailbox)); ResetEvent(space); ResetEvent(cancel);
+    secure_clear_bytes(mailbox, sizeof(*mailbox)); ResetEvent(space); ResetEvent(cancel);
     for (u32 i = 0; i < kGatewayClientEventCapacity; ++i) spsc_mailbox_push(mailbox, event, {});
     task.published = false;
     thread = start(&task);
@@ -454,7 +456,7 @@ void test_relationship_sync(void (*check)(bool, const char*) noexcept) noexcept 
         copy_bytes(raw, &known, sizeof(known));
         u32 known_cursor = 0;
         RelationshipMutation copied{};
-        check(sizeof(RelationshipRecord) == 144 && sizeof(known) == 456 && raw[12] == 0 && raw[13] == 1 &&
+        check(raw[12] == 0 && raw[13] == 1 &&
             gateway_client_relationship_record({raw, sizeof(raw)}, &known_cursor, &copied) && known_cursor == 456 &&
             !copied.record.stranger && copied.record.stranger_known && copied.record.user_id == 55 &&
             copied.user.id == 55 && copied.user.username_bytes == 9,

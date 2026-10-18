@@ -2,8 +2,8 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/memory.hpp"
-#include <stddef.h>
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace thread_creation_account_test {
@@ -114,25 +114,17 @@ void transport() noexcept {
           "thread creation: published receipt remains available to normal drain");
 }
 void dormant_abi() noexcept {
-    static_assert(sizeof(AccountModuleApi) == 1176 && sizeof(AccountHost) == 1424);
-    static_assert(offsetof(AccountModuleApi, thread_action) == 576);
-    static_assert(offsetof(AccountModuleApi, thread_browser) == 584);
-    static_assert(offsetof(AccountModuleApi, thread_creation) == 592);
     AccountHost host{};
-    check(account_host_load(&host).ok(), "thread creation: cold ABI94 DLL loads without credentials");
+    check(account_host_load(&host).ok(), "thread creation: cold DLL loads without credentials");
     if (!host.module)
         return;
     ThreadCreationRequest request{
         20, 10, 30, utf8_literal("Thread"), 1440, 11, ThreadCreationOperation::from_message, {}};
-    check(host.api.version == 133 && host.api.bytes == 1176 && host.api.thread_creation &&
-              host.api.thread_creation(nullptr, &request, 1).error ==
+    check(host.api.thread_creation(nullptr, &request, 1).error ==
                   RestClientSubmitError::invalid_input &&
               host.api.thread_creation(nullptr, nullptr, 1).error == RestClientSubmitError::invalid_input &&
               !host.instance && !host.login_instance,
           "thread creation: dormant callback creates no account or worker");
-    auto missing = host.api;
-    missing.thread_creation = nullptr;
-    check(!account_host_api_valid(missing), "thread creation: new callback is mandatory");
     account_host_release(&host);
 }
 } // namespace thread_creation_account_test

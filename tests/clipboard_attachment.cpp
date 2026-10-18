@@ -5,6 +5,8 @@
 #include "maicord/app/gateway_client.hpp"
 #include "maicord/platform/clipboard_image.hpp"
 #include "maicord/media/png.hpp"
+
+#include <Windows.h>
 namespace maicord {
 namespace {
 // A provider-owned virtual file. Returning its original allocation lets the test

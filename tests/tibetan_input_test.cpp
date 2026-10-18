@@ -3,7 +3,7 @@
 #include "maicord/text/tibetan_input.hpp"
 #include "../src/text/tibetan_character.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -44,7 +44,7 @@ bool units() noexcept {
     CHECK(sfnt_tibetan_cluster_boundaries({a,7},{nullptr,7})==SfntStatus::invalid_input);
     CHECK(sfnt_tibetan_cluster_boundaries({long_input,4},{reinterpret_cast<u8*>(long_input),4})==SfntStatus::invalid_input);
     CHECK(sfnt_tibetan_cluster_boundaries({}, {},0)==SfntStatus::ok);
-    SYSTEM_INFO system{};GetSystemInfo(&system);const u32 page=system.dwPageSize;
+    Win32SystemInfo system{};GetSystemInfo(system.native());const u32 page=system.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
     const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
     bool good=false;

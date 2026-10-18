@@ -14,6 +14,8 @@
 #include "maicord/core/hash.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::forward_runtime_test {
 using namespace app_detail;
 u32 failures, underlying_input, suspends, synchronizations, scoped_shortcuts;

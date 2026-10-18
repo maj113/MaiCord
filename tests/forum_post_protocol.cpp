@@ -2,6 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::forum_post_test {
 u32 failures;
@@ -337,9 +338,9 @@ void run_media() noexcept {
     check(forum_parent_decode(media_parent, get, {scratch, 16384}, &parent).ok() && parent.type == 16 &&
               forum_post_selection_valid(parent, {tag, 1}, false),
           "forum media: type16 fresh metadata uses existing tag authority");
-    SecureZeroMemory(body, 65536);
+    secure_clear_bytes(body, 65536);
     VirtualFree(body, 0, MEM_RELEASE);
-    SecureZeroMemory(banks, sizeof(ForumPostMediaSnapshot) * 3);
+    secure_clear_bytes(banks, sizeof(ForumPostMediaSnapshot) * 3);
     VirtualFree(banks, 0, MEM_RELEASE);
 }
 void run() noexcept {

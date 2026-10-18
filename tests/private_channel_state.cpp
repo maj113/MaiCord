@@ -12,6 +12,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/guild_member_store.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 
@@ -323,8 +324,8 @@ void test_private_channel_state(void (*check)(bool, const char*) noexcept) noexc
     ui_scene_release(&shell);
 
     PrivateChannelStore owned{};
-    SYSTEM_INFO system_info{};
-    GetSystemInfo(&system_info);
+    Win32SystemInfo system_info{};
+    GetSystemInfo(system_info.native());
     const u64 recipients_a[] = {20, 21}, recipients_b[] = {30, 31, 32};
     check(private_channel_store_initialize_owned(&owned, 4096, 65'536) && owned.record_backing.committed == 0 &&
           owned.recipient_backing.committed == 0, "private backing reserves without startup commitment");

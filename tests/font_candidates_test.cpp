@@ -1,6 +1,6 @@
 #include "maicord/text/font_candidates.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 #if defined(MAICORD_FONT_FAMILY)
 #include "maicord/text/font_family.hpp"
 #endif
@@ -70,7 +70,7 @@ bool basic() noexcept {
     return true;
 }
 bool guards() noexcept {
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
     struct Cleanup{u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};DWORD old=0;
     CHECK(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old)&&VirtualProtect(memory+page*3,page,PAGE_NOACCESS,&old));
@@ -87,8 +87,8 @@ bool argument(const wchar_t** command,wchar_t* out) noexcept {const wchar_t* p=*
     while(*p&&!(quoted?*p=='"':*p==' '||*p=='\t')){if(n==32767)return false;out[n++]=*p++;}if(quoted){if(*p!='"')return false;++p;}out[n]=0;*command=p;return n!=0;}
 bool audit(const wchar_t* path,u32 index) noexcept {
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);HANDLE mapping=nullptr;const u8* data=nullptr;
-    struct Cleanup{HANDLE& f;HANDLE& m;const u8*& p;~Cleanup() noexcept{if(p)UnmapViewOfFile(p);if(m)CloseHandle(m);CloseHandle(f);}} cleanup{file,mapping,data};LARGE_INTEGER size{};
-    CHECK(GetFileSizeEx(file,&size)&&size.QuadPart>0&&size.QuadPart<=0xffffffffll);mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);CHECK(mapping);data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));CHECK(data);
+    struct Cleanup{HANDLE& f;HANDLE& m;const u8*& p;~Cleanup() noexcept{if(p)UnmapViewOfFile(p);if(m)CloseHandle(m);CloseHandle(f);}} cleanup{file,mapping,data};Win32LargeInteger size{};
+    CHECK(GetFileSizeEx(file,size.native())&&size.QuadPart>0&&size.QuadPart<=0xffffffffll);mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);CHECK(mapping);data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));CHECK(data);
     SfntFace face{};CHECK(sfnt_open({data,static_cast<u32>(size.QuadPart)},index,&face)==SfntStatus::ok);NativeFontCandidates source{};
 #if defined(MAICORD_FONT_FAMILY)
     u16 name[2048];NativeFontFamily family{};const auto status=native_font_family_candidates(face,{name,2048},&family,&source);
@@ -107,7 +107,7 @@ struct MappedFile {
     ~MappedFile() noexcept {if(data)UnmapViewOfFile(data);if(mapping)CloseHandle(mapping);if(file&&file!=INVALID_HANDLE_VALUE)CloseHandle(file);}
     bool open(const wchar_t* path) noexcept {
         file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);
-        LARGE_INTEGER length{};CHECK(GetFileSizeEx(file,&length)&&length.QuadPart>0&&length.QuadPart<=0xffffffffll);size=static_cast<u32>(length.QuadPart);
+        Win32LargeInteger length{};CHECK(GetFileSizeEx(file,length.native())&&length.QuadPart>0&&length.QuadPart<=0xffffffffll);size=static_cast<u32>(length.QuadPart);
         mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);CHECK(mapping);data=static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0));CHECK(data);return true;
     }
 };
@@ -145,7 +145,7 @@ bool family_word_boundaries() noexcept {
     }return true;
 }
 bool family_fixture() noexcept {
-    SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*2,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));CHECK(memory);
     struct Cleanup{u8* p;~Cleanup() noexcept{VirtualFree(p,0,MEM_RELEASE);}} cleanup{memory};DWORD old=0;CHECK(VirtualProtect(memory+page,page,PAGE_NOACCESS,&old));
     auto* guarded=reinterpret_cast<u16*>(memory+page-512);

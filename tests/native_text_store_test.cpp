@@ -5,6 +5,8 @@
 #include "maicord/ui/text.hpp"
 #include "maicord/render/text_edit_layout.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 char output_buffer[16384];

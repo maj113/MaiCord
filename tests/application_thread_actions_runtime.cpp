@@ -6,6 +6,8 @@
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::thread_actions_runtime_test {
 u64 now = 1'000;
 u32 allocations{}, frees{}, frames{}, failures{};

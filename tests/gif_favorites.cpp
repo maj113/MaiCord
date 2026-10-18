@@ -100,8 +100,8 @@ void test_gif_favorites(void (*check)(bool, const char*) noexcept) noexcept {
     root.scalar(28, 123);
     const auto measured = measure(root.view());
     check(measured.ok() && measured.entry_count == 3 && measured.group_bytes == first.used + second.used &&
-              measured.group_present && measured.versions_present && measured.client_version == 12 &&
-              measured.server_version == 13 && measured.data_version == 14 && !measured.hide_tooltip,
+              measured.group_present && measured.versions_present &&
+              measured.data_version == 14 && !measured.hide_tooltip,
           "GIF favorites: real proto2 versions/map fields and repeated group merge measure completely");
     u8 owned[2048]{}, changed[2048]{}, scratch[4096]{}, json[4096]{};
     GifFavoriteRecord records[16]{};

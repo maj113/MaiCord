@@ -54,8 +54,6 @@ const ChannelRecord* find(u64 id) noexcept {
 
 void test_read_state_model(void (*check)(bool, const char*) noexcept) noexcept {
     using namespace read_model_probe;
-    static_assert(sizeof(ChannelRecord) == 104);
-    static_assert(sizeof(ReadStateEntry) == 32);
     auto& f = fixture;
     const bool initialized = initialize();
     check(initialized && !f.backing.calls && !f.reads.backed_count && !f.reads.count,

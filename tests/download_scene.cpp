@@ -131,12 +131,13 @@ void test_download_scene(void (*check)(bool,const char*) noexcept) noexcept {
     Theme bright = kLightTheme; bright.accent = {.95f,.85f,.4f,1};
     const Theme themes[]{kDefaultTheme,kLightTheme,bright,kAmoledTheme};
     const UiRect sizes[]{viewport,{0,0,320,420},{0,0,240,300},{0,0,1920,1080}};
-    for (auto theme : themes) for (auto size : sizes) {
+    for (u32 variant = 0; variant < 4; ++variant) {
+        const auto& theme = themes[variant]; const auto size = sizes[variant];
         visual &= ui_download_scene_update(&s,&source,&content,size);
         for (u32 page = 0; page * s.page_size < source.count; ++page) {
             visual &= ui_download_scene_page(&s,page);
             paint_stream_reset(&paint,size.right,size.bottom); ui_text_command_stream_reset(&stream);
-            visual &= ui_download_scene_paint(s,theme,&paint,144) && ui_download_scene_text_output(s,theme,&output) &&
+            visual &= ui_download_scene_paint(s,theme,&paint) && ui_download_scene_text_output(s,theme,&output) &&
                 !paint.rejected && !stream.rejected && paint.clip_depth == 1;
             for (u32 i = 0; i < s.count; ++i) {
                 visual &= ui_rect_height(s.cards[i]) >= 136 && s.cards[i].bottom <= s.body.bottom &&
@@ -162,7 +163,7 @@ void test_download_scene(void (*check)(bool,const char*) noexcept) noexcept {
     paint_stream_reset(&paint, viewport.right, viewport.bottom);
     const bool waiting_painted = ui_download_scene_update(&s, &source, &content, viewport) &&
                                  ui_download_scene_page(&s, 0) &&
-                                 ui_download_scene_paint(s, kDefaultTheme, &paint, 96) && s.count == 3;
+                                 ui_download_scene_paint(s, kDefaultTheme, &paint) && s.count == 3;
     check(
         waiting_painted && track_quads(s.cards[2]) == 1 && track_quads(s.cards[1]) == 1,
         "downloads: a row still preparing or queued shows a bare progress track without placeholder marks");
@@ -171,7 +172,7 @@ void test_download_scene(void (*check)(bool,const char*) noexcept) noexcept {
     ++content.revision;
     paint_stream_reset(&paint, viewport.right, viewport.bottom);
     check(ui_download_scene_update(&s, &source, &content, viewport) &&
-              ui_download_scene_paint(s, kDefaultTheme, &paint, 96) && track_quads(s.cards[0]) == 2,
+              ui_download_scene_paint(s, kDefaultTheme, &paint) && track_quads(s.cards[0]) == 2,
           "downloads: a downloading row fills its track to the received fraction");
     fixture.first_phase = UiDownloadPhase::saved;
     ++source.revision;

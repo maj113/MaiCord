@@ -9,7 +9,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 #if !defined(MAICORD_PLUGIN_INDEX_FIXTURES)
 #error "MAICORD_PLUGIN_INDEX_FIXTURES must name tests/fixtures/plugin_index"

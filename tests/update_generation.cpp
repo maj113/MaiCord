@@ -3,6 +3,8 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/hash.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 UpdatePairDescriptor fixture_pair(u64 version, u8 marker) noexcept {

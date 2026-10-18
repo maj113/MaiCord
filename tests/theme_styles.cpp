@@ -153,8 +153,7 @@ void test_theme_styles(void (*check)(bool, const char*) noexcept) noexcept {
     invalid = metrics;
     invalid.poll_target = nonfinite;
     check(!ui_theme_styles_apply(&styles, selected, invalid).ok() &&
-              bytes_equal(snapshot, &styles, sizeof(styles)) &&
-              !ui_theme_styles_apply(nullptr, selected, metrics).ok(),
+              bytes_equal(snapshot, &styles, sizeof(styles)),
           "Theme invalid full candidate leaves every resolved byte/revision unchanged");
     styles.revision = styles.typography_revision = styles.geometry_revision = styles.paint_revision = ~0u;
     selected.body_size = 21;

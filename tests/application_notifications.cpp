@@ -5,6 +5,7 @@
 #include "../src/app/gateway_ready_projection.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 #if !defined(MAICORD_NOTIFICATION_FIXTURE)
 #error This integration fixture requires the nonemitting notification sink.
@@ -546,7 +547,7 @@ void retention_regressions(void(*check)(bool,const char*) noexcept) noexcept {
     }
     application_notifications_fixture_suppress_popup(&g_app,false);
     m=application_notifications_fixture_metrics(&g_app);
-    SYSTEM_INFO system{};GetSystemInfo(&system);
+    Win32SystemInfo system{};GetSystemInfo(system.native());
     check(twenty && f.delivered==20 && f.last.silent && f.last.suppress_popup && m.retention_channels==1 && m.retention_tickets==20 &&
         m.retention_row_bytes==176 && m.retention_logical_bytes==180 &&
         m.retention_rows_committed_bytes%system.dwPageSize==0 && m.retention_rows_committed_bytes>0 &&
@@ -767,7 +768,7 @@ void test_application_notifications(void (*check)(bool, const char*) noexcept) n
     check(owner_initialized,"notification application: nonemitting owner initializes");
     if(!owner_initialized) { application_notifications_release(&g_app); return; }
     auto initial_metrics=application_notifications_fixture_metrics(&g_app);
-    SYSTEM_INFO info{}; GetSystemInfo(&info);
+    Win32SystemInfo info{}; GetSystemInfo(info.native());
     check(initial_metrics.owner_vm_query_ok && initial_metrics.owner_fixture_extension_bytes>=9*sizeof(void*) &&
         initial_metrics.owner_fixture_extension_bytes<11*sizeof(void*) &&
         initial_metrics.owner_vm_committed_bytes==((initial_metrics.owner_sizeof_bytes+info.dwPageSize-1)/info.dwPageSize)*info.dwPageSize &&

@@ -8,6 +8,8 @@
 #include "../src/app/application_plugin_settings_projection.hpp"
 #include "test_output.hpp"
 
+#include <Windows.h>
+
 namespace maicord::plugin_sdk_tests {
 u32 failures;
 void check(bool value, const char* label) noexcept {

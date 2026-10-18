@@ -14,6 +14,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/settings_scene.hpp"
 
+#include <Windows.h>
 #include <d3d11_1.h>
 
 namespace maicord::app_detail {

@@ -2,6 +2,7 @@
 #include "maicord/platform/aes_gcm.hpp"
 #include "maicord/core/memory.hpp"
 
+#include <Windows.h>
 #include <bcrypt.h>
 #include <intrin.h>
 #include "test_output.hpp"

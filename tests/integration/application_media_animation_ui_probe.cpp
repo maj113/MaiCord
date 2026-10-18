@@ -9,6 +9,7 @@
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 
+#include <Windows.h>
 #include <d3d11_1.h>
 
 namespace maicord::app_detail {

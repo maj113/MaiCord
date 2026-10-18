@@ -1,4 +1,5 @@
 #include "maicord/app/animation_visual_runtime.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 void test_animation_modal_pause(void (*check)(bool, const char*) noexcept) noexcept {

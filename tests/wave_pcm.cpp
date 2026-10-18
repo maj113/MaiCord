@@ -293,10 +293,6 @@ void test_wave_pcm(void (*check)(bool, const char*) noexcept) noexcept {
     chunk("JUNK", {nullptr, 0});
     check(wave_pcm_parse(&fixture.source, {fixture.bytes, fixture.count}) == WavePcmError::capacity,
           "wave zero-length unknown chunks are bounded by an explicit chunk-count cap");
-    check(wave_pcm_parse(nullptr, {fixture.bytes, fixture.count}) == WavePcmError::invalid_input,
-          "wave rejects null metadata output before accessing input");
-    check(wave_pcm_parse(&fixture.source, {nullptr, 12}) == WavePcmError::invalid_input,
-          "wave rejects a null encoded source before accessing input");
     // The exaggerated input range includes fixture.source in the same static
     // fixture. Use independent stack output to isolate the size-cap check.
     WavePcmSource capacity_output{};

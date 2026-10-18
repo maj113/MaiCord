@@ -2,6 +2,7 @@
 #include "maicord/app/mls_exporter.hpp"
 #include "maicord/app/voice_connection.hpp"
 #include "maicord/core/memory.hpp"
+#include <Windows.h>
 #include <bcrypt.h>
 #include "test_output.hpp"
 

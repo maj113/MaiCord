@@ -51,7 +51,7 @@ constexpr Utf8View kToken = utf8_literal("{\"token\":\"P1_eyJ0eXAiOiJKV1QiLCJhbG
 void protocol(Check check) noexcept {
     get();
     auto parsed = parse();
-    check(parsed.ok() && parsed.request.kind == CaptchaBridgeRequestKind::page && parsed.request.consumed_bytes == wire.bytes,
+    check(parsed.ok() && parsed.request.kind == CaptchaBridgeRequestKind::page,
           "bridge parser: exact top-level GET for the state is admitted");
     wire.bytes -= 2;
     check(parse().state == CaptchaBridgeParseState::need_input, "bridge parser: unterminated head waits for input");

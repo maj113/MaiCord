@@ -17,6 +17,8 @@
 #include "maicord/core/utf.hpp"
 #include "maicord/platform/browser_sign_in_launcher.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 // Dedicated native controller harness. UI/module-loading boundaries are fake;
 // application_login_auth, account_host and SecureEdit are production code.
@@ -404,8 +406,8 @@ void run_phone() noexcept {
         for (u32 i = length; i < g_app.login.login.storage.capacity; ++i) exact = exact && !g_app.login.login.storage.data[i];
         check(exact, "phone reset handoff: exact token and erased destination tail survive ownership transfer");
         auto* full_token_page = g_app.login.login.storage.data;
-        MEMORY_BASIC_INFORMATION token_page{};
-        check(VirtualQuery(full_token_page, &token_page, sizeof(token_page)) == sizeof(token_page) &&
+        Win32MemoryInformation token_page{};
+        check(VirtualQuery(full_token_page, token_page.native(), sizeof(token_page)) == sizeof(token_page) &&
             token_page.State == MEM_COMMIT && token_page.RegionSize == kLoginResetMaximumTokenBytes,
             "phone reset handoff: actual token owner commits only the original single-page footprint");
         check(application_login_cancel_blocked() && restored() &&

@@ -1,4 +1,5 @@
 #include "maicord/platform/notification_audio.hpp"
+#include <Windows.h>
 #include <audioclient.h>
 #include <mmreg.h>
 #if !defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)

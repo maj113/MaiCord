@@ -3,7 +3,7 @@
 #include "maicord/text/sinhala_input.hpp"
 #include "../src/text/use_character.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 u32 checks=0;
 void print(const char* s) noexcept {u32 n=0;while(s[n])++n;DWORD done=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s,n,&done,nullptr);}
@@ -62,7 +62,7 @@ bool units() noexcept {
     CHECK(sfnt_sinhala_expand_cluster({reinterpret_cast<u32*>(actual),2},{actual,16},&result)==SfntStatus::invalid_input);
     CHECK(sfnt_sinhala_expand_cluster({}, {},&result,0)==SfntStatus::ok&&!result.scalar_count&&!result.source_units);
     CHECK(sfnt_sinhala_expand_cluster({}, {},nullptr)==SfntStatus::invalid_input);
-    SYSTEM_INFO system{};GetSystemInfo(&system);const u32 page=system.dwPageSize;
+    Win32SystemInfo system{};GetSystemInfo(system.native());const u32 page=system.dwPageSize;
     auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
     const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
     bool good=false;

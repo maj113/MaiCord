@@ -13,6 +13,7 @@
 #include "maicord/ui/shell_text_presentation.hpp"
 #include "maicord/ui/shell_navigation_scene.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::guild_banner_test {
 u32 failures = 0;

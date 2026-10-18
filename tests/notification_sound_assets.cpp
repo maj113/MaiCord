@@ -1,5 +1,6 @@
 #include "maicord/app/notification_sound_assets.hpp"
 #include "maicord/core/byte_order.hpp"
+#include <Windows.h>
 #include <bcrypt.h>
 #include "test_output.hpp"
 

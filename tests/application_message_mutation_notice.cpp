@@ -10,6 +10,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/app/message_reaction_controller.hpp"
 #include "test_output.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::mutation_notice_test {
 using namespace app_detail;

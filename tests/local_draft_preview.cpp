@@ -2,6 +2,7 @@
 #include "maicord/core/time.hpp"
 #include "png_growth_fixture.hpp"
 #include "jpeg_reference_fixture.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace local_preview_test {
@@ -96,8 +97,7 @@ void test_local_draft_preview(void (*check)(bool, const char*) noexcept) noexcep
                    begin(held, {kPngGrowthFixture, sizeof(kPngGrowthFixture)}, true);
     auto first = request(png, 900, 1, MediaAttachmentFormat::png);
     check(sources && local_draft_preview_request_valid(first) && media_asset_large_preview(first.key) &&
-              first.key.kind != MediaAssetKind::attachment && sizeof(AccountMediaFrame) == 240 &&
-              sizeof(first) == 120,
+              first.key.kind != MediaAssetKind::attachment,
           "local preview: separate exact draft identity preserves frame ABI and bounded typed source");
     auto bad = first;
     bad.snapshot.bytes += 1;

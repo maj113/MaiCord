@@ -424,7 +424,7 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     const auto center = [](UiRect r) noexcept {
         return UiPoint{(r.left + r.right) * .5f, (r.top + r.bottom) * .5f};
     };
-    check(project(bounds), "video scene: native scene accepts caller layout and metrics");
+    const bool projected = project(bounds);
     const u64 initial_text = s.text_revision;
     const u64 initial_paint = ui_video_scene_paint_revision(s);
     const auto original_state = state;
@@ -433,7 +433,7 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     state.playing = false;
     state.muted = true;
     state.volume = 95;
-    check(project(bounds) && s.text_revision == initial_text,
+    check(projected && project(bounds) && s.text_revision == initial_text,
           "video scene: subsecond ticks and playback/range paint changes retain native glyph text");
     check(
         ui_video_scene_paint_revision(s) != initial_paint,
@@ -578,10 +578,9 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "video scene: dragging toward clipped content stops at the visible timeline edge");
     check(project(bounds) && s.capture == UiVideoControl::none,
           "video scene: geometry change cancels captured drag before another dispatch");
-    check(ui_video_scene_focus(&s, UiVideoControl::volume, true),
-          "video scene: host may establish visible keyboard focus");
+    const bool focused = ui_video_scene_focus(&s, UiVideoControl::volume, true);
     r = ui_video_scene_key(&s, UiVideoKey::home);
-    check(r.action_requested && r.action.volume == 0,
+    check(focused && r.action_requested && r.action.volume == 0,
           "video scene: keyboard Home requests bounded minimum volume");
     state.can_volume = false;
     check(project(bounds) && s.focus == UiVideoControl::none &&
@@ -589,7 +588,7 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "video scene: revoked range capability prevents further key requests");
     char temporary[]{'P', 'l', 'a', 'y'};
     controls.pause = {temporary, 4};
-    check(project(bounds), "video scene: accepts host semantic labels");
+    project(bounds);
     const auto copied = s;
     temporary[0] = 'X';
     s.labels[0][0] = 'Y';
@@ -598,13 +597,13 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
           "video scene: copied scene owns both host labels and formatted time storage");
     controls = {};
     state.buffering = true;
-    check(project(bounds), "video scene: buffering state remains available for native feedback");
+    const bool buffering = project(bounds);
     ui_video_scene_hover(&s, center(s.preview));
     PaintStream paint{};
     UiTextCommand commands[6]{};
     UiTextCommandStream stream{};
     UiTextOutput output{&stream, nullptr};
-    check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 640, 200) &&
+    check(buffering && paint_stream_initialize(&paint) && paint_stream_reset(&paint, 640, 200) &&
               ui_text_command_stream_initialize(&stream, {commands, 6}) &&
               ui_video_scene_paint(s, kDefaultTheme, &paint) &&
               ui_video_scene_text_output(s, kDefaultTheme, &output, text_owner) && paint.count > 24 &&
@@ -617,10 +616,10 @@ void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     check(!ui_video_scene_text_output(s, kDefaultTheme, &output, stale_text_owner) &&
               stream.rejected == 1 && stream.count == 0,
           "video scene: native text rejects a stale host widget generation before publishing commands");
-    check(project(clip), "video scene: accepts partial native clip");
+    const bool clipped_projection = project(clip);
     ui_text_command_stream_reset(&stream);
     paint_stream_reset(&paint, 640, 200);
-    bool confined = ui_video_scene_paint(s, kDefaultTheme, &paint) &&
+    bool confined = clipped_projection && ui_video_scene_paint(s, kDefaultTheme, &paint) &&
                     ui_video_scene_text_output(s, kDefaultTheme, &output, text_owner);
     for (u32 i = 0; i < stream.count; ++i)
         confined = confined && commands[i].clip.left >= clip.left && commands[i].clip.right <= clip.right;

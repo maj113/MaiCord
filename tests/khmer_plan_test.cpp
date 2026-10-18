@@ -1,6 +1,6 @@
 #include "maicord/text/khmer_plan.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "generated/khmer_plan_fixture.inc"
 u32 checks=0;
@@ -54,7 +54,7 @@ bool units() noexcept {
         CHECK(result.lookup_count==full.lookup_count&&steps[required?3:2].lookup==7&&steps[required?3:2].stage==0);
         poison(steps);alternate[16]=255;alternate[17]=255;
         CHECK(sfnt_khmer_lookup_plan(layout,variations,{scratch,8},{steps,32},&result)==SfntStatus::malformed&&untouched(steps));
-        SYSTEM_INFO info{};GetSystemInfo(&info);const u32 page=info.dwPageSize;
+        Win32SystemInfo info{};GetSystemInfo(info.native());const u32 page=info.dwPageSize;
         auto* memory=static_cast<u8*>(VirtualAlloc(nullptr,page*4,MEM_RESERVE,PAGE_NOACCESS));CHECK(memory);
         const bool committed=VirtualAlloc(memory,page,MEM_COMMIT,PAGE_READWRITE)&&VirtualAlloc(memory+page*2,page,MEM_COMMIT,PAGE_READWRITE);
         bool guarded=false;
@@ -113,8 +113,8 @@ int run() noexcept {
     while(*command&&!(quote?*command=='"':(*command==' '||*command=='\t'))){if(n+1>=32768)return 2;path[n++]=*command++;}
     if(quote){if(*command!='"')return 2;++command;}while(*command==' '||*command=='\t')++command;if(*command||!n)return 2;path[n]=0;
     HANDLE file=CreateFileW(path,GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,FILE_ATTRIBUTE_NORMAL,nullptr);
-    if(file==INVALID_HANDLE_VALUE)return 2;LARGE_INTEGER size{};
-    if(!GetFileSizeEx(file,&size)||size.QuadPart<12||size.QuadPart>0xffffffffll){CloseHandle(file);return 2;}
+    if(file==INVALID_HANDLE_VALUE)return 2;Win32LargeInteger size{};
+    if(!GetFileSizeEx(file,size.native())||size.QuadPart<12||size.QuadPart>0xffffffffll){CloseHandle(file);return 2;}
     HANDLE mapping=CreateFileMappingW(file,nullptr,PAGE_READONLY,0,0,nullptr);
     const auto* bytes=mapping?static_cast<const u8*>(MapViewOfFile(mapping,FILE_MAP_READ,0,0,0)):nullptr;
     const bool ok=bytes&&plans({bytes,static_cast<u32>(size.QuadPart)});

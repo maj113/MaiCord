@@ -1,6 +1,7 @@
 #include "maicord/app/voice_udp_discovery.hpp"
 #include "maicord/core/byte_order.hpp"
 
+#include <Windows.h>
 #include <WS2tcpip.h>
 
 namespace maicord {

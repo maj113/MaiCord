@@ -7,6 +7,8 @@
 #include "maicord/core/win32_error.hpp"
 #include "maicord/core/win32_process.hpp"
 
+#include <Windows.h>
+
 namespace maicord {
 namespace {
 

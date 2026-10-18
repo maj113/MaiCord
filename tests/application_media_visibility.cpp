@@ -22,6 +22,7 @@
 #include "maicord/ui/quick_switcher_scene.hpp"
 #include "maicord/ui/message_forward_scene.hpp"
 #include "maicord/render/renderer_presentation.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 ForumPostScene* fixture_forum_scene;
