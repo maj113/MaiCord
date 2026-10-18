@@ -1,5 +1,6 @@
 #include "profile_positioning_storage.inc"
 #include "script_shape_owner.inc"
+#include "maicord/core/win32_kernel.hpp"
 bool owned_units(ScriptShapeOwner& owner,Arena& state,SfntShapeStorage s) noexcept {
     auto& scratch=owner.scratch;arena_reset(&scratch);auto* sentinel=arena_allocate<u32>(&scratch);CHECK(sentinel);*sentinel=0x12345678;
     const auto before_state=arena_mark(&state),before_scratch=arena_mark(&scratch);const u32 refs=owner.plans[0].references;NativeKhmerPlan prepared{};

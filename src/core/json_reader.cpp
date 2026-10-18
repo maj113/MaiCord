@@ -1,8 +1,8 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/ascii.hpp"
 
-#include <emmintrin.h>
-#include <intrin.h>
+#include "maicord/sys/intrin.hpp"
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {

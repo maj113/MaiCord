@@ -8,7 +8,7 @@
 #include "maicord/text/arabic_joining.hpp"
 #include "maicord/text/grapheme.hpp"
 #include "maicord/text/unicode.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/text/arabic_run_plan.hpp"
 #include "maicord/text/arabic_run.hpp"
 #include "maicord/core/utf.hpp"

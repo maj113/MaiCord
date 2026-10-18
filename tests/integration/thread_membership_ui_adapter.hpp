@@ -8,7 +8,7 @@
 #include "maicord/ui/popup_scene.hpp"
 #include "application_thread_actions.hpp"
 #include "application_thread_header_activation.hpp"
-#include <windows.h>
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord {
 inline constexpr u64 kThreadMembershipProbeGuild = 96000;

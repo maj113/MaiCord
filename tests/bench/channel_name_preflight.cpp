@@ -4,7 +4,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/trace_record.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::channel_name_preflight_bench {
 namespace {

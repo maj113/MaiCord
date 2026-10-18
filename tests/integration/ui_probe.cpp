@@ -112,7 +112,10 @@
 #include "unified_picker_ui_probe.hpp"
 #include "maicord/ui/settings_choice.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/gdi.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 // Search rendering fixtures bind caller-owned scenes directly. They do not

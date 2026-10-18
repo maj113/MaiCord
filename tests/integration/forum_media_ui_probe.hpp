@@ -3,6 +3,8 @@
 #include "application_forum_form_state.hpp"
 #include "application_forum_preview.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 namespace maicord {
 template <class Begin, class Resize, class Show, class Warm, class Metadata, class Type, class Fade>
 bool forum_media_ui_scenarios(D3D11Renderer& renderer, Theme& theme, Begin begin, Resize resize, Show show,

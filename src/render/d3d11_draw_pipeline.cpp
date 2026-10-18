@@ -3,7 +3,7 @@
 
 #include "maicord/render/shader_bytecode.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace {

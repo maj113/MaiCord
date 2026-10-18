@@ -1,7 +1,8 @@
 #pragma once
 #include "maicord/render/d3d11_renderer.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/gdi.hpp"
 
 namespace maicord {
 // A mapped CPU copy of the renderer's active viewport.

@@ -8,8 +8,7 @@
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/utf.hpp"
 
-#include <Windows.h>
-#include <shellapi.h>
+#include "maicord/sys/shell.hpp"
 
 namespace maicord::app_detail {
 namespace {

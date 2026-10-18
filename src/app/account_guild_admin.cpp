@@ -1,7 +1,6 @@
 #include "maicord/app/account_guild_admin.hpp"
 
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 static_assert(kGuildAdminMaximumTargetBytes <= kRestClientMaximumTargetBytes);

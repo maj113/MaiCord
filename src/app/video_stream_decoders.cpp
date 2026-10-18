@@ -1,6 +1,6 @@
 #include "maicord/app/video_stream_decoders.hpp"
 #include "maicord/platform/h264_gpu_stream_decoder.hpp"
-#include <d3d11.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace {

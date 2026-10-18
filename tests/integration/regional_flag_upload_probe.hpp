@@ -3,6 +3,7 @@
 #include "maicord/media/regional_flag_svg.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/render/d3d11_renderer.hpp"
+#include "maicord/core/win32_error.hpp"
 
 namespace maicord {
 // The account module's media worker compiles flag SVG; probes reproduce that

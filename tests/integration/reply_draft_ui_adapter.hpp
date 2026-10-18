@@ -4,7 +4,7 @@
 #include "maicord/model/user_store.hpp"
 #include "maicord/ui/message_composer_scene.hpp"
 #include "maicord/ui/popup_scene.hpp"
-#include <windows.h>
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord {
 inline constexpr u64 kReplyDraftProbeGuild = 97000;

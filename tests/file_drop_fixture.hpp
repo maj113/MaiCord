@@ -1,9 +1,7 @@
 #pragma once
 #include "maicord/platform/file_picker.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
-#include <shellapi.h>
-#include <shlobj.h>
+#include "maicord/sys/shell.hpp"
 namespace maicord::file_drop_fixture {
 inline HDROP make(ConstSlice<ConstSlice<wchar_t>> paths) noexcept {
     usize bytes = sizeof(DROPFILES) + sizeof(wchar_t);

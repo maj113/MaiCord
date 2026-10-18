@@ -18,7 +18,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/core/utf.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -3,6 +3,7 @@
 #include "maicord/media/gpu_video_frame.hpp"
 
 #include "maicord/core/win32_records.hpp"
+#include "maicord/sys/d3d11.hpp"
 
 struct ID3D11Device;
 

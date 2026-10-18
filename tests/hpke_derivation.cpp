@@ -1,8 +1,7 @@
 #include "maicord/app/hpke_derivation.hpp"
 #include "maicord/platform/aes_gcm.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

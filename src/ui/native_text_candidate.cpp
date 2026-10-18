@@ -33,7 +33,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/native_text_catalog.hpp"
 #include "maicord/text/font_run.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 
 #include "maicord/core/win32_kernel.hpp"
 

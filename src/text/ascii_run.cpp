@@ -1,6 +1,6 @@
 #include "maicord/text/ascii_run.hpp"
 #include "nominal_placements.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
 template<class T> bool valid(Slice<T> s) noexcept {return !s.count||s.data;}
 bool simple(NativeNominalPlan plan,u16 glyph) noexcept {

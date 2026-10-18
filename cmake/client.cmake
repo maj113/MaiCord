@@ -146,7 +146,7 @@ set(MAICORD_CLIENT_DELAY_LOADS dcomp.dll shell32.dll ws2_32.dll secur32.dll ole3
 list(TRANSFORM MAICORD_CLIENT_DELAY_LOADS PREPEND /DELAYLOAD: OUTPUT_VARIABLE MAICORD_CLIENT_DELAY_LOAD_OPTIONS)
 target_link_options(MaiCord PRIVATE ${MAICORD_CLIENT_DELAY_LOAD_OPTIONS})
 target_link_libraries(MaiCord PRIVATE dloadhelper)
-add_dependencies(MaiCord MaiCordAccount maicord_app_icon maicord_win32_conformance)
+add_dependencies(MaiCord MaiCordAccount maicord_app_icon maicord_sys_conformance)
 
 # Self-updater publisher. Environment variables override the official defaults,
 # as the release workflow does; setting both empty compiles the updater disabled.
@@ -280,12 +280,15 @@ function(maicord_compact_sources)
     foreach(pattern IN LISTS ARG_EXCLUDE)
         list(FILTER files EXCLUDE REGEX "${pattern}")
     endforeach()
-    set_property(SOURCE ${files} APPEND PROPERTY COMPILE_OPTIONS "$<$<CONFIG:Release>:/Os>")
+    list(REMOVE_DUPLICATES files)
+    # A source listed twice keeps one /Os.
+    foreach(file IN LISTS files)
+        get_source_file_property(options "${file}" COMPILE_OPTIONS)
+        if(NOT options MATCHES "/Os")
+            set_property(SOURCE "${file}" APPEND PROPERTY COMPILE_OPTIONS "$<$<CONFIG:Release>:/Os>")
+        endif()
+    endforeach()
 endfunction()
-# Shutdown telemetry is cold and string-heavy (it is also matched by the
-# application_*.cpp glob below, so it carries /Os twice).
-set_property(SOURCE src/app/application_shutdown_metrics.cpp APPEND PROPERTY
-    COMPILE_OPTIONS "$<$<CONFIG:Release>:/Os>")
 file(GLOB MAICORD_COLD_APPLICATION_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app/application_*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/app/update_*.cpp")

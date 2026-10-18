@@ -4,12 +4,10 @@
 // page contents, certificates, HTTP data, or arbitrary object paths are read.
 // PSS schemas/lifetimes: Microsoft Learn processsnapshot/PSS_HANDLE_ENTRY and
 // PSS_HANDLE_FLAGS. PSS_CREATE_USE_VM_ALLOCATIONS avoids the process heap.
-#include <Windows.h>
-#include <processsnapshot.h>
+#include "maicord/sys/process_info.hpp"
 #ifndef PSAPI_VERSION
 #define PSAPI_VERSION 2
 #endif
-#include <psapi.h>
 
 namespace maicord { namespace resource_probe {
 constexpr u32 kHandles = 1024, kModules = 256, kName = 192;

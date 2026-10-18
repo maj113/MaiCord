@@ -1,7 +1,5 @@
 // Actual shipping coordinator with a synchronous, non-network REST boundary.
-#include <Windows.h>
-#include <WinSock2.h>
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 #include "maicord/app/browser_login.hpp"
 #include "maicord/app/account_profile_promotion.hpp"
 #include "../src/app/user_auth_coordinator.cpp"

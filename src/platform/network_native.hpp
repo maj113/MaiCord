@@ -2,8 +2,7 @@
 // Winsock views of network.hpp's layout-identical records.
 #include "maicord/platform/network.hpp"
 
-#include <WinSock2.h>
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 #include <stddef.h>
 
 namespace maicord {

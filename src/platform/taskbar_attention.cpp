@@ -1,7 +1,8 @@
 #include "maicord/platform/taskbar_attention.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <shobjidl.h>
+#include "maicord/sys/gdi.hpp"
+#include "maicord/sys/shell.hpp"
 
 namespace maicord {
 namespace {

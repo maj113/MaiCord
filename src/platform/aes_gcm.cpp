@@ -1,8 +1,7 @@
 #include "maicord/platform/aes_gcm.hpp"
 #include "aead_internal.hpp"
 
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 namespace {

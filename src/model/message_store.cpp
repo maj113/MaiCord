@@ -1,5 +1,5 @@
 #include "maicord/model/message_store.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/memory.hpp"

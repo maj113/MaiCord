@@ -1,8 +1,7 @@
 #include "maicord/app/voice_connection.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

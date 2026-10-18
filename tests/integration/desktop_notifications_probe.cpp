@@ -1,6 +1,6 @@
 #include "maicord/platform/notification_identity.hpp"
-#include <Windows.h>
-#include <NotificationActivationCallback.h>
+#include "maicord/sys/registry.hpp"
+#include "maicord/sys/winrt.hpp"
 #include "../../src/platform/toast_abi.hpp"
 
 namespace maicord {

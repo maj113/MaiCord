@@ -18,7 +18,7 @@
 #include "maicord/model/user_store.hpp"
 #include "maicord/ui/presence.hpp"
 #include "maicord/ui/scroll_host.hpp"
-#include <new>
+#include "maicord/sys/crt.hpp"
 namespace maicord {
 namespace {
 constexpr u32 capacity = 320;

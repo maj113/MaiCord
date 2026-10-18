@@ -32,7 +32,7 @@
 #include "gateway_self_status_test.hpp"
 #endif
 
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 

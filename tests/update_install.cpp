@@ -1,8 +1,7 @@
 #include "maicord/app/update_install.hpp"
 #include "maicord/app/account_module_version.hpp"
 #include "update_signed_fixture_helpers.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 namespace {

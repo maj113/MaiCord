@@ -2,9 +2,9 @@
 #include "maicord/media/h264_stream.hpp"
 #include "maicord/media/video_display.hpp"
 #include "maicord/core/memory.hpp"
-#include <d3d11_4.h>
-#include <initguid.h>
-#include <dxva.h>
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/initguid.hpp"
+#include "maicord/sys/dxva.hpp"
 #include "h264_dxva_parameters.hpp"
 
 namespace maicord {

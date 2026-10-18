@@ -1,6 +1,7 @@
 #include "maicord/render/icon_atlas.hpp"
 
 #include "maicord/ui/icon.hpp"
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace {

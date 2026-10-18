@@ -32,7 +32,8 @@
 #include "maicord/core/text_bank.hpp"
 #include "maicord/core/utf.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 namespace {

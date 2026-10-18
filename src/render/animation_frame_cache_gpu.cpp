@@ -1,6 +1,6 @@
 #include "maicord/render/animation_frame_cache_gpu.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace {

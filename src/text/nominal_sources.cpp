@@ -1,6 +1,6 @@
 #include "maicord/text/nominal_sources.hpp"
 #include "maicord/text/base.hpp"
-#include <intrin.h>
+#include "maicord/sys/intrin.hpp"
 namespace maicord {namespace {
 #include "generated/nominal_scalar_data.inc"
 u64 scalar_word(u32 word) noexcept {return nominal_page_words[static_cast<u32>(nominal_page_index[word/4])*4+word%4];}

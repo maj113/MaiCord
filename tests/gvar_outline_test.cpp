@@ -2,7 +2,7 @@
 #include "maicord/text/font_axes.hpp"
 #include "maicord/text/font_geometry.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "generated/gvar_outline_fixture.inc"
 void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}

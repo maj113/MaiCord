@@ -9,7 +9,7 @@
 #include "maicord/ui/presence.hpp"
 #include "text_projection_observer.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace text_projection_bench {

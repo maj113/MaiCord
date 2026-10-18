@@ -2,9 +2,7 @@
 #include "maicord/platform/aes_gcm.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
-#include <bcrypt.h>
-#include <intrin.h>
+#include "maicord/sys/crypto.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

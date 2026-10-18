@@ -4,7 +4,8 @@
 #include "maicord/ui/settings_choice.hpp"
 #include "settings_runtime_keys.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace settings_runtime_test {

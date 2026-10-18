@@ -2,11 +2,7 @@
 
 #include "maicord/core/base.hpp"
 #include "maicord/core/win32_types.hpp"
-
-// Declared as <intrin.h> declares them, without parsing it.
-extern "C" unsigned __int64 __readgsqword(unsigned long offset);
-extern "C" unsigned long __readgsdword(unsigned long offset);
-#pragma intrinsic(__readgsqword, __readgsdword)
+#include "maicord/sys/intrin.hpp"
 
 #if !defined(_M_X64)
 #error MaiCord's TEB/PEB accessors require native Windows x64.

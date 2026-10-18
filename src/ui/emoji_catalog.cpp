@@ -3,7 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/media/deflate.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 

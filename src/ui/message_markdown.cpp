@@ -6,8 +6,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/emoji_catalog.hpp"
+#include <stddef.h>
 
-#include <type_traits>
 
 namespace maicord {
 namespace {
@@ -108,7 +108,7 @@ struct Parser {
     Delimiter delimiters[kDelimiterCapacity];
 };
 
-static_assert(std::is_standard_layout_v<Parser> && std::is_trivially_copyable_v<Parser>);
+static_assert(is_standard_layout_v<Parser> && is_trivially_copyable_v<Parser>);
 static_assert(sizeof(Delimiter) == 16);
 
 MessageMarkdownError walk(Parser* parser, u32 stop_depth = ~0u) noexcept;

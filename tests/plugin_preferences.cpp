@@ -3,7 +3,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 // Test-only imported Win32 wrappers exercise the production source, with no
 // shipping fault seam. No DLL is created or loaded by these fixtures.

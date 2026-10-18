@@ -2,7 +2,8 @@
 // Test/tool-only DirectWrite COLRv1 paint-program builder (the native COLR
 // compiler's reference). Never linked into MaiCord.exe or MaiCordAccount.dll.
 #include "maicord/render/colr_program.hpp"
-#include <dwrite_3.h>
+#include "maicord/sys/d2d1.hpp"
+#include "maicord/sys/dwrite.hpp"
 
 namespace maicord {
 // Windows resolves COLRv1 variations and palette entries through the paint

@@ -1,7 +1,7 @@
 #include "native_plugin_fixture.hpp"
 #include "maicord/ui/popup_scene.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace {
 using namespace maicord;

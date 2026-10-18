@@ -2,8 +2,7 @@
 #include "maicord/model/voice_state_store.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

@@ -1,5 +1,5 @@
 #include "maicord/text/font_catalog.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 #include <stddef.h>
 namespace maicord {
 static_assert(sizeof(Win32FileTime)==sizeof(FILETIME)&&alignof(Win32FileTime)==alignof(FILETIME)&&

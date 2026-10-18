@@ -1,7 +1,7 @@
 #include "maicord/app/update_handoff.hpp"
 #include "maicord/core/byte_range.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

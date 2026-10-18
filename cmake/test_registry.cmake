@@ -188,8 +188,7 @@ maicord_test(MaiCordAccountVideoSessionProbe ENTRY maicord_account_video_session
     LIBS maicord_account_media maicord_platform maicord_model maicord_shader_bytecode d3d11 dxgi ole32 kernel32
         user32
     INCLUDES ${MAICORD_GENERATED_DIRECTORY}
-    DEFINES MAICORD_ACCOUNT_VIDEO_SESSION_PROBE=1
-    OPTIONS /GL-)
+    DEFINES MAICORD_ACCOUNT_VIDEO_SESSION_PROBE=1)
 if(MAICORD_TEST_AUDIO_PLAYBACK)
     maicord_add_tests(MaiCordAccountVideoSessionProbe TIMEOUT 5 COST 51 RESOURCE_LOCK native_audio
         TEST maicord_account_audio_playback --audio)
@@ -923,9 +922,14 @@ maicord_test(MaiCordNotificationTests ENTRY maicord_notifications_tests_entry
         tests/notification_sound_admission.cpp tests/notification_controls.cpp
     LIBS maicord_core maicord_model maicord_protocol kernel32
     TEST maicord_notifications)
-# runtimeobject: the SDK string calls tests/toast_abi.cpp compares the client's against.
+# tests/toast_abi.cpp checks the client's WinRT toast ABI against the SDK's
+# headers, so it compiles against them; runtimeobject: the SDK string calls it
+# compares the client's against.
+add_library(maicord_toast_abi_conformance OBJECT tests/toast_abi.cpp)
+target_link_libraries(maicord_toast_abi_conformance PRIVATE maicord_compile_contract)
+set_target_properties(maicord_toast_abi_conformance PROPERTIES CXX_EXTENSIONS OFF MAICORD_SDK_INCLUDES ON)
 maicord_test(MaiCordNativeNotificationTests ENTRY maicord_native_notifications_tests_entry
-    SOURCES tests/native_notifications.cpp tests/toast_abi.cpp
+    SOURCES tests/native_notifications.cpp $<TARGET_OBJECTS:maicord_toast_abi_conformance>
         tests/integration/desktop_notifications_probe.cpp
     LIBS maicord_core maicord_platform kernel32 runtimeobject
     TEST maicord_native_notifications)
@@ -1303,10 +1307,12 @@ maicord_test(MaiCordNativeFormatTests ENTRY maicord_native_format_entry
 maicord_add_tests(MaiCordNativeFormatTests TIMEOUT 2
     TEST maicord_native_recovery_pressure --recovery-pressure
         "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Compagnon.otf")
-# Inline the shared test driver's hot comparisons and query helpers.
-set_source_files_properties(tests/native_app_line_test.cpp PROPERTIES COMPILE_OPTIONS "/Ob2")
+# Inline the shared test driver's hot comparisons and query helpers (/Ob2).
+add_library(maicord_native_app_line_driver OBJECT tests/native_app_line_test.cpp)
+target_link_libraries(maicord_native_app_line_driver PRIVATE maicord_compile_contract)
+set_target_properties(maicord_native_app_line_driver PROPERTIES CXX_EXTENSIONS OFF MAICORD_INLINE_ANY ON)
 maicord_test(MaiCordNativeAppLineTests ENTRY maicord_native_app_line_entry
-    SOURCES tests/native_app_line_test.cpp src/render/text_edit_layout.cpp
+    SOURCES $<TARGET_OBJECTS:maicord_native_app_line_driver> src/render/text_edit_layout.cpp
         tools/font_reference/dwrite_text_system.cpp tools/font_reference/dwrite_edit_reference.cpp
     LIBS maicord_core maicord_ui maicord_text kernel32 dwrite
     TEST maicord_native_app_lines)

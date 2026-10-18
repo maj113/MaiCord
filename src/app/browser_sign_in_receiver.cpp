@@ -1,4 +1,4 @@
-#include <WinSock2.h>
+#include "maicord/sys/winsock.hpp"
 #include "maicord/app/browser_sign_in_receiver.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/deadline.hpp"

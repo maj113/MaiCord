@@ -2,7 +2,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 #include "vp8_reference_reconstruct.hpp"
 #include "vp8_reference_idct.hpp"

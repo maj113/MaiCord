@@ -5,8 +5,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/core/module.hpp"
-#include <shobjidl.h>
-#include <shellapi.h>
+#include "maicord/sys/shell.hpp"
 
 namespace maicord {
 namespace {

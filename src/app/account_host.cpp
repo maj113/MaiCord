@@ -2,7 +2,8 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 #if defined(MAICORD_PERF_PROBE)
 #include "../../tools/perf/perf_shared.hpp"

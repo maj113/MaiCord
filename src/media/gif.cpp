@@ -2,7 +2,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <immintrin.h>
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {

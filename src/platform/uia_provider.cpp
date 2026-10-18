@@ -2,7 +2,9 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/ui/accessibility.hpp"
 
-#include <ole2.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/ole.hpp"
+#include "maicord/sys/winsock.hpp"
 
 #include <stddef.h>
 

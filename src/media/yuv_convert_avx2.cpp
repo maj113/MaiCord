@@ -1,7 +1,7 @@
 #include "maicord/media/yuv_convert.hpp"
 #include "maicord/media/yuv_convert_common.hpp"
 
-#include <immintrin.h>
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {

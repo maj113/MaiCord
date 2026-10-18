@@ -5,9 +5,9 @@
 
 namespace maicord {
 
-// Win32 records that headers hold by value without parsing <Windows.h>: the
-// SDK's layout and member names, checked against the SDK where sources pass
-// them to Win32 through native().
+// MaiCord's stand-ins for Win32 records: the SDK's layout and member names
+// (src/core/win32_sdk_conformance.cpp checks them); native() passes them to
+// Win32.
 
 // SRWLOCK (RTL_SRWLOCK), unlocked when zero-initialized. Like a mutex, it
 // locks through const objects.

@@ -2,7 +2,7 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/platform/hevc_gpu_decoder.hpp"
 #include "maicord/media/hevc_mp4_demux.hpp"
-#include <d3d11.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 bool mp4_decoder_initialize(Mp4Decoder* decoder, ConstSlice<u8> encoded, u16 requested_width,

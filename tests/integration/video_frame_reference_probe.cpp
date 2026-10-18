@@ -7,7 +7,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 #include "video_frame_reference.hpp"
 

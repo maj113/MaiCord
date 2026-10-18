@@ -3,7 +3,7 @@
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
-#include <new>
+#include "maicord/sys/crt.hpp"
 
 namespace maicord {
 namespace {

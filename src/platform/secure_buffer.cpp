@@ -2,8 +2,7 @@
 #include "maicord/platform/secure_buffer.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
-#include <dpapi.h>
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 namespace {

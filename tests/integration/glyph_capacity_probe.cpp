@@ -2,8 +2,7 @@
 #include "maicord/render/glyph_atlas_gpu.hpp"
 #include "../test_output.hpp"
 
-#include <Windows.h>
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 namespace maicord { namespace {
 #define CHECK(x) do{if(!(x)){test_write_text("FAIL line ");test_write_u64(__LINE__);test_write_text("\n");return false;}}while(0)
 struct State {

@@ -5,8 +5,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include <Windows.h>
-#include <shellapi.h>
+#include "maicord/sys/shell.hpp"
 namespace maicord::app_detail {
 namespace {
 ApplicationForumAttachments* forum_attachments{};

@@ -1,6 +1,6 @@
 #include "probe_transport.hpp"
 
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

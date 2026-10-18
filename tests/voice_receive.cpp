@@ -3,8 +3,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

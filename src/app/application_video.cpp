@@ -22,8 +22,8 @@
 #include "maicord/ui/scene_cursor.hpp"
 #include "../render/d3d11_renderer_interaction_state.hpp"
 
-#include <Windows.h>
-#include <intrin.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 struct InlineMediaSource {

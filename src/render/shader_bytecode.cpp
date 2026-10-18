@@ -1,8 +1,7 @@
 #include "maicord/render/shader_bytecode.hpp"
 
 #include "maicord/media/deflate.hpp"
-#include <malloc.h>
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 #pragma intrinsic(_alloca)
 

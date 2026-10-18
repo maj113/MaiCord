@@ -1,5 +1,7 @@
 #include "maicord/platform/desktop_notifications.hpp"
-#include <NotificationActivationCallback.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/winrt.hpp"
 #include "toast_abi.hpp"
 
 namespace maicord {

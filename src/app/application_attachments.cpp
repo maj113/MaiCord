@@ -12,8 +12,8 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/writer.hpp"
-#include <Windows.h>
-#include <shellapi.h>
+#include "maicord/sys/shell.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 namespace {

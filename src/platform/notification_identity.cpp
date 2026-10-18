@@ -1,5 +1,6 @@
 #include "maicord/platform/notification_identity.hpp"
-#include <shobjidl.h>
+#include "maicord/sys/registry.hpp"
+#include "maicord/sys/shell.hpp"
 
 namespace maicord {
 namespace {

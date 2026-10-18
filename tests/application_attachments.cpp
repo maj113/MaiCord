@@ -5,7 +5,7 @@
 #include "maicord/protocol/writer.hpp"
 #include "file_drop_fixture.hpp"
 
-#include <Windows.h>
+#include "maicord/sys/shell.hpp"
 
 // Drive the shipping attachment owner with a deterministic account boundary.
 // No file dialog, DNS, credentials, or external service participates here.

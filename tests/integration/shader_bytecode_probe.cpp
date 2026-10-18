@@ -1,8 +1,7 @@
 #include "maicord/render/shader_bytecode.hpp"
 #include "../test_output.hpp"
 
-#include <Windows.h>
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 namespace maicord { namespace {
 #define CHECK(x) do{if(!(x)){test_write_text("FAIL: " #x "\n");return false;}}while(0)
 // Input layouts mirror d3d11_draw_pipeline.cpp; CreateInputLayout validates

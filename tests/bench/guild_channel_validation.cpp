@@ -5,9 +5,8 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/trace_record.hpp"
 #include "maicord/model/permission_bits.hpp"
-#include <intrin.h>
+#include "maicord/core/win32_kernel.hpp"
 
-#include <Windows.h>
 
 namespace maicord::guild_channel_validation_bench {
 namespace {

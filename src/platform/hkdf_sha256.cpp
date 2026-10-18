@@ -1,8 +1,7 @@
 #include "maicord/platform/hkdf_sha256.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 namespace {

@@ -1,6 +1,8 @@
 #pragma once
 #include "scoped_search_ui_probe.hpp"
 #include "maicord/ui/scene.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/gdi.hpp"
 
 namespace maicord {
 namespace search_polish_probe_detail {

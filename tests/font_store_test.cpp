@@ -1,5 +1,5 @@
 #include "maicord/text/font_store.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/text/font_instance.hpp"
 #include "maicord/core/byte_order.hpp"
 namespace maicord {namespace {

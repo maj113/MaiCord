@@ -4,9 +4,8 @@
 #include "maicord/platform/h264_gpu_stream_decoder.hpp"
 #include "maicord/app/video_stream_decoders.hpp"
 #include "h264_stream_fixture.hpp"
-#include <Windows.h>
-#include <d3d11_4.h>
-#include <new>
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/crt.hpp"
 
 namespace maicord {
 namespace {

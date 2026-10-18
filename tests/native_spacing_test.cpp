@@ -1,7 +1,6 @@
 // QA only: compare the production spacing primitive with installed Windows.
 #include "maicord/text/gpos_execute.hpp"
-#include <Windows.h>
-#include <dwrite_1.h>
+#include "maicord/sys/dwrite.hpp"
 namespace maicord {namespace {
 bool output_ok=true;
 void print(Utf8View text) noexcept {DWORD written=0;output_ok=output_ok&&WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text.data,text.bytes,&written,nullptr)&&written==text.bytes;}

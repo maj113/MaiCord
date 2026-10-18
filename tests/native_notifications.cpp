@@ -1,9 +1,8 @@
 #include "test_output.hpp"
 #include "maicord/platform/desktop_notifications.hpp"
 #include "maicord/platform/notification_identity.hpp"
-#include <Windows.h>
-#include <NotificationActivationCallback.h>
-#include <objbase.h>
+#include "maicord/sys/registry.hpp"
+#include "maicord/sys/winrt.hpp"
 namespace maicord {
 namespace {
 template<usize N> constexpr ConstSlice<wchar_t> wide(const wchar_t(&s)[N]) noexcept {return {s,static_cast<u32>(N-1)};}

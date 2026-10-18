@@ -2,8 +2,7 @@
 #include "maicord/app/plugin_settings_projection.hpp"
 #include "fixtures/native_plugin_fixture.hpp"
 #include "maicord/core/utf.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 namespace {

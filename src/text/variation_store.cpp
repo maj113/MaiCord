@@ -1,7 +1,7 @@
 #include "maicord/text/variation_store.hpp"
 #include "variation_delta.hpp"
 #include "maicord/text/base.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {

@@ -1,8 +1,7 @@
 #include "maicord/app/dave_key_derivation.hpp"
 #include "maicord/app/dave_frame_crypto.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

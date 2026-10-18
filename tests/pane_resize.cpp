@@ -5,7 +5,7 @@
 #include "maicord/ui/splitter.hpp"
 #include "maicord/core/module.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 namespace maicord::app_detail {
 namespace { u32 layouts, text_updates; bool fail_layout; }
 bool synchronize_shell_layout() noexcept { ++layouts; return !fail_layout; }

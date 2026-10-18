@@ -1,5 +1,6 @@
 // Included inside font_store_test's namespace; fixtures remain QA-only.
 #include "generated/gvar_outline_fixture.inc"
+#include "maicord/core/win32_kernel.hpp"
 NativeFontInstanceSlot instance_slots[4];NativeFontInstanceStore instance_store{&store,{instance_slots,4}};
 u32 instance_fonts=0,instance_outlines=0,instance_budgets=0;bool trimmed_pages_checked=false;
 AxisSegmentMap instance_maps[16];double instance_coordinates[16];i32 instance_stack[256];TtCallFrame instance_frames[32];

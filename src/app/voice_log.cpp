@@ -1,7 +1,7 @@
 #include "maicord/app/voice_log.hpp"
 #include "maicord/core/decimal.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

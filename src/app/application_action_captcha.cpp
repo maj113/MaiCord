@@ -2,8 +2,7 @@
 #include "application_state.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
-#include <shellapi.h>
+#include "maicord/sys/shell.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -6,7 +6,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 namespace {

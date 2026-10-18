@@ -10,9 +10,9 @@
 #include "hevc_gpu_geometry.hpp"
 #include "hevc_gpu_references.hpp"
 #include "gpu_decoder_fence.hpp"
-#include <d3d11_4.h>
-#include <initguid.h>
-#include <dxva.h>
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/initguid.hpp"
+#include "maicord/sys/dxva.hpp"
 
 namespace maicord {
 namespace {

@@ -2,8 +2,7 @@
 #include "maicord/ui/login_presentation.hpp"
 #include "maicord/ui/secure_text_store.hpp"
 #include "../src/app/application_login_geometry.hpp"
-#include <Windows.h>
-#include <textstor.h>
+#include "maicord/sys/tsf.hpp"
 
 namespace maicord {
 namespace {

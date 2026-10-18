@@ -1,7 +1,8 @@
 #include "application_state.hpp"
 #include "application_theme_publication.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 

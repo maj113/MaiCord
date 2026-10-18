@@ -1,8 +1,7 @@
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/core/log.hpp"
 
-#include <Windows.h>
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 namespace maicord {
 namespace {
 bool wide_video_preview_probe(D3D11Renderer& r, MediaAtlas& atlas, MediaAtlasGpu& gpu) noexcept {

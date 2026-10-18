@@ -49,6 +49,7 @@
 #include "maicord/protocol/guild_moderation.hpp"
 #include "maicord/protocol/user_guild_settings.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 

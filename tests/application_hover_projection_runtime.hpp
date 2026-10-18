@@ -1,5 +1,6 @@
 #pragma once
 #include "../src/app/application_retained_projection.hpp"
+#include "maicord/core/win32_user.hpp"
 
 // This header is included after the existing isolated host's observations.
 namespace maicord::settings_runtime_test {

@@ -25,7 +25,7 @@
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/ui/timestamp_format.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 

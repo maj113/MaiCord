@@ -32,7 +32,7 @@
 #include "maicord/app/update_generation.hpp"
 #include "maicord/app/account_module_version.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::generation_fault_test {
 enum class Fault : u8 { none, write, short_write, flush, close_record, move, close_validation, find_close, disposition, directory_open };

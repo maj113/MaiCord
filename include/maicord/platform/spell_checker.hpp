@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/slice.hpp"
+#include "maicord/sys/spellcheck.hpp"
 
 struct ISpellCheckerFactory;
 struct ISpellChecker;

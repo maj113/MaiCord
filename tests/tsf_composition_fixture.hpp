@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/core/memory.hpp"
-#include <msctf.h>
+#include "maicord/sys/tsf.hpp"
 namespace maicord::tsf_test {
 // The adapter only queries ACP extent for this unattached fixture. Every other
 // range operation rejects use, so unexpected dependencies cannot pass silently.

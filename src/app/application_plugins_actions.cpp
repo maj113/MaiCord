@@ -43,7 +43,8 @@
 #include "maicord/protocol/self_status_settings.hpp"
 #include "maicord/ui/clipboard.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -21,8 +21,8 @@
 #include "../../src/render/d3d11_renderer_layout.hpp"
 #include "maicord/render/renderer_presentation.hpp"
 
-#include <Windows.h>
-#include <d3d11_1.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};

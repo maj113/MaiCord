@@ -74,7 +74,8 @@
 #include "application_perf_mark.hpp"
 #include "application_voice_message.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 #if defined(MAICORD_PERF_PROBE)
 #include "../../tools/perf/perf_probe.hpp"
 #endif

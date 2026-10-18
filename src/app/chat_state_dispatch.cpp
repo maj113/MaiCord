@@ -6,8 +6,7 @@
 #include "maicord/model/read_state.hpp"
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/model/permission_bits.hpp"
-#include <new>
-#include <type_traits>
+#include "maicord/sys/crt.hpp"
 #pragma intrinsic(_alloca)
 
 namespace maicord {
@@ -36,10 +35,10 @@ struct PrivateStateScratch {
 struct MemberRoleScratch {
     u64 ids[kGuildRoleMaximum];
 };
-static_assert(std::is_trivial_v<GuildStateScratch> && std::is_trivial_v<PrivateStateScratch> &&
-              std::is_trivial_v<MemberRoleScratch>);
-static_assert(std::is_trivial_v<GuildEmojiScratch> && std::is_trivial_v<GuildChannelIdScratch> &&
-              std::is_trivial_v<GuildTransientScratch>);
+static_assert(is_trivial_v<GuildStateScratch> && is_trivial_v<PrivateStateScratch> &&
+              is_trivial_v<MemberRoleScratch>);
+static_assert(is_trivial_v<GuildEmojiScratch> && is_trivial_v<GuildChannelIdScratch> &&
+              is_trivial_v<GuildTransientScratch>);
 static_assert(sizeof(GuildChannelIdScratch) <= sizeof(GuildEmojiScratch) &&
               alignof(GuildChannelIdScratch) <= alignof(GuildEmojiScratch) &&
               sizeof(GuildTransientScratch) == sizeof(GuildEmojiScratch) &&

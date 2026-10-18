@@ -3,7 +3,8 @@
 #include "maicord/core/memory.hpp"
 
 #include <stddef.h>
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/registry.hpp"
 
 namespace maicord {
 static_assert(kDesktopShowHide == SW_HIDE && kDesktopShowMinimizedNoActive == SW_SHOWMINNOACTIVE &&

@@ -2,9 +2,8 @@
 #include "audio_endpoint_watch.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include <mmdeviceapi.h>
-#include <audioclient.h>
-#include <mmreg.h>
+#include "maicord/sys/wasapi.hpp"
+#include "maicord/sys/winrt.hpp"
 
 namespace maicord {
 namespace {

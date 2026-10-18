@@ -5,6 +5,7 @@
 #include "maicord/app/client_theme.hpp"
 #include "maicord/ui/background_presentation.hpp"
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace scoped_search_probe_detail {

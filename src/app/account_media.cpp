@@ -16,10 +16,10 @@
 #include "maicord/media/hevc_mp4_demux.hpp"
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/media/regional_flag_svg.hpp"
-#include <new>
-#include <type_traits>
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/winsock.hpp"
+#include "maicord/sys/crt.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -475,8 +475,8 @@ bool ensure_webp_workspace(AccountMedia* media) noexcept {
 }
 
 static_assert(sizeof(JpegWorkspace) >= sizeof(LossyWebpWorkspace));
-static_assert(std::is_trivially_default_constructible_v<JpegWorkspace>);
-static_assert(std::is_trivially_default_constructible_v<LossyWebpWorkspace>);
+static_assert(is_trivially_default_constructible_v<JpegWorkspace>);
+static_assert(is_trivially_default_constructible_v<LossyWebpWorkspace>);
 
 // Both codecs finish before the worker publishes one borrowed frame. Keep one
 // reservation, and commit the larger extent only when JPEG first needs it.

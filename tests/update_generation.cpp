@@ -3,7 +3,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/hash.hpp"
 
-#include <Windows.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

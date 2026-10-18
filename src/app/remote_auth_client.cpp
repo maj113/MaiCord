@@ -13,7 +13,7 @@
 #include "maicord/protocol/websocket_frame.hpp"
 #include "maicord/protocol/websocket_handshake.hpp"
 
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

@@ -1,6 +1,6 @@
 #include "maicord/media/regional_flag_svg.hpp"
 #include "maicord/core/byte_range.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 
 namespace maicord { namespace {
 constexpr double pi = 3.14159265358979323846;

@@ -12,7 +12,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/ui/theme.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::scoped_read_native {
 using namespace app_detail;

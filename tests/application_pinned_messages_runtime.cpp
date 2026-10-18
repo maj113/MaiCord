@@ -2,7 +2,8 @@
 #include "../src/app/application_pinned_messages.cpp"
 #include "test_output.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::pins_runtime_test {
 using namespace app_detail;

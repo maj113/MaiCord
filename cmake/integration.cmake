@@ -34,4 +34,4 @@ maicord_program(MaiCordRegionalFlagCdnProbe ENTRY maicord_regional_flag_cdn_prob
     LIBS maicord_core maicord_platform maicord_app_core maicord_media_core kernel32 ws2_32 secur32 bcrypt
         crypt32)
 # The Windows resource probe stays an optimized native object outside LTCG.
-set_source_files_properties(tests/integration/regional_flag_cdn_probe.cpp PROPERTIES COMPILE_OPTIONS "/GL-")
+set_target_properties(MaiCordRegionalFlagCdnProbe PROPERTIES MAICORD_NO_WHOLE_PROGRAM ON)

@@ -2,8 +2,7 @@
 #include "maicord/ui/secure_text_store.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/message_composer.hpp"
-#include <Windows.h>
-#include <msctf.h>
+#include "maicord/sys/tsf.hpp"
 
 namespace maicord {
 namespace {

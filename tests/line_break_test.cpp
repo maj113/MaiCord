@@ -1,6 +1,6 @@
 // Manual: --bench times the line break classifier; the registered run is the check.
 #include "maicord/text/line_break.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
 #include "generated/line_break_test.inc"

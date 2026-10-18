@@ -1,8 +1,8 @@
 #include "maicord/ui/secure_text_store.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
-#include <msctf.h>
-#include <objbase.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/tsf.hpp"
+#include "maicord/sys/winrt.hpp"
 
 namespace maicord {
 namespace {

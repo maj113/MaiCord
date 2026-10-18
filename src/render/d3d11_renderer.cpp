@@ -7,7 +7,7 @@
 #include "d3d11_renderer_login_form.hpp"
 #include "shaped_text_cache.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace {

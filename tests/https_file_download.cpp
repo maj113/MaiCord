@@ -1,7 +1,7 @@
 #include "maicord/app/https_file_download.hpp"
 #include "maicord/protocol/http_response_stream.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

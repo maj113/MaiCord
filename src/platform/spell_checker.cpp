@@ -2,8 +2,7 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <objbase.h>
-#include <spellcheck.h>
+#include "maicord/sys/spellcheck.hpp"
 
 namespace maicord {
 namespace {

@@ -10,10 +10,9 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
-#include <dxgi1_4.h>
-#include <psapi.h>
-#include <d3d11_1.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/process_info.hpp"
 
 #if defined(MAICORD_STARTUP_PROBE)
 #include "application_desktop.hpp"

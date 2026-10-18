@@ -60,8 +60,7 @@
 #include "application_desktop.hpp"
 #include "application_voice_message.hpp"
 
-#include <Windows.h>
-#include <shellapi.h>
+#include "maicord/sys/shell.hpp"
 
 namespace maicord::app_detail {
 static_assert(kWindowMessageApp == WM_APP);

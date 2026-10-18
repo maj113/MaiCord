@@ -1,5 +1,5 @@
 #include "maicord/text/tt_orientation.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 #pragma float_control(precise,on,push)
 namespace maicord {namespace {
 struct Point {double x,y;};

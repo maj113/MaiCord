@@ -4,6 +4,7 @@
 
 #include "maicord/core/memory.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/sys/crt.hpp"
 
 namespace maicord::deflate_reference {
 namespace {

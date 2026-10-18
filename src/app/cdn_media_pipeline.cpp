@@ -1,15 +1,14 @@
 #include "maicord/app/cdn_media_pipeline.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <new>
-#include <type_traits>
 
 #include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/crt.hpp"
 
 namespace maicord {
 namespace {
 
-static_assert(std::is_trivially_default_constructible_v<JpegWorkspace>);
-static_assert(std::is_trivially_default_constructible_v<LossyWebpWorkspace>);
+static_assert(is_trivially_default_constructible_v<JpegWorkspace>);
+static_assert(is_trivially_default_constructible_v<LossyWebpWorkspace>);
 
 struct CacheLeaseScope {
     EncodedMediaCache* cache;

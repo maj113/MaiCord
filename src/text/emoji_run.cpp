@@ -2,7 +2,7 @@
 #include "run_profile.hpp"
 #include "maicord/text/unicode.hpp"
 #include "maicord/text/base.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
 template<class T> bool valid(Slice<T> s) noexcept {return !s.count||s.data;}
 template<class T> bool valid(ConstSlice<T> s) noexcept {return !s.count||s.data;}

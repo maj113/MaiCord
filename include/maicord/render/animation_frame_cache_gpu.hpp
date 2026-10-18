@@ -3,6 +3,7 @@
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/render/animation_frame_cache.hpp"
 #include "maicord/render/media_atlas.hpp"
+#include "maicord/sys/d3d11.hpp"
 
 struct ID3D11Device;
 struct ID3D11DeviceContext1;

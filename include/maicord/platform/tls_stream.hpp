@@ -3,6 +3,7 @@
 #include "maicord/core/byte_queue.hpp"
 #include "maicord/platform/network.hpp"
 #include "maicord/platform/tls_client.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 

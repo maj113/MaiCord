@@ -2,7 +2,7 @@
 // MAICORD_RESOLVER_PUBLICATION_PROBE=1 and MAICORD_RESOLVER_PUBLICATION_BENCHMARK=1).
 #include "maicord/platform/network.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace {
 maicord::NetworkResolver* released_resolver;

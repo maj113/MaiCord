@@ -2,7 +2,7 @@
 
 #include "maicord/media/png.hpp"
 
-#include <immintrin.h>
+#include "maicord/sys/simd.hpp"
 
 extern "C" __declspec(dllimport) unsigned long __stdcall RtlComputeCrc32(
     unsigned long initial, const void* bytes, unsigned long count);

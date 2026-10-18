@@ -1,9 +1,8 @@
 #pragma once
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/core/log.hpp"
-#include <dxgi1_4.h>
-#include <Windows.h>
-#include <psapi.h>
+#include "maicord/sys/dxgi.hpp"
+#include "maicord/sys/process_info.hpp"
 
 namespace maicord {
 // Ordinary QA snapshots add no GPU wait, draw, capture texture or timestamp

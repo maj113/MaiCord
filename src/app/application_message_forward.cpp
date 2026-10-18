@@ -22,7 +22,8 @@
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/core/deadline.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationMessageForward {

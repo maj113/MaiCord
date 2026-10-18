@@ -1,4 +1,4 @@
-#include <WinSock2.h>
+#include "maicord/sys/winsock.hpp"
 #include "maicord/app/captcha_bridge.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/deadline.hpp"

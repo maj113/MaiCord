@@ -5,7 +5,7 @@
 // composition, Present and the frame-latency waitable pace as for a foreground
 // window, except while the display sleeps (DWM then composes at ~4 Hz).
 // See tools/perf/README.md.
-#include <windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::probe_window {
 

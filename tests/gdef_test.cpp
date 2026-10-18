@@ -1,7 +1,7 @@
 // Manual: --filter-cost measures lookup-flag filtering; the registered run is the check.
 #include "maicord/text/gdef.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
 u8 seen[65536];

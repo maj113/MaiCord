@@ -1,6 +1,7 @@
 #include "maicord/media/h264_parameters.hpp"
 #include "maicord/core/memory.hpp"
 #include "h264_bits.hpp"
+#include "maicord/sys/crt.hpp"
 
 namespace maicord {
 namespace {

@@ -1,7 +1,6 @@
 #include "maicord/media/opus_decoder.hpp"
 #include "maicord/core/arena.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
 #include <opus.h>
 
 namespace maicord {

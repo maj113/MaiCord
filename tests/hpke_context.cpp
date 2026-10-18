@@ -1,7 +1,7 @@
 #include "maicord/app/hpke_context.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
+#include "maicord/sys/winsock.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

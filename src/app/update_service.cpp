@@ -3,7 +3,8 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/platform/random.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace {

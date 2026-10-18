@@ -1,7 +1,7 @@
 #include "maicord/core/win32_process.hpp"
 #include "network_native.hpp"
 
-#include <MSWSock.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

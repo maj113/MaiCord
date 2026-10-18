@@ -1,7 +1,7 @@
 #include "maicord/platform/speech.hpp"
 
-#include <objbase.h>
-#include <sapi.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/speech.hpp"
 
 namespace maicord {
 namespace {

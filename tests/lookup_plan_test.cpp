@@ -7,7 +7,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "maicord/text/font_store.hpp"
 #include "../src/text/lookup_plan_finish.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "generated/lookup_plan_fixture.inc"
 #include "generated/layout_directory_fixture.inc"

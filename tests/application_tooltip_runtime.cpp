@@ -11,7 +11,8 @@
 #include "maicord/ui/profile_scene.hpp"
 #include "test_output.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 void test_reaction_tooltip_owner(void (*)(bool, const char*) noexcept) noexcept;

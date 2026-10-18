@@ -7,7 +7,8 @@
 #include "maicord/core/utf.hpp"
 #include "test_output.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::search_runtime_test {
 using namespace app_detail;

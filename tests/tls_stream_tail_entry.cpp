@@ -1,7 +1,6 @@
 #include "maicord/platform/tls_stream.hpp"
 
-#include <Windows.h>
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 // Dedicated executable: production tls_stream.cpp links to these synthetic
 // Schannel-result boundary fixtures. No certificate exception, live TLS, or

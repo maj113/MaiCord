@@ -1,7 +1,7 @@
 #include "maicord/app/notification_sound_assets.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/crypto.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

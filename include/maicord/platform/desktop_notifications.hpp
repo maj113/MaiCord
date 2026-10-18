@@ -2,7 +2,7 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/core/win32_types.hpp"
 
-#include <guiddef.h>
+#include "maicord/sys/com.hpp"
 
 namespace maicord {
 inline constexpr u32 kDesktopNotificationXmlBytes = 4096;

@@ -11,7 +11,7 @@
 #include "png_growth_fixture.hpp"
 #include "test_output.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

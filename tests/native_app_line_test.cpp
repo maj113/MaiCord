@@ -42,10 +42,9 @@
 #include "maicord/text/detail/paragraph_layout.hpp"
 #include "maicord/text/latin_paragraph.hpp"
 #include "maicord/core/utf.hpp"
-#include <Windows.h>
-#include <dwrite_3.h>
-#include <psapi.h>
-#include <emmintrin.h>
+#include "maicord/sys/dwrite.hpp"
+#include "maicord/sys/simd.hpp"
+#include "maicord/sys/process_info.hpp"
 namespace maicord {namespace {
 u32 checks=0,cases=0,native_cases=0,simulated_cases=0;bool print_ok=true;
 u64 matrix_seen=0;

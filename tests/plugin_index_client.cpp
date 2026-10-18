@@ -5,7 +5,7 @@
 #include "maicord/app/update_log.hpp"
 #include "plugin_fake_transport.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 #if !defined(MAICORD_PLUGIN_INDEX_FIXTURES)
 #error "MAICORD_PLUGIN_INDEX_FIXTURES must name tests/fixtures/plugin_index"

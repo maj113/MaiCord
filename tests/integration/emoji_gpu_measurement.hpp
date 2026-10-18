@@ -1,10 +1,8 @@
 #pragma once
 #include "maicord/render/d3d11_renderer.hpp"
 #include "maicord/core/log.hpp"
-#include <dxgi1_4.h>
-#include <Windows.h>
-#include <psapi.h>
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/process_info.hpp"
 namespace maicord {
 // QA only: device-timeline intervals include atlas generation, drawing and
 // submission gaps. They are not hardware busy time or presentation latency.

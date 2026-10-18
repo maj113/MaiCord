@@ -9,7 +9,7 @@
 #include "maicord/core/byte_order.hpp"
 #include "../src/text/run_profile.hpp"
 #include "maicord/text/nominal_participation.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "generated/component_shaping_fixture.inc"
 void print(Utf8View s) noexcept {DWORD n=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),s.data,s.bytes,&n,nullptr);}

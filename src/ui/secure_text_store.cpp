@@ -1,10 +1,11 @@
 #include "maicord/ui/secure_text_store.hpp"
 
-#include <inputscope.h>
-#include <msctf.h>
-#include <new>
-#include <olectl.h>
-#include <textstor.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/gdi.hpp"
+#include "maicord/sys/tsf.hpp"
+#include "maicord/sys/winsock.hpp"
+#include "maicord/sys/crt.hpp"
+#include <stddef.h>
 
 namespace maicord {
 static_assert(sizeof(Win32Rect) == sizeof(RECT) && alignof(Win32Rect) == alignof(RECT) &&

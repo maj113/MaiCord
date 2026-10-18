@@ -4,9 +4,8 @@
 #include "maicord/app/account_media_worker.hpp"
 #include "maicord/app/progressive_video_fetch.hpp"
 #include "maicord/core/trace_record.hpp"
-#include <Windows.h>
-#include <d3d11_4.h>
-#include <new>
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/crt.hpp"
 
 namespace maicord { namespace {
 u64 deadline{};

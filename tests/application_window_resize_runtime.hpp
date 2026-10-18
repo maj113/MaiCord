@@ -1,5 +1,6 @@
 #pragma once
 #include "../src/app/application_window_resize.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::settings_runtime_test {
 inline bool resize_messages_active{};

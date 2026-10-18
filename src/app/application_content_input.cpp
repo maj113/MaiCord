@@ -47,7 +47,7 @@
 #include "maicord/ui/message_action_bar.hpp"
 #include "maicord/ui/message_author.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 // Defined below beside ordinary message-link routing; retains its channel,

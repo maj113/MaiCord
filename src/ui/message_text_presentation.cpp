@@ -20,7 +20,7 @@
 #include "maicord/model/user_store.hpp"
 #include "maicord/ui/navigation_view.hpp"
 
-#include <Windows.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

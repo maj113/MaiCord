@@ -1,7 +1,7 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/platform/file_identity.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {
 bool file_snapshot_read(HANDLE file, FileSnapshot* output, u32* native_error) noexcept {
     if (native_error) *native_error = 0;

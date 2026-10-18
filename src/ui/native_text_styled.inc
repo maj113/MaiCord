@@ -1,4 +1,9 @@
 #include "native_text_decorations.inc"
+#include "maicord/core/win32_error.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_types.hpp"
+#include "maicord/sys/crt.hpp"
+#include "maicord/sys/simd.hpp"
 namespace {
 bool old_hangul_jamo(u32 cp) noexcept {
     if(cp<0x1113)return false;

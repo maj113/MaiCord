@@ -8,8 +8,7 @@
 #include "maicord/platform/hevc_gpu_decoder.hpp"
 #include "maicord/media/encoded_audio.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
-#include <d3d11_4.h>
+#include "maicord/sys/d3d11.hpp"
 
 #if !defined(MAICORD_ACCOUNT_VIDEO_SESSION_PROBE)
 #error The native playback probe requires the actual endpoint diagnostic contract.

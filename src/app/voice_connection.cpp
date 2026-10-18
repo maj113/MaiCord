@@ -1,6 +1,7 @@
 #include "maicord/app/voice_connection.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/platform/random.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

@@ -1,5 +1,4 @@
-#include <WinSock2.h>
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 #include "maicord/app/update_https.hpp"
 

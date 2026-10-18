@@ -4,9 +4,9 @@
 #include "maicord/text/font_session.hpp"
 #include "maicord/text/font_run.hpp"
 #include "maicord/text/paragraph_hits.hpp"
-#include <Windows.h>
-#include <psapi.h>
+#include "maicord/core/win32_kernel.hpp"
 #include <stddef.h>
+#include "maicord/sys/process_info.hpp"
 namespace maicord {namespace {
 u32 checks=0;bool released=true;
 void print(const char* text) noexcept {u32 n=0;while(text[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),text,n,&written,nullptr);}

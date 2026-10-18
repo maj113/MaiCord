@@ -37,8 +37,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/deadline.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
-#include <shlobj.h>
+#include "maicord/sys/shell.hpp"
 
 namespace maicord::app_detail {
 namespace {

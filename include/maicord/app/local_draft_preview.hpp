@@ -3,6 +3,7 @@
 #include "maicord/media/encoded_video_limits.hpp"
 #include "maicord/platform/file_identity.hpp"
 #include "maicord/platform/upload_source.hpp"
+#include "maicord/sys/d3d11.hpp"
 
 struct ID3D11Device;
 

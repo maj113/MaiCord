@@ -5,8 +5,8 @@
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
-#include <Windows.h>
-#include <tlhelp32.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/process_info.hpp"
 
 namespace maicord {
 namespace {

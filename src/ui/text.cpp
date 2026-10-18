@@ -8,7 +8,7 @@
 #include "maicord/text/unicode.hpp"
 #include "maicord/text/grapheme.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

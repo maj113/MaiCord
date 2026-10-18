@@ -1,6 +1,6 @@
 #include "maicord/app/voice_media_setup.hpp"
 
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 static_assert(sizeof(maicord::VoiceEndpointAddress) == sizeof(sockaddr_storage) &&
               alignof(maicord::VoiceEndpointAddress) == alignof(sockaddr_storage));

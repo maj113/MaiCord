@@ -1,7 +1,7 @@
 // Exercise the shipping private response owner without a network or test-only API.
 #include "../src/app/cdn_client.cpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 void test_cdn_response_storage(void (*check)(bool, const char*) noexcept) noexcept {

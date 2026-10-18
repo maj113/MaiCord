@@ -2,7 +2,8 @@
 #include "maicord/media/notification_pcm.hpp"
 #include "maicord/core/byte_order.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 bool notification_sound_asset_resolve(void* context,u32 id,NotificationAudioClip* clip) noexcept {

@@ -10,7 +10,7 @@
 #include "maicord/ui/scroll_host.hpp"
 #include "maicord/model/user_store.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {
 namespace {
 bool same_handle(UiWidgetHandle a, UiWidgetHandle b) noexcept {

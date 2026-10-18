@@ -3,7 +3,7 @@
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/media/asset.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

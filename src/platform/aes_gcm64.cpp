@@ -2,10 +2,9 @@
 #include "maicord/core/memory.hpp"
 #include "aead_internal.hpp"
 
-#include <Windows.h>
-#include <bcrypt.h>
-#include <immintrin.h>
-#include <intrin.h>
+#include "maicord/sys/crypto.hpp"
+#include "maicord/sys/simd.hpp"
+#include "maicord/sys/winsock.hpp"
 
 #pragma intrinsic(_byteswap_ulong)
 

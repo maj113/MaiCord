@@ -69,10 +69,9 @@
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "maicord/app/account_paths.hpp"
 #include "maicord/core/memory.hpp"
-#include <intrin.h>
-#include <psapi.h>
-#include <d3d11.h>
-#include <dxgi1_4.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/process_info.hpp"
 
 namespace maicord::perf {
 namespace {

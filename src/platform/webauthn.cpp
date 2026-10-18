@@ -1,9 +1,9 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/platform/webauthn.hpp"
 
-#include <Windows.h>
-#include <ncrypt.h>
-#include <webauthn.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/webauthn.hpp"
 
 namespace maicord {
 namespace {

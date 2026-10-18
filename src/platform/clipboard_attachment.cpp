@@ -2,8 +2,7 @@
 #include "maicord/platform/clipboard_image.hpp"
 #include "maicord/core/data_path.hpp"
 #include "maicord/core/memory.hpp"
-#include <shlobj.h>
-#include <shellapi.h>
+#include "maicord/sys/shell.hpp"
 namespace maicord {
 #if defined(MAICORD_CLIPBOARD_UI_FIXTURE)
 IDataObject* clipboard_attachment_ui_fixture_provider() noexcept;

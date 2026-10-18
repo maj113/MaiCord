@@ -5,7 +5,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/platform/network_worker.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

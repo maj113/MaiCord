@@ -15,7 +15,8 @@
 #include "maicord/ui/voice_channel_rows.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {

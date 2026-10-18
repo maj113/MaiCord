@@ -2,8 +2,7 @@
 #include "maicord/core/deadline.hpp"
 #include "maicord/platform/network_worker.hpp"
 
-#include <Windows.h>
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

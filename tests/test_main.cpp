@@ -160,9 +160,11 @@
 #include "maicord/ui/widget_manager.hpp"
 #include "maicord/ui/widget_storage.hpp"
 
-#include <Windows.h>
-#include <inputscope.h>
-#include <textstor.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/crypto.hpp"
+#include "maicord/sys/dwrite.hpp"
+#include "maicord/sys/tsf.hpp"
+#include "maicord/sys/winsock.hpp"
 #include "maicord/ui/text.hpp"
 #include "media_fixture.hpp"
 #include "jpeg_reference_fixture.hpp"
@@ -170,10 +172,7 @@
 #include "jpeg_cmyk_fixture.hpp"
 #include "webp_fixture.hpp"
 
-#include <bcrypt.h>
-#include <dwrite_3.h>
 
-#include <WS2tcpip.h>
 #include "test_output.hpp"
 
 extern "C" void* __cdecl memcpy(void* destination, const void* source, unsigned long long count);

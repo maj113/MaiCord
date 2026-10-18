@@ -1,7 +1,7 @@
 #include "maicord/platform/tls_stream.hpp"
 #include "maicord/core/byte_range.hpp"
 
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

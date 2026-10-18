@@ -10,11 +10,14 @@
 #include "maicord/ui/ansi_text.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
 #include "maicord/ui/regional_flag.hpp"
-#include <Windows.h>
-#include <d2d1.h>
+#include "maicord/core/win32_error.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_types.hpp"
+#include "maicord/sys/com.hpp"
+#include "maicord/sys/d2d1.hpp"
+#include "maicord/sys/dwrite.hpp"
 // Placement new without <new>: its STL CRT record would clash with the /MT
 // probe executables that link this reference next to /MD test libraries.
-#include <vcruntime_new.h>
 #include "maicord/text/paragraph_hits.hpp"
 
 namespace maicord {

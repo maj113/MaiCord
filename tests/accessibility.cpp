@@ -15,9 +15,9 @@
 #include "maicord/ui/widget_builder.hpp"
 #include "test_output.hpp"
 
-#include <Windows.h>
-#include <ole2.h>
-#include <UIAutomation.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/uia.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord::accessibility_test {
 namespace {

@@ -5,6 +5,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/shell_text_presentation.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 inline bool thread_browser_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& measure, HWND window,

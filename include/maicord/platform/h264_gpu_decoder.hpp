@@ -4,6 +4,7 @@
 
 #include "maicord/media/h264_parameters.hpp"
 #include "maicord/media/mp4_demux.hpp"
+#include "maicord/sys/d3d11.hpp"
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;

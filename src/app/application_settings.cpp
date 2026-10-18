@@ -49,8 +49,7 @@
 #include "maicord/render/layer_presentation.hpp"
 #include "maicord/render/text_edit_layout.hpp"
 #include "maicord/ui/clipboard.hpp"
-#include <Windows.h>
-#include <shellapi.h>
+#include "maicord/sys/shell.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationSettingsChoice {

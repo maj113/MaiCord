@@ -39,8 +39,8 @@
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "../../src/render/d3d11_renderer_layout.hpp"
 
-#include <Windows.h>
-#include <d3d11_1.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord::app_detail {
 constinit Application g_app{};

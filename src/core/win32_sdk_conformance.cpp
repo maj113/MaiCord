@@ -1,7 +1,7 @@
-// Compiles MaiCord's narrow Win32 declarations before the Windows SDK's: a
-// function, type or constant declared differently fails the build (C2733,
-// C2371, C4005), and the asserts pin each record declared in place of the
-// SDK's. Built with every client build; nothing links it.
+// MaiCord's own records that stand for SDK records (Win32Rect for RECT and
+// others; see maicord/core/win32_records.hpp): the SDK's layout and member
+// names. The SDK-free headers themselves are checked by the units
+// tools/generate_sys_conformance.py generates.
 #include "maicord/core/win32_kernel.hpp"
 #include "maicord/core/win32_records.hpp"
 #include "maicord/core/win32_user.hpp"

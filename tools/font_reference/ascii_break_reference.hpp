@@ -1,5 +1,9 @@
 #pragma once
 #include "maicord/ui/text.hpp"
+#include "maicord/core/win32_error.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/com.hpp"
+#include "maicord/sys/dwrite.hpp"
 namespace maicord {
 struct AsciiBreakReference final : IDWriteTextAnalysisSource,IDWriteTextAnalysisSink {
     wchar_t units[256];DWRITE_LINE_BREAKPOINT points[256];u32 count;

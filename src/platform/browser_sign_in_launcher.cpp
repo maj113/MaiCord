@@ -1,6 +1,5 @@
 #include "maicord/platform/browser_sign_in_launcher.hpp"
-#include <Windows.h>
-#include <shellapi.h>
+#include "maicord/sys/shell.hpp"
 
 namespace maicord {
 namespace {

@@ -35,7 +35,8 @@
 #include "maicord/ui/login_text_presentation.hpp"
 #include "maicord/ui/secure_edit.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -29,11 +29,14 @@ endif()
 string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
 # Release must not produce compiler or linker PDBs, even when a stale cache
-# added /Zi or /DEBUG.
+# added /Zi or /DEBUG. Optimization levels are each target's own (the
+# contract's /O2 /Ob1), not CMake's default /O2 /Ob2 stated before them.
 set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT "")
 foreach(flag_variable CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE CMAKE_ASM_MASM_FLAGS_RELEASE)
-    string(REGEX REPLACE "(^|[ \t])[-/]Z[iI7]([ \t]|$)" " "
-           clean_flags "${${flag_variable}}")
+    set(clean_flags "${${flag_variable}}")
+    foreach(pass 1 2)
+        string(REGEX REPLACE "(^|[ \t])[-/](Z[iI7]|O2|Ob[0-3])([ \t]|$)" " " clean_flags "${clean_flags}")
+    endforeach()
     string(STRIP "${clean_flags}" clean_flags)
     set(${flag_variable} "${clean_flags}" CACHE STRING "Release compiler flags" FORCE)
 endforeach()
@@ -41,11 +44,17 @@ foreach(flag_variable CMAKE_EXE_LINKER_FLAGS_RELEASE CMAKE_SHARED_LINKER_FLAGS_R
                       CMAKE_MODULE_LINKER_FLAGS_RELEASE)
     string(REGEX REPLACE "(^|[ \t])[-/][Dd][Ee][Bb][Uu][Gg](:[A-Za-z]+)?([ \t]|$)" " "
            clean_flags "${${flag_variable}}")
-    # Map output is owned by MAICORD_GENERATE_LINK_MAPS, not stale cache flags.
-    string(REGEX REPLACE "(^|[ \t])[-/][Mm][Aa][Pp]([ \t]|$)" " "
+    # Map output is owned by MAICORD_GENERATE_LINK_MAPS, not stale cache flags,
+    # and /INCREMENTAL:NO by the link contract.
+    string(REGEX REPLACE "(^|[ \t])[-/]([Mm][Aa][Pp]|INCREMENTAL:NO)([ \t]|$)" " "
            clean_flags "${clean_flags}")
     string(STRIP "${clean_flags}" clean_flags)
     set(${flag_variable} "${clean_flags}" CACHE STRING "Release linker flags" FORCE)
+endforeach()
+# Every image states its /SUBSYSTEM (with the minimum version) itself.
+foreach(lang C CXX)
+    set(CMAKE_${lang}_CREATE_WIN32_EXE "")
+    set(CMAKE_${lang}_CREATE_CONSOLE_EXE "")
 endforeach()
 
 # One policy owns every final PE's freestanding, mitigation, dead-code and
@@ -72,6 +81,16 @@ target_link_options(maicord_link_contract INTERFACE
 add_library(maicord_compile_contract INTERFACE)
 target_link_libraries(maicord_compile_contract INTERFACE maicord_link_contract)
 target_include_directories(maicord_compile_contract INTERFACE include)
+# /X: no INCLUDE environment or standard include paths. The Windows SDK and
+# compiler declarations MaiCord uses are its own (include/maicord/sys, with
+# C library names in sys/libc). A target with MAICORD_SDK_INCLUDES (the SDK
+# conformance units, the reference oracles) compiles against the SDK instead.
+set(maicord_sdk_includes "$<BOOL:$<TARGET_PROPERTY:MAICORD_SDK_INCLUDES>>")
+target_include_directories(maicord_compile_contract INTERFACE
+    "$<$<NOT:${maicord_sdk_includes}>:${CMAKE_CURRENT_SOURCE_DIR}/include/maicord/sys/libc>")
+target_compile_definitions(maicord_compile_contract INTERFACE "$<${maicord_sdk_includes}:MAICORD_SDK_INCLUDES>")
+target_compile_options(maicord_compile_contract INTERFACE
+    "$<$<AND:$<COMPILE_LANGUAGE:C,CXX>,$<NOT:${maicord_sdk_includes}>>:/X>")
 target_compile_features(maicord_compile_contract INTERFACE cxx_std_23)
 target_compile_definitions(maicord_compile_contract INTERFACE
     UNICODE
@@ -103,8 +122,10 @@ target_compile_options(maicord_compile_contract INTERFACE
     $<$<COMPILE_LANGUAGE:CXX>:/Brepro>
     $<$<COMPILE_LANGUAGE:ASM_MASM>:/Brepro>)
 target_compile_options(maicord_compile_contract INTERFACE
-    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/O2 /Ob1>
-    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>>:/GL>)
+    # MAICORD_INLINE_ANY: /Ob2 instead. MAICORD_NO_WHOLE_PROGRAM: no /GL, for
+    # code kept outside LTCG in an image that links with it.
+    "$<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/O2;/Ob$<IF:$<BOOL:$<TARGET_PROPERTY:MAICORD_INLINE_ANY>>,2,1>>"
+    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_TEST_CODEGEN>>>,$<NOT:$<BOOL:$<TARGET_PROPERTY:MAICORD_NO_WHOLE_PROGRAM>>>>:/GL>)
 
 add_library(maicord_runtime OBJECT
     src/core/runtime_x64.asm)

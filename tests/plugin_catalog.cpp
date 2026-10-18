@@ -1,7 +1,7 @@
 #include "maicord/app/plugin_catalog.hpp"
 #include "maicord/core/byte_range.hpp"
-#include <Windows.h>
-#include <winioctl.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/ioctl.hpp"
 
 namespace maicord {
 namespace {

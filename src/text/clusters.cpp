@@ -1,6 +1,6 @@
 #include "maicord/text/clusters.hpp"
 #include "maicord/text/base.hpp"
-#include <intrin.h>
+#include "maicord/sys/intrin.hpp"
 
 namespace maicord {namespace {
 constexpr u32 absent=0xffffffffu;

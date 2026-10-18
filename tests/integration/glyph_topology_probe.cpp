@@ -6,7 +6,7 @@
 #include "maicord/render/text_effect.hpp"
 #include "../test_output.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 #include "maicord_glyph_list_vs.hpp"
 #include "maicord_glyph_easing_reference_vs.hpp"
 #include "maicord_glyph_easing_reference_ps.hpp"

@@ -1,6 +1,6 @@
 #include "cff_internal.hpp"
 #include "maicord/text/base.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {

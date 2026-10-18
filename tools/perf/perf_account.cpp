@@ -16,6 +16,8 @@
 #include "maicord/protocol/gateway_payload.hpp"
 #include "maicord/protocol/gateway_session.hpp"
 #include "../../src/app/gateway_ready_projection.hpp"
+#include "maicord/core/win32_error.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::perf {
 namespace {

@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/text/shape_run.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 inline SfntStatus nominal_placements(const SfntShapePlan& plan,ConstSlice<SfntClusterGlyph> mapped,

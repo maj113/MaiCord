@@ -3,8 +3,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/theme.hpp"
 
-#include <Windows.h>
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 bool png_preview_probe(D3D11Renderer& r) noexcept;

@@ -2,7 +2,8 @@
 #include "maicord/render/colr_source.hpp"
 #include "maicord/text/truetype_outline.hpp"
 #include "maicord/text/cff_outline.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_types.hpp"
 
 // QA owner only. The engine receives immutable views and caller-owned scratch;
 // font mapping and these maximum-capacity buffers are not a shipping cache.

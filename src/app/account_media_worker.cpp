@@ -5,8 +5,7 @@
 #include "maicord/core/time.hpp"
 #include "maicord/platform/mp4_decoder.hpp"
 #include "account_media_video_internal.hpp"
-#include <d3d11_4.h>
-#include <objbase.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace {

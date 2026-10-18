@@ -1,7 +1,7 @@
 #include "maicord/text/font_store.hpp"
 #include "maicord/text/base.hpp"
 #include "font_path_stat.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 static_assert(sizeof(NativeFontFileId)==sizeof(FILE_ID_INFO));
 bool valid(const NativeFontStore& s) noexcept {return s.files.data && s.files.count && s.faces.data && s.faces.count;}

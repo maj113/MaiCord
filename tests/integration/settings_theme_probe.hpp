@@ -8,7 +8,7 @@
 #include "maicord/ui/controls/settings_tokens.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace settings_theme_probe_detail {

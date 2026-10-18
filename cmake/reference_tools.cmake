@@ -6,6 +6,7 @@ option(MAICORD_BUILD_FONT_REFERENCE "Build the DirectWrite/Direct2D reference or
 if(NOT MAICORD_BUILD_FONT_REFERENCE)
     return()
 endif()
+get_property(maicord_targets_before DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 
 set(maicord_reference_libs maicord_core dwrite kernel32)
 set(maicord_plan_reference MAICORD_FEATURE_PLAN_REFERENCE=1 MAICORD_PLACEMENT_REFERENCE=1)
@@ -79,3 +80,9 @@ maicord_program(MaiCordNativeColrCost ENTRY maicord_colr_cost_entry
         tools/colr_reference/dwrite_paint_builder.cpp tools/font_reference/dwrite_text_system.cpp
     LIBS maicord_core maicord_font maicord_text maicord_paint_program maicord_renderer kernel32 dwrite d3d11
     INCLUDES "${MAICORD_GENERATED_DIRECTORY}")
+
+# The oracles call DirectWrite, Direct2D and Direct3D through the SDK's own
+# headers (see MAICORD_SDK_INCLUDES in cmake/build_contract.cmake).
+get_property(maicord_targets_after DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+list(REMOVE_ITEM maicord_targets_after ${maicord_targets_before})
+set_property(TARGET ${maicord_targets_after} PROPERTY MAICORD_SDK_INCLUDES ON)

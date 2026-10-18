@@ -2,6 +2,9 @@
 
 #include "maicord/core/base.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/dcomp.hpp"
+#include "maicord/sys/dxgi.hpp"
 
 struct ID3D11Device;
 struct ID3D11DeviceContext;

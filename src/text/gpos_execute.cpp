@@ -1,6 +1,6 @@
 #include "maicord/text/gpos_execute.hpp"
 #include "maicord/text/base.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
 bool valid(const SfntPosition& p) noexcept {return is_finite(p.advance)&&is_finite(p.advance_offset)&&is_finite(p.ascender_offset);}
 bool spend(SfntPositionExecution* result,u64* remaining,u64 cost=1) noexcept {if(cost>*remaining)return false;*remaining-=cost;result->operations+=cost;return true;}

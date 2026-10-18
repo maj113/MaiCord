@@ -4,9 +4,8 @@
 #include "maicord/core/byte_range.hpp"
 #include "png_common.hpp"
 
-#include <intrin.h>
-#include <tmmintrin.h>
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {

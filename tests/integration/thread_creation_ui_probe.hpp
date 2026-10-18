@@ -2,6 +2,8 @@
 #include "thread_creation_ui_adapter.hpp"
 #include "reply_draft_ui_probe.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 namespace maicord {
 inline bool thread_creation_ui_probe(D3D11Renderer& external, UiTextMeasureCache& measure, HWND window,
     bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept {

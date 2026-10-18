@@ -1,7 +1,6 @@
 #include "maicord/app/update_stage.hpp"
 #include "maicord/core/byte_range.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 namespace {

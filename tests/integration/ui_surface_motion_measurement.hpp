@@ -6,6 +6,10 @@
 #include "maicord/render/renderer_presentation.hpp"
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/core/win32_error.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/gdi.hpp"
 
 namespace maicord {
 namespace surface_motion_probe_detail {

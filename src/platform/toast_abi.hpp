@@ -7,7 +7,7 @@
 // tests/toast_abi.cpp checks every IID, slot and class name against the SDK
 // and the reference layout against combase.
 #include "maicord/core/slice.hpp"
-#include <hstring.h>
+#include "maicord/sys/winrt.hpp"
 
 // combase.dll exports, imported by name through the import library that
 // cmake/libraries.cmake generates from src/platform/combase.def. The

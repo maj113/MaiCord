@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/platform/h264_gpu_decoder.hpp"
+#include "maicord/sys/d3d11.hpp"
 namespace maicord {
 // Shared small opaque handle/error fields; state belongs exclusively to HEVC.
 bool hevc_gpu_decoder_initialize(H264GpuDecoder*, ConstSlice<u8>, ID3D11Device*, ID3D11DeviceContext*,

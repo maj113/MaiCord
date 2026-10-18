@@ -1,8 +1,7 @@
 #include "maicord/app/mls_signature.hpp"
 #include "maicord/protocol/mls_encoding.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

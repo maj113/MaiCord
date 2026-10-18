@@ -8,7 +8,7 @@
 #include "maicord/ui/message_rich_layout.hpp"
 #include "media_fixture.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

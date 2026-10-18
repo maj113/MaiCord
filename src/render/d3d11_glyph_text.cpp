@@ -10,7 +10,7 @@
 #include "maicord/render/native_glyph_outlines.hpp"
 #include "maicord/text/font_run.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 struct D3D11ColorGlyphOwner {

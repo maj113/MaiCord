@@ -8,13 +8,15 @@
 
 #include "maicord/core/base.hpp"
 
-#include <Windows.h>
-#include <d3d11_1.h>
-#include <dcomp.h>
-#include <dxgi1_4.h>
-#include <intrin.h>
-#include <psapi.h>
-#include <roapi.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/crypto.hpp"
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/dcomp.hpp"
+#include "maicord/sys/gdi.hpp"
+#include "maicord/sys/ole.hpp"
+#include "maicord/sys/process_info.hpp"
+#include "maicord/sys/registry.hpp"
+#include "maicord/sys/winrt.hpp"
 
 namespace maicord::perf {
 namespace {

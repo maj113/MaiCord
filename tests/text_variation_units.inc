@@ -1,4 +1,6 @@
 #include "generated/text_variation_fixture.inc"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_types.hpp"
 bool text_variations(const wchar_t* path,u32 path_units) noexcept {
     if(plan.slot){CHECK(native_run_plan_release(&store,plan));plan={};}
     HANDLE file=CreateFileW(path,GENERIC_WRITE,0,nullptr,CREATE_ALWAYS,FILE_ATTRIBUTE_TEMPORARY,nullptr);CHECK(file!=INVALID_HANDLE_VALUE);

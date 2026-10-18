@@ -6,7 +6,8 @@
 #include "maicord/platform/clipboard_image.hpp"
 #include "maicord/media/png.hpp"
 
-#include <Windows.h>
+#include "maicord/sys/gdi.hpp"
+#include "maicord/sys/shell.hpp"
 namespace maicord {
 namespace {
 // A provider-owned virtual file. Returning its original allocation lets the test

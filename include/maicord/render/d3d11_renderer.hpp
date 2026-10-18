@@ -62,6 +62,7 @@
 #include "maicord/ui/thread_header.hpp"
 
 #include "maicord/core/win32_records.hpp"
+#include "maicord/sys/d3d11.hpp"
 
 struct ID3D11Buffer;
 struct ID3D11RenderTargetView;

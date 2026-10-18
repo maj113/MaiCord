@@ -3,7 +3,7 @@
 #include "maicord/app/account_host.hpp"
 #include "maicord/app/update_log.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 // Build inputs from CMake (MAICORD_UPDATE_REPOSITORY, MAICORD_UPDATE_PUBLIC_KEY,
 // MAICORD_UPDATE_PREVIEW and the project version). Only this translation unit

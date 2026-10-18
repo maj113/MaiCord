@@ -9,7 +9,7 @@
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/icon.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace {

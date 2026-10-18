@@ -1,8 +1,7 @@
 #include "maicord/platform/remote_auth_crypto.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 namespace {

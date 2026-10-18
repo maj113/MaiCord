@@ -1,6 +1,7 @@
 #include "maicord/protocol/voice_gateway.hpp"
 #include "maicord/protocol/websocket_handshake.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/crt.hpp"
 
 namespace maicord {
 namespace {

@@ -1,5 +1,6 @@
 #include "maicord/protocol/browser_sign_in.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/crt.hpp"
 
 namespace maicord {
 namespace {

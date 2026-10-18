@@ -7,7 +7,7 @@
 #include "../tools/colr_reference/dwrite_paint_builder.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "colr_program_equal.hpp"
-#include <d3d11_4.h>
+#include "maicord/sys/dwrite.hpp"
 namespace maicord {namespace {
 NativePaintContext native;
 void print(const char* value) noexcept {u32 n=0;while(value[n])++n;DWORD written=0;WriteFile(GetStdHandle(STD_OUTPUT_HANDLE),value,n,&written,nullptr);}

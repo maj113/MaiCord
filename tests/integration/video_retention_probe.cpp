@@ -3,8 +3,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/theme.hpp"
 
-#include <Windows.h>
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 bool video_retention_probe(D3D11Renderer& r, MediaAssetKey key, u16 width, u16 height) noexcept {

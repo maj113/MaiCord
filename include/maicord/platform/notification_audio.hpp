@@ -2,7 +2,7 @@
 #include "maicord/core/slice.hpp"
 #include "maicord/core/win32_types.hpp"
 #if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
-#include <mmdeviceapi.h>
+#include "maicord/sys/wasapi.hpp"
 #endif
 
 namespace maicord {

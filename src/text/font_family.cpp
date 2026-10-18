@@ -1,6 +1,6 @@
 #include "maicord/text/font_family.hpp"
 #include "maicord/text/font_names.hpp"
-#include <intrin.h>
+#include "maicord/sys/intrin.hpp"
 // Font-family discovery is outside warm drawing; keep its parser compact.
 #pragma optimize("s",on)
 namespace maicord {namespace {

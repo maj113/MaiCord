@@ -1,6 +1,6 @@
 #include "gpos_lookup_fixture.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 #include "maicord/text/gpos_mark_execute.hpp"
 #include "maicord/text/gpos_cursive_execute.hpp"
 #include "maicord/text/gpos_ligature_execute.hpp"

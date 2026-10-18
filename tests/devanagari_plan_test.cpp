@@ -26,7 +26,8 @@
 #include "maicord/core/arena.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "gsub_program_fixture.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 namespace maicord {namespace {
 #include "generated/devanagari_plan_fixture.inc"
 #include "generated/devanagari_cluster_fixture.inc"

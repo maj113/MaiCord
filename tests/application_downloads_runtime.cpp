@@ -3,7 +3,8 @@
 #include "../src/app/application_downloads.cpp"
 #include "test_output.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::downloads_runtime_test {
 using namespace app_detail;

@@ -5,8 +5,8 @@
 #include "application_text_form_state.hpp"
 #include "maicord/app/account_media_worker.hpp"
 #include "../media_fixture.hpp"
-#include <Windows.h>
-#include <shobjidl.h>
+#include "maicord/sys/shell.hpp"
+#include "maicord/sys/tsf.hpp"
 #include "application_forum_form_state.hpp"
 #include "application_state.hpp"
 #include "application_thread_browser.hpp"

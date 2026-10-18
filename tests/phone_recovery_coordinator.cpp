@@ -2,7 +2,7 @@
 #include "../src/app/user_auth_coordinator.cpp"
 #include "test_output.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::phone_coordinator_test {
 struct Fixture {

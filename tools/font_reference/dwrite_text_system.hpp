@@ -7,7 +7,8 @@
 #include "maicord/ui/native_text_candidate.hpp"
 #include "maicord/render/text_edit_layout.hpp"
 #include "maicord/text/font_prepare.hpp"
-#include <dwrite_3.h>
+#include "maicord/core/win32_types.hpp"
+#include "maicord/sys/dwrite.hpp"
 
 namespace maicord {
 

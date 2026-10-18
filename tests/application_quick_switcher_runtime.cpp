@@ -21,7 +21,8 @@
 #include "maicord/ui/presence.hpp"
 #include "test_output.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::quick_switcher_runtime_test {
 using namespace app_detail;

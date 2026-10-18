@@ -33,7 +33,8 @@
 #include "settings_runtime_keys.hpp"
 #include "test_output.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 void test_application_plugin_navigation_runtime(void (*check)(bool, const char*) noexcept) noexcept;

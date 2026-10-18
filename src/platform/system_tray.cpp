@@ -2,8 +2,8 @@
 #include "maicord/platform/taskbar_attention.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
-#include <shellapi.h>
+#include "maicord/sys/gdi.hpp"
+#include "maicord/sys/shell.hpp"
 
 namespace maicord {
 namespace {

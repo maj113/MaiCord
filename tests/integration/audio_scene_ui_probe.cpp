@@ -7,8 +7,7 @@
 #include "../../src/render/d3d11_renderer_draw.hpp"
 #include "../../src/render/d3d11_renderer_interaction_state.hpp"
 
-#include <Windows.h>
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord {
 namespace {

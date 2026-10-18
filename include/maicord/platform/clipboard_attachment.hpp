@@ -1,6 +1,7 @@
 #pragma once
 #include "maicord/platform/upload_source.hpp"
 #include "maicord/core/win32_types.hpp"
+#include "maicord/sys/ole.hpp"
 
 struct IStream;
 namespace maicord {

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
+#include "maicord/sys/crt.hpp"
+#include "maicord/sys/intrin.hpp"
 
 extern "C" void* __cdecl memmove(void* destination, const void* source, unsigned long long count);
 extern "C" void* __cdecl memset(void* destination, int value, unsigned long long count);

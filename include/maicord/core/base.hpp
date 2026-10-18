@@ -1,8 +1,9 @@
 #pragma once
 
 // Win32 is not part of the base: headers name its types through
-// maicord/core/win32_types.hpp, and code that calls it includes <Windows.h>,
-// which these keep lean.
+// maicord/core/win32_types.hpp, and code that calls it includes the
+// declarations it needs (maicord/sys). These keep <Windows.h> lean where the
+// SDK's own headers are used (MAICORD_SDK_INCLUDES).
 #if !defined(WIN32_LEAN_AND_MEAN)
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -24,6 +25,13 @@ using usize = unsigned long long;
 static_assert(sizeof(void*) == 8, "MaiCord currently ships as x64 only.");
 static_assert(sizeof(u64) == 8);
 static_assert(sizeof(i16) == 2);
+
+// <type_traits> equivalents, on the compiler builtins the STL uses.
+template <typename T> inline constexpr bool is_trivially_default_constructible_v = __is_trivially_constructible(T);
+template <typename T> inline constexpr bool is_trivially_copyable_v = __is_trivially_copyable(T);
+template <typename T>
+inline constexpr bool is_trivial_v = __is_trivially_constructible(T) && __is_trivially_copyable(T);
+template <typename T> inline constexpr bool is_standard_layout_v = __is_standard_layout(T);
 
 template <typename T> inline void com_release(T*& value) noexcept {
     if (value) {

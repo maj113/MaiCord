@@ -1,10 +1,8 @@
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <intrin.h>
-#include <emmintrin.h>
-#include <tmmintrin.h>
-#include <wmmintrin.h>
+#include "maicord/sys/intrin.hpp"
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {

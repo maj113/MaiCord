@@ -30,7 +30,8 @@
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/ui/profile_scene.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/winsock.hpp"
 
 #include <stddef.h>
 

@@ -17,7 +17,8 @@
 #include "maicord/ui/pinned_messages_scene.hpp"
 #include "maicord/ui/profile_scene.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 struct ApplicationTooltip {

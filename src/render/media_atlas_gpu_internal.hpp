@@ -6,7 +6,7 @@
 #include "maicord/media/apng.hpp"
 #include "maicord/media/gif.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord::media_atlas_gpu_detail {
 

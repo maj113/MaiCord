@@ -1,11 +1,8 @@
 #include "maicord/platform/tls_client.hpp"
 
 #if !defined(SECURITY_WIN32)
-#define SECURITY_WIN32
 #endif
-#include <Windows.h>
-#include <Security.h>
-#include <Schannel.h>
+#include "maicord/sys/sspi.hpp"
 
 namespace maicord {
 namespace {

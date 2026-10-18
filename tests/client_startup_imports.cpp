@@ -5,7 +5,7 @@
 // imports, while the device path (kernel32, d3d11) stays static.
 #include "test_output.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::client_startup_imports_test {
 namespace {

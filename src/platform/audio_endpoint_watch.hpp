@@ -1,7 +1,7 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
-#include <mmdeviceapi.h>
+#include "maicord/sys/wasapi.hpp"
 
 namespace maicord {
 

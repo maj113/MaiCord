@@ -5,8 +5,8 @@
 #include "application_text_form.hpp"
 #include "fixtures/native_plugin_fixture.hpp"
 #include "maicord/core/utf.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 namespace settings_runtime_test { void measurement(const char*, u64) noexcept; }

@@ -5,7 +5,8 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/scene.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 #if defined(MAICORD_PERF_PROBE) || defined(MAICORD_STARTUP_PROBE)
 #include "../../tools/perf/probe_window.hpp"

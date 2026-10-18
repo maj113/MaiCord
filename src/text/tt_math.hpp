@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/text/base.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 namespace maicord::tt_math {
 #pragma float_control(precise,on,push)
 inline void normalized_vector(i64 x,i64 y,i16* vx,i16* vy) noexcept {

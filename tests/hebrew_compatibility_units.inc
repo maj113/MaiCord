@@ -1,4 +1,6 @@
 #include "generated/hebrew_compat_fixture.inc"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_types.hpp"
 bool hebrew_compatibility(const wchar_t* path,u32 path_units) noexcept {
     u32 last=0xffffffffu;
     for(const auto& test:hebrew_compat_cases){++cases;

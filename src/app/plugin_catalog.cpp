@@ -1,8 +1,7 @@
 #include "maicord/app/plugin_catalog.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/ascii.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 static_assert(kNativePluginFileRead == GENERIC_READ && kNativePluginFileShareRead == FILE_SHARE_READ &&

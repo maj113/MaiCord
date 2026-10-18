@@ -19,7 +19,8 @@
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/time.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 namespace {

@@ -4,7 +4,7 @@
 #include "maicord/app/cdn_client.hpp"
 #include "maicord/media/webp.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 #include "../test_output.hpp"
 
 namespace maicord {

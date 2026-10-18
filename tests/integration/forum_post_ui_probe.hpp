@@ -5,6 +5,8 @@
 #include "maicord/core/time.hpp"
 #include "application_forum_form_state.hpp"
 #include "application_thread_browser.hpp"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 namespace maicord {
 inline bool forum_post_ui_probe(D3D11Renderer& external, UiTextMeasureCache& measure, HWND window,
                                 bool (*capture)(const wchar_t*, const Theme&) noexcept,

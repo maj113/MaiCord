@@ -39,7 +39,8 @@
 #include "account_login_handoff.hpp"
 #include "account_login_captcha.hpp"
 
-#include <Windows.h>
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

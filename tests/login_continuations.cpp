@@ -1,6 +1,7 @@
 #include "maicord/app/login_continuations.hpp"
 #include "maicord/protocol/login_continuations.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/crt.hpp"
 
 namespace maicord {
 namespace {

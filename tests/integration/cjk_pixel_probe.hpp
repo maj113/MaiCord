@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/utf.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 inline bool probe_cjk_pixel_stream() noexcept {

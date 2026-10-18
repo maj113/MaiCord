@@ -1,7 +1,7 @@
 #include "maicord/core/utf.hpp"
 
-#include <emmintrin.h>
-#include <intrin.h>
+#include "maicord/sys/intrin.hpp"
+#include "maicord/sys/simd.hpp"
 
 namespace maicord {
 namespace {

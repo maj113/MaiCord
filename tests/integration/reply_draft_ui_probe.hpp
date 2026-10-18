@@ -4,6 +4,7 @@
 #include "ui_surface_motion_measurement.hpp"
 #include "maicord/ui/message_text_coordinator.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace reply_draft_probe_detail {

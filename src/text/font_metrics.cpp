@@ -1,6 +1,6 @@
 #include "maicord/text/font_metrics.hpp"
 #include "maicord/text/base.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
 u16 word(ConstSlice<u8> bytes,u32 offset) noexcept {return byte_load_be16(bytes.data+offset);}
 i16 signed_word(ConstSlice<u8> bytes,u32 offset) noexcept {return static_cast<i16>(word(bytes,offset));}

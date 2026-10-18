@@ -40,7 +40,8 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/utf.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 #include <limits.h>
 

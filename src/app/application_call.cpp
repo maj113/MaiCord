@@ -23,8 +23,8 @@
 #include "maicord/ui/cursor.hpp"
 #include "maicord/ui/private_channel_title.hpp"
 
-#include <Windows.h>
-#include <d3d11.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord::app_detail {
 namespace {

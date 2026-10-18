@@ -2,8 +2,8 @@
 
 #include "maicord/media/h264_references.hpp"
 #include "maicord/core/memory.hpp"
-#include <d3d11.h>
-#include <dxva.h>
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/dxva.hpp"
 
 namespace maicord {
 

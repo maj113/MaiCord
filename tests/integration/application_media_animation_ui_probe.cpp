@@ -9,8 +9,7 @@
 #include "maicord/ui/message_presentation.hpp"
 #include "maicord/ui/message_text_presentation.hpp"
 
-#include <Windows.h>
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord::app_detail {
 // Synthetic Search captures seed renderer resources directly. This offline

@@ -1,8 +1,7 @@
 #include "maicord/app/voice_udp_discovery.hpp"
 #include "maicord/core/deadline.hpp"
 
-#include <Windows.h>
-#include <WS2tcpip.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

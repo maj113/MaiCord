@@ -3,7 +3,7 @@
 #include "layout_language.hpp"
 #include "lookup_plan_finish.hpp"
 #include "maicord/text/base.hpp"
-#include <intrin.h>
+#include "maicord/sys/intrin.hpp"
 namespace maicord {namespace {
 bool spend(u64* work,u64 amount=1) noexcept {if(amount>*work)return false;*work-=amount;return true;}
 u32 allowance(u64 work) noexcept {return static_cast<u32>(minimum<u64>(work,0xffffffffu));}

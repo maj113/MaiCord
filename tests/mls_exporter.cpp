@@ -1,8 +1,7 @@
 #include "maicord/app/mls_exporter.hpp"
 #include "maicord/app/dave_receive_sender.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 #include "test_output.hpp"
 
 namespace maicord {

@@ -1,7 +1,7 @@
 #include "maicord/platform/network.hpp"
 #include "maicord/app/https_file_upload.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 void test_network_file(void (*check)(bool, const char*) noexcept) noexcept {

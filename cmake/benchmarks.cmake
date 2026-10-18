@@ -6,26 +6,31 @@ option(MAICORD_BUILD_BENCHMARKS "Build opt-in freestanding benchmark executables
 if(NOT MAICORD_BUILD_BENCHMARKS)
     return()
 endif()
+get_property(maicord_targets_before DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 
 # The *_observer.cpp translation units stay outside LTCG so the measured code
 # cannot be folded into the benchmark harness.
+foreach(maicord_observer IN ITEMS channel_name_preflight guild_channel_validation guild_role_payload
+        text_projection)
+    add_library(maicord_${maicord_observer}_observer OBJECT tests/bench/${maicord_observer}_observer.cpp)
+    target_link_libraries(maicord_${maicord_observer}_observer PRIVATE maicord_compile_contract)
+    set_target_properties(maicord_${maicord_observer}_observer PROPERTIES CXX_EXTENSIONS OFF
+        MAICORD_NO_WHOLE_PROGRAM ON)
+endforeach()
 maicord_program(MaiCordChannelNamePreflightBenchmark ENTRY maicord_channel_name_preflight_benchmark_entry
-    SOURCES tests/bench/channel_name_preflight.cpp tests/bench/channel_name_preflight_observer.cpp
+    SOURCES tests/bench/channel_name_preflight.cpp $<TARGET_OBJECTS:maicord_channel_name_preflight_observer>
     LIBS maicord_core maicord_protocol maicord_model kernel32)
 maicord_program(MaiCordGuildChannelValidationBenchmark ENTRY maicord_guild_channel_validation_benchmark_entry
-    SOURCES tests/bench/guild_channel_validation.cpp tests/bench/guild_channel_validation_observer.cpp
+    SOURCES tests/bench/guild_channel_validation.cpp $<TARGET_OBJECTS:maicord_guild_channel_validation_observer>
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_message_runtime
         kernel32)
 maicord_program(MaiCordGuildRolePayloadBenchmark ENTRY maicord_guild_role_payload_benchmark_entry
-    SOURCES tests/bench/guild_role_payload.cpp tests/bench/guild_role_payload_observer.cpp
+    SOURCES tests/bench/guild_role_payload.cpp $<TARGET_OBJECTS:maicord_guild_role_payload_observer>
     LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core kernel32)
 maicord_program(MaiCordTextProjectionBenchmark ENTRY maicord_text_projection_benchmark_entry
-    SOURCES tests/bench/text_projection.cpp tests/bench/text_projection_observer.cpp
+    SOURCES tests/bench/text_projection.cpp $<TARGET_OBJECTS:maicord_text_projection_observer>
     LIBS maicord_core maicord_platform maicord_ui maicord_ui_input maicord_model maicord_protocol
         maicord_app_core maicord_text kernel32 user32 crypt32 dwrite)
-set_source_files_properties(tests/bench/channel_name_preflight_observer.cpp
-    tests/bench/guild_channel_validation_observer.cpp tests/bench/guild_role_payload_observer.cpp
-    tests/bench/text_projection_observer.cpp PROPERTIES COMPILE_OPTIONS "/GL-")
 maicord_program(MaiCordProcessBenchmark ENTRY maicord_process_benchmark_entry
     SOURCES benchmarks/process_benchmark.cpp
     LIBS maicord_core kernel32)
@@ -195,3 +200,9 @@ maicord_program(MaiCordGlyphCacheProbe WIN32 ENTRY maicord_glyph_cache_probe_ent
         dcomp
     PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
 maicord_copy_fonts(MaiCordGlyphCacheProbe)
+
+# Opt-in measurement tools; several compare with Media Foundation and FFmpeg
+# references, so they compile against the SDK (MAICORD_SDK_INCLUDES).
+get_property(maicord_targets_after DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+list(REMOVE_ITEM maicord_targets_after ${maicord_targets_before})
+set_property(TARGET ${maicord_targets_after} PROPERTY MAICORD_SDK_INCLUDES ON)

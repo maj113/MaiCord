@@ -17,7 +17,7 @@
 #include "../src/text/script_paragraph.hpp"
 #include "../src/text/unicode_line_geometry.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "generated/lookup_plan_fixture.inc"
 #include "generated/font_metrics_fixture.inc"

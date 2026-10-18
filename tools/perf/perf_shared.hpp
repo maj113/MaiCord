@@ -4,7 +4,7 @@
 // module it loads instead of MaiCordAccount.dll). Nothing here ships.
 #include "maicord/core/base.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_types.hpp"
 
 namespace maicord::perf {
 

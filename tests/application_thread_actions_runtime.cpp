@@ -6,7 +6,7 @@
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 
-#include <Windows.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord::thread_actions_runtime_test {
 u64 now = 1'000;

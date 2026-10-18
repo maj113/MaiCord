@@ -7,10 +7,38 @@ maicord_library(maicord_core
     src/core/arena.cpp src/core/byte_queue.cpp src/core/byte_order.cpp src/core/data_path.cpp
     src/core/json_reader.cpp src/core/json_scan.cpp src/core/reserved_bytes.cpp src/core/stable_storage.cpp
     src/core/utf.cpp src/core/byte_range.cpp)
-# Checks the narrow Win32 declarations against the SDK on every client build
-# (a MaiCord dependency); it defines nothing, so no image links it.
-add_library(maicord_win32_conformance OBJECT src/core/win32_sdk_conformance.cpp)
-target_link_libraries(maicord_win32_conformance PRIVATE maicord_compile_contract)
+# Checks MaiCord's SDK-free headers against the Windows SDK and compiler
+# headers on every client build (a MaiCord dependency): one generated unit per
+# header (tools/generate_sys_conformance.py). It defines nothing, so no image
+# links it.
+set(maicord_sys_headers
+    include/maicord/core/win32_types.hpp include/maicord/core/win32_error.hpp
+    include/maicord/core/win32_kernel.hpp include/maicord/core/win32_user.hpp
+    include/maicord/sys/crt.hpp include/maicord/sys/intrin.hpp include/maicord/sys/simd.hpp
+    include/maicord/sys/com.hpp include/maicord/sys/ole.hpp include/maicord/sys/registry.hpp
+    include/maicord/sys/gdi.hpp include/maicord/sys/winsock.hpp include/maicord/sys/crypto.hpp
+    include/maicord/sys/sspi.hpp include/maicord/sys/shell.hpp include/maicord/sys/winrt.hpp
+    include/maicord/sys/dxgi.hpp include/maicord/sys/d3d11.hpp include/maicord/sys/dcomp.hpp
+    include/maicord/sys/dxva.hpp include/maicord/sys/d2d1.hpp include/maicord/sys/dwrite.hpp
+    include/maicord/sys/wasapi.hpp include/maicord/sys/media_foundation.hpp include/maicord/sys/tsf.hpp
+    include/maicord/sys/uia.hpp include/maicord/sys/speech.hpp include/maicord/sys/spellcheck.hpp
+    include/maicord/sys/webauthn.hpp include/maicord/sys/process_info.hpp include/maicord/sys/ioctl.hpp
+    include/maicord/sys/libc/stddef.h include/maicord/sys/libc/stdint.h include/maicord/sys/libc/limits.h)
+set(maicord_sys_conformance_sources src/core/win32_sdk_conformance.cpp)
+foreach(header IN LISTS maicord_sys_headers)
+    get_filename_component(name "${header}" NAME_WE)
+    set(unit "${MAICORD_GENERATED_DIRECTORY}/sys_conformance/${name}.cpp")
+    add_custom_command(OUTPUT "${unit}"
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_sys_conformance.py"
+            --root "${CMAKE_CURRENT_SOURCE_DIR}" --header "${header}" --output "${unit}"
+        DEPENDS "${header}" tools/generate_sys_conformance.py
+        VERBATIM)
+    list(APPEND maicord_sys_conformance_sources "${unit}")
+endforeach()
+add_library(maicord_sys_conformance OBJECT ${maicord_sys_conformance_sources})
+target_link_libraries(maicord_sys_conformance PRIVATE maicord_compile_contract)
+target_include_directories(maicord_sys_conformance PRIVATE src/sys)
+set_target_properties(maicord_sys_conformance PROPERTIES MAICORD_SDK_INCLUDES ON)
 
 maicord_library(maicord_compression src/media/deflate.cpp LIBS maicord_core)
 

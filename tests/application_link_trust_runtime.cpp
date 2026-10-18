@@ -3,8 +3,8 @@
 // a checked trust is saved per account so the host opens directly next time.
 #include "application_state.hpp"
 #include "application_text_form_state.hpp"
-#include <Windows.h>
-#include <shellapi.h>
+#include "maicord/sys/shell.hpp"
+#include "maicord/sys/winsock.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord::link_trust_runtime_test {

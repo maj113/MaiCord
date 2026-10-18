@@ -7,7 +7,7 @@
 #include "maicord/text/nominal_sources.hpp"
 #include "maicord/text/grapheme.hpp"
 #include "maicord/text/base.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 namespace maicord {namespace {
 #include "generated/alphabetic_composition_data.inc"
 u32 compose(u32 first,u32 last) noexcept {

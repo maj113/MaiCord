@@ -1,6 +1,6 @@
 #pragma once
 #include "maicord/text/outline.hpp"
-#include <emmintrin.h>
+#include "maicord/sys/simd.hpp"
 #include <stddef.h>
 
 namespace maicord::colr_detail {

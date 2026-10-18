@@ -8,7 +8,7 @@
 #include "fixtures/gateway_growth.hpp"
 #include "fixtures/oversized_guild.hpp"
 
-#include <Windows.h>
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace ready_probe {

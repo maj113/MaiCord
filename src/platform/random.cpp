@@ -1,7 +1,6 @@
 #include "maicord/platform/random.hpp"
 
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 
 namespace maicord {
 

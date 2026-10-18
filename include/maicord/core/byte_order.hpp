@@ -1,6 +1,8 @@
 #pragma once
 
 #include "maicord/core/base.hpp"
+#include "maicord/sys/crt.hpp"
+#include "maicord/sys/intrin.hpp"
 
 // Declared as <string.h> and <intrin.h> declare them, without parsing either.
 extern "C" void* __cdecl memcpy(void* destination, const void* source, unsigned long long count);

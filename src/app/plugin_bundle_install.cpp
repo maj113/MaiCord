@@ -4,7 +4,7 @@
 #include "maicord/core/hash.hpp"
 #include <stddef.h>
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

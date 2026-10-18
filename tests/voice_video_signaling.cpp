@@ -1,5 +1,6 @@
 #include "maicord/protocol/voice_video_signaling.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/sys/crt.hpp"
 
 namespace maicord {
 namespace {

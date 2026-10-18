@@ -2,7 +2,7 @@
 #include "maicord/text/visibility.hpp"
 #include "maicord/text/detail/paragraph_layout.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "emoji_test_support.inc"
 #include "generated/emoji_paragraph_fixture.inc"

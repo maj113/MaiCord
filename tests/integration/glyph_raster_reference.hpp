@@ -1,5 +1,6 @@
 #pragma once
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/winsock.hpp"
 
 #include "maicord_glyph_distance_reference_cs.hpp"
 

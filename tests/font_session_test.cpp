@@ -1,7 +1,7 @@
 #include "maicord/text/font_prepare.hpp"
 #include "maicord/text/font_run.hpp"
 #include "maicord/core/byte_order.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 static_assert(sizeof(NativeFontSelection)==48);
 #include "generated/tt_outline_fixture.inc"

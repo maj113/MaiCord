@@ -1,7 +1,7 @@
 #pragma once
 #include "application_state.hpp"
 
-#include <d3d11_1.h>
+#include "maicord/sys/d3d11.hpp"
 
 namespace maicord::app_detail {
 // True when region holds enough content-text pixels matching their own glyph

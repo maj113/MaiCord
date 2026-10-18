@@ -1,9 +1,8 @@
 #include "maicord/core/win32_process.hpp"
 #include "maicord/platform/secure_buffer.hpp"
 #include "maicord/core/memory.hpp"
-#include <Windows.h>
-#include <dpapi.h>
-#include <psapi.h>
+#include "maicord/sys/crypto.hpp"
+#include "maicord/sys/process_info.hpp"
 #include "test_output.hpp"
 
 // QA-only peer: the production implementation is separately linked into this

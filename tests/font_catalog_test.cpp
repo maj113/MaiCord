@@ -5,7 +5,7 @@
 #include "maicord/text/font_session.hpp"
 #include "maicord/text/font_catalog.hpp"
 #include "../src/text/font_path_stat.hpp"
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 #include "generated/font_family_fixture.inc"
 #include "font_catalog_fixture.inc"

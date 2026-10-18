@@ -3,8 +3,8 @@
 #include "maicord/platform/taskbar_attention.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
-#include <shobjidl.h>
+#include "maicord/sys/registry.hpp"
+#include "maicord/sys/shell.hpp"
 
 namespace maicord {
 namespace {

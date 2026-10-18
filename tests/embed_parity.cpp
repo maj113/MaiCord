@@ -17,7 +17,7 @@
 #include "maicord/ui/native_text_candidate.hpp"
 #include "maicord/ui/navigation_view.hpp"
 #include "maicord/core/win32_kernel.hpp"
-#include <dwrite.h> // Test-only coverage oracle; the client has no DirectWrite.
+#include "maicord/sys/dwrite.hpp"
 
 namespace maicord {
 namespace {

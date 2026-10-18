@@ -173,7 +173,10 @@ target_compile_features(${MAIOPUS_ENCODER_TARGET} PRIVATE c_std_17)
 target_compile_definitions(${MAIOPUS_ENCODER_TARGET} PRIVATE ${maiopus_definitions})
 # Measured: /O1 removes about a fifth of the encoder code for under 1% SILK
 # encode time; the CELT analysis unit stays /O2, where /O1 cost about 6%.
-target_compile_options(${MAIOPUS_ENCODER_TARGET} PRIVATE ${maiopus_options} /O1)
+target_compile_options(${MAIOPUS_ENCODER_TARGET} PRIVATE ${maiopus_options})
+get_target_property(maiopus_encoder_sources ${MAIOPUS_ENCODER_TARGET} SOURCES)
+list(REMOVE_ITEM maiopus_encoder_sources celt/celt_encoder.c)
+set_source_files_properties(${maiopus_encoder_sources} PROPERTIES COMPILE_OPTIONS /O1)
 set_source_files_properties(celt/celt_encoder.c PROPERTIES COMPILE_OPTIONS "/O2;/Ob1")
 target_link_libraries(${MAIOPUS_ENCODER_TARGET} PUBLIC ${MAIOPUS_DECODER_TARGET})
 set_target_properties(${MAIOPUS_ENCODER_TARGET} PROPERTIES

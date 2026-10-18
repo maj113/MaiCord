@@ -3,8 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/cdn_url.hpp"
-#include <Windows.h>
-#include <initializer_list>
+#include "maicord/sys/initializer_list.hpp"
 
 namespace maicord { namespace {
 ConstSlice<u8> bytes(Utf8View value) noexcept {

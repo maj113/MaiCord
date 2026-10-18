@@ -3,7 +3,8 @@
 #include "maicord/protocol/http1.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include <objbase.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/com.hpp"
 
 namespace maicord {
 namespace {

@@ -14,7 +14,8 @@
 #include "maicord/media/presentation_policy.hpp"
 #include "maicord/ui/clipboard.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 namespace maicord::app_detail {
 namespace {
 // The official client's modal spring (tension 1000, friction 48); exit settles faster.

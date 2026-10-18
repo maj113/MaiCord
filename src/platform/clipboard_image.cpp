@@ -1,6 +1,7 @@
 #include "maicord/platform/clipboard_image.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/gdi.hpp"
 
 extern "C" __declspec(dllimport) unsigned long __stdcall RtlComputeCrc32(
     unsigned long initial, const void* bytes, unsigned long count);

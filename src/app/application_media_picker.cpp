@@ -29,7 +29,8 @@
 #include "maicord/ui/regional_flag.hpp"
 #include "maicord/ui/splitter.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 #include <limits.h>
 

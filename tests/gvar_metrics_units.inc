@@ -1,4 +1,6 @@
 #include "generated/gvar_metrics_fixture.inc"
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_types.hpp"
 bool gvar_metrics_units() noexcept {
     Reader reader{{gvar_metrics_fixture,sizeof(gvar_metrics_fixture)},8};u32 count=0;
     if(!bytes_equal(reader.bytes.data,"MCGMET1\0",8)||!reader.word(&count))return false;

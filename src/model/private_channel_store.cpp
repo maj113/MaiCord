@@ -1,7 +1,7 @@
 #include "maicord/model/private_channel_store.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/heap_sort.hpp"
-#include <new>
+#include "maicord/sys/crt.hpp"
 #pragma intrinsic(_alloca)
 
 namespace maicord {

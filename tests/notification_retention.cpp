@@ -1,7 +1,7 @@
 // Manual extension: MAICORD_NOTIFICATION_RETENTION_PROFILE=1 prints a retention timing profile.
 #include "maicord/model/notification_retention.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

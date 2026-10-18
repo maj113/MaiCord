@@ -1,8 +1,9 @@
 #include "maicord/render/lottie_program.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
-#include <d2d1.h>
-#include <new>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/d2d1.hpp"
+#include "maicord/sys/crt.hpp"
 namespace maicord {
 namespace {
 constexpr u32 maximum_leaves = 1024;

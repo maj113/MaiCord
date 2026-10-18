@@ -16,7 +16,7 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/scroll_host.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_user.hpp"
 
 #include <limits.h>
 

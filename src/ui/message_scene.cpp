@@ -11,7 +11,7 @@
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/theme_styles.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

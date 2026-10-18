@@ -1,7 +1,7 @@
 #include "maicord/text/gsub_execute.hpp"
 #include "maicord/text/base.hpp"
 #include "gsub_validated.hpp"
-#include <intrin.h>
+#include "maicord/sys/intrin.hpp"
 
 namespace maicord {namespace {
 template<class T> bool valid(Slice<T> s) noexcept {return !s.count || s.data;}

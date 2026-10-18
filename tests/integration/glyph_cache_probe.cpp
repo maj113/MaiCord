@@ -3,6 +3,8 @@
 #include "glyph_cache_measurement.hpp"
 #include "maicord/core/log.hpp"
 #include "cjk_pixel_probe.hpp"
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/gdi.hpp"
 
 namespace maicord {namespace {
 D3D11Renderer renderer;

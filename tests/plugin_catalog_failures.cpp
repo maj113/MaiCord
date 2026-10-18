@@ -1,6 +1,5 @@
 #include "maicord/app/plugin_module_loader.hpp"
-#include <Windows.h>
-#include <bcrypt.h>
+#include "maicord/sys/crypto.hpp"
 #include "test_output.hpp"
 
 // QA-only imported-call wrappers around the exact production implementations.

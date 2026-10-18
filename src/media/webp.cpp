@@ -1,6 +1,6 @@
 #include "maicord/media/webp.hpp"
 
-#include <immintrin.h>
+#include "maicord/sys/simd.hpp"
 #include "maicord/core/byte_order.hpp"
 
 namespace maicord {

@@ -3,7 +3,8 @@
 #include "maicord/app/progressive_video_fetch.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
-#include <objbase.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/com.hpp"
 
 namespace maicord {
 struct AccountMediaVideoRuntime {

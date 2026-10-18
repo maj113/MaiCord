@@ -3,7 +3,8 @@
 #include "maicord/text/font_fallback_catalog.hpp"
 #include "maicord/core/log.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/sys/gdi.hpp"
 
 namespace maicord {
 struct FamilyOrder {FamilyOrder* next;const NativeFontCatalog* catalog;u32 scope,base;NativeFontProperties properties;ConstSlice<u16> name;ConstSlice<u32> order;mutable const FamilyOrder** companions;};

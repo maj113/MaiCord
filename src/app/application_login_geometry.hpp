@@ -5,7 +5,7 @@
 #include "maicord/render/text_edit_layout.hpp"
 #include "maicord/ui/login_view.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::app_detail {
 

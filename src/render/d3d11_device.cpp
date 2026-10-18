@@ -1,7 +1,7 @@
 #include "maicord/render/d3d11_device.hpp"
-#include <d3d11_4.h>
-#include <dcomp.h>
-#include <dxgi1_3.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/d3d11.hpp"
+#include "maicord/sys/dcomp.hpp"
 
 namespace maicord {
 namespace {

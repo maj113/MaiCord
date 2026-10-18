@@ -2,8 +2,8 @@
 
 #include "maicord/core/byte_order.hpp"
 
-#include <immintrin.h>
-#include <intrin.h>
+#include "maicord/sys/intrin.hpp"
+#include "maicord/sys/simd.hpp"
 
 #pragma intrinsic(_byteswap_uint64)
 

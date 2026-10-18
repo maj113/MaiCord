@@ -1,9 +1,8 @@
 #include "maicord/platform/aac_decoder.hpp"
 #include "maicord/media/aac_configuration.hpp"
 #include "maicord/core/byte_range.hpp"
-#include <mfapi.h>
-#include <mferror.h>
-#include <mftransform.h>
+#include "maicord/sys/media_foundation.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord {
 namespace {

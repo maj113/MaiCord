@@ -3,7 +3,7 @@
 #include "maicord/core/memory.hpp"
 #include "test_output.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord::reaction_runtime_test {
 u64 monotonic_clock() noexcept;

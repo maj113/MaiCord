@@ -1,6 +1,6 @@
 #include "maicord/app/account_media_worker.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

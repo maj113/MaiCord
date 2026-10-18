@@ -20,8 +20,9 @@
 #include "maicord/model/notification_sound_admission.hpp"
 #include "maicord/app/notification_sound_assets.hpp"
 #include "maicord/ui/message_markdown.hpp"
-#include <Windows.h>
-#include <shlobj.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/com.hpp"
 #include <stddef.h>
 
 namespace maicord::app_detail {

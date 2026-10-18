@@ -1,5 +1,5 @@
 #pragma once
-#include <objidl.h>
+#include "maicord/sys/ole.hpp"
 namespace maicord {
 // UiProbe owns this borrowed provider. Capture still marshals it for the native
 // worker; no fixture operation reads or replaces the live OS clipboard.

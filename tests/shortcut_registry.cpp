@@ -3,7 +3,8 @@
 #include "maicord/ui/shortcuts_scene.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
+#include "maicord/core/win32_user.hpp"
 
 namespace maicord {
 namespace {

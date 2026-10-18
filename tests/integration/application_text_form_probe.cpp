@@ -14,8 +14,8 @@
 #include "maicord/core/log.hpp"
 #include "maicord/ui/settings_scene.hpp"
 
-#include <Windows.h>
-#include <d3d11_1.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/winsock.hpp"
 
 namespace maicord::app_detail {
 u32 probe_button_actions;

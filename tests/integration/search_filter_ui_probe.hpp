@@ -6,6 +6,7 @@
 #include "maicord/ui/shell_navigation_scene.hpp"
 #include "maicord/ui/theme_style_projection.hpp"
 #include "maicord/ui/native_text_candidate.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace search_filter_probe_detail {

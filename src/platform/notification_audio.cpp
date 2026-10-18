@@ -1,9 +1,9 @@
 #include "maicord/platform/notification_audio.hpp"
 #include "maicord/core/win32_process.hpp"
 #include "maicord/core/byte_range.hpp"
-#include <mmdeviceapi.h>
-#include <audioclient.h>
-#include <mmreg.h>
+#include "maicord/core/win32_user.hpp"
+#include "maicord/sys/wasapi.hpp"
+#include "maicord/sys/winrt.hpp"
 
 namespace maicord {
 #if defined(MAICORD_NOTIFICATION_AUDIO_FIXTURE)
