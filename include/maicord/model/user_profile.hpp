@@ -27,6 +27,9 @@ enum UserAppearanceField : u32 {
     appearance_guild_tag = 32,
     appearance_activity = 64,
     appearance_avatar = 128,
+    // With appearance_activity: the line is the custom status, not a
+    // "Playing X" summary of another activity.
+    appearance_custom_status = 256,
 };
 inline constexpr u32 kAppearanceActivityBytes = 256;
 inline constexpr u32 kAppearanceStatusEmojiBytes = 64;

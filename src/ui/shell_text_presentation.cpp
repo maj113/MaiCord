@@ -6,6 +6,7 @@
 #include "maicord/ui/profile_appearance.hpp"
 #include "maicord/ui/role_color.hpp"
 #include "maicord/ui/private_channel_title.hpp"
+#include "maicord/ui/activity_status.hpp"
 #include "maicord/ui/navigation_foreground.hpp"
 #include "maicord/ui/voice_channel_rows.hpp"
 #include "maicord/ui/voice_panel.hpp"
@@ -334,10 +335,11 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     channel_scene.widgets.hovered.generation == row_widget.widget.generation;
                 // Conversation rows centre the name, or stack it over a subtitle.
                 char subtitle_storage[192];
+                UiActivityGlyph subtitle_glyph = UiActivityGlyph::none;
                 const Utf8View subtitle =
                     channel && channel_is_private(channel->type) && navigation.private_rows
                         ? ui_private_row_subtitle(*navigation.private_rows, channel->id,
-                                                  {subtitle_storage, sizeof(subtitle_storage)})
+                                                  {subtitle_storage, sizeof(subtitle_storage)}, &subtitle_glyph)
                         : Utf8View{};
                 UiRect name_rectangle = label_layout->content_rectangle;
                 // A plugin badge ends the name (and the DM subtitle) early.
@@ -356,7 +358,10 @@ bool shell_text_presentation_build_output(const UiScene& scene, const ChatStateS
                     const float middle = (content.top + content.bottom) * 0.5f;
                     name_rectangle = subtitle.bytes ? UiRect{content.left, middle - 19.0f, text_right, middle + 1.0f}
                                                     : UiRect{content.left, middle - 10.0f, text_right, middle + 10.0f};
-                    const UiRect subtitle_rectangle{content.left, middle + 1.0f, text_right, middle + 17.0f};
+                    // The activity glyph (ui_private_rows_overlay_paint) leads the line.
+                    UiRect subtitle_rectangle = ui_private_row_subtitle_rectangle(content);
+                    subtitle_rectangle.right = text_right;
+                    subtitle_rectangle = ui_activity_glyph_text(subtitle_rectangle, subtitle_glyph);
                     if (subtitle.bytes && ui_rect_has_area(subtitle_rectangle) &&
                         !append_command(channel_scene.widgets, row_widget.label, subtitle, subtitle_rectangle,
                                         visible_clip, ui_background_muted_text_color(theme), stream,
@@ -678,12 +683,12 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
         const auto* global = user_appearance_find(member_scene->users->appearance, row.user_id);
         const auto* guild = user_appearance_find(member_scene->users->appearance, row.user_id,
                                                  member_scene->source->guild_id);
-        const auto* activity = guild && (guild->fields & appearance_activity) ? guild : global;
-        const bool subtitle = !group && activity && activity->activity.bytes && !offline;
-        if (subtitle) {
-            r.top -= 4;
-            r.bottom = r.top + 20;
-        }
+        char status_storage[kAppearanceActivityBytes];
+        UiActivityStatus status{};
+        const bool subtitle =
+            !group && member_list_row_status(*member_scene, index, {status_storage, sizeof(status_storage)}, &status);
+        if (subtitle)
+            r = member_list_row_name_line(r);
         const bool bot = global && global->bot;
         const bool tag = global && global->primary_enabled && global->primary_tag.bytes;
         const auto badge = member_list_badge(*member_scene, index);
@@ -709,24 +714,24 @@ bool shell_text_presentation_member_output(const MemberListScene& member_list, c
                 name_effect))
             return false;
         if (subtitle) {
-            auto sub = label->content_rectangle;
-            sub.top = r.bottom;
-            sub.bottom += 4;
-            if (activity->status_emoji_id || activity->status_emoji.bytes) {
-                if (!activity->status_emoji_id) {
+            // The activity glyph (shell_presentation_build_member_status_overlay) leads the line.
+            auto sub = ui_activity_glyph_text(member_list_row_status_line(label->content_rectangle), status.glyph);
+            if (status.emoji_id || status.emoji.bytes) {
+                if (!status.emoji_id) {
                     auto emoji = sub;
                     emoji.right = emoji.left + 16;
-                    if (!append_command(member_scene->widgets, row.label, activity->status_emoji.view(),
-                                        emoji, label->clip_rectangle, theme.text_primary, stream,
+                    if (!append_command(member_scene->widgets, row.label, status.emoji, emoji,
+                                        label->clip_rectangle, theme.text_primary, stream,
                                         UiTextAlignment::center, UiTextAlignment::center))
                         return false;
                 }
                 sub.left += 20;
             }
-            if (!append_command(member_scene->widgets, row.label, activity->activity.view(), sub,
-                                label->clip_rectangle, ui_background_muted_text_color(theme), stream,
-                                UiTextAlignment::start, UiTextAlignment::center, UiTextWrapping::no_wrap,
-                                UiTextOverflow::ellipsis, text_style_subtext))
+            if (status.text.bytes &&
+                !append_command(member_scene->widgets, row.label, status.text, sub, label->clip_rectangle,
+                                ui_background_muted_text_color(theme), stream, UiTextAlignment::start,
+                                UiTextAlignment::center, UiTextWrapping::no_wrap, UiTextOverflow::ellipsis,
+                                text_style_subtext))
                 return false;
         }
         if ((bot || tag) && !ui_badge_text_output(badge, member_scene->widgets, theme, stream))

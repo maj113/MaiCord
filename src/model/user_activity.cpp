@@ -5,16 +5,13 @@ namespace maicord {
 namespace {
 constexpr u8 kWireMarker = 0xA8;
 constexpr u32 kMaximumUsers = 2048;
-// Fixed bytes of one wire activity: type, buttons, detail, platform, five
-// 64/32-bit scalars, three counters and the field lengths.
-constexpr u32 kActivityFixedBytes = 4 + 4 * 8 + 3 * 4 + 2 * kUserActivityFieldCount;
-// The largest wire record: marker, count and three activities with full text.
-constexpr u32 kRecordMaximumBytes = 2 + kUserActivityMaximum * (kActivityFixedBytes + kUserActivityTextBytes);
+constexpr u32 kRecordMaximumBytes = kUserActivityRecordMaximumBytes;
 // Bank budget: 2048 users at 512 bytes, about twice a typical rich presence.
 constexpr u32 kBankBytes = 1024 * 1024;
 constexpr u16 kDeadEntry = 0xFFFF;
 struct Row {
     u64 user_id;
+    u64 scope;  // guild of the presence that wrote it; 0 for friends
     u32 offset; // of the bank entry
     u32 last_seen;
 };
@@ -121,12 +118,16 @@ void remove(UserActivityStore* s, u32 at) noexcept {
             break;
         }
 }
-// Evicts the least recently updated user other than `keep`.
+// Evicts the least recently updated user other than `keep`; guild-scoped
+// records go first, so busy servers cannot push friends out.
 bool evict_oldest(UserActivityStore* s, u64 keep) noexcept {
     const Row* r = rows(*s);
     u32 slot = s->count;
+    const auto older = [&](u32 i) noexcept {
+        return (r[i].scope != 0) != (r[slot].scope != 0) ? r[i].scope != 0 : r[i].last_seen < r[slot].last_seen;
+    };
     for (u32 i = 0; i < s->count; ++i)
-        if (r[i].user_id != keep && (slot == s->count || r[i].last_seen < r[slot].last_seen))
+        if (r[i].user_id != keep && (slot == s->count || older(i)))
             slot = i;
     if (slot == s->count)
         return false;
@@ -226,7 +227,7 @@ bool user_activities_read(ConstSlice<u8> input, u64 user, UserActivitySet* outpu
         r.scalar(a.party_max);
         r.scalar(a.flags);
         r.get(a.lengths, sizeof(a.lengths));
-        if (!r.ok || type > 5 || type == 4 || a.button_count > 2 || a.detail > 3 ||
+        if (!r.ok || type > 5 || type == 4 || a.button_count > 2 || a.detail > 15 ||
             platform > static_cast<u8>(UserActivityPlatform::meta_quest))
             return false;
         a.type = static_cast<UserActivityType>(type);
@@ -260,13 +261,25 @@ u32 user_activity_count(const UserActivityStore& s, u64 user) noexcept {
     const Row* row = find_row(s, user);
     return row ? bank(s)[row->offset + sizeof(Entry) + 1] : 0;
 }
+bool user_activity_first_type(const UserActivityStore& s, u64 user, UserActivityType* output) noexcept {
+    const Row* row = output ? find_row(s, user) : nullptr;
+    const u8* record = row ? bank(s) + row->offset + sizeof(Entry) : nullptr;
+    if (!record || !record[1])
+        return false;
+    *output = static_cast<UserActivityType>(record[2]);
+    return true;
+}
 bool user_activity_upsert(UserActivityStore* s, const UserActivitySet& value) noexcept {
+    return user_activity_apply(s, value, 0, false);
+}
+bool user_activity_apply(UserActivityStore* s, const UserActivitySet& value, u64 scope, bool offline) noexcept {
     if (!s || !value.user_id || value.count > kUserActivityMaximum)
         return false;
     const u32 at = locate(*s, value.user_id);
     const bool exists = at < s->count && rows(*s)[order(*s)[at]].user_id == value.user_id;
-    if (!value.count) {
-        if (exists) {
+    if (!value.count || offline) {
+        const u64 owner = exists ? rows(*s)[order(*s)[at]].scope : 0;
+        if (exists && (offline || !scope || owner == scope)) {
             remove(s, at);
             ++s->revision;
         }
@@ -279,6 +292,7 @@ bool user_activity_upsert(UserActivityStore* s, const UserActivitySet& value) no
     if (exists) {
         Row& row = rows(*s)[order(*s)[at]];
         row.last_seen = ++s->clock;
+        row.scope = scope;
         const Entry old = entry(*s, row.offset);
         u8* stored = bank(*s) + row.offset + sizeof(Entry);
         if (old.bytes == bytes && bytes_equal(stored, encoded, bytes))
@@ -290,6 +304,7 @@ bool user_activity_upsert(UserActivityStore* s, const UserActivitySet& value) no
             if (!make_room(s, sizeof(Entry) + bytes, value.user_id))
                 return false;
             const u32 slot = order(*s)[locate(*s, value.user_id)];
+            rows(*s)[slot].scope = scope;
             release_entry(s, rows(*s)[slot].offset);
             append(s, slot, {encoded, bytes});
         }
@@ -309,7 +324,7 @@ bool user_activity_upsert(UserActivityStore* s, const UserActivitySet& value) no
         !stable_storage_reserve(&s->order, s->count + 1))
         return false;
     const u32 slot = s->count;
-    rows(*s)[slot] = {value.user_id, 0, ++s->clock};
+    rows(*s)[slot] = {value.user_id, scope, 0, ++s->clock};
     append(s, slot, {encoded, bytes});
     const u32 insert = locate(*s, value.user_id);
     u16* o = order(*s);

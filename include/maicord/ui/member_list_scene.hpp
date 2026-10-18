@@ -3,6 +3,7 @@
 #include "maicord/model/member_list.hpp"
 #include "maicord/ui/text_measure_cache.hpp"
 #include "maicord/ui/badge.hpp"
+#include "maicord/ui/activity_status.hpp"
 #include "maicord/ui/widget_manager.hpp"
 #include "maicord/ui/widget_storage.hpp"
 #include "maicord/ui/list_navigation.hpp"
@@ -119,4 +120,11 @@ UiBadgeWidget member_list_badge_resolve(const MemberListScene&, u32 index) noexc
 UiPluginSlotBadge member_list_plugin_badge(const MemberListScene&, u32 index) noexcept;
 // The plugin badge under the point, with its row's user; empty when none.
 UiPluginSlotBadge member_list_plugin_hit(const MemberListScene&, float x, float y, u64* user_id) noexcept;
+// A member row's status line (activity_status.hpp): its server's line, else
+// the global one. False for groups, offline members and rows without one.
+// Without storage only the glyph and custom status resolve.
+bool member_list_row_status(const MemberListScene&, u32 index, Slice<char> storage, UiActivityStatus* output) noexcept;
+// The name and status lines of a label's content rectangle when a status shows.
+UiRect member_list_row_name_line(UiRect label) noexcept;
+UiRect member_list_row_status_line(UiRect label) noexcept;
 }

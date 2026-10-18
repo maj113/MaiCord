@@ -43,7 +43,7 @@ bool profile_activity_progress(const UserActivity&, u64 unix_now_ms, ProfileActi
 
 enum class ProfileActivityGlyph : u8 {
     game,
-    headphones,
+    music,
     screen,
     timer,
     party,

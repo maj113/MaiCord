@@ -108,6 +108,7 @@ bool activity_item(void* opaque, u32, JsonValue v) noexcept {
     if (!string(f[2].value, &text))
         return false;
     c.out->activity = text;
+    c.out->fields |= appearance_custom_status;
     c.custom = true;
     Field emoji[] = {{utf8_literal("id")}, {utf8_literal("name")}, {utf8_literal("animated")}};
     if (!object(*c.doc, f[3].value, emoji) || !number(emoji[0].value, &c.out->status_emoji_id) ||
@@ -359,7 +360,7 @@ bool activity_decode(const JsonIndexedDocument& doc, JsonValue presence,
         return false;
     if (!present(f[0].value))
         return true;
-    output->fields |= appearance_activity;
+    output->fields = (output->fields | appearance_activity) & ~u32{appearance_custom_status};
     output->activity = {};
     output->status_emoji = {};
     output->status_emoji_id = 0;

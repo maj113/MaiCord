@@ -1,4 +1,5 @@
 #include "maicord/ui/private_channel_rows.hpp"
+#include "maicord/ui/activity_status.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/memory.hpp"
@@ -49,7 +50,9 @@ bool ui_private_row_mobile(const UiPrivateRowSource& source, u64 channel_id) noe
     if (!source.users || ui_private_row_status(source, channel_id) != UiPrivateRowStatus::online) return false;
     return client_status_mobile_online(user_store_client_status(*source.users, private_row_peer(source, channel_id)));
 }
-Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage) noexcept {
+Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage,
+                                 UiActivityGlyph* glyph) noexcept {
+    if (glyph) *glyph = UiActivityGlyph::none;
     const ChannelRecord* channel = nullptr;
     const auto* metadata = source.state ? record(*source.state, channel_id, &channel) : nullptr;
     if (!metadata) return {};
@@ -58,22 +61,26 @@ Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_i
     if (metadata->request_flags & private_request_spam) return utf8_literal("Possible spam");
     if (metadata->request_flags & private_request_pending) return utf8_literal("Message request");
     if (channel->type == 1 && storage.data && source.users) {
-        // Custom status or "Playing X" for an online peer.
+        // The online peer's activity line (activity_status.hpp).
         u64 peer[2]{};
         if (!ui_private_row_group_members(*source.state, channel_id, peer) ||
             ui_private_row_status(source, channel_id) == UiPrivateRowStatus::offline)
             return {};
-        const auto* a = user_appearance_find_activity(source.users->appearance, peer[0]);
-        if (!a || (!a->activity.bytes && !a->status_emoji.bytes)) return {};
+        char line[kAppearanceActivityBytes];
+        UiActivityStatus status{};
+        if (!ui_user_activity_status(*source.users, peer[0],
+                                     user_appearance_find_activity(source.users->appearance, peer[0]),
+                                     {line, sizeof(line)}, &status))
+            return {};
+        if (glyph) *glyph = status.glyph;
         u32 used = 0;
-        if (!a->status_emoji_id && a->status_emoji.bytes && a->status_emoji.bytes + 1u <= static_cast<u32>(storage.count)) {
-            copy_bytes(storage.data, a->status_emoji.view().data, a->status_emoji.bytes);
-            used = a->status_emoji.bytes;
-            if (a->activity.bytes) storage.data[used++] = ' ';
+        if (status.emoji.bytes && status.emoji.bytes + 1u <= static_cast<u32>(storage.count)) {
+            copy_bytes(storage.data, status.emoji.data, status.emoji.bytes);
+            used = status.emoji.bytes;
+            if (status.text.bytes) storage.data[used++] = ' ';
         }
-        const Utf8View activity = a->activity.view();
-        const u32 text = utf8_truncated_length(activity, static_cast<u32>(storage.count) - used);
-        copy_bytes(storage.data + used, activity.data, text);
+        const u32 text = utf8_truncated_length(status.text, static_cast<u32>(storage.count) - used);
+        copy_bytes(storage.data + used, status.text.data, text);
         return {storage.data, used + text};
     }
     if (channel->type != 3 || !storage.data) return {};
@@ -97,6 +104,10 @@ u32 ui_private_row_group_members(const ChatStateStore& state, u64 channel_id, u6
     for (u32 i = 0; i < recipients.count && count < 2; ++i)
         if (recipients[i] != state.self_user_id) output[count++] = recipients[i];
     return count;
+}
+UiRect ui_private_row_subtitle_rectangle(UiRect label) noexcept {
+    const float middle = (label.top + label.bottom) * .5f;
+    return {label.left, middle + 1.f, label.right, middle + 17.f};
 }
 UiRect ui_private_row_status_rectangle(UiRect avatar) noexcept {
     const float size = ui_rect_width(avatar) * .3125f;
@@ -187,6 +198,16 @@ bool ui_private_rows_overlay_paint(const ShellNavigationScene& scene, UiRect cli
         ok = decorations(stream, source, row.view.id, ui_private_avatar_shape(source.state, row.view.id, row.view.type),
                          icon->rectangle, theme.base_lower,
                          selected || over ? &highlight : nullptr, theme);
+        // The activity glyph leads the subtitle line (shell_text_presentation).
+        UiActivityGlyph glyph = UiActivityGlyph::none;
+        char subtitle[192];
+        const auto* label = ui_widget_manager_layout_node(scene.widgets, row.label);
+        if (ok && label && row.view.type == 1 &&
+            ui_private_row_subtitle(source, row.view.id, {subtitle, sizeof(subtitle)}, &glyph).bytes &&
+            glyph != UiActivityGlyph::none)
+            ok = ui_icon_paint(stream, ui_activity_glyph_icon(glyph),
+                               ui_activity_glyph_rectangle(ui_private_row_subtitle_rectangle(label->content_rectangle)),
+                               theme.tokens.status.online);
         if (ok && over && !row.view.mention_count)
             ok = ui_icon_paint(stream, UiIcon::close, ui_private_row_close_rectangle(layout->rectangle),
                                theme.text_secondary);

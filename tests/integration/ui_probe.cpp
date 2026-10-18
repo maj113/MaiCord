@@ -8710,11 +8710,88 @@ bool probe_profile_activity_card() noexcept {
             artwork == 4 &&
             rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) && avatar_above_body() &&
             probe_capture_frame(L"profile-activity-tab.bmp");
+    if (valid)
+        g_probe.failure_stage = 743;
+    // The popout with Spotify alone: album art, track, artists and the bar.
+    UserActivitySet song{};
+    song.user_id = 4343;
+    song.count = 1;
+    song.items[0] = activities.items[0];
+    scene.presentation = ProfilePresentation::popout;
+    valid = valid && user_activity_upsert(&g_probe.users.activities, song) &&
+            profile_scene_layout(&scene, viewport, true) && upload() && cards == 1 && progress == 1 &&
+            rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
+            probe_capture_frame(L"profile-activity-spotify.bmp");
     g_probe.renderer.profile_scene = nullptr;
     profile_scene_release(&scene);
+    if (valid)
+        g_probe.failure_stage = 744;
+    // Member rows: a glyph, then the short activity text or the custom status.
+    const bool was_home = g_probe.chat_state.home_selected;
+    g_probe.chat_state.home_selected = false;
+    valid = valid && synchronize_probe_shell_layout({}, {}, 0, 320);
+    const auto* member_pane = ui_scene_resolve(
+        g_probe.shell_scene, ui_scene_find(g_probe.shell_scene, UiSemantic::member_sidebar));
+    const auto row_presence = utf8_literal(R"({"activities":[
+        {"type":4,"name":"Custom Status","state":"Back at six"},
+        {"type":0,"name":"Turbo Ball","details":"Duel"}]})");
+    UserActivitySet game{}, custom_game{};
+    UserAppearance custom_line{};
+    custom_line.user_id = 4346;
+    const auto row_scan = json_scan_structurals_avx1(row_presence, {scratch, 2048});
+    valid = valid && row_scan.ok() &&
+            user_activities_decode({row_presence, {scratch, row_scan.count}},
+                                   {row_presence, 0, JsonValueKind::object}, 4346, &custom_game, &has) &&
+            activity_decode({row_presence, {scratch, row_scan.count}}, {row_presence, 0, JsonValueKind::object},
+                            &custom_line);
+    game = custom_game;
+    game.user_id = 4345;
+    song.user_id = 4344;
+    valid = valid && user_store_upsert(&g_probe.users, 4344, utf8_literal("Listener")).ok() &&
+            user_store_upsert(&g_probe.users, 4345, utf8_literal("Player")).ok() &&
+            user_store_upsert(&g_probe.users, 4346, utf8_literal("Busy Player")).ok() &&
+            user_activity_upsert(&g_probe.users.activities, song) &&
+            user_activity_upsert(&g_probe.users.activities, game) &&
+            user_activity_upsert(&g_probe.users.activities, custom_game) &&
+            user_appearance_upsert(&g_probe.users.appearance, custom_line);
+    MemberListScene members_scene{};
+    MemberListRowWidget member_rows[3]{};
+    UiWidget member_widgets[16]{};
+    UiLayoutNode member_nodes[16]{};
+    GuildMemberStore member_store{};
+    MemberListRow source_rows[3]{};
+    for (u32 i = 0; i < 3; ++i)
+        source_rows[i] = {4344 + i, kMemberListPrivateGroup, ~0u, 0, 0, GuildMemberStatus::online,
+                          MemberListRowKind::member};
+    MemberListView projection{};
+    projection.rows = {source_rows, 3};
+    projection.count = projection.member_count = 3;
+    projection.revision = 1;
+    valid = valid && member_list_scene_initialize(&members_scene, {member_rows, 3}, {member_widgets, 16},
+                                                  {member_nodes, 16});
+    members_scene.measure = &g_probe.text_measure_cache;
+    valid = valid && member_list_scene_update(&members_scene, &projection, &member_store, &g_probe.users,
+                                              &g_probe.chat_state, member_pane ? member_pane->rectangle : UiRect{}, 0)
+                         .ok();
+    UiActivityStatus lines[3]{};
+    char line_text[3][256];
+    for (u32 i = 0; valid && i < 3; ++i)
+        valid = member_list_row_status(members_scene, i, {line_text[i], 256}, &lines[i]);
+    valid = valid && lines[0].glyph == UiActivityGlyph::music &&
+            utf8_equal(lines[0].text, utf8_literal("First Artist, Second Artist")) &&
+            lines[1].glyph == UiActivityGlyph::game && utf8_equal(lines[1].text, utf8_literal("Turbo Ball")) &&
+            lines[2].glyph == UiActivityGlyph::game && utf8_equal(lines[2].text, utf8_literal("Back at six"));
+    g_probe.renderer.member_list_scene = &members_scene;
+    valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
+            probe_capture_frame(L"member-activity-lines.bmp");
+    g_probe.renderer.member_list_scene = nullptr;
+    g_probe.chat_state.home_selected = was_home;
+    valid = synchronize_probe_shell_layout() && valid;
     UserActivitySet cleared{};
-    cleared.user_id = 4343;
-    user_activity_upsert(&g_probe.users.activities, cleared);
+    for (u64 user = 4343; user <= 4346; ++user) {
+        cleared.user_id = user;
+        user_activity_upsert(&g_probe.users.activities, cleared);
+    }
     VirtualFree(data, 0, MEM_RELEASE);
     valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme);
     if (valid)

@@ -16,6 +16,7 @@ struct UiPrivateRowSource {
     const TypingStore* typing;
 };
 enum class UiPrivateRowStatus : u8 { none, online, idle, dnd, offline };
+enum class UiActivityGlyph : u8;
 // 42-DIP conversation rows with 32-DIP avatars.
 inline constexpr float kUiPrivateRowHeight = 42.f;
 inline constexpr float kUiPrivateRowAvatar = 32.f;
@@ -24,8 +25,12 @@ inline constexpr float kUiPrivateHeaderAvatar = 24.f;
 UiPrivateRowStatus ui_private_row_status(const UiPrivateRowSource& source, u64 channel_id) noexcept;
 // The online friend is online on mobile only: the row draws the phone status.
 bool ui_private_row_mobile(const UiPrivateRowSource& source, u64 channel_id) noexcept;
-// "Typing…" while someone else types, otherwise "N members" for groups.
-Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage) noexcept;
+// "Typing…" while someone else types, "N members" for groups, and an online
+// peer's activity line, whose glyph (none otherwise) leads it.
+Utf8View ui_private_row_subtitle(const UiPrivateRowSource& source, u64 channel_id, Slice<char> storage,
+                                 UiActivityGlyph* glyph = nullptr) noexcept;
+// The subtitle line of a conversation row's label (its content rectangle).
+UiRect ui_private_row_subtitle_rectangle(UiRect label) noexcept;
 // The first two other members, for the generated group icon.
 u32 ui_private_row_group_members(const ChatStateStore& state, u64 channel_id, u64 output[2]) noexcept;
 // Presence dot at the avatar's lower right; the ring is cut from the row.

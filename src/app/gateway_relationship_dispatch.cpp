@@ -22,6 +22,9 @@ struct Stream {
     u64 sequence, now_ms;
     u32 count;
     GatewayClientDispatchRouteResult error;
+    // Guild presences (zero for friends): rows without activities are skipped
+    // and malformed rows do not fail the stream.
+    u64 guild_id;
 };
 GatewayClientEvent event_for(const Stream& stream, GatewayClientDispatchKind kind) noexcept {
     return gateway_dispatch_event(kind, stream.sequence, stream.now_ms);
@@ -94,33 +97,48 @@ bool publish_presence(void* opaque, u32, JsonValue value) noexcept {
     const JsonIndexedDocument document{value.source, {stream.object_scratch.data, scan.count}};
     Presence presence{};
     const auto read = json_visit_value_object(value, document.structurals, 64, presence_member, &presence);
-    if (!read.ok() || !presence.valid || !(presence.seen & 4)) { stream.error = fail(GatewayClientDispatchRouteError::decode); return false; }
+    const bool guild = stream.guild_id != 0;
+    if (!read.ok() || !presence.valid || !(presence.seen & 4)) {
+        if (guild) return true;
+        stream.error = fail(GatewayClientDispatchRouteError::decode); return false;
+    }
     if (presence.seen & 2) {
         const auto user = json_visit_indexed_object(document, presence.user, 64, user_id_member, &presence);
-        if (!user.ok() || !presence.valid || !(presence.seen & 16)) { stream.error = fail(GatewayClientDispatchRouteError::decode); return false; }
+        if (!user.ok() || !presence.valid || !(presence.seen & 16)) {
+            if (guild) return true;
+            stream.error = fail(GatewayClientDispatchRouteError::decode); return false;
+        }
     }
-    if (!presence.value.user_id) { stream.error = fail(GatewayClientDispatchRouteError::decode); return false; }
+    if (!presence.value.user_id) {
+        if (guild) return true;
+        stream.error = fail(GatewayClientDispatchRouteError::decode); return false;
+    }
     auto event = event_for(stream, GatewayClientDispatchKind::presence_update);
     event.presence = presence.value;
+    event.presence.guild_id = stream.guild_id;
     // Friends' custom status and rich presence travel like PRESENCE_UPDATE:
     // the appearance record, then the activities trailer. Malformed
     // activities only drop the extra; the status still applies.
-    u8 extra[4096];
+    u8 extra[1024 + kUserActivityRecordMaximumBytes];
     u32 extra_bytes = 0;
     UserAppearance appearance{};
     appearance.user_id = presence.value.user_id;
+    appearance.guild_id = stream.guild_id;
     const JsonValue root{value.source, 0, JsonValueKind::object};
     if (activity_decode(document, root, &appearance) && appearance.fields)
         extra_bytes = user_appearance_write(appearance, {extra, sizeof(extra)});
+    u32 rich = 0;
     if (extra_bytes) {
         UserActivitySet activities{};
         bool has_activities = false;
         if (user_activities_decode(document, root, presence.value.user_id, &activities, &has_activities) &&
             has_activities && activities.count) {
-            const u32 tail = user_activities_write(activities, {extra + extra_bytes, sizeof(extra) - extra_bytes});
-            extra_bytes += tail;
+            rich = user_activities_write(activities, {extra + extra_bytes, sizeof(extra) - extra_bytes});
+            extra_bytes += rich;
         }
     }
+    if (guild && !rich && !appearance.activity.bytes && !appearance.status_emoji.bytes && !appearance.status_emoji_id)
+        return true;
     // The descriptor must describe the payload it travels with: consumers
     // reject a dispatch whose byte count disagrees with its mailbox payload.
     event.dispatch_payload_bytes = extra_bytes;
@@ -311,6 +329,62 @@ GatewayClientDispatchRouteResult gateway_client_publish_relationship_snapshot(Js
     complete.state.record_count = stream.count;
     if (!publish(opaque, complete, {})) return fail(GatewayClientDispatchRouteError::payload_capacity);
     return {};
+}
+namespace {
+struct NamedMembers { Utf8View a, b; JsonValue va, vb; };
+bool named_members(void* opaque, JsonString name, JsonValue value) noexcept {
+    auto& m = *static_cast<NamedMembers*>(opaque);
+    if (!m.va.source.data && m.a.bytes && json_string_equals_ascii(name, m.a)) m.va = value;
+    else if (!m.vb.source.data && m.b.bytes && json_string_equals_ascii(name, m.b)) m.vb = value;
+    return true;
+}
+constexpr u32 kGuildPresenceGuilds = 512;
+struct GuildPresences {
+    const JsonIndexedDocument* document;
+    Stream* stream;
+    u64 ids[kGuildPresenceGuilds];
+    u32 id_count;
+};
+bool guild_id_item(void* opaque, u32 index, JsonValue value) noexcept {
+    auto& g = *static_cast<GuildPresences*>(opaque);
+    if (index >= kGuildPresenceGuilds) return true;
+    NamedMembers m{utf8_literal("id"), {}};
+    u64 id = 0;
+    if (value.kind == JsonValueKind::object && json_visit_indexed_object(*g.document, value, 64, named_members, &m).ok() &&
+        !json_value_to_snowflake(m.va, &id))
+        id = 0;
+    g.ids[index] = id;
+    g.id_count = index + 1;
+    return true;
+}
+bool guild_presences_item(void* opaque, u32 index, JsonValue value) noexcept {
+    auto& g = *static_cast<GuildPresences*>(opaque);
+    if (index >= g.id_count || !g.ids[index] || value.kind != JsonValueKind::array) return true;
+    g.stream->guild_id = g.ids[index];
+    json_visit_indexed_array(*g.document, value, 64, publish_presence, g.stream);
+    return g.stream->error.ok();
+}
+} // namespace
+GatewayClientDispatchRouteResult gateway_client_publish_guild_presences(JsonValue data, Slice<u32> array_scratch,
+    Slice<u32> object_scratch, u64 sequence, u64 now_ms, GatewayRelationshipPublish publish, void* opaque) noexcept {
+    if (!publish || data.kind != JsonValueKind::object || !valid_stream_inputs(data, {}, array_scratch, object_scratch))
+        return fail(GatewayClientDispatchRouteError::invalid_input);
+    const auto scan = json_scan_structurals_avx1(data.source, array_scratch);
+    if (!scan.ok()) return {};
+    const JsonIndexedDocument document{data.source, {array_scratch.data, scan.count}};
+    NamedMembers root{utf8_literal("guilds"), utf8_literal("merged_presences")};
+    NamedMembers merged{utf8_literal("guilds"), {}};
+    if (!json_visit_indexed_object(document, data, 64, named_members, &root).ok() ||
+        root.va.kind != JsonValueKind::array || root.vb.kind != JsonValueKind::object ||
+        !json_visit_indexed_object(document, root.vb, 64, named_members, &merged).ok() ||
+        merged.va.kind != JsonValueKind::array)
+        return {};
+    Stream stream{publish, opaque, object_scratch, sequence, now_ms};
+    // About 4 KiB of guild IDs; READY_SUPPLEMENTAL lists at most a few hundred.
+    GuildPresences guilds{&document, &stream, {}, 0};
+    if (!json_visit_indexed_array(document, root.va, 64, guild_id_item, &guilds).ok()) return {};
+    json_visit_indexed_array(document, merged.va, 64, guild_presences_item, &guilds);
+    return stream.error;
 }
 GatewayClientDispatchRouteResult gateway_client_publish_friend_presences(JsonValue merged, Slice<u32> array_scratch,
     Slice<u32> object_scratch, u64 sequence, u64 now_ms, GatewayRelationshipPublish publish, void* opaque) noexcept {

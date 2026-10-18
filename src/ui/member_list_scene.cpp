@@ -396,6 +396,29 @@ bool member_list_scene_focus_user(MemberListScene* scene, u64 user_id) noexcept 
 } // namespace maicord
 
 namespace maicord {
+bool member_list_row_status(const MemberListScene& s, u32 index, Slice<char> storage,
+                            UiActivityStatus* output) noexcept {
+    if (!output)
+        return false;
+    *output = {};
+    if (index >= s.count || !s.users || !s.source)
+        return false;
+    const auto& row = s.rows[index];
+    if (row.kind != MemberListRowKind::member || row.source_row.status == GuildMemberStatus::offline)
+        return false;
+    const auto* global = user_appearance_find(s.users->appearance, row.user_id);
+    const auto* guild = user_appearance_find(s.users->appearance, row.user_id, s.source->guild_id);
+    return ui_user_activity_status(*s.users, row.user_id,
+                                   guild && (guild->fields & appearance_activity) ? guild : global, storage, output);
+}
+UiRect member_list_row_name_line(UiRect label) noexcept {
+    label.top -= 4;
+    label.bottom = label.top + 20;
+    return label;
+}
+UiRect member_list_row_status_line(UiRect label) noexcept {
+    return {label.left, label.top + 16, label.right, label.bottom + 4};
+}
 UiBadgeWidget member_list_badge_resolve(const MemberListScene& s, u32 index) noexcept {
     if (index >= s.count || !s.users || !s.source)
         return {};
@@ -410,12 +433,9 @@ UiBadgeWidget member_list_badge_resolve(const MemberListScene& s, u32 index) noe
         return {};
     auto line = label->content_rectangle;
     const auto* guild = user_appearance_find(s.users->appearance, row.user_id, s.source->guild_id);
-    const auto* activity = guild && (guild->fields & appearance_activity) ? guild : a;
-    if (activity->activity.bytes &&
-        row.source_row.status != GuildMemberStatus::offline) {
-        line.top -= 4;
-        line.bottom = line.top + 20;
-    }
+    UiActivityStatus status{};
+    if (member_list_row_status(s, index, {}, &status))
+        line = member_list_row_name_line(line);
     UiBadgeWidget b{};
     b.owner = row.label;
     b.leading = !a->bot;

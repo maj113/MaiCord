@@ -833,6 +833,9 @@ enum GatewayClientMemberListGroupFlag : u8 {
 enum GatewayClientMemberListHydrationFlag : u8 {
     gateway_member_quarantine_known = 1u << 0,
     gateway_member_quarantined = 1u << 1,
+    // The member appearance ends with the presence's activities trailer
+    // (user_activity.hpp), or the presence listed none.
+    gateway_member_activities_known = 1u << 2,
     gateway_member_timeout_known = 1u << 3,
     gateway_member_roles_omitted = 1u << 6,
     gateway_member_nickname_omitted = 1u << 5,
@@ -1081,6 +1084,14 @@ bool gateway_client_publish_supplemental_voice_states(JsonValue data, Slice<u32>
 GatewayClientDispatchRouteResult gateway_client_publish_friend_presences(
     JsonValue merged_presences, Slice<u32> array_scratch, Slice<u32> object_scratch, u64 sequence,
     u64 now_ms, GatewayRelationshipPublish publish, void* context) noexcept;
+// READY_SUPPLEMENTAL merged_presences.guilds, aligned with its guilds array:
+// each presence that carries activities or a custom status is published as a
+// PRESENCE_UPDATE of its guild; the rest add nothing the member list lacks.
+// array_scratch indexes the whole document, object_scratch each presence.
+// Malformed rows are skipped; only a full mailbox fails.
+GatewayClientDispatchRouteResult gateway_client_publish_guild_presences(
+    JsonValue data, Slice<u32> array_scratch, Slice<u32> object_scratch, u64 sequence, u64 now_ms,
+    GatewayRelationshipPublish publish, void* context) noexcept;
 
 struct GatewayClientPopResult {
     u32 payload_bytes;

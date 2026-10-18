@@ -25,12 +25,16 @@ enum class UserActivityField : u8 {
     count
 };
 inline constexpr u32 kUserActivityFieldCount = static_cast<u32>(UserActivityField::count);
-inline constexpr u32 kUserActivityTextBytes = 768;
+inline constexpr u32 kUserActivityTextBytes = 1024;
 inline constexpr u32 kUserActivityMaximum = 3;
-// Per-field byte budgets; text is cut at a code point, image keys are kept
-// whole or dropped.
-inline constexpr u16 kUserActivityFieldBudget[kUserActivityFieldCount]{128, 128, 128, 256, 128,
-                                                                       256, 128, 256, 96, 96, 64};
+// Per-field byte budgets; text is cut at a code point, image keys (up to 313
+// characters, e.g. mp:external/...) are kept whole or dropped.
+inline constexpr u16 kUserActivityFieldBudget[kUserActivityFieldCount]{128, 128, 128, 320, 128,
+                                                                       320, 128, 256, 96, 96, 64};
+// The largest user_activities_write record: marker, count and three
+// activities' fixed fields and full text.
+inline constexpr u32 kUserActivityRecordMaximumBytes =
+    2 + kUserActivityMaximum * (4 + 4 * 8 + 3 * 4 + 2 * kUserActivityFieldCount + kUserActivityTextBytes);
 enum UserActivityFlag : u32 {
     user_activity_flag_join = 1u << 1,
     user_activity_flag_embedded = 1u << 8,
@@ -40,6 +44,9 @@ enum UserActivityDetail : u8 {
     user_activity_has_party = 1u << 0,
     // party.id starts with "spotify:" (the Spotify integration's sessions).
     user_activity_spotify_party = 1u << 1,
+    // status_display_type + 1 (0 absent): which field a status line names.
+    user_activity_display_shift = 2,
+    user_activity_display_mask = 3u << user_activity_display_shift,
 };
 // activity.platform; desktop when absent.
 enum class UserActivityPlatform : u8 { desktop, xbox, ps4, ps5, ios, android, embedded, samsung, meta_quest };
@@ -67,6 +74,10 @@ bool user_activity_is_spotify(const UserActivity&) noexcept;
 // "Competing in X". Returns the byte count written (0 if none).
 u32 user_activity_summary(UserActivityType, Utf8View name, Utf8View details, Slice<char> output) noexcept;
 u32 user_activity_summary(const UserActivity&, Slice<char> output) noexcept;
+// A user row's status line text: the game's name, Spotify's artists ("A, B"),
+// "Listening to X", "Watching X", "Competing in X" or "Streaming X", where X
+// is the name (a stream's details) or the field status_display_type names.
+u32 user_activity_status_text(const UserActivity&, Slice<char> output) noexcept;
 // Card heading: "Playing", "Playing on Xbox", "Streaming Twitch", "Listening
 // to Spotify" (with details, else "Listening to"), "Watching X", ...
 u32 user_activity_heading(const UserActivity&, Slice<char> output) noexcept;
@@ -114,7 +125,7 @@ bool user_activities_read(ConstSlice<u8> input, u64 user_id, UserActivitySet* ou
 // Users' activities in their wire form: a sorted index over one compacting
 // byte bank, so a user costs its record (typically 100-250 bytes) instead of
 // a whole UserActivitySet. Past 2048 users or the bank budget the least
-// recently updated users are evicted.
+// recently updated users are evicted, guild-scoped records before friends'.
 struct UserActivityStore {
     StableStorage records, order, bank;
     u32 count, clock, revision;
@@ -124,8 +135,17 @@ struct UserActivityStore {
 bool user_activity_find(const UserActivityStore&, u64 user_id, UserActivitySet* output) noexcept;
 // A user's activity count without decoding them (zero when none).
 u32 user_activity_count(const UserActivityStore&, u64 user_id) noexcept;
+// The first activity's type without decoding the record; false when none.
+bool user_activity_first_type(const UserActivityStore&, u64 user_id, UserActivityType* output) noexcept;
 // Replaces a user's activities; an empty set removes the record. Revision
 // advances only on a change.
 bool user_activity_upsert(UserActivityStore*, const UserActivitySet&) noexcept;
+// One presence's activities from guild `scope` (0: a friend or DM presence).
+// The store keeps one set per user, so scopes merge as the official client's
+// guild-less lookup does: a set with activities replaces the record; an empty
+// set clears it only from the scope that wrote it or from scope 0, so a
+// server that hides the activity cannot erase the friend presence's. Offline
+// clears every scope.
+bool user_activity_apply(UserActivityStore*, const UserActivitySet&, u64 scope, bool offline) noexcept;
 void user_activity_release(UserActivityStore*) noexcept;
 } // namespace maicord

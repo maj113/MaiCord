@@ -274,7 +274,7 @@ bool profile_activity_content(const UserActivity& a, bool bot, bool self, Profil
         c.episode.bytes = static_cast<u16>(
             profile_activity_episode_text(text(a, F::large_text), {c.episode.data, sizeof(c.episode.data)}));
     c.chips = c.chips && a.type != UserActivityType::streaming;
-    c.clock_glyph = a.type == UserActivityType::listening  ? ProfileActivityGlyph::headphones
+    c.clock_glyph = a.type == UserActivityType::listening  ? ProfileActivityGlyph::music
                     : a.type == UserActivityType::watching ? ProfileActivityGlyph::screen
                                                            : ProfileActivityGlyph::game;
     if (self || c.spotify)

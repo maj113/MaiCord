@@ -413,8 +413,8 @@ float card_text(ProfileScene* s, UiWidgetHandle owner, float left, float top, fl
 }
 UiIcon chip_icon(ProfileActivityGlyph glyph) noexcept {
     switch (glyph) {
-    case ProfileActivityGlyph::headphones:
-        return UiIcon::headphones;
+    case ProfileActivityGlyph::music:
+        return UiIcon::music;
     case ProfileActivityGlyph::screen:
         return UiIcon::monitor;
     case ProfileActivityGlyph::timer:
@@ -424,7 +424,7 @@ UiIcon chip_icon(ProfileActivityGlyph glyph) noexcept {
     case ProfileActivityGlyph::episode:
         return UiIcon::video;
     default:
-        return UiIcon::activity;
+        return UiIcon::controller;
     }
 }
 // The width a changing time string needs at its length (digits as 8s).
@@ -641,7 +641,7 @@ float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top
     } else if (interactive(*s) && c.action == ProfileActivityAction::join) {
         button_labels[buttons++] = utf8_literal("Ask to Join");
         button_action = ProfileAction::activity_join;
-        button_icon = UiIcon::activity;
+        button_icon = UiIcon::controller;
     }
     const Utf8View button_hint = button_action == ProfileAction::activity_join ? c.hint.view() : Utf8View{};
     if (large && buttons) {
@@ -1890,10 +1890,13 @@ bool profile_scene_open(ProfileScene* s, const UserProfile* p, const ChatStateSt
 bool profile_scene_layout(ProfileScene* s, UiRect viewport, bool force) noexcept {
     if (!s || !s->active || !s->profile || !ui_rect_has_area(viewport))
         return false;
+    // Guild presences that skip users->revision still move activities.
     if (!force && ui_rect_equal(s->viewport, viewport) && s->users_revision == (s->users ? s->users->revision : 0) &&
+        s->activity_revision == (s->users ? s->users->activities.revision : 0) &&
         s->permission_revision == (s->state ? s->state->permission_mutations : 0))
         return true;
     s->users_revision = s->users ? s->users->revision : 0;
+    s->activity_revision = s->users ? s->users->activities.revision : 0;
     s->permission_revision = s->state ? s->state->permission_mutations : 0;
     s->viewport = viewport;
     s->part_count = 0;
@@ -2348,7 +2351,7 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
         if (ok && p.media == ProfileMediaKind::activity_large)
             // Artwork placeholder; the image draws over it once decoded.
             ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.card, inner_radius) &&
-                 ui_icon_paint(paint, UiIcon::activity,
+                 ui_icon_paint(paint, UiIcon::controller,
                                ui_rect_inset(r, {ui_rect_width(r) * .3f, ui_rect_height(r) * .3f,
                                                  ui_rect_width(r) * .3f, ui_rect_height(r) * .3f}),
                                c.muted);

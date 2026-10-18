@@ -71,7 +71,7 @@ void project_appearance(u64 unix_now) noexcept {
         return;
     UserAppearance appearance{};
     appearance.user_id = self;
-    appearance.fields = appearance_activity;
+    appearance.fields = appearance_activity | appearance_custom_status;
     const u32 text = utf8_copy_truncated(appearance.activity.data, sizeof(appearance.activity.data),
                                          {effective.text, effective.text_bytes});
     appearance.activity.bytes = static_cast<u16>(text);

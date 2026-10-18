@@ -233,7 +233,7 @@ struct ProfileScene {
     float secondary_scroll, secondary_height;
     u64 self_id;
     u64 opens;
-    u32 revision, users_revision, permission_revision;
+    u32 revision, users_revision, activity_revision, permission_revision;
     float scroll, content_height;
     ProfilePhase phase;
     u16 http_status;

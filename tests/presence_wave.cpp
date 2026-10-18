@@ -305,6 +305,176 @@ void client_status() noexcept {
           "client status: member list presences carry their platforms");
 }
 
+// The store keeps one activity set per user while presences arrive per scope
+// (friends without a guild, each shared server with one). A server that hides
+// the activity must not erase the friend presence's (the missing profile card).
+void scopes() noexcept {
+    UserActivitySet song{}, none{};
+    bool has = false;
+    decode(utf8_literal(R"({"activities":[{"type":2,"name":"Spotify","details":"Song","state":"Band",)"
+                        R"("party":{"id":"spotify:9"}}]})"),
+           &song, &has);
+    none.user_id = 42;
+    UserActivityStore store{};
+    check(song.count == 1 && user_activity_apply(&store, song, 0, false) &&
+              user_activity_apply(&store, none, 7, false) && user_activity_count(store, 42) == 1,
+          "scopes: an empty server presence keeps the friend presence's activities");
+    check(user_activity_apply(&store, none, 0, false) && !user_activity_count(store, 42),
+          "scopes: the friend presence clears its own activities");
+    const u32 before = store.revision;
+    check(user_activity_apply(&store, song, 7, false) && user_activity_apply(&store, none, 8, false) &&
+              user_activity_count(store, 42) == 1 && store.revision == before + 1 &&
+              user_activity_apply(&store, none, 7, false) && !user_activity_count(store, 42),
+          "scopes: a server's set is cleared by that server, not another");
+    check(user_activity_apply(&store, song, 0, false) && user_activity_apply(&store, none, 7, true) &&
+              !user_activity_count(store, 42),
+          "scopes: going offline anywhere clears the activities");
+    UserActivityType type{};
+    check(user_activity_apply(&store, song, 0, false) && user_activity_first_type(store, 42, &type) &&
+              type == UserActivityType::listening && !user_activity_first_type(store, 43, &type),
+          "scopes: the first activity's type reads without decoding");
+    user_activity_release(&store);
+
+    // At the cap, server-scoped records go before older friend records.
+    UserActivitySet churn = song;
+    bool filled = true;
+    churn.user_id = 1;
+    filled = user_activity_apply(&store, churn, 0, false);
+    for (u64 user = 2; filled && user <= 2049; ++user) {
+        churn.user_id = user;
+        filled = user_activity_apply(&store, churn, 5, false);
+    }
+    check(filled && store.count == 2048 && user_activity_count(store, 1) == 1 && !user_activity_count(store, 2) &&
+              user_activity_count(store, 2049) == 1,
+          "scopes: eviction keeps friends and drops the oldest server record");
+    user_activity_release(&store);
+}
+
+// Short status lines for user rows, with status_display_type.
+void status_text() noexcept {
+    UserActivitySet set{};
+    bool has = false;
+    char out[160];
+    const auto line = [&](u32 i) noexcept {
+        return Utf8View{out, user_activity_status_text(set.items[i], {out, sizeof(out)})};
+    };
+    check(decode(utf8_literal(R"({"activities":[
+        {"type":2,"name":"Spotify","details":"Track","state":"First; Second","party":{"id":"spotify:3"}},
+        {"type":0,"name":"Turbo Ball","details":"Duel 2 - 2","state":"In match"},
+        {"type":2,"name":"Radio Ten","details":"Show"}]})"),
+                 &set, &has) &&
+              same(line(0), utf8_literal("First, Second")) && same(line(1), utf8_literal("Turbo Ball")) &&
+              same(line(2), utf8_literal("Listening to Radio Ten")),
+          "status text: Spotify artists, a game's name, and Listening to for other music");
+    check(decode(utf8_literal(R"({"activities":[
+        {"type":1,"name":"Stream Site","details":"Building a deck"},
+        {"type":3,"name":"Cinema Night"},
+        {"type":5,"name":"League Cup"}]})"),
+                 &set, &has) &&
+              same(line(0), utf8_literal("Streaming Building a deck")) &&
+              same(line(1), utf8_literal("Watching Cinema Night")) && same(line(2), utf8_literal("Competing in League Cup")),
+          "status text: streams name their details; watching and competing keep their verbs");
+    check(decode(utf8_literal(R"({"activities":[
+        {"type":0,"name":"Turbo Ball","details":"Duel","state":"Ranked","status_display_type":1},
+        {"type":0,"name":"Turbo Ball","details":"Duel","state":"Ranked","status_display_type":2},
+        {"type":0,"name":"Turbo Ball","details":"","state":"Ranked","status_display_type":2}]})"),
+                 &set, &has) &&
+              same(line(0), utf8_literal("Ranked")) && same(line(1), utf8_literal("Duel")) &&
+              same(line(2), utf8_literal("Turbo Ball")),
+          "status text: status_display_type picks state or details when they are set");
+    u8 wire[kUserActivityRecordMaximumBytes];
+    UserActivitySet restored{};
+    const u32 written = user_activities_write(set, {wire, sizeof(wire)});
+    check(written && user_activities_read({wire, written}, 42, &restored) &&
+              (restored.items[1].detail & user_activity_display_mask) == (3u << user_activity_display_shift),
+          "status text: the display type survives the wire form");
+}
+
+// READY_SUPPLEMENTAL's server presences reach the store as guild presences.
+struct Captured {
+    u32 count;
+    GatewayClientEvent events[4];
+    u8 payloads[4][2048];
+    u32 bytes[4];
+};
+bool capture(void* context, const GatewayClientEvent& event, ConstSlice<u8> payload) noexcept {
+    auto& c = *static_cast<Captured*>(context);
+    if (c.count == 4 || payload.count > sizeof(c.payloads[0]))
+        return false;
+    c.events[c.count] = event;
+    copy_bytes(c.payloads[c.count], payload.data, payload.count);
+    c.bytes[c.count++] = payload.count;
+    return true;
+}
+void guild_presences() noexcept {
+    const auto data = utf8_literal(
+        R"({"guilds":[{"id":"7"},{"id":"8"}],"merged_presences":{"friends":[],"guilds":[)"
+        R"([{"user_id":"42","status":"online","activities":[{"type":0,"name":"Mossrun","timestamps":{"start":5}}]},)"
+        R"({"user_id":"43","status":"online","activities":[]}],)"
+        R"([{"bad":true},{"user_id":"44","status":"idle","activities":[{"type":4,"name":"Custom Status","state":"Away"}]}]]}})");
+    static u32 objects[4096];
+    static Captured captured{};
+    const auto routed = gateway_client_publish_guild_presences({data, 0, JsonValueKind::object}, {scratch, 16384},
+                                                               {objects, 4096}, 9, 1, capture, &captured);
+    UserAppearance appearance{};
+    UserActivitySet restored{};
+    u32 consumed = 0;
+    check(routed.ok() && captured.count == 2 && captured.events[0].presence.user_id == 42 &&
+              captured.events[0].presence.guild_id == 7 &&
+              user_appearance_read_prefix({captured.payloads[0], captured.bytes[0]}, 42, 7, &appearance, &consumed) &&
+              consumed < captured.bytes[0] &&
+              user_activities_read({captured.payloads[0] + consumed, captured.bytes[0] - consumed}, 42, &restored) &&
+              restored.count == 1,
+          "guild presences: a server presence with activities carries its guild and the activities trailer");
+    check(captured.events[1].presence.user_id == 44 && captured.events[1].presence.guild_id == 8 &&
+              user_appearance_read({captured.payloads[1], captured.bytes[1]}, 44, 8, &appearance) &&
+              same(appearance.activity.view(), utf8_literal("Away")) &&
+              (appearance.fields & appearance_custom_status),
+          "guild presences: custom status only rows go without a trailer; empty and malformed rows are skipped");
+
+    // Member list presences carry the trailer behind the member appearance.
+    static char packet[64 * 1024];
+    GatewayEnvelope envelope{};
+    GatewayClientEvent event{};
+    ConstSlice<u8> payload{};
+    bool handled = false;
+    const auto list = utf8_literal(
+        R"({"op":0,"s":6,"t":"GUILD_MEMBER_LIST_UPDATE","d":{"guild_id":"7","id":"70","ops":[{"op":"SYNC",)"
+        R"("range":[0,1],"items":[{"member":{"user":{"id":"20","username":"Listener"},"roles":[],)"
+        R"("presence":{"status":"online","activities":[{"type":2,"name":"Spotify","details":"Track",)"
+        R"("state":"Band","party":{"id":"spotify:20"}}]}}},)"
+        R"({"member":{"user":{"id":"21","username":"Idle"},"roles":[],"presence":{"status":"online","activities":[]}}}]}]}})");
+    bool ok = gateway_decode_envelope(list, {scratch, 16384}, 64, &envelope).ok() &&
+              gateway_client_route_member_list_dispatch(envelope, {scratch, 16384}, 64, {packet, sizeof(packet)},
+                                                        &event, &payload, &handled)
+                  .ok() &&
+              handled;
+    event.kind = GatewayClientEventKind::dispatch;
+    event.dispatch_payload_bytes = static_cast<u32>(payload.count);
+    u32 cursor = 0, index = 0, members = 0, trailers = 0, known = 0;
+    GatewayClientMemberListMutation mutation{};
+    ConstSlice<u8> roles{}, global_extra{}, guild_extra{};
+    Utf8View nickname{}, display{}, avatar{}, username{};
+    while (ok && gateway_client_event_member_list_record(event, payload, &cursor, &index, &mutation, &roles, &nickname,
+                                                         &display, &avatar, &username, &global_extra, &guild_extra)) {
+        // A SYNC also invalidates its range first.
+        if (mutation.kind != GatewayClientMemberListItemKind::member ||
+            mutation.operation == GatewayClientMemberListOperation::invalidate)
+            continue;
+        ++members;
+        known += (mutation.hydration_flags & gateway_member_activities_known) != 0;
+        if (user_appearance_read_prefix(guild_extra, mutation.user_id, 7, &appearance, &consumed) &&
+            consumed < guild_extra.count &&
+            user_activities_read({guild_extra.data + consumed, guild_extra.count - consumed}, mutation.user_id,
+                                 &restored) &&
+            restored.count == 1 && mutation.user_id == 20)
+            ++trailers;
+    }
+    check(ok, "guild presences: a member list SYNC with activities routes");
+    check(members == 2 && known == 2, "guild presences: member list rows mark their activities known");
+    check(trailers == 1, "guild presences: the active member carries the activities trailer");
+}
+
 void idle() noexcept {
     PresenceIdle s{};
     PresenceIdleInput in{kPresenceIdleTimeoutMs - 1, 1'000'000, kPresenceIdleTimeoutMs, false, false};
@@ -644,6 +814,9 @@ extern "C" __declspec(noreturn) void WINAPI maicord_presence_wave_entry() noexce
     using namespace maicord::presence_wave_test;
     activities();
     client_status();
+    scopes();
+    status_text();
+    guild_presences();
     idle();
     opcode3();
     detection();

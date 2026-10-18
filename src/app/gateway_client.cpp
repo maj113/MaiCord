@@ -2092,6 +2092,13 @@ PlaintextDrive process_session(GatewayClient* client, GatewayClientRuntime* runt
                             event.envelope.sequence, now_ms, publish_relationship_stream, &binding);
                     }
                 }
+                // Server presences' rich activities; the member list carries their status.
+                if (routed.ok()) {
+                    RelationshipStreamBinding binding{client, runtime};
+                    routed = gateway_client_publish_guild_presences(
+                        event.envelope.data, main_index_view(runtime), object_scratch(runtime),
+                        event.envelope.sequence, now_ms, publish_relationship_stream, &binding);
+                }
                 // Initial voice states of the other members arrive only here;
                 // READY guilds carry none. Malformed guild rows are skipped.
                 if (routed.ok()) {

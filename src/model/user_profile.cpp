@@ -172,7 +172,7 @@ void user_appearance_expand(const UserAppearanceRecord& r, UserAppearance* outpu
     get(a.status_emoji, r.status_emoji);
 }
 bool user_appearance_upsert(UserAppearanceStore* s, const UserAppearance& v) noexcept {
-    if (!s || !v.user_id || (v.fields & ~255u))
+    if (!s || !v.user_id || (v.fields & ~511u))
         return false;
     if (!v.fields)
         return true;
@@ -220,6 +220,7 @@ bool user_appearance_upsert(UserAppearanceStore* s, const UserAppearance& v) noe
         next.status_emoji = v.status_emoji;
         next.status_emoji_id = v.status_emoji_id;
         next.emoji_animated = v.emoji_animated;
+        next.fields = (next.fields & ~u32{appearance_custom_status}) | (v.fields & appearance_custom_status);
     }
     next.fields |= v.fields;
     alignas(8) u8 image[kRecordUnitsMaximum * kUnitBytes];
@@ -337,7 +338,7 @@ struct AppearanceReader {
 };
 } // namespace
 u32 user_appearance_write(const UserAppearance& a, Slice<u8> output) noexcept {
-    if (!a.fields || (a.fields & ~255u) || a.name.color_count > 8 || !output.data)
+    if (!a.fields || (a.fields & ~511u) || a.name.color_count > 8 || !output.data)
         return 0;
     AppearanceWriter w{output};
     w.scalar(a.fields);
@@ -386,7 +387,7 @@ bool read_appearance(ConstSlice<u8> input, u64 user, u64 guild, UserAppearance* 
     }
     AppearanceReader r{input};
     r.scalar(a.fields);
-    if (a.fields & ~255u)
+    if (a.fields & ~511u)
         return false;
     if (a.fields & appearance_bot) {
         u8 v = 0;

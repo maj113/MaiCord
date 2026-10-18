@@ -1122,6 +1122,17 @@ bool shell_presentation_build_member_status_overlay(const MemberListScene* membe
             paint_stream_pop_clip(stream);
             return false;
         }
+        // The activity glyph leads the status line (shell_text_presentation).
+        UiActivityStatus activity{};
+        const UiLayoutNode* label = member_list_scene_layout_node(*member_scene, row.label);
+        if (label && member_list_row_status(*member_scene, index, {}, &activity) &&
+            activity.glyph != UiActivityGlyph::none &&
+            !ui_icon_paint(stream, ui_activity_glyph_icon(activity.glyph),
+                           ui_activity_glyph_rectangle(member_list_row_status_line(label->content_rectangle)),
+                           theme.tokens.status.online)) {
+            paint_stream_pop_clip(stream);
+            return false;
+        }
     }
     return paint_stream_pop_clip(stream);
 }

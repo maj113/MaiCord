@@ -589,6 +589,97 @@ void test_member_update_storm(void (*check)(bool, const char*) noexcept) noexcep
     user_appearance_release(&f.users.appearance);
 }
 
+// Rich activities through the pump. A friend presence and the shared
+// server's presence arrive separately; the server's empty list (its activity
+// hidden there) must leave the friend's card in place.
+bool presence(Utf8View source) noexcept {
+    auto& f = fixture;
+    GatewayEnvelope envelope{};
+    GatewayClientEvent event{};
+    ConstSlice<u8> payload{};
+    u64 bulk[4]{};
+    if (!gateway_decode_envelope(source, {f.structurals, 4096}, 32, &envelope).ok() ||
+        !gateway_client_route_dispatch(envelope, {f.structurals, 4096}, 32, {f.payload, sizeof(f.payload)},
+                                       {bulk, 4}, &event, &payload)
+             .ok())
+        return false;
+    event.kind = GatewayClientEventKind::dispatch;
+    event.sequence = envelope.sequence;
+    event.dispatch_payload_bytes = payload.count;
+    return message_event_pump_consume(&f.pump, event, payload).ok();
+}
+void test_activity_scopes(void (*check)(bool, const char*) noexcept) noexcept {
+    auto& f = fixture;
+    const bool initialized = initialize();
+    check(initialized, "member pump: activity scope fixture initializes");
+    if (!initialized)
+        return;
+    const auto song = utf8_literal(
+        R"({"op":0,"s":1,"t":"PRESENCE_UPDATE","d":{"user":{"id":"30"},"status":"online","activities":[)"
+        R"({"type":2,"name":"Spotify","details":"Track","state":"Band","party":{"id":"spotify:30"},)"
+        R"("timestamps":{"start":1700000000000,"end":1700000200000}}]}})");
+    const auto hidden = utf8_literal(
+        R"({"op":0,"s":2,"t":"PRESENCE_UPDATE","d":{"user":{"id":"30"},"guild_id":"7","status":"online",)"
+        R"("activities":[]}})");
+    const auto stopped = utf8_literal(
+        R"({"op":0,"s":3,"t":"PRESENCE_UPDATE","d":{"user":{"id":"30"},"status":"online","activities":[]}})");
+    check(presence(song) && user_activity_count(f.users.activities, 30) == 1 && presence(hidden) &&
+              user_activity_count(f.users.activities, 30) == 1,
+          "member pump: a server presence without activities keeps the friend presence's card");
+    const auto* line = user_appearance_find(f.users.appearance, 30);
+    check(line && utf8_equal(line->activity.view(), utf8_literal("Listening to Spotify")) && presence(stopped) &&
+              !user_activity_count(f.users.activities, 30),
+          "member pump: the friend presence clears its activities");
+
+    const auto sync = utf8_literal(
+        R"({"op":0,"s":4,"t":"GUILD_MEMBER_LIST_UPDATE","d":{"guild_id":"7","id":"70","ops":[{"op":"SYNC",)"
+        R"("range":[0,0],"items":[{"member":{"user":{"id":"31","username":"Player"},"roles":[],)"
+        R"("presence":{"status":"online","activities":[{"type":0,"name":"Turbo Ball","details":"Duel",)"
+        R"("timestamps":{"start":1700000000000}}]}}}]}]}})");
+    UserActivitySet stored{};
+    check(apply(sync) && user_activity_find(f.users.activities, 31, &stored) && stored.count == 1 &&
+              stored.items[0].type == UserActivityType::playing,
+          "member pump: member list presences store their rich activities");
+    const auto idle = utf8_literal(
+        R"({"op":0,"s":5,"t":"GUILD_MEMBER_LIST_UPDATE","d":{"guild_id":"7","id":"70","ops":[{"op":"UPDATE",)"
+        R"("index":0,"item":{"member":{"user":{"id":"31","username":"Player"},"roles":[],)"
+        R"("presence":{"status":"online","activities":[]}}}}]}})");
+    check(apply(idle) && !user_activity_count(f.users.activities, 31),
+          "member pump: the same server's empty list clears them");
+
+    // Regression: a SYNC whose members all carry activities lands whole.
+    char source[8192];
+    ProtocolWriter writer{{reinterpret_cast<u8*>(source), sizeof(source)}, 0};
+    protocol_writer_append_literal(&writer, R"({"op":0,"s":6,"t":"GUILD_MEMBER_LIST_UPDATE","d":{"guild_id":"7",)"
+                                            R"("id":"70","ops":[{"op":"SYNC","range":[0,5],"items":[)");
+    for (u32 i = 0; i < 6; ++i) {
+        char entry[512];
+        ProtocolWriter item{{reinterpret_cast<u8*>(entry), sizeof(entry)}, 0};
+        protocol_writer_append_literal(&item, R"({"member":{"user":{"id":"4)");
+        protocol_writer_append_byte(&item, static_cast<u8>('0' + i));
+        protocol_writer_append_literal(&item, R"(","username":"Member"},"roles":[],"presence":{"status":"online",)"
+                                              R"("activities":[{"type":4,"name":"Custom Status","state":"Here"},)"
+                                              R"({"type":2,"name":"Spotify","details":"Track","state":"A; B",)"
+                                              R"("party":{"id":"spotify:4"},"timestamps":{"start":1700000000000,)"
+                                              R"("end":1700000200000},"assets":{"large_image":"spotify:abc"}},)"
+                                              R"({"type":0,"name":"Turbo Ball","details":"Duel"}]}}})");
+        if (i)
+            protocol_writer_append_byte(&writer, ',');
+        protocol_writer_append_bytes(&writer, reinterpret_cast<const u8*>(entry), item.used);
+    }
+    protocol_writer_append_literal(&writer, "]}]}}");
+    const bool applied = apply({source, writer.used});
+    u32 placed = 0, active = 0;
+    for (u32 i = 0; i < 6; ++i) {
+        const auto* member = guild_member_store_find(f.members, 7, 40 + i);
+        placed += member && member->list_id == 70 && member->list_index == i;
+        active += user_activity_count(f.users.activities, 40 + i) == 2;
+    }
+    check(applied && placed == 6 && active == 6,
+          "member pump: a SYNC of members that all carry activities keeps every member and their activities");
+    user_activity_release(&f.users.activities);
+    user_appearance_release(&f.users.appearance);
+}
 void test_member_paging_pump(void (*check)(bool, const char*) noexcept) noexcept {
     auto& f = fixture;
     const bool initialized = initialize();
@@ -747,5 +838,6 @@ void test_member_paging_pump(void (*check)(bool, const char*) noexcept) noexcept
     test_role_hydration(check);
     test_self_quarantine(check);
     test_member_update_storm(check);
+    test_activity_scopes(check);
 }
 } // namespace maicord

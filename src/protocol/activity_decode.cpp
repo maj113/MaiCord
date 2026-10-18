@@ -106,6 +106,54 @@ u32 user_activity_summary(const UserActivity& a, Slice<char> output) noexcept {
     return user_activity_summary(a.type, user_activity_text(a, UserActivityField::name),
                                  user_activity_text(a, UserActivityField::details), output);
 }
+u32 user_activity_status_text(const UserActivity& a, Slice<char> output) noexcept {
+    using F = UserActivityField;
+    const auto name = user_activity_text(a, F::name), details = user_activity_text(a, F::details),
+               state = user_activity_text(a, F::state);
+    Writer w{output.data, static_cast<u32>(output.count), 0};
+    if (user_activity_is_spotify(a) && state.bytes) {
+        // Artists arrive as "A; B".
+        for (u32 i = 0; i < state.bytes && w.ok; ++i) {
+            if (state.data[i] == ';' && i + 1 < state.bytes && state.data[i + 1] == ' ')
+                w.put(utf8_literal(","));
+            else
+                w.put({state.data + i, 1});
+        }
+        return w.finish();
+    }
+    Utf8View value = a.type == UserActivityType::streaming && details.bytes ? details : name;
+    const u32 display = (a.detail & user_activity_display_mask) >> user_activity_display_shift;
+    if (display == 2 && state.bytes)
+        value = state;
+    else if (display == 3 && details.bytes)
+        value = details;
+    else if (display == 1)
+        value = name;
+    Utf8View verb{};
+    switch (a.type) {
+    case UserActivityType::playing:
+        break;
+    case UserActivityType::streaming:
+        verb = utf8_literal("Streaming ");
+        break;
+    case UserActivityType::listening:
+        verb = utf8_literal("Listening to ");
+        break;
+    case UserActivityType::watching:
+        verb = utf8_literal("Watching ");
+        break;
+    case UserActivityType::competing:
+        verb = utf8_literal("Competing in ");
+        break;
+    default:
+        return 0;
+    }
+    if (!value.bytes || output.count <= verb.bytes)
+        return 0;
+    w.put(verb);
+    w.put({value.data, utf8_truncated_length(value, w.capacity - w.used)});
+    return w.finish();
+}
 namespace {
 // The Xbox application (its presences may carry no platform).
 constexpr u64 kXboxApplicationId = 438122941302046720ull;
@@ -310,7 +358,7 @@ u32 user_activity_metadata_target(u64 user_id, Utf8View session, u64 application
 namespace {
 struct ActivityFields {
     JsonValue type, name, details, state, url, application_id, timestamps, created_at, party, assets, buttons,
-        flags, session_id, platform;
+        flags, session_id, platform, display;
 };
 bool activity_member(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& f = *static_cast<ActivityFields*>(opaque);
@@ -330,7 +378,8 @@ bool activity_member(void* opaque, JsonString key, JsonValue value) noexcept {
                          {utf8_literal("buttons"), &f.buttons},
                          {utf8_literal("flags"), &f.flags},
                          {utf8_literal("session_id"), &f.session_id},
-                         {utf8_literal("platform"), &f.platform}};
+                         {utf8_literal("platform"), &f.platform},
+                         {utf8_literal("status_display_type"), &f.display}};
     for (const auto& entry : entries)
         if (json_string_equals_ascii(key, entry.key)) {
             if (!entry.slot->source.data) // first occurrence wins
@@ -375,7 +424,7 @@ u32 decode(JsonValue v, char* output, u32 budget, bool whole) noexcept {
     return bytes;
 }
 struct Pending {
-    char text[kUserActivityFieldCount][256];
+    char text[kUserActivityFieldCount][320];
     u16 bytes[kUserActivityFieldCount];
 };
 UserActivityPlatform platform(JsonValue v) noexcept {
@@ -508,6 +557,11 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
             a.detail |= user_activity_spotify_party;
     }
     a.platform = platform(f.platform);
+    if (present(f.display) && f.display.kind == JsonValueKind::number) {
+        const u64 display = number(f.display);
+        if (display <= 2)
+            a.detail |= static_cast<u8>((display + 1) << user_activity_display_shift);
+    }
     if (present(party.a) && party.a.kind == JsonValueKind::array) {
         Array size{};
         if (!json_visit_indexed_array(*c.doc, party.a, 64, array_item, &size).ok())

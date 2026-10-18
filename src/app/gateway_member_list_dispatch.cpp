@@ -566,13 +566,32 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
     if (has_presence && !activity_decode(document, member.presence, &guild_appearance))
         return reject(error);
     writer->decode_detail = decode_detail(MemberDecodeStage::serialization);
-    u8 user_extra[1024]{}, member_extra[1024]{};
+    u8 user_extra[1024]{}, member_extra[1024 + kUserActivityRecordMaximumBytes]{};
     const u32 user_extra_bytes =
         user_appearance_write(global_appearance, {user_extra, sizeof(user_extra)});
-    const u32 member_extra_bytes =
-        user_appearance_write(guild_appearance, {member_extra, sizeof(member_extra)});
+    u32 member_extra_bytes =
+        user_appearance_write(guild_appearance, {member_extra, 1024});
     if ((global_appearance.fields && !user_extra_bytes) || (guild_appearance.fields && !member_extra_bytes))
         return reject(error);
+    // Rich presence rides behind the member appearance while the payload keeps
+    // room for the rest of the list; without the flag the activities are unknown.
+    bool activities_known = false;
+    if (has_presence && (guild_appearance.fields & appearance_activity)) {
+        UserActivitySet activities{};
+        bool listed = false;
+        if (user_activities_decode(document, member.presence, user.id, &activities, &listed)) {
+            const u32 tail = activities.count ? user_activities_write(activities, {member_extra + member_extra_bytes,
+                                                                                   kUserActivityRecordMaximumBytes})
+                                              : 0;
+            // A quarter of the payload stays free so rich presence never
+            // crowds out the rest of a list update.
+            const u32 room = static_cast<u32>(writer->output.count) - writer->used;
+            activities_known = !activities.count ||
+                               (tail && room > member_extra_bytes + tail + static_cast<u32>(writer->output.count) / 4);
+            if (activities_known)
+                member_extra_bytes += tail;
+        }
+    }
     GatewayClientMemberListMutation mutation{};
     mutation.user_id = user.id;
     mutation.user_appearance_bytes = static_cast<u16>(user_extra_bytes);
@@ -587,6 +606,8 @@ bool append_member_item(PayloadWriter* writer, JsonValue value, u32 list_index,
         if (!user.avatar_seen)
             mutation.hydration_flags |= gateway_member_avatar_omitted;
     }
+    if (activities_known)
+        mutation.hydration_flags |= gateway_member_activities_known;
     if (member.timeout_seen) {
         mutation.hydration_flags |= gateway_member_timeout_known;
         mutation.communication_disabled_until = member.timeout_until;
@@ -963,7 +984,7 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
     // Presence markers are specific to ordinary member/group records; thread
     // flags and contradictory omitted-but-populated role payloads fail closed.
     const u8 member_flags =
-        static_cast<u8>(gateway_member_roles_omitted | gateway_member_timeout_known |
+        static_cast<u8>(gateway_member_roles_omitted | gateway_member_timeout_known | gateway_member_activities_known |
                         gateway_member_quarantine_known | gateway_member_quarantined |
                         (event.dispatch_kind == GatewayClientDispatchKind::guild_member_profile_update
                              ? gateway_member_nickname_omitted | gateway_member_avatar_omitted
@@ -1032,9 +1053,16 @@ bool gateway_client_event_member_list_record(const GatewayClientEvent& event, Co
     const ConstSlice<u8> guild_extra{payload.data + *cursor, mutation->member_appearance_bytes};
     *cursor += mutation->member_appearance_bytes;
     UserAppearance decoded{};
+    u32 appearance_bytes = 0;
+    UserActivitySet activities{};
     if (member &&
         (!user_appearance_read(global_extra, mutation->user_id, 0, &decoded) ||
-         !user_appearance_read(guild_extra, mutation->user_id, event.member_list.guild_id, &decoded)))
+         !user_appearance_read_prefix(guild_extra, mutation->user_id, event.member_list.guild_id, &decoded,
+                                      &appearance_bytes) ||
+         (appearance_bytes < guild_extra.count &&
+          (!(mutation->hydration_flags & gateway_member_activities_known) ||
+           !user_activities_read({guild_extra.data + appearance_bytes, guild_extra.count - appearance_bytes},
+                                 mutation->user_id, &activities)))))
         return false;
     if (user_appearance)
         *user_appearance = global_extra;

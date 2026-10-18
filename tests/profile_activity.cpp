@@ -7,6 +7,7 @@
 #include "maicord/model/user_activity.hpp"
 #include "maicord/model/user_store.hpp"
 #include "maicord/ui/profile_activity.hpp"
+#include "maicord/ui/activity_status.hpp"
 #include "maicord/ui/profile_media.hpp"
 #include "maicord/ui/profile_scene.hpp"
 #include "test_output.hpp"
@@ -163,6 +164,21 @@ void test_urls() noexcept {
               !user_activity_application_icon_url(5, utf8_literal("a/b"), {url, sizeof(url)}) &&
               !user_activity_application_icon_url(0, utf8_literal("abc"), {url, sizeof(url)}),
           "urls: application icons as PNG at 160");
+    char long_key[400];
+    u32 key = 0;
+    const auto put = [&](Utf8View v) noexcept {
+        copy_bytes(long_key + key, v.data, v.bytes);
+        key += v.bytes;
+    };
+    put(utf8_literal(R"({"activities":[{"type":0,"name":"G","assets":{"large_image":"mp:external/)"));
+    for (u32 i = 0; i < 28; ++i)
+        put(utf8_literal("abcdefghij"));
+    put(utf8_literal(R"(/x.png"}}]})"));
+    UserActivitySet external{};
+    check(decode({long_key, key}, &external) &&
+              text(external.items[0], UserActivityField::large_image).bytes == 3 + 9 + 280 + 6 &&
+              user_activity_image_url(external.items[0], true, {url, sizeof(url)}, &format),
+          "urls: media proxy keys of about 300 characters are kept whole");
     const auto a = user_activity_artwork(set.items[0], false);
     const auto b = user_activity_artwork(set.items[2], true);
     const auto c = user_activity_artwork(set.items[2], false);
@@ -428,6 +444,137 @@ void test_layout() noexcept {
     user_activity_release(&users.activities);
 }
 
+// The popout's Spotify card and a game card's glyphs; ticks once a second.
+void test_popout_spotify() noexcept {
+    constexpr u64 now = 1'700'000'100'000ull;
+    UserActivitySet set{};
+    const bool decoded = decode(utf8_literal(R"({"activities":[
+        {"type":2,"name":"Spotify","details":"Native Song","state":"First Artist; Second Artist",
+         "party":{"id":"spotify:abc"},"timestamps":{"start":1700000013000,"end":1700000377000},
+         "assets":{"large_image":"spotify:ab67616d0000b273deadbeefdeadbeefdeadbeef","large_text":"Album"}}]})"),
+                                &set);
+    UserStore users{};
+    UserProfile profile{};
+    profile.user_id = 42;
+    set_text(&profile.username, utf8_literal("listener"));
+    set_text(&profile.display_name, utf8_literal("Listener"));
+    ProfileScene s{};
+    const UiRect viewport{0, 0, 1280, 720};
+    const bool ok = decoded && user_activity_upsert(&users.activities, set) &&
+                    profile_scene_open(&s, &profile, nullptr, &users, 1, {300, 200, 340, 240}, viewport) &&
+                    profile_scene_tick(&s, now);
+    const auto c = rect(s, find(s, ProfileMediaKind::activity_card));
+    const auto art = rect(s, find(s, ProfileMediaKind::activity_large));
+    const auto* title = find_text(s, utf8_literal("Native Song"));
+    const auto* artists = find_text(s, utf8_literal("First Artist, Second Artist"));
+    const auto* elapsed = find_text(s, utf8_literal("01:27"));
+    const auto* total = find_text(s, utf8_literal("06:04"));
+    const auto* bar = find(s, ProfileMediaKind::activity_progress);
+    check(ok && find_text(s, utf8_literal("Listening to Spotify")) && ui_rect_width(art) == 60 &&
+              art.left == c.left + 8 && title && artists && (title->style & text_style_bold) &&
+              rect(s, title).left == art.right + 8 && rect(s, artists).top == rect(s, title).bottom,
+          "spotify: header, 60 DIP album art, bold track and its artists");
+    check(elapsed && total && bar && rect(s, elapsed).top == rect(s, total).top &&
+              rect(s, bar).left > rect(s, elapsed).right && rect(s, bar).right < rect(s, total).left &&
+              bar->color.red > .2389f && bar->color.red < .2391f && !find(s, ProfileMediaKind::activity_small) &&
+              s.activity_timed,
+          "spotify: elapsed and total times frame the progress bar; no timer chip");
+    const u32 revision = s.revision;
+    const float before = bar->color.red;
+    check(!profile_scene_tick(&s, now + 400) && s.revision == revision && bar->color.red == before &&
+              profile_scene_tick(&s, now + 1000) && s.revision == revision + 1 &&
+              find_text(s, utf8_literal("01:28")) && bar->color.red > before,
+          "spotify: the bar and elapsed time redraw only when the shown second changes");
+
+    UserActivitySet game{};
+    decode(utf8_literal(R"j({"activities":[{"type":0,"name":"Turbo Ball","details":"Duel 3:24 (2 - 2)",
+        "state":"Ranked","timestamps":{"start":1700000080000},"application_id":"9",
+        "assets":{"large_image":"11","small_image":"12"}}]})j"),
+           &game);
+    user_activity_upsert(&users.activities, game);
+    ++users.revision;
+    bool controller = false;
+    const bool laid = profile_scene_layout(&s, viewport, false) && profile_scene_tick(&s, now);
+    for (u32 i = 0; i < s.part_count; ++i)
+        controller |= s.parts[i].icon == static_cast<u16>(UiIcon::controller) && s.parts[i].tone == ProfileTone::positive;
+    const auto* clock = find_text(s, utf8_literal("0:20"));
+    check(laid && find_text(s, utf8_literal("Playing")) && find_text(s, utf8_literal("Duel 3:24 (2 - 2)")) &&
+              find_text(s, utf8_literal("Ranked")) && clock && clock->tone == ProfileTone::positive && controller &&
+              find(s, ProfileMediaKind::activity_small),
+          "game: details, state, the small image and a green timer with the controller glyph");
+    profile_scene_release(&s);
+    user_activity_release(&users.activities);
+}
+
+// The status line under a DM or member row's name.
+void test_status_line() noexcept {
+    UserStore users{};
+    UserActivitySet set{};
+    decode(utf8_literal(R"({"activities":[{"type":2,"name":"Spotify","details":"Track","state":"Grave; Choir",
+        "party":{"id":"spotify:1"}},{"type":0,"name":"Turbo Ball"}]})"),
+           &set);
+    UserAppearance line{};
+    line.user_id = 42;
+    line.fields = appearance_activity;
+    line.activity.bytes = static_cast<u16>(user_activity_summary(set.items[0], {line.activity.data, 256}));
+    char storage[256];
+    UiActivityStatus status{};
+    bool ok = user_activity_upsert(&users.activities, set) && user_appearance_upsert(&users.appearance, line);
+    const auto* record = user_appearance_find(users.appearance, 42);
+    check(ok && ui_user_activity_status(users, 42, record, {storage, sizeof(storage)}, &status) &&
+              status.glyph == UiActivityGlyph::music && same(status.text, utf8_literal("Grave, Choir")) &&
+              !status.emoji.bytes,
+          "status line: the first activity's glyph and short text replace its summary");
+    UserAppearance custom = line;
+    custom.fields = appearance_activity | appearance_custom_status;
+    set_text(&custom.activity, utf8_literal("Out for lunch"));
+    set_text(&custom.status_emoji, utf8_literal("\xF0\x9F\x8D\x9C"));
+    ok = user_appearance_upsert(&users.appearance, custom);
+    record = user_appearance_find(users.appearance, 42);
+    check(ok && ui_user_activity_status(users, 42, record, {storage, sizeof(storage)}, &status) &&
+              status.glyph == UiActivityGlyph::music && same(status.text, utf8_literal("Out for lunch")) &&
+              same(status.emoji, utf8_literal("\xF0\x9F\x8D\x9C")),
+          "status line: a custom status's text and emoji follow the activity glyph");
+    check(ui_user_activity_status(users, 42, record, {}, &status) && status.glyph == UiActivityGlyph::music &&
+              same(status.text, utf8_literal("Out for lunch")),
+          "status line: without storage the glyph and custom status resolve");
+    user_activity_upsert(&users.activities, {42});
+    check(ui_user_activity_status(users, 42, record, {storage, sizeof(storage)}, &status) &&
+              status.glyph == UiActivityGlyph::none && same(status.text, utf8_literal("Out for lunch")),
+          "status line: a custom status alone has no glyph");
+    ok = user_appearance_upsert(&users.appearance, line);
+    record = user_appearance_find(users.appearance, 42);
+    check(ok && record && !(record->fields & appearance_custom_status) &&
+              ui_user_activity_status(users, 42, record, {storage, sizeof(storage)}, &status) &&
+              status.glyph == UiActivityGlyph::none && same(status.text, utf8_literal("Listening to Spotify")),
+          "status line: without rich activities the summary shows as it was");
+    UserAppearance bot{};
+    bot.user_id = 43;
+    bot.fields = appearance_bot;
+    bot.bot = true;
+    UserActivitySet robot = set;
+    robot.user_id = 43;
+    check(user_appearance_upsert(&users.appearance, bot) && user_activity_upsert(&users.activities, robot) &&
+              ui_user_activity_status(users, 43, nullptr, {storage, sizeof(storage)}, &status) &&
+              status.glyph == UiActivityGlyph::none && same(status.text, utf8_literal("Grave, Choir")) &&
+              !ui_user_activity_status(users, 44, nullptr, {storage, sizeof(storage)}, &status),
+          "status line: bots get no glyph and users without presence no line");
+    check(ui_activity_glyph(UserActivityType::playing) == UiActivityGlyph::game &&
+              ui_activity_glyph(UserActivityType::competing) == UiActivityGlyph::game &&
+              ui_activity_glyph(UserActivityType::watching) == UiActivityGlyph::screen &&
+              ui_activity_glyph(UserActivityType::streaming) == UiActivityGlyph::screen &&
+              ui_activity_glyph_icon(UiActivityGlyph::game) == UiIcon::controller &&
+              ui_activity_glyph_icon(UiActivityGlyph::music) == UiIcon::music,
+          "status line: a controller for games, a note for music, a screen for watching");
+    const UiRect row{10, 20, 200, 36};
+    check(ui_rect_equal(ui_activity_glyph_rectangle(row), {10, 22, 22, 34}) &&
+              ui_rect_equal(ui_activity_glyph_text(row, UiActivityGlyph::music), {26, 20, 200, 36}) &&
+              ui_rect_equal(ui_activity_glyph_text(row, UiActivityGlyph::none), row),
+          "status line: a 12 DIP glyph, then the text 4 DIP after it");
+    user_activity_release(&users.activities);
+    user_appearance_release(&users.appearance);
+}
+
 void test_requests() noexcept {
     u8 target[256];
     const u64 ids[] = {5, 6};
@@ -495,7 +642,7 @@ void test_wire() noexcept {
               a.platform == UserActivityPlatform::ps5 && (a.detail & user_activity_has_party) &&
               (a.detail & user_activity_spotify_party) && user_activity_is_spotify(a),
           "wire: session, platform and party facts survive the mailbox");
-    wire[4] = 9; // the first activity's detail byte
+    wire[4] = 0x11; // the first activity's detail byte
     check(!user_activities_read({wire, written}, 42, &restored), "wire: unknown detail bits are rejected");
 }
 
@@ -505,6 +652,8 @@ void run() noexcept {
     test_urls();
     test_content();
     test_layout();
+    test_popout_spotify();
+    test_status_line();
     test_requests();
     test_wire();
 }
