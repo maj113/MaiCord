@@ -2,6 +2,7 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/stable_storage.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/media/asset.hpp"
 
 namespace maicord {
 // Structured presence activities (rich presence). Custom status stays in
@@ -19,6 +20,8 @@ enum class UserActivityField : u8 {
     url,
     button_0,
     button_1,
+    // The presence session (received only); activity metadata is keyed by it.
+    session,
     count
 };
 inline constexpr u32 kUserActivityFieldCount = static_cast<u32>(UserActivityField::count);
@@ -27,20 +30,30 @@ inline constexpr u32 kUserActivityMaximum = 3;
 // Per-field byte budgets; text is cut at a code point, image keys are kept
 // whole or dropped.
 inline constexpr u16 kUserActivityFieldBudget[kUserActivityFieldCount]{128, 128, 128, 256, 128,
-                                                                       256, 128, 256, 96, 96};
+                                                                       256, 128, 256, 96, 96, 64};
 enum UserActivityFlag : u32 {
     user_activity_flag_instance = 1u << 0,
     user_activity_flag_join = 1u << 1,
     user_activity_flag_sync = 1u << 4,
     user_activity_flag_play = 1u << 5,
+    user_activity_flag_embedded = 1u << 8,
 };
+// Facts about fields that are not kept whole.
+enum UserActivityDetail : u8 {
+    user_activity_has_party = 1u << 0,
+    // party.id starts with "spotify:" (the Spotify integration's sessions).
+    user_activity_spotify_party = 1u << 1,
+};
+// activity.platform; desktop when absent.
+enum class UserActivityPlatform : u8 { desktop, xbox, ps4, ps5, ios, android, embedded, samsung, meta_quest };
 struct UserActivity {
     u64 application_id;
     u64 start_ms, end_ms, created_ms; // Unix milliseconds; zero when absent.
     u32 party_size, party_max, flags;
     u16 lengths[kUserActivityFieldCount]; // Packed in field order inside text.
     UserActivityType type;
-    u8 button_count;
+    u8 button_count, detail;
+    UserActivityPlatform platform;
     char text[kUserActivityTextBytes];
 };
 struct UserActivitySet {
@@ -50,20 +63,47 @@ struct UserActivitySet {
     UserActivity items[kUserActivityMaximum];
 };
 Utf8View user_activity_text(const UserActivity&, UserActivityField) noexcept;
-// Spotify listening activity (type 2 from the Spotify integration).
+// The Spotify integration's listening activity: named "Spotify" with a
+// "spotify:" party.
 bool user_activity_is_spotify(const UserActivity&) noexcept;
 // One-line status: "Playing X", "Streaming X", "Listening to X", "Watching X",
 // "Competing in X". Returns the byte count written (0 if none).
 u32 user_activity_summary(UserActivityType, Utf8View name, Utf8View details, Slice<char> output) noexcept;
 u32 user_activity_summary(const UserActivity&, Slice<char> output) noexcept;
-// Card heading: "Playing", "Listening to Spotify", "Watching", ...
+// Card heading: "Playing", "Playing on Xbox", "Streaming Twitch", "Listening
+// to Spotify" (with details, else "Listening to"), "Watching X", ...
 u32 user_activity_heading(const UserActivity&, Slice<char> output) noexcept;
-// Image URL for an asset key: mp: media proxy paths and numeric application
-// assets. Spotify/Twitch/YouTube keys have no CDN-hosted URL and return 0.
-// *webp is set for proxied images (requested as WebP), cleared for PNG.
-u32 user_activity_image_url(const UserActivity&, bool large, Slice<char> output, bool* webp) noexcept;
+// Image URL for an asset key, requested at 160 px: numeric application assets
+// (PNG), mp: media proxy paths (WebP) and spotify: album art (JPEG on
+// i.scdn.co). Twitch and YouTube previews and unknown prefixes return 0.
+u32 user_activity_image_url(const UserActivity&, bool large, Slice<char> output,
+                            MediaAttachmentFormat* format) noexcept;
+// An application's icon (GET /applications/public), as PNG at 160 px.
+u32 user_activity_application_icon_url(u64 application_id, Utf8View icon, Slice<char> output) noexcept;
+// Card artwork, in the official fallback order: the large asset, the
+// application's icon, then the small asset in the large slot.
+enum class UserActivityArt : u8 { none, large, application, small_image };
+struct UserActivityArtwork {
+    UserActivityArt large;
+    // The small asset rides on the large slot's corner.
+    bool badge;
+};
+UserActivityArtwork user_activity_artwork(const UserActivity&, bool application_icon) noexcept;
 // Fraction of start..end elapsed at now, clamped to [0, 1]; -1 without both.
 float user_activity_progress(const UserActivity&, u64 unix_now_ms) noexcept;
+
+// GET /applications/public?application_ids=... for up to kUserActivityMaximum
+// applications. Zero on a zero ID or a full output.
+u32 user_activity_applications_target(ConstSlice<u64> ids, Slice<u8> output) noexcept;
+// One application of that response: its ID and icon hash (empty when it has
+// none). Calls visit per element; false on malformed JSON.
+using UserActivityApplicationVisit = void (*)(void* context, u64 id, Utf8View icon) noexcept;
+bool user_activity_applications_decode(Utf8View body, Slice<u32> structurals, UserActivityApplicationVisit visit,
+                                       void* context) noexcept;
+// GET /users/{user}/sessions/{session}/activities/{application or 0}/metadata.
+u32 user_activity_metadata_target(u64 user_id, Utf8View session, u64 application_id, Slice<u8> output) noexcept;
+// metadata.button_urls[index] when it is an http(s) URL; 0 otherwise.
+u32 user_activity_button_url(Utf8View body, Slice<u32> structurals, u32 index, Slice<char> output) noexcept;
 
 // Decodes presence.activities into non-custom activities (at most
 // kUserActivityMaximum). *present reports whether the presence carried an

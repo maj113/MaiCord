@@ -22,6 +22,7 @@ inline constexpr wchar_t kCatalogKlipyHostWide[] = L"static.klipy.com";
 inline constexpr wchar_t kCatalogKlipyStatic2HostWide[] = L"static2.klipy.com";
 inline constexpr wchar_t kCatalogTenorHostWide[] = L"media.tenor.com";
 inline constexpr wchar_t kCatalogGiphyHostWide[] = L"media.giphy.com";
+inline constexpr wchar_t kActivityArtHostWide[] = L"i.scdn.co";
 inline constexpr u32 kEncryptedInputBytes = 128 * 1024;
 inline constexpr u32 kHandshakeOutputBytes = 256 * 1024;
 inline constexpr u32 kRecordOutputBytes = 64 * 1024;
@@ -218,6 +219,8 @@ const wchar_t* host_wide(CdnHost host) noexcept {
         return kCatalogTenorHostWide;
     if (host == CdnHost::catalog_giphy)
         return kCatalogGiphyHostWide;
+    if (host == CdnHost::activity_art)
+        return kActivityArtHostWide;
     return host == CdnHost::images_ext_2 ? kImagesExt2HostWide : nullptr;
 }
 
@@ -849,6 +852,8 @@ CdnClientSubmitResult cdn_client_submit(CdnClient* client,
          (request.host != CdnHost::cdn || !soundboard_target_valid(request.target))) ||
         (request.image_type == CdnImageType::lottie_json &&
          (request.host != CdnHost::cdn || !sticker_json_target_valid(request.target))) ||
+        (request.host == CdnHost::activity_art &&
+         (request.image_type != CdnImageType::jpeg || !activity_art_target_valid(request.target))) ||
         ((request.host == CdnHost::flag_assets) !=
          (request.image_type == CdnImageType::regional_flag_svg)) ||
         (cdn_catalog_provider(request.host) &&

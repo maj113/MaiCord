@@ -3,6 +3,7 @@
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/ui/profile_scene.hpp"
+#include "maicord/ui/profile_activity.hpp"
 #include "maicord/ui/badge.hpp"
 #include "maicord/ui/icon.hpp"
 #include "maicord/ui/plugin_slots.hpp"
@@ -25,6 +26,13 @@ constexpr u32 capacity = 320;
 constexpr u32 kXs = kTextStyleSizeCodeXs, kSm = kTextStyleSizeCodeSm, kMd = kTextStyleSizeCodeMd,
               kLg = text_style_heading_2, kXl = text_style_heading_1;
 constexpr float kPopoutWidth = 300, kPopoutBanner = 105, kModalBanner = 140;
+constexpr u16 kNoPart = 0xFFFF;
+// A card's changing parts (indices into parts): the timer chip's label and
+// glyph, the progress bar's ends and track.
+struct ActivityTimer {
+    u16 clock, glyph, elapsed, total, bar;
+    u8 item, card;
+};
 struct Storage {
     UiWidget widgets[capacity * 2];
     UiLayoutNode nodes[capacity * 2];
@@ -33,10 +41,15 @@ struct Storage {
     ProfileString<64> mutual_text[2], tab_text[2], roles_more, member_since[2];
     ProfileString<64> connection_line[16];
     char connection_initial[16][2];
-    // Activity cards copy their text: the activity store changes under them.
-    ProfileString<128> activity_text[kUserActivityMaximum][4];
-    ProfileString<96> activity_heading[kUserActivityMaximum];
-    ProfileString<48> activity_time[kUserActivityMaximum][3];
+    // The laid-out activities and their cards' text (the store changes under
+    // them): per card the timer chip and the progress bar's ends.
+    UserActivitySet activity_set;
+    ProfileActivityContent activity_content[kUserActivityMaximum];
+    ProfileString<16> activity_time[kUserActivityMaximum][3];
+    ActivityTimer timers[kUserActivityMaximum];
+    u32 timer_count;
+    // A tick's time while it lays the cards out again (0: the clock).
+    u64 tick_ms;
 };
 static_assert(sizeof(Storage::connection_line) / sizeof(ProfileString<64>) ==
               sizeof(UserProfile::connections) / sizeof(ProfileConnection));
@@ -331,34 +344,10 @@ template <u32 N> bool append_number(ProfileString<N>* s, u64 n) noexcept {
     s->bytes += static_cast<u16>(decimal_write(s->data + s->bytes, n));
     return true;
 }
-// "m:ss", or "h:mm:ss" from an hour.
-template <u32 N> void clock_text(ProfileString<N>* out, u64 ms) noexcept {
-    out->bytes = 0;
-    const u64 seconds = ms / 1000, hours = seconds / 3600, minutes = seconds / 60 % 60, rest = seconds % 60;
-    if (hours) {
-        append_number(out, hours);
-        append(out, utf8_literal(":"));
-        if (minutes < 10)
-            append(out, utf8_literal("0"));
-        append_number(out, minutes);
-    } else
-        append_number(out, seconds / 60);
-    append(out, utf8_literal(":"));
-    if (rest < 10)
-        append(out, utf8_literal("0"));
-    append_number(out, rest);
-}
 template <u32 N> bool append_date(ProfileString<N>* out, u64 unix_seconds) noexcept {
     char text[96];
     const auto formatted = format_profile_date(unix_seconds, {text, 96});
     return formatted.ok && append(out, {text, formatted.bytes});
-}
-// The profile user's activities copied into *storage; null when there are none.
-const UserActivitySet* activities(const ProfileScene& s, UserActivitySet* storage) noexcept {
-    return s.users && s.profile && user_activity_find(s.users->activities, s.profile->user_id, storage) &&
-                   storage->count
-               ? storage
-               : nullptr;
 }
 const UserAppearanceRecord* appearance(const ProfileScene& s, u32 field) noexcept {
     const auto& p = *s.profile;
@@ -374,144 +363,353 @@ bool self(const ProfileScene& s) noexcept {
     return s.profile->user_id == s.self_id;
 }
 
-// Rich presence card: header, artwork with the small image on
-// its corner, up to three detail lines and the elapsed timer or the Spotify
-// progress row. Modal cards use the larger metrics.
+u64 activity_now(ProfileScene& s) noexcept {
+    const u64 tick = labels(&s).tick_ms;
+    return tick ? tick : clock_unix_milliseconds();
+}
+// Rich presence cards: a header line, then the artwork (the small image on its
+// corner) beside the title, text lines, chips (party, timer, episode) and the
+// progress bar. Buttons follow the card's body in the popout and the text in
+// the full profile, whose cards use the larger metrics.
 struct CardMetrics {
-    float pad, image, small, gap;
+    float pad, image, small, gap, ring;
 };
 CardMetrics card_metrics(bool large) noexcept {
-    return large ? CardMetrics{12, 100, 32, 12} : CardMetrics{8, 60, 24, 8};
+    return large ? CardMetrics{12, 100, 32, 12, 4} : CardMetrics{8, 60, 24, 8, 2};
 }
-struct CardLines {
-    Utf8View text[3];
-    u32 count;
-    bool progress, timer;
-};
-CardLines card_lines(const UserActivity& a) noexcept {
-    using F = UserActivityField;
-    CardLines c{};
-    const bool spotify = user_activity_is_spotify(a);
-    const Utf8View source[] = {spotify ? user_activity_text(a, F::details) : user_activity_text(a, F::name),
-                               spotify ? user_activity_text(a, F::state) : user_activity_text(a, F::details),
-                               spotify ? user_activity_text(a, F::large_text) : user_activity_text(a, F::state)};
-    for (const auto line : source)
-        if (line.bytes)
-            c.text[c.count++] = line;
-    c.progress = a.start_ms && a.end_ms && a.end_ms > a.start_ms;
-    c.timer = !c.progress && (a.start_ms || a.end_ms);
-    return c;
+constexpr float kCardTitle = 18, kCardLine = 16;
+void unfocusable(ProfileScene* s, const ProfilePart* part) noexcept {
+    if (auto* widget = part ? ui_widget_manager_resolve(&s->widgets, part->widget) : nullptr)
+        widget->flags = static_cast<u16>(widget->flags & ~ui_widget_focusable);
 }
-float card_details(const CardLines& lines) noexcept {
-    float details = 0;
-    for (u32 i = 0; i < lines.count; ++i)
-        details += (i ? 4.f : 0.f) + (i ? 16.f : 18.f);
-    if (lines.progress || lines.timer)
-        details += (lines.count ? 4.f : 0.f) + 16;
-    return details;
+// The action a part takes only to show its hint: the popout card's own click,
+// or none in the full profile.
+ProfileAction hint_action(const ProfileScene& s) noexcept {
+    return modal(s) ? ProfileAction::hint : ProfileAction::card;
 }
-float card_height(const UserActivity& a, bool large) noexcept {
-    const auto m = card_metrics(large);
-    return m.pad + 16 + m.gap + maximum(m.image, card_details(card_lines(a))) + m.pad;
+u16 part_index(const ProfileScene& s, const ProfilePart* part) noexcept {
+    return part && part >= s.parts && part < s.parts + s.part_count ? static_cast<u16>(part - s.parts) : kNoPart;
 }
-float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top, float right, u32 index,
-                    const UserActivity& a, u64 now_ms, bool large, ProfileAction action) noexcept {
+// One text line. Popout lines stay on one line and a cut-off line carries its
+// full text as a hint; full profile lines wrap. Returns its height, -1 on failure.
+float card_text(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, Utf8View text, u32 flags,
+                float line, u16 item) noexcept {
+    if (!text.bytes)
+        return 0;
+    const bool wrap = modal(*s);
+    const float height = wrap ? maximum(line, measure(s, text, width, true, flags).height) : line;
+    const bool cut = !wrap && measure(s, text, 4096, false, flags).width > width;
+    auto* part = add(s, owner, {left, top, left + width, top + height}, text,
+                     cut ? hint_action(*s) : ProfileAction::none, flags, ProfileLook::plain, ProfileTone::normal);
+    if (!part)
+        return -1;
+    part->wrap = height > line;
+    part->media = ProfileMediaKind::activity_text;
+    part->source = item;
+    if (cut) {
+        part->hint = text;
+        unfocusable(s, part);
+    }
+    return height;
+}
+UiIcon chip_icon(ProfileActivityGlyph glyph) noexcept {
+    switch (glyph) {
+    case ProfileActivityGlyph::headphones:
+        return UiIcon::headphones;
+    case ProfileActivityGlyph::screen:
+        return UiIcon::monitor;
+    case ProfileActivityGlyph::timer:
+        return UiIcon::timer;
+    case ProfileActivityGlyph::party:
+        return UiIcon::members;
+    case ProfileActivityGlyph::episode:
+        return UiIcon::video;
+    default:
+        return UiIcon::activity;
+    }
+}
+// The width a changing time string needs at its length (digits as 8s).
+float clock_width(ProfileScene* s, Utf8View text, u32 flags) noexcept {
+    char widest[16];
+    const u32 bytes = minimum<u32>(text.bytes, sizeof(widest));
+    for (u32 i = 0; i < bytes; ++i)
+        widest[i] = text.data[i] >= '0' && text.data[i] <= '9' ? '8' : text.data[i];
+    return text_width(s, {widest, bytes}, 4096, flags) + 1;
+}
+void shift(ProfileScene* s, u32 first, float dy) noexcept {
+    for (u32 i = first; dy != 0 && i < s->part_count; ++i) {
+        auto* widget = ui_widget_manager_resolve(&s->widgets, s->parts[i].widget);
+        auto* node = widget ? ui_layout_engine_resolve(&s->widgets.layout, widget->layout) : nullptr;
+        if (node)
+            node->spec.style.margin.top += dy;
+    }
+}
+bool application_icon(const ProfileScene& s, u64 application, bool* known) noexcept {
+    *known = false;
+    for (u32 i = 0; i < s.applications.count; ++i)
+        if (s.applications[i].id == application) {
+            *known = true;
+            return s.applications[i].icon.bytes != 0;
+        }
+    return false;
+}
+// A card's button: full width in the popout, its natural width (at most the
+// column) in the full profile. Returns its width, -1 on failure.
+float card_button(ProfileScene* s, UiWidgetHandle owner, float left, float top, float width, bool full, Utf8View label,
+                  UiIcon glyph, ProfileAction action, u16 item, u64 index, Utf8View hint) noexcept {
+    const bool disabled = action == ProfileAction::activity_join;
+    const float text = text_width(s, label, 400, kSm | text_style_bold);
+    const float content = (glyph != UiIcon::count ? 24.f : 0.f) + text;
+    const float w = full ? width : minimum(width, content + 32);
+    auto* b = add(s, owner, {left, top, left + w, top + 32}, {}, action, 0, ProfileLook::secondary);
+    if (!b)
+        return -1;
+    b->media = ProfileMediaKind::activity_action;
+    b->source = item;
+    b->target = index;
+    b->hint = hint;
+    const ProfileTone tone = disabled ? ProfileTone::muted : ProfileTone::normal;
+    float x = left + maximum(16.f, (w - content) * .5f);
+    if (glyph != UiIcon::count) {
+        if (!icon(s, owner, {x, top + 8, x + 16, top + 24}, glyph, ProfileAction::none, tone))
+            return -1;
+        x += 24;
+    }
+    if (!add(s, owner, {x, top, maximum(x + 1, minimum(x + text + 1, left + w - 16)), top + 32}, label,
+             ProfileAction::none, kSm | text_style_bold, ProfileLook::plain, tone))
+        return -1;
+    return w;
+}
+float activity_card(ProfileScene* s, UiWidgetHandle owner, float left, float top, float right, u32 card, u32 item,
+                    u64 now_ms, ProfileAction action) noexcept {
     auto& l = labels(s);
+    const auto& a = l.activity_set.items[item];
+    auto& c = l.activity_content[card];
+    const bool large = modal(*s);
     const auto m = card_metrics(large);
-    const auto lines = card_lines(a);
-    const float height = card_height(a, large);
-    auto* card = add(s, owner, {left, top, right, top + height}, {}, action, 0, ProfileLook::card);
-    if (!card)
+    if (!profile_activity_content(a, bot(*s), self(*s), &c))
+        return 0;
+    auto* background = add(s, owner, {left, top, right, top + 1}, {}, action, 0, ProfileLook::card);
+    if (!background)
         return -1;
-    auto& heading = l.activity_heading[index];
-    heading.bytes = static_cast<u16>(user_activity_heading(a, {heading.data, sizeof(heading.data)}));
-    if (heading.bytes &&
-        !add(s, owner, {left + m.pad, top + m.pad, right - m.pad, top + m.pad + 16}, heading.view(),
-             ProfileAction::none, kXs | text_style_bold, ProfileLook::plain, ProfileTone::strong))
-        return -1;
-    const float row = top + m.pad + 16 + m.gap;
-    const float details = card_details(lines);
-    const float row_height = maximum(m.image, details);
-    const float art_top = row + (row_height - m.image) * .5f;
-    auto* image = add(s, owner, {left + m.pad, art_top, left + m.pad + m.image, art_top + m.image});
-    if (!image)
-        return -1;
-    image->media = ProfileMediaKind::activity_large;
-    image->source = static_cast<u16>(index);
-    if (user_activity_text(a, UserActivityField::small_image).bytes) {
-        const float x = left + m.pad + m.image + 4, y = art_top + m.image + 4;
-        auto* small = add(s, owner, {x - m.small, y - m.small, x, y});
-        if (!small)
+    background->media = ProfileMediaKind::activity_card;
+    background->source = static_cast<u16>(item);
+    const u16 source = static_cast<u16>(item);
+    float y = top + m.pad;
+    if (c.heading.bytes) {
+        if (!add(s, owner, {left + m.pad, y, right - m.pad, y + 16}, c.heading.view(), ProfileAction::none,
+                 kXs | text_style_bold, ProfileLook::plain, ProfileTone::strong))
             return -1;
-        small->media = ProfileMediaKind::activity_small;
-        small->source = static_cast<u16>(index);
+        y += 16 + 8;
     }
-    const float text_left = left + m.pad + m.image + m.gap, text_right = right - m.pad;
-    float y = row + (row_height - details) * .5f;
-    for (u32 i = 0; i < lines.count; ++i) {
-        auto& text = l.activity_text[index][i];
-        copy_label(&text, lines.text[i]);
-        const float h = i ? 16.f : 18.f;
-        auto* line = add(s, owner, {text_left, y, text_right, y + h}, text.view(), ProfileAction::none,
-                         i ? kXs : kSm | text_style_bold, ProfileLook::plain,
-                         i ? ProfileTone::normal : ProfileTone::strong);
-        if (!line)
+    // Artwork, top-aligned in the body row.
+    const float row = y;
+    float text_left = left + m.pad;
+    if (c.artwork) {
+        bool known = false;
+        const bool icon_ready = application_icon(*s, a.application_id, &known);
+        const auto art = user_activity_artwork(a, icon_ready);
+        if (a.application_id && !known && art.large != UserActivityArt::large &&
+            s->missing_icon_count < kUserActivityMaximum)
+            s->missing_icons[s->missing_icon_count++] = a.application_id;
+        const Utf8View large_hint = art.large == UserActivityArt::large ? user_activity_text(a, UserActivityField::large_text)
+                                    : art.large == UserActivityArt::small_image
+                                        ? user_activity_text(a, UserActivityField::small_text)
+                                        : Utf8View{};
+        auto* image = add(s, owner, {left + m.pad, row, left + m.pad + m.image, row + m.image}, {},
+                          large_hint.bytes ? hint_action(*s) : ProfileAction::none);
+        if (!image)
             return -1;
-        line->media = ProfileMediaKind::activity_text;
-        y += h + 4;
+        image->media = ProfileMediaKind::activity_large;
+        image->source = source;
+        image->target = static_cast<u64>(art.large);
+        image->hint = large_hint;
+        unfocusable(s, image);
+        if (art.badge) {
+            const float x = left + m.pad + m.image + 4, sy = row + m.image + 4;
+            const auto small_hint = user_activity_text(a, UserActivityField::small_text);
+            auto* corner = add(s, owner, {x - m.small, sy - m.small, x, sy}, {},
+                               small_hint.bytes ? hint_action(*s) : ProfileAction::none);
+            if (!corner)
+                return -1;
+            corner->media = ProfileMediaKind::activity_small;
+            corner->source = source;
+            corner->hint = small_hint;
+            unfocusable(s, corner);
+        }
+        text_left += m.image + m.gap;
     }
-    if (lines.timer) {
-        s->activity_timed = true;
-        auto& time = l.activity_time[index][0];
-        const bool countdown = a.end_ms && !a.start_ms;
-        clock_text(&time, countdown ? (a.end_ms > now_ms ? a.end_ms - now_ms : 0)
-                                    : (now_ms > a.start_ms ? now_ms - a.start_ms : 0));
-        const UiIcon glyph = a.type == UserActivityType::listening ? UiIcon::headphones
-                             : a.type == UserActivityType::watching ? UiIcon::monitor
-                                                                    : UiIcon::activity;
-        if (!icon(s, owner, {text_left, y + 2, text_left + 12, y + 14}, glyph, ProfileAction::none,
-                  ProfileTone::positive))
+    const float text_right = right - m.pad, column = maximum(1.f, text_right - text_left);
+    // The details column, laid out from the row's top, then centred on the artwork.
+    const u32 column_first = s->part_count;
+    float cy = row;
+    if (c.title.bytes) {
+        const float h = card_text(s, owner, text_left, cy, column, c.title.view(), kSm | text_style_bold, kCardTitle,
+                                  source);
+        if (h < 0)
             return -1;
-        auto* line = add(s, owner, {text_left + 16, y, text_right, y + 16}, time.view(), ProfileAction::none, kXs,
-                         ProfileLook::plain, ProfileTone::positive);
-        if (!line)
+        cy += h;
+    }
+    for (u32 i = 0; i < c.line_count; ++i) {
+        const float h = card_text(s, owner, text_left, cy, column, c.lines[i].view(), kXs, kCardLine, source);
+        if (h < 0)
             return -1;
-        line->media = ProfileMediaKind::activity_text;
-    } else if (lines.progress) {
-        s->activity_timed = true;
-        auto& elapsed = l.activity_time[index][1];
-        auto& total = l.activity_time[index][2];
-        const u64 end = minimum(maximum(now_ms, a.start_ms), a.end_ms);
-        clock_text(&elapsed, end - a.start_ms);
-        clock_text(&total, a.end_ms - a.start_ms);
-        const float label = text_width(s, total.view(), 64, kXs | text_style_monospace) + 2;
-        auto* left_label = add(s, owner, {text_left, y, text_left + label, y + 16}, elapsed.view(),
-                               ProfileAction::none, kXs | text_style_monospace);
-        auto* right_label = add(s, owner, {text_right - label, y, text_right, y + 16}, total.view(),
-                                ProfileAction::none, kXs | text_style_monospace);
-        auto* bar = add(s, owner, {text_left + label + 8, y + 7, text_right - label - 8, y + 9});
+        cy += h;
+    }
+    ActivityTimer timer{kNoPart, kNoPart, kNoPart, kNoPart, kNoPart, static_cast<u8>(item), static_cast<u8>(card)};
+    const auto clock = c.chips ? profile_activity_clock(a, now_ms) : ProfileActivityClock{};
+    if (c.chips && (c.party.bytes || c.episode.bytes || clock.timer != ProfileActivityTimer::none)) {
+        if (cy > row)
+            cy += 4;
+        float x = 0, line_top = cy;
+        const auto chip = [&](ProfileActivityGlyph glyph, Utf8View text, bool timed) noexcept {
+            const float label = timed ? clock_width(s, text, kXs) : text_width(s, text, 4096, kXs);
+            const float w = minimum(column, 16 + label);
+            if (x > 0 && x + w > column) {
+                x = 0;
+                line_top += kCardLine;
+            }
+            const float cx = text_left + x;
+            const auto tone = timed ? ProfileTone::positive : ProfileTone::normal;
+            auto* glyph_part = icon(s, owner, {cx, line_top + 2, cx + 12, line_top + 14}, chip_icon(glyph),
+                                    ProfileAction::none, timed ? ProfileTone::positive : ProfileTone::subtle);
+            auto* label_part = glyph_part ? add(s, owner, {cx + 16, line_top, cx + w, line_top + kCardLine}, text,
+                                                ProfileAction::none, kXs, ProfileLook::plain, tone)
+                                          : nullptr;
+            if (!label_part)
+                return false;
+            label_part->media = ProfileMediaKind::activity_text;
+            label_part->source = source;
+            if (timed) {
+                timer.clock = part_index(*s, label_part);
+                timer.glyph = part_index(*s, glyph_part);
+            }
+            x += w + 8;
+            return true;
+        };
+        auto& clock_text = l.activity_time[card][0];
+        clock_text.bytes = static_cast<u16>(
+            profile_activity_clock_text(clock.seconds, {clock_text.data, sizeof(clock_text.data)}));
+        const auto clock_glyph =
+            clock.timer == ProfileActivityTimer::countdown ? ProfileActivityGlyph::timer : c.clock_glyph;
+        const bool timed = clock.timer != ProfileActivityTimer::none;
+        if ((c.party.bytes && !chip(ProfileActivityGlyph::party, c.party.view(), false)) ||
+            (timed && !chip(clock_glyph, clock_text.view(), true)) ||
+            (c.episode.bytes && !chip(ProfileActivityGlyph::episode, c.episode.view(), false)))
+            return -1;
+        cy = line_top + kCardLine;
+    }
+    ProfileActivityProgress progress{};
+    if (profile_activity_progress(a, now_ms, &progress)) {
+        if (cy > row)
+            cy += 4;
+        auto& elapsed = l.activity_time[card][1];
+        auto& total = l.activity_time[card][2];
+        elapsed.bytes = static_cast<u16>(
+            profile_activity_track_text(progress.elapsed, {elapsed.data, sizeof(elapsed.data)}));
+        total.bytes = static_cast<u16>(profile_activity_track_text(progress.duration, {total.data, sizeof(total.data)}));
+        // Digits as 8s size the ends; monospace would draw an inline-code box.
+        const u32 flags = kXs;
+        const float label = maximum(clock_width(s, elapsed.view(), flags), clock_width(s, total.view(), flags));
+        auto* left_label = add(s, owner, {text_left, cy, text_left + label, cy + kCardLine}, elapsed.view(),
+                               ProfileAction::none, flags);
+        auto* right_label = add(s, owner, {text_right - label, cy, text_right, cy + kCardLine}, total.view(),
+                                ProfileAction::none, flags);
+        auto* bar = add(s, owner, {text_left + label + 8, cy + 7, maximum(text_left + label + 9, text_right - label - 8), cy + 9});
         if (!left_label || !right_label || !bar)
             return -1;
         left_label->media = ProfileMediaKind::activity_text;
         right_label->media = ProfileMediaKind::activity_clock;
         bar->media = ProfileMediaKind::activity_progress;
-        bar->source = static_cast<u16>(index);
-        bar->color = {user_activity_progress(a, now_ms), 0, 0, 1};
+        left_label->source = right_label->source = bar->source = source;
+        bar->color = {progress.fraction, 0, 0, 1};
+        timer.elapsed = part_index(*s, left_label);
+        timer.total = part_index(*s, right_label);
+        timer.bar = part_index(*s, bar);
+        cy += kCardLine;
     }
-    return height;
+    // Buttons: the activity's own, Watch for a stream, or the disabled Ask to Join.
+    Utf8View button_labels[2]{};
+    u32 buttons = 0;
+    ProfileAction button_action = ProfileAction::activity_button;
+    UiIcon button_icon = UiIcon::count;
+    if (interactive(*s) && c.action == ProfileActivityAction::custom) {
+        for (u32 i = 0; i < a.button_count && i < 2; ++i)
+            button_labels[buttons++] = user_activity_text(a, i ? UserActivityField::button_1 : UserActivityField::button_0);
+    } else if (interactive(*s) && c.action == ProfileActivityAction::watch) {
+        button_labels[buttons++] = utf8_literal("Watch");
+        button_action = ProfileAction::activity_watch;
+    } else if (interactive(*s) && c.action == ProfileActivityAction::join) {
+        button_labels[buttons++] = utf8_literal("Ask to Join");
+        button_action = ProfileAction::activity_join;
+        button_icon = UiIcon::activity;
+    }
+    const Utf8View button_hint = button_action == ProfileAction::activity_join ? c.hint.view() : Utf8View{};
+    if (large && buttons) {
+        cy += cy > row ? 8.f : 0.f;
+        float x = 0;
+        for (u32 i = 0; i < buttons; ++i) {
+            const float natural = minimum(column, text_width(s, button_labels[i], 400, kSm | text_style_bold) + 32 +
+                                                      (button_icon != UiIcon::count ? 24.f : 0.f));
+            if (x > 0 && x + natural > column) {
+                x = 0;
+                cy += 32 + 8;
+            }
+            const float w = card_button(s, owner, text_left + x, cy, column - x, false, button_labels[i], button_icon,
+                                        button_action, source, i, button_hint);
+            if (w < 0)
+                return -1;
+            x += w + 8;
+        }
+        cy += 32;
+    }
+    const float details = cy - row;
+    const float body = c.artwork ? maximum(m.image, details) : details;
+    shift(s, column_first, (body - details) * .5f);
+    float bottom = row + body;
+    if (!large && buttons) {
+        bottom += 12;
+        for (u32 i = 0; i < buttons; ++i) {
+            if (card_button(s, owner, left + m.pad, bottom, right - left - 2 * m.pad, true, button_labels[i],
+                            button_icon, button_action, source, i, button_hint) < 0)
+                return -1;
+            bottom += 32 + (i + 1 < buttons ? 8.f : 0.f);
+        }
+    }
+    bottom += m.pad;
+    if (!place(s, background->widget, {left, top, right, bottom}))
+        return -1;
+    if ((timer.clock != kNoPart || timer.bar != kNoPart) && l.timer_count < kUserActivityMaximum)
+        l.timers[l.timer_count++] = timer;
+    return bottom - top;
+}
+// The profile user's cards in the official order; the set is copied into the
+// scene first. Offline users show none.
+u32 activity_cards(ProfileScene* s, u8* order) noexcept {
+    auto& l = labels(s);
+    s->activity_set = nullptr;
+    if (!s->users || !s->profile || s->presence == UiPresence::offline ||
+        !user_activity_find(s->users->activities, s->profile->user_id, &l.activity_set) || !l.activity_set.count)
+        return 0;
+    s->activity_set = &l.activity_set;
+    return profile_activity_order(l.activity_set, {order, kUserActivityMaximum});
 }
 
 // The custom status thought bubble. Returns its height (0 when there is no
 // custom status). max_width bounds the whole bubble.
-float status_bubble(ProfileScene* s, UiWidgetHandle owner, float left, float top, float max_width,
-                    Utf8View card_line) noexcept {
+float status_bubble(ProfileScene* s, UiWidgetHandle owner, float left, float top, float max_width) noexcept {
     const auto* status = appearance(*s, appearance_activity);
     if (!status || (!status->activity.bytes && !status->status_emoji.bytes && !status->status_emoji_id))
         return 0;
-    // A "Playing X" line the activity card already shows is not repeated.
+    // Only custom status shows here: a "Playing X" line stands in for it in
+    // the member list when there is none, and the cards already say that.
     const bool emoji = status->status_emoji_id || status->status_emoji.bytes;
-    if (card_line.bytes && !emoji && utf8_equal(status->activity.view(), card_line))
-        return 0;
+    for (u32 i = 0; !emoji && s->activity_set && i < s->activity_set->count; ++i) {
+        char line[160];
+        const u32 bytes = user_activity_summary(s->activity_set->items[i], {line, sizeof(line)});
+        if (bytes && utf8_equal(status->activity.view(), {line, bytes}))
+            return 0;
+    }
     const Utf8View text = status->activity.view();
     const float content_limit = minimum(155.f, max_width - 26);
     if (content_limit < 32)
@@ -568,14 +766,15 @@ float roles(ProfileScene* s, UiWidgetHandle owner, float left, float top, float 
     if (!s->state || !p.guild_id)
         return 0;
     const auto policy = role_edit_policy(*s->state, p.guild_id);
-    // The profile lists the member's roles in wire order; pills follow the role hierarchy.
+    // The profile lists the member's roles in wire order; pills follow the role hierarchy,
+    // linked roles last.
     const RoleRecord* ranked[128];
     u32 ranked_count = 0;
     for (u32 i = 0; i < p.role_count && i < 128; ++i)
         if (const auto* role = chat_state_store_find_role(*s->state, p.guild_id, p.roles[i]))
             ranked[ranked_count++] = role;
     heap_sort(ranked, ranked_count,
-              [](const RoleRecord* left, const RoleRecord* right) noexcept { return role_before(*left, *right); });
+              [](const RoleRecord* left, const RoleRecord* right) noexcept { return role_pill_before(*left, *right); });
     RoleItem items[128];
     u32 count = 0;
     for (u32 i = 0; i < ranked_count; ++i) {
@@ -1089,13 +1288,11 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
     s->panel = panel->widget;
     // Header (relative to the card).
     header_geometry(s, {pad, pad, W - pad, pad + kPopoutBanner}, 16, 61, 80);
-    char card_line[160];
-    UserActivitySet found;
-    const auto* set = activities(*s, &found);
-    const u32 card_line_bytes = set ? user_activity_summary(set->items[0], {card_line, sizeof(card_line)}) : 0;
+    u8 order[kUserActivityMaximum];
+    const u32 cards = activity_cards(s, order);
     const float bubble_max = W - pad - 12 - (pad + kPopoutBanner);
-    const float bubble = status_bubble(s, s->panel, pad + kPopoutBanner, pad + kPopoutBanner - 7, minimum(181.f, bubble_max),
-                                       {card_line, card_line_bytes});
+    const float bubble =
+        status_bubble(s, s->panel, pad + kPopoutBanner, pad + kPopoutBanner - 7, minimum(181.f, bubble_max));
     if (bubble < 0)
         return false;
     const float header_bottom = maximum(140.f, bubble ? pad + kPopoutBanner - 10 + bubble : 0.f);
@@ -1123,19 +1320,18 @@ bool layout_popout(ProfileScene* s, UiRect viewport) noexcept {
     if (!section(notices(s, s->body, x0, y, content, false)) || !section(mutuals(s, s->body, x0, y, content)) ||
         !section(biography(s, s->body, x0, y, content, true)))
         return false;
-    // Only the first activity card; more peek 8 DIPs below it.
-    if (set) {
-        const bool peek = set->count > 1;
-        const float h = activity_card(s, s->body, x0, y, x0 + content, 0, set->items[0],
-                                      s->activity_clock_s * 1000 + clock_unix_milliseconds() % 1000, false,
-                                      ProfileAction::card);
+    // Only the first card; more peek 8 DIPs below it ("View More").
+    if (cards) {
+        const bool peek = cards > 1;
+        const float h = activity_card(s, s->body, x0, y, x0 + content, 0, order[0], activity_now(*s), ProfileAction::card);
         if (h < 0)
             return false;
-        if (peek && !add(s, s->body, {x0 + 8, y + h - 8, x0 + content - 8, y + h + 8}, {}, ProfileAction::activity, 0,
-                         ProfileLook::peek))
+        if (peek && h > 0 &&
+            !add(s, s->body, {x0 + 8, y + h - 8, x0 + content - 8, y + h + 8}, {}, ProfileAction::activity, 0,
+                 ProfileLook::peek))
             return false;
         // The peek paints only below the first card, so its order is free.
-        if (!section(h + (peek ? 8.f : 0.f)))
+        if (!section(h + (peek && h > 0 ? 8.f : 0.f)))
             return false;
     }
     if (!section(roles(s, s->body, x0, y, content, true)) || !section(plugin_section(s, s->body, x0, y, content)))
@@ -1419,7 +1615,7 @@ float modal_buttons(ProfileScene* s, UiWidgetHandle owner, float left, float top
     return 32;
 }
 // The tab panel.
-bool tab_panel(ProfileScene* s, UiRect panel, float bottom_pad) noexcept {
+bool tab_panel(ProfileScene* s, UiRect panel, float bottom_pad, const u8* order, u32 cards) noexcept {
     const auto& p = *s->profile;
     auto& l = labels(s);
     const bool mutuals = !self(*s) && !bot(*s);
@@ -1470,20 +1666,19 @@ bool tab_panel(ProfileScene* s, UiRect panel, float bottom_pad) noexcept {
         return false;
     const float width = ui_rect_width(list) - 16;
     if (!s->tab) {
-        UserActivitySet found;
-        const auto* set = activities(*s, &found);
         float y = 0;
-        if (set) {
-            const u64 now = clock_unix_milliseconds();
-            for (u32 i = 0; i < set->count && i < kUserActivityMaximum; ++i) {
-                const float used = activity_card(s, container->widget, 0, y, width, i, set->items[i], now, true,
-                                                 ProfileAction::none);
-                if (used < 0)
-                    return false;
-                y += used + 12;
-            }
-            y -= 12;
-        } else {
+        // Cards 8 apart.
+        for (u32 i = 0; i < cards; ++i) {
+            const float used = activity_card(s, container->widget, 0, y, width, i, order[i], activity_now(*s),
+                                             ProfileAction::none);
+            if (used < 0)
+                return false;
+            if (used > 0)
+                y += used + 8;
+        }
+        if (y > 0)
+            y -= 8;
+        else {
             if (!add(s, container->widget, {0, 0, width, 18}, utf8_literal("No current activity"), ProfileAction::none,
                      kSm, ProfileLook::plain, ProfileTone::muted))
                 return false;
@@ -1564,7 +1759,9 @@ bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
     if (!header_parts(s, s->panel, {0, 0, 0, 0}, ProfileAction::none))
         return false;
     const float bubble_left = card.left + cp + size + 20, bubble_top = card.top + kModalBanner - 8;
-    const float bubble = status_bubble(s, s->panel, bubble_left, bubble_top, card.right - 16 - bubble_left, {});
+    u8 order[kUserActivityMaximum];
+    const u32 cards = activity_cards(s, order);
+    const float bubble = status_bubble(s, s->panel, bubble_left, bubble_top, card.right - 16 - bubble_left);
     if (bubble < 0)
         return false;
     const float header_bottom = maximum(s->avatar.bottom + 12, bubble ? bubble_top + bubble + 8 : 0.f);
@@ -1622,7 +1819,7 @@ bool layout_modal(ProfileScene* s, UiRect viewport) noexcept {
     s->secondary_viewport = {};
     s->secondary_height = 0;
     const UiRect panel_rect{card.right + 32, pad, mw - (pad - 16), mh};
-    if (ui_rect_width(panel_rect) > 120 && !tab_panel(s, panel_rect, wide ? 16.f : 32.f))
+    if (ui_rect_width(panel_rect) > 120 && !tab_panel(s, panel_rect, wide ? 16.f : 32.f, order, cards))
         return false;
     // Close (X): top 8, right 8.
     if (interactive(*s) && !icon(s, s->panel, {mw - 40, 8, mw - 8, 40}, UiIcon::close, ProfileAction::close,
@@ -1707,7 +1904,10 @@ bool profile_scene_layout(ProfileScene* s, UiRect viewport, bool force) noexcept
     s->secondary_viewport = {};
     s->secondary_height = 0;
     s->activity_timed = false;
-    s->activity_clock_s = clock_unix_milliseconds() / 1000;
+    s->activity_set = nullptr;
+    s->missing_icon_count = 0;
+    labels(s).timer_count = 0;
+    s->activity_clock_s = activity_now(*s) / 1000;
     s->intro_offset = profile_scene_intro_offset(*s, clock_monotonic_milliseconds());
     resolve_theme(s);
     s->can_manage_roles = false;
@@ -1731,7 +1931,91 @@ bool profile_scene_layout(ProfileScene* s, UiRect viewport, bool force) noexcept
     if (!root.ok())
         return false;
     s->root = root.handle;
-    return modal(*s) ? layout_modal(s, viewport) : layout_popout(s, viewport);
+    if (!(modal(*s) ? layout_modal(s, viewport) : layout_popout(s, viewport)))
+        return false;
+    // Timers tick only while one shows (the Activity tab, not scrolled away).
+    const auto& l = labels(s);
+    for (u32 i = 0; i < l.timer_count && !s->activity_timed; ++i) {
+        const auto& t = l.timers[i];
+        const u16 shown[] = {t.clock, t.bar};
+        for (const u16 part : shown) {
+            const auto* node = part < s->part_count ? ui_widget_manager_layout_node(s->widgets, s->parts[part].widget)
+                                                    : nullptr;
+            if (node && ui_rect_has_area(ui_rect_intersection(
+                            node->rectangle, ui_rect_intersection(node->clip_rectangle, s->rectangle))))
+                s->activity_timed = true;
+        }
+    }
+    return true;
+}
+bool profile_scene_tick(ProfileScene* s, u64 now) noexcept {
+    if (!s || !s->active || !s->activity_set || !s->activity_timed || now / 1000 == s->activity_clock_s)
+        return false;
+    s->activity_clock_s = now / 1000;
+    auto& l = labels(s);
+    bool relayout = false, changed = false;
+    // Same-length text is rewritten in place (time digits keep their width);
+    // a new length or a timer that ends lays the card out again.
+    const auto rewrite = [&](u16 part, ProfileString<16>* stored, Utf8View text) noexcept {
+        if (part >= s->part_count || text.bytes != stored->bytes) {
+            relayout = true;
+            return;
+        }
+        if (!bytes_equal(stored->data, text.data, text.bytes)) {
+            copy_bytes(stored->data, text.data, text.bytes);
+            changed = true;
+        }
+    };
+    for (u32 i = 0; i < l.timer_count && !relayout; ++i) {
+        const auto& t = l.timers[i];
+        const auto& a = l.activity_set.items[t.item];
+        char text[16];
+        if (t.clock != kNoPart) {
+            const auto clock = profile_activity_clock(a, now);
+            if (clock.timer == ProfileActivityTimer::none || t.glyph >= s->part_count) {
+                relayout = true;
+                break;
+            }
+            const auto glyph = chip_icon(clock.timer == ProfileActivityTimer::countdown
+                                             ? ProfileActivityGlyph::timer
+                                             : l.activity_content[t.card].clock_glyph);
+            if (s->parts[t.glyph].icon != static_cast<u16>(glyph)) {
+                s->parts[t.glyph].icon = static_cast<u16>(glyph);
+                changed = true;
+            }
+            rewrite(t.clock, &l.activity_time[t.card][0],
+                    {text, profile_activity_clock_text(clock.seconds, {text, sizeof(text)})});
+        }
+        ProfileActivityProgress progress{};
+        if (t.bar != kNoPart && t.bar < s->part_count && profile_activity_progress(a, now, &progress)) {
+            rewrite(t.elapsed, &l.activity_time[t.card][1],
+                    {text, profile_activity_track_text(progress.elapsed, {text, sizeof(text)})});
+            auto& bar = s->parts[t.bar].color.red;
+            changed |= bar != progress.fraction;
+            bar = progress.fraction;
+        }
+    }
+    if (relayout) {
+        l.tick_ms = now;
+        const bool ok = profile_scene_layout(s, s->viewport, true);
+        l.tick_ms = 0;
+        return ok;
+    }
+    if (changed)
+        ++s->revision;
+    return changed;
+}
+Utf8View profile_scene_hint(const ProfileScene& s, UiWidgetHandle widget, UiRect* anchor) noexcept {
+    const auto* part = s.active ? profile_scene_part(s, widget) : nullptr;
+    const auto* node = part && part->hint.bytes ? ui_widget_manager_layout_node(s.widgets, part->widget) : nullptr;
+    if (!node)
+        return {};
+    const auto visible = ui_rect_intersection(node->rectangle, ui_rect_intersection(node->clip_rectangle, s.rectangle));
+    if (!ui_rect_has_area(visible))
+        return {};
+    if (anchor)
+        *anchor = visible;
+    return part->hint;
 }
 namespace {
 bool read_profile_scroll(void* context, u64 key, UiScrollRange* range) noexcept {
@@ -1823,6 +2107,37 @@ ProfileAction profile_scene_action(const ProfileScene& s, UiWidgetHandle widget)
 namespace {
 bool hovered(const ProfileScene& s, const ProfilePart& p) noexcept {
     return p.action != ProfileAction::none && ui_widget_handle_equal(s.widgets.hovered, p.widget);
+}
+// A popout activity card lights up under any of its parts (they share its click).
+bool card_hot(const ProfileScene& s, const ProfilePart& card) noexcept {
+    if (hovered(s, card))
+        return true;
+    const auto* part = card.action == ProfileAction::card ? profile_scene_part(s, s.widgets.hovered) : nullptr;
+    return part && part->source == card.source &&
+           (part->media == ProfileMediaKind::activity_large || part->media == ProfileMediaKind::activity_small ||
+            part->media == ProfileMediaKind::activity_text || part->media == ProfileMediaKind::activity_action);
+}
+// The opaque colour under an activity card at y: its fill over the popout's
+// surface (a Nitro theme's gradient) or the full profile's background.
+Color card_backdrop(const ProfileScene& s, const Palette& c, float y, bool hot) noexcept {
+    const auto r = s.rectangle;
+    Color base = c.surface;
+    if (modal(s)) {
+        base = c.modal;
+        if (s.themed) {
+            const float low = .2f * c.overlay.alpha, high = .8f * c.overlay.alpha;
+            Color veil = c.overlay;
+            veil.alpha = low;
+            base = over(veil, base);
+            veil.alpha = (high - low) / (1 - low) * (1 - maximum(0.f, minimum(1.f, (y - r.top) / 300)));
+            base = over(veil, base);
+        }
+    } else if (s.themed) {
+        const float split = r.top + 2 + kPopoutBanner;
+        const float t = y <= split || r.bottom <= split ? 0.f : minimum(1.f, (y - split) / (r.bottom - split));
+        base = over(c.overlay, mix(c.primary, c.secondary, t));
+    }
+    return over(hot ? c.card_hover : c.card, base);
 }
 // The rounded-top banner fill (its bottom corners square).
 bool banner_fill(PaintStream* paint, UiRect r, float radius, Color color) noexcept {
@@ -1930,6 +2245,11 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
                                          s.avatar.bottom + ring, c.surface, half);
     ok = paint_stream_pop_clip(paint) && ok;
     const float card_radius = large ? theme.scale.radius_lg : theme.scale.radius_md;
+    // Activity cards round so their artwork and buttons stay concentric:
+    // inner radius = card radius - padding.
+    const float activity_radius = large ? theme.scale.radius_xl : theme.scale.radius_lg;
+    const float inner_radius = maximum(0.f, activity_radius - card_metrics(large).pad);
+    s.activity_art_radius = inner_radius;
     for (u32 i = 0; ok && i < s.part_count; ++i) {
         const auto& p = s.parts[i];
         if (p.look == ProfileLook::plain && !p.badge.owner.generation && p.media != ProfileMediaKind::activity_large &&
@@ -1956,16 +2276,19 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
             return false;
         const bool hot = hovered(s, p);
         switch (p.look) {
-        case ProfileLook::card:
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, hot ? c.card_hover : c.card,
-                                           card_radius);
+        case ProfileLook::card: {
+            const bool activity = p.media == ProfileMediaKind::activity_card;
+            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom,
+                                           (activity ? card_hot(s, p) : hot) ? c.card_hover : c.card,
+                                           activity ? activity_radius : card_radius);
             break;
+        }
         case ProfileLook::peek: {
             // Only the strip below the first card shows.
             const float cut = r.top + 8;
             ok = paint_stream_push_clip(paint, r.left, cut, r.right, r.bottom) &&
                  paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, hot ? c.card_hover : c.card,
-                                           card_radius) &&
+                                           activity_radius) &&
                  paint_stream_pop_clip(paint);
             break;
         }
@@ -2008,10 +2331,14 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
             ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, hot ? c.accent_hover : c.accent,
                                            theme.scale.radius_md);
             break;
-        case ProfileLook::secondary:
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, hot ? c.button_hover : c.button,
-                                           theme.scale.radius_md);
+        case ProfileLook::secondary: {
+            // Ask to Join stays disabled: no hover.
+            const bool lit = hot && p.action != ProfileAction::activity_join;
+            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, lit ? c.button_hover : c.button,
+                                           p.media == ProfileMediaKind::activity_action ? inner_radius
+                                                                                        : theme.scale.radius_md);
             break;
+        }
         case ProfileLook::bubble:
             ok = bubble_paint(paint, r, c, theme.scale.radius_xl);
             break;
@@ -2024,7 +2351,7 @@ bool profile_scene_paint(const ProfileScene& s, const Theme& theme, PaintStream*
         }
         if (ok && p.media == ProfileMediaKind::activity_large)
             // Artwork placeholder; the image draws over it once decoded.
-            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.card, theme.scale.radius_md) &&
+            ok = paint_stream_push_rounded(paint, r.left, r.top, r.right, r.bottom, c.card, inner_radius) &&
                  ui_icon_paint(paint, UiIcon::activity,
                                ui_rect_inset(r, {ui_rect_width(r) * .3f, ui_rect_height(r) * .3f,
                                                  ui_rect_width(r) * .3f, ui_rect_height(r) * .3f}),
@@ -2091,6 +2418,30 @@ bool profile_scene_foreground(const ProfileScene& s, const Theme& theme, PaintSt
             ok = paint_stream_push_rounded(paint, s.status.left - ring, s.status.top - ring, s.status.right + ring,
                                            s.status.bottom + ring, c.surface, extent * .5f + ring);
         ok = ok && ui_presence_paint(paint, s.status, s.presence, c.surface, theme, s.presence_mobile);
+    }
+    // The small activity image's cut-out: a ring of the card's colour over the
+    // artwork beneath it.
+    const float ring = card_metrics(modal(s)).ring;
+    for (u32 i = 0; ok && i < s.part_count; ++i) {
+        const auto& p = s.parts[i];
+        const auto* n = p.media == ProfileMediaKind::activity_small ? ui_widget_manager_layout_node(s.widgets, p.widget)
+                                                                    : nullptr;
+        if (!n)
+            continue;
+        const auto clip = ui_rect_intersection(n->clip_rectangle, s.rectangle);
+        const auto r = n->rectangle;
+        if (!ui_rect_has_area(ui_rect_intersection(ui_rect_inset(r, {-ring, -ring, -ring, -ring}), clip)))
+            continue;
+        bool hot = false;
+        for (u32 k = 0; k < s.part_count && !hot; ++k)
+            hot = s.parts[k].media == ProfileMediaKind::activity_card && s.parts[k].source == p.source &&
+                  card_hot(s, s.parts[k]);
+        const float half = ui_rect_width(r) * .5f;
+        ok = paint_stream_push_clip(paint, clip.left, clip.top, clip.right, clip.bottom) &&
+             paint_stream_push_rounded_border(paint, r.left - ring, r.top - ring, r.right + ring, r.bottom + ring,
+                                              Color{}, card_backdrop(s, c, (r.top + r.bottom) * .5f, hot),
+                                              half + ring, ring) &&
+             paint_stream_pop_clip(paint);
     }
     if (ok && s.edit.active)
         ok = ui_edit_field_paint(paint, s.edit_rectangle, s.edit_content, s.edit, edit, Color{},
@@ -2167,7 +2518,9 @@ bool profile_scene_text_output(const ProfileScene& s, const Theme& theme, UiText
             continue;
         const bool name = ui_widget_handle_equal(p.widget, s.name_widget);
         const auto* style = name ? appearance(s, appearance_name) : nullptr;
-        const bool underline = p.look == ProfileLook::plain && hovered(s, p);
+        // Activity lines share the card's click and only carry hints.
+        const bool underline = p.look == ProfileLook::plain && hovered(s, p) && p.action != ProfileAction::card &&
+                               p.action != ProfileAction::hint;
         const bool bio = ui_widget_handle_equal(p.widget, s.bio_widget);
         if (!ui_text_output_push(
                 text, {p.text,

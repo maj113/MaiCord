@@ -34,6 +34,8 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/attachment_refresh.hpp"
+#include "maicord/model/user_activity.hpp"
+#include "maicord/core/decimal.hpp"
 #include "application_command_request.hpp"
 #include "account_login_handoff.hpp"
 #include "account_login_captcha.hpp"
@@ -1129,6 +1131,33 @@ RestClientSubmitResult WINAPI module_profile_get(void* instance, u64 user, u64 g
             {0x50524546, 0, RestMethod::get, RestMajorParameter::none},
             request_id,
             false);
+    }
+    if (operation == 5 || operation == 6) {
+        // 5: the public applications whose icons stand in for missing activity
+        // art (value: comma-separated IDs). 6: an activity's metadata (value:
+        // its session; guild: its application, 0 for none).
+        u8 target[256];
+        u32 bytes = 0;
+        if (operation == 5) {
+            u64 ids[kUserActivityMaximum];
+            u32 count = 0, begin = 0;
+            for (u32 i = 0; i <= value.bytes; ++i) {
+                if (i < value.bytes && value.data[i] != ',')
+                    continue;
+                if (count == kUserActivityMaximum || !snowflake_parse({value.data + begin, i - begin}, &ids[count]))
+                    return invalid;
+                ++count;
+                begin = i + 1;
+            }
+            bytes = user_activity_applications_target({ids, count}, {target, sizeof(target)});
+        } else
+            bytes = user_activity_metadata_target(user, value, guild, {target, sizeof(target)});
+        if (!bytes)
+            return invalid;
+        return rest_client_submit(rest, {target, bytes}, {},
+                                  {operation == 5 ? 0x41505053u : 0x414d4554u, 0, RestMethod::get,
+                                   RestMajorParameter::none},
+                                  request_id, false);
     }
     if (operation) {
         if (operation > 3 || !utf8_validate(value).valid || value.bytes > (operation == 1 ? 1024u : 128u))

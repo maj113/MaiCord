@@ -1647,6 +1647,21 @@ static AccountMediaRequestResult request_progressive(AccountMedia* media, const 
     return result(AccountMediaRequestState::queued);
 }
 
+// Spotify album art for activity cards: exactly https://i.scdn.co/image/<id>.
+static MediaUrlResult parse_activity_art_url(Utf8View url, Slice<u8> target_output) noexcept {
+    constexpr char origin[] = "https://i.scdn.co";
+    constexpr u32 origin_bytes = sizeof(origin) - 1;
+    if (!url.data || url.bytes <= origin_bytes || !bytes_equal(url.data, origin, origin_bytes))
+        return {0, CdnHost::none, MediaUrlError::invalid_host};
+    const ConstSlice<u8> target{reinterpret_cast<const u8*>(url.data + origin_bytes), url.bytes - origin_bytes};
+    if (!activity_art_target_valid(target))
+        return {0, CdnHost::none, MediaUrlError::invalid_target};
+    if (target.count > target_output.count)
+        return {0, CdnHost::none, MediaUrlError::output_capacity};
+    copy_bytes(target_output.data, target.data, target.count);
+    return {target.count, CdnHost::activity_art, MediaUrlError::none};
+}
+
 static AccountMediaRequestResult request_url_media(AccountMedia* media,
                                                    const AccountMediaUrlRequest& request,
                                                    u64 monotonic_now_ms, u64 unix_now_seconds) noexcept {
@@ -1730,7 +1745,10 @@ static AccountMediaRequestResult request_url_media(AccountMedia* media,
         const MediaUrlResult parsed =
             catalog_key ? parse_catalog_preview_url(request.url, Slice<u8>{target, sizeof(target)},
                                                     key_format, request.proxy_width, request.proxy_height)
-                        : parse_media_url(request.url, Slice<u8>{target, sizeof(target)});
+            : request.key.kind == MediaAssetKind::profile_image &&
+                    request.image_type == CdnImageType::jpeg && !request.proxy_width
+                ? parse_activity_art_url(request.url, Slice<u8>{target, sizeof(target)})
+                : parse_media_url(request.url, Slice<u8>{target, sizeof(target)});
         if (!parsed.ok()) {
             AccountMediaRequestResult failure =
                 result(AccountMediaRequestState::failed, AccountMediaError::target);

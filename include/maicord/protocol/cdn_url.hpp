@@ -33,7 +33,25 @@ enum class CdnHost : u8 {
     catalog_tenor,
     catalog_giphy,
     catalog_klipy2, // static2.klipy.com, under catalog_klipy's rules.
+    // i.scdn.co: Spotify album art of rich presence cards ("/image/<id>" as
+    // JPEG), which the official client loads from there too.
+    activity_art,
 };
+inline constexpr char kActivityArtHost[] = "i.scdn.co";
+// An activity art target: "/image/" and 1-64 ASCII letters or digits.
+constexpr bool activity_art_target_valid(ConstSlice<u8> target) noexcept {
+    constexpr char prefix[] = "/image/";
+    constexpr u32 prefix_bytes = sizeof(prefix) - 1;
+    if (!target.data || target.count <= prefix_bytes || target.count > prefix_bytes + 64)
+        return false;
+    for (u32 i = 0; i < target.count; ++i) {
+        const u8 c = target[i];
+        if (i < prefix_bytes ? c != static_cast<u8>(prefix[i])
+                             : !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
+            return false;
+    }
+    return true;
+}
 constexpr bool cdn_klipy_host(CdnHost host) noexcept {
     return host == CdnHost::catalog_klipy || host == CdnHost::catalog_klipy2;
 }

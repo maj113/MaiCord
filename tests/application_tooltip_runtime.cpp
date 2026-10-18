@@ -4,8 +4,11 @@
 #include "application_state.hpp"
 #include "application_tooltip.hpp"
 #include "application_video.hpp"
+#include "maicord/core/json_scan.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/model/user_store.hpp"
 #include "maicord/ui/pinned_messages_scene.hpp"
+#include "maicord/ui/profile_scene.hpp"
 #include "test_output.hpp"
 
 namespace maicord::app_detail {
@@ -439,6 +442,47 @@ void run() noexcept {
     g_app.renderer.pinned_messages_scene = nullptr;
     g_app.context_focus = nullptr;
     ui_pinned_messages_scene_release(&pins_scene);
+
+    // Over the profile card only its own hints show: an activity's artwork
+    // offers its hover text.
+    {
+        static UserStore users{};
+        static UserProfile profile{};
+        static ProfileScene card{};
+        constexpr auto presence = utf8_literal(R"({"activities":[{"type":0,"name":"Mossrun","application_id":"5",
+            "assets":{"large_image":"6","large_text":"High Ridge"}}]})");
+        u32 structurals[256];
+        UserActivitySet set{};
+        bool has = false;
+        profile.user_id = 42;
+        const auto scan = json_scan_structurals_avx1(presence, {structurals, 256});
+        const bool opened = scan.ok() &&
+                            user_activities_decode({presence, {structurals, scan.count}},
+                                                   {presence, 0, JsonValueKind::object}, 42, &set, &has) &&
+                            user_activity_upsert(&users.activities, set) &&
+                            profile_scene_open(&card, &profile, nullptr, &users, 1, {300, 100, 340, 140}, viewport);
+        const UiLayoutNode* art = nullptr;
+        for (u32 i = 0; opened && i < card.part_count; ++i)
+            if (card.parts[i].media == ProfileMediaKind::activity_large)
+                art = ui_widget_manager_layout_node(card.widgets, card.parts[i].widget);
+        g_app.renderer.profile_scene = &card;
+        bool shown = false;
+        if (art) {
+            application_tooltip_input(WM_MOUSEMOVE, 0,
+                                      MAKELPARAM(static_cast<short>((art->rectangle.left + art->rectangle.right) * .5f),
+                                                 static_cast<short>((art->rectangle.top + art->rectangle.bottom) * .5f)));
+            const u64 at = application_tooltip_next_wake();
+            shown = at && application_tooltip_synchronize(at) && g_app.renderer.tooltip_scene->visible &&
+                    g_app.renderer.tooltip_scene->key.action == 0x5800u &&
+                    utf8_equal({g_app.renderer.tooltip_scene->text, g_app.renderer.tooltip_scene->text_bytes},
+                               utf8_literal("High Ridge"));
+        }
+        check(shown, "tooltip Profile: activity artwork shows its hover text over the card");
+        application_tooltip_clear();
+        g_app.renderer.profile_scene = nullptr;
+        profile_scene_release(&card);
+        user_activity_release(&users.activities);
+    }
     ui_scene_release(&g_app.shell_scene);
     application_tooltip_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);

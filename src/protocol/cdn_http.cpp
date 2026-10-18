@@ -279,6 +279,7 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
         (image_type == CdnImageType::lottie_json &&
          (host != CdnHost::cdn || !sticker_json_target_valid(target))) ||
         ((host == CdnHost::flag_assets) != (image_type == CdnImageType::regional_flag_svg)) ||
+        (host == CdnHost::activity_art && (image_type != CdnImageType::jpeg || !activity_art_target_valid(target))) ||
         (cdn_catalog_provider(host) && !catalog_provider_request_valid(host, image_type, target)) ||
         (image_type == CdnImageType::regional_flag_svg &&
          !regional_flag_svg_target_sequence({reinterpret_cast<const char*>(target.data), target.count}))) {

@@ -1248,6 +1248,8 @@ Utf8View cdn_host_name(CdnHost host) noexcept {
         return utf8_literal("media.tenor.com");
     case CdnHost::catalog_giphy:
         return utf8_literal("media.giphy.com");
+    case CdnHost::activity_art:
+        return utf8_literal(kActivityArtHost);
     default:
         return Utf8View{};
     }

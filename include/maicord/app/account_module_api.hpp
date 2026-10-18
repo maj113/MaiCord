@@ -319,6 +319,10 @@ using AccountModuleLoginNotificationHandleFunction = HANDLE(WINAPI*)(void* insta
 using AccountModuleLoginStopFunction = AccountLoginStatus(WINAPI*)(void** instance,
                                                                    u32 timeout_ms) noexcept;
 
+// Operations: 0 GET a profile (guild: its server); 1-3 PATCH the bio, pronouns
+// or global name (value); 4 GET collectibles product `user`; 5 GET public
+// applications (value: comma-separated IDs); 6 GET activity metadata (value:
+// the session, guild: its application or 0). Older modules reject 5 and 6.
 using AccountModuleProfileFunction = RestClientSubmitResult(WINAPI*)(void* instance, u64 user,
                                                                      u64 guild, u64 request_id,
                                                                      u8 operation,

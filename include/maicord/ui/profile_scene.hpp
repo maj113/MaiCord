@@ -58,7 +58,16 @@ enum class ProfileAction : u16 {
     // Accept on the incoming friend request card.
     accept_friend,
     // The server tag chip: the host opens the server tag popout (target: guild).
-    guild_tag
+    guild_tag,
+    // Rich presence card buttons (source: the activity's index in
+    // activity_set). A custom button (target: button index) opens its URL from
+    // the activity's metadata; Watch opens the stream; Ask to Join is shown
+    // disabled.
+    activity_button,
+    activity_watch,
+    activity_join,
+    // No action: the part only carries a hint (tooltip).
+    hint
 };
 enum class ProfilePhase : u8 {
     loading,
@@ -98,14 +107,17 @@ enum class ProfileMediaKind : u8 {
     status_emoji,
     // Not media: a plugin profile-section chip; source holds its icon, style its tone.
     plugin_slot,
-    // Rich presence card (source: activity index): asset images and, not
-    // media, the Spotify progress track.
+    // Rich presence card (source: the activity's index in activity_set): its
+    // artwork and, not media, the progress track.
     activity_large,
     activity_small,
     activity_progress,
-    // Not media: secondary card text, and the right-aligned end clock.
+    // Not media: card text, the right-aligned end clock, the card itself and
+    // its buttons.
     activity_text,
     activity_clock,
+    activity_card,
+    activity_action,
     // The current server's icon beside its Member Since date.
     member_guild
 };
@@ -165,9 +177,18 @@ struct ProfilePart {
     // A UiIcon for icon looks and leading button icons; kProfileNoIcon none.
     u16 icon;
     u32 style;
+    // Tooltip text (activity artwork hover text, a cut-off line, a disabled
+    // action's reason).
+    Utf8View hint;
     bool wrap, centered;
 };
 inline constexpr u16 kProfileNoIcon = 0xFFFF;
+// A public application's icon hash (GET /applications/public); an empty hash
+// once the application is known to have none or could not be fetched.
+struct ProfileApplication {
+    u64 id;
+    ProfileString<64> icon;
+};
 struct ProfileTextHit {
     UiWidgetHandle owner;
     UiRect layout, ink;
@@ -238,10 +259,19 @@ struct ProfileScene {
     ProfilePresentation presentation;
     ProfilePendingImage pending_avatar, pending_banner;
     float preview_height;
-    // Activity cards with timestamps re-layout once a second (elapsed time,
-    // Spotify progress); activity_clock_s is the Unix second laid out.
+    // Visible activity timers (elapsed time, progress) advance once a second
+    // through profile_scene_tick; activity_clock_s is the Unix second shown.
     bool activity_timed;
     u64 activity_clock_s;
+    // The activities laid out (a copy of the store's, so the cards and their
+    // media agree), and applications whose icons stand in for missing art.
+    const UserActivitySet* activity_set;
+    ConstSlice<ProfileApplication> applications;
+    // Applications a laid-out card would show the icon of, not in applications.
+    u64 missing_icons[kUserActivityMaximum];
+    u32 missing_icon_count;
+    // Activity artwork corner radius, from the theme the card was last painted with.
+    mutable float activity_art_radius;
     // Note about another user. The host owns the text (borrowed until the next
     // layout); while note_editing the edit view belongs to the note field.
     Utf8View note_text;
@@ -257,6 +287,12 @@ struct ProfileScene {
 bool profile_scene_open(ProfileScene* scene, const UserProfile* profile, const ChatStateStore* state,
                         const UserStore* users, u64 self, UiRect anchor, UiRect viewport) noexcept;
 bool profile_scene_layout(ProfileScene* scene, UiRect viewport, bool force = false) noexcept;
+// Advances visible activity timers to now. Text of an unchanged length is
+// rewritten in place; anything else lays the card out again. True when the
+// card changed (the host repaints its text).
+bool profile_scene_tick(ProfileScene* scene, u64 unix_now_ms) noexcept;
+// The tooltip of a part (empty without one) and its visible rectangle.
+Utf8View profile_scene_hint(const ProfileScene& scene, UiWidgetHandle widget, UiRect* anchor) noexcept;
 UiScrollBinding profile_scene_scroll_binding(ProfileScene*, bool secondary = false) noexcept;
 // Absolute-position adapter; wheel and key input must use the shared scroll host.
 bool profile_scene_scroll(ProfileScene* scene, float delta, bool secondary = false) noexcept;

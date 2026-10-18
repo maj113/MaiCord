@@ -15,9 +15,11 @@
 #include "application_user_actions.hpp"
 #include "application_profile_editor.hpp"
 #include "application_composer.hpp"
+#include "application_link_trust.hpp"
 #include "maicord/ui/plugin_slots.hpp"
 #include "maicord/ui/clipboard.hpp"
 #include "maicord/core/memory.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 
 #include <Windows.h>
@@ -40,6 +42,128 @@ bool repaint(bool text = false) noexcept {
 }
 MessageComposer& edit_model(ApplicationProfile& p) noexcept {
     return p.scene.note_editing ? p.note : p.message;
+}
+// Visible: the window is shown and not minimized (tests run without one).
+bool window_shown() noexcept {
+    return !g_app.window || (IsWindowVisible(g_app.window) && !IsIconic(g_app.window));
+}
+bool application_known(const ApplicationProfile& p, u64 id) noexcept {
+    for (u32 i = 0; i < p.application_count; ++i)
+        if (p.applications[i].id == id)
+            return true;
+    return false;
+}
+// Laid-out cards that would show an application icon not fetched yet.
+bool missing_icons(const ApplicationProfile& p) noexcept {
+    for (u32 i = 0; i < p.scene.missing_icon_count; ++i)
+        if (!application_known(p, p.scene.missing_icons[i]))
+            return true;
+    return false;
+}
+void remember_application(ApplicationProfile& p, u64 id, Utf8View icon) noexcept {
+    if (!id)
+        return;
+    ProfileApplication* slot = nullptr;
+    for (u32 i = 0; i < p.application_count && !slot; ++i)
+        if (p.applications[i].id == id)
+            slot = &p.applications[i];
+    if (!slot) {
+        if (p.application_count < kProfileApplicationCapacity)
+            slot = &p.applications[p.application_count++];
+        else {
+            slot = &p.applications[p.application_next];
+            p.application_next = (p.application_next + 1) % kProfileApplicationCapacity;
+        }
+    }
+    slot->id = id;
+    slot->icon.bytes = static_cast<u16>(icon.bytes <= sizeof(slot->icon.data) ? icon.bytes : 0);
+    copy_bytes(slot->icon.data, icon.data, slot->icon.bytes);
+    p.scene.applications = {p.applications, p.application_count};
+}
+// One GET for the public applications (their icons) or a button's metadata.
+bool submit_activity_request(ApplicationProfile& p, u64 now) noexcept {
+    auto& host = g_app.account;
+    if (!host.api.profile_get || !g_app.account_ui)
+        return false;
+    char ids[3 * 21];
+    u32 used = 0, count = 0;
+    const bool metadata = p.metadata_pending;
+    if (!metadata) {
+        for (u32 i = 0; i < p.scene.missing_icon_count && count < kUserActivityMaximum; ++i) {
+            const u64 id = p.scene.missing_icons[i];
+            if (application_known(p, id))
+                continue;
+            if (used)
+                ids[used++] = ',';
+            used += decimal_write(ids + used, id);
+            p.requested_applications[count++] = id;
+        }
+        if (!count)
+            return false;
+    }
+    auto& ui = *g_app.account_ui;
+    if (++ui.message_history_request_id == 0)
+        ++ui.message_history_request_id;
+    const auto result =
+        metadata ? host.api.profile_get(host.instance, p.metadata_user, p.metadata_application,
+                                        ui.message_history_request_id, 6, p.metadata_session.view())
+                 : host.api.profile_get(host.instance, p.data.user_id, 0, ui.message_history_request_id, 5, {ids, used});
+    if (result.error == RestClientSubmitError::busy) {
+        p.retry_at = now + 100;
+        return true;
+    }
+    if (!result.ok()) {
+        // Not retried: the card keeps its placeholder, the button does nothing.
+        if (metadata)
+            p.metadata_pending = false;
+        else
+            for (u32 i = 0; i < count; ++i)
+                remember_application(p, p.requested_applications[i], {});
+        return true;
+    }
+    p.requested_application_count = metadata ? 0 : count;
+    p.submitted_request = metadata ? ProfileRequest::metadata : ProfileRequest::applications;
+    p.retry_at = 0;
+    g_app.details_request_owner = MessageHistoryRequestOwner::user_profile;
+    g_app.details_request_id = ui.message_history_request_id;
+    return true;
+}
+void visit_application(void* context, u64 id, Utf8View icon) noexcept {
+    auto& p = *static_cast<ApplicationProfile*>(context);
+    for (u32 i = 0; i < p.requested_application_count; ++i)
+        if (p.requested_applications[i] == id)
+            remember_application(p, id, icon);
+}
+bool activity_response(ApplicationProfile& p, const RestClientResponse& response, Utf8View body) noexcept {
+    const bool metadata = p.submitted_request == ProfileRequest::metadata;
+    p.submitted_request = ProfileRequest::profile;
+    const bool ok = response.error == RestClientError::none && response.status_code == 200;
+    if (metadata) {
+        p.metadata_pending = false;
+        char url[1024];
+        const u32 bytes = ok ? user_activity_button_url(body, {g_app.account_ui->profile_decode.structurals, 16384},
+                                                        p.metadata_button, {url, sizeof(url)})
+                             : 0;
+        // Only for the card still shown: a link from a closed card would surprise.
+        if (bytes && p.scene.active && p.data.user_id == p.metadata_user)
+            application_link_open({url, bytes}, false);
+        return true;
+    }
+    if (ok)
+        user_activity_applications_decode(body, {g_app.account_ui->profile_decode.structurals, 16384},
+                                          visit_application, &p);
+    // Unknown or failed IDs are not asked for again this session; a rate
+    // limit tries again later.
+    if (response.status_code == 429)
+        p.retry_at = clock_monotonic_milliseconds() + 5000;
+    else
+        for (u32 i = 0; i < p.requested_application_count; ++i)
+            if (!application_known(p, p.requested_applications[i]))
+                remember_application(p, p.requested_applications[i], {});
+    p.requested_application_count = 0;
+    if (!p.scene.active)
+        return true;
+    return profile_scene_layout(&p.scene, application_viewport_dips(), true) && repaint(true);
 }
 // Copies the store's note for the card (the store may change underneath).
 void load_note(ApplicationProfile& p) noexcept {
@@ -327,6 +451,30 @@ bool activate(ProfileAction action, UiWidgetHandle target = {}) noexcept {
         application_profile_close();
         return select_content_guild(id);
     }
+    case ProfileAction::activity_button: {
+        // The button's URL lives in the activity's metadata, fetched on click.
+        const auto* set = s.activity_set;
+        if (!part || !set || part->source >= set->count || part->target > 1 || p->metadata_pending)
+            return true;
+        const auto session = user_activity_text(set->items[part->source], UserActivityField::session);
+        if (!session.bytes || session.bytes > sizeof(p->metadata_session.data))
+            return true;
+        copy_bytes(p->metadata_session.data, session.data, session.bytes);
+        p->metadata_session.bytes = static_cast<u16>(session.bytes);
+        p->metadata_button = static_cast<u8>(part->target);
+        p->metadata_user = p->data.user_id;
+        p->metadata_application = set->items[part->source].application_id;
+        p->metadata_pending = true;
+        p->retry_at = 0;
+        return true;
+    }
+    case ProfileAction::activity_watch: {
+        // The stream page opens like the official client's, without a warning.
+        const auto* set = s.activity_set;
+        if (part && set && part->source < set->count)
+            application_link_open(user_activity_text(set->items[part->source], UserActivityField::url), true);
+        return true;
+    }
     case ProfileAction::close:
         return application_profile_close();
     case ProfileAction::message: {
@@ -478,6 +626,7 @@ bool application_profile_open(u64 user, UiRect anchor, ProfileAnchor kind) noexc
     SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0);
     p->scene.reduced_motion = !animations || g_app.preferences.reduced_motion;
     p->scene.measure = &g_app.account_ui->text_measure_cache;
+    p->scene.applications = {p->applications, p->application_count};
     if (!profile_scene_open(&p->scene, &p->data, &state, &g_app.account_ui->user_store,
                             state.self_user_id, anchor, application_viewport_dips()))
         return false;
@@ -588,12 +737,10 @@ void application_profile_tick(u64 now) noexcept {
         profile_scene_layout(&p->scene, p->scene.viewport, true);
         repaint(true);
     }
-    // Rich presence clocks (elapsed time, Spotify progress) advance each second.
-    if (p && p->scene.active && p->scene.activity_timed &&
-        clock_unix_milliseconds() / 1000 != p->scene.activity_clock_s) {
-        profile_scene_layout(&p->scene, p->scene.viewport, true);
+    // Rich presence timers advance each second while the window shows them.
+    if (p && p->scene.active && p->scene.activity_timed && window_shown() &&
+        profile_scene_tick(&p->scene, clock_unix_milliseconds()))
         repaint(true);
-    }
     if (!p || !p->scene.active || !p->message_blink_at || now < p->message_blink_at)
         return;
     p->scene.edit.caret_visible = !p->scene.edit.caret_visible;
@@ -925,8 +1072,10 @@ bool application_profile_key(u32 key, bool down, bool repeated) noexcept {
 }
 bool application_profile_submit(u64 now) noexcept {
     auto* p = g_app.profile;
-    if (!p || !p->scene.active || (!p->pending && !p->effect_pending) || p->retry_at > now)
+    if (!p || !p->scene.active || p->retry_at > now)
         return false;
+    if (!p->pending && !p->effect_pending)
+        return submit_activity_request(*p, now);
     auto& host = g_app.account;
     auto& ui = *g_app.account_ui;
     const bool roles = p->mutation != ProfileRoleChange::none;
@@ -992,6 +1141,9 @@ bool application_profile_submit(u64 now) noexcept {
 }
 bool application_profile_response(const RestClientResponse& response, Utf8View body) noexcept {
     auto* p = g_app.profile;
+    if (p && (p->submitted_request == ProfileRequest::applications ||
+              p->submitted_request == ProfileRequest::metadata))
+        return activity_response(*p, response, body);
     if (!p || p->requested_user != p->data.user_id || p->requested_guild != p->data.guild_id)
         return true;
     if (p->submitted_request == ProfileRequest::effect) {
@@ -1066,7 +1218,8 @@ u64 application_profile_next_wake() noexcept {
     const auto blink = g_app.profile && g_app.profile->scene.active ? g_app.profile->message_blink_at : 0;
     const auto network = g_app.details_request_owner == MessageHistoryRequestOwner::none &&
                                  g_app.profile && g_app.profile->scene.active &&
-                                 (g_app.profile->pending || g_app.profile->effect_pending)
+                                 (g_app.profile->pending || g_app.profile->effect_pending ||
+                                  g_app.profile->metadata_pending || missing_icons(*g_app.profile))
                              ? maximum<u64>(1, g_app.profile->retry_at)
                              : 0;
     u64 wake = network && blink ? minimum(network, blink) : network ? network : blink;
@@ -1074,7 +1227,7 @@ u64 application_profile_next_wake() noexcept {
         const u64 frame = clock_monotonic_milliseconds() + kUiTransitionFrameMs;
         wake = wake ? minimum(wake, frame) : frame;
     }
-    if (g_app.profile && g_app.profile->scene.active && g_app.profile->scene.activity_timed) {
+    if (g_app.profile && g_app.profile->scene.active && g_app.profile->scene.activity_timed && window_shown()) {
         const u64 clock = clock_monotonic_milliseconds() + (1000 - clock_unix_milliseconds() % 1000);
         wake = wake ? minimum(wake, clock) : clock;
     }

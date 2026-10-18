@@ -18,8 +18,11 @@ enum class ProfileRoleChange : u8 {
 enum class ProfileRequest : u8 {
     profile,
     effect,
-    roles
+    roles,
+    applications,
+    metadata
 };
+inline constexpr u32 kProfileApplicationCapacity = 16;
 struct ApplicationProfile {
     ProfileAnchor anchor_kind;
     MessageComposer message, pending_message;
@@ -42,6 +45,17 @@ struct ApplicationProfile {
     ProfileRoleChange mutation;
     ProfileRequest submitted_request;
     bool pending;
+    // Public applications whose icons stand in for missing activity art,
+    // fetched once per session (oldest replaced first); the batch in flight.
+    ProfileApplication applications[kProfileApplicationCapacity];
+    u32 application_count, application_next;
+    u64 requested_applications[kUserActivityMaximum];
+    u32 requested_application_count;
+    // A custom activity button waiting for its URL (activity metadata).
+    bool metadata_pending;
+    u8 metadata_button;
+    u64 metadata_user, metadata_application;
+    ProfileString<64> metadata_session;
     // The note field: its editor while editing and the text the card shows.
     MessageComposer note;
     u64 note_user;

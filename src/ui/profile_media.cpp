@@ -135,23 +135,30 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         return pending_media(scene.pending_banner, r, {}, 0, ui_rect_intersection(result.clip, r), out);
     }
     if (part.media == ProfileMediaKind::activity_large || part.media == ProfileMediaKind::activity_small) {
-        UserActivitySet set;
-        if (!scene.users || !user_activity_find(scene.users->activities, p.user_id, &set) || part.source >= set.count)
+        // The laid-out copy, which the card's text came from.
+        if (!scene.activity_set || part.source >= scene.activity_set->count)
             return false;
+        const auto& activity = scene.activity_set->items[part.source];
+        const bool corner = part.media == ProfileMediaKind::activity_small;
+        const auto art = corner ? UserActivityArt::small_image : static_cast<UserActivityArt>(part.target);
         char url[384];
-        bool webp = false;
-        const u32 bytes = user_activity_image_url(set.items[part.source],
-                                                  part.media == ProfileMediaKind::activity_large, {url, sizeof(url)},
-                                                  &webp);
+        auto format = MediaAttachmentFormat::png;
+        u32 bytes = 0;
+        if (art == UserActivityArt::application) {
+            for (u32 i = 0; i < scene.applications.count; ++i)
+                if (scene.applications[i].id == activity.application_id)
+                    bytes = user_activity_application_icon_url(activity.application_id,
+                                                               scene.applications[i].icon.view(), {url, sizeof(url)});
+        } else if (art == UserActivityArt::large || art == UserActivityArt::small_image)
+            bytes = user_activity_image_url(activity, art == UserActivityArt::large, {url, sizeof(url)}, &format);
         if (!bytes || !append(&result.url, {url, bytes}))
             return false;
-        const auto format = webp ? MediaAttachmentFormat::webp : MediaAttachmentFormat::png;
-        result.circular = part.media == ProfileMediaKind::activity_small;
-        if (!result.circular) {
-            // 8 DIP artwork corners.
-            result.mask = result.rectangle;
-            result.mask_radius = 8;
-        }
+        // Masked to their own shape: the full profile's cards lie outside the
+        // profile card that unmasked media is rounded to. The artwork stays
+        // concentric with its card (profile_scene_paint sets the radius).
+        result.circular = corner;
+        result.mask = result.rectangle;
+        result.mask_radius = corner ? ui_rect_width(result.rectangle) * .5f : scene.activity_art_radius;
         result.key = media_asset_embed(hash64_bytes(kHash64Seed, result.url.data, result.url.bytes), 1, 0,
                                        MediaEmbedResource::image, format, false, MediaResolutionTier::px512);
         result.key.kind = MediaAssetKind::profile_image;
@@ -212,7 +219,11 @@ bool profile_media_resolve(const ProfileScene& scene, u32 index, ProfileMedia* o
         append(&url, user ? utf8_literal("avatars/") : utf8_literal("icons/"));
         id(&url, peer.id);
         append(&url, utf8_literal("/"));
+        // Masked to their own circle: the full profile lists them outside the
+        // profile card that unmasked media is rounded to.
         result.circular = true;
+        result.mask = result.rectangle;
+        result.mask_radius = ui_rect_width(result.rectangle) * .5f;
         animated = hash.bytes > 2 && hash.data[0] == 'a' && hash.data[1] == '_';
     } else if (part.media == ProfileMediaKind::avatar || part.media == ProfileMediaKind::banner) {
         const bool avatar = part.media == ProfileMediaKind::avatar;

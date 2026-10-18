@@ -3,10 +3,13 @@
 
 namespace maicord {
 namespace {
-constexpr u8 kWireMarker = 0xA7;
+constexpr u8 kWireMarker = 0xA8;
 constexpr u32 kMaximumUsers = 2048;
+// Fixed bytes of one wire activity: type, buttons, detail, platform, five
+// 64/32-bit scalars, three counters and the field lengths.
+constexpr u32 kActivityFixedBytes = 4 + 4 * 8 + 3 * 4 + 2 * kUserActivityFieldCount;
 // The largest wire record: marker, count and three activities with full text.
-constexpr u32 kRecordMaximumBytes = 2 + kUserActivityMaximum * (66 + kUserActivityTextBytes);
+constexpr u32 kRecordMaximumBytes = 2 + kUserActivityMaximum * (kActivityFixedBytes + kUserActivityTextBytes);
 // Bank budget: 2048 users at 512 bytes, about twice a typical rich presence.
 constexpr u32 kBankBytes = 1024 * 1024;
 constexpr u16 kDeadEntry = 0xFFFF;
@@ -179,9 +182,11 @@ u32 user_activities_write(const UserActivitySet& set, Slice<u8> output) noexcept
             bytes += a.lengths[k];
         if (bytes > kUserActivityTextBytes)
             return 0;
-        const u8 type = static_cast<u8>(a.type);
+        const u8 type = static_cast<u8>(a.type), platform = static_cast<u8>(a.platform);
         w.scalar(type);
         w.scalar(a.button_count);
+        w.scalar(a.detail);
+        w.scalar(platform);
         w.scalar(a.application_id);
         w.scalar(a.start_ms);
         w.scalar(a.end_ms);
@@ -208,9 +213,11 @@ bool user_activities_read(ConstSlice<u8> input, u64 user, UserActivitySet* outpu
     set.count = count;
     for (u32 i = 0; i < count && r.ok; ++i) {
         auto& a = set.items[i];
-        u8 type = 0;
+        u8 type = 0, platform = 0;
         r.scalar(type);
         r.scalar(a.button_count);
+        r.scalar(a.detail);
+        r.scalar(platform);
         r.scalar(a.application_id);
         r.scalar(a.start_ms);
         r.scalar(a.end_ms);
@@ -219,9 +226,11 @@ bool user_activities_read(ConstSlice<u8> input, u64 user, UserActivitySet* outpu
         r.scalar(a.party_max);
         r.scalar(a.flags);
         r.get(a.lengths, sizeof(a.lengths));
-        if (!r.ok || type > 5 || type == 4 || a.button_count > 2)
+        if (!r.ok || type > 5 || type == 4 || a.button_count > 2 || a.detail > 3 ||
+            platform > static_cast<u8>(UserActivityPlatform::meta_quest))
             return false;
         a.type = static_cast<UserActivityType>(type);
+        a.platform = static_cast<UserActivityPlatform>(platform);
         u32 bytes = 0;
         for (u32 k = 0; k < kUserActivityFieldCount; ++k) {
             if (a.lengths[k] > kUserActivityFieldBudget[k])

@@ -14,6 +14,7 @@
 #include "application_scrolling.hpp"
 #include "application_user_actions.hpp"
 #include "maicord/app/account_guild_admin.hpp"
+#include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/clipboard.hpp"
@@ -29,6 +30,11 @@ RestClientSubmitError admission;
 RestRouteKey route;
 u8 target[128], body[2048];
 u32 target_bytes, body_bytes;
+char read_value[64];
+u32 read_value_bytes;
+char opened_url[128];
+u32 opened_url_bytes, opened;
+bool opened_trusted;
 GuildRecord guild;
 u16 guild_order;
 RoleRecord roles[21];
@@ -54,9 +60,12 @@ RestClientSubmitResult WINAPI read_profile(void*, u64 user, u64 server, u64 id, 
     read_guild = server;
     read_operation = operation;
     request_id = id;
-    check(!value.bytes, "profile runtime: profile and effect reads carry no mutation payload");
-    // The real account bridge accepts profile operations 0..4 only.
-    return {operation <= 4 ? RestClientSubmitError::none : RestClientSubmitError::invalid_input};
+    read_value_bytes = value.bytes <= sizeof(read_value) ? value.bytes : 0;
+    copy_bytes(read_value, value.data, read_value_bytes);
+    // Activity reads (5 and 6) carry IDs or a session; the others nothing.
+    check(operation >= 5 || !value.bytes, "profile runtime: profile and effect reads carry no mutation payload");
+    // The real account bridge accepts profile operations 0..6 only.
+    return {operation <= 6 ? RestClientSubmitError::none : RestClientSubmitError::invalid_input};
 }
 bool click(ProfileAction action, u64 id = 0) noexcept {
     auto& scene = g_app.profile->scene;
@@ -237,6 +246,38 @@ void run() noexcept {
     check(application_profile_submit(213) && read_operation == 4 && read_user == 555,
           "profile runtime: effect metadata continues to use its existing profile operation");
     response(404);
+
+    // A card without artwork asks once for its application's icon; a custom
+    // button fetches its URL from the activity's metadata.
+    constexpr auto presence = utf8_literal(R"({"activities":[{"type":0,"name":"Mossrun","application_id":"55",
+        "session_id":"abc","buttons":["Open"]}]})");
+    u32 structurals[512];
+    UserActivitySet set{};
+    bool has = false;
+    const auto scan = json_scan_structurals_avx1(presence, {structurals, 512});
+    auto& users = g_app.account_ui->user_store;
+    const bool stored = scan.ok() &&
+                        user_activities_decode({presence, {structurals, scan.count}},
+                                               {presence, 0, JsonValueKind::object}, 42, &set, &has) &&
+                        user_activity_upsert(&users.activities, set);
+    ++users.revision;
+    profile_scene_layout(&p.scene, p.scene.viewport, true);
+    check(stored && p.scene.missing_icon_count == 1 && application_profile_submit(214) && read_operation == 5 &&
+              utf8_equal({read_value, read_value_bytes}, utf8_literal("55")),
+          "profile runtime: a card without art fetches its public application");
+    response(200, utf8_literal(R"([{"id":"55","name":"Mossrun","icon":"beef"}])"));
+    check(p.application_count == 1 && p.applications[0].id == 55 &&
+              utf8_equal(p.applications[0].icon.view(), utf8_literal("beef")) && !p.scene.missing_icon_count &&
+              !application_profile_submit(215),
+          "profile runtime: the icon is remembered and not asked for again");
+    check(click(ProfileAction::activity_button) && p.metadata_pending && application_profile_submit(216) &&
+              read_operation == 6 && read_user == 42 && read_guild == 55 &&
+              utf8_equal({read_value, read_value_bytes}, utf8_literal("abc")),
+          "profile runtime: a custom button asks for the activity's metadata");
+    response(200, utf8_literal(R"({"button_urls":["https://example.invalid/open"]})"));
+    check(!p.metadata_pending && opened == 1 && !opened_trusted &&
+              utf8_equal({opened_url, opened_url_bytes}, utf8_literal("https://example.invalid/open")),
+          "profile runtime: the button opens its URL through the link warning");
     application_profile_release();
     VirtualFree(g_app.account_ui, 0, MEM_RELEASE);
     g_app.account_ui = nullptr;
@@ -342,6 +383,14 @@ bool application_plugins_slot_activate(u64, NativePluginSdkSlotTarget, u64, UiRe
 }
 bool application_open_content_url(Utf8View) noexcept {
     return false;
+}
+bool application_link_open(Utf8View url, bool trusted) noexcept {
+    using namespace profile_runtime_test;
+    ++opened;
+    opened_trusted = trusted;
+    opened_url_bytes = url.bytes <= sizeof(opened_url) ? url.bytes : 0;
+    copy_bytes(opened_url, url.data, opened_url_bytes);
+    return true;
 }
 bool select_content_guild(u64) noexcept {
     return false;

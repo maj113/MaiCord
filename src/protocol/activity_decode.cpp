@@ -2,6 +2,7 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
+#include "maicord/core/json_scan.hpp"
 #include "maicord/protocol/json_ids.hpp"
 
 namespace maicord {
@@ -67,12 +68,8 @@ Utf8View user_activity_text(const UserActivity& a, UserActivityField field) noex
     return {a.text + offset, bytes};
 }
 bool user_activity_is_spotify(const UserActivity& a) noexcept {
-    if (a.type != UserActivityType::listening)
-        return false;
-    const auto name = user_activity_text(a, UserActivityField::name);
-    const auto image = user_activity_text(a, UserActivityField::large_image);
-    return (name.bytes == 7 && bytes_equal(name.data, "Spotify", 7)) ||
-           utf8_starts_with(image, utf8_literal("spotify:"));
+    return a.type == UserActivityType::listening && (a.detail & user_activity_spotify_party) &&
+           utf8_equal(user_activity_text(a, UserActivityField::name), utf8_literal("Spotify"));
 }
 u32 user_activity_summary(UserActivityType type, Utf8View name, Utf8View details, Slice<char> output) noexcept {
     Utf8View verb{};
@@ -109,56 +106,142 @@ u32 user_activity_summary(const UserActivity& a, Slice<char> output) noexcept {
     return user_activity_summary(a.type, user_activity_text(a, UserActivityField::name),
                                  user_activity_text(a, UserActivityField::details), output);
 }
+namespace {
+// The Xbox application (its presences may carry no platform).
+constexpr u64 kXboxApplicationId = 438122941302046720ull;
+// A headless session ("h:<platform>,...") names the service the activity
+// runs on.
+Utf8View session_platform(const UserActivity& a) noexcept {
+    const auto session = user_activity_text(a, UserActivityField::session);
+    if (!utf8_starts_with(session, utf8_literal("h:")))
+        return {};
+    u32 end = 2;
+    while (end < session.bytes && session.data[end] != ',')
+        ++end;
+    const Utf8View type{session.data + 2, end - 2};
+    struct Name {
+        Utf8View type, name;
+    };
+    static constexpr Name names[] = {
+        {utf8_literal("battlenet"), utf8_literal("Battle.net")}, {utf8_literal("epicgames"), utf8_literal("Epic Games")},
+        {utf8_literal("leagueoflegends"), utf8_literal("League of Legends")},
+        {utf8_literal("playstation"), utf8_literal("PlayStation")}, {utf8_literal("riotgames"), utf8_literal("Riot Games")},
+        {utf8_literal("roblox"), utf8_literal("Roblox")},         {utf8_literal("steam"), utf8_literal("Steam")},
+        {utf8_literal("xbox"), utf8_literal("Xbox")}};
+    for (const auto& n : names)
+        if (utf8_equal(n.type, type))
+            return n.name;
+    return {};
+}
+} // namespace
 u32 user_activity_heading(const UserActivity& a, Slice<char> output) noexcept {
     if (!output.data)
         return 0;
     Writer w{output.data, static_cast<u32>(output.count), 0};
+    const auto name = user_activity_text(a, UserActivityField::name);
+    const bool details = user_activity_text(a, UserActivityField::details).bytes != 0;
+    const bool xbox = a.application_id == kXboxApplicationId || a.platform == UserActivityPlatform::xbox;
+    const bool playstation = a.platform == UserActivityPlatform::ps4 || a.platform == UserActivityPlatform::ps5;
+    if (a.type == UserActivityType::playing && (xbox || playstation)) {
+        w.put(utf8_literal("Playing on "));
+        w.put(xbox ? utf8_literal("Xbox") : utf8_literal("PlayStation"));
+        return w.finish();
+    }
+    if (a.type == UserActivityType::streaming &&
+        (utf8_equal(name, utf8_literal("Twitch")) || utf8_equal(name, utf8_literal("YouTube")))) {
+        w.put(utf8_literal("Streaming "));
+        w.put(name);
+        return w.finish();
+    }
+    const auto platform = session_platform(a);
+    if (platform.bytes && a.type != UserActivityType::custom) {
+        constexpr Utf8View verbs[] = {utf8_literal("Playing on "),   utf8_literal("Live on "),
+                                      utf8_literal("Listening on "), utf8_literal("Watching on "),
+                                      {},                            utf8_literal("Competing on ")};
+        w.put(verbs[static_cast<u32>(a.type)]);
+        w.put(platform);
+        return w.finish();
+    }
+    Utf8View verb{};
     switch (a.type) {
     case UserActivityType::playing:
         w.put(utf8_literal("Playing"));
-        break;
+        return w.finish();
     case UserActivityType::streaming:
-        w.put(utf8_literal("Live on "));
-        {
-            const auto name = user_activity_text(a, UserActivityField::name);
-            w.put({name.data, utf8_truncated_length(name, w.capacity - w.used)});
-        }
+        w.put(utf8_literal("Streaming"));
+        return w.finish();
+    case UserActivityType::listening:
+        verb = utf8_literal("Listening to");
         break;
-    case UserActivityType::listening: {
-        w.put(utf8_literal("Listening to "));
-        const auto name = user_activity_text(a, UserActivityField::name);
-        w.put({name.data, utf8_truncated_length(name, w.capacity - w.used)});
-        break;
-    }
     case UserActivityType::watching:
-        w.put(utf8_literal("Watching"));
+        verb = utf8_literal("Watching");
         break;
     case UserActivityType::competing:
-        w.put(utf8_literal("Competing"));
+        verb = utf8_literal("Competing in");
         break;
     default:
         return 0;
     }
+    // "Listening to Spotify" names the application only beside details.
+    w.put(verb);
+    if (details && name.bytes) {
+        w.put(utf8_literal(" "));
+        w.put({name.data, utf8_truncated_length(name, w.ok ? w.capacity - w.used : 0)});
+    }
     return w.finish();
 }
-u32 user_activity_image_url(const UserActivity& a, bool large, Slice<char> output, bool* webp) noexcept {
-    if (!output.data || !webp)
+namespace {
+// Assets are requested at the official card's 160 px.
+constexpr auto kAssetSize = utf8_literal("160");
+bool alphanumeric(Utf8View text, u32 limit) noexcept {
+    if (!text.bytes || text.bytes > limit)
+        return false;
+    for (u32 i = 0; i < text.bytes; ++i) {
+        const char c = text.data[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
+            return false;
+    }
+    return true;
+}
+} // namespace
+u32 user_activity_image_url(const UserActivity& a, bool large, Slice<char> output,
+                            MediaAttachmentFormat* format) noexcept {
+    if (!output.data || !format)
         return 0;
     const auto key = user_activity_text(a, large ? UserActivityField::large_image : UserActivityField::small_image);
     Writer w{output.data, static_cast<u32>(output.count), 0};
-    if (utf8_starts_with(key, utf8_literal("mp:"))) {
-        const Utf8View path{key.data + 3, key.bytes - 3};
-        if (!proxy_path(path))
-            return 0;
-        bool query = false;
-        for (u32 i = 0; i < path.bytes; ++i)
-            query |= path.data[i] == '?';
-        w.put(utf8_literal("https://media.discordapp.net/"));
-        w.put(path);
-        w.put(query ? utf8_literal("&format=webp&width=128&height=128")
-                    : utf8_literal("?format=webp&width=128&height=128"));
-        *webp = true;
-        return w.finish();
+    u32 colon = 0;
+    while (colon < key.bytes && key.data[colon] != ':')
+        ++colon;
+    if (colon < key.bytes) {
+        // "<prefix>:<value>"; as in the official client the value ends at a
+        // second colon.
+        u32 end = colon + 1;
+        while (end < key.bytes && key.data[end] != ':')
+            ++end;
+        const Utf8View prefix{key.data, colon}, value{key.data + colon + 1, end - colon - 1};
+        if (utf8_equal(prefix, utf8_literal("mp"))) {
+            if (!proxy_path(value))
+                return 0;
+            bool query = false;
+            for (u32 i = 0; i < value.bytes; ++i)
+                query |= value.data[i] == '?';
+            w.put(utf8_literal("https://media.discordapp.net/"));
+            w.put(value);
+            w.put(query ? utf8_literal("&format=webp&width=") : utf8_literal("?format=webp&width="));
+            w.put(kAssetSize);
+            w.put(utf8_literal("&height="));
+            w.put(kAssetSize);
+            *format = MediaAttachmentFormat::webp;
+            return w.finish();
+        }
+        if (utf8_equal(prefix, utf8_literal("spotify")) && alphanumeric(value, 64)) {
+            w.put(utf8_literal("https://i.scdn.co/image/"));
+            w.put(value);
+            *format = MediaAttachmentFormat::jpeg;
+            return w.finish();
+        }
+        return 0;
     }
     if (!a.application_id || !digits_only(key))
         return 0;
@@ -166,9 +249,33 @@ u32 user_activity_image_url(const UserActivity& a, bool large, Slice<char> outpu
     w.number(a.application_id);
     w.put(utf8_literal("/"));
     w.put(key);
-    w.put(utf8_literal(".png?size=128"));
-    *webp = false;
+    w.put(utf8_literal(".png?size="));
+    w.put(kAssetSize);
+    *format = MediaAttachmentFormat::png;
     return w.finish();
+}
+u32 user_activity_application_icon_url(u64 application_id, Utf8View icon, Slice<char> output) noexcept {
+    if (!output.data || !application_id || !alphanumeric(icon, 64))
+        return 0;
+    Writer w{output.data, static_cast<u32>(output.count), 0};
+    w.put(utf8_literal("https://cdn.discordapp.com/app-icons/"));
+    w.number(application_id);
+    w.put(utf8_literal("/"));
+    w.put(icon);
+    w.put(utf8_literal(".png?size="));
+    w.put(kAssetSize);
+    return w.finish();
+}
+UserActivityArtwork user_activity_artwork(const UserActivity& a, bool application_icon) noexcept {
+    char url[512];
+    MediaAttachmentFormat format{};
+    const bool large = user_activity_image_url(a, true, {url, sizeof(url)}, &format) != 0;
+    const bool badge = user_activity_image_url(a, false, {url, sizeof(url)}, &format) != 0;
+    if (large)
+        return {UserActivityArt::large, badge};
+    if (application_icon)
+        return {UserActivityArt::application, badge};
+    return {badge ? UserActivityArt::small_image : UserActivityArt::none, false};
 }
 float user_activity_progress(const UserActivity& a, u64 now) noexcept {
     if (!a.start_ms || !a.end_ms || a.end_ms <= a.start_ms)
@@ -179,11 +286,44 @@ float user_activity_progress(const UserActivity& a, u64 now) noexcept {
         return 1;
     return static_cast<float>(static_cast<double>(now - a.start_ms) / static_cast<double>(a.end_ms - a.start_ms));
 }
-
+u32 user_activity_applications_target(ConstSlice<u64> ids, Slice<u8> output) noexcept {
+    if (!output.data || !ids.count || ids.count > kUserActivityMaximum)
+        return 0;
+    Writer w{reinterpret_cast<char*>(output.data), static_cast<u32>(output.count), 0};
+    w.put(utf8_literal("/api/v10/applications/public"));
+    for (u32 i = 0; i < ids.count; ++i) {
+        if (!ids[i])
+            return 0;
+        w.put(i ? utf8_literal("&application_ids=") : utf8_literal("?application_ids="));
+        w.number(ids[i]);
+    }
+    return w.finish();
+}
+u32 user_activity_metadata_target(u64 user_id, Utf8View session, u64 application_id, Slice<u8> output) noexcept {
+    constexpr u32 session_limit = kUserActivityFieldBudget[static_cast<u32>(UserActivityField::session)];
+    if (!output.data || !user_id || !session.bytes || session.bytes > session_limit)
+        return 0;
+    // Session IDs are hex, or "h:<platform>,..." for headless sessions.
+    for (u32 i = 0; i < session.bytes; ++i) {
+        const char c = session.data[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == ':' || c == ',' ||
+              c == '_' || c == '-' || c == '.'))
+            return 0;
+    }
+    Writer w{reinterpret_cast<char*>(output.data), static_cast<u32>(output.count), 0};
+    w.put(utf8_literal("/api/v10/users/"));
+    w.number(user_id);
+    w.put(utf8_literal("/sessions/"));
+    w.put(session);
+    w.put(utf8_literal("/activities/"));
+    w.number(application_id);
+    w.put(utf8_literal("/metadata"));
+    return w.finish();
+}
 namespace {
 struct ActivityFields {
     JsonValue type, name, details, state, url, application_id, timestamps, created_at, party, assets, buttons,
-        flags;
+        flags, session_id, platform;
 };
 bool activity_member(void* opaque, JsonString key, JsonValue value) noexcept {
     auto& f = *static_cast<ActivityFields*>(opaque);
@@ -201,7 +341,9 @@ bool activity_member(void* opaque, JsonString key, JsonValue value) noexcept {
                          {utf8_literal("party"), &f.party},
                          {utf8_literal("assets"), &f.assets},
                          {utf8_literal("buttons"), &f.buttons},
-                         {utf8_literal("flags"), &f.flags}};
+                         {utf8_literal("flags"), &f.flags},
+                         {utf8_literal("session_id"), &f.session_id},
+                         {utf8_literal("platform"), &f.platform}};
     for (const auto& entry : entries)
         if (json_string_equals_ascii(key, entry.key)) {
             if (!entry.slot->source.data) // first occurrence wins
@@ -249,6 +391,17 @@ struct Pending {
     char text[kUserActivityFieldCount][256];
     u16 bytes[kUserActivityFieldCount];
 };
+UserActivityPlatform platform(JsonValue v) noexcept {
+    char text[16];
+    const u32 bytes = decode(v, text, sizeof(text), true);
+    constexpr Utf8View names[] = {utf8_literal("desktop"),  utf8_literal("xbox"),     utf8_literal("ps4"),
+                                  utf8_literal("ps5"),      utf8_literal("ios"),      utf8_literal("android"),
+                                  utf8_literal("embedded"), utf8_literal("samsung"),  utf8_literal("meta_quest")};
+    for (u32 i = 0; i < sizeof(names) / sizeof(names[0]); ++i)
+        if (utf8_equal(names[i], {text, bytes}))
+            return static_cast<UserActivityPlatform>(i);
+    return UserActivityPlatform::desktop;
+}
 struct Members {
     JsonValue a, b, c, d;
     Utf8View ka, kb, kc, kd;
@@ -308,6 +461,7 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
     take(F::state, f.state, false);
     if (type == 1)
         take(F::url, f.url, true);
+    take(F::session, f.session_id, true);
     Members assets{{}, {}, {}, {}, utf8_literal("large_image"), utf8_literal("large_text"),
                    utf8_literal("small_image"), utf8_literal("small_text")};
     if (!object(*c.doc, f.assets, &assets))
@@ -357,9 +511,16 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
         a.start_ms *= 1000;
     if (a.end_ms && a.end_ms < 100'000'000'000ull)
         a.end_ms *= 1000;
-    Members party{{}, {}, {}, {}, utf8_literal("size")};
+    Members party{{}, {}, {}, {}, utf8_literal("size"), utf8_literal("id")};
     if (!object(*c.doc, f.party, &party))
         return false;
+    if (present(f.party) && f.party.kind == JsonValueKind::object) {
+        a.detail |= user_activity_has_party;
+        char id[16];
+        if (decode(party.b, id, sizeof(id), false) >= 8 && bytes_equal(id, "spotify:", 8))
+            a.detail |= user_activity_spotify_party;
+    }
+    a.platform = platform(f.platform);
     if (present(party.a) && party.a.kind == JsonValueKind::array) {
         Array size{};
         if (!json_visit_indexed_array(*c.doc, party.a, 64, array_item, &size).ok())
@@ -376,8 +537,8 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
     u32 total = 0;
     for (u32 i = 0; i < kUserActivityFieldCount; ++i)
         total += pending.bytes[i];
-    const F drop_order[] = {F::small_image, F::small_text, F::url, F::large_text, F::button_1, F::button_0,
-                            F::large_image, F::state, F::details};
+    const F drop_order[] = {F::session, F::small_image, F::small_text, F::url, F::large_text, F::button_1,
+                            F::button_0, F::large_image, F::state, F::details};
     for (u32 k = 0; total > kUserActivityTextBytes && k < sizeof(drop_order) / sizeof(drop_order[0]); ++k) {
         const u32 i = static_cast<u32>(drop_order[k]);
         total -= pending.bytes[i];
@@ -425,5 +586,62 @@ bool user_activities_decode(const JsonIndexedDocument& doc, JsonValue presence, 
         return false;
     Decode context{&doc, output};
     return json_visit_indexed_array(doc, root.activities, 64, activity_item, &context).ok();
+}
+namespace {
+struct ApplicationsContext {
+    const JsonIndexedDocument* doc;
+    UserActivityApplicationVisit visit;
+    void* context;
+};
+bool application_item(void* opaque, u32, JsonValue value) noexcept {
+    auto& c = *static_cast<ApplicationsContext*>(opaque);
+    Members m{{}, {}, {}, {}, utf8_literal("id"), utf8_literal("icon")};
+    if (value.kind != JsonValueKind::object || !object(*c.doc, value, &m))
+        return false;
+    const u64 id = number(m.a);
+    char icon[72];
+    const u32 bytes = decode(m.b, icon, 64, true);
+    if (id)
+        c.visit(c.context, id, {icon, bytes});
+    return true;
+}
+} // namespace
+bool user_activity_applications_decode(Utf8View body, Slice<u32> structurals, UserActivityApplicationVisit visit,
+                                       void* context) noexcept {
+    if (!visit || !body.bytes || body.data[0] != '[')
+        return false;
+    const auto scan = json_scan_structurals_avx1(body, structurals);
+    if (!scan.ok())
+        return false;
+    const JsonIndexedDocument doc{body, {structurals.data, scan.count}};
+    ApplicationsContext c{&doc, visit, context};
+    return json_visit_indexed_array(doc, {body, 0, JsonValueKind::array}, 64, application_item, &c).ok();
+}
+u32 user_activity_button_url(Utf8View body, Slice<u32> structurals, u32 index, Slice<char> output) noexcept {
+    if (!output.data || index > 1 || !body.bytes || body.data[0] != '{')
+        return 0;
+    const auto scan = json_scan_structurals_avx1(body, structurals);
+    if (!scan.ok())
+        return 0;
+    const JsonIndexedDocument doc{body, {structurals.data, scan.count}};
+    Members m{{}, {}, {}, {}, utf8_literal("button_urls")};
+    if (!object(doc, {body, 0, JsonValueKind::object}, &m) || !present(m.a) || m.a.kind != JsonValueKind::array)
+        return 0;
+    Array urls{};
+    if (!json_visit_indexed_array(doc, m.a, 64, array_item, &urls).ok() || index >= urls.count || index >= 2)
+        return 0;
+    char text[1024];
+    const u32 bytes = decode(urls.items[index], text, sizeof(text), true);
+    const Utf8View url{text, bytes};
+    // Opened like any untrusted link: http(s) only, no whitespace or controls.
+    if (!utf8_starts_with(url, utf8_literal("https://")) && !utf8_starts_with(url, utf8_literal("http://")))
+        return 0;
+    for (u32 i = 0; i < bytes; ++i)
+        if (static_cast<u8>(text[i]) <= 0x20 || text[i] == 0x7f)
+            return 0;
+    if (bytes > output.count)
+        return 0;
+    copy_bytes(output.data, text, bytes);
+    return bytes;
 }
 } // namespace maicord

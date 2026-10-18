@@ -58,7 +58,7 @@ void activities() noexcept {
          "state":"Ascent","timestamps":{"start":1700000000000},"party":{"id":"p","size":[2,4]},
          "assets":{"large_image":"500000000000000002","large_text":"High Ridge","small_image":"mp:external/abc/https/x.png","small_text":"Wanderer"},
          "buttons":["Watch","Join"],"flags":1},
-        {"type":2,"name":"Spotify","id":"spotify:1","details":"Song","state":"Artist A; Artist B",
+        {"type":2,"name":"Spotify","party":{"id":"spotify:1"},"details":"Song","state":"Artist A; Artist B",
          "timestamps":{"start":1700000000000,"end":1700000180000},
          "assets":{"large_image":"spotify:ab67616d0000b273","large_text":"Album"}},
         {"type":1,"name":"Twitch","details":"Speedrun","url":"https://twitch.tv/x"}]})"),
@@ -77,24 +77,25 @@ void activities() noexcept {
               game.flags == 1,
           "activities: playing keeps application, text, timestamps, party, assets and button labels");
     char url[384];
-    bool webp = true;
-    u32 bytes = user_activity_image_url(game, true, {url, sizeof(url)}, &webp);
+    MediaAttachmentFormat format{};
+    u32 bytes = user_activity_image_url(game, true, {url, sizeof(url)}, &format);
     check(same({url, bytes}, utf8_literal("https://cdn.discordapp.com/app-assets/500000000000000001/"
-                                          "500000000000000002.png?size=128")) &&
-              !webp,
+                                          "500000000000000002.png?size=160")) &&
+              format == MediaAttachmentFormat::png,
           "activities: numeric assets use the application asset CDN as PNG");
-    bytes = user_activity_image_url(game, false, {url, sizeof(url)}, &webp);
+    bytes = user_activity_image_url(game, false, {url, sizeof(url)}, &format);
     check(same({url, bytes},
-               utf8_literal("https://media.discordapp.net/external/abc/https/x.png?format=webp&width=128&height=128")) &&
-              webp,
+               utf8_literal("https://media.discordapp.net/external/abc/https/x.png?format=webp&width=160&height=160")) &&
+              format == MediaAttachmentFormat::webp,
           "activities: mp: assets resolve through the media proxy as WebP");
     const auto& song = set.items[1];
+    bytes = user_activity_image_url(song, true, {url, sizeof(url)}, &format);
     check(song.type == UserActivityType::listening && user_activity_is_spotify(song) &&
-              !user_activity_image_url(song, true, {url, sizeof(url)}, &webp) &&
+              same({url, bytes}, utf8_literal("https://i.scdn.co/image/ab67616d0000b273")) &&
               user_activity_progress(song, 1700000090000ull) > .49f &&
               user_activity_progress(song, 1700000090000ull) < .51f && user_activity_progress(song, 1) == 0 &&
               user_activity_progress(song, ~0ull) == 1 && user_activity_progress(game, 1700000090000ull) < 0,
-          "activities: Spotify art has no CDN URL and progress spans start..end");
+          "activities: Spotify art comes from i.scdn.co and progress spans start..end");
     const auto& stream = set.items[2];
     check(stream.type == UserActivityType::streaming &&
               same(text(stream, UserActivityField::url), utf8_literal("https://twitch.tv/x")),
@@ -135,7 +136,7 @@ void activities() noexcept {
               text(set.items[0], UserActivityField::name).bytes == 128 &&
               utf8_validate(text(set.items[0], UserActivityField::name)).valid &&
               set.items[0].start_ms == 1700000000000ull &&
-              !user_activity_image_url(set.items[1], true, {url, sizeof(url)}, &webp),
+              !user_activity_image_url(set.items[1], true, {url, sizeof(url)}, &format),
           "activities: truncation, second timestamps, unknown types and unsafe proxy paths");
     check(decode(utf8_literal(R"({"status":"idle"})"), &set, &has) && !has && !set.count &&
               decode(utf8_literal(R"({"activities":null})"), &set, &has) && has && !set.count,
