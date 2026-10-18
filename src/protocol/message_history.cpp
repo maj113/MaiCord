@@ -44,6 +44,10 @@ MessageHistoryDecodeResult decode_failure(
     return MessageHistoryDecodeResult{{}, offset, error, message_error, scan_error, read_error};
 }
 
+template <typename T> Slice<T> remaining(Slice<T> slice, u32 used) noexcept {
+    return {slice.data ? slice.data + used : nullptr, slice.count - used};
+}
+
 bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
     auto* context = static_cast<PageContext*>(opaque);
     if (index >= kMessageHistoryMaximumMessages || index >= context->messages.count) {
@@ -52,91 +56,41 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
         return false;
     }
     GatewayMessageEvent message{};
-    const u32 content_remaining = context->content.count - context->transient_bytes;
-    char* const content_begin =
-        context->content.data ? context->content.data + context->transient_bytes : nullptr;
-    GatewayMessageNamedUser* const mention_begin =
-        context->mention_users.data ? context->mention_users.data + context->mention_user_count : nullptr;
-    const u32 mention_remaining = context->mention_users.count - context->mention_user_count;
+    const Slice<char> content = remaining(context->content, context->transient_bytes);
+    const Slice<GatewayMessageNamedUser> mentions = remaining(context->mention_users, context->mention_user_count);
+    const Slice<u64> member_roles = remaining(context->rich.member_roles, context->member_role_count);
     u64 mention_roles[kGatewayMessageMentionRoleMaximumIds]{};
-    u64* const member_role_begin = context->rich.member_roles.data
-                                       ? context->rich.member_roles.data + context->member_role_count
-                                       : nullptr;
-    const u32 member_role_remaining = context->rich.member_roles.count - context->member_role_count;
+    const auto& snapshot = context->rich.snapshot;
+    auto poll_answers = remaining(context->rich.poll.answers, context->poll_answer_count);
+    auto poll_counts = remaining(context->rich.poll.answer_counts, context->poll_count_count);
+    poll_answers.count = minimum<u32>(kGatewayMessagePollMaximumAnswers, poll_answers.count);
+    poll_counts.count = minimum<u32>(kGatewayMessagePollMaximumAnswers, poll_counts.count);
     const GatewayMessageRichScratch rich{
-        Slice<GatewayMessageReaction>{
-            context->rich.reactions.data ? context->rich.reactions.data + context->reaction_count : nullptr,
-            context->rich.reactions.count - context->reaction_count},
-        Slice<GatewayMessageAttachment>{context->rich.attachments.data
-                                            ? context->rich.attachments.data + context->attachment_count
-                                            : nullptr,
-                                        context->rich.attachments.count - context->attachment_count},
-        Slice<GatewayMessageEmbed>{
-            context->rich.embeds.data ? context->rich.embeds.data + context->embed_count : nullptr,
-            context->rich.embeds.count - context->embed_count},
-        Slice<GatewayMessageEmbedField>{context->rich.embed_fields.data
-                                            ? context->rich.embed_fields.data + context->embed_field_count
-                                            : nullptr,
-                                        context->rich.embed_fields.count - context->embed_field_count},
-        Slice<GatewayMessageSticker>{
-            context->rich.stickers.data ? context->rich.stickers.data + context->sticker_count : nullptr,
-            context->rich.stickers.count - context->sticker_count},
-        Slice<GatewayMessageComponent>{context->rich.components.data
-                                           ? context->rich.components.data + context->component_count
-                                           : nullptr,
-                                       context->rich.components.count - context->component_count},
-        GatewayMessageSnapshotScratch{
-            {context->rich.snapshot.attachments.data
-                 ? context->rich.snapshot.attachments.data + context->snapshot_attachment_count
-                 : nullptr,
-             context->rich.snapshot.attachments.count - context->snapshot_attachment_count},
-            {context->rich.snapshot.embeds.data
-                 ? context->rich.snapshot.embeds.data + context->snapshot_embed_count
-                 : nullptr,
-             context->rich.snapshot.embeds.count - context->snapshot_embed_count},
-            {context->rich.snapshot.embed_fields.data
-                 ? context->rich.snapshot.embed_fields.data + context->snapshot_embed_field_count
-                 : nullptr,
-             context->rich.snapshot.embed_fields.count - context->snapshot_embed_field_count},
-            {context->rich.snapshot.stickers.data
-                 ? context->rich.snapshot.stickers.data + context->snapshot_sticker_count
-                 : nullptr,
-             context->rich.snapshot.stickers.count - context->snapshot_sticker_count},
-            {context->rich.snapshot.components.data
-                 ? context->rich.snapshot.components.data + context->snapshot_component_count
-                 : nullptr,
-             context->rich.snapshot.components.count - context->snapshot_component_count},
-            {context->rich.snapshot.mention_users.data
-                 ? context->rich.snapshot.mention_users.data + context->snapshot_mention_count
-                 : nullptr,
-             context->rich.snapshot.mention_users.count - context->snapshot_mention_count}},
-        GatewayMessagePollScratch{
-            {context->rich.poll.answers.data ? context->rich.poll.answers.data + context->poll_answer_count
-                                             : nullptr,
-             minimum<u32>(kGatewayMessagePollMaximumAnswers,
-                          context->rich.poll.answers.count - context->poll_answer_count)},
-            {context->rich.poll.answer_counts.data
-                 ? context->rich.poll.answer_counts.data + context->poll_count_count
-                 : nullptr,
-             minimum<u32>(kGatewayMessagePollMaximumAnswers,
-                          context->rich.poll.answer_counts.count - context->poll_count_count)}}};
+        remaining(context->rich.reactions, context->reaction_count),
+        remaining(context->rich.attachments, context->attachment_count),
+        remaining(context->rich.embeds, context->embed_count),
+        remaining(context->rich.embed_fields, context->embed_field_count),
+        remaining(context->rich.stickers, context->sticker_count),
+        remaining(context->rich.components, context->component_count),
+        GatewayMessageSnapshotScratch{remaining(snapshot.attachments, context->snapshot_attachment_count),
+                                      remaining(snapshot.embeds, context->snapshot_embed_count),
+                                      remaining(snapshot.embed_fields, context->snapshot_embed_field_count),
+                                      remaining(snapshot.stickers, context->snapshot_sticker_count),
+                                      remaining(snapshot.components, context->snapshot_component_count),
+                                      remaining(snapshot.mention_users, context->snapshot_mention_count)},
+        GatewayMessagePollScratch{poll_answers, poll_counts}};
     GatewayEventDecodeResult decoded =
         context->capture_rich
             ? gateway_decode_message_create(
-                  value, context->message_structurals, context->maximum_depth,
-                  Slice<char>{content_begin, content_remaining},
-                  Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds},
-                  Slice<u64>{member_role_begin, member_role_remaining},
-                  Slice<GatewayMessageNamedUser>{mention_begin, mention_remaining}, rich, 0, &message)
+                  value, context->message_structurals, context->maximum_depth, content,
+                  Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, member_roles, mentions, rich, 0,
+                  &message)
             : (context->mention_users.data
                    ? gateway_decode_message_create(
-                         value, context->message_structurals, context->maximum_depth,
-                         Slice<char>{content_begin, content_remaining},
-                         Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds},
-                         Slice<GatewayMessageNamedUser>{mention_begin, mention_remaining}, 0, &message)
+                         value, context->message_structurals, context->maximum_depth, content,
+                         Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &message)
                    : gateway_decode_message_create(
-                         value, context->message_structurals, context->maximum_depth,
-                         Slice<char>{content_begin, content_remaining}, &message));
+                         value, context->message_structurals, context->maximum_depth, content, &message));
     if (!decoded.ok() && context->capture_rich) {
         // Rich decoding (cards, embeds, threads, polls, ...) is presentation
         // detail: an unexpected nested shape degrades only that message to its
@@ -147,11 +101,9 @@ bool visit_page_message(void* opaque, u32 index, JsonValue value) noexcept {
             context->mention_users.data
                 ? gateway_decode_message_create(
                       value, context->message_structurals, context->maximum_depth,
-                      Slice<char>{content_begin, content_remaining},
-                      Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds},
-                      Slice<GatewayMessageNamedUser>{mention_begin, mention_remaining}, 0, &core)
+                      content, Slice<u64>{mention_roles, kGatewayMessageMentionRoleMaximumIds}, mentions, 0, &core)
                 : gateway_decode_message_create(value, context->message_structurals, context->maximum_depth,
-                                                Slice<char>{content_begin, content_remaining}, &core);
+                                                content, &core);
         if (fallback.ok()) {
             core.fields &= ~kMessageHistoryRichFieldMask;
             core.forwarding_features &= static_cast<u8>(~gateway_message_forwarding_poll);

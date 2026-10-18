@@ -6,8 +6,8 @@
 
 namespace maicord::protocol_detail {
 
-// Emits a JSON command twice: without output to measure it, then into the
-// output. `at` counts the bytes either way.
+// Emits a command twice: without output to measure it, then into the output.
+// `at` counts the bytes either way.
 struct JsonCommandWriter {
     u8* output;
     u64 at;
@@ -19,6 +19,9 @@ struct JsonCommandWriter {
         if (output)
             copy_bytes(output + at, value, bytes);
         at += bytes;
+    }
+    void bytes(ConstSlice<u8> value) noexcept {
+        raw(reinterpret_cast<const char*>(value.data), value.count);
     }
     void number(u64 value) noexcept {
         if (output)

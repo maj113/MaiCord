@@ -1,5 +1,6 @@
 #include "maicord/model/chat_state.hpp"
 
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -12,9 +13,7 @@ bool valid_emoji_name(Utf8View name) noexcept {
         return false;
     }
     for (u32 index = 0; index < name.bytes; ++index) {
-        const u8 value = static_cast<u8>(name.data[index]);
-        if (!((value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') ||
-              (value >= '0' && value <= '9') || value == '_')) {
+        if (!ascii_is_alnum(name.data[index]) && name.data[index] != '_') {
             return false;
         }
     }
@@ -161,12 +160,6 @@ ChatStateStoreError chat_state_store_guild_emoji_admission(const ChatStateStore&
     return ChatStateStoreError::none;
 }
 
-bool chat_state_store_can_replace_guild_emojis(const ChatStateStore& store, u64 guild_id,
-                                                  u32 emoji_count, u32 role_count) noexcept {
-    return chat_state_store_guild_emoji_admission(store, guild_id, emoji_count, role_count) ==
-           ChatStateStoreError::none;
-}
-
 void chat_state_store_remove_guild_emojis(ChatStateStore* store, u64 guild_id) noexcept {
     if (!store || !store->emojis || !store->emoji_roles || guild_id == 0) {
         return;
@@ -229,7 +222,8 @@ bool chat_state_store_replace_guild_emojis(ChatStateStore* store, u64 guild_id,
             }
         }
     }
-    if (!chat_state_store_can_replace_guild_emojis(*store, guild_id, emojis.count, role_count)) {
+    if (chat_state_store_guild_emoji_admission(*store, guild_id, emojis.count, role_count) !=
+        ChatStateStoreError::none) {
         ++store->rejected;
         return false;
     }

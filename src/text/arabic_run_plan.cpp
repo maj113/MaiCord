@@ -1,7 +1,7 @@
 #include "run_profile.hpp"
 #include "maicord/text/arabic_run_plan.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
 // The fallback flag occupies existing slice padding; retained plan size is unchanged.
@@ -9,8 +9,6 @@ struct StoredSteps {const SfntLookupStep* data;u32 count;bool generic=false;};
 static_assert(sizeof(StoredSteps)==sizeof(ConstSlice<SfntLookupStep>));
 struct PlanData {SfntShapePlan shape;StoredSteps steps[2];const SfntCmap* cmap;};
 NativeFontResult failure(SfntStatus status) noexcept {return {NativeFontError::font,status,0};}
-template<class T> Slice<T> take(Arena& arena,u32 count) noexcept {return {count?arena_allocate<T>(&arena,count):nullptr,count};}
-template<class T> bool filled(Slice<T> values) noexcept {return !values.count || values.data;}
 NativeArabicPlanSlot* slot(const NativeArabicPlanStore& store,NativeArabicPlanHandle h) noexcept {
     if(!store.runs || !store.slots.data || !h.slot || h.slot>store.slots.count || !h.generation)return nullptr;
     auto& value=store.slots[h.slot-1];return value.references && value.generation==h.generation?&value:nullptr;
@@ -58,7 +56,7 @@ NativeFontResult native_arabic_plan_acquire(NativeArabicPlanStore* store,NativeR
         if(value.run.slot==run.slot && value.run.generation==run.generation){if(value.references==0xffffffffu)return {NativeFontError::capacity,SfntStatus::resource_limit,0};++value.references;*output={i+1,value.generation};return {NativeFontError::none,SfntStatus::ok,0};}
     }
     if(available==store->slots.count)return {NativeFontError::capacity,SfntStatus::resource_limit,0};
-    SYSTEM_INFO info{};GetSystemInfo(&info);const usize page=info.dwPageSize;if(!page || (page&(page-1)))return failure(SfntStatus::invalid_input);limit&=~(page-1);
+    Win32SystemInfo info{};GetSystemInfo(info.native());const usize page=info.dwPageSize;if(!page || (page&(page-1)))return failure(SfntStatus::invalid_input);limit&=~(page-1);
     if(limit<page || limit<sizeof(PlanData))return failure(SfntStatus::resource_limit);
     Arena state{};struct Cleanup {Arena& state;~Cleanup() noexcept {arena_release(&state);}} cleanup{state};
     if(!arena_initialize(&state,limit,0,page))return {NativeFontError::capacity,SfntStatus::resource_limit,GetLastError()};

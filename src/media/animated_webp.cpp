@@ -394,7 +394,7 @@ AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
         }
         cursor = end;
     }
-    if (!image_payload.data || !image_seen || cursor != payload_end ||
+    if (!image_seen || cursor != payload_end ||
         (result.frame.codec == AnimatedWebpCodec::vp8_lossy && result.frame.has_alpha != alpha_seen)) {
         result.error = AnimatedWebpError::chunk;
         return result;
@@ -414,7 +414,7 @@ AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
                                : AnimatedWebpError::frame_decode;
             return result;
         }
-    } else if (result.frame.codec == AnimatedWebpCodec::vp8_lossy) {
+    } else {
         if (!lossy_workspace || !vp8_frame || !vp8_header || (result.frame.has_alpha && !vp8l_workspace)) {
             result.error = AnimatedWebpError::invalid_input;
             return result;
@@ -436,9 +436,6 @@ AnimatedWebpDecodeResult animated_webp_decode_parsed_frame(
         result.frame_image.height = result.frame.height;
         result.frame_image.codec = WebpCodec::vp8_lossy;
         result.frame_image.has_alpha = result.frame.has_alpha;
-    } else {
-        result.error = AnimatedWebpError::frame_decode;
-        return result;
     }
     const u64 source_us = static_cast<u64>(result.frame.duration_ms) * 1'000;
     result.duration_us = source_us < kAnimatedWebpFrameFloorUs ? kAnimatedWebpFrameFloorUs : source_us;

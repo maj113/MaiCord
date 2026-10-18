@@ -1,6 +1,6 @@
 #include "maicord/platform/staged_file.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord { namespace {
 bool same_path(const wchar_t* a, const wchar_t* b) noexcept {
     return CompareStringOrdinal(a, -1, b, -1, TRUE) == CSTR_EQUAL;

@@ -80,8 +80,7 @@ void vui(H264Bits* bits, H264Sps* sps) noexcept {
         bits->read(3);
         sps->full_range = bits->bit();
         if (bits->bit()) {
-            sps->primaries = static_cast<u8>(bits->read(8));
-            sps->transfer = static_cast<u8>(bits->read(8));
+            bits->read(16); // colour_primaries, transfer_characteristics
             sps->matrix = static_cast<u8>(bits->read(8));
         }
     }
@@ -89,7 +88,7 @@ void vui(H264Bits* bits, H264Sps* sps) noexcept {
     if (bits->bit()) {
         sps->units_in_tick = bits->read(32);
         sps->time_scale = bits->read(32);
-        sps->fixed_rate = bits->bit();
+        bits->bit(); // fixed_frame_rate_flag
         if (!sps->units_in_tick || !sps->time_scale) bits->error = H264Error::malformed;
     }
     const bool nal_hrd = hrd(bits), vcl_hrd = hrd(bits);
@@ -132,7 +131,7 @@ H264Error h264_parse_sps(ConstSlice<u8> nal, H264Sps* output) noexcept {
     H264Sps sps{};
     memset(&sps.scaling, 16, sizeof(sps.scaling));
     sps.sar_width = sps.sar_height = 1;
-    sps.primaries = sps.transfer = sps.matrix = 2;
+    sps.matrix = 2;
     sps.max_reorder = sps.max_buffering = 16; // Unspecified, not a derived DPB limit.
     sps.profile = static_cast<u8>(bits.read(8));
     sps.constraints = static_cast<u8>(bits.read(8));

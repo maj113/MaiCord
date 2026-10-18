@@ -45,7 +45,7 @@ struct MediaAudioConfig {
 };
 struct MediaAudioStatus {
     u64 desired_epoch{},observed_epoch{},written_frames{},submitted_frames{},consumed_frames{};
-    i64 presentation_time_100ns{};u64 clock_position{},clock_frequency{},clock_qpc_100ns{};
+    i64 presentation_time_100ns{};u64 clock_frequency{};
     u32 free_frames{},owned_handles{},native_error{},wake_error{};MediaAudioError error{};
     float desired_volume{},applied_volume{};bool volume_valid{};
     bool playing{},paused{},buffering{},ended{},stream_open{},worker_started{},worker_exited{},clock_valid{};

@@ -142,17 +142,16 @@ UserAuthResetWriteResult user_auth_measure_reset_password_request(const UserAuth
 }
 UserAuthResetWriteResult user_auth_write_reset_password_request(const UserAuthResetPasswordRequest& request,
     Slice<u8> output) noexcept {
-    const UserAuthResetPasswordRequest input = request;
-    const auto measured = user_auth_measure_reset_password_request(input);
+    const auto measured = user_auth_measure_reset_password_request(request);
     if (!measured.ok()) return measured;
-    if (!valid_destination(output, input.token, input.password)) return {0, 0, UserAuthWriteError::invalid_input};
+    if (!valid_destination(output, request.token, request.password)) return {0, 0, UserAuthWriteError::invalid_input};
     if (measured.bytes > output.count) return {measured.bytes, measured.token_prefix_bytes, UserAuthWriteError::output_too_small};
     EncodedString token{};
-    encoded_string(input.token, kLoginResetMaximumTokenBytes, &token);
+    encoded_string(request.token, kLoginResetMaximumTokenBytes, &token);
     u32 offset = 0;
     write_literal(output.data, &offset, "{\"token\":");
     write_encoded(output.data, &offset, token);
-    user_auth_write_reset_password_tail(input.password, {output.data + offset, output.count - offset});
+    user_auth_write_reset_password_tail(request.password, {output.data + offset, output.count - offset});
     return measured;
 }
 UserAuthWriteResult user_auth_measure_reset_mfa_suffix(Utf8View code, Utf8View ticket, UserAuthMfaType type) noexcept {
@@ -191,21 +190,11 @@ UserAuthWriteResult user_auth_write_reset_mfa_suffix(Utf8View code, Utf8View tic
     return {offset, UserAuthWriteError::none};
 }
 UserAuthWriteResult login_verification_write_request(Utf8View token, Slice<u8> output) noexcept {
-    using namespace protocol_detail;
-    if (!token.data || !token.bytes || !output.data ||
-        !byte_range_valid({reinterpret_cast<const u8*>(token.data), token.bytes}) ||
-        !byte_range_valid({output.data, output.count}) ||
-        byte_ranges_overlap({reinterpret_cast<const u8*>(token.data), token.bytes},
-                            {output.data, output.count})) {
-        return {0, UserAuthWriteError::invalid_input};
-    }
-    if (token.bytes > kLoginVerificationMaximumTokenBytes) {
-        return {0, UserAuthWriteError::value_too_large};
-    }
+    if (!valid_view(token) || !valid_destination(output, token)) return {0, UserAuthWriteError::invalid_input};
+    if (token.bytes > kLoginVerificationMaximumTokenBytes) return {0, UserAuthWriteError::value_too_large};
     EncodedString encoded{};
-    if (!encoded_string(token, kLoginVerificationMaximumTokenBytes, &encoded)) {
+    if (!encoded_string(token, kLoginVerificationMaximumTokenBytes, &encoded))
         return {0, UserAuthWriteError::invalid_utf8};
-    }
     constexpr u32 framing = sizeof("{\"token\":}") - 1;
     const u32 required = framing + encoded.bytes;
     if (required > output.count) return {required, UserAuthWriteError::output_too_small};

@@ -6,9 +6,6 @@ struct Point {double x,y;};
 struct IntegerPoint {i64 v[2];};
 Point point(const SfntOutlinePoint& p) noexcept {return {static_cast<double>(p.x)*2,static_cast<double>(p.y)*2};}
 Point middle(Point a,Point b) noexcept {return {(a.x+b.x)*.5,(a.y+b.y)*.5};}
-double min(double a,double b) noexcept {return a<b?a:b;}
-double max(double a,double b) noexcept {return a>b?a:b;}
-i64 absolute(i64 n) noexcept {return n<0?-n:n;}
 i64 floor_ratio(i64 n,i64 d) noexcept {return n<0?-((-n+d-1)/d):n/d;}
 bool charge(u32& work) noexcept {if(!work)return false;--work;return true;}
 IntegerPoint integer_point(const SfntOutlinePoint& p) noexcept {return {{static_cast<i64>(p.x)*2,static_cast<i64>(p.y)*2}};}
@@ -21,7 +18,7 @@ IntegerPoint extremum(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,u32 
     const i64 other=d-n,denominator=d*d;IntegerPoint result{};
     for(u32 j=0;j<2;++j){const i64 value=a.v[j]*other*other+2*b.v[j]*n*other+z.v[j]*n*n;
         if(j==axis)result.v[j]=direction&1?-floor_ratio(-value,denominator):floor_ratio(value,denominator);
-        else result.v[j]=(absolute(value)/denominator+1)*(value<0?-1:1);
+        else result.v[j]=(absolute_value<i64>(value)/denominator+1)*(value<0?-1:1);
     }return result;
 }
 bool local_turn(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,u32 index,u32& work,u32* turn) noexcept {
@@ -38,20 +35,20 @@ struct Ray {
         p={static_cast<double>(probe.v[0]),static_cast<double>(probe.v[1])};Point q{};
         if(direction<2){p.x+=direction==0?1:-1;q={direction==0?-32768.0:32767.0,p.y-1};}
         else{p.y+=direction==2?1:-1;q={p.x-1,direction==2?-32768.0:32767.0};}
-        d={q.x-p.x,q.y-p.y};length=d.x*d.x+d.y*d.y;lx=min(p.x,q.x);hx=max(p.x,q.x);ly=min(p.y,q.y);hy=max(p.y,q.y);
+        d={q.x-p.x,q.y-p.y};length=d.x*d.x+d.y*d.y;lx=minimum<double>(p.x,q.x);hx=maximum<double>(p.x,q.x);ly=minimum<double>(p.y,q.y);hy=maximum<double>(p.y,q.y);
     }
     double side(Point a) const noexcept {return d.x*(a.y-p.y)-d.y*(a.x-p.x);}
     // A probe starting on another contour does not cross that contour there.
     bool contains_projection(Point a) const noexcept {const double v=(a.x-p.x)*d.x+(a.y-p.y)*d.y;return v>0&&v<=length;}
-    bool excluded(Point a,Point b,Point c) const noexcept {return max(max(a.x,b.x),c.x)<lx||min(min(a.x,b.x),c.x)>hx||max(max(a.y,b.y),c.y)<ly||min(min(a.y,b.y),c.y)>hy;}
+    bool excluded(Point a,Point b,Point c) const noexcept {return maximum<double>(maximum<double>(a.x,b.x),c.x)<lx||minimum<double>(minimum<double>(a.x,b.x),c.x)>hx||maximum<double>(maximum<double>(a.y,b.y),c.y)<ly||minimum<double>(minimum<double>(a.y,b.y),c.y)>hy;}
     u32 line(Point a,Point b) const noexcept {
         if(excluded(a,b,b))return 0;const double sa=side(a),sb=side(b);if(!((sa<=0&&sb>0)||(sb<=0&&sa>0)))return 0;
         // Windows rounds the edge parameter to 16.16 before testing the ray's
         // dominant coordinate; exact geometric intersection alone gives different
         // answers when a probe starts on a shared boundary.
-        const i64 numerator=absolute(static_cast<i64>(sa))*65536,denominator=absolute(static_cast<i64>(sb-sa));
+        const i64 numerator=absolute_value<i64>(static_cast<i64>(sa))*65536,denominator=absolute_value<i64>(static_cast<i64>(sb-sa));
         i64 t=(numerator+denominator/2)/denominator;if(!t)t=1;
-        const bool horizontal=absolute(static_cast<i64>(d.x))>absolute(static_cast<i64>(d.y));
+        const bool horizontal=absolute_value<i64>(static_cast<i64>(d.x))>absolute_value<i64>(static_cast<i64>(d.y));
         const i64 offset=static_cast<i64>(horizontal?a.x-p.x:a.y-p.y)*65536+static_cast<i64>(horizontal?b.x-a.x:b.y-a.y)*t;
         const i64 extent=static_cast<i64>(horizontal?d.x:d.y)*65536;
         return extent>0?(offset>0&&offset<=extent):(offset<0&&offset>=extent);
@@ -73,7 +70,7 @@ bool crossings(ConstSlice<SfntOutlinePoint> points,u32 first,u32 end,const Ray& 
     if(end-first<2)return true;
     // Reject whole contours before visiting their curves. No temporary paths.
     Point low=point(points[first]),high=low;
-    for(u32 i=first+1;i<=end;++i){if(!charge(work))return false;const auto p=point(points[i]);low={min(low.x,p.x),min(low.y,p.y)};high={max(high.x,p.x),max(high.y,p.y)};}
+    for(u32 i=first+1;i<=end;++i){if(!charge(work))return false;const auto p=point(points[i]);low={minimum<double>(low.x,p.x),minimum<double>(low.y,p.y)};high={maximum<double>(high.x,p.x),maximum<double>(high.y,p.y)};}
     if(high.x<ray.lx||low.x>ray.hx||high.y<ray.ly||low.y>ray.hy)return true;
     const bool first_on=(points[first].flags&1)!=0,last_on=(points[end].flags&1)!=0;
     const Point start=first_on?point(points[first]):last_on?point(points[end]):middle(point(points[first]),point(points[end]));
@@ -106,7 +103,7 @@ SfntStatus classify(ConstSlice<SfntOutlinePoint> points,ConstSlice<u32> ends,Sli
             }
         }
         const auto left=integer_point(points[indices[0]]);i64 distance[4]{};
-        for(u32 d=1;d<4;++d){const auto p=integer_point(points[indices[d]]);distance[d]=absolute(p.v[0]-left.v[0])+absolute(p.v[1]-left.v[1]);}
+        for(u32 d=1;d<4;++d){const auto p=integer_point(points[indices[d]]);distance[d]=absolute_value<i64>(p.v[0]-left.v[0])+absolute_value<i64>(p.v[1]-left.v[1]);}
         const u32 second=distance[2]>distance[3]?2:3,other=second==2?3:2,third=distance[other]>distance[1]?other:1,order[]{0,second,third};u8 votes[3]{};
         for(u32 k=0;k<3;++k){if(!charge(work))return SfntStatus::resource_limit;const u32 d=order[k];const Ray ray(extremum(points,first,end,indices[d],d),d);u32 count=0,begin=origin,turn=0;
             for(u32 j=0;j<ends.count;++j){if(!charge(work))return SfntStatus::resource_limit;if(j!=c&&!crossings(points,begin,ends[j],ray,work,&count))return SfntStatus::resource_limit;begin=ends[j]+1;}

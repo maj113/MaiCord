@@ -31,7 +31,7 @@ struct VoiceHeartbeatSend {
 // may survive a resume, but outstanding heartbeat ACKs never do.
 struct VoiceHeartbeat {
     u64 generation, hello_deadline_ms, next_send_ms, ack_deadline_ms;
-    u64 last_nonce, first_unacknowledged_nonce, last_send_ms, last_ack_ms, round_trip_ms;
+    u64 last_nonce, first_unacknowledged_nonce, last_send_ms, round_trip_ms;
     u32 interval_ms;
     u16 sequence;
     VoiceHeartbeatPhase phase;

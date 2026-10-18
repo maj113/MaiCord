@@ -1,24 +1,20 @@
 #include "maicord/protocol/guild_assets.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/decimal.hpp"
-#include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/rest.hpp"
+#include "json_helpers.hpp"
 #include "json_write.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
 
+using namespace protocol_detail;
 using Op = GuildAssetOperation;
-
-bool view_valid(Utf8View text) noexcept {
-    return byte_range_valid({reinterpret_cast<const u8*>(text.data), text.bytes});
-}
 
 // Single-line UTF-8 with a codepoint range and no controls.
 bool line_valid(Utf8View text, u32 minimum_codepoints, u32 maximum_codepoints) noexcept {
@@ -84,7 +80,7 @@ bool reason_valid(const GuildAssetRequest& request) noexcept {
         return false;
     u8 scratch[kRestAuditReasonMaximumEncodedBytes];
     const bool ok = rest_encode_audit_reason(request.reason, {scratch, sizeof(scratch)}).ok;
-    SecureZeroMemory(scratch, sizeof(scratch));
+    secure_clear_bytes(scratch, sizeof(scratch));
     return ok;
 }
 
@@ -146,16 +142,21 @@ struct Sink {
     }
 };
 
-template <usize N> void image_object(Sink& s, const char (&key)[N], GuildPreparedImage image) noexcept {
-    s.literal("{\"");
-    s.literal(key);
-    s.literal("\":");
+// The image as a quoted data URI, or null when there is none.
+void image_value(Sink& s, GuildPreparedImage image) noexcept {
     if (image.bytes.count) {
         s.literal("\"");
         s.data_uri(image);
         s.literal("\"");
     } else
         s.literal("null");
+}
+
+template <usize N> void image_object(Sink& s, const char (&key)[N], GuildPreparedImage image) noexcept {
+    s.literal("{\"");
+    s.literal(key);
+    s.literal("\":");
+    image_value(s, image);
     s.literal("}");
 }
 
@@ -241,12 +242,7 @@ void serialize(const GuildAssetRequest& r, GuildPreparedImage image, ConstSlice<
         s.literal("{\"name\":");
         s.json_string(r.name);
         s.literal(",\"icon\":");
-        if (image.bytes.count) {
-            s.literal("\"");
-            s.data_uri(image);
-            s.literal("\"");
-        } else
-            s.literal("null");
+        image_value(s, image);
         s.literal(",\"channels\":[],\"system_channel_id\":null,\"guild_template_code\":\"");
         s.literal(kGuildCreateTemplateCode);
         s.literal("\"}");
@@ -282,21 +278,6 @@ bool contains(ConstSlice<u8> haystack, ConstSlice<u8> needle) noexcept {
 
 constexpr u32 kDepth = 32;
 
-template <typename Size> bool decode_text(JsonValue value, char* output, u32 capacity, Size* bytes) noexcept {
-    if (value.kind == JsonValueKind::null_value) {
-        *bytes = 0;
-        return true;
-    }
-    JsonString encoded{};
-    if (!json_value_as_string(value, &encoded))
-        return false;
-    const auto decoded = json_string_decode_utf8(encoded, {output, capacity});
-    if (!decoded.ok() || !utf8_validate({output, decoded.bytes}).valid)
-        return false;
-    *bytes = static_cast<Size>(decoded.bytes);
-    return true;
-}
-
 constexpr const char* kStickerFields[] = {"id", "name", "tags", "description", "format_type", "available"};
 constexpr u32 kStickerFieldCount = sizeof(kStickerFields) / sizeof(kStickerFields[0]);
 
@@ -306,18 +287,11 @@ struct StickerParse {
     GuildAssetError error;
 };
 
-bool field_name(JsonString name, const char* expected) noexcept {
-    u32 bytes = 0;
-    while (expected[bytes])
-        ++bytes;
-    return json_string_equals_ascii(name, {expected, bytes});
-}
-
 bool visit_sticker(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& p = *static_cast<StickerParse*>(opaque);
     u32 field = kStickerFieldCount;
     for (u32 i = 0; i < kStickerFieldCount && field == kStickerFieldCount; ++i)
-        if (field_name(name, kStickerFields[i]))
+        if (name_is(name, kStickerFields[i]))
             field = i;
     if (field == kStickerFieldCount)
         return true;
@@ -560,7 +534,7 @@ GuildAssetResult guild_asset_write_body(const GuildAssetRequest& r, GuildPrepare
     Sink s{output.data, output.count, 0, true};
     serialize(r, image, boundary, s);
     if (!s.ok) {
-        SecureZeroMemory(output.data, minimum(s.used, output.count));
+        secure_clear_bytes(output.data, minimum(s.used, output.count));
         return {0, 0, GuildAssetError::capacity};
     }
     return {s.used, 0, GuildAssetError::none};
@@ -628,7 +602,7 @@ u32 guild_image_write_data_uri(GuildImageKind kind, ConstSlice<u8> image, Slice<
     const auto encoded =
         base64_encode(image, {reinterpret_cast<char*>(output.data + s.used), output.count - s.used});
     if (!encoded.ok() || s.used + encoded.bytes != needed) {
-        SecureZeroMemory(output.data, needed);
+        secure_clear_bytes(output.data, needed);
         return 0;
     }
     return needed;
@@ -654,36 +628,30 @@ bool guild_sticker_tags_valid(Utf8View tags) noexcept {
 }
 
 bool guild_sticker_description_valid(Utf8View description) noexcept {
-    return !description.bytes ? view_valid(description)
-                              : line_valid(description, kGuildStickerDescriptionMinimum,
-                                           kGuildStickerDescriptionMaximum);
+    return !description.bytes ||
+           line_valid(description, kGuildStickerDescriptionMinimum, kGuildStickerDescriptionMaximum);
 }
 
 GuildAssetResult guild_asset_decode_stickers(Utf8View body, Slice<u32> scratch,
                                              Slice<GuildStickerRecord> output) noexcept {
-    if ((!output.data && output.count) || !view_valid(body) || !body.bytes || !scratch.data || !scratch.count ||
-        !utf8_validate(body).valid)
+    if (!output.data && output.count)
         return {0, 0, GuildAssetError::input};
-    const auto scanned = json_scan_structurals_avx1(body, scratch);
-    if (!scanned.ok())
-        return {0, 0, scanned.error == JsonScanError::output_overflow ? GuildAssetError::capacity
-                                                                      : GuildAssetError::json};
-    const JsonIndexedDocument document{body, {scratch.data, scanned.count}};
-    StickerList list{&document, output, 0, GuildAssetError::none};
-    const auto read = json_visit_root_array(body, document.structurals, kDepth, visit_sticker_item, &list);
+    const auto s = scan_json<GuildAssetError>(body, scratch);
+    if (s.error != GuildAssetError::none)
+        return {0, 0, s.error};
+    StickerList list{&s.document, output, 0, GuildAssetError::none};
+    const auto read = json_visit_root_array(body, s.document.structurals, kDepth, visit_sticker_item, &list);
     if (!read.ok())
         return {0, 0, list.error != GuildAssetError::none ? list.error : GuildAssetError::json};
     return {body.bytes, list.count, GuildAssetError::none};
 }
 
 u64 guild_asset_error_code(Utf8View body, Slice<u32> scratch) noexcept {
-    if (!view_valid(body) || !body.bytes || !scratch.data || !scratch.count || !utf8_validate(body).valid)
-        return 0;
-    const auto scanned = json_scan_structurals_avx1(body, scratch);
-    if (!scanned.ok())
+    const auto s = scan_json<GuildAssetError>(body, scratch);
+    if (s.error != GuildAssetError::none)
         return 0;
     CodeParse parse{};
-    if (!json_visit_root_object(body, {scratch.data, scanned.count}, kDepth, visit_code, &parse).ok())
+    if (!json_visit_root_object(body, s.document.structurals, kDepth, visit_code, &parse).ok())
         return 0;
     return parse.code;
 }

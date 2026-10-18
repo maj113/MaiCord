@@ -1,16 +1,13 @@
 #include "json_write.hpp"
+#include "maicord/core/ascii.hpp"
 
 namespace maicord::protocol_detail {
 namespace {
 
-u8 hexadecimal(u8 value) noexcept {
-    return value < 10 ? static_cast<u8>('0' + value) : static_cast<u8>('A' + value - 10);
-}
-
 bool measure_encoded_string(Utf8View source, bool require_nonempty, u32 maximum_bytes,
                             EncodedString* output) noexcept {
     u32 bytes = 0;
-    if (!output || (require_nonempty && source.bytes == 0) || source.bytes > maximum_bytes ||
+    if ((require_nonempty && source.bytes == 0) || source.bytes > maximum_bytes ||
         !utf8_validate(source).valid || !measure_json_string(source, &bytes)) {
         return false;
     }
@@ -21,7 +18,7 @@ bool measure_encoded_string(Utf8View source, bool require_nonempty, u32 maximum_
 } // namespace
 
 bool measure_json_string(Utf8View source, u32* encoded_bytes) noexcept {
-    if (!encoded_bytes || (!source.data && source.bytes != 0)) {
+    if (!source.data && source.bytes != 0) {
         return false;
     }
     u64 bytes = 2;
@@ -60,8 +57,8 @@ void write_json_string(u8* output, Utf8View source) noexcept {
             output[offset++] = 'u';
             output[offset++] = '0';
             output[offset++] = '0';
-            output[offset++] = hexadecimal(value >> 4);
-            output[offset++] = hexadecimal(value & 0x0F);
+            output[offset++] = static_cast<u8>(ascii_hex_digit_upper(value >> 4));
+            output[offset++] = static_cast<u8>(ascii_hex_digit_upper(value));
         } else {
             output[offset++] = value;
         }

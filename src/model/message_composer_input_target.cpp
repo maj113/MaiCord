@@ -1,7 +1,6 @@
 #include "maicord/model/message_composer.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
 namespace maicord {
 namespace {
 MessageComposer* composer(const TextInputTarget& t) noexcept { return static_cast<MessageComposer*>(t.context); }
@@ -60,7 +59,7 @@ TextInputResult replace(const TextInputTarget& t, u32 a, u32 b, ConstSlice<u16> 
         copy_bytes(converted + bytes, encoded, count); bytes += count;
     }
     if (converted_result == TextInputResult::unchanged) converted_result = result(message_composer_replace_range(c, first, last, {converted, bytes}));
-    SecureZeroMemory(converted, sizeof(converted));
+    secure_clear_bytes(converted, sizeof(converted));
     if (converted_result == TextInputResult::changed || converted_result == TextInputResult::unchanged) *change = {a, b, a + input.count};
     return converted_result;
 }

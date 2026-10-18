@@ -15,13 +15,6 @@ struct PendingControl {
     bool transparent;
 };
 
-// Where a frame's LZW sub-blocks start and end in the encoded file.
-struct GifBitReader {
-    const u8* bytes;
-    u32 cursor;
-    u32 end;
-};
-
 bool bytes_equal(const u8* bytes, const char* expected, u32 count) noexcept {
     for (u32 index = 0; index < count; ++index) {
         if (bytes[index] != static_cast<u8>(expected[index])) {
@@ -135,9 +128,9 @@ __forceinline void copy_string(u8* output, u32 position, u32 source, u32 length,
     }
 }
 
-GifError decode_lzw_linear(GifBitReader start, const GifFrame& frame, u32 palette_count, Slice<u8> indices,
+GifError decode_lzw_linear(const u8* encoded, const GifFrame& frame, u32 palette_count, Slice<u8> indices,
                            u32 pixels) noexcept {
-    GifFastReader reader{start.bytes, start.cursor, start.end, 0, 0, 0, false};
+    GifFastReader reader{encoded, frame.data_offset, frame.data_end, 0, 0, 0, false};
     u32 positions[kGifLzwDictionaryCapacity];
     u16 lengths[kGifLzwDictionaryCapacity];
     const u32 clear_code = 1u << frame.minimum_code_size;
@@ -179,7 +172,7 @@ GifError decode_lzw_linear(GifBitReader start, const GifFrame& frame, u32 palett
                 return GifError::lzw_invalid_code;
             }
             output[output_count] = static_cast<u8>(code);
-                old_position = output_count++;
+            old_position = output_count++;
             old_length = 1;
             have_old = true;
             continue;
@@ -255,7 +248,7 @@ void deinterlace_rows(u8* indices, u32 width, u32 height) noexcept {
 }
 
 bool read_palette(ConstSlice<u8> encoded, u32 offset, u32 count, GifPalette* palette) noexcept {
-    if (!palette || !palette_bounds(encoded, offset, count)) {
+    if (!palette_bounds(encoded, offset, count)) {
         return false;
     }
     *palette = GifPalette{};
@@ -506,11 +499,6 @@ GifParseResult gif_parse(ConstSlice<u8> encoded, GifImage* image, GifWorkspace* 
     return result;
 }
 
-u64 gif_frame_duration_us(const GifFrame& frame) noexcept {
-    const u64 source = static_cast<u64>(frame.delay_cs) * 10'000ull;
-    return source <= kGifShortFrameThresholdUs ? kGifShortFrameReplacementUs : source;
-}
-
 GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& image, u32 frame_index,
                                         GifWorkspace* workspace, Slice<u8> indices) noexcept {
     GifDecodeResult result{};
@@ -523,7 +511,8 @@ GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& 
     }
     const GifFrame frame = image.frames[frame_index];
     result.frame = frame;
-    result.duration_us = gif_frame_duration_us(frame);
+    const u64 delay_us = static_cast<u64>(frame.delay_cs) * 10'000ull;
+    result.duration_us = delay_us <= kGifShortFrameThresholdUs ? kGifShortFrameReplacementUs : delay_us;
     const u32 pixels = frame.width * frame.height;
     result.pixels = pixels;
     if (frame.width == 0 || frame.height == 0 || frame.width > kGifDimensionMaximum ||
@@ -548,8 +537,7 @@ GifDecodeResult gif_decode_parsed_frame(ConstSlice<u8> encoded, const GifImage& 
         return decode_fail(result, GifError::image_data);
     }
 
-    const GifBitReader reader{encoded.data, frame.data_offset, frame.data_end};
-    const GifError error = decode_lzw_linear(reader, frame, result.palette.count, indices, pixels);
+    const GifError error = decode_lzw_linear(encoded.data, frame, result.palette.count, indices, pixels);
     if (error != GifError::none) {
         return decode_fail(result, error);
     }

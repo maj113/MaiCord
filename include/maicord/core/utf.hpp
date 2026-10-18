@@ -52,10 +52,6 @@ u32 utf8_utf16_units(Utf8View text) noexcept;
 // offset is within text and does not split a UTF-8 sequence.
 bool utf8_is_boundary(Utf8View text, u32 offset) noexcept;
 
-constexpr bool utf8_is_continuation(char byte) noexcept {
-    return (static_cast<u8>(byte) & 0xC0) == 0x80;
-}
-
 // The longest prefix of text within maximum_bytes that does not split a
 // UTF-8 sequence.
 constexpr u32 utf8_truncated_length(Utf8View text, u32 maximum_bytes) noexcept {

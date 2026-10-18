@@ -24,7 +24,6 @@ enum class BrowserSignInError : u8 {
 struct BrowserSignInRequest {
     JsonString token;
     JsonString nonce;
-    u32 consumed_bytes;
     BrowserSignInRequestKind kind;
     bool private_network;
     bool has_token;

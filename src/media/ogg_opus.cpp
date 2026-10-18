@@ -1,4 +1,6 @@
 #include "maicord/media/ogg_opus.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/core/byte_range.hpp"
 
 namespace maicord {
 namespace {
@@ -17,23 +19,11 @@ constexpr CrcTable crc_table() noexcept {
     return table;
 }
 constexpr auto kCrc = crc_table();
-u16 le16(const u8* p) noexcept {
-    return static_cast<u16>(p[0] | (u32{p[1]} << 8));
-}
-u32 le32(const u8* p) noexcept {
-    return p[0] | (u32{p[1]} << 8) | (u32{p[2]} << 16) | (u32{p[3]} << 24);
-}
-u64 le64(const u8* p) noexcept {
-    return le32(p) | (u64{le32(p + 4)} << 32);
-}
-bool overlaps(const void* a, u64 a_bytes, const void* b, u64 b_bytes) noexcept {
-    const auto x = reinterpret_cast<usize>(a), y = reinterpret_cast<usize>(b);
-    return a_bytes && b_bytes && (x <= y ? y - x < a_bytes : x - y < b_bytes);
-}
 bool scratch_valid(ConstSlice<u8> encoded, Slice<u8> scratch, const void* out, u32 out_bytes) noexcept {
-    return (!scratch.count || scratch.data) && !overlaps(encoded.data, encoded.count, out, out_bytes) &&
-           !overlaps(scratch.data, scratch.count, encoded.data, encoded.count) &&
-           !overlaps(scratch.data, scratch.count, out, out_bytes);
+    return (!scratch.count || scratch.data) &&
+           !byte_ranges_overlap(encoded.data, encoded.count, out, out_bytes) &&
+           !byte_ranges_overlap(scratch.data, scratch.count, encoded.data, encoded.count) &&
+           !byte_ranges_overlap(scratch.data, scratch.count, out, out_bytes);
 }
 struct Page {
     u32 offset{}, body{}, end{}, segments{}, serial{}, sequence{};
@@ -67,15 +57,17 @@ OggOpusError page(ConstSlice<u8> source, u32 offset, Page* out, bool verify_crc,
     if (bytes > source.count - body)
         return OggOpusError::truncated;
     if (verify_crc) {
-        u32 crc = 0;
-        for (u32 i = 0; i < 27 + segments + bytes; ++i) {
-            const u8 byte = i >= 22 && i < 26 ? 0 : p[i];
-            crc = (crc << 8) ^ kCrc.values[(crc >> 24) ^ byte];
-        }
-        if (crc != le32(p + 22))
+        if (ogg_page_checksum({p, 27 + segments + bytes}) != byte_load_le32(p + 22))
             return OggOpusError::checksum;
     }
-    *out = {offset, body, body + bytes, segments, le32(p + 14), le32(p + 18), le64(p + 6), p[5]};
+    *out = {offset,
+            body,
+            body + bytes,
+            segments,
+            byte_load_le32(p + 14),
+            byte_load_le32(p + 18),
+            byte_load_le64(p + 6),
+            p[5]};
     return OggOpusError::none;
 }
 // RFC 6716 section 3: duration plus bounded CBR/VBR frame-length validation.
@@ -157,9 +149,9 @@ OggOpusError head(ConstSlice<u8> bytes, OggOpusDemuxer* d) noexcept {
     if (bytes[8] == 1 && bytes.count != 19)
         return OggOpusError::malformed;
     d->channels = bytes[9];
-    d->pre_skip = le16(bytes.data + 10);
-    d->input_sample_rate = le32(bytes.data + 12);
-    const u16 gain = le16(bytes.data + 16);
+    d->pre_skip = byte_load_le16(bytes.data + 10);
+    d->input_sample_rate = byte_load_le32(bytes.data + 12);
+    const u16 gain = byte_load_le16(bytes.data + 16);
     d->output_gain_q8 =
         static_cast<i16>(gain < 32768 ? static_cast<i32>(gain) : static_cast<i32>(gain) - 65536);
     return OggOpusError::none;
@@ -167,18 +159,18 @@ OggOpusError head(ConstSlice<u8> bytes, OggOpusDemuxer* d) noexcept {
 bool tags(ConstSlice<u8> bytes) noexcept {
     if (bytes.count < 16 || !bytes_equal(bytes.data, "OpusTags", 8))
         return false;
-    const u32 vendor = le32(bytes.data + 8);
+    const u32 vendor = byte_load_le32(bytes.data + 8);
     if (vendor > bytes.count - 16)
         return false;
     u32 at = 12 + vendor;
-    const u32 count = le32(bytes.data + at);
+    const u32 count = byte_load_le32(bytes.data + at);
     at += 4;
     if (count > (bytes.count - at) / 4)
         return false;
     for (u32 i = 0; i < count; ++i) {
         if (bytes.count - at < 4)
             return false;
-        const u32 size = le32(bytes.data + at);
+        const u32 size = byte_load_le32(bytes.data + at);
         at += 4;
         if (size > bytes.count - at)
             return false;
@@ -244,7 +236,7 @@ OggOpusError read_packet(const OggOpusDemuxer& d, OggOpusCursor* cursor, Slice<u
 
 u32 ogg_page_checksum(ConstSlice<u8> page) noexcept {
     u32 crc = 0;
-    for (u32 i = 0; page.data && i < page.count; ++i) {
+    for (u32 i = 0; i < page.count; ++i) {
         const u8 byte = i >= 22 && i < 26 ? 0 : page.data[i];
         crc = (crc << 8) ^ kCrc.values[(crc >> 24) ^ byte];
     }
@@ -415,7 +407,7 @@ OggOpusError ogg_opus_demux_seek(OggOpusDemuxer* d, u64 target, OggOpusSeekPoint
     if (!d || !d->ready || !out || target > d->total_frames ||
         !scratch_valid(d->encoded, scratch, d, sizeof(*d)) ||
         !scratch_valid(d->encoded, scratch, out, sizeof(*out)) ||
-        overlaps(d, sizeof(*d), out, sizeof(*out)))
+        byte_ranges_overlap(d, sizeof(*d), out, sizeof(*out)))
         return OggOpusError::invalid_input;
     auto candidate = *d;
     ogg_opus_demux_reset(&candidate);

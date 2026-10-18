@@ -1,7 +1,7 @@
 #include "maicord/text/font_session.hpp"
 #include "maicord/text/font_run.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {
 namespace {constexpr u32 maximum_slots=1024,step=8,initial_slots=64;}
 struct NativeFontSession {
@@ -44,7 +44,7 @@ void peak(NativeFontSession& session) noexcept {
 }
 bool native_font_session_create(NativeFontSession** output) noexcept {
     if(!output)return false;*output=nullptr;
-    SYSTEM_INFO info{};GetSystemInfo(&info);const usize page=info.dwPageSize;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const usize page=info.dwPageSize;
     if(!page||(page&(page-1)))return false;
     const auto rounded=[&](usize bytes) noexcept {return (bytes+page-1)&~(page-1);};
     const usize files=rounded(sizeof(NativeFontSession)),faces=rounded(maximum_slots*sizeof(NativeFontFaceSlot)),

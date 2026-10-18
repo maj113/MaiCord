@@ -346,7 +346,7 @@ bool clipboard_attachment_available() noexcept {
            (png && IsClipboardFormatAvailable(png)) || IsClipboardFormatAvailable(CF_DIBV5) ||
            IsClipboardFormatAvailable(CF_DIB);
 }
-bool clipboard_attachment_capture(HWND, ClipboardAttachmentData* output) noexcept {
+bool clipboard_attachment_capture(ClipboardAttachmentData* output) noexcept {
     if (!output || output->object)
         return false;
     if (!ole_initialized) {

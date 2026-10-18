@@ -1,6 +1,7 @@
 #include "maicord/core/arena.hpp"
 
-#include <Windows.h>
+#include "maicord/core/interlocked.hpp"
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -21,10 +22,10 @@ void note_commit(usize bytes) noexcept {
 }
 
 usize system_page_size() noexcept {
-    const u32 cached = static_cast<u32>(ReadAcquire(&g_page_size));
+    const u32 cached = static_cast<u32>(read_acquire(&g_page_size));
     if (cached) return cached;
-    SYSTEM_INFO info{};
-    GetSystemInfo(&info);
+    Win32SystemInfo info{};
+    GetSystemInfo(info.native());
     const u32 page_size = info.dwPageSize;
     // Page size is fixed per process, so racing first callers publish the same
     // value without a lock. An invalid result is not cached; the caller rejects it.
@@ -187,9 +188,9 @@ void arena_reset(Arena* arena, ArenaRewindMode mode) noexcept {
 }
 
 ArenaProcessCounters arena_process_counters() noexcept {
-    return ArenaProcessCounters{static_cast<u64>(ReadAcquire64(&g_arena_initializations)),
-                                static_cast<u64>(ReadAcquire64(&g_arena_commits)),
-                                static_cast<u64>(ReadAcquire64(&g_arena_committed_bytes))};
+    return ArenaProcessCounters{static_cast<u64>(read_acquire(&g_arena_initializations)),
+                                static_cast<u64>(read_acquire(&g_arena_commits)),
+                                static_cast<u64>(read_acquire(&g_arena_committed_bytes))};
 }
 
 } // namespace maicord

@@ -29,6 +29,26 @@ GatewayCommandWriteResult encode_bounded(Utf8View value, u32 maximum, EncodedStr
     return GatewayCommandWriteResult{0, GatewayCommandError::none};
 }
 
+void write_boolean(u8* output, u32* offset, bool value) noexcept {
+    if (value)
+        write_literal(output, offset, "true");
+    else
+        write_literal(output, offset, "false");
+}
+
+bool launch_id_valid(Utf8View value) noexcept {
+    if (!value.data || value.bytes != kGatewayUserLaunchIdBytes) {
+        return false;
+    }
+    for (u32 index = 0; index < value.bytes; ++index) {
+        const bool separator = index == 8 || index == 13 || index == 18 || index == 23;
+        if (separator ? value.data[index] != '-' : !ascii_is_hex_digit(value.data[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 GatewayCommandWriteResult gateway_write_voice_state(const GatewayVoiceStateUpdate& state,
@@ -53,42 +73,23 @@ GatewayCommandWriteResult gateway_write_voice_state(const GatewayVoiceStateUpdat
         at += decimal_write(output.data + at, value);
         output.data[at++] = '"';
     };
-    auto boolean = [&](bool value) noexcept {
-        if (value)
-            write_literal(output.data, &at, "true");
-        else
-            write_literal(output.data, &at, "false");
-    };
     write_literal(output.data, &at, "{\"op\":4,\"d\":{\"guild_id\":");
     id(state.guild_id);
     write_literal(output.data, &at, ",\"channel_id\":");
     id(state.channel_id);
     write_literal(output.data, &at, ",\"self_mute\":");
-    boolean(state.self_mute);
+    write_boolean(output.data, &at, state.self_mute);
     write_literal(output.data, &at, ",\"self_deaf\":");
-    boolean(state.self_deaf);
+    write_boolean(output.data, &at, state.self_deaf);
     write_literal(output.data, &at, ",\"self_video\":");
-    boolean(state.self_video);
+    write_boolean(output.data, &at, state.self_video);
     write_literal(output.data, &at, "}}");
     return {at, GatewayCommandError::none};
 }
 
-bool gateway_user_launch_id_valid(Utf8View value) noexcept {
-    if (!value.data || value.bytes != kGatewayUserLaunchIdBytes) {
-        return false;
-    }
-    for (u32 index = 0; index < value.bytes; ++index) {
-        const bool separator = index == 8 || index == 13 || index == 18 || index == 23;
-        if (separator ? value.data[index] != '-' : !ascii_is_hex_digit(value.data[index])) {
-            return false;
-        }
-    }
-    return true;
-}
-
 GatewayCommandWriteResult gateway_write_user_properties(const GatewayUserProperties& properties,
                                                         Slice<u8> output) noexcept {
-    if (properties.client_build_number == 0 || !gateway_user_launch_id_valid(properties.client_launch_id)) {
+    if (properties.client_build_number == 0 || !launch_id_valid(properties.client_launch_id)) {
         return GatewayCommandWriteResult{0, GatewayCommandError::invalid_input};
     }
     // Each string follows its key, which also carries the separator and any
@@ -216,11 +217,7 @@ GatewayCommandWriteResult gateway_write_user_identify(const GatewayUserIdentify&
     write_literal(output.data, &offset, ",\"activities\":[],\"status\":");
     write_encoded(output.data, &offset, status);
     write_literal(output.data, &offset, ",\"afk\":");
-    if (identify.afk) {
-        write_literal(output.data, &offset, "true");
-    } else {
-        write_literal(output.data, &offset, "false");
-    }
+    write_boolean(output.data, &offset, identify.afk);
     write_literal(output.data, &offset, "},\"compress\":false,\"client_state\":{\"guild_versions\":{}}}}");
     return GatewayCommandWriteResult{offset, GatewayCommandError::none};
 }
@@ -343,12 +340,6 @@ GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
         number(id);
         write_literal(output.data, &offset, "\":{");
     };
-    const auto boolean = [&](bool value) noexcept {
-        if (value)
-            write_literal(output.data, &offset, "true");
-        else
-            write_literal(output.data, &offset, "false");
-    };
     write_literal(output.data, &offset, "{\"op\":37,\"d\":{\"subscriptions\":{");
     if (subscription.clear_thread_guild_id) {
         guild(subscription.clear_thread_guild_id);
@@ -358,11 +349,11 @@ GatewayCommandWriteResult gateway_write_guild_subscriptions_bulk(
     bool comma = false;
     if (!subscription.omit_features) {
         write_literal(output.data, &offset, "\"typing\":");
-        boolean(subscription.typing);
+        write_boolean(output.data, &offset, subscription.typing);
         write_literal(output.data, &offset, ",\"activities\":");
-        boolean(subscription.activities);
+        write_boolean(output.data, &offset, subscription.activities);
         write_literal(output.data, &offset, ",\"threads\":");
-        boolean(subscription.threads);
+        write_boolean(output.data, &offset, subscription.threads);
         comma = true;
     }
     if (!subscription.omit_channel_ranges) {

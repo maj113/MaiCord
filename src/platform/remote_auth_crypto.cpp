@@ -172,24 +172,6 @@ RemoteAuthCryptoResult remote_auth_crypto_export_spki(const RemoteAuthCrypto& cr
         offset == required ? RemoteAuthCryptoError::none : RemoteAuthCryptoError::invalid_key_blob, offset);
 }
 
-RemoteAuthCryptoResult remote_auth_crypto_sha256(const RemoteAuthCrypto& crypto, ConstSlice<u8> input,
-                                                 Slice<u8> digest) noexcept {
-    if ((!input.data && input.count != 0) || (!digest.data && digest.count != 0)) {
-        return result(RemoteAuthCryptoError::invalid_input);
-    }
-    if (!initialized(crypto)) {
-        return result(RemoteAuthCryptoError::not_initialized);
-    }
-    if (digest.count < kRemoteAuthSha256Bytes || !digest.data) {
-        return result(RemoteAuthCryptoError::output_too_small, kRemoteAuthSha256Bytes);
-    }
-    const NTSTATUS status =
-        BCryptHash(static_cast<BCRYPT_ALG_HANDLE>(crypto.sha256_algorithm), nullptr, 0,
-                   const_cast<PUCHAR>(input.data), input.count, digest.data, kRemoteAuthSha256Bytes);
-    return status >= 0 ? result(RemoteAuthCryptoError::none, kRemoteAuthSha256Bytes, status)
-                       : result(RemoteAuthCryptoError::platform_failure, 0, status);
-}
-
 RemoteAuthCryptoResult remote_auth_crypto_fingerprint(const RemoteAuthCrypto& crypto,
                                                       Slice<u8> digest) noexcept {
     u8 spki[kRemoteAuthPublicSpkiMaximumBytes]{};
@@ -198,8 +180,18 @@ RemoteAuthCryptoResult remote_auth_crypto_fingerprint(const RemoteAuthCrypto& cr
     if (!exported.ok()) {
         return exported;
     }
-    const RemoteAuthCryptoResult hashed =
-        remote_auth_crypto_sha256(crypto, ConstSlice<u8>{spki, exported.bytes}, digest);
+    RemoteAuthCryptoResult hashed;
+    if (!digest.data && digest.count != 0) {
+        hashed = result(RemoteAuthCryptoError::invalid_input);
+    } else if (digest.count < kRemoteAuthSha256Bytes || !digest.data) {
+        hashed = result(RemoteAuthCryptoError::output_too_small, kRemoteAuthSha256Bytes);
+    } else {
+        const NTSTATUS status =
+            BCryptHash(static_cast<BCRYPT_ALG_HANDLE>(crypto.sha256_algorithm), nullptr, 0, spki,
+                       exported.bytes, digest.data, kRemoteAuthSha256Bytes);
+        hashed = status >= 0 ? result(RemoteAuthCryptoError::none, kRemoteAuthSha256Bytes, status)
+                             : result(RemoteAuthCryptoError::platform_failure, 0, status);
+    }
     SecureZeroMemory(spki, sizeof(spki));
     return hashed;
 }

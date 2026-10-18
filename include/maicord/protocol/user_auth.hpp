@@ -19,16 +19,10 @@ inline constexpr u32 kUserAuthMaximumCaptchaSessionBytes = 256;
 inline constexpr u32 kUserAuthBrowserExchangeMaximumResponseBytes = 32 * 1024;
 inline constexpr u32 kUserAuthBrowserExchangeMaximumTokenBytes = 2 * 1024;
 
-inline constexpr char kUserAuthLoginTargetText[] = "/api/v9/auth/login";
-inline constexpr Utf8View kUserAuthLoginTarget{kUserAuthLoginTargetText,
-                                               static_cast<u32>(sizeof(kUserAuthLoginTargetText) - 1)};
+inline constexpr Utf8View kUserAuthLoginTarget = utf8_literal("/api/v9/auth/login");
 inline constexpr Utf8View kUserAuthDefaultLoginSource = utf8_literal("The default username password Login");
-inline constexpr char kUserAuthMfaSmsSendTargetText[] = "/api/v9/auth/mfa/sms/send";
-inline constexpr Utf8View kUserAuthMfaSmsSendTarget{
-    kUserAuthMfaSmsSendTargetText, static_cast<u32>(sizeof(kUserAuthMfaSmsSendTargetText) - 1)};
-inline constexpr char kUserAuthRemoteAuthTicketTargetText[] = "/api/v9/users/@me/remote-auth/login";
-inline constexpr Utf8View kUserAuthRemoteAuthTicketTarget{
-    kUserAuthRemoteAuthTicketTargetText, static_cast<u32>(sizeof(kUserAuthRemoteAuthTicketTargetText) - 1)};
+inline constexpr Utf8View kUserAuthMfaSmsSendTarget = utf8_literal("/api/v9/auth/mfa/sms/send");
+inline constexpr Utf8View kUserAuthRemoteAuthTicketTarget = utf8_literal("/api/v9/users/@me/remote-auth/login");
 
 enum class UserAuthWriteError : u8 {
     none,

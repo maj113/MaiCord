@@ -1,7 +1,7 @@
 #include "maicord/text/font_instance.hpp"
 #include "maicord/text/base.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 namespace maicord {namespace {
 NativeFontResult result(NativeFontError error,SfntStatus font=SfntStatus::ok,u32 native=0) noexcept {return {error,font,native};}
 bool valid(const NativeFontInstanceStore& s) noexcept {return s.fonts&&s.slots.data&&s.slots.count;}
@@ -40,7 +40,7 @@ NativeFontResult native_font_instance_acquire(NativeFontInstanceStore* store,Nat
     if(instructions){status=tt_outline_requirements(geometry.face,&requirements);if(status!=SfntStatus::ok)return result(NativeFontError::font,status);
         required+=bytes<TtOutlineInstance>(1)+bytes<i32>(requirements.storage)+bytes<i32>(requirements.cvt)+bytes<TtFunction>(requirements.functions)+bytes<TtPoint>(requirements.twilight);
         if(static_cast<u64>(requirements.storage)+requirements.cvt+requirements.functions+requirements.twilight>work)return result(NativeFontError::font,SfntStatus::resource_limit);}
-    usize page=0;if(required){SYSTEM_INFO info{};GetSystemInfo(&info);page=info.dwPageSize;
+    usize page=0;if(required){Win32SystemInfo info{};GetSystemInfo(info.native());page=info.dwPageSize;
         if(!page||(page&(page-1)))return result(NativeFontError::invalid_input);required=(required+page-1)&~(page-1);}
     if(required>state_limit)return result(NativeFontError::font,SfntStatus::resource_limit);
     Arena state{};struct Cleanup {Arena& a;~Cleanup() noexcept {arena_release(&a);}} cleanup{state};

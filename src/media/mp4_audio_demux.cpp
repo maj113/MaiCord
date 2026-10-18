@@ -53,7 +53,6 @@ bool scan_audio_extensions(ConstSlice<u8> source, u64 cursor, u64 end, Box* esds
     return true;
 }
 Mp4DemuxError description(Mp4AudioDemuxer& d, const Box& stsd) noexcept {
-
     const auto source = d.samples.encoded;
     AacConfiguration configuration{};
     if (stsd.end - stsd.payload < 8 || read_u32(source.data + stsd.payload) != 0)
@@ -253,10 +252,6 @@ Time negate_time(const Time& positive) noexcept {
 // timebases use the one-division fast path; extreme denominators use 32
 // modular double/add steps, each proven not to overflow u64.
 void fraction_scale(u64 numerator, u64 denominator, u32 scale, u64* quotient, u64* remainder) noexcept {
-    if (!scale) {
-        *quotient = *remainder = 0;
-        return;
-    }
     if (numerator <= ~u64{0} / scale) {
         const u64 product = numerator * scale;
         *quotient = product / denominator;

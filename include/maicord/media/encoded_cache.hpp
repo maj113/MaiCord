@@ -29,14 +29,7 @@ struct EncodedMediaCacheEntry {
 };
 
 struct EncodedMediaCacheCounters {
-    u64 hits;
-    u64 misses;
-    u64 stale_hits;
-    u64 stores;
-    u64 replacements;
-    u64 evictions;
     u64 erases;
-    u64 rejected;
     u64 bytes_copied;
     u64 lease_acquires;
     u64 lease_releases;
@@ -88,7 +81,6 @@ struct EncodedMediaCacheLease {
     u32 entry_index;
     u16 generation;
     bool acquired;
-    u8 reserved;
 };
 
 struct EncodedMediaCachePolicy {
@@ -108,7 +100,6 @@ enum class EncodedMediaCacheStoreState : u8 {
 
 struct EncodedMediaCacheStoreResult {
     EncodedMediaCacheStoreState state;
-    u32 evicted_entries;
     u16 generation;
 
     constexpr bool stored() const noexcept {

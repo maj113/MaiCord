@@ -41,17 +41,12 @@ bool arena_rewind(Arena* arena, ArenaMark mark, ArenaRewindMode mode = ArenaRewi
 void arena_reset(Arena* arena, ArenaRewindMode mode = ArenaRewindMode::retain) noexcept;
 ArenaProcessCounters arena_process_counters() noexcept;
 
+// A zero count yields nullptr, like a zero byte count.
 template <typename T> T* arena_allocate(Arena* arena, u32 count = 1) noexcept {
-    if (count == 0 || static_cast<usize>(count) > (~usize{0}) / sizeof(T)) {
-        return nullptr;
-    }
     return static_cast<T*>(arena_allocate(arena, sizeof(T) * static_cast<usize>(count), alignof(T)));
 }
 
 template <typename T> T* arena_allocate_zero(Arena* arena, u32 count = 1) noexcept {
-    if (count == 0 || static_cast<usize>(count) > (~usize{0}) / sizeof(T)) {
-        return nullptr;
-    }
     return static_cast<T*>(arena_allocate_zero(arena, sizeof(T) * static_cast<usize>(count), alignof(T)));
 }
 

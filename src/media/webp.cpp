@@ -82,29 +82,27 @@ struct SmallHuffmanCode {
     u16 single_symbol;
 };
 
-bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* code) noexcept {
-    if (alphabet_size == 0 || alphabet_size > 19) {
-        return false;
-    }
-    *code = SmallHuffmanCode{};
+// Counts the code lengths; only a single-symbol code or a complete prefix code is admitted.
+bool count_code(const u8* lengths, u32 alphabet_size, u16* counts, u16* symbol_count,
+                u16* single_symbol) noexcept {
     for (u32 symbol = 0; symbol < alphabet_size; ++symbol) {
         const u8 length = lengths[symbol];
         if (length > 15) {
             return false;
         }
         if (length != 0) {
-            ++code->counts[length];
-            ++code->symbol_count;
-            code->single_symbol = static_cast<u16>(symbol);
+            ++counts[length];
+            ++*symbol_count;
+            *single_symbol = static_cast<u16>(symbol);
         }
     }
-    if (code->symbol_count == 0) {
+    if (*symbol_count == 0) {
         return false;
     }
-    if (code->symbol_count != 1) {
+    if (*symbol_count != 1) {
         i32 open = 1;
         for (u32 length = 1; length <= 15; ++length) {
-            open = open * 2 - code->counts[length];
+            open = open * 2 - counts[length];
             if (open < 0) {
                 return false;
             }
@@ -113,15 +111,30 @@ bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* co
             return false;
         }
     }
-    u32 output = 0;
+    return true;
+}
+
+// Symbols with a code, by length and then value: the canonical decode order.
+void sort_symbols(const u8* lengths, u32 alphabet_size, u16* output) noexcept {
     for (u32 length = 1; length <= 15; ++length) {
         for (u32 symbol = 0; symbol < alphabet_size; ++symbol) {
             if (lengths[symbol] == length) {
-                code->symbols[output++] = static_cast<u16>(symbol);
+                *output++ = static_cast<u16>(symbol);
             }
         }
     }
-    return output == code->symbol_count;
+}
+
+bool build_small_code(const u8* lengths, u32 alphabet_size, SmallHuffmanCode* code) noexcept {
+    if (alphabet_size == 0 || alphabet_size > 19) {
+        return false;
+    }
+    *code = SmallHuffmanCode{};
+    if (!count_code(lengths, alphabet_size, code->counts, &code->symbol_count, &code->single_symbol)) {
+        return false;
+    }
+    sort_symbols(lengths, alphabet_size, code->symbols);
+    return true;
 }
 
 // Canonical decoding of the next codeword, bit-serial semantics: the first
@@ -207,44 +220,14 @@ bool build_code(Vp8lWorkspace* workspace, u32 alphabet_size, Vp8lHuffmanCode* co
         return false;
     }
     *code = Vp8lHuffmanCode{};
-    for (u32 symbol = 0; symbol < alphabet_size; ++symbol) {
-        const u8 length = workspace->code_lengths[symbol];
-        if (length > 15) {
-            return false;
-        }
-        if (length != 0) {
-            ++code->counts[length];
-            ++code->symbol_count;
-            code->single_symbol = static_cast<u16>(symbol);
-        }
-    }
-    if (code->symbol_count == 0 ||
+    if (!count_code(workspace->code_lengths, alphabet_size, code->counts, &code->symbol_count,
+                    &code->single_symbol) ||
         workspace->symbol_count + code->symbol_count > kVp8lHuffmanSymbolCapacity) {
         return false;
     }
-    if (code->symbol_count != 1) {
-        i32 open = 1;
-        for (u32 length = 1; length <= 15; ++length) {
-            open = open * 2 - code->counts[length];
-            if (open < 0) {
-                return false;
-            }
-        }
-        if (open != 0) {
-            return false;
-        }
-    }
     code->symbol_offset = workspace->symbol_count;
-    for (u32 length = 1; length <= 15; ++length) {
-        for (u32 symbol = 0; symbol < alphabet_size; ++symbol) {
-            if (workspace->code_lengths[symbol] == length) {
-                workspace->symbols[workspace->symbol_count++] = static_cast<u16>(symbol);
-            }
-        }
-    }
-    if (workspace->symbol_count != code->symbol_offset + code->symbol_count) {
-        return false;
-    }
+    sort_symbols(workspace->code_lengths, alphabet_size, workspace->symbols + workspace->symbol_count);
+    workspace->symbol_count += code->symbol_count;
     build_lookup(workspace, code);
     return true;
 }
@@ -445,7 +428,6 @@ WebpParseResult webp_parse(ConstSlice<u8> encoded, WebpImage* image) noexcept {
             feature_flags = payload[0];
             image->has_alpha = (payload[0] & 0x10u) != 0;
             image->has_color_profile = (payload[0] & 0x20u) != 0;
-            image->extended = true;
             vp8x_seen = true;
         } else if (type == kVp8l) {
             if (image_seen || size < 5 || payload[0] != 0x2Fu) {
@@ -559,7 +541,6 @@ struct Transform {
 struct DecodeState {
     BitReader reader;
     Vp8lWorkspace* workspace;
-    u32 peak_groups;
     u32 peak_symbols;
     WebpError error;
 };
@@ -675,7 +656,6 @@ bool decode_entropy_image(DecodeState* state, u32 width, u32 height, bool allow_
             }
         }
     }
-    state->peak_groups = maximum(state->peak_groups, group_count);
     state->peak_symbols = maximum(state->peak_symbols, workspace->symbol_count);
 
     const u32 pixel_count = width * height;
@@ -885,7 +865,7 @@ void predict_mode_run(u8 mode, u32* pixels, u32 begin, u32 end, u32 width) noexc
     }
 }
 
-bool inverse_predictor(const Transform& transform, const Vp8lWorkspace* workspace, u32* pixels) noexcept {
+void inverse_predictor(const Transform& transform, const Vp8lWorkspace* workspace, u32* pixels) noexcept {
     const u32 width = transform.width;
     const u32 block = 1u << transform.size_bits;
     const u32 blocks_wide = (width + block - 1) >> transform.size_bits;
@@ -904,14 +884,13 @@ bool inverse_predictor(const Transform& transform, const Vp8lWorkspace* workspac
             x = end;
         }
     }
-    return true;
 }
 
 __forceinline i32 color_delta(signed char transform, signed char color) noexcept {
     return static_cast<i32>(transform) * color >> 5;
 }
 
-bool inverse_color(const Transform& transform, const Vp8lWorkspace* workspace, u32* pixels) noexcept {
+void inverse_color(const Transform& transform, const Vp8lWorkspace* workspace, u32* pixels) noexcept {
     const u32 width = transform.width;
     const u32 blocks_wide = (width + (1u << transform.size_bits) - 1) >> transform.size_bits;
     for (u32 y = 0; y < transform.height; ++y) {
@@ -954,7 +933,6 @@ bool inverse_color(const Transform& transform, const Vp8lWorkspace* workspace, u
             }
         }
     }
-    return true;
 }
 
 void inverse_subtract_green(const Transform& transform, u32* pixels) noexcept {
@@ -974,7 +952,7 @@ void inverse_subtract_green(const Transform& transform, u32* pixels) noexcept {
     }
 }
 
-bool inverse_color_indexing(const Transform& transform, const u32* palette, u32 current_width,
+void inverse_color_indexing(const Transform& transform, const u32* palette, u32 current_width,
                             u32* pixels) noexcept {
     // Indices past palette_count decode as transparent black.
     u32 table[256];
@@ -995,7 +973,6 @@ bool inverse_color_indexing(const Transform& transform, const u32* palette, u32 
             row[x] = table[(packed >> 8 & 0xFFu) >> shift & mask];
         }
     }
-    return true;
 }
 
 bool read_transforms(DecodeState* state, u32 original_width, u32 height, Transform* transforms,
@@ -1092,12 +1069,11 @@ WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseRes
                                                   bool rgba_order) noexcept {
     WebpDecodeResult result{};
     result.parse = parse;
-    if (!workspace || !rgba_output.data || !image || image->codec != WebpCodec::vp8l_lossless ||
-        image->width == 0 || image->height == 0 || image->width > kWebpDimensionMaximum ||
-        image->height > kWebpDimensionMaximum || !image->bitstream.data || image->bitstream.count == 0) {
-        result.error = !workspace || !rgba_output.data || !image ? WebpError::invalid_input
-                       : image->codec == WebpCodec::vp8_lossy    ? WebpError::unsupported_lossy
-                                                                 : WebpError::bitstream;
+    if (!workspace || !rgba_output.data || image->codec != WebpCodec::vp8l_lossless ||
+        !image->bitstream.data || image->bitstream.count == 0) {
+        result.error = !workspace || !rgba_output.data ? WebpError::invalid_input
+                       : image->codec == WebpCodec::vp8_lossy ? WebpError::unsupported_lossy
+                                                              : WebpError::bitstream;
         return result;
     }
     const u64 required = static_cast<u64>(image->width) * image->height * 4u;
@@ -1105,7 +1081,7 @@ WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseRes
         result.error = WebpError::output_capacity;
         return result;
     }
-    DecodeState state{BitReader{image->bitstream, 0, false}, workspace, 0, 0, WebpError::none};
+    DecodeState state{BitReader{image->bitstream, 0, false}, workspace, 0, WebpError::none};
     Transform transforms[4]{};
     u32 transform_count = 0;
     u32 decoded_width = image->width;
@@ -1123,25 +1099,20 @@ WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseRes
     u32 current_width = decoded_width;
     for (u32 reverse = transform_count; reverse != 0; --reverse) {
         const Transform& transform = transforms[reverse - 1];
-        bool ok = true;
         switch (transform.type) {
         case TransformType::predictor:
-            ok = inverse_predictor(transform, workspace, pixels);
+            inverse_predictor(transform, workspace, pixels);
             break;
         case TransformType::color:
-            ok = inverse_color(transform, workspace, pixels);
+            inverse_color(transform, workspace, pixels);
             break;
         case TransformType::subtract_green:
             inverse_subtract_green(transform, pixels);
             break;
         case TransformType::color_indexing:
-            ok = inverse_color_indexing(transform, palette, current_width, pixels);
+            inverse_color_indexing(transform, palette, current_width, pixels);
             current_width = transform.width;
             break;
-        }
-        if (!ok) {
-            result.error = WebpError::transform;
-            return result;
         }
     }
     if (current_width != image->width || !remaining_padding_is_zero(&state.reader)) {
@@ -1166,7 +1137,6 @@ WebpDecodeResult decode_validated_lossless_pixels(WebpImage* image, WebpParseRes
         }
     }
     result.rgba_bytes = pixel_count * 4;
-    result.huffman_groups = state.peak_groups;
     result.huffman_symbols = state.peak_symbols;
     result.error = WebpError::none;
     return result;

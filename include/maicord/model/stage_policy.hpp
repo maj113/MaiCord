@@ -22,9 +22,6 @@ inline constexpr PermissionSet kStageModeratorPermissions =
 constexpr bool stage_moderator(PermissionSet permissions) noexcept {
     return permission_has(permissions, kStageModeratorPermissions);
 }
-constexpr bool stage_can_request_to_speak(PermissionSet permissions) noexcept {
-    return permission_has(permissions, kPermissionRequestToSpeak);
-}
 
 // What the local user can do in a stage now.
 enum StageAction : u32 {

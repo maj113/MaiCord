@@ -80,7 +80,7 @@ struct AccountAuthorizedApp {
 struct AccountSelfUser {
     char username[64], global_name[kAccountSettingsDisplayNameBytes], email[128], phone[32];
     u8 username_bytes, global_name_bytes, email_bytes, phone_bytes;
-    bool verified, mfa_enabled, email_known, phone_known;
+    bool verified, mfa_enabled;
 };
 struct AccountProfileText {
     char pronouns[kAccountSettingsPronounsBytes], bio[kAccountSettingsBioBytes];

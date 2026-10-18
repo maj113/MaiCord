@@ -1,6 +1,6 @@
 #include "maicord/text/font_fallback_catalog.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
 template<class T> bool valid(Slice<T> s,u32 n) noexcept {return n<=s.count&&(!s.count||s.data);}

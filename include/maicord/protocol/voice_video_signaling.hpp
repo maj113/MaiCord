@@ -57,10 +57,10 @@ GatewayCommandWriteResult voice_gateway_write_media_sink_wants(u8 any_quality, C
 // Session Update (op 14) from the server; every field is optional and null is
 // treated as absent. Strings borrow the input. Failure preserves output.
 struct VoiceSessionUpdate {
-    JsonString audio_codec, video_codec, media_session_id;
+    JsonString video_codec;
     u32 keyframe_interval_ms;
     VoiceVideoCodec video;
-    bool has_audio_codec, has_video_codec, has_media_session_id, has_keyframe_interval;
+    bool has_video_codec, has_keyframe_interval;
 };
 GatewayEventDecodeResult voice_decode_session_update(JsonValue data, Slice<u32> scratch, u32 maximum_depth,
                                                      VoiceSessionUpdate* output) noexcept;

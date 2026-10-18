@@ -27,7 +27,6 @@ constexpr bool media_preview_proxy_png(MediaAttachmentFormat format, u32 width, 
     return format == MediaAttachmentFormat::jpeg &&
            (width > kJpegDimensionMaximum || height > kJpegDimensionMaximum);
 }
-u16 media_resolution_tier_extent(MediaResolutionTier tier) noexcept;
 
 // Produces an aspect-preserving media-proxy request. The source is
 // never upscaled and native decoder limits remain authoritative.

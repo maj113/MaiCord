@@ -95,7 +95,8 @@ const PrivateChannelRecord* private_channel_store_find(const PrivateChannelStore
     const u32 index = lower_bound(store, id);
     return index < store.count && store.records[index].id == id ? &store.records[index] : nullptr;
 }
-bool private_channel_store_can_replace(const PrivateChannelStore& store, const PrivateChannelInput& input) noexcept {
+static bool private_channel_store_can_replace(const PrivateChannelStore& store,
+                                              const PrivateChannelInput& input) noexcept {
     if (!valid(store) || !input.id || (input.icon_known && !icon_valid(input.icon)) ||
         input.recipients.count > kPrivateRecipientMaximum ||
         (input.recipients.count && !input.recipients.data)) return false;

@@ -1,7 +1,6 @@
 #include "maicord/text/font_fallback.hpp"
 namespace maicord {namespace {
 bool valid(NativeFontProperties p) noexcept {return p.weight&&p.weight<=1000&&p.width&&p.width<=9&&p.style<=2;}
-i32 absolute(i32 n) noexcept {return n<0?-n:n;}
 struct Score {i32 distance,dot,x,y,z;u32 simulations,weight;};
 Score score(NativeFontProperties p,NativeFontProperties request) noexcept {
     const u32 original=p.weight;u32 simulations=0;
@@ -10,7 +9,7 @@ Score score(NativeFontProperties p,NativeFontProperties request) noexcept {
     const i32 qx=(static_cast<i32>(request.width)-5)*1100,qy=request.style*700,qz=(static_cast<i32>(request.weight)-400)*5;
     const i32 x=(static_cast<i32>(p.width)-5)*1100,y=p.style*700,z=(static_cast<i32>(p.weight)-400)*5;
     const i32 dx=x-qx,dy=y-qy,dz=z-qz;
-    return {dx*dx+dy*dy+dz*dz,-(x*qx+y*qy+z*qz),absolute(dx),absolute(dy),absolute(dz),simulations,original};
+    return {dx*dx+dy*dy+dz*dz,-(x*qx+y*qy+z*qz),absolute_value<i32>(dx),absolute_value<i32>(dy),absolute_value<i32>(dz),simulations,original};
 }
 bool before(const Score& a,const Score& b) noexcept {
     const i32 left[]{a.distance,a.dot,a.x,a.y,a.z,static_cast<i32>(a.simulations),static_cast<i32>(a.weight)};

@@ -163,7 +163,7 @@ HRESULT open(Runtime& r,Engine& e) noexcept {
     com_release(device);return h;
 }
 HRESULT clock_snapshot(Runtime& r,Engine& e,u64 epoch,u32 padding) noexcept {
-    u64 position{},qpc{},elapsed{},advanced{},anchor_time{};HRESULT h=e.clock->GetPosition(&position,&qpc);
+    u64 position{},elapsed{},advanced{},anchor_time{};HRESULT h=e.clock->GetPosition(&position,nullptr);
     if(FAILED(h))return h;
     // GetPosition/GetFrequency units are compatible but not necessarily frames:
     // https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getposition
@@ -184,7 +184,7 @@ HRESULT clock_snapshot(Runtime& r,Engine& e,u64 epoch,u32 padding) noexcept {
         ReleaseSRWLockExclusive(&r.lock);return HRESULT_FROM_WIN32(ERROR_ARITHMETIC_OVERFLOW);}
     const u64 played=minimum(r.ring.submitted-padding,minimum(r.ring.submitted,e.anchor_frames+advanced));
     const u64 old=r.ring.consumed;r.ring.consumed=maximum(old,played);
-    r.status.clock_valid=true;r.status.clock_position=position;r.status.clock_frequency=e.frequency;r.status.clock_qpc_100ns=qpc;
+    r.status.clock_valid=true;r.status.clock_frequency=e.frequency;
     r.status.presentation_time_100ns=r.origin+static_cast<i64>(content_time);
     if(r.ring.consumed>old&&media_audio_ring_free(r.ring)>=kMediaAudioMaximumWriteFrames&&!r.refill_pending&&r.config.refill_event){
         r.refill_pending=SetEvent(r.config.refill_event)!=0;if(!r.refill_pending)r.status.wake_error=GetLastError();}

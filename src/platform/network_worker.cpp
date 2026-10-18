@@ -2,7 +2,7 @@
 #include "maicord/platform/network_worker.hpp"
 #include "network_worker_startup.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {

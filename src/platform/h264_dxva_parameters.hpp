@@ -10,11 +10,12 @@ namespace maicord {
 // DXVA short-slice picture parameters shared by the MP4 attachment decoder
 // and the live stream decoder. References are the CURRENT DPB (before the
 // picture's own marking); feedback is the last accepted status number.
+// output and matrix must be zero-initialized.
 inline void h264_dxva_picture_parameters(const H264Sps& a, const H264Pps& b, const H264Slice& first,
                                          bool all_intra, const H264ReferenceState& references,
                                          const H264PictureOrder& decode_order, u8 surface, u32 feedback,
                                          DXVA_PicParams_H264* output, DXVA_Qmatrix_H264* matrix) noexcept {
-    DXVA_PicParams_H264 p{};
+    DXVA_PicParams_H264& p = *output;
     p.wFrameWidthInMbsMinus1 = static_cast<USHORT>(a.coded_width / 16u - 1u);
     p.wFrameHeightInMbsMinus1 = static_cast<USHORT>(a.coded_height / 16u - 1u);
     p.num_ref_frames = a.max_references;
@@ -52,11 +53,8 @@ inline void h264_dxva_picture_parameters(const H264Sps& a, const H264Pps& b, con
         p.FieldOrderCntList[i][0] = ref.top; p.FieldOrderCntList[i][1] = ref.bottom;
         p.UsedForReferenceFlags |= 3u << (2u * i);
     }
-    *output = p;
-    DXVA_Qmatrix_H264 q{};
-    copy_bytes(q.bScalingLists4x4, b.scaling.list4x4, sizeof(q.bScalingLists4x4));
-    copy_bytes(q.bScalingLists8x8, b.scaling.list8x8, sizeof(q.bScalingLists8x8));
-    *matrix = q;
+    copy_bytes(matrix->bScalingLists4x4, b.scaling.list4x4, sizeof(matrix->bScalingLists4x4));
+    copy_bytes(matrix->bScalingLists8x8, b.scaling.list8x8, sizeof(matrix->bScalingLists8x8));
 }
 
 // Copies bytes into the driver's mapped decoder buffer of the given type and

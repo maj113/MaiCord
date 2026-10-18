@@ -16,26 +16,10 @@ ConstSlice<RoleRecord> store_roles(const ChatStateStore& store) noexcept {
                        : ConstSlice<RoleRecord>{};
 }
 
-} // namespace
-
-bool permission_member_timed_out(const PermissionMember& member, u64 now_seconds) noexcept {
-    return now_seconds && member.communication_disabled_until > now_seconds;
-}
-
-PermissionSet permission_compute_base(const PermissionGuild& guild, const PermissionMember& member) noexcept {
-    if (guild.owner_id && member.user_id == guild.owner_id)
-        return kPermissionAll;
-    PermissionSet base = 0;
-    for (u32 i = 0; i < guild.roles.count; ++i) {
-        const auto& role = guild.roles[i];
-        if (role.guild_id == guild.guild_id && (role.id == guild.guild_id || has_role(member, role.id)))
-            base |= role.permissions;
-    }
-    return (base & kPermissionAdministrator) ? kPermissionAll : base;
-}
-
-PermissionSet permission_apply_overwrites(PermissionSet base, u64 guild_id, const PermissionMember& member,
-                                          ConstSlice<PermissionOverwriteRecord> overwrites) noexcept {
+// Channel overwrites in service order: @everyone, the allow/deny aggregate of
+// the member's roles, then the member's own overwrite.
+PermissionSet apply_overwrites(PermissionSet base, u64 guild_id, const PermissionMember& member,
+                               ConstSlice<PermissionOverwriteRecord> overwrites) noexcept {
     if (base & kPermissionAdministrator)
         return kPermissionAll;
     const PermissionOverwriteRecord* everyone = nullptr;
@@ -60,15 +44,29 @@ PermissionSet permission_apply_overwrites(PermissionSet base, u64 guild_id, cons
     return permissions;
 }
 
+} // namespace
+
+PermissionSet permission_compute_base(const PermissionGuild& guild, const PermissionMember& member) noexcept {
+    if (guild.owner_id && member.user_id == guild.owner_id)
+        return kPermissionAll;
+    PermissionSet base = 0;
+    for (u32 i = 0; i < guild.roles.count; ++i) {
+        const auto& role = guild.roles[i];
+        if (role.guild_id == guild.guild_id && (role.id == guild.guild_id || has_role(member, role.id)))
+            base |= role.permissions;
+    }
+    return (base & kPermissionAdministrator) ? kPermissionAll : base;
+}
+
 PermissionSet permission_compute_from_base(PermissionSet permissions, const PermissionGuild& guild,
                                            const PermissionMember& member,
                                            ConstSlice<PermissionOverwriteRecord> overwrites,
                                            const PermissionOptions& options) noexcept {
     const bool owner = guild.owner_id && member.user_id == guild.owner_id;
     if (!owner && permissions != kPermissionAll) {
-        permissions = permission_apply_overwrites(permissions, guild.guild_id, member, overwrites);
+        permissions = apply_overwrites(permissions, guild.guild_id, member, overwrites);
         if (!(permissions & kPermissionAdministrator)) {
-            if (permission_member_timed_out(member, options.now_seconds))
+            if (options.now_seconds && member.communication_disabled_until > options.now_seconds)
                 permissions &= kPermissionTimeoutAllowedMask;
             if (member.quarantined)
                 permissions &= kPermissionQuarantineAllowedMask;

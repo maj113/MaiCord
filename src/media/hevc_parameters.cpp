@@ -170,8 +170,7 @@ void vui(HevcBits& b, HevcSps& s) noexcept {
         b.read(3);
         s.full_range = b.bit();
         if (b.bit()) {
-            s.primaries = static_cast<u8>(b.read(8));
-            s.transfer = static_cast<u8>(b.read(8));
+            b.read(16); // colour_primaries, transfer_characteristics
             s.matrix = static_cast<u8>(b.read(8));
         }
     }
@@ -388,7 +387,7 @@ HevcError hevc_parse_sps(ConstSlice<u8> nal, HevcSps* output) noexcept {
     HevcSps s{};
     clear_bytes(&s, sizeof(s));
     s.sar_width = s.sar_height = 1;
-    s.primaries = s.transfer = s.matrix = 2; // Unspecified when VUI colour description is absent.
+    s.matrix = 2; // Unspecified when VUI colour description is absent.
     scaling_defaults(s.scaling);
     auto b = hevc_payload(nal, 33);
     s.vps_id = static_cast<u8>(b.read(4));

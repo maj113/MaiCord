@@ -44,8 +44,6 @@ struct WebAuthnMfaRequestOptions {
     u32 credential_count;
     u32 timeout_ms;
     WebAuthnUserVerification user_verification;
-    bool requests_uvm;
-    bool conditional;
 };
 
 enum class WebAuthnMfaError : u8 {

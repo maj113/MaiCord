@@ -6,7 +6,7 @@
 
 namespace maicord {
 GatewayEndpointError voice_gateway_endpoint(Utf8View authority, GatewayEndpoint* output) noexcept {
-    if (!output || !authority.data || !authority.bytes)
+    if (!authority.data || !authority.bytes)
         return GatewayEndpointError::invalid_input;
     if (authority.bytes >= kGatewayEndpointAuthorityCapacity)
         return GatewayEndpointError::invalid_authority;
@@ -105,8 +105,6 @@ void session_fields(Writer& writer, const VoiceGatewaySession& session, const En
 
 GatewayDecodeResult voice_gateway_decode_json(Utf8View input, Slice<u32> scratch, u32 maximum_depth,
                                               VoiceGatewayEnvelope* output) noexcept {
-    if (!output)
-        return {0, GatewayDecodeError::invalid_json, JsonScanError::none, JsonReadError::invalid_input};
     const auto scan = json_scan_structurals_avx1(input, scratch);
     if (!scan.ok())
         return {scan.error_offset, GatewayDecodeError::scan_failed, scan.error};
@@ -127,7 +125,7 @@ GatewayDecodeResult voice_gateway_decode_json(Utf8View input, Slice<u32> scratch
 }
 
 bool voice_gateway_decode_binary(ConstSlice<u8> input, VoiceGatewayBinary* output) noexcept {
-    if (!output || !input.data || input.count < 3)
+    if (!input.data || input.count < 3)
         return false;
     *output = {{input.data + 3, input.count - 3}, byte_load_be16(input.data), input[2]};
     return true;
@@ -135,7 +133,8 @@ bool voice_gateway_decode_binary(ConstSlice<u8> input, VoiceGatewayBinary* outpu
 
 GatewayEventDecodeResult voice_gateway_decode_heartbeat_ack(JsonValue data, Slice<u32> scratch,
     u32 maximum_depth, u64* nonce) noexcept {
-    if (!nonce || data.kind != JsonValueKind::object) return {data.source_offset, GatewayEventDecodeError::invalid_input};
+    if (data.kind != JsonValueKind::object)
+        return {data.source_offset, GatewayEventDecodeError::invalid_input};
     struct Read { u64 nonce; bool seen; GatewayEventDecodeError error; } value{};
     const auto visit = [](void* opaque, JsonString name, JsonValue field) noexcept {
         auto& read = *static_cast<Read*>(opaque);

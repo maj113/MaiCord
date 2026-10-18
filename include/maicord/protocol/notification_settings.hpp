@@ -12,7 +12,7 @@ NotificationSettingsDecodeError decode_notification_settings(const JsonIndexedDo
     bool snapshot, Slice<MessageNotificationGuildSetting>, Slice<MessageNotificationOverride>,
     NotificationSettingsPacket*) noexcept;
 NotificationSettingsDecodeError decode_notification_thread(const JsonIndexedDocument&, JsonValue,
-    u64 fallback_guild_id, MessageNotificationThreadSetting*, u64 fallback_thread_id = 0) noexcept;
+    u64 fallback_guild_id, MessageNotificationThreadSetting*, u64 fallback_thread_id) noexcept;
 // Whole canonical base64 is validated first. Protobuf reads virtual decoded
 // bytes with a single cached quartet: no decoded scratch bank or copy.
 NotificationSettingsDecodeError decode_notification_global_base64(Utf8View, MessageNotificationGlobal*) noexcept;

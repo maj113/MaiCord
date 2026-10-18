@@ -386,9 +386,6 @@ bool event_member(void* opaque, JsonString name, JsonValue value) noexcept {
     else if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
         if (value.kind != JsonValueKind::null_value)
             json_value_to_snowflake(value, &e.channel_id);
-    } else if (json_string_equals_ascii(name, utf8_literal("creator_id"))) {
-        if (value.kind != JsonValueKind::null_value)
-            json_value_to_snowflake(value, &e.creator_id);
     } else if (json_string_equals_ascii(name, utf8_literal("name")))
         e.name_bytes = static_cast<u16>(decode_text(value, e.name, kScheduledEventNameBytes));
     else if (json_string_equals_ascii(name, utf8_literal("description")))
@@ -1126,10 +1123,6 @@ bool visit_profile_feature(void* context, u32, JsonValue feature) noexcept {
     static constexpr Known known[]{
         {utf8_literal("DISCOVERABLE"), guild_profile_discoverable},
         {utf8_literal("GUILD_TAGS"), guild_profile_tags},
-        {utf8_literal("MEMBER_VERIFICATION_GATE_ENABLED"), guild_profile_verification_gate},
-        {utf8_literal("MEMBER_VERIFICATION_MANUAL_APPROVAL"), guild_profile_manual_approval},
-        {utf8_literal("VERIFIED"), guild_profile_verified},
-        {utf8_literal("PARTNERED"), guild_profile_partnered},
     };
     JsonString text{};
     if (!json_value_as_string(feature, &text))

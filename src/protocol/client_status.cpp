@@ -37,8 +37,6 @@ bool visit_platform(void* opaque, JsonString name, JsonValue value) noexcept {
 } // namespace
 
 bool client_status_decode(JsonValue value, u8* packed) noexcept {
-    if (!packed)
-        return false;
     *packed = 0;
     if (value.kind != JsonValueKind::object || !value.source.data)
         return value.kind != JsonValueKind::object;

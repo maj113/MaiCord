@@ -123,7 +123,7 @@ bool proto(const Wire&w,u32 begin,u32 end,u32 context,MessageNotificationGlobal&
 }
 NotificationSettingsDecodeError decode_notification_settings(const JsonIndexedDocument&d,JsonValue v,bool snapshot,
     Slice<MessageNotificationGuildSetting>g,Slice<MessageNotificationOverride>o,NotificationSettingsPacket*out) noexcept {
-    if(!out||d.input.bytes>kNotificationSettingsMaximumBytes||g.count>~u32{0}/sizeof(*g.data)||o.count>~u32{0}/sizeof(*o.data)||
+    if(d.input.bytes>kNotificationSettingsMaximumBytes||g.count>~u32{0}/sizeof(*g.data)||o.count>~u32{0}/sizeof(*o.data)||
        d.structurals.count>~u32{0}/sizeof(u32))return E::input;
     const ConstSlice<u8> gb{reinterpret_cast<const u8*>(g.data),g.count*static_cast<u32>(sizeof(*g.data))};
     const ConstSlice<u8> ob{reinterpret_cast<const u8*>(o.data),o.count*static_cast<u32>(sizeof(*o.data))};
@@ -141,12 +141,12 @@ NotificationSettingsDecodeError decode_notification_settings(const JsonIndexedDo
     *out=b.packet;return E::none;
 }
 NotificationSettingsDecodeError decode_notification_thread(const JsonIndexedDocument&d,JsonValue v,u64 fallback,MessageNotificationThreadSetting*out,u64 fallback_thread) noexcept {
-    if(!out)return E::input;Parse p{};const E e=parse(d,v,&p);if(e!=E::none)return e;
+    Parse p{};const E e=parse(d,v,&p);if(e!=E::none)return e;
     if(!(p.id_seen?p.id:fallback_thread)||!(p.guild_seen?p.guild:fallback)||p.overrides_seen)return E::field;
     *out={p.guild_seen?p.guild:fallback,p.id_seen?p.id:fallback_thread,p.setting};return E::none;
 }
 NotificationSettingsDecodeError decode_notification_global_base64(Utf8View b,MessageNotificationGlobal*out) noexcept {
-    if(!out||b.bytes>kNotificationSettingsMaximumBytes)return E::input;
+    if(b.bytes>kNotificationSettingsMaximumBytes)return E::input;
     const auto r=base64_decode(b,{});if(!r.ok()&&r.error!=Base64Error::output_too_small)return E::base64;
     const Wire w{{},b,r.bytes};MessageNotificationGlobal g{};if(!proto(w,0,w.size,0,g))return E::protobuf;*out=g;return E::none;
 }

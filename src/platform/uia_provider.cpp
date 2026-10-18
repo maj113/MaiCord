@@ -33,7 +33,6 @@ enum : int {
     pattern_scroll_item = 10017,
 };
 enum : int {
-    event_structure_changed = 20002,
     event_focus_changed = 20005,
     event_element_selected = 20012,
     event_text_selection_changed = 20014,
@@ -59,7 +58,6 @@ enum : int {
     property_is_offscreen = 30022,
     property_framework_id = 30024,
     property_value_value = 30045,
-    property_value_is_read_only = 30046,
     property_range_value_value = 30047,
     property_expand_collapse_state = 30070,
     property_selection_item_is_selected = 30079,
@@ -137,7 +135,6 @@ using RaiseStructureChangedEvent = HRESULT(WINAPI*)(void*, int, int*, int);
 using RaiseNotificationEvent = HRESULT(WINAPI*)(void*, int, int, BSTR, BSTR);
 using ClientsAreListening = BOOL(WINAPI*)();
 using DisconnectProvider = HRESULT(WINAPI*)(void*);
-using DisconnectAllProviders = HRESULT(WINAPI*)();
 using AllocStringLen = BSTR(WINAPI*)(const OLECHAR*, UINT);
 using FreeString = void(WINAPI*)(BSTR);
 using CreateVector = SAFEARRAY*(WINAPI*)(VARTYPE, LONG, ULONG);
@@ -157,7 +154,6 @@ struct UiaRuntime {
     RaiseNotificationEvent raise_notification_event;
     ClientsAreListening clients_are_listening;
     DisconnectProvider disconnect_provider;
-    DisconnectAllProviders disconnect_all_providers;
     AllocStringLen alloc_string_len;
     FreeString free_string;
     CreateVector create_vector;
@@ -202,7 +198,6 @@ const UiaRuntime* load_runtime() noexcept {
         // Optional (Windows 10 1709+ / Windows 8+).
         resolve(runtime.automation, "UiaRaiseNotificationEvent", &runtime.raise_notification_event);
         resolve(runtime.automation, "UiaDisconnectProvider", &runtime.disconnect_provider);
-        resolve(runtime.automation, "UiaDisconnectAllProviders", &runtime.disconnect_all_providers);
         resolve(runtime.automation, "UiaGetReservedNotSupportedValue", &runtime.reserved_not_supported);
     }
     if (!ok) {
@@ -460,7 +455,7 @@ struct Resolved {
 
 bool resolve_element(const Element* element, Resolved* out) noexcept {
     auto* host = element->host;
-    if (!host->connected || !host->callbacks.tree)
+    if (!host->connected)
         return false;
     const UiAccessTree* tree = host->callbacks.tree(host->callbacks.context);
     if (!tree || !tree->finished || !tree->count)
@@ -1354,7 +1349,7 @@ struct RangeText {
 };
 
 bool text_node(UiaProviderHost* host, u64 key, RangeText* out) noexcept {
-    if (!host->connected || !host->callbacks.tree)
+    if (!host->connected)
         return false;
     const UiAccessTree* tree = host->callbacks.tree(host->callbacks.context);
     if (!tree || !tree->finished)

@@ -15,16 +15,9 @@ bool configure(PngImage* image, PngStreamLayout* layout, const u8* data) noexcep
     const u32 width = byte_load_be32(data), height = byte_load_be32(data + 4);
     const u8 depth = data[8], color = data[9];
     u8 channels = 0;
-    switch (color) {
-    case 0: channels = 1; if (depth != 1 && depth != 2 && depth != 4 && depth != 8 && depth != 16) return false; break;
-    case 2: channels = 3; if (depth != 8 && depth != 16) return false; break;
-    case 3: channels = 1; if (depth != 1 && depth != 2 && depth != 4 && depth != 8) return false; break;
-    case 4: channels = 2; if (depth != 8 && depth != 16) return false; break;
-    case 6: channels = 4; if (depth != 8 && depth != 16) return false; break;
-    default: return false;
-    }
-    if (!width || !height || width > kPngStreamDimensionMaximum || height > kPngStreamDimensionMaximum ||
-        data[10] != 0 || data[11] != 0)
+    if (!png_format_channels(color, depth, &channels) || !width || !height ||
+        width > kPngStreamDimensionMaximum || height > kPngStreamDimensionMaximum || data[10] != 0 ||
+        data[11] != 0)
         return false;
     const u64 row_bytes = (static_cast<u64>(width) * channels * depth + 7) / 8;
     image->width = width;
@@ -40,11 +33,6 @@ bool configure(PngImage* image, PngStreamLayout* layout, const u8* data) noexcep
     layout->inflated_bytes = (row_bytes + 1) * height;
     layout->row_buffer_bytes = static_cast<u32>((row_bytes + 1) * 2);
     return true;
-}
-
-// Reconstructs one scanline in place against the previous one (null: first).
-bool reconstruct(const PngImage& image, u8* row, const u8* previous) noexcept {
-    return png_unfilter_row(row[0], row + 1, previous, image.row_bytes, image.bytes_per_pixel);
 }
 
 struct Assembler {
@@ -73,7 +61,8 @@ bool assemble(void* opaque, ConstSlice<u8> bytes) noexcept {
         offset += take;
         if (a.filled < stride)
             continue;
-        if (!reconstruct(*a.image, a.current, a.y ? a.previous + 1 : nullptr)) {
+        if (!png_unfilter_row(a.current[0], a.current + 1, a.y ? a.previous + 1 : nullptr,
+                              a.image->row_bytes, a.image->bytes_per_pixel)) {
             a.error = PngError::filter;
             return false;
         }
@@ -115,9 +104,8 @@ PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStre
         if (length > 0x7FFFFFFFu || next > encoded.count)
             return parse_failure(result, PngError::truncated);
         const u8* type_bytes = encoded.data + cursor + 4;
-        for (u32 i = 0; i < 4; ++i)
-            if (!png_chunk_byte_valid(type_bytes[i]))
-                return parse_failure(result, PngError::chunk_type);
+        if (!png_chunk_type_valid(type_bytes))
+            return parse_failure(result, PngError::chunk_type);
         const u32 type = byte_load_be32(type_bytes);
         const u8* data = type_bytes + 4;
         if (png_crc32(type_bytes, length + 4) != byte_load_be32(data + length))
@@ -142,37 +130,14 @@ PngParseResult png_stream_parse(ConstSlice<u8> encoded, PngImage* image, PngStre
         } else if (type == kChunkPlte) {
             if (idat || palette || transparency)
                 return parse_failure(result, palette ? PngError::duplicate_chunk : PngError::chunk_order);
-            const u32 entries = length / 3;
-            if (image->color_type == 0 || image->color_type == 4 || !length || length % 3 || length > 768 ||
-                (image->color_type == 3 && entries > (1u << image->bit_depth)))
+            if (!png_apply_palette(image, data, length))
                 return parse_failure(result, PngError::palette);
-            for (u32 i = 0; i < entries; ++i)
-                image->palette_rgba[i] = static_cast<u32>(data[i * 3]) | static_cast<u32>(data[i * 3 + 1]) << 8 |
-                                         static_cast<u32>(data[i * 3 + 2]) << 16 | 0xFF000000u;
-            image->palette_count = static_cast<u16>(entries);
             palette = true;
         } else if (type == kChunkTrns) {
             if (idat || transparency)
                 return parse_failure(result, transparency ? PngError::duplicate_chunk : PngError::chunk_order);
-            const u32 maximum_sample = image->bit_depth == 16 ? 65'535u : (1u << image->bit_depth) - 1u;
-            if (image->color_type == 0 && length == 2) {
-                image->transparent_gray = byte_load_be16(data);
-                if (image->transparent_gray > maximum_sample)
-                    return parse_failure(result, PngError::transparency);
-            } else if (image->color_type == 2 && length == 6) {
-                image->transparent_red = byte_load_be16(data);
-                image->transparent_green = byte_load_be16(data + 2);
-                image->transparent_blue = byte_load_be16(data + 4);
-                if (image->transparent_red > maximum_sample || image->transparent_green > maximum_sample ||
-                    image->transparent_blue > maximum_sample)
-                    return parse_failure(result, PngError::transparency);
-            } else if (image->color_type == 3 && palette && length && length <= image->palette_count) {
-                for (u32 i = 0; i < length; ++i)
-                    image->palette_rgba[i] = (image->palette_rgba[i] & 0x00FFFFFFu) | static_cast<u32>(data[i]) << 24;
-            } else {
+            if (!png_apply_transparency(image, data, length))
                 return parse_failure(result, PngError::transparency);
-            }
-            image->has_transparency = true;
             transparency = true;
         } else if (type == kChunkIdat) {
             if (after_idat || (image->color_type == 3 && !palette))

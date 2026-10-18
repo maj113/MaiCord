@@ -126,7 +126,6 @@ PngDecodeResult apng_decode_parsed_default(
     ConstSlice<u8> encoded, const ApngImage& image,
     DeflateWorkspace* deflate_workspace, PngImage* default_image,
     Slice<u8> scanlines) noexcept;
-u64 apng_frame_duration_us(const ApngFrame& frame) noexcept;
 
 static_assert(sizeof(ApngDataSpan) == 8);
 static_assert(sizeof(ApngFrame) == 32);

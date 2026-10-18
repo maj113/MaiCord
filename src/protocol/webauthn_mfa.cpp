@@ -1,7 +1,6 @@
 #include "maicord/protocol/webauthn_mfa.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -68,6 +67,12 @@ bool mark(u32* fields, u32 bit, WebAuthnMfaError* error) noexcept {
     return true;
 }
 
+bool reject(WebAuthnMfaError* error) noexcept {
+    if (*error == WebAuthnMfaError::none)
+        *error = WebAuthnMfaError::invalid_field;
+    return false;
+}
+
 bool decode_string(JsonString string, Slice<char> output, u32* bytes) noexcept {
     const JsonStringDecodeResult decoded = json_string_decode_utf8(string, output);
     if (!decoded.ok()) {
@@ -109,45 +114,33 @@ bool visit_public_key(void* opaque, JsonString name, JsonValue value) noexcept {
     if (json_string_equals_ascii(name, utf8_literal("challenge"))) {
         if (!mark(&context->fields, 1u << 0, &context->error) ||
             !json_value_as_string(value, &context->challenge)) {
-            context->error =
-                context->error == WebAuthnMfaError::none ? WebAuthnMfaError::invalid_field : context->error;
-            return false;
+            return reject(&context->error);
         }
     } else if (json_string_equals_ascii(name, utf8_literal("rpId"))) {
         if (!mark(&context->fields, 1u << 1, &context->error) ||
             !json_value_as_string(value, &context->rp_id)) {
-            context->error =
-                context->error == WebAuthnMfaError::none ? WebAuthnMfaError::invalid_field : context->error;
-            return false;
+            return reject(&context->error);
         }
     } else if (json_string_equals_ascii(name, utf8_literal("timeout"))) {
         u64 timeout = 0;
         if (!mark(&context->fields, 1u << 2, &context->error) || !json_value_to_u64(value, &timeout) ||
             timeout == 0 || timeout > 600'000ull) {
-            context->error =
-                context->error == WebAuthnMfaError::none ? WebAuthnMfaError::invalid_field : context->error;
-            return false;
+            return reject(&context->error);
         }
         context->timeout_ms = static_cast<u32>(timeout);
     } else if (json_string_equals_ascii(name, utf8_literal("allowCredentials"))) {
         if (!mark(&context->fields, 1u << 3, &context->error) || value.kind != JsonValueKind::array) {
-            context->error =
-                context->error == WebAuthnMfaError::none ? WebAuthnMfaError::invalid_field : context->error;
-            return false;
+            return reject(&context->error);
         }
         context->allow_credentials = value;
     } else if (json_string_equals_ascii(name, utf8_literal("userVerification"))) {
         if (!mark(&context->fields, 1u << 4, &context->error) ||
             !json_value_as_string(value, &context->user_verification)) {
-            context->error =
-                context->error == WebAuthnMfaError::none ? WebAuthnMfaError::invalid_field : context->error;
-            return false;
+            return reject(&context->error);
         }
     } else if (json_string_equals_ascii(name, utf8_literal("extensions"))) {
         if (!mark(&context->fields, 1u << 5, &context->error) || value.kind != JsonValueKind::object) {
-            context->error =
-                context->error == WebAuthnMfaError::none ? WebAuthnMfaError::invalid_field : context->error;
-            return false;
+            return reject(&context->error);
         }
         context->extensions = value;
     }
@@ -173,21 +166,15 @@ bool visit_credential(void* opaque, JsonString name, JsonValue value) noexcept {
     u32 fields = context->fields;
     if (json_string_equals_ascii(name, utf8_literal("id"))) {
         if (!mark(&fields, 1u << 0, &context->error) || !json_value_as_string(value, &context->id)) {
-            context->error =
-                context->error == WebAuthnMfaError::none ? WebAuthnMfaError::invalid_field : context->error;
-            return false;
+            return reject(&context->error);
         }
     } else if (json_string_equals_ascii(name, utf8_literal("type"))) {
         if (!mark(&fields, 1u << 1, &context->error) || !json_value_as_string(value, &context->type)) {
-            context->error =
-                context->error == WebAuthnMfaError::none ? WebAuthnMfaError::invalid_field : context->error;
-            return false;
+            return reject(&context->error);
         }
     } else if (json_string_equals_ascii(name, utf8_literal("transports"))) {
         if (!mark(&fields, 1u << 2, &context->error) || value.kind != JsonValueKind::array) {
-            context->error =
-                context->error == WebAuthnMfaError::none ? WebAuthnMfaError::invalid_field : context->error;
-            return false;
+            return reject(&context->error);
         }
         context->transports = value;
     }
@@ -339,7 +326,7 @@ WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structur
     const Base64UrlResult challenge =
         base64url_decode(Utf8View{encoded_challenge, encoded_challenge_bytes},
                          Slice<u8>{parsed.challenge, static_cast<u32>(sizeof(parsed.challenge))});
-    SecureZeroMemory(encoded_challenge, sizeof(encoded_challenge));
+    secure_clear_bytes(encoded_challenge, sizeof(encoded_challenge));
     if (!challenge.ok() || challenge.bytes == 0) {
         return failure(challenge.error == Base64UrlError::output_too_small
                            ? WebAuthnMfaError::value_too_large
@@ -375,11 +362,10 @@ WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structur
                            &mediation_bytes)) {
             return failure(WebAuthnMfaError::invalid_field);
         }
-        if (utf8_equal({mediation, mediation_bytes}, utf8_literal("conditional"))) {
-            parsed.conditional = true;
-        } else if (!utf8_equal({mediation, mediation_bytes}, utf8_literal("optional")) &&
-                   !utf8_equal({mediation, mediation_bytes}, utf8_literal("required")) &&
-                   !utf8_equal({mediation, mediation_bytes}, utf8_literal("silent"))) {
+        if (!utf8_equal({mediation, mediation_bytes}, utf8_literal("conditional")) &&
+            !utf8_equal({mediation, mediation_bytes}, utf8_literal("optional")) &&
+            !utf8_equal({mediation, mediation_bytes}, utf8_literal("required")) &&
+            !utf8_equal({mediation, mediation_bytes}, utf8_literal("silent"))) {
             return failure(WebAuthnMfaError::invalid_field, root.mediation.source_offset);
         }
     }
@@ -423,7 +409,7 @@ WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structur
             return failure(WebAuthnMfaError::value_too_large, credential.id.source_offset);
         }
         if (parsed.credential_id_bytes >= kWebAuthnMfaCredentialIdStorageBytes) {
-            SecureZeroMemory(encoded_id, sizeof(encoded_id));
+            secure_clear_bytes(encoded_id, sizeof(encoded_id));
             return failure(WebAuthnMfaError::value_too_large, credential.id.source_offset);
         }
         const u32 available = kWebAuthnMfaCredentialIdStorageBytes - parsed.credential_id_bytes;
@@ -431,7 +417,7 @@ WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structur
             base64url_decode(Utf8View{encoded_id, encoded_id_bytes},
                              Slice<u8>{parsed.credential_ids + parsed.credential_id_bytes,
                                        minimum(available, kWebAuthnMfaMaximumCredentialIdBytes)});
-        SecureZeroMemory(encoded_id, sizeof(encoded_id));
+        secure_clear_bytes(encoded_id, sizeof(encoded_id));
         if (!decoded_id.ok() || decoded_id.bytes == 0) {
             return failure(decoded_id.error == Base64UrlError::output_too_small
                                ? WebAuthnMfaError::value_too_large
@@ -467,7 +453,6 @@ WebAuthnMfaResult webauthn_mfa_decode_request(Utf8View json, Slice<u32> structur
                                  visited.read_error)
                        : visited;
         }
-        parsed.requests_uvm = extensions.uvm_seen && extensions.uvm;
     }
     *output = parsed;
     return failure(WebAuthnMfaError::none);

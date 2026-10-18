@@ -5,11 +5,10 @@ struct Point {i64 x,y;};
 bool same(Point a,Point b) noexcept {return a.x==b.x&&a.y==b.y;}
 Point add(Point a,Point b) noexcept {return {a.x+b.x,a.y+b.y};}
 Point sub(Point a,Point b) noexcept {return {a.x-b.x,a.y-b.y};}
-i64 abs64(i64 v) noexcept {return v<0?-v:v;}
 i64 floor_div(i64 n,i64 d) noexcept {return n<0?-((-n+d-1)/d):n/d;}
 bool mul_div(i64 a,i64 b,i64 d,i64* out) noexcept {
     if(!d)return false;
-    const u64 x=static_cast<u64>(abs64(a)),y=static_cast<u64>(abs64(b)),z=static_cast<u64>(abs64(d));
+    const u64 x=static_cast<u64>(absolute_value<i64>(a)),y=static_cast<u64>(absolute_value<i64>(b)),z=static_cast<u64>(absolute_value<i64>(d));
     if(y&&x>0xffffffffffffffffull/y)return false;
     const u64 p=x*y,q=p/z,r=p%z>=(z+1)/2?1:0;
     if(q>0x7fffffffffffffffull-r)return false;
@@ -25,17 +24,17 @@ bool meeting(Point a0,Point a1,Point b0,Point b1,Point* out) noexcept {
     const auto a=sub(a1,a0),b=sub(b1,b0);i64 n=0,d=0,t=0;
     if(!a.y){if(!b.x){*out={b0.x,a0.y};return true;}n=b0.y-a0.y;d=-b.y;}
     else if(!a.x){if(!b.y){*out={a0.x,b0.y};return true;}n=b0.x-a0.x;d=-b.x;}
-    else if(abs64(a.x)<abs64(a.y)){
+    else if(absolute_value<i64>(a.x)<absolute_value<i64>(a.y)){
         if(!mul_div(b0.y-a0.y,a.x,a.y,&t))return false;n=a0.x-b0.x+t;
         if(!mul_div(b.y,a.x,a.y,&t))return false;d=b.x-t;
     }else{
         if(!mul_div(b0.x-a0.x,a.y,a.x,&t))return false;n=b0.y-a0.y-t;
         if(!mul_div(b.x,a.y,a.x,&t))return false;d=t-b.y;
     }
-    if(abs64(d)<=16){*out={floor_div(a1.x+b0.x,2),floor_div(a1.y+b0.y,2)};return true;}
+    if(absolute_value<i64>(d)<=16){*out={floor_div(a1.x+b0.x,2),floor_div(a1.y+b0.y,2)};return true;}
     i64 x=0,y=0;if(!mul_div(n,b.x,d,&x)||!mul_div(n,b.y,d,&y))return false;
     // Only the clamped displacement is needed; keep the following sums bounded.
-    if(abs64(x)>0x3fffffffffffffffll||abs64(y)>0x3fffffffffffffffll)return false;
+    if(absolute_value<i64>(x)>0x3fffffffffffffffll||absolute_value<i64>(y)>0x3fffffffffffffffll)return false;
     *out={b0.x+x,b0.y+y};return true;
 }
 struct Widen {

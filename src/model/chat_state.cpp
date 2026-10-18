@@ -1,5 +1,6 @@
 #include "maicord/model/chat_state.hpp"
 
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/model/read_state.hpp"
@@ -348,11 +349,6 @@ bool valid_name(Utf8View name) noexcept {
     return name.bytes <= 400 && (!name.data ? name.bytes == 0 : utf8_validate(name).valid);
 }
 
-bool hexadecimal(u8 value) noexcept {
-    return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') ||
-           (value >= 'A' && value <= 'F');
-}
-
 bool valid_guild_icon_hash(Utf8View hash) noexcept {
     if (hash.bytes == 0) {
         return true;
@@ -362,7 +358,7 @@ bool valid_guild_icon_hash(Utf8View hash) noexcept {
         return false;
     }
     for (u32 index = begin; index < hash.bytes; ++index) {
-        if (!hexadecimal(static_cast<u8>(hash.data[index]))) {
+        if (!ascii_is_hex_digit(hash.data[index])) {
             return false;
         }
     }
@@ -585,19 +581,17 @@ static bool merge_guild_settings(GuildSettings* out, const GuildSettings& in) no
     return mfa_changed || quarantine_changed;
 }
 
-bool guild_settings_valid(const GuildSettings& settings) noexcept {
+static bool guild_settings_valid(const GuildSettings& settings) noexcept {
     return !(settings.known & ~guild_settings_all) && settings.mfa_level <= 1 &&
            settings.verification_level <= 4 && settings.default_message_notifications <= 1 &&
-           settings.explicit_content_filter <= 2 &&
-           (settings.afk_timeout_seconds <= 86'400);
+           settings.explicit_content_filter <= 2 && settings.afk_timeout_seconds <= 86'400;
 }
 
 ChatStateStoreResult chat_state_store_upsert_guild(ChatStateStore* store,
                                                          const GuildInput& input) noexcept {
     if (!store || !store->guilds || input.id == 0 || !valid_name(input.name) || input.nsfw_level > 3 ||
         (input.settings && !guild_settings_valid(*input.settings)) ||
-        (!input.nsfw_level_known && input.nsfw_level) || input.name.bytes > 0xFFFFu ||
-        input.kind == GuildMutationKind::remove ||
+        (!input.nsfw_level_known && input.nsfw_level) || input.kind == GuildMutationKind::remove ||
         (input.icon_known && !valid_guild_icon_hash(input.icon_hash))) {
         return state_error(store, ChatStateStoreError::invalid_input);
     }
@@ -900,7 +894,7 @@ ChatStateStoreResult chat_state_store_upsert_channel(ChatStateStore* store,
         (input.thread_active_known && !channel_is_thread(input.type)) ||
         (input.thread_join_seconds && (!channel_is_thread(input.type) || !input.thread_self_joined)) ||
         (private_channel ? input.guild_id != 0 || input.parent_id != 0 : input.guild_id == 0) ||
-        !valid_name(input.name) || input.name.bytes > 0xFFFFu) {
+        !valid_name(input.name)) {
         return state_error(store, ChatStateStoreError::invalid_input);
     }
     bool found = false;
@@ -1211,8 +1205,7 @@ Utf8View chat_state_store_role_name(const ChatStateStore& store,
 }
 
 bool chat_state_store_upsert_role(ChatStateStore* store, const RoleInput& input) noexcept {
-    if (!store || input.id == 0 || input.guild_id == 0 || !valid_name(input.name) ||
-        input.name.bytes > 0xFFFFu) {
+    if (!store || input.id == 0 || input.guild_id == 0 || !valid_name(input.name)) {
         return false;
     }
     if (!store->roles) {

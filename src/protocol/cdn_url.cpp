@@ -20,7 +20,7 @@ u32 literal_length(const char* literal) noexcept {
 }
 
 bool ascii_equal(const char* value, u32 bytes, const char* literal) noexcept {
-    if (!value || bytes != literal_length(literal)) {
+    if (bytes != literal_length(literal)) {
         return false;
     }
     for (u32 index = 0; index < bytes; ++index) {
@@ -32,7 +32,7 @@ bool ascii_equal(const char* value, u32 bytes, const char* literal) noexcept {
 }
 
 bool bytes_begin_with(ConstSlice<u8> value, u32 bytes, const char* literal) noexcept {
-    if (!value.data || bytes > value.count) {
+    if (bytes > value.count) {
         return false;
     }
     const u32 literal_bytes = literal_length(literal);
@@ -49,12 +49,11 @@ bool bytes_begin_with(ConstSlice<u8> value, u32 bytes, const char* literal) noex
 
 // Canonical decimal: no leading zero other than "0" itself.
 bool parse_decimal(const char* value, u32 bytes, u64* output) noexcept {
-    return value && bytes != 0 && (bytes == 1 || value[0] != '0') &&
-           decimal_parse({value, bytes}, output);
+    return bytes != 0 && (bytes == 1 || value[0] != '0') && decimal_parse({value, bytes}, output);
 }
 
 bool parse_hexadecimal(const char* value, u32 bytes, u64* output) noexcept {
-    if (!value || bytes == 0 || bytes > 16) {
+    if (bytes == 0 || bytes > 16) {
         return false;
     }
     u64 parsed = 0;
@@ -196,16 +195,15 @@ AttachmentUrlResult parse_signed_attachment_url(Utf8View url, u64 attachment_id,
     // Unsigned attachment paths are not fetchable but still identify the file in
     // older message payloads. Return the validated target already expired, so the
     // account layer requests a fresh message record instead of an unauthenticated GET.
+    AttachmentUrlResult result{};
+    result.target_bytes = target_bytes;
+    result.host = parsed_host;
+    result.ephemeral = ephemeral;
     if (query == url.bytes) {
         if (target_bytes > target_output.count) {
             return attachment_url_failure(AttachmentUrlError::output_capacity);
         }
         copy_bytes(target_output.data, url.data + path_begin, target_bytes);
-        AttachmentUrlResult result{};
-        result.target_bytes = target_bytes;
-        result.host = parsed_host;
-        result.error = AttachmentUrlError::none;
-        result.ephemeral = ephemeral;
         return result;
     }
     if (query + 1 == url.bytes) {
@@ -337,13 +335,8 @@ AttachmentUrlResult parse_signed_attachment_url(Utf8View url, u64 attachment_id,
         return attachment_url_failure(AttachmentUrlError::output_capacity);
     }
     copy_bytes(target_output.data, url.data + path_begin, target_bytes);
-    AttachmentUrlResult result{};
     result.issued_at_seconds = issued_at;
     result.expires_at_seconds = expires_at;
-    result.target_bytes = target_bytes;
-    result.host = parsed_host;
-    result.error = AttachmentUrlError::none;
-    result.ephemeral = ephemeral;
     return result;
 }
 
@@ -1058,8 +1051,6 @@ CdnTargetResult write_media_proxy_target(ConstSlice<u8> source_target,
         (source_host != CdnHost::cdn && source_host != CdnHost::media &&
          source_host != CdnHost::images_ext_1 && source_host != CdnHost::images_ext_2) ||
         target_width == 0 || target_height == 0 || target_width > 4'096 || target_height > 4'096 ||
-        (format != CdnMediaFormat::png && format != CdnMediaFormat::webp &&
-         format != CdnMediaFormat::jpeg && format != CdnMediaFormat::source) ||
         (!output.data && output.count != 0)) {
         return failure(CdnTargetError::invalid_input);
     }

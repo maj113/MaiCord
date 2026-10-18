@@ -82,7 +82,7 @@ bool slice_equal_case(ConstSlice<u8> left, ConstSlice<u8> right) noexcept {
 }
 
 bool parse_decimal(ConstSlice<u8> value, u64* result) noexcept {
-    if (!result || value.count == 0) {
+    if (value.count == 0) {
         return false;
     }
     u64 parsed = 0;
@@ -239,10 +239,10 @@ bool parse_content_range(ConstSlice<u8> value, u64* first, u64* last, u64* lengt
     if (value.count <= unit_bytes ||
         !slice_equal_case({value.data, unit_bytes}, {reinterpret_cast<const u8*>(unit), unit_bytes}))
         return false;
-    u32 dash = unit_bytes, slash = unit_bytes;
+    u32 dash = unit_bytes;
     while (dash < value.count && value[dash] != '-')
         ++dash;
-    slash = dash;
+    u32 slash = dash;
     while (slash < value.count && value[slash] != '/')
         ++slash;
     if (dash >= value.count || slash >= value.count)
@@ -268,12 +268,6 @@ CdnRequestResult write_static_cdn_get_request(CdnImageType image_type,
         return CdnRequestResult{0, CdnHttpError::invalid_input};
     const Utf8View host_name = cdn_host_name(host);
     if ((!output.data && output.count != 0) || host_name.empty() || !target_valid(target) ||
-        (image_type != CdnImageType::png && image_type != CdnImageType::webp &&
-         image_type != CdnImageType::gif && image_type != CdnImageType::jpeg &&
-         image_type != CdnImageType::mp4 && image_type != CdnImageType::regional_flag_svg &&
-         image_type != CdnImageType::lottie_json && image_type != CdnImageType::ogg_opus &&
-         image_type != CdnImageType::mp3 && image_type != CdnImageType::wav &&
-         image_type != CdnImageType::m4a && image_type != CdnImageType::soundboard_sound) ||
         (image_type == CdnImageType::soundboard_sound &&
          (host != CdnHost::cdn || !soundboard_target_valid(target))) ||
         (image_type == CdnImageType::lottie_json &&
@@ -412,14 +406,6 @@ CdnResponseResult validate_response(CdnImageType image_type, ConstSlice<u8> resp
                                     u32 decoded_body_bytes, u64 now_seconds,
                                     const CdnByteRange* range) noexcept {
     if (!response_head.data || response_head.count == 0) {
-        return response_failure(CdnHttpError::invalid_input);
-    }
-    if (image_type != CdnImageType::png && image_type != CdnImageType::webp &&
-        image_type != CdnImageType::gif && image_type != CdnImageType::jpeg &&
-        image_type != CdnImageType::mp4 && image_type != CdnImageType::regional_flag_svg &&
-        image_type != CdnImageType::lottie_json && image_type != CdnImageType::ogg_opus &&
-        image_type != CdnImageType::mp3 && image_type != CdnImageType::wav &&
-        image_type != CdnImageType::m4a && image_type != CdnImageType::soundboard_sound) {
         return response_failure(CdnHttpError::invalid_input);
     }
     ResponseFields fields{};

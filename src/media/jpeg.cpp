@@ -17,17 +17,11 @@ inline constexpr u8 kZigzagToRaster[64] = {
 };
 
 u16 read_tiff16(const u8* bytes, bool big_endian) noexcept {
-    return big_endian ? static_cast<u16>(static_cast<u16>(bytes[0]) << 8 | bytes[1])
-                      : static_cast<u16>(static_cast<u16>(bytes[1]) << 8 | bytes[0]);
+    return big_endian ? byte_load_be16(bytes) : byte_load_le16(bytes);
 }
 
 u32 read_tiff32(const u8* bytes, bool big_endian) noexcept {
-    if (big_endian) {
-        return static_cast<u32>(bytes[0]) << 24 | static_cast<u32>(bytes[1]) << 16 |
-               static_cast<u32>(bytes[2]) << 8 | bytes[3];
-    }
-    return static_cast<u32>(bytes[3]) << 24 | static_cast<u32>(bytes[2]) << 16 |
-           static_cast<u32>(bytes[1]) << 8 | bytes[0];
+    return big_endian ? byte_load_be32(bytes) : byte_load_le32(bytes);
 }
 
 JpegParseResult parse_failure(JpegParseResult result, JpegError error) noexcept {
@@ -113,6 +107,7 @@ bool parse_exif_orientation(const u8* payload, u32 bytes, JpegOrientation* orien
     return false;
 }
 
+// Payload of one APP2 segment, already bounded by segment_bounds().
 struct JpegIccChunk {
     u32 encoded_offset;
     u32 bytes;
@@ -175,10 +170,6 @@ bool icc_cursor_begin(const IccScatter& scatter, u32 offset, IccCursor* cursor) 
     u32 profile_offset = 0;
     for (u32 chunk_index = 0; chunk_index < scatter.chunk_count; ++chunk_index) {
         const JpegIccChunk& chunk = scatter.chunks[chunk_index];
-        if (chunk.encoded_offset > scatter.encoded.count ||
-            chunk.bytes > scatter.encoded.count - chunk.encoded_offset) {
-            return false;
-        }
         if (offset < profile_offset + chunk.bytes ||
             (offset == scatter.profile_bytes && chunk_index + 1u == scatter.chunk_count)) {
             *cursor = IccCursor{&scatter, chunk_index, profile_offset, offset};
@@ -195,10 +186,6 @@ bool icc_cursor_read_u8(IccCursor* cursor, u8* value) noexcept {
     }
     while (cursor->chunk_index < cursor->scatter->chunk_count) {
         const JpegIccChunk& chunk = cursor->scatter->chunks[cursor->chunk_index];
-        if (chunk.encoded_offset > cursor->scatter->encoded.count ||
-            chunk.bytes > cursor->scatter->encoded.count - chunk.encoded_offset) {
-            return false;
-        }
         const u32 within = cursor->offset - cursor->chunk_profile_offset;
         if (within < chunk.bytes) {
             *value = cursor->scatter->encoded[chunk.encoded_offset + within];
@@ -288,10 +275,6 @@ bool icc_copy(const IccScatter& scatter, u32 offset, u8* destination, u32 bytes)
     u32 copied = 0;
     for (u32 chunk_index = 0; chunk_index < scatter.chunk_count && copied < bytes; ++chunk_index) {
         const JpegIccChunk& chunk = scatter.chunks[chunk_index];
-        if (chunk.encoded_offset > scatter.encoded.count ||
-            chunk.bytes > scatter.encoded.count - chunk.encoded_offset) {
-            return false;
-        }
         const u32 chunk_end = profile_offset + chunk.bytes;
         if (offset < chunk_end) {
             const u32 within = offset > profile_offset ? offset - profile_offset : 0;
@@ -957,7 +940,7 @@ JpegError parse_huffman(ConstSlice<u8> encoded, u32 payload, u32 bytes, JpegTabl
 }
 
 JpegError parse_frame(ConstSlice<u8> encoded, u32 payload, u32 bytes, JpegImage* image,
-                      bool thumbnail = false) noexcept {
+                      bool thumbnail) noexcept {
     if (bytes < 9 || image->component_count != 0) {
         return image->component_count != 0 ? JpegError::duplicate : JpegError::segment;
     }
@@ -1314,11 +1297,8 @@ __forceinline u32 entropy_read_bit(JpegEntropyReader* reader) noexcept {
     return bit;
 }
 
+// count is a nibble of a Huffman symbol (at most 15).
 __forceinline u32 entropy_read_bits(JpegEntropyReader* reader, u32 count) noexcept {
-    if (count > 16) {
-        reader->error = JpegError::entropy;
-        return 0;
-    }
     if (count == 0 || reader->error != JpegError::none) {
         return 0;
     }
@@ -1862,7 +1842,7 @@ __forceinline bool decode_progressive_block(JpegEntropyReader* reader, const Jpe
 bool decode_progressive_scan(ConstSlice<u8> encoded, const JpegImage& image, const JpegTables& tables,
                              const JpegScan& scan, JpegCoefficientBlock* blocks,
                              JpegDecodeResult* result) noexcept {
-    if (!blocks || static_cast<u64>(scan.entropy_offset) + scan.entropy_bytes > encoded.count) {
+    if (static_cast<u64>(scan.entropy_offset) + scan.entropy_bytes > encoded.count) {
         return false;
     }
     JpegEntropyReader reader = entropy_reader(ConstSlice<u8>{encoded.data + scan.entropy_offset, scan.entropy_bytes});
@@ -2123,10 +2103,7 @@ JpegParseResult parse_jpeg(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspa
             if (error == JpegError::none) {
                 image->progressive = marker == 0xC2;
             }
-        } else if ((marker >= 0xC1 && marker <= 0xCF) && marker != 0xC4 && marker != 0xC8 &&
-                   marker != 0xCC) {
-            return parse_failure(result, JpegError::unsupported_process);
-        } else if (marker == 0xC8 || marker == 0xCC) {
+        } else if (marker >= 0xC1 && marker <= 0xCF) {
             return parse_failure(result, JpegError::unsupported_process);
         } else if (marker == 0xDD) {
             if (payload_bytes != 2) {
@@ -2187,6 +2164,105 @@ JpegParseResult parse_jpeg(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspa
     return parse_failure(result, JpegError::truncated);
 }
 
+// Re-walks the markers of a progressive file and decodes every scan into blocks, which
+// holds image.coefficient_blocks entries.
+JpegDecodeResult decode_progressive_scans(ConstSlice<u8> encoded, const JpegImage& image,
+                                          JpegCoefficientBlock* blocks) noexcept {
+    JpegDecodeResult result{};
+    if (image.scan_count == 0 || encoded.count < 4 || encoded[0] != 0xFF || encoded[1] != 0xD8) {
+        result.error = JpegError::invalid_input;
+        return result;
+    }
+    for (u32 block = 0; block < image.coefficient_blocks; ++block) {
+        for (u32 coefficient = 0; coefficient < 64; ++coefficient) {
+            blocks[block].values[coefficient] = 0;
+        }
+    }
+    JpegTables tables{};
+    u16 restart_interval = 0;
+    u8 quantization_locked = 0;
+    u8 progression[kJpegComponentMaximum][64]{};
+    for (u32 component = 0; component < kJpegComponentMaximum; ++component) {
+        for (u32 coefficient = 0; coefficient < 64; ++coefficient) {
+            progression[component][coefficient] = 0xFF;
+        }
+    }
+    u32 cursor = 2;
+    u32 scans = 0;
+    while (cursor < encoded.count) {
+        u8 marker = 0;
+        if (!read_marker(encoded, &cursor, &marker)) {
+            result.error = JpegError::marker;
+            return result;
+        }
+        if (marker == 0xD9) {
+            if (cursor != encoded.count || scans != image.scan_count ||
+                result.decoded_scans != image.scan_count) {
+                result.error = cursor != encoded.count ? JpegError::trailing_data : JpegError::scan;
+                return result;
+            }
+            result.error = JpegError::none;
+            return result;
+        }
+        if (marker == 0xD8 || (marker >= 0xD0 && marker <= 0xD7) || marker == 0x01) {
+            result.error = JpegError::order;
+            return result;
+        }
+        u32 payload = 0;
+        u32 payload_bytes = 0;
+        if (!segment_bounds(encoded, &cursor, &payload, &payload_bytes)) {
+            result.error = JpegError::truncated;
+            return result;
+        }
+        JpegError error = JpegError::none;
+        if (marker == 0xDB) {
+            error = parse_quantization(encoded, payload, payload_bytes, quantization_locked, &tables);
+        } else if (marker == 0xC4) {
+            error = parse_huffman(encoded, payload, payload_bytes, &tables);
+        } else if (marker == 0xDD) {
+            if (payload_bytes != 2) {
+                result.error = JpegError::segment;
+                return result;
+            }
+            restart_interval = byte_load_be16(encoded.data + payload);
+        } else if (marker == 0xDA) {
+            JpegScan scan{};
+            error = parse_scan_header(encoded, payload, payload_bytes, image, tables, restart_interval,
+                                      &scan);
+            if (error != JpegError::none) {
+                result.error = error;
+                return result;
+            }
+            error = validate_progression(scan, progression);
+            if (error != JpegError::none) {
+                result.error = error;
+                return result;
+            }
+            u32 next_marker = 0;
+            error = find_entropy_end(encoded, cursor, &scan, &next_marker);
+            if (error != JpegError::none ||
+                !decode_progressive_scan(encoded, image, tables, scan, blocks, &result)) {
+                if (result.error == JpegError::none) {
+                    result.error = error == JpegError::none ? JpegError::coefficient : error;
+                }
+                return result;
+            }
+            for (u32 index = 0; index < scan.component_count; ++index) {
+                const JpegComponent& component = image.components[scan.component_indices[index]];
+                quantization_locked |= static_cast<u8>(1u << component.quantization_table);
+            }
+            ++scans;
+            cursor = next_marker;
+        }
+        if (error != JpegError::none) {
+            result.error = error;
+            return result;
+        }
+    }
+    result.error = JpegError::truncated;
+    return result;
+}
+
 } // namespace
 
 JpegParseResult jpeg_parse(ConstSlice<u8> encoded, JpegImage* image, JpegWorkspace* workspace) noexcept {
@@ -2206,98 +2282,7 @@ JpegDecodeResult jpeg_decode_parsed_coefficients(ConstSlice<u8> encoded, const J
     }
 
     if (image.progressive) {
-        if (image.scan_count == 0 || encoded.count < 4 || encoded[0] != 0xFF || encoded[1] != 0xD8) {
-            result.error = JpegError::invalid_input;
-            return result;
-        }
-        for (u32 block = 0; block < image.coefficient_blocks; ++block) {
-            for (u32 coefficient = 0; coefficient < 64; ++coefficient) {
-                coefficients->blocks[block].values[coefficient] = 0;
-            }
-        }
-        JpegTables tables{};
-        u16 restart_interval = 0;
-        u8 quantization_locked = 0;
-        u8 progression[kJpegComponentMaximum][64]{};
-        for (u32 component = 0; component < kJpegComponentMaximum; ++component) {
-            for (u32 coefficient = 0; coefficient < 64; ++coefficient) {
-                progression[component][coefficient] = 0xFF;
-            }
-        }
-        u32 cursor = 2;
-        u32 scans = 0;
-        while (cursor < encoded.count) {
-            u8 marker = 0;
-            if (!read_marker(encoded, &cursor, &marker)) {
-                result.error = JpegError::marker;
-                return result;
-            }
-            if (marker == 0xD9) {
-                if (cursor != encoded.count || scans != image.scan_count ||
-                    result.decoded_scans != image.scan_count) {
-                    result.error = cursor != encoded.count ? JpegError::trailing_data : JpegError::scan;
-                    return result;
-                }
-                result.error = JpegError::none;
-                return result;
-            }
-            if (marker == 0xD8 || (marker >= 0xD0 && marker <= 0xD7) || marker == 0x01) {
-                result.error = JpegError::order;
-                return result;
-            }
-            u32 payload = 0;
-            u32 payload_bytes = 0;
-            if (!segment_bounds(encoded, &cursor, &payload, &payload_bytes)) {
-                result.error = JpegError::truncated;
-                return result;
-            }
-            JpegError error = JpegError::none;
-            if (marker == 0xDB) {
-                error = parse_quantization(encoded, payload, payload_bytes, quantization_locked, &tables);
-            } else if (marker == 0xC4) {
-                error = parse_huffman(encoded, payload, payload_bytes, &tables);
-            } else if (marker == 0xDD) {
-                if (payload_bytes != 2) {
-                    result.error = JpegError::segment;
-                    return result;
-                }
-                restart_interval = byte_load_be16(encoded.data + payload);
-            } else if (marker == 0xDA) {
-                JpegScan scan{};
-                error = parse_scan_header(encoded, payload, payload_bytes, image, tables, restart_interval,
-                                          &scan);
-                if (error != JpegError::none) {
-                    result.error = error;
-                    return result;
-                }
-                error = validate_progression(scan, progression);
-                if (error != JpegError::none) {
-                    result.error = error;
-                    return result;
-                }
-                u32 next_marker = 0;
-                error = find_entropy_end(encoded, cursor, &scan, &next_marker);
-                if (error != JpegError::none ||
-                    !decode_progressive_scan(encoded, image, tables, scan, coefficients->blocks, &result)) {
-                    if (result.error == JpegError::none) {
-                        result.error = error == JpegError::none ? JpegError::coefficient : error;
-                    }
-                    return result;
-                }
-                for (u32 index = 0; index < scan.component_count; ++index) {
-                    const JpegComponent& component = image.components[scan.component_indices[index]];
-                    quantization_locked |= static_cast<u8>(1u << component.quantization_table);
-                }
-                ++scans;
-                cursor = next_marker;
-            }
-            if (error != JpegError::none) {
-                result.error = error;
-                return result;
-            }
-        }
-        result.error = JpegError::truncated;
-        return result;
+        return decode_progressive_scans(encoded, image, coefficients->blocks);
     }
 
     JpegEntropyReader reader = entropy_reader(ConstSlice<u8>{encoded.data + image.entropy_offset, image.entropy_bytes});
@@ -2563,14 +2548,13 @@ JpegParseResult jpeg_thumbnail_parse(ConstSlice<u8> encoded, u32 target_extent, 
     return result;
 }
 
-namespace {
-JpegDecodeResult decode_thumbnail(ConstSlice<u8> encoded, const JpegImage& image,
-                                       const JpegThumbnailLayout& layout, Slice<u8> scratch,
-                                       Slice<u8> rgba, JpegThumbnailRowSink sink, void* context) noexcept {
+JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegImage& image,
+                                            const JpegThumbnailLayout& layout, Slice<u8> scratch,
+                                            Slice<u8> row, JpegThumbnailRowSink sink, void* context) noexcept {
     JpegDecodeResult result{};
     const u64 required = layout.coefficient_bytes + layout.plane_bytes;
-    if (!image.tables || !layout.samples || (!encoded.data && encoded.count) || !scratch.data ||
-        required > scratch.count || !rgba.data || u64{layout.width} * 4 > rgba.count ||
+    if (!sink || !image.tables || !layout.samples || (!encoded.data && encoded.count) || !scratch.data ||
+        required > scratch.count || !row.data || u64{layout.width} * 4 > row.count ||
         (reinterpret_cast<usize>(scratch.data) & 15u) || !image.component_count ||
         static_cast<u64>(image.entropy_offset) + image.entropy_bytes > encoded.count) {
         result.error = JpegError::invalid_input;
@@ -2579,65 +2563,8 @@ JpegDecodeResult decode_thumbnail(ConstSlice<u8> encoded, const JpegImage& image
     auto* blocks = reinterpret_cast<JpegCoefficientBlock*>(scratch.data);
     u8* planes = scratch.data + layout.coefficient_bytes;
     if (image.progressive) {
-        for (u64 i = 0; i < layout.coefficient_bytes; ++i)
-            scratch.data[i] = 0;
-        JpegTables tables{};
-        u16 restart_interval = 0;
-        u8 quantization_locked = 0;
-        u8 progression[kJpegComponentMaximum][64];
-        for (auto& component : progression)
-            for (auto& coefficient : component)
-                coefficient = 0xFF;
-        u32 cursor = 2;
-        bool done = false;
-        while (!done && cursor < encoded.count) {
-            u8 marker = 0;
-            if (!read_marker(encoded, &cursor, &marker)) {
-                result.error = JpegError::marker;
-                return result;
-            }
-            if (marker == 0xD9) {
-                done = true;
-                break;
-            }
-            u32 payload = 0, payload_bytes = 0;
-            if (!segment_bounds(encoded, &cursor, &payload, &payload_bytes)) {
-                result.error = JpegError::truncated;
-                return result;
-            }
-            JpegError error = JpegError::none;
-            if (marker == 0xDB) {
-                error = parse_quantization(encoded, payload, payload_bytes, quantization_locked, &tables);
-            } else if (marker == 0xC4) {
-                error = parse_huffman(encoded, payload, payload_bytes, &tables);
-            } else if (marker == 0xDD) {
-                restart_interval = payload_bytes == 2 ? byte_load_be16(encoded.data + payload) : 0;
-            } else if (marker == 0xDA) {
-                JpegScan scan{};
-                error = parse_scan_header(encoded, payload, payload_bytes, image, tables, restart_interval, &scan);
-                if (error == JpegError::none)
-                    error = validate_progression(scan, progression);
-                u32 next_marker = 0;
-                if (error == JpegError::none)
-                    error = find_entropy_end(encoded, cursor, &scan, &next_marker);
-                if (error == JpegError::none && !decode_progressive_scan(encoded, image, tables, scan, blocks, &result))
-                    error = result.error == JpegError::none ? JpegError::coefficient : result.error;
-                if (error != JpegError::none) {
-                    result.error = error;
-                    return result;
-                }
-                for (u32 index = 0; index < scan.component_count; ++index)
-                    quantization_locked |= static_cast<u8>(
-                        1u << image.components[scan.component_indices[index]].quantization_table);
-                cursor = next_marker;
-            }
-            if (error != JpegError::none) {
-                result.error = error;
-                return result;
-            }
-        }
-        if (!done) {
-            result.error = JpegError::truncated;
+        result = decode_progressive_scans(encoded, image, blocks);
+        if (!result.ok()) {
             return result;
         }
         for (u32 c = 0; c < image.component_count; ++c) {
@@ -2696,25 +2623,12 @@ JpegDecodeResult decode_thumbnail(ConstSlice<u8> encoded, const JpegImage& image
             return result;
         }
     }
-    if (!convert_planes(image, layout, planes, rgba.data, sink, context)) {
+    if (!convert_planes(image, layout, planes, row.data, sink, context)) {
         result.error = JpegError::sink;
         return result;
     }
     result.decoded_scans = image.scan_count;
     result.error = JpegError::none;
     return result;
-}
-
-} // namespace
-
-JpegDecodeResult jpeg_thumbnail_decode_rows(ConstSlice<u8> encoded, const JpegImage& image,
-                                            const JpegThumbnailLayout& layout, Slice<u8> scratch,
-                                            Slice<u8> row, JpegThumbnailRowSink sink, void* context) noexcept {
-    if (!sink) {
-        JpegDecodeResult result{};
-        result.error = JpegError::invalid_input;
-        return result;
-    }
-    return decode_thumbnail(encoded, image, layout, scratch, row, sink, context);
 }
 } // namespace maicord

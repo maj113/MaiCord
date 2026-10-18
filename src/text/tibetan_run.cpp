@@ -6,9 +6,6 @@
 #include "compact_run.hpp"
 #include "use_shape_internal.hpp"
 namespace maicord {namespace {
-struct ArenaScope {Arena* arena;ArenaMark mark;bool keep=false;~ArenaScope() noexcept {if(!keep)arena_rewind(arena,mark);}};
-template<class T> Slice<T> take(Arena* arena,u32 count) noexcept {return {count?arena_allocate<T>(arena,count):nullptr,count};}
-template<class T> bool filled(Slice<T> values) noexcept {return !values.count||values.data;}
 
 }
 SfntStatus native_tibetan_plan_prepare(const NativeRunPlanStore& store,NativeRunPlanHandle run,bool independent,

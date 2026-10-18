@@ -2,6 +2,7 @@
 #include "maicord/text/khmer_input.hpp"
 #include "maicord/text/khmer_plan.hpp"
 #include "khmer_character.hpp"
+#include "use_shape_internal.hpp"
 namespace maicord {namespace {
 using C=KhmerCategory;
 constexpr u32 nil=0xffffffffu;
@@ -80,28 +81,8 @@ SfntStatus run_finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> z
     return finish(&static_cast<RunPolicy*>(context)->cluster,glyphs,zero,work);
 }
 SfntStatus run_restore(void* context,SfntClusterMap* clusters,const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u64 work) noexcept {
-    auto& p=*static_cast<RunPolicy*>(context);const auto groups=p.groups;
-    const auto spend=[&](u64 cost) noexcept {if(cost>work)return false;work-=cost;return true;};
-    // Cross-cluster ligatures inherit the last consumed original group. A
-    // reordered prefix can still retain the preceding group independently.
-    for(u32 i=0;i<glyphs.count;++i){u32 lo=nil,hi=0;u64 cost=0;
-        const auto status=sfnt_component_source_bounds(forest,glyphs[i].component,&lo,&hi,work,&cost);
-        if(!spend(cost))return SfntStatus::resource_limit;if(status!=SfntStatus::ok)return status;
-        if(!spend(1))return SfntStatus::resource_limit;
-        const u32 source=lo==nil?glyphs[i].source:hi;if(source>=groups.count)return SfntStatus::invalid_input;
-        glyphs[i].source=groups[source];
-    }
-    if(!spend(static_cast<u64>(p.boundary_count)*3+glyphs.count))return SfntStatus::resource_limit;
-    for(u32 i=0;i<p.boundary_count;++i)groups[p.boundaries[i]]=nil;
-    for(u32 i=0;i<glyphs.count;++i){auto& first=groups[glyphs[i].source];first=minimum(first,i);}
-    u32 next=nil;
-    for(u32 i=p.boundary_count;i;){auto& first=groups[p.boundaries[--i]];next=minimum(next,first);first=next;}
-    u32 count=0,previous=nil;
-    for(u32 i=0;i<p.boundary_count;++i){const u32 source=p.boundaries[i],value=groups[source];
-        if(!i||(value!=nil&&value!=previous)){p.boundaries[count++]=source;previous=value;}}
-    const u64 cost=static_cast<u64>(sfnt_cluster_map_words(groups.count))*3+count;
-    if(!spend(cost))return SfntStatus::resource_limit;
-    return sfnt_cluster_map_open(groups.count,{p.boundaries.data,count},clusters->storage,clusters,cost);
+    auto& p=*static_cast<RunPolicy*>(context);
+    return use_shape::restore_groups(p.groups,p.boundaries,p.boundary_count,clusters,forest,glyphs,work);
 }
 }
 SfntStatus sfnt_khmer_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<u32> input,

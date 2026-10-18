@@ -32,14 +32,9 @@ struct PermissionOptions {
     bool member_lacks_mfa;
 };
 
-bool permission_member_timed_out(const PermissionMember& member, u64 now_seconds) noexcept;
 // @everyone plus assigned roles; owner and administrator resolve to every bit.
 // No masks are applied.
 PermissionSet permission_compute_base(const PermissionGuild& guild, const PermissionMember& member) noexcept;
-// Channel overwrites in service order: @everyone, the allow/deny aggregate of
-// the member's roles, then the member's own overwrite.
-PermissionSet permission_apply_overwrites(PermissionSet base, u64 guild_id, const PermissionMember& member,
-                                          ConstSlice<PermissionOverwriteRecord> overwrites) noexcept;
 // Complete resolution from permission_compute_base for the same guild and member.
 // Keep this base before the timeout and MFA masks. Reuse it only while roles and ownership stay unchanged.
 PermissionSet permission_compute_from_base(PermissionSet base, const PermissionGuild& guild,

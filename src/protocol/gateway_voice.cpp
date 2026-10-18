@@ -106,8 +106,6 @@ bool visit(void* opaque, JsonString key, JsonValue value) noexcept {
     return valid;
 }
 GatewayEventDecodeResult decode(JsonValue data, Slice<u32> scratch, u32 depth, Decode* d) noexcept {
-    if (!data.source.data || !data.source.bytes || !scratch.data || !scratch.count || !depth)
-        return {0, GatewayEventDecodeError::invalid_input};
     if (data.kind != JsonValueKind::object)
         return {data.source_offset, GatewayEventDecodeError::invalid_data};
     const auto scan = json_scan_structurals_avx1(data.source, scratch);
@@ -130,8 +128,6 @@ GatewayEventDecodeResult decode(JsonValue data, Slice<u32> scratch, u32 depth, D
 } // namespace
 GatewayEventDecodeResult gateway_decode_voice_state(JsonValue data, Slice<u32> scratch, u32 depth,
                                                     GatewayVoiceState* output) noexcept {
-    if (!output)
-        return {0, GatewayEventDecodeError::invalid_input};
     Decode d{};
     const auto result = decode(data, scratch, depth, &d);
     if (result.ok())
@@ -140,8 +136,6 @@ GatewayEventDecodeResult gateway_decode_voice_state(JsonValue data, Slice<u32> s
 }
 GatewayEventDecodeResult gateway_decode_voice_state_row(JsonValue data, Slice<u32> scratch, u32 depth,
                                                         GatewayVoiceState* output) noexcept {
-    if (!output)
-        return {0, GatewayEventDecodeError::invalid_input};
     Decode d{};
     d.session_optional = true;
     const auto result = decode(data, scratch, depth, &d);
@@ -151,8 +145,6 @@ GatewayEventDecodeResult gateway_decode_voice_state_row(JsonValue data, Slice<u3
 }
 GatewayEventDecodeResult gateway_decode_voice_server(JsonValue data, Slice<u32> scratch, u32 depth,
                                                      GatewayVoiceServer* output) noexcept {
-    if (!output)
-        return {0, GatewayEventDecodeError::invalid_input};
     Decode d{};
     d.server_event = true;
     const auto result = decode(data, scratch, depth, &d);

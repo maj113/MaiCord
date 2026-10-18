@@ -10,7 +10,7 @@ struct TtGraphicsState {
     i16 projection_x=16384,projection_y=0,freedom_x=16384,freedom_y=0,dual_x=16384,dual_y=0;
     u32 rp[3]{},zp[3]{1,1,1},loop=1;
     i32 minimum_distance=64,cvt_cut_in=68,single_width_cut_in=0,single_width=0;
-    u32 delta_base=9,delta_shift=3,instruction_control=0,scan_control=0,scan_type=0;
+    u32 delta_base=9,delta_shift=3,instruction_control=0;
     TtRound round=TtRound::grid;
     i16 round_period=64,round_phase=0,round_threshold=32;
     bool auto_flip=true;

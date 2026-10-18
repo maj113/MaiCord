@@ -38,10 +38,6 @@ struct MlsReader {
         return result;
     }
     u64 integer(u32 count) noexcept {
-        if (count != 1 && count != 2 && count != 4 && count != 8) {
-            fail(MlsWireError::invalid_input, used);
-            return 0;
-        }
         const auto span = take(count);
         u64 value = 0;
         for (u32 i = 0; i != span.count; ++i)

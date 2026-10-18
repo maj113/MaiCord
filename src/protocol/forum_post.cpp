@@ -628,11 +628,8 @@ struct ForumBodyWriter {
         return true;
     }
     bool number(u64 value) noexcept {
-        if (output.data) {
-            ProtocolWriter writer{output, used};
-            if (!protocol_writer_append_u64(&writer, value))
-                return false;
-        }
+        if (output.data)
+            decimal_write(output.data + used, value);
         used += decimal_digits(value);
         return true;
     }

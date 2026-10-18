@@ -22,7 +22,7 @@ struct Runtime {
     VoiceAudioCaptureTick tick;
     void* context;
     HANDLE thread, stop, wake, notify, poke, timer;
-    volatile LONG state, opens, native_error, communications;
+    volatile LONG state, opens, native_error;
     wchar_t device[kVoiceDeviceIdCharacters];
     bool processing;
 };
@@ -123,7 +123,6 @@ HRESULT open_stream(Runtime& r, Engine& e) noexcept {
         close_stream(e);
         return h;
     }
-    InterlockedExchange(&r.communications, r.processing ? 1 : 0);
     InterlockedIncrement(&r.opens);
     return h;
 }
@@ -243,7 +242,6 @@ VoiceAudioCaptureStatus voice_audio_capture_status(const VoiceAudioCapture& capt
     VoiceAudioCaptureStatus status{};
     if (const auto* r = static_cast<const Runtime*>(capture.runtime)) {
         status.state = static_cast<VoiceCaptureState>(ReadAcquire(&r->state));
-        status.communications = ReadAcquire(&r->communications) != 0;
         status.opens = static_cast<u32>(ReadAcquire(&r->opens));
         status.native_error = static_cast<u32>(ReadAcquire(&r->native_error));
     }

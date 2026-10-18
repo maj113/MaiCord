@@ -236,7 +236,7 @@ GatewayEventDecodeResult voice_decode_participant(u8 opcode, JsonValue data, Sli
 }
 bool voice_visit_participant_users(const VoiceParticipantEvent& event, VoiceParticipantVisitor visitor,
                                    void* context) noexcept {
-    if (!visitor || event.opcode != 11)
+    if (event.opcode != 11)
         return false;
     UsersVisit visit{visitor, context};
     return json_visit_indexed_array(event.document, event.users, event.maximum_depth, visit_user, &visit)
@@ -244,7 +244,7 @@ bool voice_visit_participant_users(const VoiceParticipantEvent& event, VoicePart
 }
 bool voice_visit_participant_sources(const VoiceParticipantEvent& event, VoiceSourceVisitor visitor,
                                      void* context) noexcept {
-    if (!visitor || event.opcode != 12)
+    if (event.opcode != 12)
         return false;
     if (event.streams.kind != JsonValueKind::array)
         return event.stream_count == 0;

@@ -17,21 +17,18 @@ bool action_member(void* context, JsonString name, JsonValue value) noexcept {
     update.value = decode_account_requirement(value);
     return true;
 }
-struct Rejection {
-    ApiRejection value;
-};
 bool error_member(void* context, JsonString name, JsonValue value) noexcept {
-    auto& result = *static_cast<Rejection*>(context);
+    auto& result = *static_cast<ApiRejection*>(context);
     if (json_string_equals_ascii(name, utf8_literal("code"))) {
         u64 code = 0;
-        if (result.value.has_code || !json_value_to_u64(value, &code) || code > 0xffffffffull)
+        if (result.has_code || !json_value_to_u64(value, &code) || code > 0xffffffffull)
             return false;
-        result.value.code = static_cast<u32>(code);
-        result.value.has_code = true;
+        result.code = static_cast<u32>(code);
+        result.has_code = true;
     } else if (json_string_equals_ascii(name, utf8_literal("captcha_key")) ||
                json_string_equals_ascii(name, utf8_literal("captcha_sitekey")) ||
                json_string_equals_ascii(name, utf8_literal("captcha_rqtoken"))) {
-        result.value.captcha |= value.kind != JsonValueKind::null_value;
+        result.captcha |= value.kind != JsonValueKind::null_value;
     }
     return true;
 }
@@ -92,7 +89,7 @@ bool mfa_request_member(void* context, JsonString name, JsonValue value) noexcep
     return methods.ok() && methods.member_count;
 }
 struct MfaRejection {
-    Rejection rejection;
+    ApiRejection rejection;
     const JsonIndexedDocument* document;
     bool mfa;
 };
@@ -131,7 +128,7 @@ AccountRequirement decode_account_requirement(JsonValue value) noexcept {
     return AccountRequirement::other;
 }
 bool account_requirement_update(JsonValue data, Slice<u32> scratch, AccountRequirement* output) noexcept {
-    if (!output || data.kind != JsonValueKind::object || data.source.bytes > 16384)
+    if (data.kind != JsonValueKind::object || data.source.bytes > 16384)
         return false;
     const auto scan = json_scan_structurals_avx1(data.source, scratch);
     if (!scan.ok())
@@ -164,18 +161,16 @@ Utf8View account_requirement_notice(AccountRequirement value) noexcept {
     }
 }
 bool api_rejection_decode(Utf8View body, Slice<u32> scratch, ApiRejection* output) noexcept {
-    if (!output)
-        return false;
     *output = {};
     if (!body.bytes || body.bytes > 16384)
         return false;
     const auto scan = json_scan_structurals_avx1(body, scratch);
     if (!scan.ok())
         return false;
-    Rejection parsed{};
+    ApiRejection parsed{};
     if (!json_visit_root_object(body, {scratch.data, scan.count}, 16, error_member, &parsed).ok())
         return false;
-    *output = parsed.value;
+    *output = parsed;
     return true;
 }
 bool api_rejection_is_mfa_challenge(Utf8View body, Slice<u32> scratch) noexcept {
@@ -187,8 +182,7 @@ bool api_rejection_is_mfa_challenge(Utf8View body, Slice<u32> scratch) noexcept 
     const JsonIndexedDocument document{body, {scratch.data, scan.count}};
     MfaRejection parsed{{}, &document};
     return json_visit_root_object(body, document.structurals, 16, mfa_rejection_member, &parsed).ok() &&
-           parsed.mfa && parsed.rejection.value.has_code && parsed.rejection.value.code == 60003 &&
-           !parsed.rejection.value.captcha;
+           parsed.mfa && parsed.rejection.has_code && parsed.rejection.code == 60003 && !parsed.rejection.captcha;
 }
 Utf8View api_rejection_notice(ApiRejection value) noexcept {
     if (value.captcha)

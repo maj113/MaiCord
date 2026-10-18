@@ -48,7 +48,7 @@ __forceinline bool protocol_writer_append_literal(ProtocolWriter* writer,
                                                   const char (&literal)[Count]) noexcept {
     static_assert(Count > 0 && Count - 1 <= 0xFFFFFFFFull);
     constexpr u32 bytes = static_cast<u32>(Count - 1);
-    if (!writer || !writer->output.data || writer->used > writer->output.count ||
+    if (!writer->output.data || writer->used > writer->output.count ||
         bytes > writer->output.count - writer->used) {
         return false;
     }

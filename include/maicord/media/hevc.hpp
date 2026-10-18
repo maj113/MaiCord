@@ -48,7 +48,7 @@ struct HevcSps {
     u8 log2_min_cb_minus3{}, log2_diff_cb{}, log2_min_tb_minus2{}, log2_diff_tb{};
     u8 transform_depth_inter{}, transform_depth_intra{}, short_term_count{}, long_term_count{};
     u8 pcm_luma_depth_minus1{}, pcm_chroma_depth_minus1{}, log2_min_pcm_minus3{}, log2_diff_pcm{};
-    u8 primaries{}, transfer{}, matrix{};
+    u8 matrix{};
     bool scaling_enabled{}, scaling_present{}, amp{}, sao{}, pcm{}, pcm_loop_filter_disabled{};
     bool long_term_present{}, temporal_mvp{}, strong_intra_smoothing{}, full_range{};
 };

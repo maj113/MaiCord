@@ -1,4 +1,5 @@
 #include "maicord/protocol/writer.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/decimal.hpp"
 
 #include "json_write.hpp"
@@ -6,7 +7,7 @@
 namespace maicord {
 
 bool protocol_writer_append_byte(ProtocolWriter* writer, u8 value) noexcept {
-    if (!writer || !writer->output.data || writer->used >= writer->output.count) {
+    if (!writer->output.data || writer->used >= writer->output.count) {
         return false;
     }
     writer->output[writer->used++] = value;
@@ -14,8 +15,8 @@ bool protocol_writer_append_byte(ProtocolWriter* writer, u8 value) noexcept {
 }
 
 bool protocol_writer_append_bytes(ProtocolWriter* writer, const u8* value, u32 count) noexcept {
-    if (!writer || !writer->output.data || (!value && count != 0) ||
-        writer->used > writer->output.count || count > writer->output.count - writer->used) {
+    if (!writer->output.data || (!value && count != 0) || writer->used > writer->output.count ||
+        count > writer->output.count - writer->used) {
         return false;
     }
     copy_bytes(writer->output.data + writer->used, value, count);
@@ -38,7 +39,7 @@ bool protocol_writer_append_c_string(ProtocolWriter* writer, const char* value) 
 }
 
 bool protocol_writer_append_u64(ProtocolWriter* writer, u64 value) noexcept {
-    if (!writer || !writer->output.data || writer->used > writer->output.count ||
+    if (!writer->output.data || writer->used > writer->output.count ||
         decimal_digits(value) > writer->output.count - writer->used) {
         return false;
     }
@@ -52,7 +53,6 @@ bool protocol_writer_append_snowflake(ProtocolWriter* writer, u64 id) noexcept {
 }
 
 bool protocol_writer_append_percent_encoded(ProtocolWriter* writer, Utf8View value) noexcept {
-    constexpr char hex[] = "0123456789ABCDEF";
     for (u32 index = 0; index < value.bytes; ++index) {
         const u8 byte = static_cast<u8>(value.data[index]);
         if (url_unreserved(byte)) {
@@ -60,8 +60,8 @@ bool protocol_writer_append_percent_encoded(ProtocolWriter* writer, Utf8View val
                 return false;
             }
         } else if (!protocol_writer_append_byte(writer, '%') ||
-                   !protocol_writer_append_byte(writer, hex[byte >> 4]) ||
-                   !protocol_writer_append_byte(writer, hex[byte & 15])) {
+                   !protocol_writer_append_byte(writer, ascii_hex_digit_upper(byte >> 4)) ||
+                   !protocol_writer_append_byte(writer, ascii_hex_digit_upper(byte))) {
             return false;
         }
     }
@@ -70,9 +70,8 @@ bool protocol_writer_append_percent_encoded(ProtocolWriter* writer, Utf8View val
 
 bool protocol_writer_append_json_string(ProtocolWriter* writer, Utf8View value) noexcept {
     u32 encoded_bytes = 0;
-    if (!protocol_detail::measure_json_string(value, &encoded_bytes) || !writer ||
-        !writer->output.data || writer->used > writer->output.count ||
-        encoded_bytes > writer->output.count - writer->used) {
+    if (!protocol_detail::measure_json_string(value, &encoded_bytes) || !writer->output.data ||
+        writer->used > writer->output.count || encoded_bytes > writer->output.count - writer->used) {
         return false;
     }
     protocol_detail::write_json_string(writer->output.data + writer->used, value);

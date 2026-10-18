@@ -146,8 +146,6 @@ struct GuildSearchMember {
     u64 communication_disabled_until_ms;
     u64 unusual_dm_activity_until_ms;
     u64 inviter_id;
-    u64 join_source_application_id;
-    u64 join_source_channel_id;
     u64 user_flags;
     u64 role_ids[kGuildModerationMemberRoles];
     u32 member_flags;

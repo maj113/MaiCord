@@ -1,13 +1,8 @@
 #include "maicord/media/wave_pcm.hpp"
+#include "maicord/core/byte_order.hpp"
 
 namespace maicord {
 namespace {
-u16 le16(const u8* p) noexcept {
-    return static_cast<u16>(u16{p[0]} | (u16{p[1]} << 8));
-}
-u32 le32(const u8* p) noexcept {
-    return u32{p[0]} | (u32{p[1]} << 8) | (u32{p[2]} << 16) | (u32{p[3]} << 24);
-}
 bool span(const void* p, u64 bytes) noexcept {
     return (!bytes || p) && bytes <= ~usize{0} - reinterpret_cast<usize>(p);
 }
@@ -39,23 +34,23 @@ bool valid(const WavePcmSource& s) noexcept {
 WavePcmError format(WavePcmSource& s, const u8* p, u32 bytes) noexcept {
     if (bytes < 16)
         return WavePcmError::malformed;
-    u16 tag = le16(p);
-    const u16 channels = le16(p + 2);
-    s.sample_rate = le32(p + 4);
-    s.block_align = le16(p + 12);
-    s.container_bits = le16(p + 14);
+    u16 tag = byte_load_le16(p);
+    const u16 channels = byte_load_le16(p + 2);
+    s.sample_rate = byte_load_le32(p + 4);
+    s.block_align = byte_load_le16(p + 12);
+    s.container_bits = byte_load_le16(p + 14);
     s.valid_bits = s.container_bits;
-    if (bytes != 16 && (bytes < 18 || u32{le16(p + 16)} != bytes - 18))
+    if (bytes != 16 && (bytes < 18 || u32{byte_load_le16(p + 16)} != bytes - 18))
         return WavePcmError::malformed;
     if (tag == 0xfffe) {
-        if (bytes < 40 || le16(p + 16) < 22)
+        if (bytes < 40 || byte_load_le16(p + 16) < 22)
             return WavePcmError::malformed;
-        s.valid_bits = le16(p + 18);
-        s.channel_mask = le32(p + 20);
+        s.valid_bits = byte_load_le16(p + 18);
+        s.channel_mask = byte_load_le32(p + 20);
         static constexpr u8 guid_tail[12]{0, 0, 0x10, 0, 0x80, 0, 0, 0xaa, 0, 0x38, 0x9b, 0x71};
-        if (!bytes_equal(p + 28, guid_tail, 12) || le32(p + 24) > 65535)
+        if (!bytes_equal(p + 28, guid_tail, 12) || byte_load_le32(p + 24) > 65535)
             return WavePcmError::unsupported;
-        tag = static_cast<u16>(le32(p + 24));
+        tag = static_cast<u16>(byte_load_le32(p + 24));
     }
     if (tag != 1 && tag != 3)
         return WavePcmError::unsupported;
@@ -67,7 +62,8 @@ WavePcmError format(WavePcmSource& s, const u8* p, u32 bytes) noexcept {
     s.channels = static_cast<u8>(channels);
     s.encoding = tag == 3 ? WavePcmEncoding::ieee_float : WavePcmEncoding::integer_pcm;
     if (!s.valid_bits || s.valid_bits > s.container_bits || (tag == 3 && s.valid_bits != 32) ||
-        s.block_align != channels * (s.container_bits / 8) || le32(p + 8) != s.sample_rate * s.block_align)
+        s.block_align != channels * (s.container_bits / 8) ||
+        byte_load_le32(p + 8) != s.sample_rate * s.block_align)
         return WavePcmError::malformed;
     if (channels == 1 ? (s.channel_mask && s.channel_mask != 4) : (s.channel_mask && s.channel_mask != 3))
         return WavePcmError::unsupported;
@@ -90,7 +86,7 @@ WavePcmError wave_pcm_parse(WavePcmSource* output, ConstSlice<u8> encoded) noexc
         return WavePcmError::truncated;
     if (!bytes_equal(encoded.data, "RIFF", 4) || !bytes_equal(encoded.data + 8, "WAVE", 4))
         return WavePcmError::unsupported;
-    const u64 end = u64{le32(encoded.data + 4)} + 8;
+    const u64 end = u64{byte_load_le32(encoded.data + 4)} + 8;
     if (end > encoded.count)
         return WavePcmError::truncated;
     if (end != encoded.count || end < 12)
@@ -105,7 +101,7 @@ WavePcmError wave_pcm_parse(WavePcmSource* output, ConstSlice<u8> encoded) noexc
         if (encoded.count - offset < 8)
             return WavePcmError::truncated;
         const auto* chunk = encoded.data + offset;
-        const u32 size = le32(chunk + 4);
+        const u32 size = byte_load_le32(chunk + 4);
         const u64 next = u64{offset} + 8 + size + (size & 1u);
         if (next > encoded.count)
             return WavePcmError::truncated;

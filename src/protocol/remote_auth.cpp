@@ -149,8 +149,7 @@ RemoteAuthDecodeResult parse(Utf8View body, Slice<u32> structural_scratch, u32 m
 }
 
 RemoteAuthWriteResult write_literal(Utf8View literal, Slice<char> output) noexcept {
-    if ((!output.data && output.count != 0) || output.count < literal.bytes ||
-        (literal.bytes != 0 && !output.data)) {
+    if (output.count < literal.bytes) {
         return RemoteAuthWriteResult{literal.bytes, RemoteAuthWriteError::output_too_small};
     }
     copy_bytes(output.data, literal.data, literal.bytes);
@@ -159,9 +158,6 @@ RemoteAuthWriteResult write_literal(Utf8View literal, Slice<char> output) noexce
 
 RemoteAuthWriteResult write_safe_field(Utf8View prefix, Utf8View value, Utf8View suffix,
                                        Slice<char> output) noexcept {
-    if ((!value.data && value.bytes != 0) || (!output.data && output.count != 0)) {
-        return RemoteAuthWriteResult{0, RemoteAuthWriteError::invalid_input};
-    }
     const u64 required64 = static_cast<u64>(prefix.bytes) + value.bytes + suffix.bytes;
     if (required64 > 0xFFFFFFFFull) {
         return RemoteAuthWriteResult{0, RemoteAuthWriteError::invalid_input};
@@ -177,7 +173,7 @@ RemoteAuthWriteResult write_safe_field(Utf8View prefix, Utf8View value, Utf8View
 }
 
 bool safe_wire_string(Utf8View value) noexcept {
-    if (!value.data || value.bytes == 0 || !utf8_validate(value).valid) {
+    if (value.bytes == 0 || !utf8_validate(value).valid) {
         return false;
     }
     for (u32 index = 0; index < value.bytes; ++index) {
@@ -194,9 +190,6 @@ bool safe_wire_string(Utf8View value) noexcept {
 RemoteAuthDecodeResult remote_auth_decode_server_packet(Utf8View body, Slice<u32> structural_scratch,
                                                         u32 maximum_depth, Slice<char> text,
                                                         RemoteAuthPacket* packet) noexcept {
-    if (!packet || (!text.data && text.count != 0)) {
-        return failure(RemoteAuthError::invalid_input);
-    }
     DecodeContext context{};
     const RemoteAuthDecodeResult parsed = parse(body, structural_scratch, maximum_depth, &context);
     if (!parsed.ok()) {
@@ -278,7 +271,7 @@ RemoteAuthUserPreviewResult remote_auth_parse_user_preview(Utf8View payload,
     const auto user_failure = [](RemoteAuthUserPreviewError error, u32 offset = 0) noexcept {
         return RemoteAuthUserPreviewResult{offset, error};
     };
-    if (!preview || (!payload.data && payload.bytes != 0) || payload.bytes == 0) {
+    if (payload.bytes == 0) {
         return user_failure(RemoteAuthUserPreviewError::invalid_input);
     }
     if (payload.bytes > kRemoteAuthMaximumUserPayloadBytes) {
@@ -407,9 +400,6 @@ RemoteAuthWriteResult remote_auth_write_qr_url(Utf8View fingerprint, Slice<char>
 RemoteAuthDecodeResult remote_auth_decode_ticket_response(Utf8View body, Slice<u32> structural_scratch,
                                                           u32 maximum_depth, Slice<char> encrypted_token,
                                                           u32* encrypted_token_bytes) noexcept {
-    if (!encrypted_token_bytes || (!encrypted_token.data && encrypted_token.count != 0)) {
-        return failure(RemoteAuthError::invalid_input);
-    }
     DecodeContext context{};
     const RemoteAuthDecodeResult parsed = parse(body, structural_scratch, maximum_depth, &context);
     if (!parsed.ok()) {

@@ -1,23 +1,21 @@
 #include "maicord/protocol/guild_moderation.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/time.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "json_helpers.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
 
+using namespace protocol_detail;
 using Op = GuildModerationOperation;
 constexpr u32 kDepth = 32;
 constexpr u32 kSearchPieces = 64;
-
-bool view_valid(Utf8View text) noexcept {
-    return byte_range_valid({reinterpret_cast<const u8*>(text.data), text.bytes});
-}
 
 // String.prototype.trim's ASCII part, which the search inputs apply.
 bool space(char c) noexcept {
@@ -30,16 +28,6 @@ Utf8View trim(Utf8View text) noexcept {
     while (end > start && space(text.data[end - 1]))
         --end;
     return {text.data + start, end - start};
-}
-
-u32 utf16_units(Utf8View text) noexcept {
-    u32 units = 0;
-    for (u32 i = 0; i < text.bytes; ++i) {
-        const u8 byte = static_cast<u8>(text.data[i]);
-        if ((byte & 0xC0) != 0x80)
-            units += byte >= 0xF0 ? 2 : 1;
-    }
-    return units;
 }
 
 bool text_valid(Utf8View text, u32 maximum_bytes) noexcept {
@@ -116,48 +104,13 @@ bool reason_valid(const GuildModerationRequest& r) noexcept {
         return true;
     u8 scratch[kRestAuditReasonMaximumEncodedBytes];
     const bool ok = rest_encode_audit_reason(r.reason, {scratch, sizeof(scratch)}).ok;
-    SecureZeroMemory(scratch, sizeof(scratch));
+    secure_clear_bytes(scratch, sizeof(scratch));
     return ok;
 }
 
-struct Body {
-    ProtocolWriter writer;
-    bool first = true;
-    bool ok = true;
+struct Body : JsonBody {
+    using JsonBody::JsonBody;
 
-    void raw(const char* text) noexcept {
-        ok = ok && protocol_writer_append_c_string(&writer, text);
-    }
-    void byte(u8 value) noexcept {
-        ok = ok && protocol_writer_append_byte(&writer, value);
-    }
-    void number(u64 value) noexcept {
-        ok = ok && protocol_writer_append_u64(&writer, value);
-    }
-    void string(Utf8View value) noexcept {
-        ok = ok && protocol_writer_append_json_string(&writer, value);
-    }
-    void snowflake(u64 value) noexcept {
-        byte('"');
-        number(value);
-        byte('"');
-    }
-    void key(const char* name) noexcept {
-        if (!first)
-            byte(',');
-        first = false;
-        byte('"');
-        raw(name);
-        raw("\":");
-    }
-    void begin() noexcept {
-        byte('{');
-        first = true;
-    }
-    void end() noexcept {
-        byte('}');
-        first = false;
-    }
     void strings(ConstSlice<Utf8View> values) noexcept {
         byte('[');
         for (u32 i = 0; i < values.count; ++i) {
@@ -169,14 +122,14 @@ struct Body {
     }
     void range(u64 gte, u64 lte) noexcept {
         key("range");
-        begin();
+        begin_object();
         key("gte");
         number(gte);
         if (lte) {
             key("lte");
             number(lte);
         }
-        end();
+        end_object();
     }
     void snowflake_at(u64 ms) noexcept {
         char digits[24];
@@ -186,33 +139,33 @@ struct Body {
     }
     void cursor(const char* name, const GuildMemberSearchCursor& c) noexcept {
         key(name);
-        begin();
+        begin_object();
         key("guild_joined_at");
         number(c.guild_joined_at_ms);
         key("user_id");
         snowflake(c.user_id);
-        end();
+        end_object();
     }
 };
 
 void write_search(Body& b, const GuildMemberSearchQuery& q) noexcept {
-    b.begin();
+    b.begin_object();
     b.key("or_query");
-    b.begin();
+    b.begin_object();
     if (q.signals) {
         b.key("safety_signals");
-        b.begin();
+        b.begin_object();
         if (q.signals & guild_member_signal_unusual_dm) {
             b.key("unusual_dm_activity_until");
-            b.begin();
+            b.begin_object();
             b.range(q.now_ms - kGuildMemberSignalDmWindowMs, 0);
-            b.end();
+            b.end_object();
         }
         if (q.signals & guild_member_signal_timed_out) {
             b.key("communication_disabled_until");
-            b.begin();
+            b.begin_object();
             b.range(q.now_ms, 0);
-            b.end();
+            b.end_object();
         }
         if (q.signals & guild_member_signal_unusual_account) {
             b.key("unusual_account_activity");
@@ -222,48 +175,48 @@ void write_search(Body& b, const GuildMemberSearchQuery& q) noexcept {
             b.key("automod_quarantined_username");
             b.raw("true");
         }
-        b.end();
+        b.end_object();
     }
-    b.end();
+    b.end_object();
     b.key("and_query");
-    b.begin();
+    b.begin_object();
     const Utf8View text = trim(q.text);
     Pieces pieces{};
-    if (utf16_units(text) > 1)
+    if (utf8_utf16_units(text) > 1)
         pieces = split(text);
     if (pieces.text_count) {
         b.key("usernames");
-        b.begin();
+        b.begin_object();
         b.key("or_query");
         b.strings({pieces.texts, pieces.text_count});
-        b.end();
+        b.end_object();
     }
     // The account age range joins user_id: after the search IDs when there
     // are any, else as its own key after guild_joined_at.
     const bool created = q.created_after_ms != 0;
     const auto created_range = [&]() noexcept {
         b.key("range");
-        b.begin();
+        b.begin_object();
         b.key("gte");
         b.snowflake_at(q.created_after_ms);
         if (q.created_before_ms) {
             b.key("lte");
             b.snowflake_at(q.created_before_ms);
         }
-        b.end();
+        b.end_object();
     };
     if (pieces.id_count) {
         b.key("user_id");
-        b.begin();
+        b.begin_object();
         b.key("or_query");
         b.strings({pieces.ids, pieces.id_count});
         if (created)
             created_range();
-        b.end();
+        b.end_object();
     }
     if (q.role_ids.count) {
         b.key("role_ids");
-        b.begin();
+        b.begin_object();
         b.key("and_query");
         b.byte('[');
         for (u32 i = 0; i < q.role_ids.count; ++i) {
@@ -272,37 +225,37 @@ void write_search(Body& b, const GuildMemberSearchQuery& q) noexcept {
             b.snowflake(q.role_ids[i]);
         }
         b.byte(']');
-        b.end();
+        b.end_object();
     }
     if (q.joined_after_ms) {
         b.key("guild_joined_at");
-        b.begin();
+        b.begin_object();
         b.range(q.joined_after_ms, q.joined_before_ms);
-        b.end();
+        b.end_object();
     }
     if (created && !pieces.id_count) {
         b.key("user_id");
-        b.begin();
+        b.begin_object();
         created_range();
-        b.end();
+        b.end_object();
     }
     if (q.invite_code.bytes) {
         b.key("source_invite_code");
-        b.begin();
+        b.begin_object();
         b.key("or_query");
         b.strings({&q.invite_code, 1});
-        b.end();
+        b.end_object();
     }
     if (q.join_source_type_set) {
         b.key("join_source_type");
-        b.begin();
+        b.begin_object();
         b.key("or_query");
         b.byte('[');
         b.number(q.join_source_type);
         b.byte(']');
-        b.end();
+        b.end_object();
     }
-    b.end();
+    b.end_object();
     if (q.sort) {
         b.key("sort");
         b.number(q.sort);
@@ -313,24 +266,10 @@ void write_search(Body& b, const GuildMemberSearchQuery& q) noexcept {
         b.cursor("after", q.after);
     else if (q.before.guild_joined_at_ms)
         b.cursor("before", q.before);
-    b.end();
+    b.end_object();
 }
 
 // Decoders --------------------------------------------------------------------
-
-struct Scan {
-    JsonIndexedDocument document;
-    GuildModerationError error;
-};
-Scan scan(Utf8View body, Slice<u32> scratch) noexcept {
-    if (!view_valid(body) || !body.bytes || !scratch.data || !scratch.count || !utf8_validate(body).valid)
-        return {{}, GuildModerationError::input};
-    const auto scanned = json_scan_structurals_avx1(body, scratch);
-    if (!scanned.ok())
-        return {{}, scanned.error == JsonScanError::output_overflow ? GuildModerationError::capacity
-                                                                   : GuildModerationError::json};
-    return {{body, {scratch.data, scanned.count}}, GuildModerationError::none};
-}
 
 template <typename Size> bool decode_text(JsonValue value, char* output, u32 capacity, Size* bytes) noexcept {
     *bytes = 0;
@@ -346,11 +285,6 @@ template <typename Size> bool decode_text(JsonValue value, char* output, u32 cap
     // Display text past the bound is cut at a code point.
     *bytes = static_cast<Size>(utf8_copy_truncated(output, capacity, {decoded, result.bytes}));
     return true;
-}
-
-bool nullable_snowflake(JsonValue value, u64* output) noexcept {
-    *output = 0;
-    return value.kind == JsonValueKind::null_value || json_value_to_snowflake(value, output);
 }
 
 bool timestamp(JsonValue value, u64* ms) noexcept {
@@ -474,12 +408,12 @@ bool visit_result(void* opaque, JsonString name, JsonValue value) noexcept {
         m.join_source_type = static_cast<u8>(type);
         return true;
     }
-    if (json_string_equals_ascii(name, utf8_literal("join_source_application_id")))
-        return nullable_snowflake(value, &m.join_source_application_id);
-    if (json_string_equals_ascii(name, utf8_literal("join_source_channel_id")))
-        return nullable_snowflake(value, &m.join_source_channel_id);
     if (json_string_equals_ascii(name, utf8_literal("inviter_id")))
-        return nullable_snowflake(value, &m.inviter_id);
+        return json_value_to_nullable_snowflake(value, &m.inviter_id);
+    u64 checked = 0; // Validated, not kept.
+    if (json_string_equals_ascii(name, utf8_literal("join_source_application_id")) ||
+        json_string_equals_ascii(name, utf8_literal("join_source_channel_id")))
+        return json_value_to_nullable_snowflake(value, &checked);
     return true;
 }
 
@@ -690,11 +624,11 @@ GuildModerationResult guild_moderation_write_body(const GuildModerationRequest& 
         return {0, 0, GuildModerationError::none};
     if (!output.data || !output.count)
         return {0, 0, GuildModerationError::capacity};
-    Body b{{output, 0}};
+    Body b{output};
     if (r.operation == Op::members_search)
         write_search(b, *r.search);
     else {
-        b.begin();
+        b.begin_object();
         b.key("user_ids");
         b.byte('[');
         for (u32 i = 0; i < r.user_ids.count; ++i) {
@@ -705,10 +639,10 @@ GuildModerationResult guild_moderation_write_body(const GuildModerationRequest& 
         b.byte(']');
         b.key("delete_message_seconds");
         b.number(r.delete_message_seconds);
-        b.end();
+        b.end_object();
     }
     if (!b.ok) {
-        SecureZeroMemory(output.data, b.writer.used);
+        secure_clear_bytes(output.data, b.writer.used);
         return {0, 0, GuildModerationError::capacity};
     }
     return {b.writer.used, 0, GuildModerationError::none};
@@ -741,28 +675,17 @@ bool guild_member_search_snowflake(Utf8View text) noexcept {
 }
 
 u32 guild_member_search_snowflake_at(u64 unix_ms, Slice<char> output) noexcept {
-    if (!output.data || !output.count)
-        return 0;
     const u64 value = unix_ms > kSnowflakeEpochMilliseconds ? (unix_ms - kSnowflakeEpochMilliseconds) << 22 : 0;
-    char digits[20];
-    u32 count = 0;
-    u64 rest = value;
-    do {
-        digits[count++] = static_cast<char>('0' + rest % 10);
-        rest /= 10;
-    } while (rest && count < 20);
-    if (count > output.count)
+    if (!output.data || decimal_digits(value) > output.count)
         return 0;
-    for (u32 i = 0; i < count; ++i)
-        output[i] = digits[count - 1 - i];
-    return count;
+    return decimal_write(output.data, value);
 }
 
 GuildModerationResult guild_member_search_decode(Utf8View body, Slice<u32> scratch,
                                                  GuildMemberSearchPage* page) noexcept {
     if (!page || (!page->members.data && page->members.count))
         return {0, 0, GuildModerationError::input};
-    const Scan s = scan(body, scratch);
+    const auto s = scan_json<GuildModerationError>(body, scratch);
     if (s.error != GuildModerationError::none)
         return {0, 0, s.error};
     page->member_count = page->total_result_count = 0;
@@ -778,7 +701,7 @@ GuildModerationResult guild_member_search_decode(Utf8View body, Slice<u32> scrat
 }
 
 u64 guild_member_search_retry_after_ms(Utf8View body, Slice<u32> scratch) noexcept {
-    const Scan s = scan(body, scratch);
+    const auto s = scan_json<GuildModerationError>(body, scratch);
     if (s.error != GuildModerationError::none)
         return 0;
     RetryParse p{};
@@ -789,7 +712,7 @@ u64 guild_member_search_retry_after_ms(Utf8View body, Slice<u32> scratch) noexce
 bool guild_bulk_ban_update_decode(Utf8View body, Slice<u32> scratch, GuildBulkBanUpdate* output) noexcept {
     if (!output)
         return false;
-    const Scan s = scan(body, scratch);
+    const auto s = scan_json<GuildModerationError>(body, scratch);
     if (s.error != GuildModerationError::none)
         return false;
     BulkBanParse p{&s.document, {}, false};

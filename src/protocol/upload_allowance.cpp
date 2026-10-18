@@ -1,7 +1,5 @@
 #include "maicord/protocol/upload_allowance.hpp"
 #include "maicord/core/decimal.hpp"
-
-#include <Windows.h>
 namespace maicord {
 namespace {
 JsonValue find(const JsonIndexedDocument& document, JsonValue parent, Utf8View key) noexcept {
@@ -36,13 +34,13 @@ bool assignment(void* opaque, u32, JsonValue value) noexcept {
         if (context.seen & (1u << i)) return false;
         context.seen |= static_cast<u8>(1u << i);
         // Eligibility-only assignments do not activate a client configuration.
-        if (!(fields.flags & 8) && fields.variant <= MAXDWORD) context.variants[i] = static_cast<u32>(fields.variant);
+        if (!(fields.flags & 8) && fields.variant <= ~u32{0}) context.variants[i] = static_cast<u32>(fields.variant);
     }
     return true;
 }
 }
 bool upload_policy_state(JsonValue state, u64 user_id, Slice<u32> scratch, UploadPolicy* policy, bool* changed) noexcept {
-    if (!policy || !changed || !user_id) return false;
+    if (!user_id) return false;
     *changed = false;
     const auto scan = json_scan_structurals_avx1(state.source, scratch);
     if (!scan.ok()) return false;
@@ -61,7 +59,7 @@ bool upload_policy_state(JsonValue state, u64 user_id, Slice<u32> scratch, Uploa
     *changed = true; return true;
 }
 bool upload_policy_decode(JsonValue apex, u64 user_id, Slice<u32> scratch, UploadPolicy* policy) noexcept {
-    if (!policy || !user_id) return false;
+    if (!user_id) return false;
     *policy = {};
     if (!apex.source.bytes || apex.kind == JsonValueKind::null_value) return true;
     const auto scan = json_scan_structurals_avx1(apex.source, scratch);

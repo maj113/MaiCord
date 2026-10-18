@@ -2,7 +2,7 @@
 #include "maicord/platform/secure_buffer.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -37,8 +37,8 @@ void ring_read(const TextEditHistory& history, u32 offset, u8* output, u32 bytes
 void erase(TextEditHistory& history, const EditRecord& entry) noexcept {
     const u32 bytes = entry.removed + entry.inserted;
     const u32 first = minimum(bytes, history.payload.capacity - entry.offset);
-    SecureZeroMemory(history.payload.data + entry.offset, first);
-    if (bytes > first) SecureZeroMemory(history.payload.data, bytes - first);
+    secure_clear_bytes(history.payload.data + entry.offset, first);
+    if (bytes > first) secure_clear_bytes(history.payload.data, bytes - first);
     history.used -= bytes;
 }
 TextEditHistoryResult restore(TextEditHistoryState* edit, bool forward) noexcept {
@@ -59,7 +59,7 @@ TextEditHistoryResult restore(TextEditHistoryState* edit, bool forward) noexcept
     const u32 offset = (entry.offset + (forward ? entry.removed : 0)) % history->payload.capacity;
     ring_read(*history, offset, edit->storage.data + entry.start, inserted);
     edit->storage.bytes = old_bytes - removed + inserted;
-    if (edit->storage.bytes < old_bytes) SecureZeroMemory(edit->storage.data + edit->storage.bytes, old_bytes - edit->storage.bytes);
+    if (edit->storage.bytes < old_bytes) secure_clear_bytes(edit->storage.data + edit->storage.bytes, old_bytes - edit->storage.bytes);
     edit->anchor = forward ? entry.anchor_after : entry.anchor_before;
     edit->caret = forward ? entry.caret_after : entry.caret_before;
 
@@ -85,7 +85,7 @@ void text_edit_reset_history(TextEditHistoryState* edit) noexcept {
     secure_buffer_clear(&history->group);
     history->grouping = false;
     history->input = TextEditHistoryInput::isolated;
-    SecureZeroMemory(history->records, sizeof(history->records));
+    secure_clear_bytes(history->records, sizeof(history->records));
     history->head = history->count = history->cursor = history->tail = history->used = 0;
 }
 void text_edit_history_release(TextEditHistoryState* edit) noexcept {
@@ -94,7 +94,7 @@ void text_edit_history_release(TextEditHistoryState* edit) noexcept {
     edit->history = nullptr;
     secure_buffer_release(&history->payload);
     secure_buffer_release(&history->group);
-    SecureZeroMemory(history, sizeof(*history));
+    secure_clear_bytes(history, sizeof(*history));
     VirtualFree(history, 0, MEM_RELEASE);
 }
 void text_edit_history_begin(TextEditHistoryState* edit, u32 start, u32 removed, u32 inserted, u32 anchor, u32 caret,

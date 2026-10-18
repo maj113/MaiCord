@@ -41,7 +41,6 @@ enum class AnimatedWebpError : u8 {
     dimensions,
     frame_count,
     rectangle,
-    duration,
     output_capacity,
     frame_decode,
 };

@@ -1,7 +1,7 @@
 #include "maicord/protocol/gateway_runtime.hpp"
 #include "maicord/core/deadline.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
@@ -12,7 +12,7 @@ u32 scale_inclusive(u32 random, u32 maximum_value) noexcept {
 
 bool has_wss_scheme(const char* value, u32 bytes) noexcept {
     constexpr char scheme[] = "wss://";
-    if (!value || bytes <= sizeof(scheme) - 1) {
+    if (bytes <= sizeof(scheme) - 1) {
         return false;
     }
     for (u32 index = 0; index < sizeof(scheme) - 1; ++index) {
@@ -27,7 +27,7 @@ bool has_wss_scheme(const char* value, u32 bytes) noexcept {
 
 GatewayResumeCaptureError gateway_resume_capture(GatewayResumeState* state, const GatewayReady& ready,
                                                  u64 sequence) noexcept {
-    if (!state || !ready.session_id.encoded.data || ready.session_id.encoded.bytes == 0 ||
+    if (!ready.session_id.encoded.data || ready.session_id.encoded.bytes == 0 ||
         !ready.resume_gateway_url.encoded.data || ready.resume_gateway_url.encoded.bytes == 0) {
         return GatewayResumeCaptureError::invalid_input;
     }
@@ -69,9 +69,7 @@ GatewayResumeCaptureError gateway_resume_capture(GatewayResumeState* state, cons
 }
 
 void gateway_resume_clear(GatewayResumeState* state) noexcept {
-    if (state) {
-        SecureZeroMemory(state, sizeof(*state));
-    }
+    secure_clear_bytes(state, sizeof(*state));
 }
 
 bool gateway_resume_validate(const GatewayResumeState& state) noexcept {
@@ -87,9 +85,6 @@ bool gateway_resume_validate(const GatewayResumeState& state) noexcept {
 }
 
 GatewayReconnectDelay gateway_reconnect_next(GatewayReconnectBackoff* backoff, u32 random) noexcept {
-    if (!backoff) {
-        return GatewayReconnectDelay{};
-    }
     const u32 shift = backoff->attempt < 5 ? backoff->attempt : 5;
     u32 ceiling = 1'000u << shift;
     if (ceiling > 30'000) {
@@ -100,9 +95,7 @@ GatewayReconnectDelay gateway_reconnect_next(GatewayReconnectBackoff* backoff, u
 }
 
 void gateway_reconnect_reset(GatewayReconnectBackoff* backoff) noexcept {
-    if (backoff) {
-        *backoff = GatewayReconnectBackoff{};
-    }
+    *backoff = GatewayReconnectBackoff{};
 }
 
 u32 gateway_invalid_session_delay(u32 random) noexcept {
@@ -118,9 +111,6 @@ u32 gateway_ready_failure_delay(u32 failures) noexcept {
 }
 
 GatewayRateLimitStep gateway_rate_limit_acquire(GatewayRateLimiter* limiter, u64 now_ms) noexcept {
-    if (!limiter) {
-        return GatewayRateLimitStep{0, false};
-    }
     while (limiter->count != 0) {
         const u64 oldest = limiter->timestamps[limiter->head];
         if (now_ms < oldest || now_ms - oldest < kGatewaySendWindowMs) {
@@ -140,9 +130,7 @@ GatewayRateLimitStep gateway_rate_limit_acquire(GatewayRateLimiter* limiter, u64
 }
 
 bool gateway_outbound_enqueue(GatewayOutboundQueue* queue, GatewayLifecycleAction action) noexcept {
-    if (!queue || queue->count == kGatewayOutboundActionCapacity ||
-        (action != GatewayLifecycleAction::send_identify && action != GatewayLifecycleAction::send_resume &&
-         action != GatewayLifecycleAction::send_heartbeat)) {
+    if (queue->count == kGatewayOutboundActionCapacity) {
         return false;
     }
     const u32 tail = (queue->head + queue->count) % kGatewayOutboundActionCapacity;
@@ -152,9 +140,6 @@ bool gateway_outbound_enqueue(GatewayOutboundQueue* queue, GatewayLifecycleActio
 }
 
 GatewayOutboundStep gateway_outbound_take(GatewayOutboundQueue* queue, u64 now_ms) noexcept {
-    if (!queue) {
-        return GatewayOutboundStep{0, GatewayLifecycleAction::none, GatewayOutboundState::invalid};
-    }
     if (queue->count == 0) {
         return GatewayOutboundStep{0, GatewayLifecycleAction::none, GatewayOutboundState::idle};
     }
@@ -170,9 +155,7 @@ GatewayOutboundStep gateway_outbound_take(GatewayOutboundQueue* queue, u64 now_m
 }
 
 void gateway_outbound_reset(GatewayOutboundQueue* queue) noexcept {
-    if (queue) {
-        *queue = GatewayOutboundQueue{};
-    }
+    *queue = GatewayOutboundQueue{};
 }
 
 } // namespace maicord

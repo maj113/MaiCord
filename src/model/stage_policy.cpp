@@ -24,7 +24,7 @@ u32 stage_self_actions(StageRole role, PermissionSet permissions, bool live) noe
     case StageRole::audience:
         if (moderator)
             actions |= stage_action_become_speaker;
-        else if (live && stage_can_request_to_speak(permissions))
+        else if (live && permission_has(permissions, kPermissionRequestToSpeak))
             actions |= stage_action_raise_hand;
         break;
     case StageRole::requested:

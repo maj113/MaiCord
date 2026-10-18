@@ -589,7 +589,6 @@ MessageComposerResult message_composer_clear(MessageComposer* composer) noexcept
     composer->nonce = 0;
     composer->retry_at_ms = 0;
     composer->http_status = 0;
-    composer->pending_high_surrogate = 0;
     ++composer->revision;
     ++composer->text_revision;
     return MessageComposerResult::changed;

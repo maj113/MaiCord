@@ -1,5 +1,7 @@
 #include "png_common.hpp"
 
+#include "maicord/media/png.hpp"
+
 #include <immintrin.h>
 
 extern "C" __declspec(dllimport) unsigned long __stdcall RtlComputeCrc32(
@@ -10,6 +12,73 @@ u32 png_crc32(const u8* bytes, u32 count) noexcept {
     // ntdll selects its CRC-32 implementation for the host CPU. PNG/APNG and
     // gzip use the same IEEE polynomial and an initial published CRC of zero.
     return count ? static_cast<u32>(RtlComputeCrc32(0, bytes, count)) : 0;
+}
+
+bool png_format_channels(u8 color_type, u8 bit_depth, u8* channels) noexcept {
+    switch (color_type) {
+    case 0:
+        *channels = 1;
+        return bit_depth == 1 || bit_depth == 2 || bit_depth == 4 || bit_depth == 8 || bit_depth == 16;
+    case 2:
+        *channels = 3;
+        return bit_depth == 8 || bit_depth == 16;
+    case 3:
+        *channels = 1;
+        return bit_depth == 1 || bit_depth == 2 || bit_depth == 4 || bit_depth == 8;
+    case 4:
+        *channels = 2;
+        return bit_depth == 8 || bit_depth == 16;
+    case 6:
+        *channels = 4;
+        return bit_depth == 8 || bit_depth == 16;
+    default:
+        return false;
+    }
+}
+
+bool png_apply_palette(PngImage* image, const u8* data, u32 length) noexcept {
+    if (image->color_type == 0 || image->color_type == 4 || length == 0 || length % 3 != 0 ||
+        length > 768) {
+        return false;
+    }
+    const u32 entries = length / 3;
+    if (image->color_type == 3 && entries > (1u << image->bit_depth)) {
+        return false;
+    }
+    for (u32 index = 0; index < entries; ++index) {
+        image->palette_rgba[index] = static_cast<u32>(data[index * 3]) |
+                                     static_cast<u32>(data[index * 3 + 1]) << 8 |
+                                     static_cast<u32>(data[index * 3 + 2]) << 16 | 0xFF000000u;
+    }
+    image->palette_count = static_cast<u16>(entries);
+    return true;
+}
+
+bool png_apply_transparency(PngImage* image, const u8* data, u32 length) noexcept {
+    const u32 maximum_sample = image->bit_depth == 16 ? 65'535u : (1u << image->bit_depth) - 1u;
+    if (image->color_type == 0 && length == 2) {
+        image->transparent_gray = byte_load_be16(data);
+        if (image->transparent_gray > maximum_sample) {
+            return false;
+        }
+    } else if (image->color_type == 2 && length == 6) {
+        image->transparent_red = byte_load_be16(data);
+        image->transparent_green = byte_load_be16(data + 2);
+        image->transparent_blue = byte_load_be16(data + 4);
+        if (image->transparent_red > maximum_sample || image->transparent_green > maximum_sample ||
+            image->transparent_blue > maximum_sample) {
+            return false;
+        }
+    } else if (image->color_type == 3 && length != 0 && length <= image->palette_count) {
+        for (u32 index = 0; index < length; ++index) {
+            image->palette_rgba[index] =
+                (image->palette_rgba[index] & 0x00FFFFFFu) | static_cast<u32>(data[index]) << 24;
+        }
+    } else {
+        return false;
+    }
+    image->has_transparency = true;
+    return true;
 }
 
 namespace {

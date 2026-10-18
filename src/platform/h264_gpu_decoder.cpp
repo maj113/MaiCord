@@ -35,9 +35,6 @@ struct State {
     bool full_stream;
 };
 static_assert(sizeof(State) <= 4'096);
-bool submission_budget_exhausted(u32 maximum,u32 submitted) noexcept {
-    return maximum&&submitted>=maximum;
-}
 
 HRESULT submit(State* s, const H264ReferencePlan& plan, u8 surface) noexcept {
     const auto& picture = s->picture;
@@ -275,7 +272,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end,u3
             frame.error = Mp4DecodeError::data_pending;
             return frame;
         }
-        if (submission_budget_exhausted(max_submissions, submissions)) {
+        if (max_submissions && submissions >= max_submissions) {
             frame.error = Mp4DecodeError::needs_service;
             return frame;
         }
@@ -317,7 +314,7 @@ Mp4DecodedFrame h264_gpu_decoder_read(H264GpuDecoder* probe, bool loop_at_end,u3
         if (FAILED(status)) { frame.error = Mp4DecodeError::sample; return frame; }
         if (++s->feedback == 0) ++s->feedback;
         s->references = plan.after; s->demux = next;
-        if(max_submissions)++submissions;
+        ++submissions;
         const auto order = plan.retained_order;
         if (!h264_output_push(&s->output, {unit.duration_us,
             order.top < order.bottom ? order.top : order.bottom, surface,unit.presentation_time_us_signed})) {

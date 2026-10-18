@@ -193,8 +193,7 @@ GatewayCommandWriteResult finish_patch(Slice<u8> scratch, u32 at, Slice<u8> outp
 } // namespace
 E self_status_settings_decode_base64(Utf8View input, Slice<u8> output,
                                      SelfStatusSettingsProjection* result) noexcept {
-    if (!result || input.bytes > base64_encoded_size(kUserSettingsProtoMaximumProtoBytes) ||
-        !range_valid(output) ||
+    if (input.bytes > base64_encoded_size(kUserSettingsProtoMaximumProtoBytes) || !range_valid(output) ||
         byte_ranges_overlap({reinterpret_cast<const u8*>(input.data), input.bytes},
                             {output.data, output.count}))
         return E::input;
@@ -271,7 +270,7 @@ GatewayCommandWriteResult self_status_settings_write_patch(ConstSlice<u8> observ
     return finish_patch(scratch, at, output);
 }
 bool self_status_settings_read_custom(ConstSlice<u8> group, SelfCustomStatus* output) noexcept {
-    if (!output || !byte_range_valid(group))
+    if (!byte_range_valid(group))
         return false;
     *output = {};
     const Wire w{group, {}, group.count};
@@ -358,7 +357,7 @@ GatewayCommandWriteResult self_status_settings_write_custom_patch(ConstSlice<u8>
     return finish_patch(scratch, at, output);
 }
 bool self_status_settings_read_show_game(ConstSlice<u8> group, bool* share) noexcept {
-    if (!share || !byte_range_valid(group))
+    if (!byte_range_valid(group))
         return false;
     *share = true; // An absent BoolValue keeps the server default: shared.
     const Wire w{group, {}, group.count};
@@ -438,7 +437,7 @@ bool self_custom_status_build(Utf8View emoji, Utf8View text, SelfCustomStatusCle
             --v.bytes;
         return v;
     };
-    if (!output || clear >= SelfCustomStatusClear::count)
+    if (clear >= SelfCustomStatusClear::count)
         return false;
     emoji = trim(emoji);
     text = trim(text);

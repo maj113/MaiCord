@@ -236,13 +236,12 @@ inline constexpr u32 kCdnIdentityDefaultSize = 128;
 // drawn (message authors and settings rows: 40; member, DM and voter rows: 32).
 inline constexpr u32 kCdnIdentityDisplayDips = 40;
 // Smallest documented power-of-two CDN size covering display_dips at dpi, at
-// least 16 and at most maximum (a power of two, defaulting to 128). One size per
-// DPI keeps a single shared atlas identity per avatar.
-constexpr u32 cdn_image_size(u32 display_dips, u32 dpi,
-                             u32 maximum = kCdnIdentityDefaultSize) noexcept {
+// least 16 and at most kCdnIdentityDefaultSize. One size per DPI keeps a single
+// shared atlas identity per avatar.
+constexpr u32 cdn_image_size(u32 display_dips, u32 dpi) noexcept {
     const u64 pixels = (static_cast<u64>(display_dips) * (dpi ? dpi : 96u) + 95u) / 96u;
     u32 size = 16;
-    while (size < pixels && size < maximum && size < 4'096)
+    while (size < pixels && size < kCdnIdentityDefaultSize)
         size <<= 1;
     return size;
 }

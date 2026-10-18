@@ -31,7 +31,6 @@ enum class CaptchaBridgeResponse : u8 { accepted, gone };
 // token views the caller's input buffer and is valid until it is erased.
 struct CaptchaBridgeRequest {
     Utf8View token;
-    u32 consumed_bytes;
     CaptchaBridgeRequestKind kind;
 };
 struct CaptchaBridgeParseResult {

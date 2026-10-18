@@ -47,7 +47,7 @@ bool stable_storage_initialize(StableStorage* storage, u32 reserved_capacity,
 bool stable_storage_reserve(StableStorage* storage,
                             u32 required_capacity) noexcept {
     if (!storage || !storage->arena.base || required_capacity == 0 ||
-        required_capacity > stable_storage_reserved_capacity(*storage)) {
+        required_capacity > storage->reserved_capacity) {
         return false;
     }
     if (required_capacity <= storage->capacity) {
@@ -80,7 +80,7 @@ bool stable_storage_grow(StableStorage* storage,
     if (!storage) {
         return false;
     }
-    const u32 reserved_capacity = stable_storage_reserved_capacity(*storage);
+    const u32 reserved_capacity = storage->reserved_capacity;
     if (required_capacity == 0 || required_capacity > reserved_capacity) {
         return false;
     }

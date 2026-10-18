@@ -43,9 +43,6 @@ void remote_auth_crypto_release(RemoteAuthCrypto* crypto) noexcept;
 // as the Remote Auth init packet requires.
 RemoteAuthCryptoResult remote_auth_crypto_export_spki(
     const RemoteAuthCrypto& crypto, Slice<u8> output) noexcept;
-RemoteAuthCryptoResult remote_auth_crypto_sha256(
-    const RemoteAuthCrypto& crypto, ConstSlice<u8> input,
-    Slice<u8> digest) noexcept;
 RemoteAuthCryptoResult remote_auth_crypto_fingerprint(
     const RemoteAuthCrypto& crypto, Slice<u8> digest) noexcept;
 

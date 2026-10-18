@@ -10,7 +10,7 @@ namespace maicord {
 struct ClipboardAttachmentData { IStream* object; DWORD sequence; };
 bool clipboard_attachment_available() noexcept;
 // Retains/marshals the data object, without copying attachment payloads.
-bool clipboard_attachment_capture(HWND owner, ClipboardAttachmentData* output) noexcept;
+bool clipboard_attachment_capture(ClipboardAttachmentData* output) noexcept;
 void clipboard_attachment_release(ClipboardAttachmentData* input) noexcept;
 void clipboard_attachment_shutdown() noexcept;
 // Called on an initialized MTA. Successful visit transfers one source reference.

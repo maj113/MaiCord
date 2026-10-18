@@ -73,7 +73,7 @@ SfntStatus sfnt_position_execute_lookup(const SfntGposLookup& lookup,const SfntG
         const auto a=adjusted(positions.data[at],first,rtl);SfntPosition b{};const bool pair=match.second_input!=0xffffffffu;
         if(pair){s=resolve(match.values[1],instance,&second,result,&work);if(s!=SfntStatus::ok)return s;b=adjusted(positions.data[match.second_input],second,rtl);}
         if(!valid(a) || (pair && !valid(b)))return SfntStatus::resource_limit;
-        positions.data[at]=a;if(pair)positions.data[match.second_input]=b;++result->matches;result->adjusted_glyphs+=1+(pair?1u:0u);at=match.next_input;
+        positions.data[at]=a;if(pair)positions.data[match.second_input]=b;++result->matches;at=match.next_input;
     }return SfntStatus::ok;
 }
 SfntStatus sfnt_position_finalize(ConstSlice<SfntPosition> positions,ConstSlice<u8> flags,float em,u16 upem,Slice<SfntPlacement> output,u64 work,bool consecutive_zeroes,bool retain_zero_positioning) noexcept {

@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 
@@ -52,10 +53,8 @@ inline MessageCardExcerptResult message_card_excerpt(MessageCardExcerptInput inp
             if (!counts[at]) continue;
             if (!first) append(utf8_literal(" · "), capacity - used);
             first = false;
-            char digits[10]; u32 bytes = 0, number = counts[at];
-            do { digits[bytes++] = static_cast<char>('0' + number % 10); number /= 10; } while (number);
-            char ordered[10]; for (u32 i = 0; i < bytes; ++i) ordered[i] = digits[bytes - i - 1];
-            append({ordered, bytes}, capacity - used);
+            char digits[10];
+            append({digits, decimal_write(digits, counts[at])}, capacity - used);
             append(utf8_literal(" "), capacity - used);
             append(counts[at] == 1 ? singular[at] : plural[at], capacity - used);
         }

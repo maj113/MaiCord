@@ -43,13 +43,11 @@ bool thread(const AacDecoder& owner) noexcept {
     return !owner.runtime || owner.thread_id == GetCurrentThreadId();
 }
 HRESULT output_type(AacDecoder& owner, State& s) noexcept {
-    owner.native_stage = AacNativeStage::output_type;
     // Use the advertised complete native type (including channel assignment
     // and implementation-specific attributes), not a synthesized approximation.
     // Enumeration stays bounded and never substitutes another sample format,
     // rate or channel count for the caller's validated PCM configuration.
     HRESULT h = MF_E_INVALIDMEDIATYPE;
-    owner.native_output_formats = 0;
     const u32 wanted = owner.format == AacPcmFormat::float32 ? 2u : 1u;
     for (u32 index = 0; index < 32; ++index) {
         IMFMediaType* type = nullptr;
@@ -74,7 +72,6 @@ HRESULT output_type(AacDecoder& owner, State& s) noexcept {
                            rate == owner.sample_rate &&
                            SUCCEEDED(type->GetUINT32(MF_MT_AUDIO_NUM_CHANNELS, &channels)) &&
                            channels == owner.channels;
-        owner.native_output_formats |= format | (exact ? format << 2 : 0);
         if (exact && format == wanted) {
             h = s.transform->SetOutputType(s.output_id, type, 0);
             com_release(type);
@@ -83,20 +80,16 @@ HRESULT output_type(AacDecoder& owner, State& s) noexcept {
         com_release(type);
     }
     MFT_OUTPUT_STREAM_INFO info{};
-    if (SUCCEEDED(h)) {
-        owner.native_stage = AacNativeStage::output_info;
+    if (SUCCEEDED(h))
         h = s.transform->GetOutputStreamInfo(s.output_id, &info);
-    }
     u32 alignment_mask{}, capacity{};
     if (SUCCEEDED(h) && (!aac_decoder_output_capacity(info.cbSize, &capacity) ||
                          !aac_decoder_alignment_mask(info.cbAlignment, &alignment_mask)))
         h = MF_E_BUFFERTOOSMALL;
     // The system AAC MFT's caller-supplied mode avoids native output lifetime
     // ambiguity. Unsupported provided-only allocation mode fails.
-    if (SUCCEEDED(h) && (info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES)) {
-        owner.native_stage = AacNativeStage::output_samples;
+    if (SUCCEEDED(h) && (info.dwFlags & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES))
         h = MF_E_INVALIDMEDIATYPE;
-    }
     if (SUCCEEDED(h)) {
         com_release(s.output);
         com_release(s.output_buffer);
@@ -113,7 +106,6 @@ HRESULT open(AacDecoder& owner) noexcept {
     if (!aac_configuration_decode({owner.asc, owner.asc_bytes}, &configuration) ||
         configuration.sample_rate != owner.sample_rate || configuration.channels != owner.channels)
         return MF_E_INVALIDMEDIATYPE;
-    owner.native_stage = AacNativeStage::runtime;
     APTTYPE apartment{};
     APTTYPEQUALIFIER qualifier{};
     HRESULT h = CoGetApartmentType(&apartment, &qualifier);
@@ -146,7 +138,6 @@ HRESULT open(AacDecoder& owner) noexcept {
     if (FAILED(h))
         return h;
     s->mf = true;
-    owner.native_stage = AacNativeStage::decoder;
     h = CoCreateInstance(kAacDecoder, nullptr, CLSCTX_INPROC_SERVER, __uuidof(IMFTransform),
                          reinterpret_cast<void**>(&s->transform));
     DWORD inputs{}, outputs{};
@@ -162,10 +153,8 @@ HRESULT open(AacDecoder& owner) noexcept {
         }
     }
     IMFMediaType* input = nullptr;
-    if (SUCCEEDED(h)) {
-        owner.native_stage = AacNativeStage::input_type;
+    if (SUCCEEDED(h))
         h = s->api.type(&input);
-    }
     if (SUCCEEDED(h))
         h = input->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
     if (SUCCEEDED(h))
@@ -190,19 +179,15 @@ HRESULT open(AacDecoder& owner) noexcept {
     if (SUCCEEDED(h))
         h = output_type(owner, *s);
     MFT_INPUT_STREAM_INFO input_info{};
-    if (SUCCEEDED(h)) {
-        owner.native_stage = AacNativeStage::input_info;
+    if (SUCCEEDED(h))
         h = s->transform->GetInputStreamInfo(s->input_id, &input_info);
-    }
     if (SUCCEEDED(h) && (input_info.cbSize > kAacDecoderMaximumPacketBytes ||
                          !aac_decoder_alignment_mask(input_info.cbAlignment, &s->input_alignment)))
         h = MF_E_BUFFERTOOSMALL;
     if (SUCCEEDED(h))
         s->input_bytes = input_info.cbSize;
-    if (SUCCEEDED(h)) {
-        owner.native_stage = AacNativeStage::streaming;
+    if (SUCCEEDED(h))
         h = s->transform->ProcessMessage(MFT_MESSAGE_NOTIFY_BEGIN_STREAMING, 0);
-    }
     if (SUCCEEDED(h))
         h = s->transform->ProcessMessage(MFT_MESSAGE_NOTIFY_START_OF_STREAM, 0);
     s->ready = SUCCEEDED(h);
@@ -260,13 +245,12 @@ AacDecodeResult aac_decoder_submit(AacDecoder* owner, ConstSlice<u8> frame, i64 
             return fail(*owner, Error::runtime, h);
     }
     auto& s = *static_cast<State*>(owner->runtime);
-    if (!s.ready || !s.transform || !s.output || !s.output_buffer)
+    if (!s.ready)
         return fail(*owner, Error::runtime, E_UNEXPECTED);
     if (s.need_output)
         return {Error::need_output};
     if (owner->accepted_frames == ~u64{0})
         return {Error::capacity};
-    owner->native_stage = AacNativeStage::input;
     IMFSample* sample = nullptr;
     IMFMediaBuffer* buffer = nullptr;
     HRESULT h = s.api.sample(&sample);
@@ -329,12 +313,11 @@ AacDecodedBlock aac_decoder_read(AacDecoder* owner, Slice<u8> pcm) noexcept {
     if (!owner->runtime)
         return {Error::need_input};
     auto& s = *static_cast<State*>(owner->runtime);
-    if (!s.ready || !s.transform || !s.output || !s.output_buffer)
+    if (!s.ready)
         return {Error::runtime, owner->native_status};
     if (!disjoint(&s, sizeof(s), pcm.data, pcm.count))
         return {Error::invalid_input};
     for (u32 attempt = 0; attempt < 2; ++attempt) {
-        owner->native_stage = AacNativeStage::output;
         HRESULT h = s.output_buffer->SetCurrentLength(0);
         if (FAILED(h))
             return {Error::output, h};
@@ -407,7 +390,7 @@ AacDecodeResult aac_decoder_drain(AacDecoder* owner) noexcept {
         return {};
     }
     auto& s = *static_cast<State*>(owner->runtime);
-    if (!s.ready || !s.transform)
+    if (!s.ready)
         return {Error::runtime};
     HRESULT h = s.transform->ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, s.input_id);
     if (SUCCEEDED(h))
@@ -424,7 +407,7 @@ AacDecodeResult aac_decoder_flush(AacDecoder* owner) noexcept {
         return {Error::thread};
     if (owner->runtime) {
         auto& s = *static_cast<State*>(owner->runtime);
-        if (!s.ready || !s.transform)
+        if (!s.ready)
             return {Error::runtime};
         HRESULT h = s.transform->ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
         if (SUCCEEDED(h))

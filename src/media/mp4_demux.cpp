@@ -5,17 +5,6 @@
 namespace maicord {
 namespace mp4_demux_detail {
 
-u32 read_u32(const u8* value) noexcept {
-    return (static_cast<u32>(value[0]) << 24u) |
-           (static_cast<u32>(value[1]) << 16u) |
-           (static_cast<u32>(value[2]) << 8u) |
-           static_cast<u32>(value[3]);
-}
-
-u64 read_u64(const u8* value) noexcept {
-    return (static_cast<u64>(read_u32(value)) << 32u) | read_u32(value + 4);
-}
-
 bool next_box(ConstSlice<u8> encoded, u64* cursor, u64 end,
               Box* output) noexcept {
     if (!cursor || !output || *cursor > end || end > encoded.count ||
@@ -70,19 +59,16 @@ bool first_description(ConstSlice<u8> encoded, const Box& stsd, Box* entry) noex
 }
 
 bool table(ConstSlice<u8> encoded, const Box& box, u32 entry_bytes,
-           u32* offset, u32* count, u32 prefix_bytes = 8) noexcept {
-    if (box.end < box.payload || box.end - box.payload < prefix_bytes ||
-        box.payload + 8u > encoded.count) {
+           u32* offset, u32* count) noexcept {
+    if (box.end - box.payload < 8u) {
         return false;
     }
     const u32 version_flags=read_u32(encoded.data+box.payload);
     if ((version_flags&0x00ffffffu) || (box.type==fourcc('c','t','t','s')?
         version_flags>0x01000000u:version_flags!=0)) return false;
     const u32 entries = read_u32(encoded.data + box.payload + 4u);
-    const u64 first = box.payload + prefix_bytes;
-    if (first > box.end || static_cast<u64>(entries) * entry_bytes >
-                               box.end - first ||
-        first > ~0u) {
+    const u64 first = box.payload + 8u;
+    if (static_cast<u64>(entries) * entry_bytes > box.end - first || first > ~0u) {
         return false;
     }
     *offset = static_cast<u32>(first);
@@ -567,7 +553,6 @@ Mp4DemuxError initialize_tables(Mp4Demuxer* demuxer,ConstSlice<u8> encoded,
         const i64 end = sample.presentation_time_ticks + sample.duration_ticks;
         if (end > 0)
             presentation_end_ticks = maximum(presentation_end_ticks, static_cast<u64>(end));
-        demuxer->maximum_sample_bytes = maximum(demuxer->maximum_sample_bytes, sample.bytes.count);
         if (sample.presentation_time_us_signed >= 0) {
             const u64 pts = static_cast<u64>(sample.presentation_time_us_signed);
             if (sample.duration_us > 0x7fffffffffffffffull - pts) {
@@ -743,7 +728,6 @@ Mp4AccessUnit mp4_demux_next(Mp4Demuxer* demuxer) noexcept {
     result.decode_time_us = scale_us(demuxer->decode_time, demuxer->timescale);
     result.presentation_time_us_signed=mapped;
     result.presentation_time_us=mapped<0?0:static_cast<u64>(mapped);
-    result.decode_time_ticks=demuxer->decode_time;
     result.presentation_time_ticks=presentation;
     result.duration_us = scale_us(duration, demuxer->timescale);
     result.duration_ticks=duration;

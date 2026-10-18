@@ -1,7 +1,7 @@
 #include "maicord/media/encoded_cache.hpp"
 #include "maicord/core/hash.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -56,8 +56,7 @@ void rebuild_index_locked(EncodedMediaCache* cache) noexcept {
 }
 
 void insert_index_locked(EncodedMediaCache* cache, u32 index) noexcept {
-    if (!cache->index_buckets || cache->index_bucket_capacity == 0 || index >= cache->entry_capacity ||
-        !cache->entries[index].occupied) {
+    if (!cache->index_buckets || cache->index_bucket_capacity == 0) {
         return;
     }
     const u32 mask = cache->index_bucket_capacity - 1;
@@ -159,35 +158,20 @@ u32 find_lru_entry_locked(const EncodedMediaCache& cache) noexcept {
 }
 
 void touch_entry_locked(EncodedMediaCache* cache, EncodedMediaCacheEntry* entry) noexcept {
-    if (cache->clock == ~0ull) {
-        for (u32 index = 0; index < cache->entry_capacity; ++index) {
-            if (cache->entries[index].occupied) {
-                cache->entries[index].last_touch = (cache->entries[index].last_touch >> 1) + 1;
-            }
-        }
-        cache->clock = (cache->clock >> 1) + 1;
-    }
     entry->last_touch = ++cache->clock;
 }
 
+// The entry must be occupied.
 bool release_entry_locked(EncodedMediaCache* cache, u32 index) noexcept {
     EncodedMediaCacheEntry& entry = cache->entries[index];
-    if (!entry.occupied) {
-        return true;
-    }
     if (entry.leases != 0) {
         ++cache->counters.pinned_rejections;
         return false;
     }
     remove_index_locked(cache, entry.key, index);
     const u32 page_count = (entry.bytes + kEncodedMediaCachePageBytes - 1) / kEncodedMediaCachePageBytes;
-    const u32 end = entry.first_page + page_count;
-    if (end <= cache->page_capacity) {
-        for (u32 page = entry.first_page; page < end; ++page) {
-            if (cache->page_owners[page] == static_cast<u16>(index)) {
-                cache->page_owners[page] = kEncodedMediaCacheFreePage;
-            }
-        }
+    for (u32 page = entry.first_page; page < entry.first_page + page_count; ++page) {
+        cache->page_owners[page] = kEncodedMediaCacheFreePage;
     }
     cache->used_pages -= page_count;
     cache->stored_bytes -= entry.bytes;
@@ -199,10 +183,8 @@ bool release_entry_locked(EncodedMediaCache* cache, u32 index) noexcept {
     return true;
 }
 
+// required_pages is nonzero and at most the page capacity.
 u32 find_page_run_locked(const EncodedMediaCache& cache, u32 required_pages) noexcept {
-    if (required_pages == 0 || required_pages > cache.page_capacity) {
-        return kInvalidIndex;
-    }
     u32 begin = 0;
     u32 run = 0;
     for (u32 page = 0; page < cache.page_capacity; ++page) {
@@ -227,17 +209,11 @@ EncodedMediaCacheLookup lookup_locked(EncodedMediaCache* cache, MediaAssetKey ke
         *entry_index = index;
     }
     if (index == kInvalidIndex || cache->entries[index].retiring) {
-        ++cache->counters.misses;
         return EncodedMediaCacheLookup{{}, {}, 0, 0, EncodedMediaCacheLookupState::miss};
     }
     EncodedMediaCacheEntry& entry = cache->entries[index];
     touch_entry_locked(cache, &entry);
     const bool stale = entry.must_revalidate || entry.expires_at_seconds <= now_seconds;
-    if (stale) {
-        ++cache->counters.stale_hits;
-    } else {
-        ++cache->counters.hits;
-    }
     return EncodedMediaCacheLookup{
         ConstSlice<u8>{cache->storage + entry.first_page * kEncodedMediaCachePageBytes, entry.bytes},
         ConstSlice<u8>{entry.etag, entry.etag_bytes},
@@ -292,11 +268,6 @@ bool encoded_media_cache_initialize(EncodedMediaCache* cache, Slice<EncodedMedia
 EncodedMediaCacheLookup encoded_media_cache_find(EncodedMediaCache* cache, MediaAssetKey key,
                                                  u64 now_seconds) noexcept {
     if (!cache || !cache->entries || !cache->storage || !media_asset_key_valid(key)) {
-        if (cache && cache->entries) {
-            AcquireSRWLockExclusive(cache->lock.native());
-            ++cache->counters.rejected;
-            ReleaseSRWLockExclusive(cache->lock.native());
-        }
         return EncodedMediaCacheLookup{{}, {}, 0, 0, EncodedMediaCacheLookupState::invalid};
     }
     AcquireSRWLockExclusive(cache->lock.native());
@@ -311,17 +282,12 @@ EncodedMediaCacheLease encoded_media_cache_acquire(EncodedMediaCache* cache, Med
     lease.entry_index = kInvalidIndex;
     if (!cache || !cache->entries || !cache->storage || !media_asset_key_valid(key)) {
         lease.lookup.state = EncodedMediaCacheLookupState::invalid;
-        if (cache && cache->entries) {
-            AcquireSRWLockExclusive(cache->lock.native());
-            ++cache->counters.rejected;
-            ReleaseSRWLockExclusive(cache->lock.native());
-        }
         return lease;
     }
     AcquireSRWLockExclusive(cache->lock.native());
     u32 entry_index = kInvalidIndex;
     lease.lookup = lookup_locked(cache, key, now_seconds, &entry_index);
-    if (lease.lookup.found() && entry_index != kInvalidIndex) {
+    if (lease.lookup.found()) {
         EncodedMediaCacheEntry& entry = cache->entries[entry_index];
         if (entry.leases != 0xFFFFu) {
             ++entry.leases;
@@ -354,8 +320,6 @@ bool encoded_media_cache_release(EncodedMediaCache* cache, EncodedMediaCacheLeas
             maintain_index_locked(cache);
             ++cache->counters.erases;
         }
-    } else {
-        ++cache->counters.rejected;
     }
     ReleaseSRWLockExclusive(cache->lock.native());
     *lease = EncodedMediaCacheLease{};
@@ -368,33 +332,25 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
                                                        EncodedMediaCachePolicy policy) noexcept {
     if (!cache || !cache->entries || !cache->page_owners || !cache->storage ||
         !media_asset_key_valid(key) || !encoded.data || encoded.count == 0 || !etag_valid(policy.etag)) {
-        if (cache && cache->entries) {
-            AcquireSRWLockExclusive(cache->lock.native());
-            ++cache->counters.rejected;
-            ReleaseSRWLockExclusive(cache->lock.native());
-        }
-        return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::invalid, 0, 0};
+        return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::invalid, 0};
     }
     if (!policy.store_allowed) {
-        return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::transient, 0, 0};
+        return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::transient, 0};
     }
     const u32 required_pages =
         (encoded.count + kEncodedMediaCachePageBytes - 1) / kEncodedMediaCachePageBytes;
+    if (required_pages > cache->page_capacity) {
+        return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::no_capacity, 0};
+    }
     // Hash cacheable retained animation/audio sources once per download,
     // outside the lock. Audio uses a typed format, never the animation flag.
     // Hashes filter candidates; exact byte equality decides shared identity.
     const bool audio_source = key.kind == MediaAssetKind::attachment &&
                               media_attachment_format_audio_supported(media_asset_attachment_format(key));
     const bool retained_source = (key.flags & media_asset_flag_animated) != 0 || audio_source;
-    const u64 fingerprint = retained_source && required_pages <= cache->page_capacity
-                                ? hash64_counted_bytes(kHash64Seed, encoded.data, encoded.count)
-                                : 0;
+    const u64 fingerprint =
+        retained_source ? hash64_counted_bytes(kHash64Seed, encoded.data, encoded.count) : 0;
     AcquireSRWLockExclusive(cache->lock.native());
-    if (required_pages > cache->page_capacity) {
-        ++cache->counters.rejected;
-        ReleaseSRWLockExclusive(cache->lock.native());
-        return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::no_capacity, 0, 0};
-    }
 
     u64 content_identity = 0;
     if (retained_source) {
@@ -418,30 +374,22 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
         if (content_identity == 0)
             content_identity = encoded_media_new_content_identity();
     }
-    u32 evicted = 0;
     u32 slot = find_entry_locked(*cache, key);
     const bool replacing = slot != kInvalidIndex;
-    u16 generation = 0;
     if (replacing) {
-        generation = cache->entries[slot].generation;
         if (!release_entry_locked(cache, slot)) {
             ReleaseSRWLockExclusive(cache->lock.native());
-            return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::no_capacity, 0, 0};
+            return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::no_capacity, 0};
         }
     } else {
         slot = find_empty_entry_locked(*cache);
         if (slot == kInvalidIndex) {
             slot = find_lru_entry_locked(*cache);
             if (slot == kInvalidIndex) {
-                ++cache->counters.rejected;
                 ReleaseSRWLockExclusive(cache->lock.native());
-                return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::no_capacity, 0, 0};
+                return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::no_capacity, 0};
             }
-            generation = cache->entries[slot].generation;
             release_entry_locked(cache, slot);
-            ++evicted;
-        } else {
-            generation = cache->entries[slot].generation;
         }
     }
 
@@ -449,13 +397,11 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
     while (first_page == kInvalidIndex) {
         const u32 victim = find_lru_entry_locked(*cache);
         if (victim == kInvalidIndex) {
-            ++cache->counters.rejected;
             maintain_index_locked(cache);
             ReleaseSRWLockExclusive(cache->lock.native());
-            return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::no_capacity, evicted, 0};
+            return EncodedMediaCacheStoreResult{EncodedMediaCacheStoreState::no_capacity, 0};
         }
         release_entry_locked(cache, victim);
-        ++evicted;
         first_page = find_page_run_locked(*cache, required_pages);
     }
 
@@ -472,7 +418,7 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
     entry.expires_at_seconds = policy.expires_at_seconds;
     entry.first_page = first_page;
     entry.bytes = encoded.count;
-    entry.generation = next_generation(generation);
+    entry.generation = next_generation(entry.generation);
     entry.leases = 0;
     entry.etag_bytes = static_cast<u8>(policy.etag.count);
     entry.must_revalidate = policy.must_revalidate;
@@ -485,17 +431,12 @@ EncodedMediaCacheStoreResult encoded_media_cache_store(EncodedMediaCache* cache,
     ++cache->entry_count;
     cache->used_pages += required_pages;
     cache->stored_bytes += encoded.count;
-    ++cache->counters.stores;
-    cache->counters.evictions += evicted;
     cache->counters.bytes_copied += encoded.count;
-    if (replacing) {
-        ++cache->counters.replacements;
-    }
     insert_index_locked(cache, slot);
     maintain_index_locked(cache);
     const EncodedMediaCacheStoreResult result{replacing ? EncodedMediaCacheStoreState::replaced
                                                         : EncodedMediaCacheStoreState::stored,
-                                              evicted, entry.generation};
+                                              entry.generation};
     ReleaseSRWLockExclusive(cache->lock.native());
     return result;
 }
@@ -504,18 +445,12 @@ bool encoded_media_cache_refresh(EncodedMediaCache* cache, MediaAssetKey key, u6
                                  bool must_revalidate, ConstSlice<u8> etag,
                                  u16 expected_generation) noexcept {
     if (!cache || !cache->entries || !media_asset_key_valid(key) || !etag_valid(etag)) {
-        if (cache && cache->entries) {
-            AcquireSRWLockExclusive(cache->lock.native());
-            ++cache->counters.rejected;
-            ReleaseSRWLockExclusive(cache->lock.native());
-        }
         return false;
     }
     AcquireSRWLockExclusive(cache->lock.native());
     const u32 index = find_entry_locked(*cache, key);
     if (index == kInvalidIndex || cache->entries[index].retiring ||
         (expected_generation && cache->entries[index].generation != expected_generation)) {
-        ++cache->counters.misses;
         ReleaseSRWLockExclusive(cache->lock.native());
         return false;
     }
@@ -538,20 +473,11 @@ bool encoded_media_cache_refresh(EncodedMediaCache* cache, MediaAssetKey key, u6
 
 bool encoded_media_cache_erase(EncodedMediaCache* cache, MediaAssetKey key) noexcept {
     if (!cache || !cache->entries || !media_asset_key_valid(key)) {
-        if (cache && cache->entries) {
-            AcquireSRWLockExclusive(cache->lock.native());
-            ++cache->counters.rejected;
-            ReleaseSRWLockExclusive(cache->lock.native());
-        }
         return false;
     }
     AcquireSRWLockExclusive(cache->lock.native());
     const u32 index = find_entry_locked(*cache, key);
-    if (index == kInvalidIndex) {
-        ReleaseSRWLockExclusive(cache->lock.native());
-        return false;
-    }
-    if (!release_entry_locked(cache, index)) {
+    if (index == kInvalidIndex || !release_entry_locked(cache, index)) {
         ReleaseSRWLockExclusive(cache->lock.native());
         return false;
     }

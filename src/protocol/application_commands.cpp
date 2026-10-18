@@ -109,11 +109,8 @@ bool read_root(Walk& w, JsonValue value) noexcept {
         !json_value_to_u64_or_string(field(doc, value, "version"), &w.root.version))
         return false;
     json_value_to_u64_or_string(field(doc, value, "guild_id"), &w.root.guild_id);
-    w.root.has_member_permissions = json_value_to_u64_or_string(
-        field(doc, value, "default_member_permissions"), &w.root.default_member_permissions);
     w.root.dm_permission = true;
     json_value_to_bool(field(doc, value, "dm_permission"), &w.root.dm_permission);
-    json_value_to_bool(field(doc, value, "nsfw"), &w.root.nsfw);
     w.root.root_name = command_name(*w.index, value);
     w.root.original = value;
     return true;
@@ -652,10 +649,7 @@ bool command_arguments(const CommandIndex& index, const ApplicationCommand& comm
         char decoded[16384];
         const bool focused = focused_name.bytes && utf8_equal(schema.names[n], focused_name);
         if (!focused && value.bytes && value.data[0] == '"') {
-            JsonString string{};
-            if (!json_value_as_string({value, 0, JsonValueKind::string}, &string) ||
-                !command_json_text({value, 0, JsonValueKind::string}, {decoded, sizeof(decoded)},
-                                   &value)) {
+            if (!command_json_text({value, 0, JsonValueKind::string}, {decoded, sizeof(decoded)}, &value)) {
                 *error = utf8_literal("Invalid quoted option value");
                 writer->used = mark;
                 return false;

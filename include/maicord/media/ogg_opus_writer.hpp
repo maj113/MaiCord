@@ -18,8 +18,6 @@ struct OggOpusWriter {
     u32 serial, sequence;
     u64 granule;     // 48 kHz samples through the last staged packet.
     u64 committed_granule;
-    u32 packets;
-    u16 pre_skip;
     u8 lacing[255];
     u8 lacing_count, page_packets;
     bool started, finished;

@@ -91,8 +91,6 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
             if (!byte_queue_available(d->input)) return fail(d, HttpResponseStreamError::input_capacity, accepted);
             return step(*d, accepted);
         }
-        if (kind != HttpBodyKind::content_length && kind != HttpBodyKind::until_close && kind != HttpBodyKind::none)
-            return fail(d, HttpResponseStreamError::unsupported_body, accepted);
         const u64 remaining = d->expected_body_bytes - d->body_bytes;
         if (readable.count > remaining)
             return fail(d, HttpResponseStreamError::unexpected_data, accepted);
@@ -116,8 +114,8 @@ HttpResponseStreamStep pump(HttpResponseStream* d, u32 accepted) noexcept {
 bool http_response_stream_initialize(HttpResponseStream* d, Slice<u8> storage,
     u64 expected, u64 maximum, u32 maximum_header, u32 maximum_fields,
     HttpResponseHeadParser parser, void* context) noexcept {
-    if (!d || !storage.data || storage.count < maximum_header || maximum_header < 4 ||
-        storage.count < 1026 || !maximum_fields || (!parser && context))
+    if (!storage.data || storage.count < maximum_header || maximum_header < 4 || storage.count < 1026 ||
+        !maximum_fields || (!parser && context))
         return false;
     const bool from_head = expected == kHttpResponseLengthFromHead;
     if (from_head ? !maximum : expected > maximum)
@@ -142,7 +140,6 @@ bool http_response_stream_initialize(HttpResponseStream* d, Slice<u8> storage,
 
 HttpResponseStreamStep http_response_stream_feed(HttpResponseStream* d, ConstSlice<u8> input,
                                                 bool peer_closed) noexcept {
-    if (!d) return {{}, 0, 0, HttpResponseStreamState::failed, HttpResponseStreamError::invalid_input};
     if (d->state == HttpResponseStreamState::failed) return step(*d);
     if ((!input.data && input.count) || !d->input.data)
         return fail(d, HttpResponseStreamError::invalid_input);
@@ -164,7 +161,6 @@ HttpResponseStreamStep http_response_stream_feed(HttpResponseStream* d, ConstSli
 }
 
 HttpResponseStreamStep http_response_stream_consume(HttpResponseStream* d, u32 bytes) noexcept {
-    if (!d) return {{}, 0, 0, HttpResponseStreamState::failed, HttpResponseStreamError::invalid_input};
     if (d->state == HttpResponseStreamState::failed) return step(*d);
     if (bytes > d->pending.count || !d->input.data)
         return fail(d, HttpResponseStreamError::invalid_input);

@@ -45,7 +45,6 @@ bool message_interaction_write_component_data(u16 component_type, Utf8View custo
 struct MessageInteractionEvent {
     u64 id;
     u64 nonce;
-    u32 reason_code; // failures only
 };
 bool message_interaction_event_decode(Utf8View json, Slice<u32> structurals, MessageInteractionEvent* output) noexcept;
 

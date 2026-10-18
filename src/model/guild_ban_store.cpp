@@ -1,7 +1,6 @@
 #include "maicord/model/guild_ban_store.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -51,7 +50,7 @@ void guild_ban_store_reset(GuildBanStore* store, u64 guild_id) noexcept {
     if (!store)
         return;
     if (store->records && store->count)
-        SecureZeroMemory(store->records, store->count * sizeof(GuildBanRecord));
+        secure_clear_bytes(store->records, store->count * sizeof(GuildBanRecord));
     store->count = 0;
     store->guild_id = guild_id;
     store->complete = false;
@@ -108,7 +107,7 @@ bool guild_ban_store_apply_remove(GuildBanStore* store, u64 guild_id, u64 user_i
     for (u32 i = at + 1; i < store->count; ++i)
         store->records[i - 1] = store->records[i];
     --store->count;
-    SecureZeroMemory(&store->records[store->count], sizeof(GuildBanRecord));
+    secure_clear_bytes(&store->records[store->count], sizeof(GuildBanRecord));
     saturating_increment(store->revision);
     return true;
 }

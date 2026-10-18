@@ -18,7 +18,6 @@ inline void start_code(RtpVideoAssembly& assembly) noexcept {
 }
 inline void complete(RtpVideoAssembly& assembly, u32 type) noexcept {
     assembly.nal_types |= u64{1} << (type & 63);
-    ++assembly.nal_units;
 }
 // Removes a fragment whose remaining pieces can no longer arrive in order.
 inline void drop_fragment(RtpVideoAssembly& assembly) noexcept {

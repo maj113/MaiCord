@@ -17,16 +17,16 @@ bool append_channel(ProtocolWriter* path, u64 id) noexcept {
 }
 PrivateConversationWriteResult private_conversation_write(PrivateConversationOperation operation, u64 id,
     Slice<u8> target, Slice<u8> body) noexcept {
-    if (!id || !target.data) return {};
+    if (!id) return {};
     ProtocolWriter path{target, 0}, json{body, 0};
     if (operation == PrivateConversationOperation::open) {
         if (!protocol_writer_append_literal(&path, "/api/v9/users/@me/channels") ||
             !protocol_writer_append_literal(&json, "{\"recipients\":[\"") || !protocol_writer_append_u64(&json, id) ||
             !protocol_writer_append_literal(&json, "\"]}")) return {};
-    } else if (operation == PrivateConversationOperation::close) {
+    } else {
         if (!protocol_writer_append_literal(&path, "/api/v9/channels/") || !protocol_writer_append_u64(&path, id) ||
             !protocol_writer_append_literal(&path, "?silent=false")) return {};
-    } else return {};
+    }
     return {path.used, json.used, true};
 }
 RestRouteKey private_conversation_route(PrivateConversationOperation operation, u64 id) noexcept {
@@ -61,7 +61,7 @@ bool private_channel_action_valid(const PrivateChannelActionRequest& r) noexcept
 }
 PrivateConversationWriteResult private_channel_action_write(const PrivateChannelActionRequest& r,
     Slice<u8> target, Slice<u8> body) noexcept {
-    if (!target.data || !private_channel_action_valid(r)) return {};
+    if (!private_channel_action_valid(r)) return {};
     ProtocolWriter path{target, 0}, json{body, 0};
     bool ok = false;
     switch (r.kind) {

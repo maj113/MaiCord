@@ -152,7 +152,7 @@ UserSocialWriteResult user_social_write_body(const UserSocialRequest& r, Slice<u
 }
 
 bool user_note_decode(Utf8View body, Slice<u32> scratch, bool gateway, UserNoteRecord* output) noexcept {
-    if (!output || !body.data || !body.bytes)
+    if (!body.data || !body.bytes)
         return false;
     const auto scan = json_scan_structurals_avx1(body, scratch);
     if (!scan.ok())
@@ -205,7 +205,6 @@ Utf8View named(ReportMenu& menu, JsonValue object, const char* key) noexcept {
 }
 // A JSON array of [a, b, c?] tuples; positions beyond two are optional.
 struct Tuple {
-    ReportMenu* menu;
     JsonValue values[3];
     u32 count;
 };
@@ -218,7 +217,7 @@ bool tuple_item(void* p, u32 index, JsonValue value) noexcept {
     return true;
 }
 Tuple tuple(ReportMenu& menu, JsonValue value) noexcept {
-    Tuple t{&menu, {}, 0};
+    Tuple t{};
     if (value.kind == JsonValueKind::array)
         json_visit_indexed_array(menu.document, value, depth_limit, tuple_item, &t);
     return t;
@@ -408,14 +407,12 @@ bool walk_nodes(Decoder& d, JsonValue nodes) noexcept {
 } // namespace
 
 void report_menu_release(ReportMenu* menu) noexcept {
-    if (!menu)
-        return;
     arena_release(&menu->storage);
     *menu = {};
 }
 
 bool report_menu_decode(Utf8View body, Slice<u32> scratch, ReportMenu* output) noexcept {
-    if (!output || !body.data || body.bytes < 2 || body.data[0] != '{')
+    if (!body.data || body.bytes < 2 || body.data[0] != '{')
         return false;
     const auto scan = json_scan_structurals_avx1(body, scratch);
     if (!scan.ok())

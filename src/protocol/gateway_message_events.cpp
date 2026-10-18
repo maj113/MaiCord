@@ -1,8 +1,14 @@
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/json_ids.hpp"
+#include "gateway_decode.hpp"
 
 namespace maicord {
 namespace {
+
+using protocol_detail::accept_member;
+using protocol_detail::decode_failure;
+using protocol_detail::mark_seen;
+using protocol_detail::read_failure;
 
 struct MessageContext {
     GatewayMessageEvent event;
@@ -39,26 +45,17 @@ bool visit_call_participant(void* opaque, u32, JsonValue value) noexcept {
 bool visit_call_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<CallContext*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("ended_timestamp"))) {
-        if ((context->seen & 1u) != 0) {
-            context->error = GatewayEventDecodeError::duplicate_field;
-            return false;
-        }
-        context->seen |= 1u;
-        if (value.kind == JsonValueKind::null_value)
-            return true;
         JsonString text{};
-        if (!json_value_as_string(value, &text) || !parse_iso_timestamp(text, &context->ended_timestamp_ms)) {
-            context->error = GatewayEventDecodeError::invalid_data;
+        const bool null = value.kind == JsonValueKind::null_value;
+        if (!accept_member(&context->seen, 1,
+                           null || (json_value_as_string(value, &text) &&
+                                    parse_iso_timestamp(text, &context->ended_timestamp_ms)),
+                           &context->error))
             return false;
-        }
-        context->ended = true;
+        context->ended = !null;
     } else if (json_string_equals_ascii(name, utf8_literal("participants"))) {
-        if ((context->seen & 2u) != 0 || value.kind != JsonValueKind::array) {
-            context->error = (context->seen & 2u) ? GatewayEventDecodeError::duplicate_field
-                                                  : GatewayEventDecodeError::invalid_data;
+        if (!accept_member(&context->seen, 2, value.kind == JsonValueKind::array, &context->error))
             return false;
-        }
-        context->seen |= 2u;
         context->participants = value;
     }
     return true;
@@ -70,8 +67,7 @@ GatewayEventDecodeResult decode_call(JsonValue call, Slice<u32> structural_scrat
                                      u64 current_user_id, GatewayMessageCall* output) noexcept {
     const JsonScanResult scan = json_scan_structurals_avx1(call.source, structural_scratch);
     if (!scan.ok())
-        return GatewayEventDecodeResult{scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error,
-                                        JsonReadError::none};
+        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
     CallContext context{};
     context.current_user_id = current_user_id;
     JsonReadResult read = json_visit_value_object(call, {structural_scratch.data, scan.count},
@@ -79,17 +75,12 @@ GatewayEventDecodeResult decode_call(JsonValue call, Slice<u32> structural_scrat
     if (read.ok() && (context.seen & 2u)) {
         const JsonScanResult inner = json_scan_structurals_avx1(context.participants.source, structural_scratch);
         if (!inner.ok())
-            return GatewayEventDecodeResult{inner.error_offset, GatewayEventDecodeError::scan_failed, inner.error,
-                                            JsonReadError::none};
+            return decode_failure(GatewayEventDecodeError::scan_failed, inner.error_offset, inner.error);
         read = json_visit_value_array(context.participants, {structural_scratch.data, inner.count},
                                      maximum_depth, visit_call_participant, &context);
     }
     if (!read.ok())
-        return GatewayEventDecodeResult{read.error_offset,
-                                        context.error != GatewayEventDecodeError::none
-                                            ? context.error
-                                            : GatewayEventDecodeError::invalid_json,
-                                        JsonScanError::none, read.error};
+        return read_failure(context.error, read);
     *output = GatewayMessageCall{context.ended_timestamp_ms, true, context.ended, context.participated};
     return GatewayEventDecodeResult{};
 }
@@ -100,17 +91,16 @@ struct AuthorContext {
     JsonString global_name;
     JsonString avatar;
     GatewayEventDecodeError error;
-    bool id_seen;
-    bool username_seen;
-    bool global_name_seen;
+    u32 seen;
     bool global_name_null;
-    bool avatar_seen;
     bool avatar_null;
     u32 public_flags;
-    bool public_flags_seen, bot_seen, bot;
-    bool private_flags_seen;
+    bool bot;
     u32 private_flags;
 };
+constexpr u32 author_seen_id = 1, author_seen_username = 2, author_seen_global_name = 4,
+              author_seen_avatar = 8, author_seen_public_flags = 16, author_seen_bot = 32,
+              author_seen_private_flags = 64;
 
 struct DeleteContext {
     GatewayMessageDeleteEvent event;
@@ -158,21 +148,6 @@ struct MemberContext {
     bool nick_seen;
 };
 
-GatewayEventDecodeResult message_failure(GatewayEventDecodeError error, u32 offset = 0,
-                                         JsonScanError scan_error = JsonScanError::none,
-                                         JsonReadError read_error = JsonReadError::none) noexcept {
-    return GatewayEventDecodeResult{offset, error, scan_error, read_error};
-}
-
-bool mark_message_field(MessageContext* context, u32 field) noexcept {
-    if ((context->event.fields & field) != 0) {
-        context->error = GatewayEventDecodeError::duplicate_field;
-        return false;
-    }
-    context->event.fields |= field;
-    return true;
-}
-
 bool json_value_to_message_nonce(JsonValue value, u64* output) noexcept {
     if (value.kind == JsonValueKind::null_value) {
         *output = 0;
@@ -193,15 +168,14 @@ bool json_value_to_message_nonce(JsonValue value, u64* output) noexcept {
 
 bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<MessageContext*>(opaque);
+    auto& event = context->event;
+    auto& error = context->error;
+    u64 number = 0;
     if (json_string_equals_ascii(name, utf8_literal("type"))) {
-        if (!mark_message_field(context, gateway_message_field_type))
+        if (!accept_member(&event.fields, gateway_message_field_type,
+                           json_value_to_u64(value, &number) && number <= 65535, &error))
             return false;
-        u64 type = 0;
-        if (!json_value_to_u64(value, &type) || type > 65535) {
-            context->error = GatewayEventDecodeError::invalid_data;
-            return false;
-        }
-        context->event.type = static_cast<u16>(type);
+        event.type = static_cast<u16>(number);
     } else if (json_string_equals_ascii(name, utf8_literal("activity_instance")) ||
                json_string_equals_ascii(name, utf8_literal("application_id")) ||
                json_string_equals_ascii(name, utf8_literal("changelog_id"))) {
@@ -210,18 +184,18 @@ bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexce
         const u32 field = activity      ? gateway_message_field_activity_instance
                           : application ? gateway_message_field_application_id
                                         : gateway_message_field_changelog_id;
-        if (!mark_message_field(context, field))
+        if (!mark_seen(&event.fields, field, &error))
             return false;
         if (activity)
-            context->event.activity_instance_present = value.kind != JsonValueKind::null_value;
+            event.activity_instance_present = value.kind != JsonValueKind::null_value;
         else if (application)
-            context->event.application_present = value.kind != JsonValueKind::null_value;
+            event.application_present = value.kind != JsonValueKind::null_value;
         else
-            context->event.changelog_present = value.kind != JsonValueKind::null_value;
+            event.changelog_present = value.kind != JsonValueKind::null_value;
     } else if (json_string_equals_ascii(name, utf8_literal("interaction_metadata"))) {
-        if (!mark_message_field(context, gateway_message_field_interaction_metadata))
+        if (!mark_seen(&event.fields, gateway_message_field_interaction_metadata, &error))
             return false;
-        context->event.interaction_metadata_present = value.kind != JsonValueKind::null_value;
+        event.interaction_metadata_present = value.kind != JsonValueKind::null_value;
     } else if (json_string_equals_ascii(name, utf8_literal("poll")) ||
                json_string_equals_ascii(name, utf8_literal("call")) ||
                json_string_equals_ascii(name, utf8_literal("activity"))) {
@@ -230,133 +204,88 @@ bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexce
         const u32 field = poll   ? gateway_message_field_poll
                           : call ? gateway_message_field_call
                                  : gateway_message_field_activity;
-        if (!mark_message_field(context, field))
+        const bool object = value.kind == JsonValueKind::object;
+        if (!accept_member(&event.fields, field, object || value.kind == JsonValueKind::null_value, &error))
             return false;
-        if (value.kind != JsonValueKind::object && value.kind != JsonValueKind::null_value) {
-            context->error = GatewayEventDecodeError::invalid_data;
-            return false;
-        }
         if (poll)
-            context->event.poll.present = value.kind == JsonValueKind::object;
-        if (call && value.kind == JsonValueKind::object)
+            event.poll.present = object;
+        if (call && object)
             context->call = value;
-        if (value.kind == JsonValueKind::object)
-            context->event.forwarding_features |= poll   ? gateway_message_forwarding_poll
-                                                  : call ? gateway_message_forwarding_call
-                                                         : gateway_message_forwarding_activity;
+        if (object)
+            event.forwarding_features |= poll   ? gateway_message_forwarding_poll
+                                         : call ? gateway_message_forwarding_call
+                                                : gateway_message_forwarding_activity;
     } else if (json_string_equals_ascii(name, utf8_literal("id"))) {
-        if (!mark_message_field(context, gateway_message_field_id)) {
+        if (!accept_member(&event.fields, gateway_message_field_id,
+                           json_value_to_snowflake(value, &event.id), &error,
+                           GatewayEventDecodeError::invalid_message_id))
             return false;
-        }
-        if (!json_value_to_snowflake(value, &context->event.id)) {
-            context->error = GatewayEventDecodeError::invalid_message_id;
-            return false;
-        }
     } else if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
-        if (!mark_message_field(context, gateway_message_field_channel_id)) {
+        if (!accept_member(&event.fields, gateway_message_field_channel_id,
+                           json_value_to_snowflake(value, &event.channel_id), &error,
+                           GatewayEventDecodeError::invalid_channel_id))
             return false;
-        }
-        if (!json_value_to_snowflake(value, &context->event.channel_id)) {
-            context->error = GatewayEventDecodeError::invalid_channel_id;
-            return false;
-        }
     } else if (json_string_equals_ascii(name, utf8_literal("author"))) {
-        if (!mark_message_field(context, gateway_message_field_author_id)) {
+        if (!accept_member(&event.fields, gateway_message_field_author_id,
+                           value.kind == JsonValueKind::object, &error,
+                           GatewayEventDecodeError::invalid_author))
             return false;
-        }
-        if (value.kind != JsonValueKind::object) {
-            context->error = GatewayEventDecodeError::invalid_author;
-            return false;
-        }
         context->author = value;
     } else if (json_string_equals_ascii(name, utf8_literal("content"))) {
-        if (!mark_message_field(context, gateway_message_field_content)) {
+        if (!accept_member(&event.fields, gateway_message_field_content,
+                           json_value_as_string(value, &context->content), &error,
+                           GatewayEventDecodeError::invalid_message_content))
             return false;
-        }
-        if (!json_value_as_string(value, &context->content)) {
-            context->error = GatewayEventDecodeError::invalid_message_content;
-            return false;
-        }
     } else if (json_string_equals_ascii(name, utf8_literal("timestamp"))) {
-        if (!mark_message_field(context, gateway_message_field_timestamp)) {
-            return false;
-        }
         JsonString timestamp{};
-        if (!json_value_as_string(value, &timestamp) ||
-            !parse_iso_timestamp(timestamp, &context->event.timestamp_ms)) {
-            context->error = GatewayEventDecodeError::invalid_message_timestamp;
+        if (!accept_member(&event.fields, gateway_message_field_timestamp,
+                           json_value_as_string(value, &timestamp) &&
+                               parse_iso_timestamp(timestamp, &event.timestamp_ms),
+                           &error, GatewayEventDecodeError::invalid_message_timestamp))
             return false;
-        }
     } else if (json_string_equals_ascii(name, utf8_literal("edited_timestamp"))) {
-        if (!mark_message_field(context, gateway_message_field_edited_timestamp)) {
+        JsonString timestamp{};
+        const bool null = value.kind == JsonValueKind::null_value;
+        if (!accept_member(&event.fields, gateway_message_field_edited_timestamp,
+                           null || (json_value_as_string(value, &timestamp) &&
+                                    parse_iso_timestamp(timestamp, &event.edited_timestamp_ms)),
+                           &error, GatewayEventDecodeError::invalid_edited_timestamp))
             return false;
-        }
-        if (value.kind == JsonValueKind::null_value) {
-            context->event.edited_timestamp_ms = 0;
-        } else {
-            JsonString timestamp{};
-            if (!json_value_as_string(value, &timestamp) ||
-                !parse_iso_timestamp(timestamp, &context->event.edited_timestamp_ms)) {
-                context->error = GatewayEventDecodeError::invalid_edited_timestamp;
-                return false;
-            }
-        }
+        if (null)
+            event.edited_timestamp_ms = 0;
     } else if (json_string_equals_ascii(name, utf8_literal("flags"))) {
-        if (!mark_message_field(context, gateway_message_field_flags)) {
+        if (!accept_member(&event.fields, gateway_message_field_flags,
+                           json_value_to_u64(value, &number) && number <= 0xFFFFFFFFull, &error,
+                           GatewayEventDecodeError::invalid_message_flags))
             return false;
-        }
-        u64 flags = 0;
-        if (!json_value_to_u64(value, &flags) || flags > 0xFFFFFFFFull) {
-            context->error = GatewayEventDecodeError::invalid_message_flags;
-            return false;
-        }
-        context->event.flags = static_cast<u32>(flags);
+        event.flags = static_cast<u32>(number);
     } else if (json_string_equals_ascii(name, utf8_literal("nonce"))) {
-        if (!mark_message_field(context, gateway_message_field_nonce)) {
+        if (!accept_member(&event.fields, gateway_message_field_nonce,
+                           json_value_to_message_nonce(value, &event.nonce), &error,
+                           GatewayEventDecodeError::invalid_message_nonce))
             return false;
-        }
-        if (!json_value_to_message_nonce(value, &context->event.nonce)) {
-            context->error = GatewayEventDecodeError::invalid_message_nonce;
-            return false;
-        }
     } else if (json_string_equals_ascii(name, utf8_literal("pinned"))) {
-        if (!mark_message_field(context, gateway_message_field_pinned)) {
+        if (!accept_member(&event.fields, gateway_message_field_pinned,
+                           json_value_to_bool(value, &event.pinned), &error))
             return false;
-        }
-        if (!json_value_to_bool(value, &context->event.pinned)) {
-            context->error = GatewayEventDecodeError::invalid_data;
-            return false;
-        }
     } else if (json_string_equals_ascii(name, utf8_literal("mention_everyone"))) {
-        if (!mark_message_field(context, gateway_message_field_mention_everyone)) {
+        if (!accept_member(&event.fields, gateway_message_field_mention_everyone,
+                           json_value_to_bool(value, &event.mention_everyone), &error))
             return false;
-        }
-        if (!json_value_to_bool(value, &context->event.mention_everyone)) {
-            context->error = GatewayEventDecodeError::invalid_data;
-            return false;
-        }
     } else if (json_string_equals_ascii(name, utf8_literal("mentions"))) {
-        if (!mark_message_field(context, gateway_message_field_mentions)) {
+        if (!accept_member(&event.fields, gateway_message_field_mentions,
+                           value.kind == JsonValueKind::array, &error))
             return false;
-        }
-        if (value.kind != JsonValueKind::array) {
-            context->error = GatewayEventDecodeError::invalid_data;
-            return false;
-        }
         context->mentions = value;
     } else if (json_string_equals_ascii(name, utf8_literal("mention_roles"))) {
-        if (!mark_message_field(context, gateway_message_field_mention_roles)) {
+        if (!accept_member(&event.fields, gateway_message_field_mention_roles,
+                           value.kind == JsonValueKind::array, &error))
             return false;
-        }
-        if (value.kind != JsonValueKind::array) {
-            context->error = GatewayEventDecodeError::invalid_data;
-            return false;
-        }
         context->mention_roles = value;
     } else if (json_string_equals_ascii(name, utf8_literal("member"))) {
-        if (!mark_message_field(context, gateway_message_field_member) ||
+        if (!mark_seen(&event.fields, gateway_message_field_member, &error) ||
             value.kind != JsonValueKind::object) {
-            context->error = GatewayEventDecodeError::invalid_data;
+            error = GatewayEventDecodeError::invalid_data;
             return false;
         }
         context->member = value;
@@ -366,73 +295,70 @@ bool visit_message_member(void* opaque, JsonString name, JsonValue value) noexce
 
 bool visit_author_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<AuthorContext*>(opaque);
-    if (json_string_equals_ascii(name, utf8_literal("public_flags")) ||
-        json_string_equals_ascii(name, utf8_literal("flags"))) {
-        // Public and private flags combine; keep the low policy bits (including
-        // SPAMMER) and accept unknown high flags.
-        const bool priv = json_string_equals_ascii(name, utf8_literal("flags"));
-        const bool seen = priv ? context->private_flags_seen : context->public_flags_seen;
-        u64 flags = 0;
-        if (seen || !json_value_to_u64(value, &flags)) {
-            context->error =
-                seen ? GatewayEventDecodeError::duplicate_field : GatewayEventDecodeError::invalid_data;
+    const bool null = value.kind == JsonValueKind::null_value;
+    u64 flags = 0;
+    // Public and private flags combine; keep the low policy bits (including
+    // SPAMMER) and accept unknown high flags.
+    if (json_string_equals_ascii(name, utf8_literal("public_flags"))) {
+        if (!accept_member(&context->seen, author_seen_public_flags, json_value_to_u64(value, &flags),
+                           &context->error))
             return false;
-        }
-        if (priv) {
-            context->private_flags_seen = true;
-            context->private_flags = static_cast<u32>(flags);
-        } else {
-            context->public_flags_seen = true;
-            context->public_flags = static_cast<u32>(flags);
-        }
+        context->public_flags = static_cast<u32>(flags);
+    } else if (json_string_equals_ascii(name, utf8_literal("flags"))) {
+        if (!accept_member(&context->seen, author_seen_private_flags, json_value_to_u64(value, &flags),
+                           &context->error))
+            return false;
+        context->private_flags = static_cast<u32>(flags);
     } else if (json_string_equals_ascii(name, utf8_literal("bot"))) {
-        if (context->bot_seen || !json_value_to_bool(value, &context->bot)) {
-            context->error = context->bot_seen ? GatewayEventDecodeError::duplicate_field
-                                               : GatewayEventDecodeError::invalid_data;
+        if (!accept_member(&context->seen, author_seen_bot, json_value_to_bool(value, &context->bot),
+                           &context->error))
             return false;
-        }
-        context->bot_seen = true;
     } else if (json_string_equals_ascii(name, utf8_literal("id"))) {
-        if (context->id_seen) {
-            context->error = GatewayEventDecodeError::duplicate_field;
+        if (!accept_member(&context->seen, author_seen_id, json_value_to_snowflake(value, &context->id),
+                           &context->error, GatewayEventDecodeError::invalid_author_id))
             return false;
-        }
-        context->id_seen = true;
-        if (!json_value_to_snowflake(value, &context->id)) {
-            context->error = GatewayEventDecodeError::invalid_author_id;
-            return false;
-        }
     } else if (json_string_equals_ascii(name, utf8_literal("username"))) {
-        if (context->username_seen || !json_value_as_string(value, &context->username)) {
-            context->error = context->username_seen ? GatewayEventDecodeError::duplicate_field
-                                                    : GatewayEventDecodeError::invalid_user_name;
+        if (!accept_member(&context->seen, author_seen_username,
+                           json_value_as_string(value, &context->username), &context->error,
+                           GatewayEventDecodeError::invalid_user_name))
             return false;
-        }
-        context->username_seen = true;
     } else if (json_string_equals_ascii(name, utf8_literal("global_name"))) {
-        if (context->global_name_seen) {
-            context->error = GatewayEventDecodeError::duplicate_field;
+        context->global_name_null = null;
+        if (!accept_member(&context->seen, author_seen_global_name,
+                           null || json_value_as_string(value, &context->global_name), &context->error,
+                           GatewayEventDecodeError::invalid_user_name))
             return false;
-        }
-        context->global_name_seen = true;
-        context->global_name_null = value.kind == JsonValueKind::null_value;
-        if (!context->global_name_null && !json_value_as_string(value, &context->global_name)) {
-            context->error = GatewayEventDecodeError::invalid_user_name;
-            return false;
-        }
     } else if (json_string_equals_ascii(name, utf8_literal("avatar"))) {
-        if (context->avatar_seen) {
-            context->error = GatewayEventDecodeError::duplicate_field;
+        context->avatar_null = null;
+        if (!accept_member(&context->seen, author_seen_avatar,
+                           null || json_value_as_string(value, &context->avatar), &context->error))
             return false;
-        }
-        context->avatar_seen = true;
-        context->avatar_null = value.kind == JsonValueKind::null_value;
-        if (!context->avatar_null && !json_value_as_string(value, &context->avatar)) {
-            context->error = GatewayEventDecodeError::invalid_data;
-            return false;
-        }
     }
     return true;
+}
+
+// Decodes `text` into output after the first *used bytes, at most `maximum`
+// bytes long. Empty text leaves *view unset, and is invalid when required.
+GatewayEventDecodeResult decode_text(JsonString text, Slice<char> output, u32* used, u32 maximum,
+                                     bool require_nonempty, GatewayEventDecodeError invalid, u32 offset,
+                                     Utf8View* view) noexcept {
+    const JsonStringDecodeResult size = json_string_decode_utf8(text, Slice<char>{nullptr, 0});
+    const bool capacity_error = *used > output.count || size.bytes > output.count - *used;
+    if ((size.error != JsonStringDecodeError::output_too_small && !(size.ok() && size.bytes == 0)) ||
+        (require_nonempty && size.bytes == 0) || size.bytes > maximum || capacity_error) {
+        return decode_failure(capacity_error ? GatewayEventDecodeError::message_content_capacity : invalid,
+                              offset);
+    }
+    if (size.bytes != 0) {
+        const JsonStringDecodeResult decoded =
+            json_string_decode_utf8(text, Slice<char>{output.data + *used, output.count - *used});
+        if (!decoded.ok() || decoded.bytes != size.bytes) {
+            return decode_failure(invalid, offset);
+        }
+        *view = Utf8View{output.data + *used, decoded.bytes};
+        *used += decoded.bytes;
+    }
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 GatewayEventDecodeResult decode_author(JsonValue author, Slice<u32> structural_scratch, u32 maximum_depth,
@@ -448,18 +374,15 @@ GatewayEventDecodeResult decode_author(JsonValue author, Slice<u32> structural_s
     } else {
         const JsonScanResult scan = json_scan_structurals_avx1(author.source, structural_scratch);
         if (!scan.ok())
-            return message_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+            return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
         read = json_visit_value_object(author, {structural_scratch.data, scan.count}, maximum_depth,
                                       visit_author_member, &context);
     }
     if (!read.ok()) {
-        return context.error != GatewayEventDecodeError::none
-                   ? message_failure(context.error, read.error_offset, JsonScanError::none, read.error)
-                   : message_failure(GatewayEventDecodeError::invalid_json, read.error_offset,
-                                     JsonScanError::none, read.error);
+        return read_failure(context.error, read);
     }
-    if (!context.id_seen) {
-        return message_failure(GatewayEventDecodeError::invalid_author_id, author.source_offset);
+    if (!(context.seen & author_seen_id)) {
+        return decode_failure(GatewayEventDecodeError::invalid_author_id, author.source_offset);
     }
     *author_id = context.id;
     if (public_flags)
@@ -467,60 +390,25 @@ GatewayEventDecodeResult decode_author(JsonValue author, Slice<u32> structural_s
     if (bot)
         *bot = context.bot;
     if (policy_explicit)
-        *policy_explicit = context.public_flags_seen && context.bot_seen;
-    if (author_name) {
-        *author_name = Utf8View{};
-    }
-    if (avatar_hash) {
-        *avatar_hash = Utf8View{};
-    }
+        *policy_explicit = (context.seen & (author_seen_public_flags | author_seen_bot)) ==
+                           (author_seen_public_flags | author_seen_bot);
     if (capture_name) {
-        const JsonString selected =
-            context.global_name_seen && !context.global_name_null ? context.global_name : context.username;
+        const JsonString selected = (context.seen & author_seen_global_name) && !context.global_name_null
+                                        ? context.global_name
+                                        : context.username;
         if (selected.encoded.data) {
-            const JsonStringDecodeResult size = json_string_decode_utf8(selected, Slice<char>{nullptr, 0});
-            const bool capacity_error = !used || *used > name_output.count ||
-                                        size.bytes > name_output.count - minimum(*used, name_output.count);
-            if ((size.error != JsonStringDecodeError::output_too_small &&
-                 !(size.ok() && size.bytes == 0)) ||
-                size.bytes == 0 || size.bytes > kGatewayMessageUserNameMaximumBytes || capacity_error) {
-                return message_failure(capacity_error ? GatewayEventDecodeError::message_content_capacity
-                                                      : GatewayEventDecodeError::invalid_user_name,
-                                       author.source_offset);
-            }
-            const JsonStringDecodeResult decoded = json_string_decode_utf8(
-                selected, Slice<char>{name_output.data + *used, name_output.count - *used});
-            if (!decoded.ok() || decoded.bytes != size.bytes) {
-                return message_failure(GatewayEventDecodeError::invalid_user_name, author.source_offset);
-            }
-            if (author_name) {
-                *author_name = Utf8View{name_output.data + *used, decoded.bytes};
-            }
-            *used += decoded.bytes;
+            const GatewayEventDecodeResult name =
+                decode_text(selected, name_output, used, kGatewayMessageUserNameMaximumBytes, true,
+                            GatewayEventDecodeError::invalid_user_name, author.source_offset, author_name);
+            if (!name.ok())
+                return name;
         }
     }
-    if (avatar_hash && context.avatar_seen && !context.avatar_null) {
-        const JsonStringDecodeResult size =
-            json_string_decode_utf8(context.avatar, Slice<char>{nullptr, 0});
-        const bool capacity_error = !used || *used > name_output.count ||
-                                    size.bytes > name_output.count - minimum(*used, name_output.count);
-        if ((size.error != JsonStringDecodeError::output_too_small && !(size.ok() && size.bytes == 0)) ||
-            size.bytes > kGatewayMessageAvatarHashMaximumBytes || capacity_error) {
-            return message_failure(capacity_error ? GatewayEventDecodeError::message_content_capacity
-                                                  : GatewayEventDecodeError::invalid_data,
-                                   author.source_offset);
-        }
-        if (size.bytes != 0) {
-            const JsonStringDecodeResult decoded = json_string_decode_utf8(
-                context.avatar, Slice<char>{name_output.data + *used, name_output.count - *used});
-            if (!decoded.ok() || decoded.bytes != size.bytes) {
-                return message_failure(GatewayEventDecodeError::invalid_data, author.source_offset);
-            }
-            *avatar_hash = Utf8View{name_output.data + *used, decoded.bytes};
-            *used += decoded.bytes;
-        }
+    if (avatar_hash && (context.seen & author_seen_avatar) && !context.avatar_null) {
+        return decode_text(context.avatar, name_output, used, kGatewayMessageAvatarHashMaximumBytes, false,
+                           GatewayEventDecodeError::invalid_data, author.source_offset, avatar_hash);
     }
-    return message_failure(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 bool visit_mention_user(void* opaque, u32, JsonValue value) noexcept {
@@ -606,65 +494,47 @@ GatewayEventDecodeResult decode_member(MessageContext* context, Slice<u32> struc
                                        u32 maximum_depth, Slice<u64> member_role_scratch,
                                        Slice<char> name_output, u32* used) noexcept {
     if ((context->event.fields & gateway_message_field_member) == 0) {
-        return message_failure(GatewayEventDecodeError::none);
+        return decode_failure(GatewayEventDecodeError::none);
     }
     const JsonScanResult member_scan =
         json_scan_structurals_avx1(context->member.source, structural_scratch);
     if (!member_scan.ok()) {
-        return message_failure(GatewayEventDecodeError::scan_failed, member_scan.error_offset,
-                               member_scan.error);
+        return decode_failure(GatewayEventDecodeError::scan_failed, member_scan.error_offset,
+                              member_scan.error);
     }
     MemberContext member{};
     const JsonReadResult member_read = json_visit_value_object(
         context->member, ConstSlice<u32>{structural_scratch.data, member_scan.count}, maximum_depth,
         visit_member_field, &member);
     if (!member_read.ok()) {
-        return message_failure(member.error != GatewayEventDecodeError::none
-                                   ? member.error
-                                   : GatewayEventDecodeError::invalid_json,
-                               member_read.error_offset, JsonScanError::none, member_read.error);
+        return read_failure(member.error, member_read);
     }
     if (!member.roles_seen) {
-        return message_failure(GatewayEventDecodeError::missing_required_field,
-                               context->member.source_offset);
+        return decode_failure(GatewayEventDecodeError::missing_required_field,
+                              context->member.source_offset);
     }
     if (member.nick.encoded.data) {
-        const JsonStringDecodeResult size = json_string_decode_utf8(member.nick, Slice<char>{nullptr, 0});
-        const bool capacity_error = !used || *used > name_output.count ||
-                                    size.bytes > name_output.count - minimum(*used, name_output.count);
-        if ((size.error != JsonStringDecodeError::output_too_small && !(size.ok() && size.bytes == 0)) ||
-            size.bytes > kGatewayMessageUserNameMaximumBytes || capacity_error) {
-            return message_failure(capacity_error ? GatewayEventDecodeError::message_content_capacity
-                                                  : GatewayEventDecodeError::invalid_user_name,
-                                   context->member.source_offset);
-        }
-        if (size.bytes != 0) {
-            const JsonStringDecodeResult decoded = json_string_decode_utf8(
-                member.nick, Slice<char>{name_output.data + *used, name_output.count - *used});
-            if (!decoded.ok() || decoded.bytes != size.bytes)
-                return message_failure(GatewayEventDecodeError::invalid_user_name,
-                                       context->member.source_offset);
-            context->event.member_nick = Utf8View{name_output.data + *used, decoded.bytes};
-            *used += decoded.bytes;
-        }
+        const GatewayEventDecodeResult nick =
+            decode_text(member.nick, name_output, used, kGatewayMessageUserNameMaximumBytes, false,
+                        GatewayEventDecodeError::invalid_user_name, context->member.source_offset,
+                        &context->event.member_nick);
+        if (!nick.ok())
+            return nick;
     }
     const JsonScanResult role_scan = json_scan_structurals_avx1(member.roles.source, structural_scratch);
     if (!role_scan.ok()) {
-        return message_failure(GatewayEventDecodeError::scan_failed, role_scan.error_offset,
-                               role_scan.error);
+        return decode_failure(GatewayEventDecodeError::scan_failed, role_scan.error_offset,
+                              role_scan.error);
     }
     MentionRoleContext roles{member_role_scratch, GatewayEventDecodeError::none, 0};
     const JsonReadResult role_read = json_visit_value_array(
         member.roles, ConstSlice<u32>{structural_scratch.data, role_scan.count}, maximum_depth,
         visit_mention_role, &roles);
     if (!role_read.ok() || roles.count > kGatewayMessageMemberRoleMaximumIds) {
-        return message_failure(roles.error != GatewayEventDecodeError::none
-                                   ? roles.error
-                                   : GatewayEventDecodeError::invalid_json,
-                               role_read.error_offset, JsonScanError::none, role_read.error);
+        return read_failure(roles.error, role_read);
     }
     context->event.member_roles = ConstSlice<u64>{member_role_scratch.data, roles.count};
-    return message_failure(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 GatewayEventDecodeResult decode_mentions(MessageContext* context, Slice<u32> structural_scratch,
@@ -676,7 +546,7 @@ GatewayEventDecodeResult decode_mentions(MessageContext* context, Slice<u32> str
         const JsonScanResult scan =
             json_scan_structurals_avx1(context->mentions.source, structural_scratch);
         if (!scan.ok()) {
-            return message_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+            return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
         }
         u32 object_scratch[512]{};
         MentionUserContext users{};
@@ -692,10 +562,7 @@ GatewayEventDecodeResult decode_mentions(MessageContext* context, Slice<u32> str
             context->mentions, ConstSlice<u32>{structural_scratch.data, scan.count}, maximum_depth,
             visit_mention_user, &users);
         if (!read.ok()) {
-            return message_failure(users.error != GatewayEventDecodeError::none
-                                       ? users.error
-                                       : GatewayEventDecodeError::invalid_json,
-                                   read.error_offset, JsonScanError::none, read.error);
+            return read_failure(users.error, read);
         }
         context->event.mentions_current_user = users.found;
         if (capture_names) {
@@ -707,25 +574,22 @@ GatewayEventDecodeResult decode_mentions(MessageContext* context, Slice<u32> str
         const JsonScanResult scan =
             json_scan_structurals_avx1(context->mention_roles.source, structural_scratch);
         if (!scan.ok()) {
-            return message_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+            return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
         }
         MentionRoleContext roles{mention_role_scratch, GatewayEventDecodeError::none, 0};
         const JsonReadResult read = json_visit_value_array(
             context->mention_roles, ConstSlice<u32>{structural_scratch.data, scan.count},
             maximum_depth, visit_mention_role, &roles);
         if (!read.ok()) {
-            return message_failure(roles.error != GatewayEventDecodeError::none
-                                       ? roles.error
-                                       : GatewayEventDecodeError::invalid_json,
-                                   read.error_offset, JsonScanError::none, read.error);
+            return read_failure(roles.error, read);
         }
         if (read.member_count > kGatewayMessageMentionRoleMaximumIds || read.member_count != roles.count) {
-            return message_failure(GatewayEventDecodeError::invalid_data,
-                                   context->mention_roles.source_offset);
+            return decode_failure(GatewayEventDecodeError::invalid_data,
+                                  context->mention_roles.source_offset);
         }
         context->event.mention_roles = ConstSlice<u64>{mention_role_scratch.data, roles.count};
     }
-    return message_failure(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth,
@@ -735,31 +599,20 @@ GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_sc
                                         const GatewayMessageRichScratch& rich_scratch, u64 current_user_id,
                                         bool capture_names, bool capture_rich, bool create,
                                         GatewayMessageEvent* output, bool snapshot_core = false) noexcept {
-    if (!output || !data.source.data || data.source.bytes == 0 || !structural_scratch.data ||
-        structural_scratch.count == 0 || maximum_depth == 0 ||
-        (!content_scratch.data && content_scratch.count != 0) ||
-        (!mention_role_scratch.data && mention_role_scratch.count != 0) ||
-        (!member_role_scratch.data && member_role_scratch.count != 0) ||
-        (!mention_user_scratch.data && mention_user_scratch.count != 0)) {
-        return message_failure(GatewayEventDecodeError::invalid_input);
-    }
     *output = GatewayMessageEvent{};
     if (data.kind != JsonValueKind::object) {
-        return message_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
     const JsonScanResult scan = json_scan_structurals_avx1(data.source, structural_scratch);
     if (!scan.ok()) {
-        return message_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
     }
     MessageContext context{};
     const JsonReadResult read =
         json_visit_value_object(data, ConstSlice<u32>{structural_scratch.data, scan.count},
                                maximum_depth, visit_message_member, &context);
     if (!read.ok()) {
-        return context.error != GatewayEventDecodeError::none
-                   ? message_failure(context.error, read.error_offset, JsonScanError::none, read.error)
-                   : message_failure(GatewayEventDecodeError::invalid_json, read.error_offset,
-                                     JsonScanError::none, read.error);
+        return read_failure(context.error, read);
     }
 
     constexpr u32 update_required = gateway_message_field_id | gateway_message_field_channel_id;
@@ -767,7 +620,7 @@ GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_sc
                                     gateway_message_field_content | gateway_message_field_timestamp;
     const u32 required = snapshot_core ? 0u : (create ? create_required : update_required);
     if ((context.event.fields & required) != required) {
-        return message_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     }
     u32 transient_used = 0;
     if ((context.event.fields & gateway_message_field_content) != 0) {
@@ -776,20 +629,20 @@ GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_sc
             Slice<char>{content_scratch.data,
                         minimum(content_scratch.count, kGatewayMessageContentMaximumBytes)});
         if (decoded.error != JsonStringDecodeError::output_too_small && !decoded.ok()) {
-            return message_failure(GatewayEventDecodeError::invalid_message_content,
-                                   context.content.source_offset);
+            return decode_failure(GatewayEventDecodeError::invalid_message_content,
+                                  context.content.source_offset);
         }
         if (decoded.bytes > kGatewayMessageContentMaximumBytes) {
-            return message_failure(GatewayEventDecodeError::message_content_too_large,
-                                   context.content.source_offset);
+            return decode_failure(GatewayEventDecodeError::message_content_too_large,
+                                  context.content.source_offset);
         }
         if (decoded.bytes > content_scratch.count) {
-            return message_failure(GatewayEventDecodeError::message_content_capacity,
-                                   context.content.source_offset);
+            return decode_failure(GatewayEventDecodeError::message_content_capacity,
+                                  context.content.source_offset);
         }
         if (!decoded.ok()) {
-            return message_failure(GatewayEventDecodeError::invalid_message_content,
-                                   context.content.source_offset);
+            return decode_failure(GatewayEventDecodeError::invalid_message_content,
+                                  context.content.source_offset);
         }
         context.event.content = Utf8View{content_scratch.data, decoded.bytes};
         transient_used = decoded.bytes;
@@ -841,40 +694,23 @@ GatewayEventDecodeResult decode_message(JsonValue data, Slice<u32> structural_sc
             gateway_message_poll_field_expiry | gateway_message_poll_field_multiselect |
             gateway_message_poll_field_layout;
         if ((context.event.poll.fields & required_poll) != required_poll)
-            return message_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
+            return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     }
     context.event.transient_bytes = transient_used;
     *output = context.event;
-    return message_failure(GatewayEventDecodeError::none);
-}
-
-bool mark_delete_field(DeleteContext* context, u32 field) noexcept {
-    if ((context->fields & field) != 0) {
-        context->error = GatewayEventDecodeError::duplicate_field;
-        return false;
-    }
-    context->fields |= field;
-    return true;
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 bool visit_delete_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<DeleteContext*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("id"))) {
-        if (!mark_delete_field(context, 1u << 0)) {
-            return false;
-        }
-        if (!json_value_to_snowflake(value, &context->event.id)) {
-            context->error = GatewayEventDecodeError::invalid_message_id;
-            return false;
-        }
-    } else if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
-        if (!mark_delete_field(context, 1u << 1)) {
-            return false;
-        }
-        if (!json_value_to_snowflake(value, &context->event.channel_id)) {
-            context->error = GatewayEventDecodeError::invalid_channel_id;
-            return false;
-        }
+        return accept_member(&context->fields, 1, json_value_to_snowflake(value, &context->event.id),
+                             &context->error, GatewayEventDecodeError::invalid_message_id);
+    }
+    if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
+        return accept_member(&context->fields, 2,
+                             json_value_to_snowflake(value, &context->event.channel_id), &context->error,
+                             GatewayEventDecodeError::invalid_channel_id);
     }
     return true;
 }
@@ -882,26 +718,14 @@ bool visit_delete_member(void* opaque, JsonString name, JsonValue value) noexcep
 bool visit_bulk_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto* context = static_cast<BulkContext*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("ids"))) {
-        if ((context->fields & (1u << 0)) != 0) {
-            context->error = GatewayEventDecodeError::duplicate_field;
+        if (!accept_member(&context->fields, 1, value.kind == JsonValueKind::array, &context->error,
+                           GatewayEventDecodeError::invalid_message_ids))
             return false;
-        }
-        context->fields |= 1u << 0;
-        if (value.kind != JsonValueKind::array) {
-            context->error = GatewayEventDecodeError::invalid_message_ids;
-            return false;
-        }
         context->ids = value;
     } else if (json_string_equals_ascii(name, utf8_literal("channel_id"))) {
-        if ((context->fields & (1u << 1)) != 0) {
-            context->error = GatewayEventDecodeError::duplicate_field;
-            return false;
-        }
-        context->fields |= 1u << 1;
-        if (!json_value_to_snowflake(value, &context->event.channel_id)) {
-            context->error = GatewayEventDecodeError::invalid_channel_id;
-            return false;
-        }
+        return accept_member(&context->fields, 2,
+                             json_value_to_snowflake(value, &context->event.channel_id), &context->error,
+                             GatewayEventDecodeError::invalid_channel_id);
     }
     return true;
 }
@@ -944,7 +768,7 @@ GatewayEventDecodeResult gateway_decode_message_snapshot_core(JsonValue data, Sl
                             gateway_message_field_mention_everyone | gateway_message_field_type;
     if (output->fields & ~allowed) {
         *output = {};
-        return message_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
     output->mention_roles = {};
     output->member_roles = {};
@@ -1073,83 +897,66 @@ GatewayEventDecodeResult gateway_decode_message_update(
 GatewayEventDecodeResult gateway_decode_message_delete(JsonValue data, Slice<u32> structural_scratch,
                                                        u32 maximum_depth,
                                                        GatewayMessageDeleteEvent* output) noexcept {
-    if (!output || !data.source.data || data.source.bytes == 0 || !structural_scratch.data ||
-        structural_scratch.count == 0 || maximum_depth == 0) {
-        return message_failure(GatewayEventDecodeError::invalid_input);
-    }
     *output = GatewayMessageDeleteEvent{};
     if (data.kind != JsonValueKind::object) {
-        return message_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
     const JsonScanResult scan = json_scan_structurals_avx1(data.source, structural_scratch);
     if (!scan.ok()) {
-        return message_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
     }
     DeleteContext context{};
     const JsonReadResult read =
         json_visit_value_object(data, ConstSlice<u32>{structural_scratch.data, scan.count},
                                maximum_depth, visit_delete_member, &context);
     if (!read.ok()) {
-        return context.error != GatewayEventDecodeError::none
-                   ? message_failure(context.error, read.error_offset, JsonScanError::none, read.error)
-                   : message_failure(GatewayEventDecodeError::invalid_json, read.error_offset,
-                                     JsonScanError::none, read.error);
+        return read_failure(context.error, read);
     }
     if (context.fields != 3u) {
-        return message_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     }
     *output = context.event;
-    return message_failure(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 GatewayEventDecodeResult gateway_decode_message_bulk_delete(
     JsonValue data, Slice<u32> structural_scratch, u32 maximum_depth, Slice<u64> ids,
     GatewayMessageBulkDeleteEvent* output) noexcept {
-    if (!output || !data.source.data || data.source.bytes == 0 || !structural_scratch.data ||
-        structural_scratch.count == 0 || maximum_depth == 0 || (!ids.data && ids.count != 0)) {
-        return message_failure(GatewayEventDecodeError::invalid_input);
-    }
     *output = GatewayMessageBulkDeleteEvent{};
     if (data.kind != JsonValueKind::object) {
-        return message_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     }
     JsonScanResult scan = json_scan_structurals_avx1(data.source, structural_scratch);
     if (!scan.ok()) {
-        return message_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
     }
     BulkContext context{};
     JsonReadResult read =
         json_visit_value_object(data, ConstSlice<u32>{structural_scratch.data, scan.count},
                                maximum_depth, visit_bulk_member, &context);
     if (!read.ok()) {
-        return context.error != GatewayEventDecodeError::none
-                   ? message_failure(context.error, read.error_offset, JsonScanError::none, read.error)
-                   : message_failure(GatewayEventDecodeError::invalid_json, read.error_offset,
-                                     JsonScanError::none, read.error);
+        return read_failure(context.error, read);
     }
     if (context.fields != 3u) {
-        return message_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     }
 
     scan = json_scan_structurals_avx1(context.ids.source, structural_scratch);
     if (!scan.ok()) {
-        return message_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
+        return decode_failure(GatewayEventDecodeError::scan_failed, scan.error_offset, scan.error);
     }
     BulkIdContext id_context{ids, GatewayEventDecodeError::none};
     read = json_visit_value_array(context.ids, ConstSlice<u32>{structural_scratch.data, scan.count},
                                  maximum_depth, visit_bulk_id, &id_context);
     if (!read.ok()) {
-        return id_context.error != GatewayEventDecodeError::none
-                   ? message_failure(id_context.error, read.error_offset, JsonScanError::none, read.error)
-                   : message_failure(GatewayEventDecodeError::invalid_json, read.error_offset,
-                                     JsonScanError::none, read.error);
+        return read_failure(id_context.error, read);
     }
     if (read.member_count == 0 || read.member_count > kGatewayBulkDeleteMaximumIds) {
-        return message_failure(GatewayEventDecodeError::invalid_message_ids, context.ids.source_offset);
+        return decode_failure(GatewayEventDecodeError::invalid_message_ids, context.ids.source_offset);
     }
     context.event.id_count = read.member_count;
     *output = context.event;
-    return message_failure(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 
 } // namespace maicord

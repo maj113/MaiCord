@@ -28,9 +28,6 @@ bool content_equal(const MessageStore& store, const MessageRecord& record, Utf8V
     }
     const u8* resident = store.text + record.content_offset;
     const auto* incoming = reinterpret_cast<const u8*>(content.data);
-    if (!resident || !incoming) {
-        return false;
-    }
     if (resident == incoming) {
         return true;
     }
@@ -321,12 +318,12 @@ bool message_store_set_presentation_flags(MessageStore* store, u64 id, u32 flags
         return false;
     }
     const MessageStoreResult found = message_store_find(*store, id);
-    MessageRecord* record = found.ok() ? &store->records[found.handle.slot] : nullptr;
-    if (!record || !record->occupied || record->generation != found.handle.generation) {
+    if (!found.ok()) {
         return false;
     }
-    if (record->presentation_flags != flags) {
-        record->presentation_flags = static_cast<u8>(flags);
+    MessageRecord& record = store->records[found.handle.slot];
+    if (record.presentation_flags != flags) {
+        record.presentation_flags = static_cast<u8>(flags);
         ++store->updated;
     }
     return true;

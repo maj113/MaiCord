@@ -36,7 +36,6 @@ struct Mp4AccessUnit {
     // Signed movie timeline after supported edit-list mapping. Negative values
     // are decoder preroll, never permission to play before the movie starts.
     i64 presentation_time_us_signed;
-    u64 decode_time_ticks;
     i64 presentation_time_ticks;
     u32 duration_ticks;
 
@@ -98,7 +97,6 @@ struct Mp4Demuxer {
     u64 media_duration_ticks;
     u64 empty_edit_us;
     i64 media_start_ticks;
-    u32 maximum_sample_bytes;
     u64 mdat_cursor;
     u64 mdat_begin;
     u64 mdat_end;

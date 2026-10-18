@@ -3,6 +3,7 @@
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/rest.hpp"
 
 namespace maicord {
@@ -32,11 +33,7 @@ bool field(void* context, JsonString name, JsonValue value) noexcept {
     else return true;
     if (r.fields & bit) return false;
     r.fields |= bit;
-    if (bit == 1) {
-        if (value.kind == JsonValueKind::number) return json_value_to_u64(value, &r.id);
-        JsonString id{};
-        return json_value_as_string(value, &id) && json_string_to_u64(id, &r.id);
-    }
+    if (bit == 1) return json_value_to_u64_or_string(value, &r.id);
     return json_value_as_string(value, bit == 2 ? &r.url : &r.filename);
 }
 bool item(void* context, u32 index, JsonValue value) noexcept {

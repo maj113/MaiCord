@@ -207,7 +207,7 @@ enum class ScheduledEventStatus : u8 { unknown, scheduled, active, completed, ca
 enum class ScheduledEventEntity : u8 { unknown, stage, voice, external };
 
 struct ScheduledEvent {
-    u64 id, guild_id, channel_id, creator_id;
+    u64 id, guild_id, channel_id;
     u64 start_ms, end_ms; // Unix milliseconds; end 0 when open-ended
     u32 user_count;
     ScheduledEventStatus status;
@@ -277,10 +277,6 @@ inline constexpr u64 kGuildProfilePrivateErrorCode = 50001;
 enum GuildProfileFeature : u32 {
     guild_profile_discoverable = 1u << 0,      // DISCOVERABLE: joinable without an invite
     guild_profile_tags = 1u << 1,              // GUILD_TAGS
-    guild_profile_verification_gate = 1u << 2, // MEMBER_VERIFICATION_GATE_ENABLED
-    guild_profile_manual_approval = 1u << 3,   // MEMBER_VERIFICATION_MANUAL_APPROVAL
-    guild_profile_verified = 1u << 4,          // VERIFIED
-    guild_profile_partnered = 1u << 5,         // PARTNERED
 };
 enum class GuildProfileVisibility : u8 { not_specified, public_, restricted, public_with_recruitment };
 struct GuildProfileTrait {

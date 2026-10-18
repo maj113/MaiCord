@@ -1,36 +1,25 @@
 #include "maicord/media/ogg_opus_writer.hpp"
 #include "maicord/media/ogg_opus.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
 constexpr u32 kStageOffset = kOggOpusWriterPageHeaderBytes + 255;
-void put16(u8* p, u32 value) noexcept {
-    p[0] = static_cast<u8>(value);
-    p[1] = static_cast<u8>(value >> 8);
-}
-void put32(u8* p, u32 value) noexcept {
-    put16(p, value);
-    put16(p + 2, value >> 16);
-}
-void put64(u8* p, u64 value) noexcept {
-    put32(p, static_cast<u32>(value));
-    put32(p + 4, static_cast<u32>(value >> 32));
-}
 // Page header and lacing at w->used; the body must already follow the lacing.
 void seal(OggOpusWriter* w, u8 flags, u64 granule, u32 body) noexcept {
     u8* p = w->output.data + w->used;
     copy_bytes(p, "OggS", 4);
     p[4] = 0;
     p[5] = flags;
-    put64(p + 6, granule);
-    put32(p + 14, w->serial);
-    put32(p + 18, w->sequence++);
-    put32(p + 22, 0);
+    byte_store_le64(p + 6, granule);
+    byte_store_le32(p + 14, w->serial);
+    byte_store_le32(p + 18, w->sequence++);
+    byte_store_le32(p + 22, 0);
     p[26] = w->lacing_count;
     copy_bytes(p + 27, w->lacing, w->lacing_count);
     const u32 bytes = kOggOpusWriterPageHeaderBytes + w->lacing_count + body;
-    put32(p + 22, ogg_page_checksum({p, bytes}));
+    byte_store_le32(p + 22, ogg_page_checksum({p, bytes}));
     w->used += bytes;
 }
 // One packet on its own page (the header pages).
@@ -65,20 +54,19 @@ OggOpusWriterError ogg_opus_writer_begin(OggOpusWriter* w, Slice<u8> output, u32
     *w = {};
     w->output = output;
     w->serial = serial;
-    w->pre_skip = pre_skip;
     u8 head[19];
     copy_bytes(head, "OpusHead", 8);
     head[8] = 1;  // Version.
     head[9] = 1;  // Mono.
-    put16(head + 10, pre_skip);
-    put32(head + 12, input_sample_rate);
-    put16(head + 16, 0); // Output gain.
+    byte_store_le16(head + 10, pre_skip);
+    byte_store_le32(head + 12, input_sample_rate);
+    byte_store_le16(head + 16, 0); // Output gain.
     head[18] = 0;        // Channel mapping family 0.
     u8 tags[16 + 255];
     copy_bytes(tags, "OpusTags", 8);
-    put32(tags + 8, vendor.bytes);
+    byte_store_le32(tags + 8, vendor.bytes);
     copy_bytes(tags + 12, vendor.data, vendor.bytes);
-    put32(tags + 12 + vendor.bytes, 0); // No user comments.
+    byte_store_le32(tags + 12 + vendor.bytes, 0); // No user comments.
     if (!header_page(w, 0x02, {head, sizeof(head)}) || !header_page(w, 0, {tags, 16 + vendor.bytes})) {
         *w = {};
         return OggOpusWriterError::capacity;
@@ -109,7 +97,6 @@ OggOpusWriterError ogg_opus_writer_packet(OggOpusWriter* w, ConstSlice<u8> packe
         w->lacing[w->lacing_count++] = 255;
     w->lacing[w->lacing_count++] = static_cast<u8>(packet.count % 255);
     ++w->page_packets;
-    ++w->packets;
     w->granule += samples;
     return OggOpusWriterError::none;
 }

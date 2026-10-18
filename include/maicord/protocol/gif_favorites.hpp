@@ -22,7 +22,6 @@ enum class GifFavoritesError : u8 {
     protobuf,
     utf8,
     capacity,
-    version,
     missing,
     order_overflow,
     envelope
@@ -36,8 +35,7 @@ struct GifFavoriteRecord {
     u32 first_entry_offset;
 };
 struct GifFavoritesResult {
-    u32 proto_bytes, group_bytes, entry_count, record_count, index_words;
-    u32 client_version, server_version, data_version;
+    u32 group_bytes, entry_count, record_count, index_words, data_version;
     GifFavoritesError error;
     bool group_present, versions_present, hide_tooltip;
     constexpr bool ok() const noexcept {

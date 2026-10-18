@@ -101,10 +101,6 @@ struct MessagePinsDecodeResult {
 MessagePinsDecodeResult decode_message_pins_page(
     Utf8View body, const MessagePinsQuery& query, Slice<u32> page_structurals,
     Slice<u32> message_structurals, u32 maximum_depth, Slice<char> text_output,
-    Slice<MessagePin> items) noexcept;
-MessagePinsDecodeResult decode_message_pins_page(
-    Utf8View body, const MessagePinsQuery& query, Slice<u32> page_structurals,
-    Slice<u32> message_structurals, u32 maximum_depth, Slice<char> text_output,
     Slice<MessagePin> items, Slice<GatewayMessageNamedUser> mention_users,
     const MessageHistoryRichScratch& rich_scratch) noexcept;
 

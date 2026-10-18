@@ -30,54 +30,6 @@ template <typename T> struct ConstSlice {
     }
 };
 
-// A slice with elements has data; an empty one may be null.
-template <typename T> constexpr bool slice_data_valid(Slice<T> slice) noexcept {
-    return !slice.count || slice.data;
-}
-
-template <typename T> constexpr bool slice_data_valid(ConstSlice<T> slice) noexcept {
-    return !slice.count || slice.data;
-}
-
-template <typename T, u32 Capacity> struct FixedBuffer {
-    static_assert(Capacity > 0);
-
-    T values[Capacity];
-    u32 count;
-
-    constexpr u32 capacity() const noexcept {
-        return Capacity;
-    }
-
-    bool push(const T& value) noexcept {
-        if (count >= Capacity) {
-            return false;
-        }
-        values[count] = value;
-        ++count;
-        return true;
-    }
-
-    bool pop(T* value) noexcept {
-        if (count == 0) {
-            return false;
-        }
-        --count;
-        if (value) {
-            *value = values[count];
-        }
-        return true;
-    }
-
-    Slice<T> slice() noexcept {
-        return Slice<T>{values, count};
-    }
-
-    ConstSlice<T> slice() const noexcept {
-        return ConstSlice<T>{values, count};
-    }
-};
-
 struct Utf8View {
     const char* data;
     u32 bytes;

@@ -1,9 +1,15 @@
 #include "maicord/protocol/gateway_message_events.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/core/memory.hpp"
+#include "gateway_decode.hpp"
 
 namespace maicord {
 namespace {
+using protocol_detail::accept_member;
+using protocol_detail::decode_failure;
+using protocol_detail::mark_seen;
+using protocol_detail::read_failure;
+
 inline constexpr u32 kPollTextMaximumBytes =
     kGatewayMessagePollQuestionMaximumBytes +
     kGatewayMessagePollMaximumAnswers *
@@ -12,24 +18,12 @@ inline constexpr u32 kPollFields = gateway_message_poll_field_question |
                                    gateway_message_poll_field_answers | gateway_message_poll_field_expiry |
                                    gateway_message_poll_field_multiselect |
                                    gateway_message_poll_field_layout | gateway_message_poll_field_results;
-GatewayEventDecodeResult failure(GatewayEventDecodeError error, u32 offset = 0,
-                                 JsonReadError reader = JsonReadError::none) noexcept {
-    return {offset, error, JsonScanError::none, reader};
-}
 bool overlap(const void* left, u64 left_bytes, const void* right, u64 right_bytes) noexcept {
     if (!left_bytes || !right_bytes)
         return false;
     const auto a = reinterpret_cast<usize>(left), b = reinterpret_cast<usize>(right);
     return !left || !right || left_bytes > ~static_cast<usize>(0) - a ||
            right_bytes > ~static_cast<usize>(0) - b || (a < b + right_bytes && b < a + left_bytes);
-}
-bool mark(u32* fields, u32 bit, GatewayEventDecodeError* error) noexcept {
-    if ((*fields & bit) != 0) {
-        *error = GatewayEventDecodeError::duplicate_field;
-        return false;
-    }
-    *fields |= bit;
-    return true;
 }
 bool nonzero_u32(JsonValue value, u32* out) noexcept {
     u64 number = 0;
@@ -86,17 +80,17 @@ struct Media {
 bool emoji_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<Media*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("id"))) {
-        if (!mark(&context.fields, 2, &context.error))
+        if (!mark_seen(&context.fields, 2, &context.error))
             return false;
         if (value.kind != JsonValueKind::null_value && !canonical_snowflake(value, &context.emoji_id))
             return false;
     } else if (json_string_equals_ascii(name, utf8_literal("name"))) {
-        if (!mark(&context.fields, 4, &context.error) ||
+        if (!mark_seen(&context.fields, 4, &context.error) ||
             !text(value, context.bank, kGatewayMessagePollEmojiMaximumBytes,
                   kGatewayMessagePollEmojiMaximumBytes, &context.emoji_name, true))
             return false;
     } else if (json_string_equals_ascii(name, utf8_literal("animated"))) {
-        if (!mark(&context.fields, 8, &context.error) || !json_value_to_bool(value, &context.animated))
+        if (!mark_seen(&context.fields, 8, &context.error) || !json_value_to_bool(value, &context.animated))
             return false;
     }
     return true;
@@ -104,7 +98,7 @@ bool emoji_member(void* opaque, JsonString name, JsonValue value) noexcept {
 bool media_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<Media*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("text"))) {
-        if (!mark(&context.fields, 1, &context.error) ||
+        if (!mark_seen(&context.fields, 1, &context.error) ||
             !text(value, context.bank,
                   context.answer ? kGatewayMessagePollAnswerMaximumBytes
                                  : kGatewayMessagePollQuestionMaximumBytes,
@@ -113,7 +107,7 @@ bool media_member(void* opaque, JsonString name, JsonValue value) noexcept {
                   &context.value, true))
             return false;
     } else if (context.answer && json_string_equals_ascii(name, utf8_literal("emoji"))) {
-        if (!mark(&context.fields, 16, &context.error))
+        if (!mark_seen(&context.fields, 16, &context.error))
             return false;
         if (value.kind == JsonValueKind::null_value)
             return true;
@@ -138,10 +132,11 @@ struct Answer {
 bool answer_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<Answer*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("answer_id"))) {
-        return mark(&context.fields, 1, &context.error) && nonzero_u32(value, &context.value.answer_id);
+        return accept_member(&context.fields, 1, nonzero_u32(value, &context.value.answer_id),
+                             &context.error);
     }
     if (json_string_equals_ascii(name, utf8_literal("poll_media"))) {
-        if (!mark(&context.fields, 2, &context.error) || value.kind != JsonValueKind::object)
+        if (!mark_seen(&context.fields, 2, &context.error) || value.kind != JsonValueKind::object)
             return false;
         Media media{context.document, context.bank, context.depth, 0, {}, {}, 0, false, true, {}};
         const auto read =
@@ -165,15 +160,17 @@ struct Count {
 bool count_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<Count*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("id")))
-        return mark(&context.fields, 1, &context.error) && nonzero_u32(value, &context.value.answer_id);
+        return accept_member(&context.fields, 1, nonzero_u32(value, &context.value.answer_id),
+                             &context.error);
     if (json_string_equals_ascii(name, utf8_literal("count"))) {
         u64 count = 0;
-        if (!mark(&context.fields, 2, &context.error) || !json_value_to_u64(value, &count) || count > ~0u)
+        if (!accept_member(&context.fields, 2, json_value_to_u64(value, &count) && count <= ~0u,
+                           &context.error))
             return false;
         context.value.count = static_cast<u32>(count);
     } else if (json_string_equals_ascii(name, utf8_literal("me_voted")))
-        return mark(&context.fields, 4, &context.error) &&
-               json_value_to_bool(value, &context.value.me_voted);
+        return accept_member(&context.fields, 4, json_value_to_bool(value, &context.value.me_voted),
+                             &context.error);
     return true;
 }
 struct Poll {
@@ -229,10 +226,10 @@ bool count_item(void* opaque, u32 index, JsonValue value) noexcept {
 bool results_member(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& context = *static_cast<Poll*>(opaque);
     if (json_string_equals_ascii(name, utf8_literal("is_finalized")))
-        return mark(&context.results_fields, 1, &context.error) &&
-               json_value_to_bool(value, &context.value.is_finalized);
+        return accept_member(&context.results_fields, 1,
+                             json_value_to_bool(value, &context.value.is_finalized), &context.error);
     if (json_string_equals_ascii(name, utf8_literal("answer_counts"))) {
-        if (!mark(&context.results_fields, 2, &context.error) || value.kind != JsonValueKind::array)
+        if (!accept_member(&context.results_fields, 2, value.kind == JsonValueKind::array, &context.error))
             return false;
         return json_visit_indexed_array(*context.document, value, context.depth, count_item, &context).ok();
     }
@@ -255,7 +252,7 @@ bool poll_member(void* opaque, JsonString name, JsonValue value) noexcept {
         bit = gateway_message_poll_field_results;
     else
         return true;
-    if (!mark(&context.value.fields, bit, &context.error))
+    if (!mark_seen(&context.value.fields, bit, &context.error))
         return false;
     if (bit == gateway_message_poll_field_question) {
         if (value.kind != JsonValueKind::object)
@@ -326,7 +323,7 @@ bool vote_member(void* opaque, JsonString name, JsonValue value) noexcept {
         bit = 16;
     else
         return true;
-    if (!mark(&context.fields, bit, &context.error))
+    if (!mark_seen(&context.fields, bit, &context.error))
         return false;
     if (id) {
         if (!canonical_snowflake(value, id))
@@ -349,7 +346,7 @@ GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonI
         (!scratch.answer_counts.data && scratch.answer_counts.count) || !maximum_depth ||
         !data.source.data || !data.source.bytes || data.source.bytes > 256 * 1024 || !document.input.data ||
         (!document.structurals.data && document.structurals.count))
-        return failure(GatewayEventDecodeError::invalid_input);
+        return decode_failure(GatewayEventDecodeError::invalid_input);
     const void* banks[] = {text_output.data, scratch.answers.data, scratch.answer_counts.data, output,
                            text_used};
     const u64 sizes[] = {
@@ -362,55 +359,52 @@ GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonI
                     static_cast<u64>(document.structurals.count) * sizeof(u32)) ||
             overlap(banks[i], sizes[i], &scratch, sizeof(scratch)) ||
             overlap(banks[i], sizes[i], &document, sizeof(document)))
-            return failure(GatewayEventDecodeError::invalid_input);
+            return decode_failure(GatewayEventDecodeError::invalid_input);
         for (u32 j = i + 1; j < 5; ++j)
             if (overlap(banks[i], sizes[i], banks[j], sizes[j]))
-                return failure(GatewayEventDecodeError::invalid_input);
+                return decode_failure(GatewayEventDecodeError::invalid_input);
     }
     const auto input_start = reinterpret_cast<usize>(document.input.data);
     const auto value_start = reinterpret_cast<usize>(data.source.data);
     if (value_start < input_start || value_start - input_start > document.input.bytes ||
         data.source.bytes > document.input.bytes - (value_start - input_start))
-        return failure(GatewayEventDecodeError::invalid_input);
+        return decode_failure(GatewayEventDecodeError::invalid_input);
     if (data.kind == JsonValueKind::null_value) {
         if (data.source.bytes != 4 || !bytes_equal(data.source.data, "null", 4))
-            return failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+            return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
         *output = {};
-        return failure(GatewayEventDecodeError::none);
+        return decode_failure(GatewayEventDecodeError::none);
     }
     if (data.kind != JsonValueKind::object)
-        return failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     if (!document.structurals.data || !document.structurals.count)
-        return failure(GatewayEventDecodeError::invalid_input);
+        return decode_failure(GatewayEventDecodeError::invalid_input);
     Poll context{};
     context.document = &document;
     context.depth = maximum_depth;
     context.value.present = true;
     const auto read = json_visit_indexed_object(document, data, maximum_depth, poll_member, &context);
     if (!read.ok())
-        return failure(context.error == GatewayEventDecodeError::none
-                           ? GatewayEventDecodeError::invalid_data
-                           : context.error,
-                       read.error_offset, read.error);
+        return read_failure(context.error, read, GatewayEventDecodeError::invalid_data);
     constexpr u32 required = kPollFields & ~gateway_message_poll_field_results;
     if ((require_complete && (context.value.fields & required) != required) || !context.value.fields)
-        return failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     if (context.value.fields & gateway_message_poll_field_answers) {
         for (u32 i = 0; i < context.count_count; ++i) {
             bool found = false;
             for (u32 j = 0; j < context.answer_count; ++j)
                 found |= context.counts[i].answer_id == context.answers[j].answer_id;
             if (!found)
-                return failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+                return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
         }
     }
     context.value.answers = {context.answers, context.answer_count};
     context.value.answer_counts = {context.counts, context.count_count};
     if (!gateway_message_poll_valid(context.value))
-        return failure(GatewayEventDecodeError::invalid_data, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::invalid_data, data.source_offset);
     if (context.answer_count > scratch.answers.count || context.count_count > scratch.answer_counts.count ||
         context.bank.used > text_output.count - *text_used)
-        return failure(GatewayEventDecodeError::message_content_capacity, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::message_content_capacity, data.source_offset);
     char* destination = text_output.data ? text_output.data + *text_used : nullptr;
     copy_bytes(destination, context.bank.data, context.bank.used);
     context.value.question = relocate(context.value.question, context.bank, destination);
@@ -427,7 +421,7 @@ GatewayEventDecodeResult gateway_decode_message_poll(JsonValue data, const JsonI
                                    context.count_count};
     *text_used += context.bank.used;
     *output = context.value;
-    return failure(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 GatewayEventDecodeResult gateway_decode_message_poll_vote(JsonValue data, Slice<u32> structural_scratch,
                                                           u32 maximum_depth, bool add,
@@ -440,7 +434,7 @@ GatewayEventDecodeResult gateway_decode_message_poll_vote(JsonValue data, Slice<
         overlap(output, sizeof(*output), data.source.data, data.source.bytes) ||
         overlap(output, sizeof(*output), structural_scratch.data,
                 static_cast<u64>(structural_scratch.count) * sizeof(u32)))
-        return failure(GatewayEventDecodeError::invalid_input);
+        return decode_failure(GatewayEventDecodeError::invalid_input);
     const auto scan = json_scan_structurals_avx1(data.source, structural_scratch);
     if (!scan.ok())
         return {scan.error_offset, GatewayEventDecodeError::scan_failed, scan.error};
@@ -449,13 +443,10 @@ GatewayEventDecodeResult gateway_decode_message_poll_vote(JsonValue data, Slice<
     const auto read = json_visit_value_object(data, {structural_scratch.data, scan.count},
                                              maximum_depth, vote_member, &context);
     if (!read.ok())
-        return failure(context.error == GatewayEventDecodeError::none
-                           ? GatewayEventDecodeError::invalid_data
-                           : context.error,
-                       read.error_offset, read.error);
+        return read_failure(context.error, read, GatewayEventDecodeError::invalid_data);
     if ((context.fields & 23) != 23)
-        return failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
+        return decode_failure(GatewayEventDecodeError::missing_required_field, data.source_offset);
     *output = context.value;
-    return failure(GatewayEventDecodeError::none);
+    return decode_failure(GatewayEventDecodeError::none);
 }
 } // namespace maicord

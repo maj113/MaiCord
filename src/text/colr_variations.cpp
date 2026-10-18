@@ -21,7 +21,6 @@ SfntStatus adjustment(const ColrVariationInstance& instance,VariationDeltaBlock&
     if(computed==SfntStatus::ok && instance.mode==ColrVariationMode::paint_reader)*value=floor_value(*value+.5);
     return computed;
 }
-double clamp_alpha(double value) noexcept {return value<0?0:value>1?1:value;}
 double floor_value(double value) noexcept {const i64 n=static_cast<i64>(value);return static_cast<double>(n)-(static_cast<double>(n)>value?1:0);}
 double ceil_value(double value) noexcept {const i64 n=static_cast<i64>(value);return static_cast<double>(n)+(static_cast<double>(n)<value?1:0);}
 bool later(const ColrResolvedColorStop& a,const ColrResolvedColorStop& b) noexcept {
@@ -75,7 +74,7 @@ SfntStatus colr_resolve_paint_values(const ColrVariationInstance& instance,const
         const double divisor=base==12?65536.0:(fractional&(1u<<i))?16384.0:1.0;
         result.values[i]=paint.values[i]+delta/divisor;
     }
-    if(base==2 && instance.mode==ColrVariationMode::standard)result.values[0]=clamp_alpha(result.values[0]);
+    if(base==2 && instance.mode==ColrVariationMode::standard)result.values[0]=clamp_value<double>(result.values[0],0,1);
     *output=result;return SfntStatus::ok;
 }
 SfntStatus colr_resolve_clip(const ColrVariationInstance& instance,const ColrClip& clip,ColrClip* output) noexcept {
@@ -106,7 +105,7 @@ SfntStatus colr_resolve_color_stops(const ColrFont& font,const ColrVariationInst
             status=adjustment(instance,block,stop.variation_index,1,&alpha);if(status!=SfntStatus::ok)return status;
         }
         const double opacity=stop.alpha+alpha/16384.0;
-        output[i]={stop.position+position/16384.0,instance.mode==ColrVariationMode::standard?clamp_alpha(opacity):opacity,i,stop.palette};
+        output[i]={stop.position+position/16384.0,instance.mode==ColrVariationMode::standard?clamp_value<double>(opacity,0,1):opacity,i,stop.palette};
         if(i && output[i-1].position>output[i].position)ordered=false;
     }
     // Test the resolved positions: variation can reorder a line that is sorted in the file.

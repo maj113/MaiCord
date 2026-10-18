@@ -6,7 +6,6 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/http1.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -339,7 +338,6 @@ CaptchaBridgeParseResult captcha_bridge_parse_request(ConstSlice<u8> input, u16 
     if (input.count < total) return {};
     if (input.count != total) return reject(CaptchaBridgeProtocolError::framing);
     CaptchaBridgeRequest request{};
-    request.consumed_bytes = total;
     request.kind = get ? CaptchaBridgeRequestKind::page : CaptchaBridgeRequestKind::submit;
     if (get) return {request, CaptchaBridgeProtocolError::none, CaptchaBridgeParseState::complete};
     const Utf8View body{text + head_bytes, length};
@@ -348,7 +346,7 @@ CaptchaBridgeParseResult captcha_bridge_parse_request(ConstSlice<u8> input, u16 
     TokenBody token{};
     const bool parsed = scan.ok() &&
         json_visit_root_object(body, {structurals, scan.count}, 2, token_member, &token).ok() && token.fields == 1;
-    SecureZeroMemory(structurals, sizeof(structurals));
+    secure_clear_bytes(structurals, sizeof(structurals));
     if (!parsed) return reject(CaptchaBridgeProtocolError::json);
     if (!captcha_bridge_token_valid(token.token)) return reject(CaptchaBridgeProtocolError::token);
     request.token = token.token;
@@ -375,7 +373,7 @@ CaptchaBridgeWriteResult captcha_bridge_write_url(u16 port, Utf8View state, Slic
         return {0, CaptchaBridgeProtocolError::invalid_input};
     Writer out{output.data, output.count, 0, false};
     out.literal("http://127.0.0.1:"); out.decimal(port); out.literal("/c/"); out.text(state);
-    if (out.overflow) { SecureZeroMemory(output.data, output.count); return {out.bytes, CaptchaBridgeProtocolError::capacity}; }
+    if (out.overflow) { secure_clear_bytes(output.data, output.count); return {out.bytes, CaptchaBridgeProtocolError::capacity}; }
     return {out.bytes, CaptchaBridgeProtocolError::none};
 }
 
@@ -402,7 +400,7 @@ CaptchaBridgeWriteResult captcha_bridge_write_page(const CaptchaBridgePage& page
     out.decimal(measure.bytes);
     out.literal("\r\nConnection: close\r\n\r\n");
     write_body(out, page, sources);
-    if (out.overflow) { SecureZeroMemory(output.data, output.count); return {out.bytes, CaptchaBridgeProtocolError::capacity}; }
+    if (out.overflow) { secure_clear_bytes(output.data, output.count); return {out.bytes, CaptchaBridgeProtocolError::capacity}; }
     return {out.bytes, CaptchaBridgeProtocolError::none};
 }
 
@@ -412,14 +410,12 @@ CaptchaBridgeWriteResult captcha_bridge_write_response(CaptchaBridgeResponse res
     if (response == CaptchaBridgeResponse::accepted) {
         out.literal("HTTP/1.1 204 No Content\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\n"
                     "X-Content-Type-Options: nosniff\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-    } else if (response == CaptchaBridgeResponse::gone) {
+    } else {
         constexpr char body[] = "This verification link has already been used or has expired. Return to MaiCord.";
         out.literal("HTTP/1.1 410 Gone\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\n"
                     "Referrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\n"
                     "Content-Security-Policy: default-src 'none'; frame-ancestors 'none'\r\nContent-Length: ");
         out.decimal(sizeof(body) - 1); out.literal("\r\nConnection: close\r\n\r\n"); out.literal(body);
-    } else {
-        return {0, CaptchaBridgeProtocolError::invalid_input};
     }
     return out.overflow ? CaptchaBridgeWriteResult{out.bytes, CaptchaBridgeProtocolError::capacity}
                         : CaptchaBridgeWriteResult{out.bytes, CaptchaBridgeProtocolError::none};

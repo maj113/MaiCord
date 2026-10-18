@@ -54,7 +54,6 @@ struct WebpImage {
     WebpCodec codec;
     bool has_alpha;
     bool has_color_profile;
-    bool extended;
     u8 reserved;
 };
 
@@ -98,7 +97,6 @@ struct Vp8lWorkspace {
 struct WebpDecodeResult {
     WebpParseResult parse;
     u32 rgba_bytes;
-    u32 huffman_groups;
     u32 huffman_symbols;
     WebpError error;
 
@@ -129,6 +127,6 @@ WebpDecodeResult webp_lossless_decode_image_stream_argb32(
     WebpImage* image, Vp8lWorkspace* workspace,
     Slice<u8> pixel_output) noexcept;
 
-static_assert(sizeof(WebpImage) == 56);
+static_assert(sizeof(WebpImage) == 48);
 
 } // namespace maicord

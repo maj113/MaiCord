@@ -684,8 +684,7 @@ Mp4DecodedFrame hevc_gpu_decoder_read(H264GpuDecoder* handle, bool loop, u32 bud
         s.references = plan.after;
         if (++s.feedback == 0)
             ++s.feedback;
-        if (budget)
-            ++submissions;
+        ++submissions;
         if (picture.output && !h264_output_push(&s.output, {unit.duration_us, plan.poc, surface,
                                                             unit.presentation_time_us_signed})) {
             handle->status = E_UNEXPECTED;

@@ -89,7 +89,6 @@ enum GuildSettingsPatchField : u16 {
     guild_settings_patch_profile = 1u << 14,
     // vanity_update only, and alone: the code.
     guild_settings_patch_vanity = 1u << 15,
-    guild_settings_patch_all = 0xFFFF,
 };
 
 inline constexpr u32 kGuildAdminProfileDescriptionCodepoints = 300;
@@ -478,8 +477,6 @@ struct GuildAdminProfileTrait {
     u64 emoji_id;
     u8 label_bytes;
     u8 emoji_name_bytes;
-    bool emoji_animated;
-    bool emoji_animated_known;
     char label[kGuildAdminProfileTraitBytes];
     char emoji_name[kGuildAdminProfileEmojiNameBytes];
 };

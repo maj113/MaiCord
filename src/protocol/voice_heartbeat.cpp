@@ -4,7 +4,7 @@
 namespace maicord {
 namespace {
 bool current(const VoiceHeartbeat* heartbeat, u64 generation) noexcept {
-    return heartbeat && generation && generation == heartbeat->generation &&
+    return generation && generation == heartbeat->generation &&
            (heartbeat->phase == VoiceHeartbeatPhase::awaiting_hello ||
             heartbeat->phase == VoiceHeartbeatPhase::running);
 }
@@ -20,8 +20,6 @@ void fail(VoiceHeartbeat* heartbeat, VoiceHeartbeatFailure failure) noexcept {
 } // namespace
 
 void voice_heartbeat_stop(VoiceHeartbeat* heartbeat) noexcept {
-    if (!heartbeat)
-        return;
     const u64 generation = heartbeat->generation;
     const u64 nonce = heartbeat->last_nonce;
     *heartbeat = {};
@@ -30,8 +28,6 @@ void voice_heartbeat_stop(VoiceHeartbeat* heartbeat) noexcept {
 }
 
 u64 voice_heartbeat_start(VoiceHeartbeat* heartbeat, u64 now_ms, bool resume) noexcept {
-    if (!heartbeat)
-        return 0;
     const u16 sequence = heartbeat->sequence;
     const bool has_sequence = resume && heartbeat->has_sequence;
     voice_heartbeat_stop(heartbeat);
@@ -46,7 +42,6 @@ u64 voice_heartbeat_start(VoiceHeartbeat* heartbeat, u64 now_ms, bool resume) no
 }
 
 void voice_heartbeat_disconnect(VoiceHeartbeat* heartbeat) noexcept {
-    if (!heartbeat) return;
     halt(heartbeat, VoiceHeartbeatPhase::stopped);
 }
 
@@ -83,8 +78,6 @@ bool voice_heartbeat_request(VoiceHeartbeat* heartbeat, u64 generation) noexcept
 }
 
 VoiceHeartbeatSend voice_heartbeat_poll(VoiceHeartbeat* heartbeat, u64 now_ms) noexcept {
-    if (!heartbeat)
-        return {};
     if (heartbeat->phase == VoiceHeartbeatPhase::awaiting_hello &&
         deadline_due(now_ms, heartbeat->hello_deadline_ms))
         fail(heartbeat, VoiceHeartbeatFailure::hello_timeout);
@@ -155,7 +148,6 @@ bool voice_heartbeat_ack(VoiceHeartbeat* heartbeat, u64 generation, u64 nonce, u
         heartbeat->round_trip_ms = now_ms - heartbeat->last_send_ms;
         heartbeat->has_round_trip = true;
     }
-    heartbeat->last_ack_ms = now_ms;
     heartbeat->awaiting_ack = false;
     heartbeat->ack_deadline_ms = 0;
     return true;

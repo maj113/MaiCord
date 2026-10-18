@@ -1,7 +1,7 @@
 #include "maicord/media/animation_timeline.hpp"
 #include "maicord/core/deadline.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -70,8 +70,7 @@ u32 find_slot(const AnimationTimeline* timeline, MediaAssetKey key) noexcept {
 }
 
 u32 find_free_slot(AnimationTimeline* timeline) noexcept {
-    if (!timeline || !timeline->entries || timeline->capacity == 0 ||
-        timeline->entry_count >= timeline->capacity) {
+    if (timeline->entry_count >= timeline->capacity) {
         return 0xFFFFFFFFu;
     }
     const u32 first = timeline->free_cursor % timeline->capacity;
@@ -111,10 +110,8 @@ bool insert_bucket(AnimationTimeline* timeline, MediaAssetKey key, u32 slot) noe
 
 AnimationTimelineResult find_pending(AnimationTimeline* timeline, const AnimationFrameAdvance& advance,
                                      AnimationTimelineEntry** output) noexcept {
-    if (output) {
-        *output = nullptr;
-    }
-    if (!timeline || !timeline->entries || !output) {
+    *output = nullptr;
+    if (!timeline || !timeline->entries) {
         return {AnimationTimelineError::invalid_argument, 0};
     }
     const u32 slot = find_slot(timeline, advance.key);
@@ -319,16 +316,13 @@ AnimationTimelineResult animation_timeline_release(AnimationTimeline* timeline, 
     if (!timeline || !timeline->entries || !timeline->buckets) {
         return {AnimationTimelineError::invalid_argument, 0};
     }
-    const u32 slot = find_slot(timeline, key);
-    if (slot == 0xFFFFFFFFu) {
-        return {AnimationTimelineError::not_found, 0};
-    }
-    if (timeline->entries[slot].generation != generation) {
-        return {AnimationTimelineError::stale_generation, slot};
-    }
     const u32 bucket = find_bucket(timeline, key);
     if (bucket == 0xFFFFFFFFu) {
         return {AnimationTimelineError::not_found, 0};
+    }
+    const u32 slot = timeline->buckets[bucket] - 1;
+    if (timeline->entries[slot].generation != generation) {
+        return {AnimationTimelineError::stale_generation, slot};
     }
     timeline->entries[slot] = AnimationTimelineEntry{};
     timeline->buckets[bucket] = kTombstoneBucket;
@@ -398,9 +392,9 @@ void animation_timeline_end_visibility(AnimationTimeline* timeline, u64 monotoni
 AnimationTimelineCollectResult animation_timeline_collect_due(
     AnimationTimeline* timeline, u64 monotonic_now_us, Slice<AnimationFrameAdvance> output) noexcept {
     if (!timeline || !timeline->entries || (output.count != 0 && !output.data)) {
-        return {AnimationTimelineError::invalid_argument, 0, 0, 0};
+        return {AnimationTimelineError::invalid_argument, 0, 0};
     }
-    AnimationTimelineCollectResult result{AnimationTimelineError::none, 0, 0, 0};
+    AnimationTimelineCollectResult result{AnimationTimelineError::none, 0, 0};
     if (timeline->capacity == 0 || timeline->suspended) {
         return result;
     }
@@ -445,7 +439,6 @@ AnimationTimelineCollectResult animation_timeline_collect_due(
         }
         timeline->scan_cursor = (index + 1) % timeline->capacity;
     }
-    result.next_wake_at_us = animation_timeline_next_wake_at_us(timeline);
     return result;
 }
 

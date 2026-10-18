@@ -15,10 +15,6 @@ KhmerCategory khmer_category(u32 c) noexcept {
     return c==0x17c7||c==0x17c8?C::final:C::other;
 }
 namespace {
-bool overlaps(const void* a,u64 an,const void* b,u64 bn) noexcept {
-    const u64 x=reinterpret_cast<usize>(a),y=reinterpret_cast<usize>(b);
-    return x>~u64{0}-an||y>~u64{0}-bn||(an&&bn&&x<y+bn&&y<x+an);
-}
 enum class Phase : u8 { closed,base,coeng,broken };
 struct Scanner {
     Phase phase=Phase::closed;u8 rank=0,subscripts=0,flags=0;
@@ -80,7 +76,7 @@ static_assert(sizeof(Expansion)==5);
 
 }
 SfntStatus sfnt_khmer_cluster_boundaries(ConstSlice<u32> input,Slice<u8> output,u64 work) noexcept {
-    if((input.count&&!input.data)||(output.count&&!output.data)||overlaps(input.data,static_cast<u64>(input.count)*4,output.data,output.count))return SfntStatus::invalid_input;
+    if((input.count&&!input.data)||(output.count&&!output.data)||byte_ranges_overlap_or_wrap(input.data,static_cast<u64>(input.count)*4,output.data,output.count))return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*4>work)return SfntStatus::resource_limit;
     for(u32 i=0;i<input.count;++i)if(!unicode_is_scalar(input[i]))return SfntStatus::invalid_input;
     if(output.count<input.count)return SfntStatus::output_too_small;
@@ -90,7 +86,7 @@ SfntStatus sfnt_khmer_cluster_boundaries(ConstSlice<u32> input,Slice<u8> output,
 }
 SfntStatus sfnt_khmer_expand_cluster(ConstSlice<u32> input,Slice<SfntKhmerInputScalar> output,SfntKhmerInputResult* result,u64 work) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
-    if((input.count&&!input.data)||(output.count&&!output.data)||overlaps(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*sizeof(SfntKhmerInputScalar)))return SfntStatus::invalid_input;
+    if((input.count&&!input.data)||(output.count&&!output.data)||byte_ranges_overlap_or_wrap(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*sizeof(SfntKhmerInputScalar)))return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*3>work)return SfntStatus::resource_limit;
     u64 count=input.count,units=0;Expansion expansion{};
     for(u32 i=0;i<input.count;++i){const u32 c=input[i];if(!unicode_is_scalar(c))return SfntStatus::invalid_input;count+=expansion.next(input,i)?1u:0u;units+=c>0xffff?2u:1u;}

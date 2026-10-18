@@ -3,7 +3,6 @@
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -12,6 +11,16 @@ GatewaySessionEvent event(GatewaySessionEventKind kind) noexcept {
     GatewaySessionEvent result{};
     result.kind = kind;
     return result;
+}
+
+// Turns a failed event decode into the session's error event.
+bool event_decode_failed(GatewaySessionEvent& result, const GatewayEventDecodeResult& decoded) noexcept {
+    if (decoded.ok())
+        return false;
+    result.kind = GatewaySessionEventKind::error;
+    result.error = GatewaySessionError::event_decode;
+    result.event_error = decoded.error;
+    return true;
 }
 
 GatewaySessionEvent session_error(GatewaySessionError error) noexcept {
@@ -88,13 +97,13 @@ u32 complete_sync_flush_bytes(const GatewaySession& session) noexcept {
 void consume_compressed(GatewaySession* session, u32 bytes) noexcept {
     const u32 remaining = session->compressed_bytes - bytes;
     copy_bytes(session->compressed_storage.data, session->compressed_storage.data + bytes, remaining);
-    SecureZeroMemory(session->compressed_storage.data + remaining, bytes);
+    secure_clear_bytes(session->compressed_storage.data + remaining, bytes);
     session->compressed_bytes = remaining;
     // A spilled payload is done: later payloads start in the initial storage.
     if (session->compressed_storage.data != session->inline_compressed_storage.data &&
         remaining <= session->inline_compressed_storage.count) {
         copy_bytes(session->inline_compressed_storage.data, session->compressed_storage.data, remaining);
-        SecureZeroMemory(session->compressed_storage.data, remaining);
+        secure_clear_bytes(session->compressed_storage.data, remaining);
         session->compressed_storage = session->inline_compressed_storage;
         session->grow_compressed(session->grow_compressed_context, 0, nullptr);
     }
@@ -132,10 +141,7 @@ GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View me
     if (result.envelope.opcode == 10) {
         const GatewayEventDecodeResult hello =
             gateway_decode_hello(result.envelope.data, session->structural_scratch, 16, &result.hello);
-        if (!hello.ok()) {
-            result.kind = GatewaySessionEventKind::error;
-            result.error = GatewaySessionError::event_decode;
-            result.event_error = hello.error;
+        if (event_decode_failed(result, hello)) {
             return result;
         }
         result.lifecycle_step =
@@ -154,10 +160,7 @@ GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View me
         bool resumable = false;
         const GatewayEventDecodeResult invalid =
             gateway_decode_invalid_session(result.envelope.data, &resumable);
-        if (!invalid.ok()) {
-            result.kind = GatewaySessionEventKind::error;
-            result.error = GatewaySessionError::event_decode;
-            result.event_error = invalid.error;
+        if (event_decode_failed(result, invalid)) {
             return result;
         }
         result.lifecycle_step = gateway_lifecycle_invalid_session(&session->lifecycle, resumable);
@@ -174,10 +177,7 @@ GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View me
         if (json_string_equals_ascii(result.envelope.event_name, utf8_literal("READY"))) {
             const GatewayEventDecodeResult ready =
                 gateway_decode_ready(result.envelope.data, session->structural_scratch, 64, &result.ready);
-            if (!ready.ok()) {
-                result.kind = GatewaySessionEventKind::error;
-                result.error = GatewaySessionError::event_decode;
-                result.event_error = ready.error;
+            if (event_decode_failed(result, ready)) {
                 return result;
             }
             result.lifecycle_step = gateway_lifecycle_session_ready(&session->lifecycle, true);
@@ -185,10 +185,7 @@ GatewaySessionEvent process_gateway_message(GatewaySession* session, Utf8View me
         } else if (json_string_equals_ascii(result.envelope.event_name, utf8_literal("RESUMED"))) {
             const GatewayEventDecodeResult resumed = gateway_decode_resumed(
                 result.envelope.data, session->structural_scratch, 16, &result.resumed);
-            if (!resumed.ok()) {
-                result.kind = GatewaySessionEventKind::error;
-                result.error = GatewaySessionError::event_decode;
-                result.event_error = resumed.error;
+            if (event_decode_failed(result, resumed)) {
                 return result;
             }
             result.lifecycle_step = gateway_lifecycle_session_ready(&session->lifecycle, true);
@@ -226,9 +223,10 @@ bool output_disjoint(const GatewaySession& session, Slice<u8> candidate) noexcep
 bool grow_session_output(void* opaque, u32 required, Slice<u8>* backed) noexcept {
     auto* session = static_cast<GatewaySession*>(opaque);
     Slice<u8> candidate{};
-    if (!session || !backed || !session->grow_output ||
+    if (!session->grow_output ||
         !session->grow_output(session->grow_output_context, required, &candidate) ||
-        !output_disjoint(*session, candidate)) return false;
+        !output_disjoint(*session, candidate))
+        return false;
     *backed = candidate;
     return true;
 }
@@ -261,7 +259,7 @@ bool gateway_session_initialize(GatewaySession* session, Slice<u8> input_storage
                                 Slice<u32> structural_scratch, ConstSlice<u8> client_key,
                                 u64 maximum_frame_payload_bytes, u64 maximum_message_bytes,
                                 bool resume_available, bool has_sequence, u64 last_sequence) noexcept {
-    if (!session || !input_storage.data || input_storage.count == 0 || !message_storage.data ||
+    if (!input_storage.data || input_storage.count == 0 || !message_storage.data ||
         message_storage.count == 0 || !structural_scratch.data || structural_scratch.count == 0 ||
         !client_key.data || client_key.count != kWebSocketClientKeyBytes ||
         maximum_frame_payload_bytes == 0 || input_storage.count < 14 ||
@@ -292,16 +290,14 @@ bool gateway_session_initialize(GatewaySession* session, Slice<u8> input_storage
 }
 
 bool gateway_session_push(GatewaySession* session, ConstSlice<u8> plaintext) noexcept {
-    return session && byte_queue_append(&session->input, plaintext);
+    return byte_queue_append(&session->input, plaintext);
 }
 
 bool gateway_session_enable_zlib_stream(
     GatewaySession* session, ZlibStreamInflater* inflater,
     Slice<u8> compressed_storage) noexcept {
-    if (!session || session->opened || session->transport_compressed ||
-        !inflater || !compressed_storage.data ||
-        compressed_storage.count == 0 || session->message_bytes != 0 ||
-        session->compressed_bytes != 0 ||
+    if (session->opened || session->transport_compressed || !inflater || !compressed_storage.data ||
+        compressed_storage.count == 0 || session->message_bytes != 0 || session->compressed_bytes != 0 ||
         !zlib_stream_initialize(inflater)) {
         return false;
     }
@@ -315,9 +311,10 @@ bool gateway_session_enable_zlib_stream(
 
 bool gateway_session_enable_compressed_growth(GatewaySession* session, u32 maximum_compressed_bytes,
     GatewaySessionGrowCompressed grow, void* context) noexcept {
-    if (!session || session->opened || !session->transport_compressed || session->grow_compressed || !grow ||
+    if (session->opened || !session->transport_compressed || session->grow_compressed || !grow ||
         maximum_compressed_bytes < session->inline_compressed_storage.count ||
-        maximum_compressed_bytes > kGatewaySessionMaximumDecodedMessageBytes) return false;
+        maximum_compressed_bytes > kGatewaySessionMaximumDecodedMessageBytes)
+        return false;
     session->grow_compressed = grow;
     session->grow_compressed_context = context;
     session->maximum_compressed_bytes = maximum_compressed_bytes;
@@ -326,9 +323,10 @@ bool gateway_session_enable_compressed_growth(GatewaySession* session, u32 maxim
 
 bool gateway_session_enable_output_growth(GatewaySession* session, Slice<u8> decoded_output,
     u32 maximum_decoded_bytes, ZlibStreamGrowOutput grow, void* context) noexcept {
-    if (!session || session->opened || !session->transport_compressed || !session->zlib_stream ||
+    if (session->opened || !session->transport_compressed || !session->zlib_stream ||
         session->grow_output || !grow || maximum_decoded_bytes < decoded_output.count ||
-        maximum_decoded_bytes > kGatewaySessionMaximumDecodedMessageBytes) return false;
+        maximum_decoded_bytes > kGatewaySessionMaximumDecodedMessageBytes)
+        return false;
     if (!output_disjoint(*session, decoded_output)) return false;
     session->message_storage = decoded_output;
     session->maximum_decoded_message_bytes = maximum_decoded_bytes;
@@ -339,9 +337,6 @@ bool gateway_session_enable_output_growth(GatewaySession* session, Slice<u8> dec
 
 GatewaySessionEvent gateway_session_next(GatewaySession* session, u32 heartbeat_jitter,
                                          u64 now_ms) noexcept {
-    if (!session) {
-        return session_error(GatewaySessionError::invalid_input);
-    }
     if (!session->opened) {
         const WebSocketHandshakeValidation handshake = websocket_validate_opening_response(
             byte_queue_readable(session->input),

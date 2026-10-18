@@ -51,18 +51,24 @@ u32 empty_slot(const GuildMemberStore& store) noexcept {
     return store.capacity;
 }
 
+// How much the list on screen needs the row at `index`: 2 inside the visible
+// range, 1 inside a pinned page, 0 otherwise.
+u32 row_interest(const GuildMemberStore& store, u64 guild_id, u64 list_id, u32 index) noexcept {
+    if (guild_member_store_visible_index(store, guild_id, list_id, index))
+        return 2;
+    for (u32 pin = 0; pin < store.pin_count; ++pin) {
+        const auto& range = store.pins[pin];
+        if (range.guild_id == guild_id && range.list_id == list_id && index >= range.first &&
+            index <= range.last)
+            return 1;
+    }
+    return 0;
+}
 bool pinned(const GuildMemberStore& store, const GuildMemberRecord& record) noexcept {
     if (record.visible_pinned)
         return true;
-    if (guild_member_store_visible_index(store, record.guild_id, record.list_id, record.list_index))
-        return true;
-    for (u32 index = 0; index < store.pin_count; ++index) {
-        const auto& range = store.pins[index];
-        if (record.guild_id == range.guild_id && record.list_id == range.list_id &&
-            record.list_index != ~0u && record.list_index >= range.first && record.list_index <= range.last)
-            return true;
-    }
-    return false;
+    return record.list_index != ~0u &&
+           row_interest(store, record.guild_id, record.list_id, record.list_index) != 0;
 }
 u32 least_recent_slot(const GuildMemberStore& store) noexcept {
     u32 result = store.capacity;
@@ -154,8 +160,7 @@ u8 scope_slot(const GuildMemberStore& store, u64 guild_id, u64 list_id) noexcept
     return kNoScope;
 }
 // The list on screen: its visible range or its subscribed (pinned) pages.
-bool scope_shown(const GuildMemberStore& store, u8 scope) noexcept {
-    const auto& list = store.lists[scope];
+bool scope_shown(const GuildMemberStore& store, const MemberListScope& list) noexcept {
     if (!list.guild_id)
         return false;
     if (store.visible.guild_id == list.guild_id && store.visible.list_id == list.list_id)
@@ -167,15 +172,7 @@ bool scope_shown(const GuildMemberStore& store, u8 scope) noexcept {
 }
 bool index_shown(const GuildMemberStore& store, u8 scope, u32 index) noexcept {
     const auto& list = store.lists[scope];
-    if (guild_member_store_visible_index(store, list.guild_id, list.list_id, index))
-        return true;
-    for (u32 pin = 0; pin < store.pin_count; ++pin) {
-        const auto& range = store.pins[pin];
-        if (range.guild_id == list.guild_id && range.list_id == list.list_id && index >= range.first &&
-            index <= range.last)
-            return true;
-    }
-    return false;
+    return row_interest(store, list.guild_id, list.list_id, index) != 0;
 }
 void position_drop(GuildMemberStore* store, MemberListPosition* entry) noexcept {
     *entry = {};
@@ -197,7 +194,7 @@ MemberListPosition* positions_evict_list(GuildMemberStore* store, u8 keep) noexc
     u8 victim = kNoScope;
     for (u8 slot = 0; slot < kMemberListMaximumScopes; ++slot) {
         const auto& list = store->lists[slot];
-        if (slot == keep || !held[slot] || !list.guild_id || scope_shown(*store, slot))
+        if (slot == keep || !held[slot] || !list.guild_id || scope_shown(*store, list))
             continue;
         const auto& best = store->lists[victim == kNoScope ? 0 : victim];
         if (victim == kNoScope || list.viewed < best.viewed ||
@@ -846,17 +843,13 @@ bool guild_member_store_observe_list(GuildMemberStore* store, u64 guild_id, u64 
     const bool fresh = !list;
     if (!list) {
         for (auto& candidate : store->lists) {
-            bool keep = store->visible.guild_id == candidate.guild_id &&
-                        store->visible.list_id == candidate.list_id && candidate.guild_id;
-            for (u32 pin = 0; pin < store->pin_count; ++pin)
-                keep |= store->pins[pin].guild_id == candidate.guild_id &&
-                        store->pins[pin].list_id == candidate.list_id;
             if (!candidate.guild_id) {
                 list = &candidate;
                 break;
             }
-            if (!keep && (!list || candidate.viewed < list->viewed ||
-                          (candidate.viewed == list->viewed && candidate.last_seen < list->last_seen)))
+            if (!scope_shown(*store, candidate) &&
+                (!list || candidate.viewed < list->viewed ||
+                 (candidate.viewed == list->viewed && candidate.last_seen < list->last_seen)))
                 list = &candidate;
         }
         if (!list)
@@ -956,17 +949,6 @@ bool guild_member_store_set_group(GuildMemberStore* store, u64 guild_id, u64 lis
     if (!list || index == ~0u || count == ~0u || (!count_known && count))
         return false;
     const auto scope = static_cast<u8>(list - store->lists);
-    const auto interest = [&](u64 guild, u64 id, u32 position) noexcept -> u32 {
-        if (guild_member_store_visible_index(*store, guild, id, position))
-            return 2;
-        for (u32 pin = 0; pin < store->pin_count; ++pin) {
-            const auto& range = store->pins[pin];
-            if (range.guild_id == guild && range.list_id == id && position >= range.first &&
-                position <= range.last)
-                return 1;
-        }
-        return 0;
-    };
     MemberListGroupRecord* target = nullptr;
     u32 target_interest = 3;
     bool existing = false;
@@ -986,7 +968,7 @@ bool guild_member_store_set_group(GuildMemberStore* store, u64 guild_id, u64 lis
         if (target && !target->resident)
             continue;
         const auto& owner = store->lists[group.scope_slot];
-        const u32 priority = interest(owner.guild_id, owner.list_id, group.index);
+        const u32 priority = row_interest(*store, owner.guild_id, owner.list_id, group.index);
         if (!target || priority < target_interest ||
             (priority == target_interest && group.last_seen < target->last_seen)) {
             target = &group;
@@ -995,7 +977,8 @@ bool guild_member_store_set_group(GuildMemberStore* store, u64 guild_id, u64 lis
     }
     // An unwanted late packet may still update list extent and cached identity,
     // but cannot steal resident headers needed by the current viewport/pages.
-    if (!existing && target && target->resident && target_interest > interest(guild_id, list_id, index))
+    if (!existing && target && target->resident &&
+        target_interest > row_interest(*store, guild_id, list_id, index))
         return true;
     if (!target)
         return true;

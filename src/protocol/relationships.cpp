@@ -213,7 +213,7 @@ RelationshipWriteResult write_relationship_body(RelationshipOperation operation,
 }
 RelationshipsDecodeResult relationship_decode_record(Utf8View input, Slice<u32> scratch,
     RelationshipEvent event, RelationshipMutation* output) noexcept {
-    if (!output || event > RelationshipEvent::update || !valid_input(input, scratch)) return failure(RelationshipsDecodeError::invalid_input);
+    if (event > RelationshipEvent::update || !valid_input(input, scratch)) return failure(RelationshipsDecodeError::invalid_input);
     const ConstSlice<u8> destination{reinterpret_cast<const u8*>(output), sizeof(*output)};
     if (!byte_range_valid(destination) || byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(input.data), input.bytes}) ||
         byte_ranges_overlap(destination, {reinterpret_cast<const u8*>(scratch.data), scratch.count * static_cast<u32>(sizeof(u32))}))
@@ -228,7 +228,7 @@ RelationshipsDecodeResult relationship_decode_record(Utf8View input, Slice<u32> 
 }
 RelationshipStoreResult relationship_apply_decoded(RelationshipStore* store,
     RelationshipEvent event, const RelationshipMutation& mutation) noexcept {
-    if (!store || event > RelationshipEvent::update) return {RelationshipStoreError::invalid_input, false};
+    if (event > RelationshipEvent::update) return {RelationshipStoreError::invalid_input, false};
     if (event == RelationshipEvent::remove) return relationship_store_remove(store, mutation.record.user_id);
     auto record = mutation.record;
     if (const auto* old = relationship_store_find(*store, record.user_id)) {
@@ -243,7 +243,7 @@ RelationshipStoreResult relationship_apply_decoded(RelationshipStore* store,
 RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8View input,
     Slice<u32> scratch, Slice<RelationshipRecord> candidate, Slice<RelationshipUser> users,
     RelationshipsAdmission admission) noexcept {
-    if (!store || !store->records.data || !store->records.count || store->records.count > kRelationshipMaximumRecords ||
+    if (!store->records.data || !store->records.count || store->records.count > kRelationshipMaximumRecords ||
         store->count > store->records.count || !valid_input(input, scratch) || !candidate.data || !candidate.count ||
         candidate.count > kRelationshipMaximumRecords || users.count > kRelationshipMaximumRecords)
         return failure(RelationshipsDecodeError::invalid_input);
@@ -294,7 +294,7 @@ RelationshipsDecodeResult relationships_replace(RelationshipStore* store, Utf8Vi
     return {RelationshipsDecodeError::none, snapshot.count, snapshot.user_count, applied.changed};
 }
 RelationshipUserApplyResult relationship_users_apply(UserStore* users, ConstSlice<RelationshipUser> snapshots) noexcept {
-    if (!users || snapshots.count > kRelationshipMaximumRecords ||
+    if (snapshots.count > kRelationshipMaximumRecords ||
         !byte_range_valid({reinterpret_cast<const u8*>(snapshots.data), snapshots.count * static_cast<u32>(sizeof(*snapshots.data))}))
         return {UserStoreError::invalid_input, 0};
     for (u32 i = 0; i < snapshots.count; ++i) {
@@ -312,7 +312,7 @@ RelationshipUserApplyResult relationship_users_apply(UserStore* users, ConstSlic
     return {UserStoreError::none, snapshots.count};
 }
 RelationshipUserApplyResult relationships_hydrate(UserStore* users, Utf8View input, Slice<u32> scratch) noexcept {
-    if (!users || !valid_input(input, scratch)) return {UserStoreError::invalid_input, 0};
+    if (!valid_input(input, scratch)) return {UserStoreError::invalid_input, 0};
     JsonIndexedDocument document{};
     if (!scan_document(input, scratch, &document)) return {UserStoreError::invalid_input, 0};
     struct Hydrate { const JsonIndexedDocument* document; UserStore* users; RelationshipUserApplyResult result; } context{&document, users, {}};

@@ -148,8 +148,6 @@ PermissionTriState permission_tri_get(PermissionSet allow, PermissionSet deny, P
 
 void permission_tri_set(PermissionSet* allow, PermissionSet* deny, PermissionSet bit,
                         PermissionTriState state) noexcept {
-    if (!allow || !deny)
-        return;
     *allow &= ~bit;
     *deny &= ~bit;
     if (state == PermissionTriState::allow)

@@ -213,7 +213,6 @@ enum GatewayMessageComponentType : u16 {
     gateway_component_action_row = 1,
     gateway_component_button = 2,
     gateway_component_string_select = 3,
-    gateway_component_text_input = 4,
     gateway_component_user_select = 5,
     gateway_component_role_select = 6,
     gateway_component_mentionable_select = 7,
@@ -225,7 +224,6 @@ enum GatewayMessageComponentType : u16 {
     gateway_component_file = 13,
     gateway_component_separator = 14,
     gateway_component_container = 17,
-    gateway_component_label = 18,
     gateway_component_select_option = 0x7F01,
     gateway_component_gallery_item = 0x7F02,
 };

@@ -299,12 +299,6 @@ void h264_stream_reset(H264StreamState* state) noexcept {
     state->output_started = false;
 }
 
-void h264_stream_fail(H264StreamState* state) noexcept {
-    if (!state) return;
-    h264_stream_reset(state);
-    ++state->resets;
-}
-
 void h264_stream_lost(H264StreamState* state) noexcept {
     if (!state) return;
     h264_stream_reset(state);
@@ -357,7 +351,7 @@ H264StreamAction h264_stream_prepare(H264StreamState* state, const H264StreamPic
     const u8 surface = h264_free_surface(state->output, first.idr ? 0 : reference_mask(state->references),
                                          capacity);
     if (surface == 255) {
-        h264_stream_fail(state);
+        h264_stream_reset(state);
         return H264StreamAction::request_keyframe;
     }
     const H264Error error = h264_reference_plan(state->references, sps, first, surface, &next.plan);
@@ -408,7 +402,7 @@ void h264_stream_commit(H264StreamState* state, const H264StreamPicture& picture
     state->output.leased = 255;
     if (!h264_output_push(&state->output,
                           {0, order.top < order.bottom ? order.top : order.bottom, decode.surface, 0})) {
-        h264_stream_fail(state);
+        h264_stream_reset(state);
         return;
     }
     state->info[decode.surface] = {rtp_timestamp, first.idr};

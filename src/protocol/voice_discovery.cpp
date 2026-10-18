@@ -3,7 +3,7 @@
 
 namespace maicord {
 bool voice_discovery_request(u32 ssrc, Slice<u8> output) noexcept {
-    if (!ssrc || !output.data || output.count < kVoiceDiscoveryBytes)
+    if (!ssrc || output.count < kVoiceDiscoveryBytes)
         return false;
     clear_bytes(output.data, kVoiceDiscoveryBytes);
     output[1] = 1;
@@ -12,9 +12,8 @@ bool voice_discovery_request(u32 ssrc, Slice<u8> output) noexcept {
     return true;
 }
 bool voice_discovery_response(ConstSlice<u8> packet, u32 ssrc, VoiceDiscoveryAddress* output) noexcept {
-    if (!output || !packet.data || packet.count != kVoiceDiscoveryBytes || !ssrc ||
-        byte_load_be16(packet.data) != 2 || byte_load_be16(packet.data + 2) != 70 ||
-        byte_load_be32(packet.data + 4) != ssrc)
+    if (packet.count != kVoiceDiscoveryBytes || !ssrc || byte_load_be16(packet.data) != 2 ||
+        byte_load_be16(packet.data + 2) != 70 || byte_load_be32(packet.data + 4) != ssrc)
         return false;
     u32 length = 0;
     while (length < 64 && packet[8 + length])

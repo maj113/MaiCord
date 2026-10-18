@@ -10,7 +10,6 @@ namespace maicord {
 // group and serialized as complete groups.
 enum UserSettingsGroup : u8 {
     user_settings_versions = 1,
-    user_settings_voice_and_video = 5,
     user_settings_text_and_images = 6,
     user_settings_notifications = 7,
     user_settings_privacy = 8,

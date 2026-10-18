@@ -132,8 +132,7 @@ struct ProfileEditSaved {
     bool has_accent, has_theme;
     ProfileCollectibleRef collectibles[kProfileEditCollectibleMaximum];
     u8 collectible_count;
-    // Server values; has_member when the response carried guild_member.
-    bool has_member;
+    // Server values.
     ProfileString<128> nick;
     ProfileString<34> member_avatar, member_banner;
     ProfileString<kProfileBioMaximumUtf8Bytes> member_bio;

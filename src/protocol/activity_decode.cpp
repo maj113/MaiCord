@@ -95,7 +95,7 @@ u32 user_activity_summary(UserActivityType type, Utf8View name, Utf8View details
     default:
         return 0;
     }
-    if (!subject.bytes || !output.data || output.count <= verb.bytes)
+    if (!subject.bytes || output.count <= verb.bytes)
         return 0;
     Writer w{output.data, static_cast<u32>(output.count), 0};
     w.put(verb);
@@ -135,8 +135,6 @@ Utf8View session_platform(const UserActivity& a) noexcept {
 }
 } // namespace
 u32 user_activity_heading(const UserActivity& a, Slice<char> output) noexcept {
-    if (!output.data)
-        return 0;
     Writer w{output.data, static_cast<u32>(output.count), 0};
     const auto name = user_activity_text(a, UserActivityField::name);
     const bool details = user_activity_text(a, UserActivityField::details).bytes != 0;
@@ -206,8 +204,6 @@ bool alphanumeric(Utf8View text, u32 limit) noexcept {
 } // namespace
 u32 user_activity_image_url(const UserActivity& a, bool large, Slice<char> output,
                             MediaAttachmentFormat* format) noexcept {
-    if (!output.data || !format)
-        return 0;
     const auto key = user_activity_text(a, large ? UserActivityField::large_image : UserActivityField::small_image);
     Writer w{output.data, static_cast<u32>(output.count), 0};
     u32 colon = 0;
@@ -255,7 +251,7 @@ u32 user_activity_image_url(const UserActivity& a, bool large, Slice<char> outpu
     return w.finish();
 }
 u32 user_activity_application_icon_url(u64 application_id, Utf8View icon, Slice<char> output) noexcept {
-    if (!output.data || !application_id || !alphanumeric(icon, 64))
+    if (!application_id || !alphanumeric(icon, 64))
         return 0;
     Writer w{output.data, static_cast<u32>(output.count), 0};
     w.put(utf8_literal("https://cdn.discordapp.com/app-icons/"));
@@ -277,17 +273,8 @@ UserActivityArtwork user_activity_artwork(const UserActivity& a, bool applicatio
         return {UserActivityArt::application, badge};
     return {badge ? UserActivityArt::small_image : UserActivityArt::none, false};
 }
-float user_activity_progress(const UserActivity& a, u64 now) noexcept {
-    if (!a.start_ms || !a.end_ms || a.end_ms <= a.start_ms)
-        return -1;
-    if (now <= a.start_ms)
-        return 0;
-    if (now >= a.end_ms)
-        return 1;
-    return static_cast<float>(static_cast<double>(now - a.start_ms) / static_cast<double>(a.end_ms - a.start_ms));
-}
 u32 user_activity_applications_target(ConstSlice<u64> ids, Slice<u8> output) noexcept {
-    if (!output.data || !ids.count || ids.count > kUserActivityMaximum)
+    if (!ids.count || ids.count > kUserActivityMaximum)
         return 0;
     Writer w{reinterpret_cast<char*>(output.data), static_cast<u32>(output.count), 0};
     w.put(utf8_literal("/api/v10/applications/public"));
@@ -301,7 +288,7 @@ u32 user_activity_applications_target(ConstSlice<u64> ids, Slice<u8> output) noe
 }
 u32 user_activity_metadata_target(u64 user_id, Utf8View session, u64 application_id, Slice<u8> output) noexcept {
     constexpr u32 session_limit = kUserActivityFieldBudget[static_cast<u32>(UserActivityField::session)];
-    if (!output.data || !user_id || !session.bytes || session.bytes > session_limit)
+    if (!user_id || !session.bytes || session.bytes > session_limit)
         return 0;
     // Session IDs are hex, or "h:<platform>,..." for headless sessions.
     for (u32 i = 0; i < session.bytes; ++i) {
@@ -554,38 +541,33 @@ bool activity_item(void* opaque, u32, JsonValue value) noexcept {
     ++c.out->count;
     return true;
 }
-struct Root {
-    JsonValue activities;
-};
 bool root_member(void* opaque, JsonString key, JsonValue value) noexcept {
-    auto& r = *static_cast<Root*>(opaque);
-    if (json_string_equals_ascii(key, utf8_literal("activities")) && !r.activities.source.data)
-        r.activities = value;
+    auto& activities = *static_cast<JsonValue*>(opaque);
+    if (json_string_equals_ascii(key, utf8_literal("activities")) && !activities.source.data)
+        activities = value;
     return true;
 }
 } // namespace
 
 bool user_activities_decode(const JsonIndexedDocument& doc, JsonValue presence, u64 user_id,
                             UserActivitySet* output, bool* has) noexcept {
-    if (!output || !has)
-        return false;
     *output = {};
     output->user_id = user_id;
     *has = false;
     if (!presence.source.data || presence.kind != JsonValueKind::object)
         return presence.kind == JsonValueKind::null_value || !presence.source.data;
-    Root root{};
-    if (!json_visit_indexed_object(doc, presence, 64, root_member, &root).ok())
+    JsonValue activities{};
+    if (!json_visit_indexed_object(doc, presence, 64, root_member, &activities).ok())
         return false;
-    if (!root.activities.source.data)
+    if (!activities.source.data)
         return true;
     *has = true;
-    if (root.activities.kind == JsonValueKind::null_value)
+    if (activities.kind == JsonValueKind::null_value)
         return true;
-    if (root.activities.kind != JsonValueKind::array)
+    if (activities.kind != JsonValueKind::array)
         return false;
     Decode context{&doc, output};
-    return json_visit_indexed_array(doc, root.activities, 64, activity_item, &context).ok();
+    return json_visit_indexed_array(doc, activities, 64, activity_item, &context).ok();
 }
 namespace {
 struct ApplicationsContext {
@@ -608,7 +590,7 @@ bool application_item(void* opaque, u32, JsonValue value) noexcept {
 } // namespace
 bool user_activity_applications_decode(Utf8View body, Slice<u32> structurals, UserActivityApplicationVisit visit,
                                        void* context) noexcept {
-    if (!visit || !body.bytes || body.data[0] != '[')
+    if (!body.bytes || body.data[0] != '[')
         return false;
     const auto scan = json_scan_structurals_avx1(body, structurals);
     if (!scan.ok())
@@ -618,7 +600,7 @@ bool user_activity_applications_decode(Utf8View body, Slice<u32> structurals, Us
     return json_visit_indexed_array(doc, {body, 0, JsonValueKind::array}, 64, application_item, &c).ok();
 }
 u32 user_activity_button_url(Utf8View body, Slice<u32> structurals, u32 index, Slice<char> output) noexcept {
-    if (!output.data || index > 1 || !body.bytes || body.data[0] != '{')
+    if (index > 1 || !body.bytes || body.data[0] != '{')
         return 0;
     const auto scan = json_scan_structurals_avx1(body, structurals);
     if (!scan.ok())
@@ -628,7 +610,7 @@ u32 user_activity_button_url(Utf8View body, Slice<u32> structurals, u32 index, S
     if (!object(doc, {body, 0, JsonValueKind::object}, &m) || !present(m.a) || m.a.kind != JsonValueKind::array)
         return 0;
     Array urls{};
-    if (!json_visit_indexed_array(doc, m.a, 64, array_item, &urls).ok() || index >= urls.count || index >= 2)
+    if (!json_visit_indexed_array(doc, m.a, 64, array_item, &urls).ok() || index >= urls.count)
         return 0;
     char text[1024];
     const u32 bytes = decode(urls.items[index], text, sizeof(text), true);

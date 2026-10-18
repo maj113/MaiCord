@@ -1,4 +1,6 @@
 #include "maicord/media/mp3_stream.hpp"
+#include "maicord/core/byte_order.hpp"
+#include "maicord/core/byte_range.hpp"
 
 // CC0 low-level decoder, upstream ea99364f61c14656440e8d77e9c233ccf3124633.
 // No minimp3_ex allocation/file API is compiled.
@@ -21,22 +23,8 @@ struct Frame {
 bool cancelled(Mp3Cancelled callback, void* context) noexcept {
     return callback && callback(context);
 }
-u32 be32(const u8* p) noexcept {
-    return (static_cast<u32>(p[0]) << 24) | (static_cast<u32>(p[1]) << 16) | (static_cast<u32>(p[2]) << 8) |
-           p[3];
-}
-u32 le32(const u8* p) noexcept {
-    return p[0] | (static_cast<u32>(p[1]) << 8) | (static_cast<u32>(p[2]) << 16) |
-           (static_cast<u32>(p[3]) << 24);
-}
 bool tag(const u8* p, const char* text, u32 bytes) noexcept {
     return bytes_equal(p, text, bytes);
-}
-bool overlaps(const void* a, usize a_bytes, const void* b, usize b_bytes) noexcept {
-    if (!a_bytes || !b_bytes)
-        return false;
-    const usize first = reinterpret_cast<usize>(a), second = reinterpret_cast<usize>(b);
-    return first <= second ? second - first < a_bytes : first - second < b_bytes;
 }
 Mp3Error frame(ConstSlice<u8> bytes, u32 offset, Frame* out) noexcept {
     if (offset > bytes.count || bytes.count - offset < 4)
@@ -120,7 +108,8 @@ Mp3Error tags(ConstSlice<u8> bytes, u32* begin, u32* end) noexcept {
     }
     if (last - first >= 32 && tag(bytes.data + last - 32, "APETAGEX", 8)) {
         const u8* footer = bytes.data + last - 32;
-        const u32 version = le32(footer + 8), size = le32(footer + 12), flags = le32(footer + 20);
+        const u32 version = byte_load_le32(footer + 8), size = byte_load_le32(footer + 12),
+                  flags = byte_load_le32(footer + 20);
         if ((version != 1000 && version != 2000) || size < 32 || size > last - first ||
             (flags & 0x60000000u) || (flags & 0x1ffffff8u))
             return Mp3Error::malformed;
@@ -132,8 +121,9 @@ Mp3Error tags(ConstSlice<u8> bytes, u32* begin, u32* end) noexcept {
             if (last - first < 32 || !tag(bytes.data + last - 32, "APETAGEX", 8))
                 return Mp3Error::malformed;
             const u8* header = bytes.data + last - 32;
-            if (le32(header + 8) != version || le32(header + 12) != size ||
-                le32(header + 16) != le32(footer + 16) || le32(header + 20) != (flags | 0x20000000u))
+            if (byte_load_le32(header + 8) != version || byte_load_le32(header + 12) != size ||
+                byte_load_le32(header + 16) != byte_load_le32(footer + 16) ||
+                byte_load_le32(header + 20) != (flags | 0x20000000u))
                 return Mp3Error::malformed;
             last -= 32;
         }
@@ -156,7 +146,7 @@ Mp3Error vbr(ConstSlice<u8> bytes, u32 begin, const Frame& f, Vbr* out) noexcept
         info.header = true;
         if (f.bytes - offset < 8)
             return Mp3Error::truncated;
-        const u32 flags = be32(h + offset + 4);
+        const u32 flags = byte_load_be32(h + offset + 4);
         if (flags & ~15u)
             return Mp3Error::malformed;
         offset += 8;
@@ -166,9 +156,9 @@ Mp3Error vbr(ConstSlice<u8> bytes, u32 begin, const Frame& f, Vbr* out) noexcept
                 if (fields[bit] > f.bytes - offset)
                     return Mp3Error::truncated;
                 if (!bit)
-                    info.frames = be32(h + offset);
+                    info.frames = byte_load_be32(h + offset);
                 if (bit == 1)
-                    info.bytes = be32(h + offset);
+                    info.bytes = byte_load_be32(h + offset);
                 offset += fields[bit];
             }
         if ((flags & 1) && !info.frames)
@@ -194,8 +184,8 @@ Mp3Error vbr(ConstSlice<u8> bytes, u32 begin, const Frame& f, Vbr* out) noexcept
         if (h[40] || h[41] != 1)
             return Mp3Error::unsupported;
         info.header = true;
-        info.bytes = be32(h + 46);
-        info.frames = be32(h + 50);
+        info.bytes = byte_load_be32(h + 46);
+        info.frames = byte_load_be32(h + 50);
         if (!info.bytes || !info.frames)
             return Mp3Error::malformed;
     }
@@ -212,7 +202,7 @@ bool decoder_current(const Mp3Decoder* d) noexcept {
 Mp3Error mp3_stream_initialize(Mp3Stream* output, ConstSlice<u8> bytes, Mp3Cancelled cancel,
                                void* context) noexcept {
     if (!output || !bytes.data || !bytes.count || bytes.count > maximum_bytes ||
-        overlaps(output, sizeof(*output), bytes.data, bytes.count))
+        byte_ranges_overlap(output, sizeof(*output), bytes.data, bytes.count))
         return Mp3Error::invalid_input;
     if (cancelled(cancel, context))
         return Mp3Error::cancelled;
@@ -304,10 +294,10 @@ Mp3Packet mp3_stream_next(Mp3Stream* s) noexcept {
 }
 Mp3Error mp3_stream_build_index(const Mp3Stream& s, Mp3SeekIndex* output, Slice<Mp3SeekPoint> bank,
                                 Mp3Cancelled cancel, void* context) noexcept {
+    const usize bank_bytes = static_cast<usize>(bank.count) * sizeof(Mp3SeekPoint);
     if (!current(s) || !output || !bank.data || bank.count < 2 || bank.count > 4096 ||
-        overlaps(bank.data, static_cast<usize>(bank.count) * sizeof(Mp3SeekPoint), s.encoded.data,
-                 s.encoded.count) ||
-        overlaps(output, sizeof(*output), bank.data, static_cast<usize>(bank.count) * sizeof(Mp3SeekPoint)))
+        byte_ranges_overlap(bank.data, bank_bytes, s.encoded.data, s.encoded.count) ||
+        byte_ranges_overlap(output, sizeof(*output), bank.data, bank_bytes))
         return Mp3Error::invalid_input;
     Mp3SeekIndex result{};
     result.points = bank;
@@ -405,7 +395,7 @@ Mp3Error mp3_decoder_initialize(Mp3Decoder* decoder, Slice<u8> storage, u32 rate
     if (!decoder || decoder->state || decoder->initialized || !supported ||
         (channels != 1 && channels != 2) || !storage.data ||
         (reinterpret_cast<usize>(storage.data) & (kMp3DecoderStateAlignment - 1)) ||
-        overlaps(decoder, sizeof(*decoder), storage.data, sizeof(mp3dec_t)))
+        byte_ranges_overlap(decoder, sizeof(*decoder), storage.data, sizeof(mp3dec_t)))
         return Mp3Error::invalid_input;
     if (storage.count < sizeof(mp3dec_t))
         return Mp3Error::capacity;
@@ -422,14 +412,14 @@ Mp3Error mp3_decoder_reset(Mp3Decoder* decoder) noexcept {
     return Mp3Error::none;
 }
 Mp3DecodeResult mp3_decoder_decode(Mp3Decoder* decoder, ConstSlice<u8> packet, Slice<float> pcm) noexcept {
+    const usize pcm_bytes = static_cast<usize>(pcm.count) * sizeof(float);
     if (!decoder_current(decoder) || !packet.data || !packet.count || !pcm.data ||
         (reinterpret_cast<usize>(pcm.data) & (alignof(float) - 1)) ||
-        overlaps(decoder->state, decoder->state_bytes, packet.data, packet.count) ||
-        overlaps(decoder->state, decoder->state_bytes, pcm.data,
-                 static_cast<usize>(pcm.count) * sizeof(float)) ||
-        overlaps(packet.data, packet.count, pcm.data, static_cast<usize>(pcm.count) * sizeof(float)) ||
-        overlaps(decoder, sizeof(*decoder), packet.data, packet.count) ||
-        overlaps(decoder, sizeof(*decoder), pcm.data, static_cast<usize>(pcm.count) * sizeof(float)))
+        byte_ranges_overlap(decoder->state, decoder->state_bytes, packet.data, packet.count) ||
+        byte_ranges_overlap(decoder->state, decoder->state_bytes, pcm.data, pcm_bytes) ||
+        byte_ranges_overlap(packet.data, packet.count, pcm.data, pcm_bytes) ||
+        byte_ranges_overlap(decoder, sizeof(*decoder), packet.data, packet.count) ||
+        byte_ranges_overlap(decoder, sizeof(*decoder), pcm.data, pcm_bytes))
         return {Mp3Error::invalid_input};
     Frame f{};
     const Mp3Error error = frame(packet, 0, &f);

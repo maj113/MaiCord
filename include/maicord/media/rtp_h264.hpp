@@ -2,7 +2,7 @@
 #include "maicord/media/rtp_video_assembly.hpp"
 
 namespace maicord {
-inline constexpr u8 kH264NalIdr = 5, kH264NalSps = 7, kH264NalPps = 8;
+inline constexpr u8 kH264NalIdr = 5;
 // RFC 6184 packetization-mode 1 depacketizer: single NAL unit packets (types
 // 1-23), STAP-A (24) and FU-A (28). STAP-B, MTAP and FU-B are rejected as
 // damaged. `gap_before` reports that the packet preceding this payload in the

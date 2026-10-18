@@ -29,7 +29,6 @@ struct MessagePollRecord {
     u64 channel_id;
     u64 expiry_ms;
     u64 last_gateway_serial;
-    u64 last_vote_serial;
     MessagePollString question;
     MessagePollAnswer answers[kGatewayMessagePollMaximumAnswers];
     u32 content_revision;

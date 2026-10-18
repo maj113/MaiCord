@@ -27,9 +27,26 @@ inline constexpr u32 kChunkChrm = png_chunk_type('c', 'H', 'R', 'M');
 inline constexpr u32 kChunkIccp = png_chunk_type('i', 'C', 'C', 'P');
 inline constexpr u32 kChunkCicp = png_chunk_type('c', 'I', 'C', 'P');
 
-constexpr bool png_chunk_byte_valid(u8 value) noexcept {
-    return (value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z');
+constexpr bool png_chunk_type_valid(const u8* type) noexcept {
+    for (u32 index = 0; index < 4; ++index) {
+        if (!((type[index] >= 'A' && type[index] <= 'Z') || (type[index] >= 'a' && type[index] <= 'z'))) {
+            return false;
+        }
+    }
+    return true;
 }
+
+constexpr bool png_color_metadata_chunk(u32 type) noexcept {
+    return type == kChunkSrgb || type == kChunkGama || type == kChunkChrm || type == kChunkIccp ||
+           type == kChunkCicp;
+}
+
+struct PngImage;
+// Channel count of a colour type; false when the bit depth is not allowed for it.
+bool png_format_channels(u8 color_type, u8 bit_depth, u8* channels) noexcept;
+// Store a PLTE / tRNS payload in image; false when the chunk does not fit the colour type.
+bool png_apply_palette(PngImage* image, const u8* data, u32 length) noexcept;
+bool png_apply_transparency(PngImage* image, const u8* data, u32 length) noexcept;
 
 u32 png_crc32(const u8* bytes, u32 count) noexcept;
 // Reconstructs one filtered scanline of count bytes in place (filter byte

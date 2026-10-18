@@ -11,29 +11,12 @@ enum class AacPcmFormat : u8 {
     signed16,
     float32
 };
-enum class AacNativeStage : u8 {
-    none,
-    runtime,
-    decoder,
-    input_type,
-    output_type,
-    output_info,
-    output_samples,
-    input_info,
-    streaming,
-    input,
-    output,
-    drain,
-    flush,
-    release
-};
 enum class AacDecodeError : u8 {
     none,
     invalid_input,
     unsupported,
     busy,
     runtime,
-    memory,
     media_type,
     input,
     output,
@@ -69,10 +52,6 @@ struct AacDecoder {
     i32 native_status{};
     u64 accepted_frames{}, output_frames{};
     bool initialized{}, draining{}, ended{};
-    AacNativeStage native_stage{};
-    // Advertised PCM16/float32 bits 0/1; configured rate/channels bits 2/3.
-    // Diagnostic capability observation only, never implicit format fallback.
-    u32 native_output_formats{};
 };
 // Pure metadata init: copies only <=16 ASC bytes. AAC-LC or signaled
 // SBR/PS, output mono/stereo and 1024/2048 PCM frames. No PCE/core dependency or

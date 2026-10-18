@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/log.hpp"
 #include "maicord/core/win32_process.hpp"
 
@@ -25,17 +26,13 @@ struct TraceRecord {
         append(value);
     }
     __declspec(noinline) void field(const char* key, u64 value) noexcept {
-        char digits[21];
-        u32 count = 0;
-        do {
-            digits[count++] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        } while (value);
+        char digits[20];
+        const u32 count = decimal_write(digits, value);
         append(" ");
         append(key);
         append("=");
-        while (count && used + 1 < sizeof(text))
-            text[used++] = digits[--count];
+        for (u32 index = 0; index < count && used + 1 < sizeof(text); ++index)
+            text[used++] = digits[index];
     }
     void write(const char* component) const noexcept {
         log_write(LogLevel::info, component, text);

@@ -94,8 +94,7 @@ TypingStoreResult typing_store_start(TypingStore* store, u64 channel_id, u64 gui
     return result(TypingStoreError::none, true, true);
 }
 
-TypingStoreResult typing_store_stop(TypingStore* store, u64 channel_id,
-                                                   u64 user_id) noexcept {
+static TypingStoreResult typing_store_stop(TypingStore* store, u64 channel_id, u64 user_id) noexcept {
     if (!store || !store_valid(*store) || channel_id == 0 || user_id == 0) {
         return result(TypingStoreError::invalid_input);
     }

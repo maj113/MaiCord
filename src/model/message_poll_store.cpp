@@ -2,7 +2,7 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -430,7 +430,7 @@ MessagePollStoreResult message_poll_store_vote(MessagePollStore* store,
     auto* value = answer(*poll, event.answer_id);
     if (!value)
         return failure(store, MessagePollStoreError::invalid_input);
-    poll->last_gateway_serial = poll->last_vote_serial = serial;
+    poll->last_gateway_serial = serial;
     if ((poll->fields & gateway_message_poll_field_results) && poll->is_finalized)
         return {poll, MessagePollStoreError::none, false, false};
     auto* observed = observation(*store, event.message_id, event.user_id, event.answer_id);
@@ -527,8 +527,8 @@ MessagePollStoreMetrics message_poll_store_metrics(const MessagePollStore& store
     result.text_bytes = store.text_used;
     if (!store.owned)
         return result;
-    MEMORY_BASIC_INFORMATION owner{};
-    if (VirtualQuery(store.owned, &owner, sizeof(owner))) {
+    Win32MemoryInformation owner{};
+    if (VirtualQuery(store.owned, owner.native(), sizeof(owner))) {
         result.reserved_bytes = result.committed_bytes = owner.RegionSize;
         result.commit_count = 1;
     }

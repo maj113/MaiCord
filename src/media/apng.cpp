@@ -54,63 +54,19 @@ bool append_span(ApngImage* image, ApngFrame* frame, u32 offset,
     return true;
 }
 
-bool apply_palette(PngImage* image, const u8* data, u32 length) noexcept {
-    if (image->color_type == 0 || image->color_type == 4 ||
-        length == 0 || length % 3 != 0 || length > 768) {
-        return false;
-    }
-    const u32 entries = length / 3;
-    if (image->color_type == 3 &&
-        entries > (1u << image->bit_depth)) {
-        return false;
-    }
-    for (u32 index = 0; index < entries; ++index) {
-        image->palette_rgba[index] =
-            static_cast<u32>(data[index * 3]) |
-            static_cast<u32>(data[index * 3 + 1]) << 8 |
-            static_cast<u32>(data[index * 3 + 2]) << 16 |
-            0xFF000000u;
-    }
-    image->palette_count = static_cast<u16>(entries);
-    return true;
-}
-
-bool apply_transparency(PngImage* image, const u8* data,
-                        u32 length, bool palette_seen) noexcept {
-    const u32 maximum_sample =
-        image->bit_depth == 16
-            ? 65'535u
-            : (1u << image->bit_depth) - 1u;
-    if (image->color_type == 0 && length == 2) {
-        image->transparent_gray = byte_load_be16(data);
-        if (image->transparent_gray > maximum_sample) {
-            return false;
-        }
-    } else if (image->color_type == 2 && length == 6) {
-        image->transparent_red = byte_load_be16(data);
-        image->transparent_green = byte_load_be16(data + 2);
-        image->transparent_blue = byte_load_be16(data + 4);
-        if (image->transparent_red > maximum_sample ||
-            image->transparent_green > maximum_sample ||
-            image->transparent_blue > maximum_sample) {
-            return false;
-        }
-    } else if (image->color_type == 3 && palette_seen && length != 0 &&
-               length <= image->palette_count) {
-        for (u32 index = 0; index < length; ++index) {
-            image->palette_rgba[index] =
-                image->palette_rgba[index] & 0x00FFFFFFu |
-                static_cast<u32>(data[index]) << 24;
-        }
-    } else {
-        return false;
-    }
-    image->has_transparency = true;
-    return true;
-}
-
 bool frame_complete(const ApngFrame& frame) noexcept {
     return frame.span_count != 0 && frame.compressed_bytes >= 6;
+}
+
+u64 apng_frame_duration_us(const ApngFrame& frame) noexcept {
+    const u32 denominator = frame.delay_den == 0 ? 100 : frame.delay_den;
+    const u64 scaled = static_cast<u64>(frame.delay_num) * 1'000'000ull;
+    u64 duration = scaled / denominator;
+    if (scaled % denominator != 0) {
+        ++duration;
+    }
+    duration = maximum(duration, kApngCompatibilityFrameFloorUs);
+    return minimum(duration, kApngFrameDurationMaximumUs);
 }
 
 bool configure_frame_image(ConstSlice<u8> encoded,
@@ -217,12 +173,7 @@ ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
             return fail(result, ApngError::truncated);
         }
         const u8* type_bytes = encoded.data + cursor + 4;
-        for (u32 index = 0; index < 4; ++index) {
-            if (!png_chunk_byte_valid(type_bytes[index])) {
-                return fail(result, ApngError::chunk_type);
-            }
-        }
-        if ((type_bytes[2] & 0x20u) != 0) {
+        if (!png_chunk_type_valid(type_bytes) || (type_bytes[2] & 0x20u) != 0) {
             return fail(result, ApngError::chunk_type);
         }
         const u32 type = byte_load_be32(type_bytes);
@@ -278,7 +229,7 @@ ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
             animation_seen = true;
         } else if (type == kChunkPlte) {
             if (idat_seen || palette_seen || transparency_seen ||
-                !apply_palette(&image->canvas, data, length)) {
+                !png_apply_palette(&image->canvas, data, length)) {
                 return fail(result,
                             palette_seen ? ApngError::duplicate_chunk
                                          : ApngError::palette);
@@ -286,8 +237,7 @@ ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
             palette_seen = true;
         } else if (type == kChunkTrns) {
             if (idat_seen || transparency_seen ||
-                !apply_transparency(&image->canvas, data, length,
-                                    palette_seen)) {
+                !png_apply_transparency(&image->canvas, data, length)) {
                 return fail(result,
                             transparency_seen
                                 ? ApngError::duplicate_chunk
@@ -391,9 +341,7 @@ ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
             }
             ++result.ancillary_chunks;
             image->canvas.has_color_metadata =
-                image->canvas.has_color_metadata || type == kChunkSrgb ||
-                type == kChunkGama || type == kChunkChrm ||
-                type == kChunkIccp || type == kChunkCicp;
+                image->canvas.has_color_metadata || png_color_metadata_chunk(type);
         }
         cursor = static_cast<u32>(end);
         if (end_seen) {
@@ -415,17 +363,6 @@ ApngParseResult apng_parse(ConstSlice<u8> encoded, ApngImage* image,
     }
     result.error = ApngError::none;
     return result;
-}
-
-u64 apng_frame_duration_us(const ApngFrame& frame) noexcept {
-    const u32 denominator = frame.delay_den == 0 ? 100 : frame.delay_den;
-    const u64 scaled = static_cast<u64>(frame.delay_num) * 1'000'000ull;
-    u64 duration = scaled / denominator;
-    if (scaled % denominator != 0) {
-        ++duration;
-    }
-    duration = maximum(duration, kApngCompatibilityFrameFloorUs);
-    return minimum(duration, kApngFrameDurationMaximumUs);
 }
 
 ApngDecodeResult apng_decode_parsed_frame(

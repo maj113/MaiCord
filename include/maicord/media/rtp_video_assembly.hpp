@@ -15,7 +15,6 @@ struct RtpVideoAssembly {
     u64 nal_types;   // Bit n: a complete NAL unit of type n was emitted.
     u32 bytes;       // Annex B bytes written so far.
     u32 fu_offset;   // Start code offset of the fragmented NAL in progress.
-    u32 nal_units;   // Complete NAL units emitted.
     u8 fu_type;
     bool fu_active;  // A start fragment was seen; end not yet.
     bool damaged;    // Something was dropped: the access unit is not intact.

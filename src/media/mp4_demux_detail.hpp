@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/core/byte_order.hpp"
 #include "maicord/media/mp4_demux.hpp"
 
 // Private bounded box/table walker shared by the video and audio cursors. It
@@ -9,8 +10,8 @@ constexpr u32 fourcc(char a,char b,char c,char d) noexcept {
     return (u32{static_cast<u8>(a)}<<24)|(u32{static_cast<u8>(b)}<<16)|
            (u32{static_cast<u8>(c)}<<8)|u32{static_cast<u8>(d)};
 }
-u32 read_u32(const u8*) noexcept;
-u64 read_u64(const u8*) noexcept;
+inline u32 read_u32(const u8* p) noexcept { return byte_load_be32(p); }
+inline u64 read_u64(const u8* p) noexcept { return byte_load_be64(p); }
 bool next_box(ConstSlice<u8>,u64*,u64,Box*) noexcept;
 bool find_box(ConstSlice<u8>,u64,u64,u32,Box*) noexcept;
 // QuickTime may close an atom list (sample entry extensions, 'wave') with a

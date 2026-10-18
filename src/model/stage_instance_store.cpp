@@ -52,8 +52,7 @@ bool stage_instance_store_apply(StageInstanceStore* store, u64 id, u64 guild_id,
     next.channel_id = channel_id;
     next.privacy_level = privacy_level;
     next.topic_bytes = static_cast<u16>(bytes);
-    if (bytes)
-        copy_bytes(next.topic, topic.data, bytes);
+    copy_bytes(next.topic, topic.data, bytes);
     auto& slot = store->records[existing == ~0u ? store->count++ : existing];
     if (existing != ~0u && slot.id == next.id && slot.guild_id == next.guild_id &&
         slot.privacy_level == next.privacy_level && slot.topic_bytes == next.topic_bytes &&

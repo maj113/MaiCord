@@ -2,48 +2,16 @@
 #include "maicord/model/user_activity.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/protocol/json_ids.hpp"
+#include "json_fields.hpp"
 
 namespace maicord {
 namespace {
-struct Field {
-    Utf8View key;
-    JsonValue value;
-};
-struct Fields {
-    Field* data;
-    u32 count;
-};
-bool collect(void* opaque, JsonString key, JsonValue value) noexcept {
-    auto& f = *static_cast<Fields*>(opaque);
-    for (u32 i = 0; i < f.count; ++i)
-        if (json_string_equals_ascii(key, f.data[i].key)) {
-            if (f.data[i].value.source.data)
-                return false;
-            f.data[i].value = value;
-            break;
-        }
-    return true;
-}
-template <u32 N> bool object(const JsonIndexedDocument& doc, JsonValue value, Field (&fields)[N]) noexcept {
-    if (!value.source.data || value.kind == JsonValueKind::null_value)
-        return true;
-    Fields context{fields, N};
-    return json_visit_indexed_object(doc, value, 64, collect, &context).ok();
-}
+using namespace protocol_detail;
 bool present(JsonValue v) noexcept {
     return v.source.data != nullptr;
 }
-bool number(JsonValue v, u64* n) noexcept {
-    if (!present(v) || v.kind == JsonValueKind::null_value) {
-        *n = 0;
-        return true;
-    }
-    return v.kind == JsonValueKind::string ? json_value_to_snowflake(v, n)
-                                           : json_value_to_u64(v, n);
-}
 bool boolean(JsonValue v, bool* b) noexcept {
-    if (!present(v) || v.kind == JsonValueKind::null_value) {
+    if (!filled(v)) {
         *b = false;
         return true;
     }
@@ -54,7 +22,7 @@ bool boolean(JsonValue v, bool* b) noexcept {
 __declspec(noinline) bool string_into(JsonValue v, char* object, u32 object_bytes, u32 capacity,
                                       u16* bytes) noexcept {
     clear_bytes(object, object_bytes);
-    if (!present(v) || v.kind == JsonValueKind::null_value)
+    if (!filled(v))
         return true;
     JsonString input{};
     if (!json_value_as_string(v, &input))
@@ -82,7 +50,7 @@ bool color_item(void* opaque, u32, JsonValue value) noexcept {
 }
 bool colors(const JsonIndexedDocument& doc, JsonValue v, u32* out, u32 capacity, u32* count) noexcept {
     *count = 0;
-    if (!present(v) || v.kind == JsonValueKind::null_value)
+    if (!filled(v))
         return true;
     Colors c{out, capacity, 0};
     if (!json_visit_indexed_array(doc, v, 64, color_item, &c).ok())
@@ -198,7 +166,7 @@ bool peer_item(void* opaque, u32 i, JsonValue v) noexcept {
     if (!object(*c.doc, v, f) || !number(f[0].value, &b.id) || !b.id)
         return false;
     JsonValue name = c.friends ? f[4].value : f[2].value;
-    if (!present(name) || name.kind == JsonValueKind::null_value)
+    if (!filled(name))
         name = c.friends ? f[3].value : JsonValue{};
     if (!string(name, &b.name) || !string(c.friends ? f[5].value : f[6].value, &b.icon))
         return false;
@@ -219,7 +187,7 @@ struct EffectLayerContext {
     ProfileEffect* output;
 };
 bool signed_number(JsonValue value, i32* output) noexcept {
-    if (!present(value) || value.kind == JsonValueKind::null_value)
+    if (!filled(value))
         return true;
     const auto raw = value.source;
     if (!raw.bytes)
@@ -313,13 +281,12 @@ bool profile_details(const JsonIndexedDocument& doc, JsonValue value, UserProfil
         p->accent_color = static_cast<u32>(accent);
     }
     Effect effect{&doc, guild ? &p->guild_effect_sku_id : &p->effect_sku_id};
-    return !present(f[5].value) || f[5].value.kind == JsonValueKind::null_value ||
-           json_visit_indexed_array(doc, f[5].value, 64, effect_item, &effect).ok();
+    return !filled(f[5].value) || json_visit_indexed_array(doc, f[5].value, 64, effect_item, &effect).ok();
 }
 } // namespace
 bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 id, u64 guild,
                                UserAppearance* output) noexcept {
-    if (!output || !id)
+    if (!id)
         return false;
     UserAppearance a{};
     a.user_id = id;
@@ -387,8 +354,6 @@ bool user_appearance_decode(const JsonIndexedDocument& doc, JsonValue user, u64 
 }
 bool activity_decode(const JsonIndexedDocument& doc, JsonValue presence,
                              UserAppearance* output) noexcept {
-    if (!output)
-        return false;
     Field f[] = {{utf8_literal("activities")}};
     if (!object(doc, presence, f))
         return false;
@@ -405,7 +370,7 @@ bool activity_decode(const JsonIndexedDocument& doc, JsonValue presence,
 }
 bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected, u64 guild,
                             UserProfile* p) noexcept {
-    if (!p || !expected)
+    if (!expected)
         return false;
     *p = {};
     const auto scan = json_scan_structurals_avx1(json, scratch);
@@ -422,8 +387,6 @@ bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected, u64 gu
                  {utf8_literal("mutual_friends")},
                  {utf8_literal("mutual_friends_count")},
                  {utf8_literal("premium_type")},
-                 {utf8_literal("premium_since")},
-                 {utf8_literal("premium_guild_since")},
                  {utf8_literal("private")},
                  {utf8_literal("guild_badges")}};
     if (!object(doc, {json, 0, JsonValueKind::object}, f))
@@ -446,7 +409,7 @@ bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected, u64 gu
     // Some profile responses carry the global banner on the user object.
     if (!p->banner.bytes && !string(u[4].value, &p->banner))
         return false;
-    if (present(f[2].value) && f[2].value.kind != JsonValueKind::null_value) {
+    if (filled(f[2].value)) {
         Field m[] = {{utf8_literal("nick")}, {utf8_literal("roles")}, {utf8_literal("joined_at")}};
         if (!object(doc, f[2].value, m) || !string(m[0].value, &p->nickname) ||
             !string(m[2].value, &p->joined_at) ||
@@ -456,27 +419,21 @@ bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected, u64 gu
             return false;
     }
     ProfileContext context{&doc, p};
-    if (present(f[4].value) && f[4].value.kind != JsonValueKind::null_value &&
-        !json_visit_indexed_array(doc, f[4].value, 64, badge_item, &context).ok())
+    if (filled(f[4].value) && !json_visit_indexed_array(doc, f[4].value, 64, badge_item, &context).ok())
         return false;
-    if (present(f[13].value) && f[13].value.kind != JsonValueKind::null_value &&
-        !json_visit_indexed_array(doc, f[13].value, 64, badge_item, &context).ok())
+    if (filled(f[11].value) && !json_visit_indexed_array(doc, f[11].value, 64, badge_item, &context).ok())
         return false;
-    if (present(f[5].value) && f[5].value.kind != JsonValueKind::null_value &&
-        !json_visit_indexed_array(doc, f[5].value, 64, connection_item, &context).ok())
+    if (filled(f[5].value) && !json_visit_indexed_array(doc, f[5].value, 64, connection_item, &context).ok())
         return false;
     PeerContext guilds{&doc, p->mutual_guilds, &p->mutual_guild_count, false},
         friends{&doc, p->mutual_friends, &p->mutual_friends_count, true};
-    if (present(f[6].value) && f[6].value.kind != JsonValueKind::null_value &&
-        !json_visit_indexed_array(doc, f[6].value, 64, peer_item, &guilds).ok())
+    if (filled(f[6].value) && !json_visit_indexed_array(doc, f[6].value, 64, peer_item, &guilds).ok())
         return false;
-    if (present(f[7].value) && f[7].value.kind != JsonValueKind::null_value &&
-        !json_visit_indexed_array(doc, f[7].value, 64, peer_item, &friends).ok())
+    if (filled(f[7].value) && !json_visit_indexed_array(doc, f[7].value, 64, peer_item, &friends).ok())
         return false;
     u64 premium = 0, count = 0;
     if (!number(f[8].value, &count) || count > 0xFFFFFFFF || !number(f[9].value, &premium) ||
-        premium > 255 || !string(f[10].value, &p->premium_since) ||
-        !string(f[11].value, &p->premium_guild_since) || !boolean(f[12].value, &p->private_profile))
+        premium > 255 || !boolean(f[10].value, &p->private_profile))
         return false;
     p->premium_type = static_cast<u8>(premium);
     p->mutual_friend_count = present(f[8].value) ? static_cast<u32>(count) : p->mutual_friends_count;
@@ -484,7 +441,7 @@ bool user_profile_decode(Utf8View json, Slice<u32> scratch, u64 expected, u64 gu
 }
 bool profile_effect_decode(Utf8View json, Slice<u32> scratch, u64 sku,
                                    ProfileEffect* output) noexcept {
-    if (!output || !sku)
+    if (!sku)
         return false;
     ProfileEffect effect{};
     effect.sku = sku;

@@ -359,9 +359,7 @@ void free_runtime(Runtime* r) noexcept {
 NotificationAudioResult launch(NotificationAudio& owner) noexcept {
     auto* r=static_cast<Runtime*>(VirtualAlloc(nullptr,sizeof(Runtime),MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE));
     if(!r)return fail(NotificationAudioError::memory,thread_last_error());
-    // Fresh committed VM is already zero. Only published/active descriptors
-    // carry the clip default rate; every queue/voice insertion writes its full
-    // slot, so no unused slot needs an aggregate initialization stencil.
+    // VirtualAlloc memory is zeroed; every queue and voice slot is written in full on insertion.
     r->config=owner.config;r->status.desired_epoch=owner.epoch;r->status.enabled=owner.enabled;
     r->command=CreateEventW(nullptr,FALSE,FALSE,nullptr);
     if(!r->command){const u32 error=thread_last_error();free_runtime(r);return fail(NotificationAudioError::event,error);}

@@ -90,13 +90,9 @@ template<bool detailed> Reorder cluster(ConstSlice<u32> input,u32 start) noexcep
         }
     info.end=at;info.count=state.count;return info;
 }
-bool overlaps(const void* a,u64 an,const void* b,u64 bn) noexcept {
-    const u64 x=reinterpret_cast<usize>(a),y=reinterpret_cast<usize>(b);
-    return x>~u64{0}-an||y>~u64{0}-bn||(an&&bn&&x<y+bn&&y<x+an);
-}
 }
 SfntStatus sfnt_myanmar_cluster_boundaries(ConstSlice<u32> input,Slice<u8> output,u64 work) noexcept {
-    if((input.count&&!input.data)||(output.count&&!output.data)||overlaps(input.data,static_cast<u64>(input.count)*4,output.data,output.count))return SfntStatus::invalid_input;
+    if((input.count&&!input.data)||(output.count&&!output.data)||byte_ranges_overlap_or_wrap(input.data,static_cast<u64>(input.count)*4,output.data,output.count))return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*16>work)return SfntStatus::resource_limit;
     for(u32 i=0;i<input.count;++i)if(!unicode_is_scalar(input[i]))return SfntStatus::invalid_input;
     if(output.count<input.count)return SfntStatus::output_too_small;
@@ -108,7 +104,7 @@ SfntStatus sfnt_myanmar_cluster_boundaries(ConstSlice<u32> input,Slice<u8> outpu
 SfntStatus sfnt_myanmar_prepare_input(ConstSlice<u32> input,Slice<SfntIndicInputScalar> output,SfntIndicInputResult* result,u64 work) noexcept {
     if(!result)return SfntStatus::invalid_input;*result={};
     if((input.count&&!input.data)||(output.count&&!output.data)||
-       overlaps(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*sizeof(SfntIndicInputScalar)))return SfntStatus::invalid_input;
+       byte_ranges_overlap_or_wrap(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*sizeof(SfntIndicInputScalar)))return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*64>work)return SfntStatus::resource_limit;
     u64 units=0,required=input.count;
     for(u32 i=0;i<input.count;++i){if(!unicode_is_scalar(input[i]))return SfntStatus::invalid_input;units+=input[i]>0xffff?2:1;}

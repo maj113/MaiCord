@@ -15,11 +15,6 @@ bool store_valid(const MessageDraftStore& store) noexcept {
            store.text_used <= store.text_capacity && store.text_wasted <= store.text_used;
 }
 
-bool text_boundary(Utf8View text, u32 offset) noexcept {
-    return offset <= text.bytes &&
-           (offset == 0 || offset == text.bytes || (static_cast<u8>(text.data[offset]) & 0xC0u) != 0x80u);
-}
-
 MessageDraftStoreError validate_input(const MessageDraftStore* store,
                                       const MessageDraftInput& input) noexcept {
     if (!store || !store_valid(*store) || input.channel_id == 0 ||
@@ -27,8 +22,8 @@ MessageDraftStoreError validate_input(const MessageDraftStore* store,
         input.anchor > input.text.bytes || input.caret > input.text.bytes) {
         return MessageDraftStoreError::invalid_input;
     }
-    if (!utf8_validate(input.text).valid || !text_boundary(input.text, input.anchor) ||
-        !text_boundary(input.text, input.caret)) {
+    if (!utf8_validate(input.text).valid || !utf8_is_boundary(input.text, input.anchor) ||
+        !utf8_is_boundary(input.text, input.caret)) {
         return MessageDraftStoreError::invalid_utf8;
     }
     const u64 source_begin = reinterpret_cast<u64>(input.text.data);
@@ -68,9 +63,6 @@ bool text_equal(const MessageDraftStore& store, const MessageDraftRecord& record
 }
 
 bool compact(MessageDraftStore* store) noexcept {
-    if (!store_valid(*store)) {
-        return false;
-    }
     u32 write_offset = 0;
     for (u32 index = 0; index < store->capacity; ++index) {
         if (store->records[index].occupied && store->records[index].text_bytes == 0) {
@@ -121,10 +113,8 @@ u64 touch(MessageDraftStore* store) noexcept {
     return store->clock;
 }
 
-bool erase_index(MessageDraftStore* store, u32 index) noexcept {
-    if (!store_valid(*store) || index >= store->capacity || !store->records[index].occupied) {
-        return false;
-    }
+// The caller passes an occupied record of a validated store.
+void erase_index(MessageDraftStore* store, u32 index) noexcept {
     MessageDraftRecord& record = store->records[index];
     clear_bytes(store->text + record.text_offset, record.text_bytes);
     store->text_wasted += record.text_bytes;
@@ -132,7 +122,6 @@ bool erase_index(MessageDraftStore* store, u32 index) noexcept {
     --store->count;
     ++store->deleted;
     ++store->revision;
-    return true;
 }
 
 bool initialize_store(MessageDraftStore* store, Slice<MessageDraftRecord> records, Slice<u8> text,
@@ -179,9 +168,8 @@ MessageDraftStoreResult message_draft_store_save(MessageDraftStore* store,
         if (found == store->capacity) {
             return MessageDraftStoreResult{~0u, MessageDraftStoreError::none, false, false};
         }
-        return erase_index(store, found)
-                   ? MessageDraftStoreResult{found, MessageDraftStoreError::none, true, true}
-                   : draft_error(MessageDraftStoreError::invalid_input);
+        erase_index(store, found);
+        return MessageDraftStoreResult{found, MessageDraftStoreError::none, true, true};
     }
     if (found != store->capacity) {
         MessageDraftRecord& record = store->records[found];
@@ -297,9 +285,8 @@ MessageDraftStoreResult message_draft_store_clear_reply(MessageDraftStore* store
     }
     MessageDraftRecord& record = store->records[index];
     if (record.text_bytes == 0) {
-        return erase_index(store, index)
-                   ? MessageDraftStoreResult{index, MessageDraftStoreError::none, true, true}
-                   : draft_error(MessageDraftStoreError::invalid_input);
+        erase_index(store, index);
+        return MessageDraftStoreResult{index, MessageDraftStoreError::none, true, true};
     }
     record.reply_message_id = 0;
     record.mention_reply_author = true;
@@ -354,7 +341,9 @@ bool message_draft_store_delete(MessageDraftStore* store, u64 channel_id) noexce
         return false;
     }
     const u32 index = find_index(*store, channel_id);
-    return index == store->capacity || erase_index(store, index);
+    if (index != store->capacity)
+        erase_index(store, index);
+    return true;
 }
 
 bool message_draft_store_reset(MessageDraftStore* store) noexcept {

@@ -6,10 +6,6 @@ u32 split_extra(const SfntIndicScript& info,u32 scalar) noexcept {
     if(bit>=16||!(info.split_vowels&(1u<<bit)))return 0;
     return scalar==0xccb?2u:1u;
 }
-bool overlaps(const void* a,u64 an,const void* b,u64 bn) noexcept {
-    const u64 x=reinterpret_cast<usize>(a),y=reinterpret_cast<usize>(b);
-    return x>~u64{0}-an||y>~u64{0}-bn||(an&&bn&&x<y+bn&&y<x+an);
-}
 }
 SfntStatus sfnt_indic_expand_cluster(SfntIndicProfile profile,ConstSlice<u32> input,Slice<SfntIndicInputScalar> output,
     SfntIndicInputResult* result,u64 work,u32 extra_limit) noexcept {
@@ -17,7 +13,7 @@ SfntStatus sfnt_indic_expand_cluster(SfntIndicProfile profile,ConstSlice<u32> in
     const auto* info=sfnt_indic_script(profile);
     if(!info||(input.count&&!input.data)||(output.count&&!output.data))return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*3>work)return SfntStatus::resource_limit;
-    if(overlaps(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*8))return SfntStatus::invalid_input;
+    if(byte_ranges_overlap_or_wrap(input.data,static_cast<u64>(input.count)*4,output.data,static_cast<u64>(output.count)*8))return SfntStatus::invalid_input;
     u64 count=input.count,units=0;u32 remaining=extra_limit;
     for(u32 i=0;i<input.count;++i){const u32 scalar=input[i];if(!unicode_is_scalar(scalar))return SfntStatus::invalid_input;
         const u32 extra=split_extra(*info,scalar);

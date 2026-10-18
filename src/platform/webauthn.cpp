@@ -16,13 +16,9 @@ using GetAssertionFunction = HRESULT(WINAPI*)(
 using FreeAssertionFunction = void(WINAPI*)(PWEBAUTHN_ASSERTION) noexcept;
 using GetCancellationIdFunction = HRESULT(WINAPI*)(GUID*) noexcept;
 
-WindowsWebAuthnResult failure(
-    WindowsWebAuthnError error, HRESULT result = S_OK,
-    u32 api_version = 0,
-    WebAuthnMfaError codec_error = WebAuthnMfaError::none,
-    u32 bytes = 0) noexcept {
-    return WindowsWebAuthnResult{static_cast<i32>(result), api_version, bytes,
-                                 error, codec_error};
+WindowsWebAuthnResult failure(WindowsWebAuthnError error, HRESULT result = S_OK,
+                              u32 api_version = 0) noexcept {
+    return WindowsWebAuthnResult{static_cast<i32>(result), api_version, error};
 }
 
 DWORD verification_requirement(
@@ -93,8 +89,7 @@ WindowsWebAuthnResult windows_webauthn_authenticate(
         SecureZeroMemory(client_data_bytes, sizeof(client_data_bytes));
         FreeLibrary(module);
         return failure(WindowsWebAuthnError::client_data, E_INVALIDARG,
-                       api_version, client_data.error,
-                       client_data.bytes);
+                       api_version);
     }
 
     WEBAUTHN_CREDENTIAL_EX
@@ -204,13 +199,11 @@ WindowsWebAuthnResult windows_webauthn_authenticate(
                 serialized.error == WebAuthnMfaError::output_too_small
                     ? WindowsWebAuthnError::output_too_small
                     : WindowsWebAuthnError::assertion,
-                E_FAIL, api_version, serialized.error,
-                serialized.bytes);
+                E_FAIL, api_version);
         } else {
             serialized_credential->bytes = serialized.bytes;
             result = failure(WindowsWebAuthnError::none, S_OK,
-                             api_version, WebAuthnMfaError::none,
-                             serialized.bytes);
+                             api_version);
         }
     }
     if (assertion) {

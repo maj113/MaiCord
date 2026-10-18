@@ -8,11 +8,11 @@ struct SfntPosition {double advance,advance_offset,ascender_offset;};
 struct SfntPlacement {float advance,advance_offset,ascender_offset;};
 using SfntAnchorPointResolver=SfntStatus(*)(void* context,u16 glyph,u16 point,double* x,double* y) noexcept;
 enum SfntPositionFlags : u8 {sfnt_position_zero_advance=1,sfnt_position_cluster_start=2};
-struct SfntPositionExecution {u64 operations,matches,adjusted_glyphs;};
+struct SfntPositionExecution {u64 operations,matches;};
 // A contextual child applies only at start and bypasses initial filtering; its
 // other inputs still obey the lookup filter and input_end.
 enum class SfntPositionApplication : u8 {scan,selected};
-static_assert(sizeof(SfntPosition)==24 && sizeof(SfntPlacement)==12 && sizeof(SfntPositionExecution)==24);
+static_assert(sizeof(SfntPosition)==24 && sizeof(SfntPlacement)==12 && sizeof(SfntPositionExecution)==16);
 // Projects current source-cluster transitions and caller-resolved final classes into
 // natural-horizontal position flags. Interleaved membership can start the same
 // source cluster more than once in glyph order. Records begin with SfntClusterGlyph;

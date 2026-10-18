@@ -1,7 +1,6 @@
 #include "maicord/text/font_match.hpp"
 namespace maicord {namespace {
 bool valid(NativeFontProperties p) noexcept {return p.weight&&p.weight<=1000&&p.width&&p.width<=9&&p.style<=2;}
-i32 absolute(i32 n) noexcept {return n<0?-n:n;}
 struct Rank {i32 distance,negative_dot,x,y,z,simulations,base_weight;};
 bool before(const Rank& a,const Rank& b) noexcept {
     const i32 left[]{a.distance,a.negative_dot,a.x,a.y,a.z,a.simulations,a.base_weight};
@@ -24,8 +23,8 @@ SfntStatus native_font_match(ConstSlice<NativeFontProperties> candidates,NativeF
         const i32 dx=x-qx,dy=y-qy,dz=z-qz;
         // Validated domains bound squared distance below 105 million and the
         // dot product below 31 million; signed 32-bit arithmetic is sufficient.
-        const Rank rank{dx*dx+dy*dy+dz*dz,-(x*qx+y*qy+z*qz),absolute(dx),absolute(dy),absolute(dz),
-            static_cast<i32>((simulations&1)+((simulations>>1)&1)),absolute(static_cast<i32>(base.weight)-requested.weight)};
+        const Rank rank{dx*dx+dy*dy+dz*dz,-(x*qx+y*qy+z*qz),absolute_value<i32>(dx),absolute_value<i32>(dy),absolute_value<i32>(dz),
+            static_cast<i32>((simulations&1)+((simulations>>1)&1)),absolute_value<i32>(static_cast<i32>(base.weight)-requested.weight)};
         if(!i||before(rank,best)){best=rank;result={i,p,simulations};}
     }
     *output=result;return SfntStatus::ok;

@@ -38,6 +38,14 @@ inline bool bytes_equal(const void* left, const void* right, u32 bytes) noexcept
     return true;
 }
 
+inline bool bytes_zero(const void* data, usize bytes) noexcept {
+    const auto* p = static_cast<const u8*>(data);
+    for (usize i = 0; i < bytes; ++i)
+        if (p[i])
+            return false;
+    return true;
+}
+
 inline void clear_bytes(void* destination, u32 bytes) noexcept {
     if (bytes != 0) {
         memset(destination, 0, bytes);

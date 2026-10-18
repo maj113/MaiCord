@@ -11,7 +11,6 @@ bool integer(double value, i32* out) noexcept {
     if (!(value >= -2147483648.0 && value <= 2147483647.0)) return false;
     *out = static_cast<i32>(value); return *out == value;
 }
-double absolute(double value) noexcept { return value < 0 ? -value : value; }
 float positive_zero(float value) noexcept {
     const __m128 packed=_mm_set_ss(value);
     return _mm_cvtss_f32(_mm_andnot_ps(_mm_cmpeq_ss(packed,_mm_setzero_ps()),packed));
@@ -205,7 +204,7 @@ template<bool Bold> struct VirtualMachine {
         if (!count) return SfntStatus::malformed;
         switch (op) {
         case 5: stack[count-1] = stack[count-1] == 0 ? 1 : 0; break;
-        case 9: stack[count-1] = absolute(stack[count-1]); break;
+        case 9: stack[count-1] = absolute_value<double>(stack[count-1]); break;
         case 14: stack[count-1] = -stack[count-1]; break;
         case 18: --count; break;
         case 26:
@@ -274,7 +273,7 @@ template<bool Bold> struct VirtualMachine {
         } else if (op == 37 && count == 11) {
             const double dx = s[0]+s[2]+s[4]+s[6]+s[8], dy = s[1]+s[3]+s[5]+s[7]+s[9];
             ok = curve(s[0],s[1],s[2],s[3],s[4],s[5]) &&
-                 curve(s[6],s[7],s[8],s[9],absolute(dx)>absolute(dy)?s[10]:-dx,absolute(dx)>absolute(dy)?-dy:s[10]);
+                 curve(s[6],s[7],s[8],s[9],absolute_value<double>(dx)>absolute_value<double>(dy)?s[10]:-dx,absolute_value<double>(dx)>absolute_value<double>(dy)?-dy:s[10]);
         } else return SfntStatus::malformed;
         flex_points = false;
         count = 0;

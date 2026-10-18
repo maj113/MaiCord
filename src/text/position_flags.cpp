@@ -4,7 +4,7 @@ namespace maicord {
 SfntStatus sfnt_position_flags_from_clusters(const SfntClusterMap& clusters,SfntGlyphView glyphs,Slice<u8> output,ConstSlice<u8> zero,u64 work) noexcept {
     if(!sfnt_glyph_view_valid(glyphs) || glyphs.record_size<sizeof(SfntClusterGlyph) || (output.count && !output.data) || (zero.count && !zero.data))return SfntStatus::invalid_input;
     const u32 count=sfnt_glyph_count(glyphs);if(output.count<count || (zero.count && zero.count<count))return SfntStatus::output_too_small;
-    if(zero.count && zero.data!=output.data){const usize a=reinterpret_cast<usize>(zero.data),b=reinterpret_cast<usize>(output.data);if(a>~usize{0}-count || b>~usize{0}-count || (a<b+count && b<a+count))return SfntStatus::invalid_input;}
+    if(zero.count && zero.data!=output.data && byte_ranges_overlap_or_wrap(zero.data,count,output.data,count))return SfntStatus::invalid_input;
     // Reserve the maximum query cost before output; repeated membership in
     // the same source interval reuses the previous boundary query.
     if(static_cast<u64>(count)*(static_cast<u64>(clusters.levels)*2+4)>work)return SfntStatus::resource_limit;

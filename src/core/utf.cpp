@@ -441,9 +441,6 @@ bool utf8_is_boundary(Utf8View text, u32 offset) noexcept {
            (offset == 0 || offset == text.bytes || (static_cast<u8>(text.data[offset]) & 0xC0u) != 0x80u);
 }
 
-} // namespace maicord
-
-namespace maicord {
 bool utf8_copy_utf16_range(Utf8View text, u32 start, u32 end, Slice<u16> output, u32* written, u32* next) noexcept {
     if (!written || !next || (!output.data && output.count) || start > end) return false;
     u32 first = 0, last = 0;
@@ -464,4 +461,5 @@ bool utf8_copy_utf16_range(Utf8View text, u32 start, u32 end, Slice<u16> output,
     }
     *written = copied; *next = position; return true;
 }
-}
+
+} // namespace maicord

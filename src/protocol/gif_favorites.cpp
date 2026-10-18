@@ -2,14 +2,16 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "json_fields.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
+using namespace protocol_detail;
 using E = GifFavoritesError;
 struct Wire {
     ConstSlice<u8> raw;
@@ -213,11 +215,7 @@ E versions(const Wire& w, u32 p, u32 end, GifFavoritesResult& result) noexcept {
         if (f >= 1 && f <= 3) {
             if (t != 0 || !varint(w, p, end, n) || n > ~u32{0})
                 return E::protobuf;
-            if (f == 1)
-                result.client_version = static_cast<u32>(n);
-            else if (f == 2)
-                result.server_version = static_cast<u32>(n);
-            else
+            if (f == 3)
                 result.data_version = static_cast<u32>(n);
         } else if (!skip(w, p, end, t, f))
             return E::protobuf;
@@ -226,7 +224,6 @@ E versions(const Wire& w, u32 p, u32 end, GifFavoritesResult& result) noexcept {
 }
 GifFavoritesResult measure(const Wire& w) noexcept {
     GifFavoritesResult result{};
-    result.proto_bytes = w.size;
     u32 p = 0;
     while (p < w.size) {
         u32 f = 0, t = 0;
@@ -642,31 +639,6 @@ void write_group(const Wire& group, const GifFavoriteMutation& mutation, const M
     if (plan.set_hide_tooltip)
         out.scalar(2, 1);
 }
-struct PatchJson {
-    Utf8View encoded;
-    u32 version;
-    u8 seen;
-};
-bool patch_member(void* opaque, JsonString key, JsonValue value) noexcept {
-    auto& result = *static_cast<PatchJson*>(opaque);
-    if (json_string_equals_ascii(key, utf8_literal("settings"))) {
-        JsonString encoded{};
-        if ((result.seen & 1) || !json_value_as_string(value, &encoded) || encoded.has_escapes)
-            return false;
-        result.seen |= 1;
-        result.encoded = encoded.encoded;
-        return true;
-    }
-    if (json_string_equals_ascii(key, utf8_literal("required_data_version"))) {
-        u64 version = 0;
-        if ((result.seen & 2) || !json_value_to_u64(value, &version) || version > ~u32{0})
-            return false;
-        result.seen |= 2;
-        result.version = static_cast<u32>(version);
-        return true;
-    }
-    return false;
-}
 } // namespace
 GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 data_version,
                                                   const GifFavoriteMutation& mutation, Slice<u8> scratch,
@@ -679,7 +651,7 @@ GifFavoritesWriteResult gif_favorites_write_patch(ConstSlice<u8> observed, u32 d
         !byte_range_valid(src) || !mutation.url.bytes ||
         mutation.url.bytes > kGifFavoritesMaximumGroupBytes ||
         mutation.src.bytes > kGifFavoritesMaximumGroupBytes ||
-        mutation.kind > GifFavoriteMutationKind::reorder || !utf8_validate(mutation.url).valid ||
+        !utf8_validate(mutation.url).valid ||
         (mutation.kind == GifFavoriteMutationKind::add &&
          (!mutation.src.bytes || !utf8_validate(mutation.src).valid ||
           (mutation.format != GifFavoriteFormat::image && mutation.format != GifFavoriteFormat::video))))
@@ -760,9 +732,9 @@ GifFavoritesError gif_favorites_validate_patch_json(Utf8View input) noexcept {
         return E::input;
     u32 structurals[16]{};
     const auto scan = json_scan_structurals_avx1(input, {structurals, 16});
-    PatchJson parsed{};
+    SettingsPatchEnvelope parsed{};
     if (!scan.ok() ||
-        !json_visit_root_object(input, {structurals, scan.count}, 2, patch_member, &parsed).ok() ||
+        !json_visit_root_object(input, {structurals, scan.count}, 2, settings_patch_member, &parsed).ok() ||
         parsed.seen != 3)
         return E::envelope;
     Wire w{};

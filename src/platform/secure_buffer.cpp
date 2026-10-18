@@ -226,8 +226,6 @@ SecureBufferResult secure_buffer_unprotect_user_bound(ConstSlice<u8> protected_i
     const bool locked = native_error == 0;
     if (!locked) {
         result = failure(SecureBufferError::lock_failed, native_error);
-    } else if (output.cbData > plaintext->capacity) {
-        result = failure(SecureBufferError::output_too_small, 0, output.cbData);
     } else {
         result = secure_buffer_assign(plaintext, ConstSlice<u8>{output.pbData, output.cbData});
     }

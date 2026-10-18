@@ -153,7 +153,7 @@ bool taskbar_attention_initialize(TaskbarAttention* attention) noexcept {
     return true;
 }
 
-bool taskbar_attention_window_message(TaskbarAttention* attention, HWND, UINT message) noexcept {
+bool taskbar_attention_window_message(TaskbarAttention* attention, UINT message) noexcept {
     if (!attention || !attention->created_message || message != attention->created_message)
         return false;
     // Explorer restarts recreate the button; the overlay must be reapplied.

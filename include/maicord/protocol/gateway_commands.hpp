@@ -103,8 +103,6 @@ inline constexpr u32 kGatewayUserMaximumReleaseChannelBytes = 32;
 inline constexpr u32 kGatewayUserMaximumArchitectureBytes = 16;
 inline constexpr u32 kGatewayUserLaunchIdBytes = 36;
 
-bool gateway_user_launch_id_valid(Utf8View value) noexcept;
-
 enum class GatewayUserStatus : u8 {
     online,
     idle,

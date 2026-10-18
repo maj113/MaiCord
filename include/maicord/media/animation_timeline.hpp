@@ -18,7 +18,6 @@ inline constexpr u32 kAnimationTimelineFrameMaximum = 0xFFFFu;
 inline constexpr u64 kAnimationLateResyncUs = 100'000;
 
 enum AnimationTimelineEntryFlags : u32 {
-    animation_timeline_entry_none = 0,
     animation_timeline_entry_occupied = 1u << 0,
     animation_timeline_entry_visible = 1u << 1,
     animation_timeline_entry_pending = 1u << 2,
@@ -113,7 +112,6 @@ struct AnimationTimelineCollectResult {
     AnimationTimelineError error;
     u32 advances;
     u32 completed;
-    u64 next_wake_at_us;
 
     constexpr bool ok() const noexcept {
         return error == AnimationTimelineError::none;
@@ -139,6 +137,10 @@ AnimationTimelineResult animation_timeline_find(const AnimationTimeline* timelin
                                                 MediaAssetKey key) noexcept;
 AnimationTimelineResult animation_timeline_release(AnimationTimeline* timeline, MediaAssetKey key,
                                                    u32 generation) noexcept;
+// Rewinds the entry to its first frame once per distinct nonzero playback epoch. False for an unknown
+// key or while an advance is pending.
+bool animation_timeline_restart(AnimationTimeline* timeline, MediaAssetKey key, u64 epoch,
+                                u64 now_us) noexcept;
 
 // A visibility epoch is committed only by end_visibility. Callers that abort a
 // partial visible-range scan can omit end_visibility, leaving prior state
@@ -167,7 +169,3 @@ static_assert(sizeof(AnimationTimeline) == 120);
 static_assert(sizeof(AnimationFrameAdvance) == 40);
 
 } // namespace maicord
-
-namespace maicord {
-bool animation_timeline_restart(AnimationTimeline*, MediaAssetKey, u64 epoch, u64 now_us) noexcept;
-}

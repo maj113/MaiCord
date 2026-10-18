@@ -1,8 +1,10 @@
 #include "maicord/protocol/voice_media_events.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
+namespace {
+// Recognized wire names, not a claim that an encryptor is implemented.
 u32 voice_transport_mode(JsonString name) noexcept {
     if (json_string_equals_ascii(name, utf8_literal("aead_aes256_gcm_rtpsize")))
         return voice_transport_aes256_gcm_rtpsize;
@@ -10,7 +12,6 @@ u32 voice_transport_mode(JsonString name) noexcept {
         return voice_transport_xchacha20_poly1305_rtpsize;
     return 0;
 }
-namespace {
 struct Read {
     JsonIndexedDocument document;
     VoiceReady ready;
@@ -86,17 +87,12 @@ bool ready_field(void* opaque, JsonString name, JsonValue value) noexcept {
         read.ready.port = static_cast<u16>(number);
         break;
     case 3:
-        read.ready.modes = value;
         valid = array(read, value, modes, true);
         break;
     case 4:
-        read.ready.streams = value;
-        read.ready.has_streams = true;
         valid = array(read, value, objects);
         break;
     case 5:
-        read.ready.experiments = value;
-        read.ready.has_experiments = true;
         valid = array(read, value, strings);
         break;
     }
@@ -124,49 +120,37 @@ bool description_field(void* opaque, JsonString name, JsonValue value) noexcept 
         return reject(read, GatewayEventDecodeError::duplicate_field, value.source_offset);
     read.seen |= bit;
     auto& d = read.description;
+    JsonString text{};
     u64 number = 0;
     bool valid = false;
     switch (index) {
-    case 0:
-        valid = string(value, &d.mode);
-        d.recognized_mode = voice_transport_mode(d.mode);
-        break;
     case 1:
         valid = array(read, value, key_byte) && read.keys == 32;
-        break;
-    case 2:
-        valid = string(value, &d.sdp);
-        break;
-    case 3:
-        d.has_audio_codec = true;
-        valid = string(value, &d.audio_codec);
         break;
     case 4:
         d.has_video_codec = true;
         valid = string(value, &d.video_codec);
-        break;
-    case 5:
-        d.has_media_session_id = true;
-        valid = string(value, &d.media_session_id);
         break;
     case 6:
         d.has_keyframe_interval = true;
         valid = json_value_to_u64(value, &number) && number <= ~u32{0};
         d.keyframe_interval_ms = static_cast<u32>(number);
         break;
-    case 7:
-        valid = string(value, &d.bandwidth_experiment);
-        break;
     case 8:
         valid = json_value_to_u64(value, &number) && number <= 65535;
         d.dave_protocol_version = static_cast<u16>(number);
+        break;
+    default: // mode, sdp, audio codec, media session id and bandwidth experiment are validated only.
+        valid = string(value, &text);
+        if (index == 0)
+            d.recognized_mode = voice_transport_mode(text);
         break;
     }
     return valid || reject(read, GatewayEventDecodeError::invalid_data, value.source_offset);
 }
 GatewayEventDecodeResult decode(JsonValue data, Slice<u32> scratch, u32 depth, JsonMemberVisitor visitor,
                                 Read& read) noexcept {
-    if (data.kind != JsonValueKind::object || !data.source.data || !depth)
+    if (data.kind != JsonValueKind::object)
         return {data.source_offset, GatewayEventDecodeError::invalid_input};
     const auto scan = json_scan_structurals_avx1(data.source, scratch);
     if (!scan.ok())
@@ -186,8 +170,6 @@ GatewayEventDecodeResult decode(JsonValue data, Slice<u32> scratch, u32 depth, J
 } // namespace
 GatewayEventDecodeResult voice_decode_ready(JsonValue data, Slice<u32> scratch, u32 maximum_depth,
                                             VoiceReady* output) noexcept {
-    if (!output)
-        return {data.source_offset, GatewayEventDecodeError::invalid_input};
     Read read{};
     const auto result = decode(data, scratch, maximum_depth, ready_field, read);
     if (!result.ok())
@@ -201,7 +183,7 @@ GatewayEventDecodeResult voice_decode_session_description(JsonValue data, Slice<
                                                           u32 maximum_depth,
                                                           VoiceSessionDescription* output,
                                                           Slice<u8> key_output) noexcept {
-    if (!output || (key_output.count && (!key_output.data || key_output.count != 32)))
+    if (key_output.count && (!key_output.data || key_output.count != 32))
         return {data.source_offset, GatewayEventDecodeError::invalid_input};
     if (key_output.count) {
         const usize source = reinterpret_cast<usize>(data.source.data),
@@ -222,7 +204,7 @@ GatewayEventDecodeResult voice_decode_session_description(JsonValue data, Slice<
                 copy_bytes(key_output.data, read.key, 32);
         }
     }
-    SecureZeroMemory(read.key, sizeof(read.key));
+    secure_clear_bytes(read.key, sizeof(read.key));
     return result;
 }
 } // namespace maicord

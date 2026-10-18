@@ -2,14 +2,16 @@
 #include "maicord/core/decimal.hpp"
 #include "maicord/protocol/base64.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "json_fields.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
+using namespace protocol_detail;
 using E = EmojiPreferencesError;
 constexpr u32 kFavorites = 5, kFrecency = 6, kReactionFrecency = 13;
 
@@ -500,36 +502,12 @@ bool entries_valid(ConstSlice<EmojiFrecencyEntry> entries) noexcept {
             return false;
     return true;
 }
-
-struct PatchJson {
-    Utf8View encoded;
-    u8 seen;
-};
-bool patch_member(void* opaque, JsonString key, JsonValue value) noexcept {
-    auto& result = *static_cast<PatchJson*>(opaque);
-    if (json_string_equals_ascii(key, utf8_literal("settings"))) {
-        JsonString encoded{};
-        if ((result.seen & 1) || !json_value_as_string(value, &encoded) || encoded.has_escapes)
-            return false;
-        result.seen |= 1;
-        result.encoded = encoded.encoded;
-        return true;
-    }
-    if (json_string_equals_ascii(key, utf8_literal("required_data_version"))) {
-        u64 version = 0;
-        if ((result.seen & 2) || !json_value_to_u64(value, &version) || version > ~u32{0})
-            return false;
-        result.seen |= 2;
-        return true;
-    }
-    return false;
-}
 } // namespace
 
 EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> output,
                                                 EmojiPreferencesSnapshot* snapshot) noexcept {
     EmojiPreferencesResult result{};
-    if (!snapshot || !byte_range_valid(proto) || (output.data && !byte_range_valid({output.data, output.count})) ||
+    if (!byte_range_valid(proto) || (output.data && !byte_range_valid({output.data, output.count})) ||
         (output.data && byte_ranges_overlap(proto, {output.data, output.count}))) {
         result.error = E::input;
         return result;
@@ -595,7 +573,7 @@ EmojiPreferencesResult emoji_preferences_decode(ConstSlice<u8> proto, Slice<u8> 
 
 EmojiPreferencesError emoji_preferences_visit_favorites(ConstSlice<u8> group, EmojiFavoriteVisitor visit,
                                                         void* context) noexcept {
-    if (!visit || !byte_range_valid(group))
+    if (!byte_range_valid(group))
         return E::input;
     const E checked = check_favorites(group);
     if (checked != E::none)
@@ -618,7 +596,7 @@ EmojiPreferencesError emoji_preferences_visit_favorites(ConstSlice<u8> group, Em
 
 EmojiPreferencesError emoji_preferences_visit_frecency(ConstSlice<u8> group, EmojiFrecencyVisitor visit,
                                                        void* context) noexcept {
-    if (!visit || !byte_range_valid(group))
+    if (!byte_range_valid(group))
         return E::input;
     const E checked = check_frecency(group);
     if (checked != E::none)
@@ -729,8 +707,8 @@ EmojiPreferencesError emoji_preferences_validate_patch_json(Utf8View input) noex
         return E::input;
     u32 structurals[16]{};
     const auto scan = json_scan_structurals_avx1(input, {structurals, 16});
-    PatchJson parsed{};
-    if (!scan.ok() || !json_visit_root_object(input, {structurals, scan.count}, 2, patch_member, &parsed).ok() ||
+    SettingsPatchEnvelope parsed{};
+    if (!scan.ok() || !json_visit_root_object(input, {structurals, scan.count}, 2, settings_patch_member, &parsed).ok() ||
         parsed.seen != 3 || !parsed.encoded.bytes)
         return E::envelope;
     const auto measured = base64_decode(parsed.encoded, {});

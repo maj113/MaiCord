@@ -213,7 +213,6 @@ struct Vp8ParseResult {
 
 struct Vp8ControlParseResult {
     Vp8ControlError error;
-    Vp8BoolError boolean_error;
 
     constexpr bool ok() const noexcept {
         return error == Vp8ControlError::none;
@@ -222,7 +221,6 @@ struct Vp8ControlParseResult {
 
 struct Vp8ModeParseResult {
     Vp8ModeError error;
-    Vp8BoolError boolean_error;
 
     constexpr bool ok() const noexcept {
         return error == Vp8ModeError::none;
@@ -231,7 +229,6 @@ struct Vp8ModeParseResult {
 
 struct Vp8CoefficientParseResult {
     Vp8CoefficientError error;
-    Vp8BoolError boolean_error;
 
     constexpr bool ok() const noexcept {
         return error == Vp8CoefficientError::none;

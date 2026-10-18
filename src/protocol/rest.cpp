@@ -7,11 +7,14 @@
 #include "maicord/protocol/writer.hpp"
 #include "maicord/core/json_reader.hpp"
 #include "maicord/protocol/gateway_commands.hpp"
+#include "json_command_writer.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
+
+using Writer = protocol_detail::JsonCommandWriter;
 
 inline constexpr char kApiHost[] = "discord.com";
 
@@ -36,14 +39,6 @@ struct RateBodyContext {
 constexpr u32 rate_body_field_retry_after = 1u << 0;
 constexpr u32 rate_body_field_global = 1u << 1;
 constexpr u32 rate_body_field_code = 1u << 2;
-
-bool add_size(u32* total, u32 value) noexcept {
-    if (value > ~0u - *total) {
-        return false;
-    }
-    *total += value;
-    return true;
-}
 
 bool valid_base64_header(ConstSlice<u8> value) noexcept {
     if (!value.data || value.count == 0 || value.count > kRestUserSuperPropertiesMaximumBytes ||
@@ -93,9 +88,6 @@ const char* method_literal(RestMethod method) noexcept {
 }
 
 u32 literal_bytes(const char* value) noexcept {
-    if (!value) {
-        return 0;
-    }
     u32 count = 0;
     while (value[count] != 0) {
         ++count;
@@ -217,39 +209,6 @@ bool begin_rate_field(RateHeadContext* context, u32 field, u32 offset) noexcept 
     return true;
 }
 
-bool ascii_starts_with_case(ConstSlice<u8> value, const char* prefix) noexcept {
-    if (!value.data && value.count != 0) {
-        return false;
-    }
-    const u32 bytes = literal_bytes(prefix);
-    if (value.count < bytes) {
-        return false;
-    }
-    for (u32 index = 0; index < bytes; ++index) {
-        if (ascii_lower(value[index]) != ascii_lower(static_cast<u8>(prefix[index]))) {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool ascii_ends_with_case(ConstSlice<u8> value, const char* suffix) noexcept {
-    if (!value.data && value.count != 0) {
-        return false;
-    }
-    const u32 bytes = literal_bytes(suffix);
-    if (value.count < bytes) {
-        return false;
-    }
-    const u32 first = value.count - bytes;
-    for (u32 index = 0; index < bytes; ++index) {
-        if (ascii_lower(value[first + index]) != ascii_lower(static_cast<u8>(suffix[index]))) {
-            return false;
-        }
-    }
-    return true;
-}
-
 RestContentType classify_content_type(ConstSlice<u8> value) noexcept {
     u32 media_bytes = 0;
     while (media_bytes < value.count && value[media_bytes] != ';') {
@@ -257,15 +216,18 @@ RestContentType classify_content_type(ConstSlice<u8> value) noexcept {
     }
     const ConstSlice<u8> media = http_trim_ows(ConstSlice<u8>{value.data, media_bytes});
     if (http_ascii_equal_case_insensitive(media, "application/json") ||
-        http_ascii_equal_case_insensitive(media, "text/json") || ascii_ends_with_case(media, "+json")) {
+        http_ascii_equal_case_insensitive(media, "text/json") ||
+        (media.count >= 5 &&
+         http_ascii_equal_case_insensitive(ConstSlice<u8>{media.data + media.count - 5, 5}, "+json"))) {
         return RestContentType::json;
     }
     if (http_ascii_equal_case_insensitive(media, "text/html") ||
         http_ascii_equal_case_insensitive(media, "application/xhtml+xml")) {
         return RestContentType::html;
     }
-    return ascii_starts_with_case(media, "text/") ? RestContentType::text
-                                                  : RestContentType::other;
+    return media.count >= 5 && http_ascii_equal_case_insensitive(ConstSlice<u8>{media.data, 5}, "text/")
+               ? RestContentType::text
+               : RestContentType::other;
 }
 
 RestContentEncoding classify_content_encoding(ConstSlice<u8> value) noexcept {
@@ -294,6 +256,12 @@ bool rate_head_failure(RateHeadContext* context, RestHeadError error, u32 offset
     return false;
 }
 
+// A rate-limit field whose value parsed (or failed to) as `parsed`.
+bool rate_value(RateHeadContext* context, u32 field, u32 offset, bool parsed) noexcept {
+    return begin_rate_field(context, field, offset) &&
+           (parsed || rate_head_failure(context, RestHeadError::invalid_rate_value, offset));
+}
+
 bool visit_rate_header(void* opaque, HttpField field) noexcept {
     auto* context = static_cast<RateHeadContext*>(opaque);
     if (http_ascii_equal_case_insensitive(field.name, "content-type")) {
@@ -310,29 +278,24 @@ bool visit_rate_header(void* opaque, HttpField field) noexcept {
         return true;
     }
     if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-limit")) {
-        return begin_rate_field(context, rate_limit_field_limit, field.source_offset) &&
-               (parse_u32(field.value, &context->rate.limit) ||
-                rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset));
+        return rate_value(context, rate_limit_field_limit, field.source_offset,
+                          parse_u32(field.value, &context->rate.limit));
     }
     if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-remaining")) {
-        return begin_rate_field(context, rate_limit_field_remaining, field.source_offset) &&
-               (parse_u32(field.value, &context->rate.remaining) ||
-                rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset));
+        return rate_value(context, rate_limit_field_remaining, field.source_offset,
+                          parse_u32(field.value, &context->rate.remaining));
     }
     if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-reset")) {
-        return begin_rate_field(context, rate_limit_field_reset, field.source_offset) &&
-               (parse_decimal_milliseconds(field.value, &context->rate.reset_epoch_ms) ||
-                rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset));
+        return rate_value(context, rate_limit_field_reset, field.source_offset,
+                          parse_decimal_milliseconds(field.value, &context->rate.reset_epoch_ms));
     }
     if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-reset-after")) {
-        return begin_rate_field(context, rate_limit_field_reset_after, field.source_offset) &&
-               (parse_decimal_milliseconds(field.value, &context->rate.reset_after_ms) ||
-                rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset));
+        return rate_value(context, rate_limit_field_reset_after, field.source_offset,
+                          parse_decimal_milliseconds(field.value, &context->rate.reset_after_ms));
     }
     if (http_ascii_equal_case_insensitive(field.name, "retry-after")) {
-        return begin_rate_field(context, rate_limit_field_retry_after, field.source_offset) &&
-               (parse_decimal_milliseconds(field.value, &context->rate.retry_after_ms) ||
-                rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset));
+        return rate_value(context, rate_limit_field_retry_after, field.source_offset,
+                          parse_decimal_milliseconds(field.value, &context->rate.retry_after_ms));
     }
     if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-bucket")) {
         if (!begin_rate_field(context, rate_limit_field_bucket, field.source_offset)) {
@@ -353,9 +316,8 @@ bool visit_rate_header(void* opaque, HttpField field) noexcept {
         return true;
     }
     if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-global")) {
-        return begin_rate_field(context, rate_limit_field_global, field.source_offset) &&
-               (parse_bool_ascii(field.value, &context->rate.global) ||
-                rate_head_failure(context, RestHeadError::invalid_rate_value, field.source_offset));
+        return rate_value(context, rate_limit_field_global, field.source_offset,
+                          parse_bool_ascii(field.value, &context->rate.global));
     }
     if (http_ascii_equal_case_insensitive(field.name, "x-ratelimit-scope")) {
         if (!begin_rate_field(context, rate_limit_field_scope, field.source_offset)) {
@@ -610,13 +572,13 @@ RestUserPropertiesResult write_rest_user_super_properties(
     const GatewayCommandWriteResult written =
         gateway_write_user_properties(properties, Slice<u8>{json_scratch.data, required});
     if (!written.ok() || written.bytes != required) {
-        SecureZeroMemory(json_scratch.data, json_scratch.count);
+        secure_clear_bytes(json_scratch.data, json_scratch.count);
         return RestUserPropertiesResult{0, RestUserPropertiesError::json_capacity};
     }
     const Base64Result base64_result =
         base64_encode(ConstSlice<u8>{json_scratch.data, required},
                       Slice<char>{reinterpret_cast<char*>(output.data), output.count});
-    SecureZeroMemory(json_scratch.data, required);
+    secure_clear_bytes(json_scratch.data, required);
     if (!base64_result.ok() || base64_result.bytes != base64_bytes) {
         return RestUserPropertiesResult{0, RestUserPropertiesError::output_capacity};
     }
@@ -648,7 +610,6 @@ RestAuditReasonResult rest_encode_audit_reason(Utf8View reason, Slice<u8> output
     }
     if (required > output.count)
         return {required, false};
-    constexpr char digits[] = "0123456789ABCDEF";
     u32 used = 0;
     for (u32 i = 0; i < reason.bytes; ++i) {
         const u8 value = static_cast<u8>(reason.data[i]);
@@ -656,8 +617,8 @@ RestAuditReasonResult rest_encode_audit_reason(Utf8View reason, Slice<u8> output
             output[used++] = value;
         } else {
             output[used++] = '%';
-            output[used++] = static_cast<u8>(digits[value >> 4]);
-            output[used++] = static_cast<u8>(digits[value & 15]);
+            output[used++] = static_cast<u8>(ascii_hex_digit_upper(value >> 4));
+            output[used++] = static_cast<u8>(ascii_hex_digit_upper(value));
         }
     }
     return {used, true};
@@ -751,6 +712,73 @@ bool rest_multipart_boundary_valid(ConstSlice<u8> boundary) noexcept {
     return true;
 }
 
+namespace {
+// The request head for a request write_rest_request_head validated. An empty
+// POST or PUT body is declared with Content-Length: 0; other bodyless methods
+// send no length.
+void emit_request_head(Writer& writer, const RestRequestHead& request) noexcept {
+    const char* const method = method_literal(request.method);
+    const bool empty_length =
+        !request.json_body && (request.method == RestMethod::post || request.method == RestMethod::put);
+    writer.raw(method, literal_bytes(method));
+    writer.literal(" ");
+    writer.bytes(request.target);
+    writer.literal(" HTTP/1.1\r\nHost: ");
+    writer.literal(kApiHost);
+    writer.literal("\r\nUser-Agent: ");
+    writer.literal(kClientUserAgent);
+    writer.literal("\r\nAccept: application/json\r\n");
+    if (request.accept_gzip)
+        writer.literal("Accept-Encoding: gzip\r\n");
+    if (request.authorization != RestAuthorization::none) {
+        if (request.authorization == RestAuthorization::bearer)
+            writer.literal("Authorization: Bearer ");
+        else
+            writer.literal("Authorization: ");
+        writer.bytes(request.token);
+        writer.literal("\r\n");
+    }
+    if (const RestUserRequestHeaders* user = request.user_headers) {
+        writer.literal("X-Super-Properties: ");
+        writer.bytes(user->super_properties);
+        writer.literal("\r\nX-Discord-Locale: ");
+        writer.raw(user->locale.data, user->locale.bytes);
+        writer.literal("\r\nAccept-Language: ");
+        writer.raw(user->locale.data, user->locale.bytes);
+        writer.literal("\r\n");
+        if (user->timezone.bytes) {
+            writer.literal("X-Discord-Timezone: ");
+            writer.raw(user->timezone.data, user->timezone.bytes);
+            writer.literal("\r\n");
+        }
+    }
+    if (request.audit_reason.count || request.send_empty_audit_reason) {
+        writer.literal("X-Audit-Log-Reason: ");
+        writer.bytes(request.audit_reason);
+        writer.literal("\r\n");
+    }
+    writer.bytes(request.extra_headers);
+    if (empty_length)
+        writer.literal("Content-Length: 0\r\n");
+    if (request.json_body) {
+        if (request.multipart_boundary.count) {
+            writer.literal("Content-Type: multipart/form-data; boundary=");
+            writer.bytes(request.multipart_boundary);
+            writer.literal("\r\n");
+        } else {
+            writer.literal("Content-Type: application/json\r\n");
+        }
+        writer.literal("Content-Length: ");
+        writer.number(request.content_length);
+        writer.literal("\r\n");
+    }
+    if (request.close_connection)
+        writer.literal("Connection: close\r\n\r\n");
+    else
+        writer.literal("Connection: keep-alive\r\n\r\n");
+}
+} // namespace
+
 RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
                                                Slice<u8> output) noexcept {
     const char* const method = method_literal(request.method);
@@ -780,107 +808,16 @@ RestRequestWriteResult write_rest_request_head(const RestRequestHead& request,
         return RestRequestWriteResult{0, RestRequestError::invalid_token};
     }
 
-    // An empty POST or PUT body is declared with Content-Length: 0; other
-    // bodyless methods send no length.
-    const bool empty_length =
-        !request.json_body && (request.method == RestMethod::post || request.method == RestMethod::put);
-    const bool audit_reason = request.audit_reason.count || request.send_empty_audit_reason;
-    u32 required = 0;
-    const char* const authorization = request.authorization == RestAuthorization::bearer
-                                          ? "Authorization: Bearer "
-                                          : "Authorization: ";
-    const char* const user_agent = kClientUserAgent;
-    const bool sized =
-        add_size(&required, literal_bytes(method)) && add_size(&required, 1) &&
-        add_size(&required, request.target.count) &&
-        add_size(&required, literal_bytes(" HTTP/1.1\r\nHost: ")) &&
-        add_size(&required, literal_bytes(kApiHost)) &&
-        add_size(&required, literal_bytes("\r\nUser-Agent: ")) &&
-        add_size(&required, literal_bytes(user_agent)) &&
-        add_size(&required, literal_bytes("\r\nAccept: application/json\r\n")) &&
-        (!request.accept_gzip || add_size(&required, literal_bytes("Accept-Encoding: gzip\r\n"))) &&
-        (request.authorization == RestAuthorization::none ||
-         (add_size(&required, literal_bytes(authorization)) && add_size(&required, request.token.count) &&
-          add_size(&required, 2))) &&
-        (!request.user_headers ||
-         (add_size(&required, literal_bytes("X-Super-Properties: ")) &&
-          add_size(&required, request.user_headers->super_properties.count) &&
-          add_size(&required, literal_bytes("\r\nX-Discord-Locale: ")) &&
-          add_size(&required, request.user_headers->locale.bytes) && add_size(&required, 2) &&
-          add_size(&required, literal_bytes("Accept-Language: ")) &&
-          add_size(&required, request.user_headers->locale.bytes) && add_size(&required, 2) &&
-          (request.user_headers->timezone.bytes == 0 ||
-           (add_size(&required, literal_bytes("X-Discord-Timezone: ")) &&
-            add_size(&required, request.user_headers->timezone.bytes) && add_size(&required, 2))))) &&
-        (!audit_reason ||
-         (add_size(&required, literal_bytes("X-Audit-Log-Reason: ")) &&
-          add_size(&required, request.audit_reason.count) && add_size(&required, 2))) &&
-        add_size(&required, request.extra_headers.count) &&
-        (!empty_length || add_size(&required, literal_bytes("Content-Length: 0\r\n"))) &&
-        (!request.json_body ||
-         ((multipart ? add_size(&required, literal_bytes("Content-Type: multipart/form-data; boundary=")) &&
-                           add_size(&required, request.multipart_boundary.count) && add_size(&required, 2)
-                     : add_size(&required, literal_bytes("Content-Type: application/json\r\n"))) &&
-          add_size(&required, literal_bytes("Content-Length: ")) &&
-          add_size(&required, decimal_digits(request.content_length)) && add_size(&required, 2))) &&
-        add_size(&required, literal_bytes(request.close_connection ? "Connection: close\r\n\r\n"
-                                                                   : "Connection: keep-alive\r\n\r\n"));
-    if (!sized || required > output.count) {
+    // The first pass measures; nothing is written unless the head fits.
+    Writer writer{};
+    emit_request_head(writer, request);
+    if (writer.at > output.count) {
         return RestRequestWriteResult{0, RestRequestError::output_capacity};
     }
-
-    ProtocolWriter writer{output, 0};
-    const bool written =
-        protocol_writer_append_c_string(&writer, method) && protocol_writer_append_byte(&writer, ' ') &&
-        protocol_writer_append_bytes(&writer, request.target) &&
-        protocol_writer_append_literal(&writer, " HTTP/1.1\r\nHost: ") &&
-        protocol_writer_append_c_string(&writer, kApiHost) &&
-        protocol_writer_append_literal(&writer, "\r\nUser-Agent: ") &&
-        protocol_writer_append_c_string(&writer, user_agent) &&
-        protocol_writer_append_literal(&writer, "\r\nAccept: application/json\r\n") &&
-        (!request.accept_gzip || protocol_writer_append_literal(&writer, "Accept-Encoding: gzip\r\n")) &&
-        (request.authorization == RestAuthorization::none ||
-         (protocol_writer_append_c_string(&writer, authorization) &&
-          protocol_writer_append_bytes(&writer, request.token) &&
-          protocol_writer_append_literal(&writer, "\r\n"))) &&
-        (!request.user_headers ||
-         (protocol_writer_append_literal(&writer, "X-Super-Properties: ") &&
-          protocol_writer_append_bytes(&writer, request.user_headers->super_properties) &&
-          protocol_writer_append_literal(&writer, "\r\nX-Discord-Locale: ") &&
-          protocol_writer_append_bytes(
-              &writer, ConstSlice<u8>{reinterpret_cast<const u8*>(request.user_headers->locale.data),
-                                      request.user_headers->locale.bytes}) &&
-          protocol_writer_append_literal(&writer, "\r\n") &&
-          protocol_writer_append_literal(&writer, "Accept-Language: ") &&
-          protocol_writer_append_bytes(&writer, {reinterpret_cast<const u8*>(request.user_headers->locale.data),
-                                                request.user_headers->locale.bytes}) &&
-          protocol_writer_append_literal(&writer, "\r\n") &&
-          (request.user_headers->timezone.bytes == 0 ||
-           (protocol_writer_append_literal(&writer, "X-Discord-Timezone: ") &&
-            protocol_writer_append_bytes(
-                &writer, ConstSlice<u8>{reinterpret_cast<const u8*>(request.user_headers->timezone.data),
-                                        request.user_headers->timezone.bytes}) &&
-            protocol_writer_append_literal(&writer, "\r\n"))))) &&
-        (!audit_reason ||
-         (protocol_writer_append_literal(&writer, "X-Audit-Log-Reason: ") &&
-          protocol_writer_append_bytes(&writer, request.audit_reason) &&
-          protocol_writer_append_literal(&writer, "\r\n"))) &&
-        (!request.extra_headers.count || protocol_writer_append_bytes(&writer, request.extra_headers)) &&
-        (!empty_length || protocol_writer_append_literal(&writer, "Content-Length: 0\r\n")) &&
-        (!request.json_body ||
-         ((multipart ? protocol_writer_append_literal(&writer, "Content-Type: multipart/form-data; boundary=") &&
-                           protocol_writer_append_bytes(&writer, request.multipart_boundary) &&
-                           protocol_writer_append_literal(&writer, "\r\n")
-                     : protocol_writer_append_literal(&writer, "Content-Type: application/json\r\n")) &&
-          protocol_writer_append_literal(&writer, "Content-Length: ") &&
-          protocol_writer_append_u64(&writer, request.content_length) &&
-          protocol_writer_append_literal(&writer, "\r\n"))) &&
-        protocol_writer_append_c_string(&writer, request.close_connection
-                                                     ? "Connection: close\r\n\r\n"
-                                                     : "Connection: keep-alive\r\n\r\n");
-    return written && writer.used == required
-               ? RestRequestWriteResult{writer.used, RestRequestError::none}
-               : RestRequestWriteResult{0, RestRequestError::output_capacity};
+    const u32 required = static_cast<u32>(writer.at);
+    writer = Writer{output.data, 0};
+    emit_request_head(writer, request);
+    return RestRequestWriteResult{required, RestRequestError::none};
 }
 
 RestHeadResult parse_rest_response_head(ConstSlice<u8> input, u32 maximum_header_bytes,
@@ -1037,8 +974,8 @@ RateLimitBodyResult decode_search_indexing_body(Utf8View body, Slice<u32> struct
 bool rest_rate_scheduler_initialize(RestRateScheduler* scheduler,
                                     Slice<RestRateBucket> buckets,
                                     Slice<RestRateBinding> bindings) noexcept {
-    if (!scheduler || !buckets.data || buckets.count == 0 || buckets.count >= invalid_rate_index ||
-        !bindings.data || bindings.count == 0 || bindings.count >= invalid_rate_index) {
+    if (!buckets.data || buckets.count == 0 || buckets.count >= invalid_rate_index || !bindings.data ||
+        bindings.count == 0 || bindings.count >= invalid_rate_index) {
         return false;
     }
     for (u32 index = 0; index < buckets.count; ++index) {
@@ -1057,7 +994,7 @@ bool rest_rate_scheduler_initialize(RestRateScheduler* scheduler,
 RestRateAcquireResult rest_rate_acquire(RestRateScheduler* scheduler,
                                         const RestRouteKey& route,
                                         u64 now_ms) noexcept {
-    if (!scheduler || !scheduler->buckets.data || !scheduler->bindings.data || !valid_route(route)) {
+    if (!scheduler->buckets.data || !scheduler->bindings.data || !valid_route(route)) {
         return RestRateAcquireResult{
             {}, 0, RestRateAcquireKind::error, RestRateError::invalid_input};
     }
@@ -1130,8 +1067,8 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler,
                                       const RestHeadResult& response_head,
                                       const RateLimitBodyResult* rate_limit_body,
                                       u64 now_ms, u64 unix_time_ms) noexcept {
-    if (!scheduler || !lease || !lease->active || !response_head.ok() ||
-        (rate_limit_body && !rate_limit_body->ok()) || lease->binding_index >= scheduler->bindings.count) {
+    if (!lease->active || !response_head.ok() || (rate_limit_body && !rate_limit_body->ok()) ||
+        lease->binding_index >= scheduler->bindings.count) {
         return observation_error(RestRateError::invalid_input);
     }
     RestRateBinding& binding = scheduler->bindings[lease->binding_index];
@@ -1250,7 +1187,7 @@ RestRateObservation rest_rate_observe(RestRateScheduler* scheduler,
 }
 
 bool rest_rate_cancel(RestRateScheduler* scheduler, RestRateLease* lease) noexcept {
-    if (!scheduler || !lease || !lease->active || lease->binding_index >= scheduler->bindings.count) {
+    if (!lease->active || lease->binding_index >= scheduler->bindings.count) {
         return false;
     }
     RestRateBinding& binding = scheduler->bindings[lease->binding_index];
@@ -1279,7 +1216,7 @@ HttpHeadResult rest_response_head_parser(void* context, ConstSlice<u8> input, u3
 
 bool rest_response_initialize(RestResponse* response, Slice<u8> input_storage,
                               Slice<u8> body_output, RestMethod request_method) noexcept {
-    if (!response || !input_storage.data || input_storage.count < kRestMaximumHeaderBytes ||
+    if (!input_storage.data || input_storage.count < kRestMaximumHeaderBytes ||
         (!body_output.data && body_output.count != 0) || !method_literal(request_method)) {
         return false;
     }
@@ -1293,9 +1230,7 @@ bool rest_response_initialize(RestResponse* response, Slice<u8> input_storage,
 
 RestResponseStep rest_response_feed(RestResponse* response, ConstSlice<u8> input,
                                     bool peer_closed) noexcept {
-    return response ? http_response_decoder_feed(&response->http, input, peer_closed)
-                    : HttpResponseDecoderStep{0, 0, 0, HttpResponseDecoderState::failed,
-                                              HttpResponseDecoderError::invalid_input};
+    return http_response_decoder_feed(&response->http, input, peer_closed);
 }
 
 } // namespace maicord

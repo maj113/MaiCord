@@ -1,6 +1,6 @@
 #include "font_path_stat.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 // This ntdll entry point exists throughout the supported Windows baseline.
 // The newer information class remains optional and is checked at each call.

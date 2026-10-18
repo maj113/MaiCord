@@ -48,11 +48,6 @@ u32 guild_overwrite_count(const ChatStateStore& store, u64 guild_id) noexcept {
     return count;
 }
 
-bool self_has_role(const ChatStateStore& store, u64 guild_id, u64 role_id) noexcept {
-    const RoleRecord* role = chat_state_store_find_role(store, guild_id, role_id);
-    return role && role->self_assigned;
-}
-
 // Current-account membership expressed for the shared resolver. The model has
 // no clock, so retained timeouts are not masked here. Quarantine is clockless.
 struct SelfPermissionScope {
@@ -83,10 +78,6 @@ u64 channel_permissions(const ChatStateStore& store, const SelfPermissionScope& 
     const ConstSlice<PermissionOverwriteRecord> overwrites{
         channel.overwrite_count ? store.overwrites + channel.overwrite_offset : nullptr, channel.overwrite_count};
     return permission_compute_from_base(scope.raw_base, scope.guild, scope.member, overwrites, scope.options);
-}
-
-bool thread_type(u8 type) noexcept {
-    return type == 10 || type == 11 || type == 12;
 }
 
 bool channel_activity_visible(const ChatStateStore& store,
@@ -223,9 +214,8 @@ u32 channel_actions(u8 type, u64 permissions, bool resolved) noexcept {
     if ((permissions & kPermissionReadMessageHistory) != 0) {
         actions |= channel_action_read_history;
     }
-    const bool thread = thread_type(type);
-    const bool send = thread ? (permissions & kPermissionSendMessagesInThreads) != 0
-                             : (permissions & kPermissionSendMessages) != 0;
+    const bool send = channel_is_thread(type) ? (permissions & kPermissionSendMessagesInThreads) != 0
+                                              : (permissions & kPermissionSendMessages) != 0;
     if (send) {
         actions |= channel_action_send_messages;
         if ((permissions & kPermissionEmbedLinks) != 0) {
@@ -278,7 +268,7 @@ u32 channel_actions(u8 type, u64 permissions, bool resolved) noexcept {
 }
 
 bool channel_is_thread(u8 type) noexcept {
-    return thread_type(type);
+    return type == 10 || type == 11 || type == 12;
 }
 
 bool channel_is_thread_parent(u8 type) noexcept {
@@ -287,13 +277,13 @@ bool channel_is_thread_parent(u8 type) noexcept {
 
 bool chat_state_store_thread_accessible(const ChatStateStore& store,
                                            const ChannelRecord& channel) noexcept {
-    if (!channel.occupied || !thread_type(channel.type) || !channel.guild_id ||
+    if (!channel.occupied || !channel_is_thread(channel.type) || !channel.guild_id ||
         (channel.flags & kChannelObfuscatedFlag) != 0)
         return false;
     const auto* guild = chat_state_store_find_guild(store, channel.guild_id);
     const auto* parent = chat_state_store_find_channel(store, channel.parent_id);
     if (!guild || guild->unavailable || !parent || !parent->occupied ||
-        parent->guild_id != channel.guild_id || thread_type(parent->type) ||
+        parent->guild_id != channel.guild_id || channel_is_thread(parent->type) ||
         !channel_is_thread_parent(parent->type) ||
         (parent->flags & kChannelObfuscatedFlag) != 0)
         return false;
@@ -333,7 +323,8 @@ bool chat_state_store_channel_unread(const ChatStateStore& store,
 }
 
 bool chat_state_store_self_has_role(const ChatStateStore& store, u64 guild_id, u64 role_id) noexcept {
-    return guild_id != 0 && role_id != 0 && self_has_role(store, guild_id, role_id);
+    const RoleRecord* role = chat_state_store_find_role(store, guild_id, role_id);
+    return role && role->self_assigned;
 }
 
 bool chat_state_store_note_message(ChatStateStore* store, u64 channel_id, u64 message_id,
@@ -553,12 +544,6 @@ ChatStateStoreError chat_state_store_guild_permission_admission(const ChatStateS
     return ChatStateStoreError::none;
 }
 
-bool chat_state_store_can_replace_guild_permissions(const ChatStateStore& store, u64 guild_id,
-                                                       u32 role_count, u32 overwrite_count) noexcept {
-    return chat_state_store_guild_permission_admission(store, guild_id, role_count, overwrite_count) ==
-           ChatStateStoreError::none;
-}
-
 bool chat_state_store_can_replace_channel_overwrites(const ChatStateStore& store, u64 channel_id,
                                                         u32 overwrite_count) noexcept {
     if (channel_id == 0 || overwrite_count > 0xFFFFu || !permission_prefix_valid(store)) {
@@ -771,7 +756,7 @@ void chat_state_store_recompute_guild_permissions(ChatStateStore* store, u64 gui
     u32 activity_mentions = 0;
     for (u32 order = 0; order < store->channel_count; ++order) {
         ChannelRecord& channel = store->channels[store->channel_order[order]];
-        if (channel.guild_id != guild_id || thread_type(channel.type)) {
+        if (channel.guild_id != guild_id || channel_is_thread(channel.type)) {
             continue;
         }
         const u64 effective = resolved ? channel_permissions(*store, scope, channel) : 0;
@@ -788,7 +773,7 @@ void chat_state_store_recompute_guild_permissions(ChatStateStore* store, u64 gui
     }
     for (u32 order = 0; order < store->channel_count; ++order) {
         ChannelRecord& channel = store->channels[store->channel_order[order]];
-        if (channel.guild_id != guild_id || !thread_type(channel.type)) {
+        if (channel.guild_id != guild_id || !channel_is_thread(channel.type)) {
             continue;
         }
         const ChannelRecord* parent = chat_state_store_find_channel(*store, channel.parent_id);

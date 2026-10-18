@@ -129,7 +129,7 @@ MessageNotificationSetting user_guild_settings_project(MessageNotificationSettin
 
 UserGuildSettingsWriteResult user_guild_settings_write(const UserGuildSettingsPatch& p, Slice<u8> target,
                                                        Slice<u8> body) noexcept {
-    if (!user_guild_settings_patch_valid(p) || !target.data || !body.data)
+    if (!user_guild_settings_patch_valid(p))
         return {};
     ProtocolWriter t{target, 0}, b{body, 0};
     bool ok = protocol_writer_append_literal(&t, "/api/v10/users/@me/guilds/");
@@ -149,7 +149,7 @@ bool mentions_query_valid(const MentionsQuery& q) noexcept {
 }
 
 u32 write_mentions_target(const MentionsQuery& q, Slice<u8> output) noexcept {
-    if (!mentions_query_valid(q) || !output.data)
+    if (!mentions_query_valid(q))
         return 0;
     ProtocolWriter w{output, 0};
     bool ok = protocol_writer_append_literal(&w, "/api/v10/users/@me/mentions?limit=") &&

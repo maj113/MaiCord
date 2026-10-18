@@ -3,7 +3,6 @@
 namespace maicord {namespace {
 bool valid(const SfntPosition& value) noexcept {return is_finite(value.advance)&&is_finite(value.advance_offset)&&is_finite(value.ascender_offset);}
 bool spend(SfntCursiveExecution* out,u64* work,u64 cost=1) noexcept {if(cost>*work)return false;*work-=cost;out->operations+=cost;return true;}
-double magnitude(double x) noexcept {return x<0?-x:x;}
 bool bounded_integer(double value) noexcept {
     u64 bits=0;copy_bytes(&bits,&value,8);bits&=0x7fffffffffffffffull;if(!bits)return true;
     const u32 exponent=static_cast<u32>(bits>>52);if(exponent<1023 || bits>0x4270000000000000ull)return false;
@@ -89,7 +88,7 @@ SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup
             // Stored (new_y - translation) and materialized sums stay below
             // 2^42, so regrouping these integer additions is exact in binary64.
             bool defer=pending && !resolver && bounded_integer(p.ascender_offset) && bounded_integer(positions.data[first].ascender_offset) && bounded_integer(delta);
-            if(defer && pending->head!=0xffffffffu)defer=pending->head==node.child && pending->magnitude+magnitude(delta)<=1099511627776.0;
+            if(defer && pending->head!=0xffffffffu)defer=pending->head==node.child && pending->magnitude+absolute_value<double>(delta)<=1099511627776.0;
             if(defer && pending->head==0xffffffffu){u32 previous=first;
                 for(u32 child=node.child;child!=0xffffffffu;child=chains.data[child].child){if(!spend(out,&work))return SfntStatus::resource_limit;if(child>=previous)return SfntStatus::invalid_input;previous=child;
                     if(!bounded_integer(positions.data[child].ascender_offset)){defer=false;break;}}}
@@ -104,7 +103,7 @@ SfntStatus sfnt_position_execute_cursive_selected(const SfntGposAttachmentLookup
                 const double y=positions.data[child].ascender_offset+delta;if(!is_finite(y))return SfntStatus::resource_limit;positions.data[child].ascender_offset=y;
                 child=chains.data[child].child;
             }
-            if(defer){pending->translation+=delta;pending->magnitude+=magnitude(delta);pending->head=first;pending->next=second;p.ascender_offset-=pending->translation;}
+            if(defer){pending->translation+=delta;pending->magnitude+=absolute_value<double>(delta);pending->head=first;pending->next=second;p.ascender_offset-=pending->translation;}
         }
         positions.data[first]=p;positions.data[second]=q;++out->matches;break;
     }

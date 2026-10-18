@@ -1,4 +1,5 @@
 #include "maicord/media/opus_encoder.hpp"
+#include "maicord/core/byte_range.hpp"
 #include <opus.h>
 
 namespace maicord {
@@ -6,12 +7,6 @@ namespace {
 static_assert(sizeof(i16) == sizeof(opus_int16));
 OpusEncodeResult result(OpusEncodeError error, i32 native = OPUS_OK, u32 bytes = 0) noexcept {
     return {error, native, bytes};
-}
-bool overlaps(const void* a, usize a_bytes, const void* b, usize b_bytes) noexcept {
-    if (!a_bytes || !b_bytes)
-        return false;
-    const auto first = reinterpret_cast<usize>(a), second = reinterpret_cast<usize>(b);
-    return first <= second ? second - first < a_bytes : first - second < b_bytes;
 }
 bool current(const OpusEncoder* encoder) noexcept {
     return encoder && encoder->initialized && encoder->state &&
@@ -45,7 +40,7 @@ OpusEncodeResult opus_encoder_initialize(OpusEncoder* encoder, Slice<u8> storage
     const u32 bytes = opus_encoder_storage_bytes(channels);
     if (!bytes || !storage.data ||
         (reinterpret_cast<usize>(storage.data) & (kOpusEncoderStateAlignment - 1)) ||
-        overlaps(encoder, sizeof(*encoder), storage.data, bytes))
+        byte_ranges_overlap(encoder, sizeof(*encoder), storage.data, bytes))
         return result(OpusEncodeError::invalid_input, OPUS_BAD_ARG);
     if (storage.count < bytes)
         return result(OpusEncodeError::capacity, OPUS_BUFFER_TOO_SMALL);
@@ -108,10 +103,10 @@ OpusEncodeResult opus_encoder_encode(OpusEncoder* encoder, ConstSlice<i16> pcm, 
     const usize pcm_bytes = static_cast<usize>(pcm.count) * sizeof(i16);
     if (!pcm.data || pcm.count != kOpusEncoderFrameSamples * encoder->channels ||
         (reinterpret_cast<usize>(pcm.data) & (alignof(i16) - 1)) || !packet.data ||
-        overlaps(encoder->state, encoder->state_bytes, pcm.data, pcm_bytes) ||
-        overlaps(encoder->state, encoder->state_bytes, packet.data, packet.count) ||
-        overlaps(pcm.data, pcm_bytes, packet.data, packet.count) ||
-        overlaps(encoder, sizeof(*encoder), packet.data, packet.count))
+        byte_ranges_overlap(encoder->state, encoder->state_bytes, pcm.data, pcm_bytes) ||
+        byte_ranges_overlap(encoder->state, encoder->state_bytes, packet.data, packet.count) ||
+        byte_ranges_overlap(pcm.data, pcm_bytes, packet.data, packet.count) ||
+        byte_ranges_overlap(encoder, sizeof(*encoder), packet.data, packet.count))
         return result(OpusEncodeError::invalid_input, OPUS_BAD_ARG);
     if (packet.count < kOpusEncoderMaximumPacketBytes)
         return result(OpusEncodeError::capacity, OPUS_BUFFER_TOO_SMALL);

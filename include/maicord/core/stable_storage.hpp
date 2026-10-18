@@ -16,11 +16,6 @@ struct StableStorage {
     bool zero_new;
 };
 
-inline u32 stable_storage_reserved_capacity(
-    const StableStorage& storage) noexcept {
-    return storage.reserved_capacity;
-}
-
 bool stable_storage_initialize(StableStorage* storage, u32 reserved_capacity,
                                u32 initial_capacity, u32 element_bytes,
                                u32 alignment, bool zero_new = false) noexcept;

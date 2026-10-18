@@ -830,7 +830,7 @@ bool build_dynamic_tables(InflateState* state) noexcept {
 }
 
 template <bool Streaming>
-bool decode_stored_block(InflateState* state, u16* decoded_length = nullptr) noexcept {
+bool decode_stored_block(InflateState* state, u16* decoded_length) noexcept {
     align_reader(&state->reader);
     u8 header[4]{};
     if (!read_aligned_bytes(&state->reader, header, 4)) {
@@ -919,14 +919,8 @@ u32 adler32_update(u32 adler, ConstSlice<u8> bytes) noexcept {
     }
     return ((second % 65'521) << 16) | (first % 65'521);
 }
-u32 adler32(ConstSlice<u8> bytes) noexcept {
-    return adler32_update(1u, bytes);
-}
 
 bool input_byte_from_end(ConstSlice<DeflateInputSpan> input, u32 reverse_index, u8* value) noexcept {
-    if (!input.data || !value) {
-        return false;
-    }
     for (u32 span_index = input.count; span_index != 0; --span_index) {
         const DeflateInputSpan& span = input[span_index - 1];
         if (reverse_index < span.bytes) {
@@ -1048,7 +1042,7 @@ ZlibInflateResult zlib_inflate(ConstSlice<DeflateInputSpan> input, Slice<u8> out
     const u32 expected_checksum = static_cast<u32>(checksum_bytes[0]) << 24 |
                                   static_cast<u32>(checksum_bytes[1]) << 16 |
                                   static_cast<u32>(checksum_bytes[2]) << 8 | checksum_bytes[3];
-    if (adler32(ConstSlice<u8>{output.data, state.output_bytes}) != expected_checksum) {
+    if (adler32_update(1u, ConstSlice<u8>{output.data, state.output_bytes}) != expected_checksum) {
         return failure(state, ZlibInflateError::checksum);
     }
     return failure(state, ZlibInflateError::none);

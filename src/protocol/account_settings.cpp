@@ -176,23 +176,18 @@ bool token_item(void* opaque, u32, JsonValue value) noexcept {
     return true;
 }
 
-struct SelfContext {
-    AccountSelfUser* user;
-};
 bool self_member(void* opaque, JsonString name, JsonValue value) noexcept {
-    auto& u = *static_cast<SelfContext*>(opaque)->user;
+    auto& u = *static_cast<AccountSelfUser*>(opaque);
     const bool string = value.kind == JsonValueKind::string;
     if (json_string_equals_ascii(name, utf8_literal("username")))
         u.username_bytes = string ? copy_small(value, u.username) : 0;
     else if (json_string_equals_ascii(name, utf8_literal("global_name")))
         u.global_name_bytes = string ? copy_small(value, u.global_name) : 0;
-    else if (json_string_equals_ascii(name, utf8_literal("email"))) {
+    else if (json_string_equals_ascii(name, utf8_literal("email")))
         u.email_bytes = string ? copy_small(value, u.email) : 0;
-        u.email_known = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("phone"))) {
+    else if (json_string_equals_ascii(name, utf8_literal("phone")))
         u.phone_bytes = string ? copy_small(value, u.phone) : 0;
-        u.phone_known = true;
-    } else if (json_string_equals_ascii(name, utf8_literal("verified")))
+    else if (json_string_equals_ascii(name, utf8_literal("verified")))
         json_value_to_bool(value, &u.verified);
     else if (json_string_equals_ascii(name, utf8_literal("mfa_enabled")))
         json_value_to_bool(value, &u.mfa_enabled);
@@ -218,12 +213,9 @@ bool profile_root(void* opaque, JsonString name, JsonValue value) noexcept {
         return json_visit_indexed_object(c.document, value, 6, profile_text_member, &c).ok();
     return true;
 }
-struct CodeContext {
-    u64 code;
-};
 bool code_member(void* opaque, JsonString name, JsonValue value) noexcept {
     if (json_string_equals_ascii(name, utf8_literal("code")))
-        json_value_to_u64(value, &static_cast<CodeContext*>(opaque)->code);
+        json_value_to_u64(value, static_cast<u64*>(opaque));
     return true;
 }
 } // namespace
@@ -261,7 +253,7 @@ bool account_settings_request_valid(const AccountSettingsRequest& r) noexcept {
 AccountSettingsWriteResult account_settings_write_request(const AccountSettingsRequest& r, Slice<u8> target,
                                                           Slice<u8> body) noexcept {
     AccountSettingsWriteResult result{0, 0, 0, RestMethod::get, W::invalid_input};
-    if (!account_settings_request_valid(r) || !target.data || !byte_range_valid({body.data, body.count}))
+    if (!account_settings_request_valid(r) || !byte_range_valid({body.data, body.count}))
         return result;
     RouteWriter route{};
     if (!route_writer_initialize(&route, target))
@@ -392,11 +384,10 @@ u32 account_settings_decode_tokens(Utf8View body, Slice<u32> structurals,
 
 bool account_settings_decode_self(Utf8View body, Slice<u32> structurals, AccountSelfUser* user) noexcept {
     JsonIndexedDocument document{};
-    if (!user || !scan(body, structurals, &document))
+    if (!scan(body, structurals, &document))
         return false;
     AccountSelfUser decoded{};
-    SelfContext c{&decoded};
-    if (!json_visit_root_object(body, document.structurals, 8, self_member, &c).ok() || !decoded.username_bytes)
+    if (!json_visit_root_object(body, document.structurals, 8, self_member, &decoded).ok() || !decoded.username_bytes)
         return false;
     *user = decoded;
     return true;
@@ -404,7 +395,7 @@ bool account_settings_decode_self(Utf8View body, Slice<u32> structurals, Account
 
 bool account_settings_decode_profile(Utf8View body, Slice<u32> structurals, AccountProfileText* profile) noexcept {
     ProfileContext c{};
-    if (!profile || !scan(body, structurals, &c.document))
+    if (!scan(body, structurals, &c.document))
         return false;
     AccountProfileText decoded{};
     c.profile = &decoded;
@@ -416,11 +407,11 @@ bool account_settings_decode_profile(Utf8View body, Slice<u32> structurals, Acco
 
 u64 account_settings_error_code(Utf8View body, Slice<u32> structurals) noexcept {
     JsonIndexedDocument document{};
-    CodeContext c{};
+    u64 code = 0;
     if (!scan(body, structurals, &document) ||
-        !json_visit_root_object(body, document.structurals, 8, code_member, &c).ok())
+        !json_visit_root_object(body, document.structurals, 8, code_member, &code).ok())
         return 0;
-    return c.code;
+    return code;
 }
 
 u32 account_settings_mask_email(Utf8View email, Slice<char> output) noexcept {

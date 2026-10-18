@@ -9,7 +9,6 @@ namespace maicord {
 
 inline constexpr u32 kMessageComposerMaximumBytes = 16 * 1024;
 inline constexpr u32 kMessageComposerDefaultMaximumCodepoints = 2'000;
-inline constexpr u32 kMessageComposerNitroMaximumCodepoints = 4'000;
 inline constexpr float kMessageComposerMinimumHeight = 48.0f;
 inline constexpr float kMessageComposerMaximumHeight = 208.0f;
 

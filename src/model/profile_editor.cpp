@@ -16,7 +16,7 @@ bool within(Utf8View text, u32 limit) noexcept {
 bool image_changed(ProfileImageEdit edit, bool saved) noexcept {
     return edit == ProfileImageEdit::replace || (edit == ProfileImageEdit::remove && saved);
 }
-bool theme_changed(ProfileEditorTab, const ProfileEditorBase& base, const ProfileEditorDraft& draft) noexcept {
+bool theme_changed(const ProfileEditorBase& base, const ProfileEditorDraft& draft) noexcept {
     if (!draft.theme_set)
         return false;
     if (draft.theme_reset)
@@ -89,7 +89,7 @@ u16 profile_editor_changes(ProfileEditorTab tab, const ProfileEditorBase& base, 
         changed |= profile_editor_decoration;
     if (draft.effect_set && draft.effect_sku != base.effect_sku)
         changed |= profile_editor_effect;
-    if (theme_changed(tab, base, draft))
+    if (theme_changed(base, draft))
         changed |= profile_editor_theme;
     if (tab == ProfileEditorTab::main && draft.accent_set &&
         (!base.has_accent || base.accent != draft.accent))

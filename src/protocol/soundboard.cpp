@@ -1,18 +1,18 @@
 #include "maicord/protocol/soundboard.hpp"
 #include "maicord/core/byte_range.hpp"
 #include "maicord/protocol/base64.hpp"
+#include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "json_helpers.hpp"
 
-#include <Windows.h>
+#include "maicord/core/memory.hpp"
 
 namespace maicord {
 namespace {
+using namespace protocol_detail;
 using Op = SoundboardOperation;
 constexpr u32 kDepth = 16;
 
-bool view_valid(Utf8View text) noexcept {
-    return byte_range_valid({reinterpret_cast<const u8*>(text.data), text.bytes});
-}
 bool guild_operation(Op op) noexcept {
     return op == Op::guild_list || op == Op::create || op == Op::update || op == Op::remove;
 }
@@ -189,7 +189,7 @@ SoundboardWriteResult soundboard_write_body(const SoundboardRequest& r, Slice<u8
         ProtocolWriter w{{staged, sizeof(staged)}, 0};
         const bool ok = small_body(r, &w);
         const auto result = protocol_writer_finish<SoundboardWriteResult>(w, ok, output, staged);
-        SecureZeroMemory(staged, sizeof(staged));
+        secure_clear_bytes(staged, sizeof(staged));
         return result;
     }
     const u32 bytes = soundboard_body_bytes(r);
@@ -204,7 +204,7 @@ SoundboardWriteResult soundboard_write_body(const SoundboardRequest& r, Slice<u8
     }
     ok = ok && create_suffix(r, &w) && w.used == bytes;
     if (!ok) {
-        SecureZeroMemory(output.data, minimum(output.count, bytes));
+        secure_clear_bytes(output.data, minimum(output.count, bytes));
         return {0, SoundboardWriteError::capacity};
     }
     return {bytes, SoundboardWriteError::none};
@@ -349,39 +349,13 @@ Utf8View soundboard_audio_mime(SoundboardAudioFormat format) noexcept {
 }
 
 namespace {
-bool parse_id(JsonValue value, u64* output) noexcept {
-    // Snowflakes are strings; default sound IDs may arrive as numbers.
-    if (value.kind == JsonValueKind::number)
-        return json_value_to_u64(value, output);
-    JsonString encoded{};
-    return json_value_as_string(value, &encoded) && json_string_to_u64(encoded, output);
-}
+// Snowflakes are strings; default sound IDs may arrive as numbers.
 bool parse_optional_id(JsonValue value, u64* output) noexcept {
     if (value.kind == JsonValueKind::null_value) {
         *output = 0;
         return true;
     }
-    return parse_id(value, output);
-}
-template <typename Size> bool decode_text(JsonValue value, char* output, u32 capacity, Size* bytes) noexcept {
-    if (value.kind == JsonValueKind::null_value) {
-        *bytes = 0;
-        return true;
-    }
-    JsonString encoded{};
-    if (!json_value_as_string(value, &encoded))
-        return false;
-    const auto decoded = json_string_decode_utf8(encoded, {output, capacity});
-    if (!decoded.ok() || !utf8_validate({output, decoded.bytes}).valid)
-        return false;
-    *bytes = static_cast<Size>(decoded.bytes);
-    return true;
-}
-bool name_is(JsonString name, const char* expected) noexcept {
-    u32 bytes = 0;
-    while (expected[bytes])
-        ++bytes;
-    return json_string_equals_ascii(name, {expected, bytes});
+    return json_value_to_u64_or_string(value, output);
 }
 
 constexpr const char* kSoundFields[] = {"sound_id", "name",      "volume",  "emoji_id",
@@ -408,7 +382,7 @@ bool visit_sound(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& v = p.value;
     bool valid = true;
     switch (field) {
-    case 0: valid = parse_id(value, &v.sound_id) && v.sound_id; break;
+    case 0: valid = json_value_to_u64_or_string(value, &v.sound_id) && v.sound_id; break;
     case 1: valid = decode_text(value, v.name, kSoundboardNameBytes, &v.name_bytes); break;
     case 2: {
         u32 volume = kSoundboardVolumeScale;
@@ -493,34 +467,21 @@ bool visit_envelope(void* opaque, JsonString name, JsonValue value) noexcept {
     }
     return true;
 }
-bool scan(Utf8View body, Slice<u32> scratch, JsonIndexedDocument* document, SoundboardDecodeError* error) noexcept {
-    if (!view_valid(body) || !body.bytes || !scratch.data || !scratch.count || !utf8_validate(body).valid) {
-        *error = SoundboardDecodeError::input;
-        return false;
-    }
-    const auto scanned = json_scan_structurals_avx1(body, scratch);
-    if (!scanned.ok()) {
-        *error = scanned.error == JsonScanError::output_overflow ? SoundboardDecodeError::capacity
-                                                                  : SoundboardDecodeError::json;
-        return false;
-    }
-    *document = {body, {scratch.data, scanned.count}};
-    return true;
-}
 } // namespace
 
 SoundboardDecodeResult soundboard_decode_sound(Utf8View object, u64 guild_id, Slice<u32> scratch,
                                                SoundboardSound* output) noexcept {
-    SoundboardDecodeError error{};
-    JsonIndexedDocument document{};
-    if (!output || !scan(object, scratch, &document, &error))
-        return {0, output ? error : SoundboardDecodeError::input};
+    if (!output)
+        return {0, SoundboardDecodeError::input};
+    const auto s = scan_json<SoundboardDecodeError>(object, scratch);
+    if (s.error != SoundboardDecodeError::none)
+        return {0, s.error};
     SoundParse parse{};
     sound_defaults(&parse);
-    const auto read = json_visit_root_object(object, document.structurals, kDepth, visit_sound, &parse);
+    const auto read = json_visit_root_object(object, s.document.structurals, kDepth, visit_sound, &parse);
     if (!read.ok())
         return {0, parse.error != SoundboardDecodeError::none ? parse.error : SoundboardDecodeError::json};
-    if ((error = finish_sound(parse)) != SoundboardDecodeError::none)
+    if (const auto error = finish_sound(parse); error != SoundboardDecodeError::none)
         return {0, error};
     if (!(parse.seen & (1u << 5)))
         parse.value.guild_id = guild_id;
@@ -530,10 +491,12 @@ SoundboardDecodeResult soundboard_decode_sound(Utf8View object, u64 guild_id, Sl
 
 SoundboardDecodeResult soundboard_decode_sound_list(Utf8View body, u64 guild_id, Slice<u32> scratch,
                                                     Slice<SoundboardSound> output, u64* document_guild) noexcept {
-    SoundboardDecodeError error{};
-    JsonIndexedDocument document{};
-    if ((!output.data && output.count) || !scan(body, scratch, &document, &error))
-        return {0, (!output.data && output.count) ? SoundboardDecodeError::input : error};
+    if (!output.data && output.count)
+        return {0, SoundboardDecodeError::input};
+    const auto s = scan_json<SoundboardDecodeError>(body, scratch);
+    if (s.error != SoundboardDecodeError::none)
+        return {0, s.error};
+    const auto& document = s.document;
     SoundList list{&document, output, guild_id, 0, SoundboardDecodeError::none};
     u32 first = 0;
     while (first < body.bytes && (body.data[first] == ' ' || body.data[first] == '\t' || body.data[first] == '\r' ||
@@ -572,7 +535,7 @@ bool visit_delete(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& d = *static_cast<DeleteParse*>(opaque);
     bool valid = true;
     if (name_is(name, "sound_id"))
-        valid = parse_id(value, &d.sound_id);
+        valid = json_value_to_u64_or_string(value, &d.sound_id);
     else if (name_is(name, "guild_id"))
         valid = parse_optional_id(value, &d.guild_id);
     if (!valid)
@@ -604,15 +567,15 @@ bool visit_effect(void* opaque, JsonString name, JsonValue value) noexcept {
     bool valid = true;
     u64 number = 0;
     if (name_is(name, "channel_id"))
-        valid = parse_id(value, &v.channel_id);
+        valid = json_value_to_u64_or_string(value, &v.channel_id);
     else if (name_is(name, "guild_id"))
         valid = parse_optional_id(value, &v.guild_id);
     else if (name_is(name, "user_id"))
-        valid = parse_id(value, &v.user_id);
+        valid = json_value_to_u64_or_string(value, &v.user_id);
     else if (name_is(name, "sound_id"))
         valid = parse_optional_id(value, &v.sound_id);
     else if (name_is(name, "animation_id"))
-        valid = value.kind == JsonValueKind::null_value || parse_id(value, &v.animation_id);
+        valid = value.kind == JsonValueKind::null_value || json_value_to_u64_or_string(value, &v.animation_id);
     else if (name_is(name, "animation_type")) {
         valid = value.kind == JsonValueKind::null_value || (json_value_to_u64(value, &number) && number <= 255);
         v.animation_type = static_cast<u8>(number);
@@ -637,12 +600,13 @@ bool visit_effect(void* opaque, JsonString name, JsonValue value) noexcept {
 
 SoundboardDecodeResult soundboard_decode_delete(Utf8View object, Slice<u32> scratch, u64* sound_id,
                                                 u64* guild_id) noexcept {
-    SoundboardDecodeError error{};
-    JsonIndexedDocument document{};
-    if (!sound_id || !guild_id || !scan(object, scratch, &document, &error))
-        return {0, sound_id && guild_id ? error : SoundboardDecodeError::input};
+    if (!sound_id || !guild_id)
+        return {0, SoundboardDecodeError::input};
+    const auto s = scan_json<SoundboardDecodeError>(object, scratch);
+    if (s.error != SoundboardDecodeError::none)
+        return {0, s.error};
     DeleteParse d{};
-    const auto read = json_visit_root_object(object, document.structurals, kDepth, visit_delete, &d);
+    const auto read = json_visit_root_object(object, s.document.structurals, kDepth, visit_delete, &d);
     if (!read.ok())
         return {0, d.error != SoundboardDecodeError::none ? d.error : SoundboardDecodeError::json};
     if (!d.sound_id)
@@ -654,13 +618,14 @@ SoundboardDecodeResult soundboard_decode_delete(Utf8View object, Slice<u32> scra
 
 SoundboardDecodeResult soundboard_decode_effect(Utf8View object, Slice<u32> scratch,
                                                 GatewayVoiceChannelEffect* output) noexcept {
-    SoundboardDecodeError error{};
-    JsonIndexedDocument document{};
-    if (!output || !scan(object, scratch, &document, &error))
-        return {0, output ? error : SoundboardDecodeError::input};
-    EffectParse e{&document, {}, SoundboardDecodeError::none};
+    if (!output)
+        return {0, SoundboardDecodeError::input};
+    const auto s = scan_json<SoundboardDecodeError>(object, scratch);
+    if (s.error != SoundboardDecodeError::none)
+        return {0, s.error};
+    EffectParse e{&s.document, {}, SoundboardDecodeError::none};
     e.value.sound_volume = kSoundboardVolumeScale;
-    const auto read = json_visit_root_object(object, document.structurals, kDepth, visit_effect, &e);
+    const auto read = json_visit_root_object(object, s.document.structurals, kDepth, visit_effect, &e);
     if (!read.ok())
         return {0, e.error != SoundboardDecodeError::none ? e.error : SoundboardDecodeError::json};
     if (!e.value.channel_id || !e.value.user_id)

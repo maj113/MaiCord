@@ -7,11 +7,9 @@ namespace maicord {
 struct NativeFontFileStamp {Win32FileIdInfo identity;u64 bytes;Win32FileTime write,change;};
 static_assert(sizeof(NativeFontFileStamp)==48);
 struct NativeFontCatalogFile {
-    // Accepted files are <4 GiB, paths <32768 units and TTCs <=65536 faces.
-    // Encode count minus one so both timestamps fit without growing the record.
+    // Accepted files are <4 GiB and paths <32768 units.
     Win32FileIdInfo identity;u32 bytes,path_offset;Win32FileTime last_write,change_time;
-    u32 first_face;u16 path_units,face_count_minus_one;
-    u32 face_count() const noexcept {return static_cast<u32>(face_count_minus_one)+1;}
+    u16 path_units;
 };
 struct NativeFontCatalogFace {u32 file,index,name_offset,name_units,first_candidate,candidate_count;};
 struct NativeFontCatalogCandidate {NativeFontProperties properties;u32 face,named_index,first_setting,setting_count;};

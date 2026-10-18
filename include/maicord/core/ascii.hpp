@@ -51,20 +51,6 @@ constexpr bool ascii_is_alnum(char value) noexcept {
     return ascii_is_digit(value) || (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z');
 }
 
-// Space, tab, CR or LF.
-constexpr bool ascii_is_space(char value) noexcept {
-    return value == ' ' || value == '\t' || value == '\r' || value == '\n';
-}
-
-// The C isspace set: ascii_is_space plus vertical tab and form feed.
-constexpr bool ascii_is_c_space(char value) noexcept {
-    return ascii_is_space(value) || value == '\v' || value == '\f';
-}
-
-// text without leading and trailing ascii_is_c_space bytes (the ASCII part
-// of String.prototype.trim).
-Utf8View ascii_trim_c_space(Utf8View text) noexcept;
-
 constexpr bool ascii_equal_ignore_case(Utf8View left, Utf8View right) noexcept {
     if (left.bytes != right.bytes)
         return false;

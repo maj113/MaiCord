@@ -107,9 +107,11 @@ struct H264StreamState {
     u8 reorder;       // Current output delay in pictures.
     u8 reorder_limit; // Upper bound for adaptive reorder growth.
     bool active, waiting, drain, output_started, unsupported;
-    u32 decoded, dropped, damaged, gaps, late, resets;
+    u32 decoded, dropped, damaged, gaps, late;
 };
-// Starts waiting for an IDR without forgetting parameter sets.
+// Starts waiting for an IDR without forgetting parameter sets. Also the
+// response to a rejected picture or a lost decoded one: the DPB can no longer
+// be trusted.
 void h264_stream_reset(H264StreamState* state) noexcept;
 
 enum class H264StreamAction : u8 {
@@ -132,9 +134,6 @@ void h264_stream_set_surfaces(H264StreamState* state, u8 surfaces) noexcept;
 // The GPU accepted the picture.
 void h264_stream_commit(H264StreamState* state, const H264StreamPicture& picture,
                         const H264StreamDecode& decode, u32 rtp_timestamp) noexcept;
-// The GPU rejected the picture or a decoded picture was lost: the DPB can no
-// longer be trusted, so wait for the next IDR.
-void h264_stream_fail(H264StreamState* state) noexcept;
 // Damaged input while decoding: drop it and wait for the next IDR.
 void h264_stream_lost(H264StreamState* state) noexcept;
 

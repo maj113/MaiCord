@@ -86,7 +86,7 @@ void sha1(ConstSlice<u8> input, u8* digest) noexcept {
 }
 
 bool valid_client_key(ConstSlice<u8> key) noexcept {
-    if (!key.data || key.count != kWebSocketClientKeyBytes) {
+    if (key.count != kWebSocketClientKeyBytes) {
         return false;
     }
     u8 decoded[kWebSocketNonceBytes]{};

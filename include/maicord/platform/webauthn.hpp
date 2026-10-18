@@ -22,9 +22,7 @@ enum class WindowsWebAuthnError : u8 {
 struct WindowsWebAuthnResult {
     i32 hresult;
     u32 api_version;
-    u32 credential_bytes;
     WindowsWebAuthnError error;
-    WebAuthnMfaError codec_error;
 
     constexpr bool ok() const noexcept {
         return error == WindowsWebAuthnError::none;

@@ -5,9 +5,6 @@
 #include "indic_forms.hpp"
 
 namespace maicord {namespace {
-struct ArenaScope {Arena* arena;ArenaMark mark;bool keep=false;~ArenaScope() noexcept {if(!keep)arena_rewind(arena,mark);}};
-template<class T> Slice<T> take(Arena* arena,u32 count) noexcept {return {count?arena_allocate<T>(arena,count):nullptr,count};}
-template<class T> bool filled(Slice<T> s) noexcept {return !s.count||s.data;}
 SfntStatus forms(const SfntLayout& layout,const SfntFeatureSubstitutions& variations,const SfntGsubProgram& program,
     NativeIndicPlan& plan,Slice<u8> bits,Arena* scratch,Slice<u16> mask,SfntShapeStorage probe,SfntShapeLimits limits) noexcept {
     const auto* info=sfnt_indic_script(plan.profile);if(!info)return SfntStatus::invalid_input;const u32 first=info->block_first;

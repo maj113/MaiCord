@@ -2,6 +2,7 @@
 #include "maicord/text/myanmar_shape_run.hpp"
 #include "myanmar_character.hpp"
 #include "selector_slots.hpp"
+#include "use_shape_internal.hpp"
 namespace maicord {namespace {
 struct Policy {const SfntGdef* gdef;u16 space=0,zero[4]{};};
 static_assert(sizeof(Policy)==24);
@@ -50,7 +51,6 @@ SfntStatus map_cluster(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice
     return SfntStatus::ok;
 }
 
-constexpr u32 nil=0xffffffffu;
 struct Work {
     u64 left,used=0;
     bool spend(u64 n) noexcept {if(n>left)return false;left-=n;used+=n;return true;}
@@ -103,28 +103,8 @@ SfntStatus run_finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> z
     return finish(&static_cast<RunPolicy*>(context)->cluster,glyphs,zero,work);
 }
 SfntStatus run_restore(void* context,SfntClusterMap* clusters,const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u64 work) noexcept {
-    auto& p=*static_cast<RunPolicy*>(context);const auto groups=p.groups;Work w{work};
-    // Late ligatures retain the last consumed source group. Reordered prefixes
-    // may still own earlier groups, and decomposition can restore those groups.
-    for(u32 i=0;i<glyphs.count;++i){u32 lo=nil,hi=0;u64 cost=0;
-        auto status=sfnt_component_source_bounds(forest,glyphs[i].component,&lo,&hi,w.left,&cost);w.spend(cost);
-        if(status!=SfntStatus::ok)return status;if(!w.spend(1))return SfntStatus::resource_limit;
-        const u32 source=lo==nil?glyphs[i].source:hi;if(source>=groups.count)return SfntStatus::invalid_input;
-        glyphs[i].source=groups[source];
-    }
-    if(!w.spend(static_cast<u64>(p.boundary_count)*3+glyphs.count))return SfntStatus::resource_limit;
-    for(u32 i=0;i<p.boundary_count;++i)groups[p.boundaries[i]]=nil;
-    for(u32 i=0;i<glyphs.count;++i){auto& first=groups[glyphs[i].source];first=minimum(first,i);}
-    // Earliest glyph ownership determines monotone source groups. A later mark
-    // from an earlier group does not erase a boundary restored by decomposition.
-    u32 next=nil;
-    for(u32 i=p.boundary_count;i;){auto& first=groups[p.boundaries[--i]];next=minimum(next,first);first=next;}
-    u32 count=0,previous=nil;
-    for(u32 i=0;i<p.boundary_count;++i){const u32 source=p.boundaries[i];const u32 value=groups[source];
-        if(!i||(value!=nil&&value!=previous)){p.boundaries[count++]=source;previous=value;}}
-    const u64 cost=static_cast<u64>(sfnt_cluster_map_words(groups.count))*3+count;
-    if(!w.spend(cost))return SfntStatus::resource_limit;
-    return sfnt_cluster_map_open(groups.count,{p.boundaries.data,count},clusters->storage,clusters,cost);
+    auto& p=*static_cast<RunPolicy*>(context);
+    return use_shape::restore_groups(p.groups,p.boundaries,p.boundary_count,clusters,forest,glyphs,work);
 }
 
 }

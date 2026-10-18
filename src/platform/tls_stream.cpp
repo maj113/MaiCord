@@ -417,37 +417,15 @@ TlsStreamEvent tls_stream_begin_connect(TlsStream* stream, NetworkLoop* loop) no
         stream->outstanding_operations != 0 || stream->resolver.pending) {
         return invalid_event();
     }
-    stream->resolver = NetworkResolver{};
-    stream->connection = NetworkConnection{};
-    stream->connection.socket = INVALID_SOCKET;
-    stream->tls = TlsClient{};
-    stream->error = TlsStreamError::none;
-    stream->native_error = 0;
-    stream->tls_status = SEC_E_OK;
-    stream->next_address = nullptr;
-    stream->send_data = nullptr;
-    stream->commit_handler = nullptr;
-    stream->read_handler = nullptr;
-    stream->callback_context = nullptr;
-    stream->read_context = nullptr;
-    stream->duplex = false;
-    stream->send_bytes = 0;
-    stream->paused_peer_closed = false;
-    stream->read_completed = false;
-    stream->send_offset = 0;
-    stream->write_span_count = 0;
-    stream->write_span_index = 0;
-    stream->write_span_offset = 0;
-    stream->current_plaintext_bytes = 0;
-    stream->outstanding_operations = 0;
-    stream->after_tls_send = TlsHandshakeState{};
-    stream->resolver_started = false;
-    stream->tls_initialized = false;
-    stream->handshake_send = false;
-    for (u32 index = 0; index < kTlsStreamMaximumWriteSpans; ++index) {
-        stream->write_spans[index] = {};
-    }
     byte_queue_clear(&stream->encrypted_input, true);
+    // Keep the initialized endpoint, buffers and state; reset everything else.
+    const TlsStream configured = *stream;
+    *stream = TlsStream{};
+    stream->connection.socket = INVALID_SOCKET;
+    stream->server_name = configured.server_name;
+    copy_bytes(stream->service, configured.service, sizeof(stream->service));
+    stream->buffers = configured.buffers;
+    stream->state = configured.state;
     if (!byte_queue_initialize(&stream->encrypted_input, stream->buffers.encrypted_input)) {
         return failure(stream, TlsStreamError::capacity);
     }

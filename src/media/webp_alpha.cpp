@@ -61,9 +61,7 @@ WebpAlphaDecodeResult webp_alpha_decode(
     Vp8lWorkspace* workspace, Slice<u8> rgba_scratch,
     Slice<u8> alpha_output) noexcept {
     WebpAlphaDecodeResult result{};
-    if ((!payload.data && payload.count != 0) ||
-        (!alpha_output.data && alpha_output.count != 0) ||
-        !payload.data || payload.count == 0 || !alpha_output.data) {
+    if (!payload.data || payload.count == 0 || !alpha_output.data) {
         return alpha_failure(result, WebpAlphaError::invalid_input);
     }
     if (width == 0 || height == 0 ||

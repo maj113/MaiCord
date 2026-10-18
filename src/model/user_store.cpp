@@ -1,4 +1,5 @@
 #include "maicord/model/user_store.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/model/asset_hash.hpp"
 
@@ -119,9 +120,7 @@ bool avatar_hash_valid(Utf8View hash) noexcept {
         return false;
     }
     for (u32 index = begin; index < hash.bytes; ++index) {
-        const char value = hash.data[index];
-        if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') ||
-              (value >= 'A' && value <= 'F'))) {
+        if (!ascii_is_hex_digit(hash.data[index])) {
             return false;
         }
     }

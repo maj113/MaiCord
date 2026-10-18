@@ -20,10 +20,6 @@ TibetanCategory tibetan_category(u32 scalar) noexcept {
     return gc==UnicodeGeneralCategory::mn||gc==UnicodeGeneralCategory::mc?C::defective:C::other;
 }
 namespace {
-bool overlaps(const void* a,u64 an,const void* b,u64 bn) noexcept {
-    const u64 x=reinterpret_cast<usize>(a),y=reinterpret_cast<usize>(b);
-    return x>~u64{0}-an||y>~u64{0}-bn||(an&&bn&&x<y+bn&&y<x+an);
-}
 u8 first_rank(C c) noexcept {return c>=C::cons_above&&c<=C::final?static_cast<u8>(c)-5:c==C::split?4:0;}
 u8 last_rank(C c) noexcept {return c==C::split?5:c==C::final?10:first_rank(c);}
 enum class Phase:u8 {closed,base,independent,symbol};
@@ -54,7 +50,7 @@ struct Scanner {
 };static_assert(sizeof(Scanner)==4);
 }
 SfntStatus sfnt_tibetan_cluster_boundaries(ConstSlice<u32> input,Slice<u8> output,u64 work) noexcept {
-    if((input.count&&!input.data)||(output.count&&!output.data)||overlaps(input.data,static_cast<u64>(input.count)*4,output.data,output.count))return SfntStatus::invalid_input;
+    if((input.count&&!input.data)||(output.count&&!output.data)||byte_ranges_overlap_or_wrap(input.data,static_cast<u64>(input.count)*4,output.data,output.count))return SfntStatus::invalid_input;
     if(static_cast<u64>(input.count)*4>work)return SfntStatus::resource_limit;
     for(u32 i=0;i<input.count;++i)if(!unicode_is_scalar(input[i]))return SfntStatus::invalid_input;
     if(output.count<input.count)return SfntStatus::output_too_small;

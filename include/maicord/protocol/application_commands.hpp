@@ -12,8 +12,7 @@ struct ApplicationCommand {
     u64 id, application_id, version, guild_id;
     Utf8View name, root_name, group_name, sub_name, description;
     JsonValue original, options;
-    u64 default_member_permissions;
-    bool has_member_permissions, dm_permission, nsfw;
+    bool dm_permission;
 };
 struct CommandIndex {
     Arena storage;

@@ -47,9 +47,4 @@ void byte_store_be32(u8* output, u32 value) noexcept {
     output[3] = static_cast<u8>(value);
 }
 
-void byte_store_be64(u8* output, u64 value) noexcept {
-    byte_store_be32(output, static_cast<u32>(value >> 32u));
-    byte_store_be32(output + 4, static_cast<u32>(value));
-}
-
 } // namespace maicord

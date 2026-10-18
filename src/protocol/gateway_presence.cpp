@@ -55,15 +55,6 @@ bool write_game(ProtocolWriter* w, const GatewayGameActivity& game) noexcept {
 } // namespace
 
 GatewayCommandWriteResult gateway_write_presence_update(const GatewayPresenceUpdate& presence,
-                                                        Slice<u8> output) noexcept {
-    return gateway_write_presence_update(presence, nullptr, nullptr, output);
-}
-GatewayCommandWriteResult gateway_write_presence_update(const GatewayPresenceUpdate& presence,
-                                                        const GatewayCustomStatusActivity* custom,
-                                                        Slice<u8> output) noexcept {
-    return gateway_write_presence_update(presence, custom, nullptr, output);
-}
-GatewayCommandWriteResult gateway_write_presence_update(const GatewayPresenceUpdate& presence,
                                                         const GatewayCustomStatusActivity* custom,
                                                         const GatewayGameActivity* game,
                                                         Slice<u8> output) noexcept {

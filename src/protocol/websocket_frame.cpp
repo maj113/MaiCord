@@ -161,7 +161,7 @@ WebSocketParseResult websocket_parse_frame_header(ConstSlice<u8> input, u64 maxi
 
 WebSocketMessageStep websocket_track_frame(WebSocketMessageTracker* tracker, const WebSocketFrame& frame,
                                            u64 maximum_message_bytes) noexcept {
-    if (!tracker || maximum_message_bytes == 0 || frame.masked) {
+    if (maximum_message_bytes == 0 || frame.masked) {
         return message_error(WebSocketError::invalid_input);
     }
     if (opcode_control(frame.opcode)) {

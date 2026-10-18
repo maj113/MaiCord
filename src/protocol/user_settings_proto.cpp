@@ -230,7 +230,7 @@ bool user_settings_proto_valid(ConstSlice<u8> message) noexcept {
 }
 
 bool user_settings_proto_read(ConstSlice<u8> group, UserSettingsField field, UserSettingsValue* value) noexcept {
-    if (!value || !field_valid(field) || field.kind == K::id_member || !byte_range_valid(group))
+    if (!field_valid(field) || field.kind == K::id_member || !byte_range_valid(group))
         return false;
     UserSettingsValue result{};
     const Wire w = proto_source(group);
@@ -488,8 +488,6 @@ UserSettingsResponse user_settings_proto_decode_response(Utf8View body, u32 mask
 }
 
 void user_settings_store_reset(UserSettingsStore* store) noexcept {
-    if (!store)
-        return;
     const u64 revision = store->revision + 1;
     clear_bytes(store->dirty, sizeof(store->dirty));
     clear_bytes(store->inflight, sizeof(store->inflight));
@@ -507,7 +505,7 @@ ConstSlice<u8> user_settings_store_server_group(const UserSettingsStore& store, 
 }
 
 bool user_settings_store_apply(UserSettingsStore* store, ConstSlice<u8> extracted, bool partial) noexcept {
-    if (!store || !user_settings_proto_valid(extracted) || extracted.count > kUserSettingsProtoArenaBytes)
+    if (!user_settings_proto_valid(extracted) || extracted.count > kUserSettingsProtoArenaBytes)
         return false;
     ProtoWriter out{{store->scratch, kUserSettingsProtoArenaBytes}, 0, true};
     u32 present = 0;
@@ -577,7 +575,7 @@ bool base_value(const UserSettingsStore& store, UserSettingsField field, u64 key
 
 bool user_settings_store_read(const UserSettingsStore& store, UserSettingsField field,
                               UserSettingsValue* value) noexcept {
-    if (!value || !field_valid(field) || field.kind == K::id_member)
+    if (!field_valid(field) || field.kind == K::id_member)
         return false;
     if (const auto* edit = find(store.dirty, store.dirty_count, field, 0)) {
         *value = edit->value;
@@ -597,7 +595,7 @@ bool user_settings_store_contains(const UserSettingsStore& store, UserSettingsFi
 
 bool user_settings_store_set(UserSettingsStore* store, UserSettingsField field, const UserSettingsValue& value,
                              u64 now_ms) noexcept {
-    if (!store || !store->loaded || !field_valid(field) || !(kUserSettingsStoredGroups & (1u << field.group)) ||
+    if (!store->loaded || !field_valid(field) || !(kUserSettingsStoredGroups & (1u << field.group)) ||
         field.group == user_settings_versions || value.text_bytes > kUserSettingsTextBytes ||
         (field.kind == K::id_member && (!value.number || value.text_bytes)))
         return false;
@@ -644,7 +642,7 @@ bool user_settings_store_due(const UserSettingsStore& store, u64 now_ms) noexcep
 }
 
 u32 user_settings_store_begin(UserSettingsStore* store, Slice<u8> partial, u32* version, bool* required) noexcept {
-    if (!store || !store->dirty_count || store->inflight_active || !range_valid(partial) || !version)
+    if (!store->dirty_count || store->inflight_active || !range_valid(partial))
         return 0;
     u32 groups = 0;
     for (u32 i = 0; i < store->dirty_count; ++i)
@@ -690,7 +688,7 @@ u32 user_settings_store_begin(UserSettingsStore* store, Slice<u8> partial, u32* 
 UserSettingsCompletion user_settings_store_complete(UserSettingsStore* store, UserSettingsOutcome outcome,
                                                     ConstSlice<u8> response, u64 retry_at_ms) noexcept {
     UserSettingsCompletion result{};
-    if (!store || !store->inflight_active)
+    if (!store->inflight_active)
         return result;
     if (outcome == UserSettingsOutcome::rate_limited) {
         // Pending edits are newer; in-flight ones they replace are dropped.

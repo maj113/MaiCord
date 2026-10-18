@@ -6,7 +6,6 @@
 namespace maicord {
 namespace {
 
-
 bool reference(Utf8View url, Slice<u8> target, AttachmentUrlResult* result,
                u32* path_bytes) noexcept {
     const auto parsed = parse_media_url(url, target);

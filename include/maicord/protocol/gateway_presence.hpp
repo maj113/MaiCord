@@ -27,11 +27,6 @@ struct GatewayGameActivity {
     u8 type;
 };
 GatewayCommandWriteResult gateway_write_presence_update(const GatewayPresenceUpdate& presence,
-                                                        Slice<u8> output) noexcept;
-GatewayCommandWriteResult gateway_write_presence_update(const GatewayPresenceUpdate& presence,
-                                                        const GatewayCustomStatusActivity* custom,
-                                                        Slice<u8> output) noexcept;
-GatewayCommandWriteResult gateway_write_presence_update(const GatewayPresenceUpdate& presence,
                                                         const GatewayCustomStatusActivity* custom,
                                                         const GatewayGameActivity* game,
                                                         Slice<u8> output) noexcept;

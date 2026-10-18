@@ -93,10 +93,6 @@ MessageReconcileResult find_resident(const MessageStore& store, u64 message_id, 
                                found.error);
     }
     *record = message_store_resolve(store, found.handle);
-    if (!*record) {
-        return reconcile_error(MessageReconcileError::store_failure,
-                               MessageStoreError::not_found);
-    }
     if ((*record)->channel_id != channel_id) {
         return reconcile_error(MessageReconcileError::channel_mismatch);
     }

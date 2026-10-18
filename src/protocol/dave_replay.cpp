@@ -45,7 +45,7 @@ bool dave_replay_can_accept(const DaveReplay& replay, u64 counter) noexcept {
     return at < replay.count && replay.missing[slot(replay, at)] == counter;
 }
 bool dave_replay_commit(DaveReplay* replay, u64 counter) noexcept {
-    if (!replay || !valid(*replay, counter))
+    if (!valid(*replay, counter))
         return false;
     if (!replay->initialized) {
         replay->largest = counter;

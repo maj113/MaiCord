@@ -14,14 +14,6 @@ constexpr u32 kWork = 32; // work-buffer stride
 // Signed offsets: the row above and the left column precede dst.
 constexpr i32 kStride = static_cast<i32>(kWork);
 
-u32 chunk_tag(const u8* p) noexcept {
-    return byte_load_le32(p);
-}
-constexpr u32 tag(char a, char b, char c, char d) noexcept {
-    return static_cast<u32>(static_cast<u8>(a)) | static_cast<u32>(static_cast<u8>(b)) << 8 |
-           static_cast<u32>(static_cast<u8>(c)) << 16 | static_cast<u32>(static_cast<u8>(d)) << 24;
-}
-
 __forceinline u8 clip8(i32 v) noexcept {
     return static_cast<u8>(v < 0 ? 0 : v > 255 ? 255 : v);
 }
@@ -328,8 +320,7 @@ inline constexpr u32 kPendingLuma = 7, kPendingChroma = 4;
 u64 align16(u64 value) noexcept {
     return (value + 15u) & ~15ull;
 }
-Workspace carve(u8* base, u32 width, u32 height) noexcept {
-    (void)height;
+Workspace carve(u8* base, u32 width) noexcept {
     const u32 columns = (width + 15u) / 16u;
     const u64 w16 = columns * 16ull, w8 = columns * 8ull;
     Workspace w{};
@@ -388,7 +379,6 @@ struct Decoder {
     void* context;
     u32 width, height, columns, w16, w8;
     u32 emitted; // next luma line to emit
-    bool failed;
 };
 
 // Fancy 4:2:0 upsampling (the reference decoder's 9-3-3-1 kernel), BT.601
@@ -409,8 +399,6 @@ __forceinline u8 fancy(const u8* top, const u8* current, u32 x, u32 width, bool 
 }
 bool emit(Decoder* d, u32 mb_y) noexcept {
     const u32 y = d->emitted;
-    if (y >= d->height)
-        return true;
     u32 top_row = 0, current_row = 0;
     bool bottom = false;
     if (y == 0) {
@@ -451,10 +439,8 @@ bool emit(Decoder* d, u32 mb_y) noexcept {
         out[x * 4 + 2] = clip(yy + mult(u, 33050) - 17685);
         out[x * 4 + 3] = alpha ? alpha[x] : 255;
     }
-    if (!d->sink(d->context, y, out)) {
-        d->failed = true;
+    if (!d->sink(d->context, y, out))
         return false;
-    }
     ++d->emitted;
     return true;
 }
@@ -593,23 +579,24 @@ WebpThumbnailError webp_thumbnail_parse(ConstSlice<u8> encoded, WebpThumbnailLay
         return WebpThumbnailError::invalid_input;
     *layout = WebpThumbnailLayout{};
     if (encoded.count < 20 || encoded.count > kWebpThumbnailEncodedMaximumBytes ||
-        chunk_tag(encoded.data) != tag('R', 'I', 'F', 'F') || chunk_tag(encoded.data + 8) != tag('W', 'E', 'B', 'P'))
+        byte_load_le32(encoded.data) != byte_fourcc_le('R', 'I', 'F', 'F') ||
+        byte_load_le32(encoded.data + 8) != byte_fourcc_le('W', 'E', 'B', 'P'))
         return WebpThumbnailError::container;
     const u64 riff_end = minimum<u64>(8ull + byte_load_le32(encoded.data + 4), encoded.count);
     ConstSlice<u8> alph{};
     bool extended = false;
     u32 canvas_width = 0, canvas_height = 0;
     for (u64 at = 12; at + 8 <= riff_end;) {
-        const u32 type = chunk_tag(encoded.data + at);
+        const u32 type = byte_load_le32(encoded.data + at);
         const u32 bytes = byte_load_le32(encoded.data + at + 4);
         if (bytes > riff_end - at - 8)
             return WebpThumbnailError::container;
         const ConstSlice<u8> payload{encoded.data + at + 8, bytes};
-        if (type == tag('V', 'P', '8', 'L'))
+        if (type == byte_fourcc_le('V', 'P', '8', 'L'))
             return WebpThumbnailError::unsupported_lossless;
-        if (type == tag('A', 'N', 'I', 'M') || type == tag('A', 'N', 'M', 'F'))
+        if (type == byte_fourcc_le('A', 'N', 'I', 'M') || type == byte_fourcc_le('A', 'N', 'M', 'F'))
             return WebpThumbnailError::unsupported_animation;
-        if (type == tag('V', 'P', '8', 'X')) {
+        if (type == byte_fourcc_le('V', 'P', '8', 'X')) {
             if (bytes < 10 || at != 12)
                 return WebpThumbnailError::container;
             if (payload[0] & 0x02u)
@@ -617,11 +604,11 @@ WebpThumbnailError webp_thumbnail_parse(ConstSlice<u8> encoded, WebpThumbnailLay
             extended = true;
             canvas_width = 1u + byte_load_le24(payload.data + 4);
             canvas_height = 1u + byte_load_le24(payload.data + 7);
-        } else if (type == tag('A', 'L', 'P', 'H')) {
+        } else if (type == byte_fourcc_le('A', 'L', 'P', 'H')) {
             if (!extended || !bytes)
                 return WebpThumbnailError::container;
             alph = payload;
-        } else if (type == tag('V', 'P', '8', ' ')) {
+        } else if (type == byte_fourcc_le('V', 'P', '8', ' ')) {
             layout->vp8 = payload;
             break;
         }
@@ -646,7 +633,7 @@ WebpThumbnailError webp_thumbnail_parse(ConstSlice<u8> encoded, WebpThumbnailLay
         layout->alpha = {alph.data + 1, frame.width * static_cast<u32>(frame.height)};
         layout->alpha_filter = static_cast<u8>((info >> 2) & 3u);
     }
-    const u64 bytes = carve(nullptr, frame.width, frame.height).bytes;
+    const u64 bytes = carve(nullptr, frame.width).bytes;
     if (bytes > 0x7FFFFFFFull)
         return WebpThumbnailError::workspace;
     layout->workspace_bytes = static_cast<u32>(bytes);
@@ -660,7 +647,7 @@ WebpThumbnailError webp_thumbnail_decode(const WebpThumbnailLayout& layout, Slic
         return WebpThumbnailError::invalid_input;
     Decoder d{};
     d.layout = &layout;
-    d.w = carve(workspace.data, layout.width, layout.height);
+    d.w = carve(workspace.data, layout.width);
     d.sink = sink;
     d.context = context;
     d.width = layout.width;
@@ -745,7 +732,7 @@ WebpThumbnailError webp_thumbnail_decode(const WebpThumbnailLayout& layout, Slic
             copy_bytes(d.w.v, d.w.v + 8 * c_line, static_cast<u32>(kPendingChroma * c_line));
         }
     }
-    return d.emitted == d.height && !d.failed ? WebpThumbnailError::none : WebpThumbnailError::sink;
+    return WebpThumbnailError::none;
 }
 
 } // namespace maicord

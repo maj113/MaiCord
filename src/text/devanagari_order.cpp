@@ -15,10 +15,6 @@ u32 consonant_prefix(ConstSlice<u32> order,const C* categories,u32 at) noexcept 
         if(c!=C::nukta&&c!=C::joiner&&c!=C::nonjoiner)break;--first;}
     return first&&categories[order[first-1]]==C::halant?first-1:at;
 }
-bool overlaps(const void* a,u64 an,const void* b,u64 bn) noexcept {
-    const u64 x=reinterpret_cast<usize>(a),y=reinterpret_cast<usize>(b);
-    return x>~u64{0}-an||y>~u64{0}-bn||(an&&bn&&x<y+bn&&y<x+an);
-}
 }
 SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,ConstSlice<u8> forms,
     Slice<u32> order,Slice<u8> masks,SfntDevanagariOrderResult* result,u64 work,bool inserted_circle) noexcept {
@@ -30,8 +26,8 @@ SfntStatus indic_initial_order(SfntIndicProfile profile,ConstSlice<u32> scalars,
     if(n>(profile==SfntIndicProfile::devanagari?31u:indic_cluster_capacity))return SfntStatus::unsupported_sequence;
     if(order.count<n||masks.count<n)return SfntStatus::output_too_small;
     if(static_cast<u64>(n)*64>work)return SfntStatus::resource_limit;
-    if(overlaps(scalars.data,static_cast<u64>(n)*4,order.data,static_cast<u64>(n)*4)||overlaps(scalars.data,static_cast<u64>(n)*4,masks.data,n)||
-       overlaps(forms.data,n,order.data,static_cast<u64>(n)*4)||overlaps(forms.data,n,masks.data,n)||overlaps(order.data,static_cast<u64>(n)*4,masks.data,n))return SfntStatus::invalid_input;
+    if(byte_ranges_overlap_or_wrap(scalars.data,static_cast<u64>(n)*4,order.data,static_cast<u64>(n)*4)||byte_ranges_overlap_or_wrap(scalars.data,static_cast<u64>(n)*4,masks.data,n)||
+       byte_ranges_overlap_or_wrap(forms.data,n,order.data,static_cast<u64>(n)*4)||byte_ranges_overlap_or_wrap(forms.data,n,masks.data,n)||byte_ranges_overlap_or_wrap(order.data,static_cast<u64>(n)*4,masks.data,n))return SfntStatus::invalid_input;
     u8 boundaries[indic_cluster_capacity]{};if(profile==SfntIndicProfile::devanagari){const auto status=sfnt_devanagari_cluster_boundaries(scalars,{boundaries,indic_cluster_capacity},work);if(status!=SfntStatus::ok)return status;}
     C categories[indic_cluster_capacity]{};u8 combining[indic_cluster_capacity]{};bool nukta=false,any_matra=false;
     for(u32 i=0;i<n;++i){if(!unicode_is_scalar(scalars[i]))return SfntStatus::invalid_input;

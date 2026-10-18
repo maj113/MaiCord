@@ -1,5 +1,5 @@
 #include "maicord/platform/timezone.hpp"
-#include <windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 u32 host_iana_timezone(Slice<char> output) noexcept {

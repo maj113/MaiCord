@@ -222,9 +222,8 @@ SfntStatus sfnt_indic_cluster_boundaries(SfntIndicProfile profile,ConstSlice<u32
     if((profile==SfntIndicProfile::telugu||profile==SfntIndicProfile::kannada||profile==SfntIndicProfile::malayalam)?(forms.count!=128||!forms.data):forms.count!=0)return SfntStatus::invalid_input;
     if(output.count<scalars.count)return SfntStatus::output_too_small;
     if(static_cast<u64>(scalars.count)*4>work)return SfntStatus::resource_limit;
-    const u64 n=scalars.count,bytes=n*4,a=reinterpret_cast<usize>(scalars.data),b=reinterpret_cast<usize>(output.data);
-    if(a>~u64{0}-bytes||b>~u64{0}-n||(n&&a<b+n&&b<a+bytes))return SfntStatus::invalid_input;
-    if(forms.count){const u64 f=reinterpret_cast<usize>(forms.data);if(f>~u64{0}-forms.count||(n&&f<b+n&&b<f+forms.count))return SfntStatus::invalid_input;}
+    const u64 n=scalars.count;
+    if(byte_ranges_overlap_or_wrap(scalars.data,n*4,output.data,n)||(forms.count&&byte_ranges_overlap_or_wrap(forms.data,forms.count,output.data,n)))return SfntStatus::invalid_input;
     for(u32 i=0;i<scalars.count;++i)if(!unicode_is_scalar(scalars[i]))return SfntStatus::invalid_input;
     // Windows limits a cluster's mark tail to 31 input scalars.
     State state{};u32 first=0;const u32 block=sfnt_indic_script(profile)->block_first;

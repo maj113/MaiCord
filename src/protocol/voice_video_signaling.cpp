@@ -215,12 +215,14 @@ bool update_field(void* opaque, JsonString name, JsonValue value) noexcept {
         update.keyframe_interval_ms = static_cast<u32>(number);
         update.has_keyframe_interval = valid;
     } else {
-        JsonString* targets[]{&update.audio_codec, &update.video_codec, &update.media_session_id};
-        bool* present[]{&update.has_audio_codec, &update.has_video_codec, &update.has_media_session_id};
-        valid = json_value_as_string(value, targets[index]) && targets[index]->encoded.bytes;
-        *present[index] = valid;
-        if (valid && index == 1)
+        // The audio codec and media session id are validated only.
+        JsonString ignored{};
+        JsonString* target = index == 1 ? &update.video_codec : &ignored;
+        valid = json_value_as_string(value, target) && target->encoded.bytes;
+        if (valid && index == 1) {
+            update.has_video_codec = true;
             update.video = voice_video_codec(update.video_codec);
+        }
     }
     if (!valid)
         read.error = GatewayEventDecodeError::invalid_data;
@@ -230,7 +232,7 @@ bool update_field(void* opaque, JsonString name, JsonValue value) noexcept {
 
 GatewayEventDecodeResult voice_decode_session_update(JsonValue data, Slice<u32> scratch, u32 maximum_depth,
                                                      VoiceSessionUpdate* output) noexcept {
-    if (!output || data.kind != JsonValueKind::object || !data.source.data || !maximum_depth)
+    if (data.kind != JsonValueKind::object)
         return {data.source_offset, GatewayEventDecodeError::invalid_input};
     const auto scan = json_scan_structurals_avx1(data.source, scratch);
     if (!scan.ok())

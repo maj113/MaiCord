@@ -32,10 +32,7 @@ inline constexpr u32 kUserActivityMaximum = 3;
 inline constexpr u16 kUserActivityFieldBudget[kUserActivityFieldCount]{128, 128, 128, 256, 128,
                                                                        256, 128, 256, 96, 96, 64};
 enum UserActivityFlag : u32 {
-    user_activity_flag_instance = 1u << 0,
     user_activity_flag_join = 1u << 1,
-    user_activity_flag_sync = 1u << 4,
-    user_activity_flag_play = 1u << 5,
     user_activity_flag_embedded = 1u << 8,
 };
 // Facts about fields that are not kept whole.
@@ -89,8 +86,6 @@ struct UserActivityArtwork {
     bool badge;
 };
 UserActivityArtwork user_activity_artwork(const UserActivity&, bool application_icon) noexcept;
-// Fraction of start..end elapsed at now, clamped to [0, 1]; -1 without both.
-float user_activity_progress(const UserActivity&, u64 unix_now_ms) noexcept;
 
 // GET /applications/public?application_ids=... for up to kUserActivityMaximum
 // applications. Zero on a zero ID or a full output.

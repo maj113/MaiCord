@@ -21,67 +21,10 @@ PngParseResult parse_failure(PngParseResult result,
     return result;
 }
 
-bool format_parameters(u8 color_type_value, u8 bit_depth,
-                       u8* channels) noexcept {
-    switch (color_type_value) {
-    case 0:
-        *channels = 1;
-        return bit_depth == 1 || bit_depth == 2 || bit_depth == 4 ||
-               bit_depth == 8 || bit_depth == 16;
-    case 2:
-        *channels = 3;
-        return bit_depth == 8 || bit_depth == 16;
-    case 3:
-        *channels = 1;
-        return bit_depth == 1 || bit_depth == 2 || bit_depth == 4 ||
-               bit_depth == 8;
-    case 4:
-        *channels = 2;
-        return bit_depth == 8 || bit_depth == 16;
-    case 6:
-        *channels = 4;
-        return bit_depth == 8 || bit_depth == 16;
-    default:
-        return false;
-    }
-}
-
-bool configure_image(PngImage* image, u32 width, u32 height,
-                     u8 bit_depth, u8 color_type_value) noexcept {
-    if (!image) {
-        return false;
-    }
-    image->width = width;
-    image->height = height;
-    u8 channels = 0;
-    if (width == 0 || height == 0 || width > kPngDimensionMaximum ||
-        height > kPngDimensionMaximum ||
-        !format_parameters(color_type_value, bit_depth, &channels)) {
-        return false;
-    }
-    const u64 row_bits = static_cast<u64>(width) * channels * bit_depth;
-    const u64 row_bytes = (row_bits + 7) / 8;
-    const u64 row_stride = row_bytes + 1;
-    const u64 inflated = row_stride * height;
-    if (row_bytes == 0 || row_bytes > ~0u || row_stride > ~0u ||
-        inflated > kPngInflatedMaximumBytes) {
-        return false;
-    }
-    image->row_bytes = static_cast<u32>(row_bytes);
-    image->row_stride = static_cast<u32>(row_stride);
-    image->inflated_bytes = static_cast<u32>(inflated);
-    image->bit_depth = bit_depth;
-    image->color_type = color_type_value;
-    image->channels = channels;
-    image->bytes_per_pixel = static_cast<u8>(maximum<u32>(
-        1, (static_cast<u32>(channels) * bit_depth + 7) / 8));
-    return true;
-}
-
 bool initialize_header(PngImage* image, const u8* data) noexcept {
-    return data && data[10] == 0 && data[11] == 0 &&
-           configure_image(image, byte_load_be32(data), byte_load_be32(data + 4),
-                           data[8], data[9]);
+    return data[10] == 0 && data[11] == 0 &&
+           png_image_configure(image, byte_load_be32(data), byte_load_be32(data + 4),
+                               data[8], data[9]);
 }
 
 // Rows of row_bytes + 1 (filter byte first), reconstructed in place; the
@@ -97,12 +40,6 @@ bool reconstruct_rows(u8* data, u32 rows, u32 row_bytes, u32 bytes_per_pixel) no
         row[0] = 0;
     }
     return true;
-}
-
-bool reconstruct_scanlines(const PngImage& image,
-                           Slice<u8> scanlines) noexcept {
-    return scanlines.data && scanlines.count >= image.inflated_bytes &&
-           reconstruct_rows(scanlines.data, image.height, image.row_bytes, image.bytes_per_pixel);
 }
 
 // Adam7 pass origin and step: x0, y0, dx, dy.
@@ -265,12 +202,7 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
             return parse_failure(result, PngError::truncated);
         }
         const u8* type_bytes = encoded.data + cursor + 4;
-        for (u32 index = 0; index < 4; ++index) {
-            if (!png_chunk_byte_valid(type_bytes[index])) {
-                return parse_failure(result, PngError::chunk_type);
-            }
-        }
-        if ((type_bytes[2] & 0x20u) != 0) {
+        if (!png_chunk_type_valid(type_bytes) || (type_bytes[2] & 0x20u) != 0) {
             return parse_failure(result, PngError::chunk_type);
         }
         const u32 type = byte_load_be32(type_bytes);
@@ -314,23 +246,9 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
                                      palette_seen ? PngError::duplicate_chunk
                                                   : PngError::chunk_order);
             }
-            if (image->color_type == 0 || image->color_type == 4 ||
-                length == 0 || length % 3 != 0 || length > 768) {
+            if (!png_apply_palette(image, data, length)) {
                 return parse_failure(result, PngError::palette);
             }
-            const u32 entries = length / 3;
-            if (image->color_type == 3 &&
-                entries > (1u << image->bit_depth)) {
-                return parse_failure(result, PngError::palette);
-            }
-            for (u32 index = 0; index < entries; ++index) {
-                image->palette_rgba[index] =
-                    static_cast<u32>(data[index * 3]) |
-                    static_cast<u32>(data[index * 3 + 1]) << 8 |
-                    static_cast<u32>(data[index * 3 + 2]) << 16 |
-                    0xFF000000u;
-            }
-            image->palette_count = static_cast<u16>(entries);
             palette_seen = true;
         } else if (type == kChunkTrns) {
             if (stage != ParseStage::before_idat || transparency_seen) {
@@ -339,35 +257,9 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
                                          ? PngError::duplicate_chunk
                                          : PngError::chunk_order);
             }
-            const u32 maximum_sample =
-                image->bit_depth == 16
-                    ? 65'535u
-                    : (1u << image->bit_depth) - 1u;
-            if (image->color_type == 0 && length == 2) {
-                image->transparent_gray = byte_load_be16(data);
-                if (image->transparent_gray > maximum_sample) {
-                    return parse_failure(result, PngError::transparency);
-                }
-            } else if (image->color_type == 2 && length == 6) {
-                image->transparent_red = byte_load_be16(data);
-                image->transparent_green = byte_load_be16(data + 2);
-                image->transparent_blue = byte_load_be16(data + 4);
-                if (image->transparent_red > maximum_sample ||
-                    image->transparent_green > maximum_sample ||
-                    image->transparent_blue > maximum_sample) {
-                    return parse_failure(result, PngError::transparency);
-                }
-            } else if (image->color_type == 3 && palette_seen &&
-                       length != 0 && length <= image->palette_count) {
-                for (u32 index = 0; index < length; ++index) {
-                    image->palette_rgba[index] =
-                        image->palette_rgba[index] & 0x00FFFFFFu |
-                        static_cast<u32>(data[index]) << 24;
-                }
-            } else {
+            if (!png_apply_transparency(image, data, length)) {
                 return parse_failure(result, PngError::transparency);
             }
-            image->has_transparency = true;
             transparency_seen = true;
         } else if (type == kChunkIdat) {
             if (stage == ParseStage::after_idat ||
@@ -411,9 +303,7 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
             }
             ++result.ancillary_chunks;
             image->has_color_metadata =
-                image->has_color_metadata || type == kChunkSrgb ||
-                type == kChunkGama || type == kChunkChrm ||
-                type == kChunkIccp || type == kChunkCicp;
+                image->has_color_metadata || png_color_metadata_chunk(type);
         }
         cursor = static_cast<u32>(end);
         if (stage == ParseStage::done) {
@@ -431,7 +321,31 @@ PngParseResult png_parse(ConstSlice<u8> encoded,
 
 bool png_image_configure(PngImage* image, u32 width, u32 height,
                          u8 bit_depth, u8 color_type) noexcept {
-    return configure_image(image, width, height, bit_depth, color_type);
+    image->width = width;
+    image->height = height;
+    u8 channels = 0;
+    if (width == 0 || height == 0 || width > kPngDimensionMaximum ||
+        height > kPngDimensionMaximum ||
+        !png_format_channels(color_type, bit_depth, &channels)) {
+        return false;
+    }
+    const u64 row_bits = static_cast<u64>(width) * channels * bit_depth;
+    const u64 row_bytes = (row_bits + 7) / 8;
+    const u64 row_stride = row_bytes + 1;
+    const u64 inflated = row_stride * height;
+    if (row_bytes == 0 || row_bytes > ~0u || row_stride > ~0u ||
+        inflated > kPngInflatedMaximumBytes) {
+        return false;
+    }
+    image->row_bytes = static_cast<u32>(row_bytes);
+    image->row_stride = static_cast<u32>(row_stride);
+    image->inflated_bytes = static_cast<u32>(inflated);
+    image->bit_depth = bit_depth;
+    image->color_type = color_type;
+    image->channels = channels;
+    image->bytes_per_pixel = static_cast<u8>(maximum<u32>(
+        1, (static_cast<u32>(channels) * bit_depth + 7) / 8));
+    return true;
 }
 
 u32 png_decode_buffer_bytes(const PngImage& image) noexcept {
@@ -451,8 +365,8 @@ PngDecodeResult png_decode_parsed_scanlines(
     PngDecodeResult result{};
     PngImage configured{};
     if (!image || !workspace || !scanlines.data ||
-        !configure_image(&configured, image->width, image->height, image->bit_depth,
-                         image->color_type) ||
+        !png_image_configure(&configured, image->width, image->height, image->bit_depth,
+                             image->color_type) ||
         image->idat_span_count == 0 || image->compressed_bytes < 6 ||
         image->interlace > 1 ||
         png_decode_buffer_bytes(*image) == 0 ||
@@ -537,7 +451,7 @@ PngDecodeResult png_decode_parsed_scanlines(
         }
         clear_bytes(scanlines.data, image->inflated_bytes);
         deinterlace(*image, inflate_target, scanlines.data);
-    } else if (!reconstruct_scanlines(*image, scanlines)) {
+    } else if (!reconstruct_rows(scanlines.data, image->height, image->row_bytes, image->bytes_per_pixel)) {
         result.error = PngError::filter;
         return result;
     }

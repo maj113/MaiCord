@@ -1,15 +1,12 @@
 #include "maicord/protocol/voice_session.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
 VoiceSessionEvent fail(VoiceSession* session, VoiceSessionError error) noexcept {
-    if (session) {
-        session->failed = true;
-        voice_heartbeat_disconnect(&session->heartbeat);
-    }
+    session->failed = true;
+    voice_heartbeat_disconnect(&session->heartbeat);
     VoiceSessionEvent event{};
     event.kind = VoiceSessionEventKind::error;
     event.error = error;
@@ -24,7 +21,7 @@ bool overlaps(const void* a, u32 a_bytes, const void* b, u32 b_bytes) noexcept {
 bool voice_session_initialize(VoiceSession* session, Slice<u8> input, Slice<u8> fragments,
                               Slice<u32> scratch, ConstSlice<u8> client_key, u32 maximum_frame_bytes,
                               u32 maximum_message_bytes, u64 now_ms, bool resume) noexcept {
-    if (!session || !input.data || input.count < 14 || !fragments.data || !scratch.data || !scratch.count ||
+    if (!input.data || input.count < 14 || !fragments.data || !scratch.data || !scratch.count ||
         scratch.count > ~u32{0} / sizeof(u32) || !client_key.data ||
         client_key.count != kWebSocketClientKeyBytes || !maximum_frame_bytes ||
         maximum_frame_bytes > input.count - 14 || !maximum_message_bytes ||
@@ -38,9 +35,9 @@ bool voice_session_initialize(VoiceSession* session, Slice<u8> input, Slice<u8> 
     u8 key[kWebSocketClientKeyBytes];
     copy_bytes(key, client_key.data, sizeof(key));
     if (session->input.data)
-        SecureZeroMemory(session->input.data, session->input.capacity);
+        secure_clear_bytes(session->input.data, session->input.capacity);
     if (session->fragments.data)
-        SecureZeroMemory(session->fragments.data, session->fragments.count);
+        secure_clear_bytes(session->fragments.data, session->fragments.count);
     byte_queue_initialize(&session->input, input);
     session->fragments = fragments;
     session->scratch = scratch;
@@ -53,11 +50,11 @@ bool voice_session_initialize(VoiceSession* session, Slice<u8> input, Slice<u8> 
     return true;
 }
 bool voice_session_push(VoiceSession* session, ConstSlice<u8> decrypted) noexcept {
-    return session && !session->failed && !session->closed && byte_queue_append(&session->input, decrypted);
+    return !session->failed && !session->closed && byte_queue_append(&session->input, decrypted);
 }
 
 VoiceSessionEvent voice_session_next(VoiceSession* session, u64 now_ms) noexcept {
-    if (!session || !session->input.data || session->failed)
+    if (!session->input.data || session->failed)
         return fail(session, VoiceSessionError::invalid_input);
     if (session->closed)
         return {};
@@ -172,13 +169,11 @@ VoiceSessionEvent voice_session_next(VoiceSession* session, u64 now_ms) noexcept
 }
 
 void voice_session_clear(VoiceSession* session) noexcept {
-    if (!session)
-        return;
     voice_heartbeat_stop(&session->heartbeat);
     if (session->input.data)
-        SecureZeroMemory(session->input.data, session->input.capacity);
+        secure_clear_bytes(session->input.data, session->input.capacity);
     if (session->fragments.data)
-        SecureZeroMemory(session->fragments.data, session->fragments.count);
+        secure_clear_bytes(session->fragments.data, session->fragments.count);
     byte_queue_clear(&session->input, false);
     session->tracker = {};
     session->fragment_bytes = 0;

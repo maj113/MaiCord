@@ -205,8 +205,6 @@ constexpr CoefficientUpdateProbabilityException kCoefficientUpdateProbabilityExc
     {968, 249}, {970, 254}, {981, 254}, {992, 253}, {1001, 250}, {1034, 254},
 };
 
-constexpr u32 kCoefficientProbabilityCount = 4u * 8u * 3u * 11u;
-
 // RFC 6386 section 13.5, flattened in section 9.9 traversal order.
 constexpr u8 kDefaultCoefficientProbability[] = {
     128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128,
@@ -262,7 +260,7 @@ constexpr u8 kDefaultCoefficientProbability[] = {
     128, 128, 128, 128, 128, 128,
 };
 
-static_assert(sizeof(kDefaultCoefficientProbability) == kCoefficientProbabilityCount);
+static_assert(sizeof(kDefaultCoefficientProbability) == kVp8CoefficientProbabilityCount);
 
 constexpr u64 probability_sum(const u8* values, u32 count) noexcept {
     u64 result = 0;
@@ -281,7 +279,7 @@ constexpr u64 probability_weighted_sum(const u8* values, u32 count) noexcept {
 }
 
 constexpr u64 update_probability_sum() noexcept {
-    u64 result = static_cast<u64>(kCoefficientProbabilityCount) * 255u;
+    u64 result = static_cast<u64>(kVp8CoefficientProbabilityCount) * 255u;
     for (u32 index = 0; index < sizeof(kCoefficientUpdateProbabilityExceptions) /
                                     sizeof(kCoefficientUpdateProbabilityExceptions[0]);
          ++index) {
@@ -293,7 +291,7 @@ constexpr u64 update_probability_sum() noexcept {
 constexpr u64 update_probability_weighted_sum() noexcept {
     u64 result = 0;
     u32 exception_cursor = 0;
-    for (u32 index = 0; index < kCoefficientProbabilityCount; ++index) {
+    for (u32 index = 0; index < kVp8CoefficientProbabilityCount; ++index) {
         u8 probability = 255;
         if (exception_cursor < sizeof(kCoefficientUpdateProbabilityExceptions) /
                                    sizeof(kCoefficientUpdateProbabilityExceptions[0]) &&
@@ -306,8 +304,8 @@ constexpr u64 update_probability_weighted_sum() noexcept {
     return result;
 }
 
-static_assert(probability_sum(kDefaultCoefficientProbability, kCoefficientProbabilityCount) == 174'918u);
-static_assert(probability_weighted_sum(kDefaultCoefficientProbability, kCoefficientProbabilityCount) ==
+static_assert(probability_sum(kDefaultCoefficientProbability, kVp8CoefficientProbabilityCount) == 174'918u);
+static_assert(probability_weighted_sum(kDefaultCoefficientProbability, kVp8CoefficientProbabilityCount) ==
               92'112'737u);
 static_assert(update_probability_sum() == 268'469u);
 static_assert(update_probability_weighted_sum() == 142'003'330u);
@@ -441,14 +439,6 @@ i32 read_optional_signed_literal(Vp8BoolReader* reader, u32 magnitude_bits) noex
     return vp8_bool_read(reader, 128) != 0 ? read_signed_literal(reader, magnitude_bits) : 0;
 }
 
-Vp8ControlParseResult control_failure(Vp8ControlError error, Vp8BoolError boolean_error) noexcept {
-    return Vp8ControlParseResult{error, boolean_error};
-}
-
-Vp8ModeParseResult mode_failure(Vp8ModeError error, Vp8BoolError boolean_error) noexcept {
-    return Vp8ModeParseResult{error, boolean_error};
-}
-
 // RFC 6386 bmode_tree: a positive entry is the next node pair, otherwise the
 // negated mode; node i reads with probability[i / 2].
 inline constexpr signed char kSubblockModeTree[18] = {
@@ -465,11 +455,6 @@ __forceinline Vp8SubblockMode read_subblock_mode(WindowReader* reader, Vp8Subblo
         node = static_cast<u32>(next);
     }
     return static_cast<Vp8SubblockMode>(-next);
-}
-
-Vp8CoefficientParseResult coefficient_failure(Vp8CoefficientError error,
-                                              Vp8BoolError boolean_error) noexcept {
-    return Vp8CoefficientParseResult{error, boolean_error};
 }
 
 // One macroblock header (RFC 6386 sections 19.3 and 11). above holds the
@@ -702,7 +687,7 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
                                                    Vp8TokenContext* left_context,
                                                    Vp8MacroblockCoefficients* coefficients) noexcept {
     if (mode.segment_id >= 4) {
-        return coefficient_failure(Vp8CoefficientError::invalid_input, Vp8BoolError::invalid_input);
+        return {Vp8CoefficientError::invalid_input};
     }
     WindowReader& reader = *token_reader;
     Vp8MacroblockCoefficients& output = *coefficients;
@@ -727,7 +712,7 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
             top.y2 = 0;
             left.y2 = 0;
         }
-        return Vp8CoefficientParseResult{Vp8CoefficientError::none, Vp8BoolError::none};
+        return Vp8CoefficientParseResult{Vp8CoefficientError::none};
     }
 
     const Vp8QuantMatrix quantizer = make_quant_matrix(header, mode.segment_id);
@@ -740,10 +725,10 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
         const Vp8DecodedCoefficientBlock y2_result = decode_coefficient_block(
             &reader, probabilities, 1, y2_context, quantizer.y2_dc, quantizer.y2_ac, 0, y2);
         if (!reader.ok()) {
-            return coefficient_failure(Vp8CoefficientError::boolean_stream, reader.error);
+            return {Vp8CoefficientError::boolean_stream};
         }
         if (y2_result.range_error) {
-            return coefficient_failure(Vp8CoefficientError::coefficient_range, Vp8BoolError::none);
+            return {Vp8CoefficientError::coefficient_range};
         }
         const u8 y2_nonzero = static_cast<u8>(y2_result.has_nonzero);
         top.y2 = y2_nonzero;
@@ -751,14 +736,12 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
         has_coefficients |= y2_nonzero;
         if (y2_result.end_position > 1) {
             if (!inverse_wht(y2, &output)) {
-                return coefficient_failure(Vp8CoefficientError::coefficient_range,
-                                           Vp8BoolError::none);
+                return {Vp8CoefficientError::coefficient_range};
             }
         } else {
             const i32 dc = (static_cast<i32>(y2[0]) + 3) >> 3;
             if (dc < -32'768 || dc > 32'767) {
-                return coefficient_failure(Vp8CoefficientError::coefficient_range,
-                                           Vp8BoolError::none);
+                return {Vp8CoefficientError::coefficient_range};
             }
             for (u32 block = 0; block < 16; ++block) {
                 output.values[block][0] = static_cast<i16>(dc);
@@ -776,11 +759,10 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
                 decode_coefficient_block(&reader, probabilities, y_type, context, quantizer.y1_dc,
                                          quantizer.y1_ac, y_start, output.values[block]);
             if (!reader.ok()) {
-                return coefficient_failure(Vp8CoefficientError::boolean_stream, reader.error);
+                return {Vp8CoefficientError::boolean_stream};
             }
             if (result.range_error) {
-                return coefficient_failure(Vp8CoefficientError::coefficient_range,
-                                           Vp8BoolError::none);
+                return {Vp8CoefficientError::coefficient_range};
             }
             const u8 nonzero = static_cast<u8>(result.has_nonzero);
             left.y[block_y] = nonzero;
@@ -801,11 +783,10 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
                     decode_coefficient_block(&reader, probabilities, 2, context, quantizer.uv_dc,
                                              quantizer.uv_ac, 0, output.values[block]);
                 if (!reader.ok()) {
-                    return coefficient_failure(Vp8CoefficientError::boolean_stream, reader.error);
+                    return {Vp8CoefficientError::boolean_stream};
                 }
                 if (result.range_error) {
-                    return coefficient_failure(Vp8CoefficientError::coefficient_range,
-                                               Vp8BoolError::none);
+                    return {Vp8CoefficientError::coefficient_range};
                 }
                 const u8 nonzero = static_cast<u8>(result.has_nonzero);
                 left_chroma[block_y] = nonzero;
@@ -815,7 +796,7 @@ Vp8CoefficientParseResult decode_macroblock_tokens(WindowReader* token_reader, c
         }
     }
     output.has_coefficients = has_coefficients;
-    return Vp8CoefficientParseResult{Vp8CoefficientError::none, Vp8BoolError::none};
+    return Vp8CoefficientParseResult{Vp8CoefficientError::none};
 }
 
 } // namespace
@@ -842,17 +823,17 @@ bool vp8_bool_reader_initialize(Vp8BoolReader* reader, ConstSlice<u8> bytes) noe
 }
 
 u32 vp8_bool_read(Vp8BoolReader* reader, u8 probability) noexcept {
-    return reader ? bool_read(reader, probability) : 0;
+    return bool_read(reader, probability);
 }
 
 Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8ControlHeader* header,
                                                  Vp8ProbabilityWorkspace* probabilities) noexcept {
     if (!header || !probabilities || !frame.first_partition.data || frame.first_partition.count < 2 ||
         !frame.remaining_data.data) {
-        return control_failure(Vp8ControlError::invalid_input, Vp8BoolError::invalid_input);
+        return {Vp8ControlError::invalid_input};
     }
     *header = Vp8ControlHeader{};
-    for (u32 index = 0; index < kCoefficientProbabilityCount; ++index) {
+    for (u32 index = 0; index < kVp8CoefficientProbabilityCount; ++index) {
         probabilities->coefficient[index] = kDefaultCoefficientProbability[index];
     }
     header->segmentation.absolute_delta = 1;
@@ -862,7 +843,7 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
 
     Vp8BoolReader reader{};
     if (!vp8_bool_reader_initialize(&reader, frame.first_partition)) {
-        return control_failure(Vp8ControlError::boolean_stream, reader.error);
+        return {Vp8ControlError::boolean_stream};
     }
 
     header->color_space = static_cast<u8>(vp8_bool_read(&reader, 128));
@@ -915,7 +896,7 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
     const u32 token_partition_log2 = vp8_bool_read_literal(&reader, 2);
     if (!reader.ok()) {
         header->macroblock_reader = reader;
-        return control_failure(Vp8ControlError::boolean_stream, reader.error);
+        return {Vp8ControlError::boolean_stream};
     }
     header->token_partition_count = static_cast<u8>(1u << token_partition_log2);
 
@@ -923,14 +904,14 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
     const u32 partition_table_bytes = explicit_partition_count * 3u;
     if (frame.remaining_data.count < partition_table_bytes) {
         header->macroblock_reader = reader;
-        return control_failure(Vp8ControlError::token_partition_table, reader.error);
+        return {Vp8ControlError::token_partition_table};
     }
     u32 token_offset = partition_table_bytes;
     for (u32 index = 0; index < explicit_partition_count; ++index) {
         const u32 partition_bytes = byte_load_le24(frame.remaining_data.data + index * 3u);
         if (partition_bytes < 2 || partition_bytes > frame.remaining_data.count - token_offset) {
             header->macroblock_reader = reader;
-            return control_failure(Vp8ControlError::token_partition_bounds, reader.error);
+            return {Vp8ControlError::token_partition_bounds};
         }
         header->token_partitions[index].bytes =
             ConstSlice<u8>{frame.remaining_data.data + token_offset, partition_bytes};
@@ -940,7 +921,7 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
         ConstSlice<u8>{frame.remaining_data.data + token_offset, frame.remaining_data.count - token_offset};
     if (header->token_partitions[explicit_partition_count].bytes.count < 2) {
         header->macroblock_reader = reader;
-        return control_failure(Vp8ControlError::token_partition_bounds, reader.error);
+        return {Vp8ControlError::token_partition_bounds};
     }
 
     Vp8QuantizationHeader& quantization = header->quantization;
@@ -954,7 +935,7 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
     header->refresh_entropy_probabilities = static_cast<u8>(vp8_bool_read(&reader, 128));
 
     u32 exception_cursor = 0;
-    for (u32 index = 0; index < kCoefficientProbabilityCount; ++index) {
+    for (u32 index = 0; index < kVp8CoefficientProbabilityCount; ++index) {
         u8 update_probability = 255;
         if (exception_cursor < sizeof(kCoefficientUpdateProbabilityExceptions) /
                                    sizeof(kCoefficientUpdateProbabilityExceptions[0]) &&
@@ -974,13 +955,13 @@ Vp8ControlParseResult vp8_parse_keyframe_control(const Vp8Keyframe& frame, Vp8Co
     }
     header->macroblock_reader = reader;
     if (!reader.ok()) {
-        return control_failure(Vp8ControlError::boolean_stream, reader.error);
+        return {Vp8ControlError::boolean_stream};
     }
-    return Vp8ControlParseResult{Vp8ControlError::none, Vp8BoolError::none};
+    return Vp8ControlParseResult{Vp8ControlError::none};
 }
 
 u32 vp8_bool_read_literal(Vp8BoolReader* reader, u32 bit_count) noexcept {
-    if (!reader || !reader->ok()) {
+    if (!reader->ok()) {
         return 0;
     }
     if (bit_count > 32) {
@@ -1003,14 +984,14 @@ Vp8ModeParseResult vp8_parse_keyframe_modes(const Vp8Keyframe& frame, const Vp8C
         header.macroblock_reader.byte_offset > frame.first_partition.count ||
         header.macroblock_reader.bit_count >= 8 || header.macroblock_reader.range < 128 ||
         header.macroblock_reader.range > 255) {
-        return mode_failure(Vp8ModeError::invalid_input, Vp8BoolError::invalid_input);
+        return {Vp8ModeError::invalid_input};
     }
     const u32 columns = (static_cast<u32>(frame.width) + 15u) / 16u;
     const u32 rows = (static_cast<u32>(frame.height) + 15u) / 16u;
     const u32 macroblock_count = columns * rows;
     if (frame.width == 0 || frame.height == 0 || columns > kVp8MacroblockDimensionMaximum ||
         rows > kVp8MacroblockDimensionMaximum || macroblock_count > kVp8MacroblockMaximum) {
-        return mode_failure(Vp8ModeError::dimensions, Vp8BoolError::none);
+        return {Vp8ModeError::dimensions};
     }
 
     workspace->macroblock_count = 0;
@@ -1032,14 +1013,14 @@ Vp8ModeParseResult vp8_parse_keyframe_modes(const Vp8Keyframe& frame, const Vp8C
             if (!reader.ok()) {
                 workspace->reader = header.macroblock_reader;
                 from_window(reader, &workspace->reader);
-                return mode_failure(Vp8ModeError::boolean_stream, reader.error);
+                return {Vp8ModeError::boolean_stream};
             }
             ++workspace->macroblock_count;
         }
     }
     workspace->reader = header.macroblock_reader;
     from_window(reader, &workspace->reader);
-    return Vp8ModeParseResult{Vp8ModeError::none, Vp8BoolError::none};
+    return Vp8ModeParseResult{Vp8ModeError::none};
 }
 
 Vp8CoefficientParseResult vp8_decode_keyframe_coefficients(const Vp8Keyframe& frame,
@@ -1050,7 +1031,7 @@ Vp8CoefficientParseResult vp8_decode_keyframe_coefficients(const Vp8Keyframe& fr
     const u32 partition_count = header.token_partition_count;
     if (!workspace || partition_count == 0 || partition_count > 8 ||
         (partition_count & (partition_count - 1u)) != 0) {
-        return coefficient_failure(Vp8CoefficientError::invalid_input, Vp8BoolError::invalid_input);
+        return {Vp8CoefficientError::invalid_input};
     }
     const u32 columns = (static_cast<u32>(frame.width) + 15u) / 16u;
     const u32 rows = (static_cast<u32>(frame.height) + 15u) / 16u;
@@ -1058,7 +1039,7 @@ Vp8CoefficientParseResult vp8_decode_keyframe_coefficients(const Vp8Keyframe& fr
     if (frame.width == 0 || frame.height == 0 || columns > kVp8MacroblockDimensionMaximum ||
         rows > kVp8MacroblockDimensionMaximum || macroblock_count > kVp8MacroblockMaximum ||
         modes.columns != columns || modes.rows != rows || modes.macroblock_count != macroblock_count) {
-        return coefficient_failure(Vp8CoefficientError::dimensions, Vp8BoolError::none);
+        return {Vp8CoefficientError::dimensions};
     }
 
     for (u32 index = 0; index < 8; ++index) {
@@ -1067,8 +1048,7 @@ Vp8CoefficientParseResult vp8_decode_keyframe_coefficients(const Vp8Keyframe& fr
     for (u32 index = 0; index < partition_count; ++index) {
         if (!vp8_bool_reader_initialize(&workspace->token_reader[index],
                                         header.token_partitions[index].bytes)) {
-            return coefficient_failure(Vp8CoefficientError::token_initialize,
-                                       workspace->token_reader[index].error);
+            return {Vp8CoefficientError::token_initialize};
         }
     }
     for (u32 column = 0; column < columns; ++column) {
@@ -1098,7 +1078,7 @@ Vp8CoefficientParseResult vp8_decode_keyframe_coefficients(const Vp8Keyframe& fr
         }
         from_window(reader, &partition);
     }
-    return Vp8CoefficientParseResult{Vp8CoefficientError::none, Vp8BoolError::none};
+    return Vp8CoefficientParseResult{Vp8CoefficientError::none};
 }
 
 namespace {
@@ -1178,12 +1158,12 @@ Vp8CoefficientParseResult vp8_row_parser_initialize(Vp8RowParser* parser, const 
         !above_modes.data || above_modes.count < columns * 4u || !header.macroblock_reader.ok() ||
         header.macroblock_reader.bytes.data != frame.first_partition.data ||
         header.macroblock_reader.bytes.count != frame.first_partition.count)
-        return coefficient_failure(Vp8CoefficientError::invalid_input, Vp8BoolError::invalid_input);
+        return {Vp8CoefficientError::invalid_input};
     *parser = Vp8RowParser{};
     parser->modes = header.macroblock_reader;
     for (u32 index = 0; index < partitions; ++index)
         if (!vp8_bool_reader_initialize(&parser->tokens[index], header.token_partitions[index].bytes))
-            return coefficient_failure(Vp8CoefficientError::token_initialize, parser->tokens[index].error);
+            return {Vp8CoefficientError::token_initialize};
     parser->top_context = top_context.data;
     parser->above_modes = above_modes.data;
     for (u32 column = 0; column < columns; ++column)
@@ -1193,7 +1173,7 @@ Vp8CoefficientParseResult vp8_row_parser_initialize(Vp8RowParser* parser, const 
     parser->columns = columns;
     parser->rows = rows;
     parser->partitions = partitions;
-    return Vp8CoefficientParseResult{Vp8CoefficientError::none, Vp8BoolError::none};
+    return Vp8CoefficientParseResult{Vp8CoefficientError::none};
 }
 
 Vp8CoefficientParseResult vp8_row_parser_next(Vp8RowParser* parser, const Vp8ControlHeader& header,
@@ -1202,7 +1182,7 @@ Vp8CoefficientParseResult vp8_row_parser_next(Vp8RowParser* parser, const Vp8Con
                                               Slice<Vp8MacroblockCoefficients> coefficients) noexcept {
     if (!parser || !parser->columns || parser->row >= parser->rows || !modes.data ||
         modes.count < parser->columns || !coefficients.data || coefficients.count < parser->columns)
-        return coefficient_failure(Vp8CoefficientError::invalid_input, Vp8BoolError::invalid_input);
+        return {Vp8CoefficientError::invalid_input};
     // All macroblock headers live in the first partition, in raster order;
     // this row's tokens come from partition row % count.
     WindowReader mode_reader = to_window(parser->modes);
@@ -1211,7 +1191,7 @@ Vp8CoefficientParseResult vp8_row_parser_next(Vp8RowParser* parser, const Vp8Con
                               x ? &modes[x - 1] : nullptr, &modes[x]);
         if (!mode_reader.ok()) {
             from_window(mode_reader, &parser->modes);
-            return coefficient_failure(Vp8CoefficientError::boolean_stream, parser->modes.error);
+            return {Vp8CoefficientError::boolean_stream};
         }
     }
     from_window(mode_reader, &parser->modes);
@@ -1231,7 +1211,7 @@ Vp8CoefficientParseResult vp8_row_parser_next(Vp8RowParser* parser, const Vp8Con
     }
     from_window(reader, &partition);
     ++parser->row;
-    return Vp8CoefficientParseResult{Vp8CoefficientError::none, Vp8BoolError::none};
+    return Vp8CoefficientParseResult{Vp8CoefficientError::none};
 }
 
 } // namespace maicord

@@ -63,52 +63,30 @@ ReactionUsersDecodeResult decode_error(
 bool visit_user_member(void* opaque, JsonString name,
                        JsonValue value) noexcept {
     auto* user = static_cast<UserObject*>(opaque);
+    bool valid = true;
     if (json_string_equals_ascii(name, utf8_literal("id"))) {
-        if (user->id_seen || !json_value_to_snowflake(value, &user->id)) {
-            user->error = ReactionUsersDecodeError::invalid_user;
-            return false;
-        }
+        valid = !user->id_seen && json_value_to_snowflake(value, &user->id);
         user->id_seen = true;
     } else if (json_string_equals_ascii(name, utf8_literal("username"))) {
-        if (user->username_seen ||
-            !json_value_as_string(value, &user->username)) {
-            user->error = ReactionUsersDecodeError::invalid_user;
-            return false;
-        }
+        valid = !user->username_seen && json_value_as_string(value, &user->username);
         user->username_seen = true;
-    } else if (json_string_equals_ascii(name,
-                                        utf8_literal("global_name"))) {
-        if (user->global_name_seen) {
-            user->error = ReactionUsersDecodeError::invalid_user;
-            return false;
-        }
+    } else if (json_string_equals_ascii(name, utf8_literal("global_name"))) {
+        valid = !user->global_name_seen;
         user->global_name_seen = true;
         user->global_name_null = value.kind == JsonValueKind::null_value;
-        if (!user->global_name_null &&
-            !json_value_as_string(value, &user->global_name)) {
-            user->error = ReactionUsersDecodeError::invalid_user;
-            return false;
-        }
+        valid = valid && (user->global_name_null || json_value_as_string(value, &user->global_name));
     } else if (json_string_equals_ascii(name, utf8_literal("avatar"))) {
-        if (user->avatar_seen) {
-            user->error = ReactionUsersDecodeError::invalid_user;
-            return false;
-        }
+        valid = !user->avatar_seen;
         user->avatar_seen = true;
         user->avatar_null = value.kind == JsonValueKind::null_value;
-        if (!user->avatar_null &&
-            !json_value_as_string(value, &user->avatar)) {
-            user->error = ReactionUsersDecodeError::invalid_user;
-            return false;
-        }
+        valid = valid && (user->avatar_null || json_value_as_string(value, &user->avatar));
     } else if (json_string_equals_ascii(name, utf8_literal("bot"))) {
-        if (user->bot_seen || !json_value_to_bool(value, &user->bot)) {
-            user->error = ReactionUsersDecodeError::invalid_user;
-            return false;
-        }
+        valid = !user->bot_seen && json_value_to_bool(value, &user->bot);
         user->bot_seen = true;
     }
-    return true;
+    if (!valid)
+        user->error = ReactionUsersDecodeError::invalid_user;
+    return valid;
 }
 
 enum class DecodeStringResult : u8 {
@@ -120,9 +98,6 @@ enum class DecodeStringResult : u8 {
 DecodeStringResult decode_string(JsonString source, u32 maximum_bytes,
                                  Slice<char> output, u32* used,
                                  Utf8View* result, bool required) noexcept {
-    if (*used > output.count) {
-        return DecodeStringResult::invalid;
-    }
     const JsonStringDecodeResult measured =
         json_string_decode_utf8(source, Slice<char>{nullptr, 0});
     if (!(measured.ok() ||
@@ -139,7 +114,7 @@ DecodeStringResult decode_string(JsonString source, u32 maximum_bytes,
     }
     const JsonStringDecodeResult decoded = json_string_decode_utf8(
         source, Slice<char>{output.data + *used, output.count - *used});
-    if (!decoded.ok() || decoded.bytes != measured.bytes) {
+    if (!decoded.ok()) {
         return DecodeStringResult::invalid;
     }
     *result = Utf8View{output.data + *used, decoded.bytes};
@@ -189,42 +164,27 @@ bool visit_user(void* opaque, u32, JsonValue value) noexcept {
     ReactionUser decoded{};
     decoded.id = user.id;
     decoded.bot = user.bot_seen && user.bot;
-    const DecodeStringResult username = decode_string(
-        user.username, kReactionUserMaximumNameBytes, page->text,
-        &page->text_used, &decoded.username, true);
-    if (username != DecodeStringResult::ok) {
-        page->error = username == DecodeStringResult::capacity
-                          ? ReactionUsersDecodeError::text_capacity
-                          : ReactionUsersDecodeError::invalid_user;
-        page->error_offset = value.source_offset;
-        return false;
-    }
-    if (user.global_name_seen && !user.global_name_null) {
-        const DecodeStringResult display = decode_string(
-            user.global_name, kReactionUserMaximumNameBytes, page->text,
-            &page->text_used, &decoded.display_name, true);
-        if (display != DecodeStringResult::ok) {
-            page->error = display == DecodeStringResult::capacity
-                              ? ReactionUsersDecodeError::text_capacity
-                              : ReactionUsersDecodeError::invalid_user;
+    const auto decode = [&](JsonString source, u32 maximum, Utf8View* result, bool required) noexcept {
+        const DecodeStringResult status =
+            decode_string(source, maximum, page->text, &page->text_used, result, required);
+        if (status != DecodeStringResult::ok) {
+            page->error = status == DecodeStringResult::capacity ? ReactionUsersDecodeError::text_capacity
+                                                                 : ReactionUsersDecodeError::invalid_user;
             page->error_offset = value.source_offset;
-            return false;
         }
+        return status == DecodeStringResult::ok;
+    };
+    if (!decode(user.username, kReactionUserMaximumNameBytes, &decoded.username, true))
+        return false;
+    if (user.global_name_seen && !user.global_name_null) {
+        if (!decode(user.global_name, kReactionUserMaximumNameBytes, &decoded.display_name, true))
+            return false;
     } else {
         decoded.display_name = decoded.username;
     }
-    if (user.avatar_seen && !user.avatar_null) {
-        const DecodeStringResult avatar = decode_string(
-            user.avatar, kReactionUserMaximumAvatarHashBytes, page->text,
-            &page->text_used, &decoded.avatar_hash, false);
-        if (avatar != DecodeStringResult::ok) {
-            page->error = avatar == DecodeStringResult::capacity
-                              ? ReactionUsersDecodeError::text_capacity
-                              : ReactionUsersDecodeError::invalid_user;
-            page->error_offset = value.source_offset;
-            return false;
-        }
-    }
+    if (user.avatar_seen && !user.avatar_null &&
+        !decode(user.avatar, kReactionUserMaximumAvatarHashBytes, &decoded.avatar_hash, false))
+        return false;
     page->users[page->count++] = decoded;
     return true;
 }

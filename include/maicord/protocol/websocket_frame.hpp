@@ -16,7 +16,6 @@ enum class WebSocketOpcode : u8 {
 enum class WebSocketDirection : u8 {
     server_to_client,
     client_to_server,
-    either,
 };
 
 enum class WebSocketError : u8 {

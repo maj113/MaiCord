@@ -20,7 +20,7 @@ struct Work {
     u64 left,used=0;
     bool spend(u64 n) noexcept {if(n>left)return false;left-=n;used+=n;return true;}
 };
-SfntStatus role(const Policy&,const SfntComponentGlyph& glyph,u8* out,Work& w) noexcept {
+SfntStatus role(const SfntComponentGlyph& glyph,u8* out,Work& w) noexcept {
     if(!w.spend(1))return SfntStatus::resource_limit;*out=glyph.glyph.reserved;return SfntStatus::ok;
 }
 SfntStatus locate(const Policy& p,Slice<SfntComponentGlyph> glyphs,u32 node,u32& index,Work& w) noexcept {
@@ -58,7 +58,7 @@ SfntStatus reorder(Policy& p,Slice<SfntComponentGlyph> glyphs,Work& w) noexcept 
     for(u32 at=0;at<glyphs.count;){
         if(!(glyphs[at].glyph.reserved&reph_role)){if(!w.spend(1))return SfntStatus::resource_limit;++at;continue;}
         glyphs[at].glyph.reserved&=static_cast<u8>(~reph_role);bool moved=false;
-        for(u32 i=at+1;i<glyphs.count;++i){u8 r=0;status=role(p,glyphs[i],&r,w);if(status!=SfntStatus::ok)return status;
+        for(u32 i=at+1;i<glyphs.count;++i){u8 r=0;status=role(glyphs[i],&r,w);if(status!=SfntStatus::ok)return status;
             if((r&halant_role)&&glyphs[i].glyph.glyph==p.halant)break;
             if((r&base_role)&&!(r&reph_role)&&sfnt_gdef_glyph_class(*p.gdef,glyphs[i].glyph.glyph)!=SfntGlyphClass::mark){
                 glyphs[at].attachment=glyphs[i].component;status=move_before(glyphs,at,i+1,w);if(status!=SfntStatus::ok)return status;moved=true;break;
@@ -68,7 +68,7 @@ SfntStatus reorder(Policy& p,Slice<SfntComponentGlyph> glyphs,Work& w) noexcept 
     }
     status=locate(p,glyphs,p.pref,pref,w);if(status!=SfntStatus::ok)return status;
     u32 start=0;
-    for(u32 i=0;i<glyphs.count;++i){u8 r=0;status=role(p,glyphs[i],&r,w);if(status!=SfntStatus::ok)return status;
+    for(u32 i=0;i<glyphs.count;++i){u8 r=0;status=role(glyphs[i],&r,w);if(status!=SfntStatus::ok)return status;
         if((r&halant_role)&&glyphs[i].glyph.glyph==p.halant)start=i+1;
     }
     if(pref!=nil&&pref>start){status=move_before(glyphs,pref,start,w);if(status!=SfntStatus::ok)return status;}
@@ -87,7 +87,7 @@ SfntStatus reorder(Policy& p,Slice<SfntComponentGlyph> glyphs,Work& w) noexcept 
 SfntStatus finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
     auto& p=*static_cast<Policy*>(context);if(!p.forest)return SfntStatus::invalid_input;
     if(zero.count<glyphs.count)return SfntStatus::output_too_small;Work w{work};
-    for(u32 i=0;i<glyphs.count;++i){u8 r=0;auto status=role(p,glyphs[i],&r,w);if(status!=SfntStatus::ok)return status;
+    for(u32 i=0;i<glyphs.count;++i){u8 r=0;auto status=role(glyphs[i],&r,w);if(status!=SfntStatus::ok)return status;
         auto& g=glyphs[i].glyph;
         const bool control=p.control_ids?(g.glyph==p.controls[0]||g.glyph==p.controls[1]||g.glyph==p.controls[2]||g.glyph==p.controls[3]):
             (r&control_role)&&glyphs[i].component!=nil&&p.forest->nodes[glyphs[i].component].count==1;
@@ -185,28 +185,8 @@ SfntStatus run_finish(void* context,Slice<SfntComponentGlyph> glyphs,Slice<u8> z
     return finish(&static_cast<RunPolicy*>(context)->cluster,glyphs,zero,work);
 }
 SfntStatus run_restore(void* context,SfntClusterMap* clusters,const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u64 work) noexcept {
-    auto& p=*static_cast<RunPolicy*>(context);const auto groups=p.groups;Work w{work};
-    // Late ligatures retain the last consumed source group. Reordered prefixes
-    // may still own earlier groups, and decomposition can restore those groups.
-    for(u32 i=0;i<glyphs.count;++i){u32 lo=nil,hi=0;u64 cost=0;
-        auto status=sfnt_component_source_bounds(forest,glyphs[i].component,&lo,&hi,w.left,&cost);w.spend(cost);
-        if(status!=SfntStatus::ok)return status;if(!w.spend(1))return SfntStatus::resource_limit;
-        const u32 source=lo==nil?glyphs[i].source:hi;if(source>=groups.count)return SfntStatus::invalid_input;
-        glyphs[i].source=groups[source];
-    }
-    if(!w.spend(static_cast<u64>(p.boundary_count)*3+glyphs.count))return SfntStatus::resource_limit;
-    for(u32 i=0;i<p.boundary_count;++i)groups[p.boundaries[i]]=nil;
-    for(u32 i=0;i<glyphs.count;++i){auto& first=groups[glyphs[i].source];first=minimum(first,i);}
-    // Earliest glyph ownership determines monotone source groups. A later mark
-    // from an earlier group does not erase a boundary restored by decomposition.
-    u32 next=nil;
-    for(u32 i=p.boundary_count;i;){auto& first=groups[p.boundaries[--i]];next=minimum(next,first);first=next;}
-    u32 count=0,previous=nil;
-    for(u32 i=0;i<p.boundary_count;++i){const u32 source=p.boundaries[i];const u32 value=groups[source];
-        if(!i||(value!=nil&&value!=previous)){p.boundaries[count++]=source;previous=value;}}
-    const u64 cost=static_cast<u64>(sfnt_cluster_map_words(groups.count))*3+count;
-    if(!w.spend(cost))return SfntStatus::resource_limit;
-    return sfnt_cluster_map_open(groups.count,{p.boundaries.data,count},clusters->storage,clusters,cost);
+    auto& p=*static_cast<RunPolicy*>(context);
+    return use_shape::restore_groups(p.groups,p.boundaries,p.boundary_count,clusters,forest,glyphs,work);
 }
 
 }
@@ -243,6 +223,31 @@ SfntStatus sfnt_sinhala_shape_run(const SfntShapePlan& plan,const SfntCmap& cmap
         }
     }
     return use_shape::run(plan,cmap,{mapped,count},units,starts,early,0xdca,em,storage,result,steps,limits,rtl);
+}
+SfntStatus use_shape::restore_groups(Slice<u32> groups,Slice<u32> boundaries,u32 boundary_count,SfntClusterMap* clusters,
+    const SfntComponentForest& forest,Slice<SfntComponentGlyph> glyphs,u64 work) noexcept {
+    Work w{work};
+    // Late ligatures retain the last consumed source group. Reordered prefixes
+    // may still own earlier groups, and decomposition can restore those groups.
+    for(u32 i=0;i<glyphs.count;++i){u32 lo=nil,hi=0;u64 cost=0;
+        auto status=sfnt_component_source_bounds(forest,glyphs[i].component,&lo,&hi,w.left,&cost);w.spend(cost);
+        if(status!=SfntStatus::ok)return status;if(!w.spend(1))return SfntStatus::resource_limit;
+        const u32 source=lo==nil?glyphs[i].source:hi;if(source>=groups.count)return SfntStatus::invalid_input;
+        glyphs[i].source=groups[source];
+    }
+    if(!w.spend(static_cast<u64>(boundary_count)*3+glyphs.count))return SfntStatus::resource_limit;
+    for(u32 i=0;i<boundary_count;++i)groups[boundaries[i]]=nil;
+    for(u32 i=0;i<glyphs.count;++i){auto& first=groups[glyphs[i].source];first=minimum(first,i);}
+    // Earliest glyph ownership determines monotone source groups. A later mark
+    // from an earlier group does not erase a boundary restored by decomposition.
+    u32 next=nil;
+    for(u32 i=boundary_count;i;){auto& first=groups[boundaries[--i]];next=minimum(next,first);first=next;}
+    u32 count=0,previous=nil;
+    for(u32 i=0;i<boundary_count;++i){const u32 source=boundaries[i];const u32 value=groups[source];
+        if(!i||(value!=nil&&value!=previous)){boundaries[count++]=source;previous=value;}}
+    const u64 cost=static_cast<u64>(sfnt_cluster_map_words(groups.count))*3+count;
+    if(!w.spend(cost))return SfntStatus::resource_limit;
+    return sfnt_cluster_map_open(groups.count,{boundaries.data,count},clusters->storage,clusters,cost);
 }
 SfntStatus use_shape::run(const SfntShapePlan& plan,const SfntCmap& cmap,ConstSlice<SfntClusterGlyph> mapped,u32 units,u32 starts,
     u32 early,u32 halant_scalar,float em,SfntShapeStorage storage,SfntShapeRunResult* result,ConstSlice<SfntLookupStep> steps,

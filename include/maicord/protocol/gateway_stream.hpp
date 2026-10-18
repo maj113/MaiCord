@@ -32,7 +32,6 @@ GatewayStreamKey gateway_stream_key_for(u64 guild_id, u64 channel_id, u64 owner_
 u32 gateway_stream_key_write(const GatewayStreamKey& key, Slice<char> output) noexcept;
 // Strict: canonical decimal snowflakes, exact field count, known prefix.
 bool gateway_stream_key_parse(Utf8View text, GatewayStreamKey* output) noexcept;
-bool gateway_stream_key_parse_json(JsonString text, GatewayStreamKey* output) noexcept;
 
 // Writers follow the Gateway command convention: an empty output is a size
 // query (bytes = required, error output_too_small); a short output writes nothing.

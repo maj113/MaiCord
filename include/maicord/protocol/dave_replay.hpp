@@ -31,5 +31,5 @@ struct DaveReplay {
 // Authentication failure must not commit. These helpers do not authenticate,
 // enforce key expiry or provide transport replay protection on their own.
 bool dave_replay_can_accept(const DaveReplay& replay, u64 counter) noexcept;
-bool dave_replay_commit(DaveReplay* replay, u64 authenticated_counter) noexcept;
+bool dave_replay_commit(DaveReplay* replay, u64 counter) noexcept;
 } // namespace maicord

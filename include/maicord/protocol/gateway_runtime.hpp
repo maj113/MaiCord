@@ -75,7 +75,6 @@ enum class GatewayOutboundState : u8 {
     idle,
     action,
     rate_limited,
-    invalid,
 };
 
 struct GatewayOutboundStep {

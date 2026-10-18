@@ -26,8 +26,8 @@ SfntStatus sfnt_arabic_mark_order(ConstSlice<u32> scalars,Slice<u32> order,u64 w
     if((scalars.count && !scalars.data) || (order.count && !order.data))return SfntStatus::invalid_input;
     if(order.count<scalars.count)return SfntStatus::output_too_small;
     if(static_cast<u64>(scalars.count)*(reorder?16u:2u)>work)return SfntStatus::resource_limit;
-    const u64 size=static_cast<u64>(scalars.count)*4,a=reinterpret_cast<usize>(scalars.data),b=reinterpret_cast<usize>(order.data);
-    if(a>~u64{0}-size || b>~u64{0}-size || (size && a<b+size && b<a+size))return SfntStatus::invalid_input;
+    const u64 size=static_cast<u64>(scalars.count)*4;
+    if(byte_ranges_overlap_or_wrap(scalars.data,size,order.data,size))return SfntStatus::invalid_input;
     for(u32 i=0;i<scalars.count;++i)if(!unicode_is_scalar(scalars[i]))return SfntStatus::invalid_input;
     for(u32 i=0;i<scalars.count;++i)order[i]=i;
     if(!reorder)return SfntStatus::ok;

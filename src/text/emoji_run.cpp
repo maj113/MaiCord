@@ -28,7 +28,6 @@ bool inert(const SfntShapePlan& plan,u16 glyph,u64* work) noexcept {
         for(u32 j=0;j<count;++j)if(!uncovered(lookup.type<=2?lookup.tables.basic[j].coverage:lookup.type<=6?lookup.tables.attachment[j].coverage[0]:sfnt_context_first_coverage(lookup.tables.context[j]),glyph,work))return false;
     }return true;
 }
-struct ArenaScope {Arena* arena;ArenaMark mark;bool keep=false;~ArenaScope() noexcept {if(!keep)arena_rewind(arena,mark);}};
 struct Controls {const SfntGdef* gdef;const u8* sources;u32 units;u16 space;SfntComponentForest components;SfntClusterMap clusters;bool arabic;};
 SfntStatus finish_controls(void* opaque,Slice<SfntComponentGlyph> glyphs,Slice<u8> zero,u64 work) noexcept {
     auto& p=*static_cast<Controls*>(opaque);if(glyphs.count>work)return SfntStatus::resource_limit;if(zero.count<glyphs.count)return SfntStatus::output_too_small;work-=glyphs.count;

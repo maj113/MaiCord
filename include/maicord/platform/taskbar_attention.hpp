@@ -45,7 +45,7 @@ struct TaskbarAttention {
 };
 bool taskbar_attention_initialize(TaskbarAttention*) noexcept;
 // Returns true when message is the TaskbarButtonCreated notification.
-bool taskbar_attention_window_message(TaskbarAttention*, HWND, UINT message) noexcept;
+bool taskbar_attention_window_message(TaskbarAttention*, UINT message) noexcept;
 void taskbar_attention_apply(TaskbarAttention*, HWND, const TaskbarAttentionPlan&, u32 dpi) noexcept;
 void taskbar_attention_release(TaskbarAttention*, HWND) noexcept;
 

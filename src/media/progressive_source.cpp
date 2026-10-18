@@ -1,7 +1,8 @@
 #include "maicord/media/progressive_source.hpp"
+#include "maicord/core/byte_order.hpp"
 #include "maicord/core/memory.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {
 namespace {
@@ -75,9 +76,6 @@ bool reader_available(void* context, u64 offset, u64 bytes) noexcept {
         reader->missing = offset;
     }
     return available;
-}
-u32 read_u32(const u8* p) noexcept {
-    return (u32{p[0]} << 24) | (u32{p[1]} << 16) | (u32{p[2]} << 8) | p[3];
 }
 ProgressiveProbe need(const ProgressiveSource& s, u64 offset, u64 end) noexcept {
     const auto gap = gap_from(s, offset, end, kProgressiveMetadataRequestBytes);
@@ -237,12 +235,12 @@ ProgressiveProbe progressive_mp4_probe(ProgressiveSource* s) noexcept {
         if (!progressive_source_available(*s, cursor, header))
             return need(*s, cursor, cursor + kProgressiveMetadataRequestBytes);
         const u8* p = s->base + cursor;
-        u64 size = read_u32(p), header_bytes = 8;
-        const u32 type = read_u32(p + 4);
+        u64 size = byte_load_be32(p), header_bytes = 8;
+        const u32 type = byte_load_be32(p + 4);
         if (size == 1) {
             if (header < 16)
                 return {{}, ProgressiveProbeState::malformed};
-            size = (u64{read_u32(p + 8)} << 32) | read_u32(p + 12);
+            size = byte_load_be64(p + 8);
             header_bytes = 16;
         } else if (size == 0) {
             size = s->total_bytes - cursor;

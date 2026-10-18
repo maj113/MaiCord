@@ -459,7 +459,7 @@ u64 next_generation(u64 generation) noexcept {
 
 UserAuthTransitionResult transition_failure(const UserAuthState* state,
                                             UserAuthTransitionError error) noexcept {
-    return UserAuthTransitionResult{state ? state->generation : 0, error};
+    return UserAuthTransitionResult{state->generation, error};
 }
 
 } // namespace
@@ -745,8 +745,7 @@ UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u6
                 return {0, UserAuthWriteError::invalid_input};
         }
     }
-    const u64 extension_bytes = captcha_bytes;
-    if (extension_bytes > output.count) {
+    if (captcha_bytes > output.count) {
         return UserAuthWriteResult{0, UserAuthWriteError::output_too_small};
     }
     const RestRequestWriteResult base = write_rest_request_head(
@@ -758,21 +757,19 @@ UserAuthWriteResult user_auth_write_request_head(UserAuthOperation operation, u6
                         true,
                         false,
                         user_headers},
-        Slice<u8>{output.data, output.count - static_cast<u32>(extension_bytes)});
+        Slice<u8>{output.data, output.count - captcha_bytes});
     if (!base.ok()) {
         return UserAuthWriteResult{0, base.error == RestRequestError::output_capacity
                                           ? UserAuthWriteError::output_too_small
                                           : UserAuthWriteError::invalid_input};
     }
-    if (extension_bytes == 0) {
+    if (captcha_bytes == 0) {
         return UserAuthWriteResult{base.bytes, UserAuthWriteError::none};
     }
 
     const u32 insertion = base.bytes - 2;
-    u32 added_bytes = 0;
-    const UserAuthWriteResult added =
-        user_auth_write_captcha_headers(captcha, Slice<u8>{output.data + insertion, captcha_bytes});
-    added_bytes = added.bytes;
+    const u32 added_bytes =
+        user_auth_write_captcha_headers(captcha, Slice<u8>{output.data + insertion, captcha_bytes}).bytes;
     output.data[insertion + added_bytes] = '\r';
     output.data[insertion + added_bytes + 1] = '\n';
     return UserAuthWriteResult{base.bytes + added_bytes, UserAuthWriteError::none};
@@ -1140,15 +1137,10 @@ UserAuthDecodeResult user_auth_decode_recovery_response(u16 status_code, Utf8Vie
 }
 
 void user_auth_state_initialize(UserAuthState* state) noexcept {
-    if (state) {
-        *state = UserAuthState{1, UserAuthPhase::idle, UserAuthPhase::idle, UserAuthMfaType::totp};
-    }
+    *state = UserAuthState{1, UserAuthPhase::idle, UserAuthPhase::idle, UserAuthMfaType::totp};
 }
 
 UserAuthTransitionResult user_auth_state_begin_password(UserAuthState* state) noexcept {
-    if (!state) {
-        return transition_failure(nullptr, UserAuthTransitionError::invalid_input);
-    }
     if (state->phase != UserAuthPhase::idle && state->phase != UserAuthPhase::rejected) {
         return transition_failure(state, UserAuthTransitionError::invalid_phase);
     }
@@ -1159,7 +1151,7 @@ UserAuthTransitionResult user_auth_state_begin_password(UserAuthState* state) no
 }
 
 UserAuthTransitionResult user_auth_state_begin_mfa(UserAuthState* state, UserAuthMfaType type) noexcept {
-    if (!state || user_auth_mfa_target(type).bytes == 0) {
+    if (user_auth_mfa_target(type).bytes == 0) {
         return transition_failure(state, UserAuthTransitionError::invalid_input);
     }
     if (state->phase != UserAuthPhase::mfa_required) {
@@ -1194,9 +1186,6 @@ UserAuthTransitionResult user_auth_state_begin_browser_exchange(UserAuthState* s
 }
 
 UserAuthTransitionResult user_auth_state_resume_captcha(UserAuthState* state) noexcept {
-    if (!state) {
-        return transition_failure(nullptr, UserAuthTransitionError::invalid_input);
-    }
     if (state->phase != UserAuthPhase::captcha_required ||
         (state->captcha_return_phase != UserAuthPhase::password_pending &&
          state->captcha_return_phase != UserAuthPhase::mfa_pending &&
@@ -1213,9 +1202,6 @@ UserAuthTransitionResult user_auth_state_resume_captcha(UserAuthState* state) no
 
 UserAuthTransitionResult user_auth_state_apply(UserAuthState* state, u64 generation,
                                                const UserAuthResponse& response) noexcept {
-    if (!state) {
-        return transition_failure(nullptr, UserAuthTransitionError::invalid_input);
-    }
     if (generation != state->generation) {
         return transition_failure(state, UserAuthTransitionError::stale_generation);
     }
@@ -1274,11 +1260,9 @@ UserAuthTransitionResult user_auth_state_apply(UserAuthState* state, u64 generat
 }
 
 void user_auth_state_cancel(UserAuthState* state) noexcept {
-    if (state) {
-        state->generation = next_generation(state->generation);
-        state->phase = UserAuthPhase::idle;
-        state->captcha_return_phase = UserAuthPhase::idle;
-    }
+    state->generation = next_generation(state->generation);
+    state->phase = UserAuthPhase::idle;
+    state->captcha_return_phase = UserAuthPhase::idle;
 }
 
 } // namespace maicord

@@ -134,7 +134,7 @@ struct UserProfile {
     ProfileString<34> avatar, banner, guild_banner;
     ProfileString<kProfileBioMaximumUtf8Bytes> bio, guild_bio;
     ProfileString<64> pronouns, guild_pronouns;
-    ProfileString<40> joined_at, premium_since, premium_guild_since;
+    ProfileString<40> joined_at;
     u32 theme_colors[2], guild_theme_colors[2], accent_color;
     u64 effect_sku_id, guild_effect_sku_id;
     u64 roles[128];

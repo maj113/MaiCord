@@ -357,7 +357,7 @@ ChunkSizeParse parse_chunk_size(ConstSlice<u8> line, u64* size) noexcept {
 } // namespace
 
 bool http_ascii_equal_case_insensitive(ConstSlice<u8> value, const char* literal) noexcept {
-    if ((!value.data && value.count != 0) || !literal) {
+    if (!value.data && value.count != 0) {
         return false;
     }
     return case_equal(value, literal, literal_length(literal));
@@ -498,7 +498,7 @@ HttpBodyKind http_response_body_kind(const HttpResponseHead& head, bool request_
 bool http_chunk_decoder_initialize(HttpChunkDecoder* decoder, u64 maximum_body_bytes,
                                    u32 maximum_line_bytes, u32 maximum_trailer_bytes,
                                    u32 maximum_trailers) noexcept {
-    if (!decoder || maximum_body_bytes == 0 || maximum_line_bytes < 2 || maximum_trailer_bytes < 2 ||
+    if (maximum_body_bytes == 0 || maximum_line_bytes < 2 || maximum_trailer_bytes < 2 ||
         maximum_trailers == 0) {
         return false;
     }
@@ -515,10 +515,8 @@ bool http_chunk_decoder_initialize(HttpChunkDecoder* decoder, u64 maximum_body_b
 }
 
 HttpChunkStep http_chunk_decode(HttpChunkDecoder* decoder, ConstSlice<u8> input) noexcept {
-    if (!decoder || (!input.data && input.count != 0) || decoder->state == HttpChunkState::failed) {
-        if (decoder) {
-            decoder->state = HttpChunkState::failed;
-        }
+    if ((!input.data && input.count != 0) || decoder->state == HttpChunkState::failed) {
+        decoder->state = HttpChunkState::failed;
         return HttpChunkStep{{nullptr, 0}, 0, 0, HttpError::invalid_input, HttpChunkStepState::error};
     }
     if (decoder->state == HttpChunkState::complete) {
@@ -689,9 +687,8 @@ bool http_response_decoder_initialize(HttpResponseDecoder* decoder, Slice<u8> in
                                       u32 maximum_header_bytes, u32 maximum_fields, bool request_was_head,
                                       HttpResponseHeadParser head_parser,
                                       void* head_parser_context) noexcept {
-    if (!decoder || !input_storage.data || maximum_header_bytes < 4 ||
-        input_storage.count < maximum_header_bytes || maximum_fields == 0 ||
-        (!retained_head.data && retained_head.count != 0) ||
+    if (!input_storage.data || maximum_header_bytes < 4 || input_storage.count < maximum_header_bytes ||
+        maximum_fields == 0 || (!retained_head.data && retained_head.count != 0) ||
         (retained_head.data && retained_head.count < maximum_header_bytes) ||
         (!body_output.data && body_output.count != 0) || (!head_parser && head_parser_context)) {
         return false;
@@ -710,13 +707,8 @@ bool http_response_decoder_initialize(HttpResponseDecoder* decoder, Slice<u8> in
 
 HttpResponseDecoderStep http_response_decoder_feed(HttpResponseDecoder* decoder, ConstSlice<u8> input,
                                                    bool peer_closed) noexcept {
-    if (!decoder || (!input.data && input.count != 0) ||
-        decoder->state == HttpResponseDecoderState::failed) {
-        if (decoder) {
-            return decoder_failure(decoder, HttpResponseDecoderError::invalid_input, 0);
-        }
-        return HttpResponseDecoderStep{0, 0, 0, HttpResponseDecoderState::failed,
-                                       HttpResponseDecoderError::invalid_input};
+    if ((!input.data && input.count != 0) || decoder->state == HttpResponseDecoderState::failed) {
+        return decoder_failure(decoder, HttpResponseDecoderError::invalid_input, 0);
     }
     if (decoder->state == HttpResponseDecoderState::complete) {
         if (input.count != 0) {

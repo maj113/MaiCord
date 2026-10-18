@@ -1,4 +1,5 @@
 #include "maicord/core/json_reader.hpp"
+#include "maicord/core/ascii.hpp"
 
 #include <emmintrin.h>
 #include <intrin.h>
@@ -59,33 +60,17 @@ __forceinline bool consume_structural(IndexedReader* reader, char expected, Json
     return true;
 }
 
-__forceinline bool hex_digit(char value, u32* digit) noexcept {
-    if (value >= '0' && value <= '9') {
-        *digit = static_cast<u32>(value - '0');
-        return true;
-    }
-    if (value >= 'a' && value <= 'f') {
-        *digit = static_cast<u32>(value - 'a') + 10;
-        return true;
-    }
-    if (value >= 'A' && value <= 'F') {
-        *digit = static_cast<u32>(value - 'A') + 10;
-        return true;
-    }
-    return false;
-}
-
 bool read_hex_quad(const char* data, u32 offset, u32 end, u32* value) noexcept {
     if (end - offset < 4) {
         return false;
     }
     u32 result = 0;
     for (u32 index = 0; index < 4; ++index) {
-        u32 digit = 0;
-        if (!hex_digit(data[offset + index], &digit)) {
+        const i32 digit = ascii_hex_value(data[offset + index]);
+        if (digit < 0) {
             return false;
         }
-        result = (result << 4) | digit;
+        result = (result << 4) | static_cast<u32>(digit);
     }
     *value = result;
     return true;
@@ -814,17 +799,9 @@ bool json_value_as_string(JsonValue value, JsonString* output) noexcept {
         value.source.data[0] != '"' || value.source.data[value.source.bytes - 1] != '"') {
         return false;
     }
-    bool has_escapes = false;
-    const u32 end = value.source.bytes - 1;
-    u32 offset = 1;
-    for (; end - offset >= 16 && !has_escapes; offset += 16)
-        has_escapes = _mm_movemask_epi8(_mm_cmpeq_epi8(
-            _mm_loadu_si128(reinterpret_cast<const __m128i*>(value.source.data + offset)), _mm_set1_epi8('\\'))) != 0;
-    for (; offset < end && !has_escapes; ++offset)
-        has_escapes = value.source.data[offset] == '\\';
     output->encoded = Utf8View{value.source.data + 1, value.source.bytes - 2};
     output->source_offset = value.source_offset + 1;
-    output->has_escapes = has_escapes;
+    output->has_escapes = contains_backslash(output->encoded.data, output->encoded.bytes);
     return true;
 }
 

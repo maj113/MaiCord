@@ -72,11 +72,7 @@ GatewayCommandWriteResult voice_gateway_write_resume(const VoiceGatewaySession& 
 GatewayCommandWriteResult voice_gateway_write_heartbeat(u64 nonce, i32 sequence_ack,
                                                         Slice<u8> output) noexcept;
 
-enum VoiceSpeakingFlag : u32 {
-    voice_speaking_microphone = 1u << 0,
-    voice_speaking_soundshare = 1u << 1,
-    voice_speaking_priority = 1u << 2,
-};
+// flags: bit 0 microphone, bit 1 soundshare, bit 2 priority.
 GatewayCommandWriteResult voice_gateway_write_speaking(u32 flags, u32 ssrc, Slice<u8> output) noexcept;
 
 enum class VoiceCloseAction : u8 {

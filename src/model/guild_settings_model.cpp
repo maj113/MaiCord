@@ -1,6 +1,7 @@
 #include "maicord/model/guild_settings_model.hpp"
 #include "maicord/model/channel_reorder.hpp"
 #include "maicord/protocol/guild_assets.hpp"
+#include "maicord/core/ascii.hpp"
 #include "maicord/core/color_hex.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
@@ -16,7 +17,7 @@ bool rank_above(u32 position, u64 id, const RoleRecord& role) noexcept {
 bool name_valid(Utf8View text, u32 minimum_codepoints) noexcept {
     const auto validation = utf8_validate(text);
     if (!validation.valid || validation.codepoints < minimum_codepoints ||
-        validation.codepoints > kGuildAdminNameCodepoints || text.bytes > kGuildAdminNameBytes)
+        validation.codepoints > kGuildAdminNameCodepoints)
         return false;
     bool visible = false;
     for (u32 i = 0; i < text.bytes; ++i) {
@@ -153,7 +154,7 @@ u32 guild_emoji_name_from_filename(Utf8View filename, Slice<char> output) noexce
     u32 bytes = 0;
     for (u32 i = start; i < end && bytes < kGuildEmojiNameMaximum; ++i) {
         const char c = filename.data[i];
-        const bool keep = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+        const bool keep = ascii_is_alnum(c) || c == '_';
         // A multi-byte character becomes one underscore.
         if (!keep && (static_cast<u8>(c) & 0xC0) == 0x80)
             continue;
@@ -207,7 +208,8 @@ bool guild_delete_confirmed(Utf8View typed, Utf8View name) noexcept {
     return name.bytes && end - start == name.bytes && utf8_equal({typed.data + start, end - start}, name);
 }
 
-bool guild_settings_role_below(const GuildSettingsAccess& access, const RoleRecord& role) noexcept {
+// Strictly below the account's highest role; the owner outranks every role.
+static bool guild_settings_role_below(const GuildSettingsAccess& access, const RoleRecord& role) noexcept {
     if (!access.guild_id || role.guild_id != access.guild_id)
         return false;
     return access.owner || (access.top_role_id && rank_above(access.top_position, access.top_role_id, role));
@@ -312,15 +314,6 @@ constexpr u8 kVisibilityPublic = 1, kVisibilityRestricted = 2, kVisibilityPublic
 bool same_bytes(const char* a, u32 a_bytes, const char* b, u32 b_bytes) noexcept {
     return a_bytes == b_bytes && bytes_equal(a, b, a_bytes);
 }
-bool fold_equal(Utf8View a, Utf8View b) noexcept {
-    if (a.bytes != b.bytes)
-        return false;
-    const auto fold = [](char c) noexcept { return c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c; };
-    for (u32 i = 0; i < a.bytes; ++i)
-        if (fold(a.data[i]) != fold(b.data[i]))
-            return false;
-    return true;
-}
 } // namespace
 
 GuildServerProfileDraft guild_server_profile_draft(const GuildAdminProfile& profile) noexcept {
@@ -374,7 +367,7 @@ u32 guild_server_profile_banner_choice(const GuildServerProfileDraft& draft) noe
     if (!p.brand_color_bytes)
         return 0;
     for (u32 i = 0; i < kGuildProfileBannerColorCount; ++i)
-        if (fold_equal({p.brand_color, p.brand_color_bytes}, kGuildProfileBannerColors[i]))
+        if (ascii_equal_ignore_case({p.brand_color, p.brand_color_bytes}, kGuildProfileBannerColors[i]))
             return i + 1;
     return ~0u;
 }
@@ -756,17 +749,7 @@ u32 guild_role_color_rgba(u32 color) noexcept {
 }
 
 bool guild_settings_text_matches(Utf8View query, Utf8View text) noexcept {
-    if (!query.bytes)
-        return true;
-    const auto fold = [](char c) noexcept { return c >= 'A' && c <= 'Z' ? static_cast<char>(c + 32) : c; };
-    for (u32 start = 0; start + query.bytes <= text.bytes; ++start) {
-        u32 i = 0;
-        while (i < query.bytes && fold(text.data[start + i]) == fold(query.data[i]))
-            ++i;
-        if (i == query.bytes)
-            return true;
-    }
-    return false;
+    return ascii_contains_ignore_case(text, query);
 }
 
 } // namespace maicord

@@ -39,13 +39,11 @@ bool decode_digit(char character, Base64CodecAlphabet alphabet, u8* value) noexc
 } // namespace
 
 Base64Result base64_codec_decode(Utf8View input, Slice<u8> output, Base64CodecAlphabet alphabet,
-                                 Base64CodecPadding padding_policy) noexcept {
-    if ((!input.data && input.bytes != 0) || (!output.data && output.count != 0) ||
-        (alphabet != Base64CodecAlphabet::standard && alphabet != Base64CodecAlphabet::url) ||
-        padding_policy == Base64CodecPadding::omitted) {
+                                 bool padded) noexcept {
+    if ((!input.data && input.bytes != 0) || (!output.data && output.count != 0)) {
         return failure(Base64Error::invalid_input);
     }
-    if (padding_policy == Base64CodecPadding::required && (input.bytes & 3u) != 0) {
+    if (padded && (input.bytes & 3u) != 0) {
         return failure(Base64Error::invalid_length, input.bytes);
     }
     u32 padding = 0;
@@ -57,7 +55,7 @@ Base64Result base64_codec_decode(Utf8View input, Slice<u8> output, Base64CodecAl
     }
     const u32 digits = input.bytes - padding;
     const u32 remainder = digits & 3u;
-    if (padding_policy == Base64CodecPadding::required) {
+    if (padded) {
         if ((padding == 2 && remainder != 2) || (padding == 1 && remainder != 3) ||
             (padding == 0 && remainder != 0)) {
             return failure(Base64Error::invalid_padding, digits);
@@ -122,17 +120,14 @@ Base64Result base64_codec_decode(Utf8View input, Slice<u8> output, Base64CodecAl
 }
 
 Base64Result base64_codec_encode(ConstSlice<u8> input, Slice<char> output, Base64CodecAlphabet alphabet,
-                                 Base64CodecPadding padding_policy) noexcept {
-    if ((!input.data && input.count != 0) || (!output.data && output.count != 0) ||
-        (alphabet != Base64CodecAlphabet::standard && alphabet != Base64CodecAlphabet::url) ||
-        padding_policy == Base64CodecPadding::optional) {
+                                 bool padded) noexcept {
+    if ((!input.data && input.count != 0) || (!output.data && output.count != 0)) {
         return failure(Base64Error::invalid_input);
     }
     const u32 remainder = input.count % 3u;
     const u64 required64 =
-        padding_policy == Base64CodecPadding::required
-            ? (static_cast<u64>(input.count) + 2u) / 3u * 4u
-            : static_cast<u64>(input.count / 3u) * 4u + (remainder == 0 ? 0u : remainder + 1u);
+        padded ? (static_cast<u64>(input.count) + 2u) / 3u * 4u
+               : static_cast<u64>(input.count / 3u) * 4u + (remainder == 0 ? 0u : remainder + 1u);
     if (required64 > 0xFFFFFFFFull) {
         return failure(Base64Error::invalid_length);
     }
@@ -159,12 +154,12 @@ Base64Result base64_codec_encode(ConstSlice<u8> input, Slice<char> output, Base6
             const u8 b = input[source + 1];
             output[destination++] = digits[((a << 4) | (b >> 4)) & 63u];
             output[destination++] = digits[(b << 2) & 63u];
-            if (padding_policy == Base64CodecPadding::required) {
+            if (padded) {
                 output[destination++] = '=';
             }
         } else {
             output[destination++] = digits[(a << 4) & 63u];
-            if (padding_policy == Base64CodecPadding::required) {
+            if (padded) {
                 output[destination++] = '=';
                 output[destination++] = '=';
             }

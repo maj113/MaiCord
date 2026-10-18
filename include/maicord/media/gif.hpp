@@ -22,7 +22,6 @@ enum class GifDispose : u8 {
 };
 
 enum GifFrameFlags : u8 {
-    gif_frame_none = 0,
     gif_frame_interlaced = 1u << 0,
     gif_frame_local_palette = 1u << 1,
     gif_frame_transparent = 1u << 2,
@@ -134,7 +133,6 @@ GifDecodeResult gif_decode_parsed_frame(
 GifDecodeResult gif_decode_frame(
     ConstSlice<u8> encoded, u32 frame_index, GifImage* image,
     GifWorkspace* workspace, Slice<u8> indices) noexcept;
-u64 gif_frame_duration_us(const GifFrame& frame) noexcept;
 
 static_assert(sizeof(GifFrame) == 40);
 static_assert(sizeof(GifWorkspace) == 81'920);

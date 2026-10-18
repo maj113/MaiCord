@@ -6,9 +6,6 @@
 namespace maicord {
 namespace {
 using E = MediaCatalogError;
-bool operation_valid(MediaCatalogOperation operation) noexcept {
-    return operation <= MediaCatalogOperation::guild_stickers;
-}
 bool sticker_operation(MediaCatalogOperation operation) noexcept {
     return operation == MediaCatalogOperation::sticker_packs ||
            operation == MediaCatalogOperation::guild_stickers;
@@ -428,8 +425,7 @@ MediaCatalogWriteResult media_catalog_write_target(const MediaCatalogQuery& quer
                              query.operation == MediaCatalogOperation::gif_trending;
     const bool search = query.operation == MediaCatalogOperation::gif_search ||
                         query.operation == MediaCatalogOperation::gif_suggestions;
-    if (!operation_valid(query.operation) || query.format > MediaCatalogFormat::webm ||
-        ((query.operation != MediaCatalogOperation::guild_stickers || query.locale.bytes) &&
+    if (((query.operation != MediaCatalogOperation::guild_stickers || query.locale.bytes) &&
          !locale_valid(query.locale)) ||
         !text_valid(query.query, kMediaCatalogMaximumQueryBytes, search) ||
         (!search && query.query.bytes) ||
@@ -505,7 +501,7 @@ MediaCatalogDecodeResult media_catalog_measure(MediaCatalogOperation operation, 
     const bool stickers = sticker_operation(operation);
     if (!limit)
         limit = item_limit(operation);
-    if (!operation_valid(operation) || !input.data || !input.bytes ||
+    if (!input.data || !input.bytes ||
         input.bytes >
             (stickers ? kMediaCatalogMaximumStickerResponseBytes : kMediaCatalogMaximumResponseBytes) ||
         !scratch.data || !scratch.count || scratch.count > kMediaCatalogStructuralCapacity || !depth ||
@@ -545,7 +541,7 @@ MediaCatalogDecodeResult media_catalog_decode(MediaCatalogOperation operation, U
     const bool stickers = sticker_operation(operation);
     if (!limit)
         limit = item_limit(operation);
-    if (!operation_valid(operation) || !input.data || !input.bytes ||
+    if (!input.data || !input.bytes ||
         input.bytes >
             (stickers ? kMediaCatalogMaximumStickerResponseBytes : kMediaCatalogMaximumResponseBytes) ||
         !scratch.data || !scratch.count || scratch.count > kMediaCatalogStructuralCapacity || !depth ||

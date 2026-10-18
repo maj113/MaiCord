@@ -63,8 +63,6 @@ bool guild_settings_can_delete(const GuildSettingsAccess&) noexcept;
 bool guild_settings_can_set_mfa(const GuildSettingsAccess&) noexcept;
 
 GuildSettingsAccess guild_settings_access(const ChatStateStore&, u64 guild_id) noexcept;
-// Strictly below the account's highest role; the owner outranks every role.
-bool guild_settings_role_below(const GuildSettingsAccess&, const RoleRecord&) noexcept;
 // Name, colour, toggles and permissions may change; @everyone keeps its name.
 bool guild_settings_role_editable(const GuildSettingsAccess&, const RoleRecord&) noexcept;
 bool guild_settings_role_deletable(const GuildSettingsAccess&, const RoleRecord&) noexcept;

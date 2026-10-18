@@ -1,7 +1,7 @@
 #include "maicord/protocol/profile_edit.hpp"
 #include "maicord/core/json_scan.hpp"
 #include "maicord/core/memory.hpp"
-#include "maicord/protocol/json_ids.hpp"
+#include "json_fields.hpp"
 #include "maicord/protocol/writer.hpp"
 #include "maicord/protocol/rest.hpp"
 
@@ -67,9 +67,8 @@ bool profile_valid(const ProfilePatch& p, bool member) noexcept {
     return image_valid(p.banner) && text_within(p.bio, kProfileBioMaximumCodepoints, kProfileBioMaximumUtf8Bytes) &&
            text_within(p.pronouns, kProfileEditPronounsCodepoints, kProfileEditPronounsCodepoints * 4);
 }
-bool escaped(Utf8View value, u32* bytes) noexcept {
+void escaped(Utf8View value, u32* bytes) noexcept {
     *bytes += 2 + value.bytes * 6;
-    return true;
 }
 struct Body {
     ProtocolWriter w;
@@ -150,50 +149,14 @@ bool write_profile(Body& b, const ProfilePatch& p) noexcept {
     return true;
 }
 
-// JSON helpers (bounded copies; malformed input fails the decode).
-struct Field {
-    Utf8View key;
-    JsonValue value;
-};
-struct Fields {
-    Field* data;
-    u32 count;
-};
-bool collect(void* opaque, JsonString key, JsonValue value) noexcept {
-    auto& f = *static_cast<Fields*>(opaque);
-    for (u32 i = 0; i < f.count; ++i)
-        if (json_string_equals_ascii(key, f.data[i].key)) {
-            if (f.data[i].value.source.data)
-                return false;
-            f.data[i].value = value;
-            break;
-        }
-    return true;
-}
-bool present(JsonValue v) noexcept {
-    return v.source.data && v.kind != JsonValueKind::null_value;
-}
-template <u32 N> bool object(const JsonIndexedDocument& doc, JsonValue value, Field (&fields)[N]) noexcept {
-    if (!present(value))
-        return true;
-    if (value.kind != JsonValueKind::object)
-        return false;
-    Fields context{fields, N};
-    return json_visit_indexed_object(doc, value, 64, collect, &context).ok();
-}
-bool number(JsonValue v, u64* n) noexcept {
-    *n = 0;
-    if (!present(v))
-        return true;
-    return v.kind == JsonValueKind::string ? json_value_to_snowflake(v, n) : json_value_to_u64(v, n);
-}
+using namespace protocol_detail;
 // Copies a string, cut at a code point boundary when it is too long. One body
 // for every ProfileString<N>: object is the whole string (data first), cleared
 // like `*s = {}` before at most capacity bytes are copied into it.
 __declspec(noinline) bool string_into(JsonValue v, char* object, u32 object_bytes, u32 capacity,
                                       u16* stored) noexcept {
     clear_bytes(object, object_bytes);
-    if (!present(v))
+    if (!filled(v))
         return true;
     JsonString input{};
     if (!json_value_as_string(v, &input))
@@ -219,14 +182,14 @@ struct Colors {
 bool color_item(void* opaque, u32, JsonValue value) noexcept {
     auto& c = *static_cast<Colors*>(opaque);
     u64 n = 0;
-    if (!present(value) || !number(value, &n) || n > 0xFFFFFF || c.count == 2)
+    if (!filled(value) || !number(value, &n) || n > 0xFFFFFF || c.count == 2)
         return false;
     c.values[c.count++] = static_cast<u32>(n);
     return true;
 }
 bool theme(const JsonIndexedDocument& doc, JsonValue v, u32* out, bool* has) noexcept {
     *has = false;
-    if (!present(v))
+    if (!filled(v))
         return true;
     Colors c{out, 0};
     // [null, null] (a reset per-server theme) reads as no theme.
@@ -252,7 +215,7 @@ bool collectible_item(void* opaque, u32, JsonValue value) noexcept {
 }
 bool collectibles(const JsonIndexedDocument& doc, JsonValue v, ProfileCollectibleRef* out, u8* count) noexcept {
     *count = 0;
-    if (!present(v))
+    if (!filled(v))
         return true;
     Collectibles context{&doc, out, count};
     return json_visit_indexed_array(doc, v, 64, collectible_item, &context).ok();
@@ -385,7 +348,7 @@ ProfileEditWriteResult profile_edit_write_body(const ProfileEditRequest& r, Slic
 
 bool profile_edit_decode_profile(Utf8View body, Slice<u32> structurals, u64 user, u64 guild,
                                  ProfileEditSaved* p) noexcept {
-    if (!p || !user)
+    if (!user)
         return false;
     *p = {};
     const auto scan = json_scan_structurals_avx1(body, structurals);
@@ -397,7 +360,7 @@ bool profile_edit_decode_profile(Utf8View body, Slice<u32> structurals, u64 user
                  {utf8_literal("guild_member")},
                  {utf8_literal("guild_member_profile")},
                  {utf8_literal("premium_type")}};
-    if (!object(doc, {body, 0, JsonValueKind::object}, f) || !present(f[0].value))
+    if (!object(doc, {body, 0, JsonValueKind::object}, f) || !filled(f[0].value))
         return false;
     Field u[] = {{utf8_literal("id")},
                  {utf8_literal("username")},
@@ -422,13 +385,12 @@ bool profile_edit_decode_profile(Utf8View body, Slice<u32> structurals, u64 user
         !theme(doc, profile[4].value, p->theme_colors, &p->has_theme) ||
         !collectibles(doc, profile[5].value, p->collectibles, &p->collectible_count))
         return false;
-    p->has_accent = present(profile[3].value);
+    p->has_accent = filled(profile[3].value);
     p->accent_color = static_cast<u32>(accent);
     // Some responses carry the account banner on the user object only.
     if (!p->banner.bytes && !string(u[5].value, &p->banner))
         return false;
-    if (present(f[2].value)) {
-        p->has_member = true;
+    if (filled(f[2].value)) {
         Field m[] = {{utf8_literal("nick")}, {utf8_literal("avatar")}, {utf8_literal("avatar_decoration_data")}};
         if (!object(doc, f[2].value, m) || !string(m[0].value, &p->nick) || !string(m[1].value, &p->member_avatar) ||
             !decoration(doc, m[2].value, &p->member_decoration_asset, &p->member_decoration_sku))
@@ -487,7 +449,7 @@ bool owned_item(void* opaque, u32, JsonValue value) noexcept {
 }
 bool owned_purchase(void* opaque, u32, JsonValue value) noexcept;
 bool owned_variants(Owned& c, JsonValue variants) noexcept {
-    return !present(variants) || json_visit_indexed_array(*c.doc, variants, 64, owned_purchase, &c).ok();
+    return !filled(variants) || json_visit_indexed_array(*c.doc, variants, 64, owned_purchase, &c).ok();
 }
 bool owned_purchase(void* opaque, u32, JsonValue value) noexcept {
     auto& c = *static_cast<Owned*>(opaque);
@@ -496,7 +458,7 @@ bool owned_purchase(void* opaque, u32, JsonValue value) noexcept {
         return false;
     const auto name = c.name;
     const u64 sku = c.purchase_sku;
-    if (present(f[2].value) && !json_visit_indexed_array(*c.doc, f[2].value, 64, owned_item, &c).ok())
+    if (filled(f[2].value) && !json_visit_indexed_array(*c.doc, f[2].value, 64, owned_item, &c).ok())
         return false;
     if (!owned_variants(c, f[3].value))
         return false;
@@ -562,7 +524,7 @@ bool error_member(void* opaque, JsonString key, JsonValue value) noexcept {
     Field f[] = {{utf8_literal("_errors")}};
     if (!object(*c.doc, value, f))
         return false;
-    if (present(f[0].value)) {
+    if (filled(f[0].value)) {
         MessageContext m{c.doc, &target};
         return json_visit_indexed_array(*c.doc, f[0].value, 64, message_item, &m).ok();
     }
@@ -571,8 +533,6 @@ bool error_member(void* opaque, JsonString key, JsonValue value) noexcept {
 } // namespace
 
 bool profile_edit_decode_errors(Utf8View body, Slice<u32> structurals, ProfileEditErrors* output) noexcept {
-    if (!output)
-        return false;
     *output = {};
     const auto scan = json_scan_structurals_avx1(body, structurals);
     if (!scan.ok())
@@ -582,8 +542,8 @@ bool profile_edit_decode_errors(Utf8View body, Slice<u32> structurals, ProfileEd
     if (!object(doc, {body, 0, JsonValueKind::object}, f) || !number(f[0].value, &output->code) ||
         !string(f[1].value, &output->message))
         return false;
-    output->username = output->username || present(f[3].value);
-    if (present(f[2].value)) {
+    output->username = output->username || filled(f[3].value);
+    if (filled(f[2].value)) {
         if (f[2].value.kind != JsonValueKind::object)
             return false;
         ErrorContext context{&doc, output};

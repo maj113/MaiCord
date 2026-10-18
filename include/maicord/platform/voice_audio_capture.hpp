@@ -11,7 +11,6 @@ using VoiceAudioCaptureSink = void (*)(void* context, ConstSlice<i16> mono, u64 
 using VoiceAudioCaptureTick = u64 (*)(void* context, u64 now_us) noexcept;
 struct VoiceAudioCaptureStatus {
     VoiceCaptureState state;
-    bool communications; // The stream runs with the Windows communications category.
     u32 opens, native_error;
 };
 // Shared-mode WASAPI on the given endpoint (empty: default communications

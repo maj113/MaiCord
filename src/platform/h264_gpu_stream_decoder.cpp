@@ -338,7 +338,7 @@ void gpu_failure(H264StreamDecoder* decoder, HRESULT status) noexcept {
     if (status == DXGI_ERROR_DEVICE_REMOVED || status == DXGI_ERROR_DEVICE_RESET ||
         (decoder->gpu.device && decoder->gpu.device->GetDeviceRemovedReason() != S_OK))
         decoder->stats.device_lost = true;
-    h264_stream_fail(&decoder->state);
+    h264_stream_reset(&decoder->state);
 }
 
 void decode_input(H264StreamDecoder* decoder, ConstSlice<u8> bytes, u32 rtp_timestamp, bool intact,

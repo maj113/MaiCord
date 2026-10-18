@@ -1,5 +1,6 @@
 #include "maicord/core/log.hpp"
 #include "maicord/core/data_path.hpp"
+#include "maicord/core/decimal.hpp"
 
 #include <Windows.h>
 
@@ -65,14 +66,10 @@ void append_fixed_decimal(char* output, u32 capacity, u32* length, u32 value, u3
 }
 
 void append_u64_decimal(char* output, u32 capacity, u32* length, u64 value) noexcept {
-    char buffer[24]{};
-    u32 count = 0;
-    do {
-        buffer[count++] = static_cast<char>('0' + (value % 10));
-        value /= 10;
-    } while (value != 0 && count < static_cast<u32>(sizeof(buffer)));
-    while (count != 0) {
-        append_char(output, capacity, length, buffer[--count]);
+    char digits[20];
+    const u32 count = decimal_write(digits, value);
+    for (u32 index = 0; index < count; ++index) {
+        append_char(output, capacity, length, digits[index]);
     }
 }
 
@@ -158,9 +155,6 @@ void CALLBACK flush_timer_callback(PTP_CALLBACK_INSTANCE, void*, PTP_TIMER) noex
 
 void commit_line(char* line, u32* length, LogLevel level) noexcept {
     append_text(line, kLineCapacity, length, "\r\n");
-#if !defined(NDEBUG)
-    OutputDebugStringA(line);
-#endif
 #if defined(MAICORD_LOG_STDOUT)
     const HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
     if (output && output != INVALID_HANDLE_VALUE) {

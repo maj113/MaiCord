@@ -314,8 +314,7 @@ bool visit_attachment(void* opaque, u32, JsonValue value) noexcept {
     const auto decoded = json_string_decode_utf8(attachment.url, {starter.media_url, sizeof(starter.media_url)});
     if (!decoded.ok()) return decoded.error == JsonStringDecodeError::output_too_small ||
         reject(*starter.page, ThreadBrowserError::field);
-    if (!decoded.bytes || !utf8_validate({starter.media_url, decoded.bytes}).valid)
-        return reject(*starter.page, ThreadBrowserError::field);
+    if (!decoded.bytes) return reject(*starter.page, ThreadBrowserError::field);
     starter.media_url_bytes = decoded.bytes;
     starter.media = true;
     starter.post->media_id = attachment.id;
@@ -391,7 +390,7 @@ __declspec(noinline) bool visit_starter(void* opaque, u32 index, JsonValue value
     starter.post = &candidate;
     char content[kThreadBrowserPostContentMaximumBytes];
     const auto decoded = json_string_decode_utf8(starter.content, {content, sizeof(content)});
-    if (!decoded.ok() || !utf8_validate({content, decoded.bytes}).valid) return reject(page, ThreadBrowserError::field);
+    if (!decoded.ok()) return reject(page, ThreadBrowserError::field);
     char preview[kThreadBrowserPostPreviewMaximumBytes];
     const u32 preview_bytes = write_preview({content, decoded.bytes}, preview);
     char name[kThreadBrowserPostAuthorNameMaximumBytes];
@@ -402,8 +401,7 @@ __declspec(noinline) bool visit_starter(void* opaque, u32 index, JsonValue value
         if (!read_ok(page, json_visit_indexed_object(page.document, starter.author, 32, author_field, &author))) return false;
         if (!(author.seen & 1) || !(author.seen & 2)) return reject(page, ThreadBrowserError::field);
         const auto shown = json_string_decode_utf8(author.global_known ? author.global_name : author.username, {name, sizeof(name)});
-        if (!shown.ok() || !shown.bytes || !utf8_validate({name, shown.bytes}).valid)
-            return reject(page, ThreadBrowserError::field);
+        if (!shown.ok() || !shown.bytes) return reject(page, ThreadBrowserError::field);
         name_bytes = shown.bytes;
         if (author.avatar_known) {
             const auto hash = json_string_decode_utf8(author.avatar, {avatar, sizeof(avatar)});

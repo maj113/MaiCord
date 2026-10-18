@@ -11,8 +11,6 @@ u32 ceil_positive(float value) noexcept {
     return truncated + (static_cast<float>(truncated) < value ? 1u : 0u);
 }
 
-} // namespace
-
 u16 media_resolution_tier_extent(MediaResolutionTier tier) noexcept {
     switch (tier) {
     case MediaResolutionTier::px64:
@@ -29,6 +27,8 @@ u16 media_resolution_tier_extent(MediaResolutionTier tier) noexcept {
         return 0;
     }
 }
+
+} // namespace
 
 MediaResolutionTier media_resolution_tier_for_display(
     float width_dip, float height_dip, u32 dpi, u16 decoder_extent_cap) noexcept {

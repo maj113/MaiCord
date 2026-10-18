@@ -3,22 +3,22 @@
 #include "maicord/core/memory.hpp"
 #include "maicord/protocol/json_ids.hpp"
 #include "maicord/protocol/gateway_message_events.hpp"
+#include "maicord/protocol/guild_invite.hpp"
 #include "maicord/protocol/writer.hpp"
+#include "json_helpers.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
 
+using namespace protocol_detail;
 using Op = GuildAdminOperation;
+
+static_assert(kGuildAdminInviteCodeBytes == kGuildInviteCodeMaximumBytes);
 
 // 10000-01-01T00:00:00Z: timestamps stay four-digit years.
 constexpr u64 kTimestampLimitSeconds = 253'402'300'800ull;
 constexpr u64 kTimestampLimitMs = kTimestampLimitSeconds * 1000;
-
-bool view_valid(Utf8View text) noexcept {
-    return byte_range_valid({reinterpret_cast<const u8*>(text.data), text.bytes});
-}
 
 // Single-line or multi-line UTF-8 text with a codepoint range and no NULs.
 bool text_valid(Utf8View text, u32 minimum_codepoints, u32 maximum_codepoints, bool single_line) noexcept {
@@ -75,30 +75,20 @@ bool image_hash_valid(Utf8View hash) noexcept {
 
 // An image field: empty (null), a data URI or the stored hash.
 bool image_value_valid(Utf8View value) noexcept {
-    return view_valid(value) && (!value.bytes || data_uri_valid(value) || image_hash_valid(value));
+    return !value.bytes || data_uri_valid(value) || image_hash_valid(value);
 }
 
-// UTF-16 code units, as a text input's maxLength counts them.
-u32 utf16_units(Utf8View text) noexcept {
-    u32 units = 0;
-    for (u32 i = 0; i < text.bytes; ++i) {
-        const u8 byte = static_cast<u8>(text.data[i]);
-        if ((byte & 0xC0) != 0x80)
-            units += byte >= 0xF0 ? 2 : 1;
-    }
-    return units;
-}
-
+// The code is counted in UTF-16 code units, as a text input's maxLength does.
 bool vanity_code_valid(Utf8View code) noexcept {
-    return view_valid(code) && (!code.bytes || text_valid(code, 1, kGuildAdminVanityCodeCharacters, true)) &&
-           utf16_units(code) <= kGuildAdminVanityCodeCharacters;
+    return (!code.bytes || text_valid(code, 1, kGuildAdminVanityCodeCharacters, true)) &&
+           utf8_utf16_units(code) <= kGuildAdminVanityCodeCharacters;
 }
 
 // "#RRGGBB", either case.
 bool brand_color_valid(Utf8View color) noexcept {
-    if (!view_valid(color) || !color.bytes)
-        return view_valid(color);
-    if (color.bytes != 7 || color.data[0] != '#')
+    if (!color.bytes)
+        return true;
+    if (!view_valid(color) || color.bytes != 7 || color.data[0] != '#')
         return false;
     for (u32 i = 1; i < 7; ++i) {
         const char c = color.data[i];
@@ -110,8 +100,8 @@ bool brand_color_valid(Utf8View color) noexcept {
 
 bool profile_write_valid(const GuildServerProfileWrite& p) noexcept {
     const u8 f = p.fields;
-    if ((f & ~guild_profile_write_all) || !view_valid(p.name) || !view_valid(p.description) ||
-        (!p.traits.data && p.traits.count) || p.traits.count > kGuildAdminProfileTraits ||
+    if ((f & ~guild_profile_write_all) || (!p.traits.data && p.traits.count) ||
+        p.traits.count > kGuildAdminProfileTraits ||
         (!p.game_application_ids.data && p.game_application_ids.count) ||
         p.game_application_ids.count > kGuildAdminProfileGames)
         return false;
@@ -126,7 +116,7 @@ bool profile_write_valid(const GuildServerProfileWrite& p) noexcept {
         return false;
     for (u32 i = 0; i < p.traits.count; ++i) {
         const auto& t = p.traits[i];
-        if (t.position >= kGuildAdminProfileTraits || !view_valid(t.label) || !view_valid(t.emoji_name) ||
+        if (t.position >= kGuildAdminProfileTraits ||
             (t.label.bytes && !text_valid(t.label, 1, kGuildAdminProfileTraitCodepoints, true)) ||
             t.emoji_name.bytes > kGuildAdminProfileEmojiNameBytes ||
             (t.emoji_name.bytes && !text_valid(t.emoji_name, 1, kGuildAdminProfileEmojiNameBytes, true)))
@@ -138,17 +128,6 @@ bool profile_write_valid(const GuildServerProfileWrite& p) noexcept {
     for (u32 i = 0; i < p.game_application_ids.count; ++i)
         if (!p.game_application_ids[i])
             return false;
-    return true;
-}
-
-bool invite_code_valid(Utf8View code) noexcept {
-    if (!view_valid(code) || !code.bytes || code.bytes > kGuildAdminInviteCodeBytes)
-        return false;
-    for (u32 i = 0; i < code.bytes; ++i) {
-        const char c = code.data[i];
-        if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'))
-            return false;
-    }
     return true;
 }
 
@@ -212,9 +191,8 @@ bool role_patch_valid(const RolePatch& patch, bool create) noexcept {
            (!(f & role_patch_name) || text_valid(patch.name, 1, kGuildAdminNameCodepoints, true)) &&
            (!(f & role_patch_color) || patch.color <= 0xFFFFFFu) &&
            (!(f & role_patch_icon) || !patch.icon.bytes || data_uri_valid(patch.icon)) &&
-           (!(f & role_patch_unicode_emoji) ||
-            (patch.unicode_emoji.bytes <= kGuildAdminEmojiBytes &&
-             (!patch.unicode_emoji.bytes || text_valid(patch.unicode_emoji, 1, 8, true))));
+           (!(f & role_patch_unicode_emoji) || !patch.unicode_emoji.bytes ||
+            text_valid(patch.unicode_emoji, 1, 8, true));
 }
 
 bool member_patch_valid(const MemberPatch& patch, bool self) noexcept {
@@ -223,13 +201,11 @@ bool member_patch_valid(const MemberPatch& patch, bool self) noexcept {
     if (!f || (f & ~member_patch_all) || (self && (f & ~(member_patch_nickname | member_patch_avatar))) ||
         (!self && (f & member_patch_avatar)))
         return false;
-    if (!view_valid(patch.avatar) || (!(f & member_patch_avatar) && patch.avatar.bytes) ||
+    if ((!(f & member_patch_avatar) && patch.avatar.bytes) ||
         (patch.avatar.bytes && !data_uri_valid(patch.avatar)))
         return false;
     if ((f & member_patch_nickname) && patch.nickname.bytes &&
         !text_valid(patch.nickname, 1, kGuildAdminNicknameCodepoints, true))
-        return false;
-    if ((f & member_patch_nickname) && !view_valid(patch.nickname))
         return false;
     if (f & member_patch_roles) {
         if ((!patch.role_ids.data && patch.role_ids.count) || patch.role_ids.count > kGuildAdminMaximumMemberRoles)
@@ -266,8 +242,6 @@ bool channel_patch_valid(const ChannelPatch& patch, bool create) noexcept {
         return false;
     if ((f & channel_patch_topic) && patch.topic.bytes &&
         !text_valid(patch.topic, 1, kGuildAdminTopicCodepoints, false))
-        return false;
-    if ((f & channel_patch_topic) && !view_valid(patch.topic))
         return false;
     if ((f & channel_patch_type) && patch.type != 0 && patch.type != 2 && patch.type != 4 && patch.type != 5 &&
         patch.type != 13 && patch.type != 15 && patch.type != 16)
@@ -320,8 +294,7 @@ bool page_valid(const GuildAdminPageQuery* page, bool audit) noexcept {
 
 bool profile_patch_valid(const GuildProfilePatch& patch) noexcept {
     const u8 f = patch.fields;
-    if (!f || (f & ~guild_profile_patch_all) || !view_valid(patch.pronouns) || !view_valid(patch.bio) ||
-        !view_valid(patch.banner))
+    if (!f || (f & ~guild_profile_patch_all))
         return false;
     if ((!(f & guild_profile_patch_pronouns) && patch.pronouns.bytes) ||
         (!(f & guild_profile_patch_bio) && patch.bio.bytes) || (!(f & guild_profile_patch_banner) && patch.banner.bytes))
@@ -345,34 +318,15 @@ bool reason_valid(const GuildAdminRequest& request) noexcept {
     u8 scratch[kRestAuditReasonMaximumEncodedBytes];
     const bool ok = guild_admin_method(request.operation) != RestMethod::get &&
                     rest_encode_audit_reason(request.reason, {scratch, sizeof(scratch)}).ok;
-    SecureZeroMemory(scratch, sizeof(scratch));
+    secure_clear_bytes(scratch, sizeof(scratch));
     return ok;
 }
 
 // Body writers ------------------------------------------------------------
 
-struct Body {
-    ProtocolWriter writer;
-    bool first = true;
-    bool ok = true;
+struct Body : JsonBody {
+    using JsonBody::JsonBody;
 
-    void raw(const char* text) noexcept {
-        ok = ok && protocol_writer_append_c_string(&writer, text);
-    }
-    void byte(u8 value) noexcept {
-        ok = ok && protocol_writer_append_byte(&writer, value);
-    }
-    void number(u64 value) noexcept {
-        ok = ok && protocol_writer_append_u64(&writer, value);
-    }
-    void string(Utf8View value) noexcept {
-        ok = ok && protocol_writer_append_json_string(&writer, value);
-    }
-    void snowflake(u64 value) noexcept {
-        byte('"');
-        number(value);
-        byte('"');
-    }
     void nullable_snowflake(u64 value) noexcept {
         if (value)
             snowflake(value);
@@ -387,22 +341,6 @@ struct Body {
     }
     void boolean(bool value) noexcept {
         raw(value ? "true" : "false");
-    }
-    void key(const char* name) noexcept {
-        if (!first)
-            byte(',');
-        first = false;
-        byte('"');
-        raw(name);
-        raw("\":");
-    }
-    void begin_object() noexcept {
-        byte('{');
-        first = true;
-    }
-    void end_object() noexcept {
-        byte('}');
-        first = false;
     }
 };
 
@@ -794,20 +732,9 @@ void write_body(const GuildAdminRequest& r, Body& b) noexcept {
     case Op::channel_update:
         write_channel(b, *r.channel);
         break;
-    case Op::overwrite_put: {
-        const auto& o = *r.overwrite;
-        b.begin_object();
-        b.key("id");
-        b.snowflake(o.id);
-        b.key("type");
-        b.number(o.type);
-        b.key("allow");
-        b.snowflake(o.allow);
-        b.key("deny");
-        b.snowflake(o.deny);
-        b.end_object();
+    case Op::overwrite_put:
+        write_overwrite(b, *r.overwrite);
         break;
-    }
     case Op::guild_leave:
         // A member is never lurking here.
         b.raw("{\"lurking\":false}");
@@ -837,22 +764,6 @@ void write_body(const GuildAdminRequest& r, Body& b) noexcept {
 
 constexpr u32 kDepth = 32;
 
-template <typename Size>
-bool decode_text(JsonValue value, char* output, u32 capacity, Size* bytes, bool nullable) noexcept {
-    if (value.kind == JsonValueKind::null_value) {
-        *bytes = 0;
-        return nullable;
-    }
-    JsonString encoded{};
-    if (!json_value_as_string(value, &encoded))
-        return false;
-    const auto decoded = json_string_decode_utf8(encoded, {output, capacity});
-    if (!decoded.ok() || !utf8_validate({output, decoded.bytes}).valid)
-        return false;
-    *bytes = static_cast<Size>(decoded.bytes);
-    return true;
-}
-
 bool decode_u32(JsonValue value, u32* output, u64 maximum = 0xFFFFFFFFull) noexcept {
     u64 number = 0;
     if (!json_value_to_u64(value, &number) || number > maximum)
@@ -866,14 +777,6 @@ bool decode_permissions(JsonValue value, PermissionSet* output) noexcept {
     return json_value_as_string(value, &text) && json_string_to_u64(text, output);
 }
 
-bool nullable_snowflake(JsonValue value, u64* output) noexcept {
-    if (value.kind == JsonValueKind::null_value) {
-        *output = 0;
-        return true;
-    }
-    return json_value_to_snowflake(value, output);
-}
-
 // Field lookup with duplicate detection over a fixed key table.
 struct Fields {
     const char* const* names;
@@ -884,7 +787,7 @@ struct Fields {
     // Returns the field index, count for unknown keys, or ~0u after a duplicate.
     u32 find(JsonString name) noexcept {
         for (u32 i = 0; i < count; ++i) {
-            if (!json_string_equals_ascii(name, {names[i], static_cast<u32>(c_string_bytes(names[i]))}))
+            if (!name_is(name, names[i]))
                 continue;
             if (seen & (1ull << i)) {
                 *error = GuildAdminError::duplicate;
@@ -895,33 +798,12 @@ struct Fields {
         }
         return count;
     }
-    static u32 c_string_bytes(const char* text) noexcept {
-        u32 bytes = 0;
-        while (text[bytes])
-            ++bytes;
-        return bytes;
-    }
 };
 
 bool fail(GuildAdminError* error, GuildAdminError value = GuildAdminError::field) noexcept {
     if (*error == GuildAdminError::none)
         *error = value;
     return false;
-}
-
-struct Scan {
-    JsonIndexedDocument document;
-    GuildAdminError error;
-};
-
-Scan scan(Utf8View body, Slice<u32> scratch) noexcept {
-    if (!view_valid(body) || !body.bytes || !scratch.data || !scratch.count || !utf8_validate(body).valid)
-        return {{}, GuildAdminError::input};
-    const auto scanned = json_scan_structurals_avx1(body, scratch);
-    if (!scanned.ok())
-        return {{}, scanned.error == JsonScanError::output_overflow ? GuildAdminError::capacity
-                                                                   : GuildAdminError::json};
-    return {{body, {scratch.data, scanned.count}}, GuildAdminError::none};
 }
 
 // User --------------------------------------------------------------------
@@ -1001,7 +883,7 @@ bool visit_widget(void* opaque, JsonString name, JsonValue value) noexcept {
     if (field == ~0u)
         return false;
     const bool valid = field == 0   ? json_value_to_bool(value, &p.value.enabled)
-                       : field == 1 ? nullable_snowflake(value, &p.value.channel_id)
+                       : field == 1 ? json_value_to_nullable_snowflake(value, &p.value.channel_id)
                                     : true;
     return valid || fail(&p.error);
 }
@@ -1030,17 +912,17 @@ bool visit_trait(void* opaque, JsonString name, JsonValue value) noexcept {
     const u32 field = p.fields.find(name);
     if (field == ~0u)
         return false;
-    const bool null = value.kind == JsonValueKind::null_value;
     bool valid = true;
     switch (field) {
     case 0: valid = decode_text(value, t.label, kGuildAdminProfileTraitBytes, &t.label_bytes, true); break;
     case 1: valid = decode_u32(value, &p.position); break;
-    case 2: valid = nullable_snowflake(value, &t.emoji_id); break;
+    case 2: valid = json_value_to_nullable_snowflake(value, &t.emoji_id); break;
     case 3: valid = decode_text(value, t.emoji_name, kGuildAdminProfileEmojiNameBytes, &t.emoji_name_bytes, true); break;
-    case 4:
-        t.emoji_animated_known = !null;
-        valid = null || json_value_to_bool(value, &t.emoji_animated);
+    case 4: {
+        bool animated = false; // Validated, not kept.
+        valid = value.kind == JsonValueKind::null_value || json_value_to_bool(value, &animated);
         break;
+    }
     default: break;
     }
     return valid || fail(&p.error);
@@ -1275,8 +1157,8 @@ bool visit_audit_entry(void* opaque, JsonString name, JsonValue value) noexcept 
     bool valid = true;
     switch (field) {
     case 0: valid = json_value_to_snowflake(value, &v.id); break;
-    case 1: valid = nullable_snowflake(value, &v.user_id); break;
-    case 2: valid = nullable_snowflake(value, &v.target_id); break;
+    case 1: valid = json_value_to_nullable_snowflake(value, &v.user_id); break;
+    case 2: valid = json_value_to_nullable_snowflake(value, &v.target_id); break;
     case 3: valid = decode_u32(value, &number, 0xFFFF); v.action_type = static_cast<u16>(number); break;
     case 4: valid = decode_text(value, v.reason, kGuildAdminReasonBytes, &v.reason_bytes, true); break;
     default: break;
@@ -1379,7 +1261,7 @@ bool visit_invite(void* opaque, JsonString name, JsonValue value) noexcept {
     switch (field) {
     case 0:
         valid = decode_text(value, v.code, kGuildAdminInviteCodeBytes, &v.code_bytes, false) &&
-                invite_code_valid({v.code, v.code_bytes});
+                guild_invite_code_valid(v.code, v.code_bytes);
         break;
     case 1:
     case 2: {
@@ -1434,7 +1316,7 @@ GuildAdminResult decode_array(Utf8View body, Slice<u32> scratch, Slice<Item> out
                               JsonArrayVisitor visitor) noexcept {
     if (!output.data && output.count)
         return {0, 0, GuildAdminError::input};
-    const Scan s = scan(body, scratch);
+    const auto s = scan_json<GuildAdminError>(body, scratch);
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
     ArrayParse<Item> probe{&s.document, output, 0, GuildAdminError::none};
@@ -1491,8 +1373,7 @@ bool guild_admin_has_body(GuildAdminOperation op) noexcept {
 }
 
 bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
-    if (r.operation >= Op::count || !reason_valid(r) || !view_valid(r.invite_code) ||
-        (!r.positions.data && r.positions.count))
+    if (r.operation >= Op::count || !reason_valid(r) || (!r.positions.data && r.positions.count))
         return false;
     const Op op = r.operation;
     const bool needs_guild = guild_major(op);
@@ -1507,7 +1388,7 @@ bool guild_admin_request_valid(const GuildAdminRequest& r) noexcept {
     if (needs_target != (r.target_id != 0))
         return false;
     if ((op == Op::invite_delete) != (r.invite_code.bytes != 0) ||
-        (r.invite_code.bytes && !invite_code_valid(r.invite_code)))
+        (r.invite_code.bytes && !guild_invite_code_valid(r.invite_code.data, r.invite_code.bytes)))
         return false;
     if ((op == Op::ban_add) ? r.delete_message_seconds > kGuildAdminBanDeleteMaximumSeconds
                             : r.delete_message_seconds != 0)
@@ -1672,10 +1553,10 @@ GuildAdminResult guild_admin_write_body(const GuildAdminRequest& r, Slice<u8> ou
         return {0, 0, GuildAdminError::none};
     if (!output.data || !output.count)
         return {0, 0, GuildAdminError::capacity};
-    Body body{{output, 0}};
+    Body body{output};
     write_body(r, body);
     if (!body.ok) {
-        SecureZeroMemory(output.data, body.writer.used);
+        secure_clear_bytes(output.data, body.writer.used);
         return {0, 0, GuildAdminError::capacity};
     }
     return {body.writer.used, 0, GuildAdminError::none};
@@ -1845,7 +1726,7 @@ u32 guild_admin_member_roles_toggle(ConstSlice<u64> current, u64 role_id, bool a
 GuildAdminResult guild_admin_decode_widget(Utf8View body, Slice<u32> scratch, GuildAdminWidget* output) noexcept {
     if (!output)
         return {0, 0, GuildAdminError::input};
-    const Scan s = scan(body, scratch);
+    const auto s = scan_json<GuildAdminError>(body, scratch);
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
     WidgetParse p{};
@@ -1862,7 +1743,7 @@ GuildAdminResult guild_admin_decode_widget(Utf8View body, Slice<u32> scratch, Gu
 GuildAdminResult guild_admin_decode_profile(Utf8View body, Slice<u32> scratch, GuildAdminProfile* output) noexcept {
     if (!output)
         return {0, 0, GuildAdminError::input};
-    const Scan s = scan(body, scratch);
+    const auto s = scan_json<GuildAdminError>(body, scratch);
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
     GuildAdminProfile value{};
@@ -1878,7 +1759,7 @@ GuildAdminResult guild_admin_decode_profile(Utf8View body, Slice<u32> scratch, G
 GuildAdminResult guild_admin_decode_vanity(Utf8View body, Slice<u32> scratch, GuildAdminVanity* output) noexcept {
     if (!output)
         return {0, 0, GuildAdminError::input};
-    const Scan s = scan(body, scratch);
+    const auto s = scan_json<GuildAdminError>(body, scratch);
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
     VanityParse p{};
@@ -1893,7 +1774,7 @@ GuildAdminResult guild_admin_decode_vanity(Utf8View body, Slice<u32> scratch, Gu
 GuildAdminResult guild_admin_decode_role(Utf8View body, Slice<u32> scratch, GuildAdminRole* output) noexcept {
     if (!output)
         return {0, 0, GuildAdminError::input};
-    const Scan s = scan(body, scratch);
+    const auto s = scan_json<GuildAdminError>(body, scratch);
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
     RoleParse p{};
@@ -1912,7 +1793,7 @@ GuildAdminResult guild_admin_decode_role_counts(Utf8View body, Slice<u32> scratc
                                                 Slice<GuildAdminRoleCount> output) noexcept {
     if (!output.data && output.count)
         return {0, 0, GuildAdminError::input};
-    const Scan s = scan(body, scratch);
+    const auto s = scan_json<GuildAdminError>(body, scratch);
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
     ArrayParse<GuildAdminRoleCount> p{&s.document, output, 0, GuildAdminError::none};
@@ -1930,7 +1811,7 @@ GuildAdminResult guild_admin_decode_bans(Utf8View body, Slice<u32> scratch, Slic
 GuildAdminResult guild_admin_decode_audit_log(Utf8View body, Slice<u32> scratch, GuildAdminAuditPage* page) noexcept {
     if (!page || (!page->entries.data && page->entries.count) || (!page->users.data && page->users.count))
         return {0, 0, GuildAdminError::input};
-    const Scan s = scan(body, scratch);
+    const auto s = scan_json<GuildAdminError>(body, scratch);
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
     AuditParse p{&s.document, {page->entries, page->users, 0, 0}, 0, GuildAdminError::none};
@@ -1952,7 +1833,7 @@ GuildAdminResult guild_admin_decode_invites(Utf8View body, Slice<u32> scratch,
 GuildAdminResult guild_admin_decode_invite(Utf8View body, Slice<u32> scratch, GuildAdminInvite* output) noexcept {
     if (!output)
         return {0, 0, GuildAdminError::input};
-    const Scan s = scan(body, scratch);
+    const auto s = scan_json<GuildAdminError>(body, scratch);
     if (s.error != GuildAdminError::none)
         return {0, 0, s.error};
     InviteParse parse{&s.document, {}, {kInviteFields, 8, 0, nullptr}, GuildAdminError::none};

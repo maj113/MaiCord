@@ -4,7 +4,7 @@
 #include "maicord/text/nominal_participation.hpp"
 #include "maicord/text/base.hpp"
 
-#include <Windows.h>
+#include "maicord/core/win32_kernel.hpp"
 
 namespace maicord {namespace {
 struct PlanData {
@@ -21,10 +21,6 @@ struct PlanData {
     const SfntTrueType* bold_font;
 };
 NativeFontResult failure(SfntStatus status) noexcept {return {NativeFontError::font,status,0};}
-template<class T> Slice<T> take(Arena& arena,u32 count) noexcept {
-    return {count?arena_allocate<T>(&arena,count):nullptr,count};
-}
-template<class T> bool filled(Slice<T> values) noexcept {return !values.count||values.data;}
 #include "run_substitutions.inc"
 NativeRunPlanSlot* slot(const NativeRunPlanStore& s,NativeRunPlanHandle h) noexcept {
     if(!s.instances||!s.slots.data||!h.slot||h.slot>s.slots.count||!h.generation)return nullptr;
@@ -158,7 +154,7 @@ NativeFontResult native_run_plan_acquire(NativeRunPlanStore* store,NativeFontIns
             ++p.references;*output={i+1,p.generation};return {NativeFontError::none,SfntStatus::ok,0};}
     }
     if(available==store->slots.count)return {NativeFontError::capacity,SfntStatus::resource_limit,0};
-    SYSTEM_INFO info{};GetSystemInfo(&info);const usize page=info.dwPageSize;
+    Win32SystemInfo info{};GetSystemInfo(info.native());const usize page=info.dwPageSize;
     if(!page||(page&(page-1)))return failure(SfntStatus::invalid_input);limit&=~(page-1);
     if(limit<page||limit<sizeof(PlanData))return failure(SfntStatus::resource_limit);
     NativeRunPlanHandle parent{};

@@ -34,19 +34,6 @@ bool later(PinInstant left, PinInstant right) noexcept {
            (left.milliseconds == right.milliseconds && left.submillisecond_ns > right.submillisecond_ns);
 }
 
-bool append_cursor(ProtocolWriter* writer, const MessagePinsCursor& cursor) noexcept {
-    constexpr char hex[] = "0123456789ABCDEF";
-    for (u32 at = 0; at < cursor.bytes; ++at) {
-        const u8 c = static_cast<u8>(cursor.timestamp[at]);
-        if ((c >= '0' && c <= '9') || c == '-' || c == '.' || c == 'T' || c == 'Z') {
-            if (!protocol_writer_append_byte(writer, c)) return false;
-        } else if (!protocol_writer_append_byte(writer, '%') ||
-                   !protocol_writer_append_byte(writer, hex[c >> 4]) ||
-                   !protocol_writer_append_byte(writer, hex[c & 15])) return false;
-    }
-    return true;
-}
-
 template <typename T> bool valid_slice(Slice<T> slice) noexcept { return slice.data || !slice.count; }
 template <typename T> Slice<T> remaining(Slice<T> slice, u32 used) noexcept {
     return {slice.data ? slice.data + used : nullptr, slice.count - used};
@@ -230,7 +217,8 @@ MessagePinsWriteResult write_message_pins_target(const MessagePinsQuery& query,
         protocol_writer_append_u64(&writer, query.channel_id) &&
         protocol_writer_append_literal(&writer, "/messages/pins?limit=") &&
         protocol_writer_append_u64(&writer, query.limit) &&
-        (!query.before.bytes || (protocol_writer_append_literal(&writer, "&before=") && append_cursor(&writer, query.before)));
+        (!query.before.bytes || (protocol_writer_append_literal(&writer, "&before=") &&
+         protocol_writer_append_percent_encoded(&writer, {query.before.timestamp, query.before.bytes})));
     return written ? MessagePinsWriteResult{writer.used, MessagePinsWriteError::none}
                    : MessagePinsWriteResult{0, MessagePinsWriteError::output_capacity};
 }
@@ -245,13 +233,6 @@ MessagePinsWriteResult write_message_pin_target(u64 channel_id, u64 message_id,
         protocol_writer_append_u64(&writer, message_id);
     return written ? MessagePinsWriteResult{writer.used, MessagePinsWriteError::none}
                    : MessagePinsWriteResult{0, MessagePinsWriteError::output_capacity};
-}
-
-MessagePinsDecodeResult decode_message_pins_page(Utf8View body, const MessagePinsQuery& query,
-    Slice<u32> page_structurals, Slice<u32> message_structurals, u32 maximum_depth,
-    Slice<char> text_output, Slice<MessagePin> items) noexcept {
-    return decode_message_pins_page(body, query, page_structurals, message_structurals, maximum_depth,
-                                    text_output, items, {}, {});
 }
 
 MessagePinsDecodeResult decode_message_pins_page(Utf8View body, const MessagePinsQuery& query,

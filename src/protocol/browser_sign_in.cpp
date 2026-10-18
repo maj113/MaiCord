@@ -6,7 +6,6 @@
 #include "maicord/protocol/http1.hpp"
 #include "json_write.hpp"
 
-#include <Windows.h>
 
 namespace maicord {
 namespace {
@@ -167,7 +166,7 @@ BrowserSignInParseResult browser_sign_in_parse_request(ConstSlice<u8> input, u16
     const u32 total = head_bytes + length;
     if (input.count < total) return {};
     if (input.count != total) return reject(BrowserSignInError::framing);
-    BrowserSignInRequest request{}; request.consumed_bytes = total;
+    BrowserSignInRequest request{};
     if (post || options) {
         if (!utf8_equal(target, utf8_literal("/rpc?v=1"))) return reject(BrowserSignInError::route);
         request.kind = post ? BrowserSignInRequestKind::post : BrowserSignInRequestKind::preflight;
@@ -268,15 +267,15 @@ BrowserSignInWriteResult browser_sign_in_write_response(const BrowserSignInReque
     char nonce[kBrowserSignInMaximumNonceBytes]{};
     const auto decoded = json_string_decode_utf8(request.nonce, {nonce, sizeof(nonce)});
     EncodedString encoded{};
-    if (!decoded.ok() || !decoded.bytes || !encoded_string({nonce, decoded.bytes}, true, &encoded)) { SecureZeroMemory(nonce, sizeof(nonce)); return {0, BrowserSignInError::invalid_input}; }
+    if (!decoded.ok() || !decoded.bytes || !encoded_string({nonce, decoded.bytes}, true, &encoded)) { secure_clear_bytes(nonce, sizeof(nonce)); return {0, BrowserSignInError::invalid_input}; }
     // The reply echoes cmd and nonce; the handler returns nothing, so data and evt are null.
     const u32 body_bytes = sizeof("{\"cmd\":\"BROWSER_HANDOFF\",\"data\":null,\"evt\":null,\"nonce\":}") - 1 + encoded.bytes;
     constexpr char head[] = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: https://discord.com\r\nVary: Origin\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: ";
     u8 length[10]; const u32 length_bytes = decimal_write(length, body_bytes);
     const u32 required = sizeof(head) - 1 + length_bytes + 4 + body_bytes;
-    if (output.count < required) { SecureZeroMemory(nonce, sizeof(nonce)); return {required, BrowserSignInError::capacity}; }
+    if (output.count < required) { secure_clear_bytes(nonce, sizeof(nonce)); return {required, BrowserSignInError::capacity}; }
     u32 cursor = 0; write_literal(output.data, &cursor, head); copy_bytes(output.data + cursor, length, length_bytes); cursor += length_bytes;
     write_literal(output.data, &cursor, "\r\n\r\n{\"cmd\":\"BROWSER_HANDOFF\",\"data\":null,\"evt\":null,\"nonce\":"); write_encoded(output.data, &cursor, encoded); output[cursor++] = '}';
-    SecureZeroMemory(nonce, sizeof(nonce)); return {cursor, BrowserSignInError::none};
+    secure_clear_bytes(nonce, sizeof(nonce)); return {cursor, BrowserSignInError::none};
 }
 } // namespace maicord

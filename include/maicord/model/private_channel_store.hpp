@@ -80,7 +80,6 @@ constexpr u64 private_channel_recency(u64 channel_id, u64 last_message_id) noexc
     return (last_message_id ? last_message_id : channel_id) >> 22;
 }
 const PrivateChannelRecord* private_channel_store_find(const PrivateChannelStore& store, u64 id) noexcept;
-bool private_channel_store_can_replace(const PrivateChannelStore& store, const PrivateChannelInput& input) noexcept;
 bool private_channel_store_prepare(PrivateChannelStore* store, const PrivateChannelInput& input) noexcept;
 bool private_channel_store_replace(PrivateChannelStore* store, const PrivateChannelInput& input) noexcept;
 bool private_channel_store_remove(PrivateChannelStore* store, u64 id) noexcept;

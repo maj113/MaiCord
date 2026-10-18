@@ -1,19 +1,10 @@
 #include "maicord/text/tibetan_paragraph.hpp"
 #include "script_paragraph.hpp"
-#include "unicode_line_geometry.hpp"
 namespace maicord {
 SfntStatus native_tibetan_paragraph_shape(const NativeRunPlanStore& store,const NativeTibetanPlan& plan,
     Utf8View text,float em,const NativeAsciiParagraphStorage& s,NativeLatinBoundaryStorage boundaries,NativeParagraphShape* output,float trailing_spacing,bool rtl) noexcept {
-    if(!output)return SfntStatus::invalid_input;*output={};
-    const auto* metrics=native_run_plan_metrics(store,plan.run);if(!metrics)return SfntStatus::invalid_input;
-    struct Source {const NativeRunPlanStore& store;const NativeTibetanPlan& plan;const SfntFontLayoutMetrics& metrics;float spacing;bool rtl;} source{store,plan,*metrics,trailing_spacing,rtl};
-    const auto shape=[](void* opaque,Utf8View input,float size,const NativeAsciiLineStorage& storage,NativeAsciiLineResult* result) noexcept {
-        const auto& p=*static_cast<Source*>(opaque);NativeAsciiLineResult line{};
-        if(storage.clusters.count&&!storage.clusters.data)return SfntStatus::invalid_input;
-        const auto status=native_tibetan_run(p.store,p.plan,input,size,storage.run,&line.run,{},p.rtl,p.spacing);if(status!=SfntStatus::ok)return status;
-        const auto geometry=native_unicode_line_geometry(p.metrics,input,size,storage,&line,true);
-        if(geometry==SfntStatus::ok)*result=line;return geometry;
-    };
-    return native_script_paragraph_shape(*metrics,text,em,s,boundaries,output,{&source,shape});
+    return script_paragraph_shape(store,plan,plan.run,text,em,s,boundaries,output,trailing_spacing,rtl,
+        [](const NativeRunPlanStore& store,const NativeTibetanPlan& plan,Utf8View input,float size,const NativeAsciiStorage& storage,NativeAsciiResult* result,float spacing,bool rtl) noexcept {
+            return native_tibetan_run(store,plan,input,size,storage,result,{},rtl,spacing);});
 }
 }

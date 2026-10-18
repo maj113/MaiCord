@@ -39,9 +39,9 @@ struct H264Sps {
     u8 id, profile, constraints, level;
     u8 frame_num_bits, poc_type, poc_bits, max_references, cycle_count;
     u8 max_reorder, max_buffering;
-    u8 primaries, transfer, matrix;
+    u8 matrix;
     bool frame_only, mbaff, direct_8x8, delta_always_zero, gaps;
-    bool transform_bypass, scaling_present, full_range, fixed_rate, restriction;
+    bool transform_bypass, scaling_present, full_range, restriction;
 };
 struct H264Pps {
     H264Scaling scaling;

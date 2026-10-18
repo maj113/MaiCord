@@ -5,8 +5,8 @@ namespace maicord {
 WebSocketMessageRead websocket_read_message(ByteQueue* input, WebSocketMessageTracker* tracker,
                                             Slice<u8> fragments, u32* fragment_bytes,
                                             u64 maximum_frame_bytes, u64 maximum_message_bytes) noexcept {
-    if (!input || !tracker || !fragment_bytes || !fragments.data || !maximum_frame_bytes ||
-        !maximum_message_bytes || maximum_message_bytes > fragments.count)
+    if (!fragments.data || !maximum_frame_bytes || !maximum_message_bytes ||
+        maximum_message_bytes > fragments.count)
         return {{}, {}, WebSocketReadState::error, WebSocketError::invalid_input};
     for (;;) {
         const auto parsed = websocket_parse_frame(byte_queue_readable(*input), maximum_frame_bytes,

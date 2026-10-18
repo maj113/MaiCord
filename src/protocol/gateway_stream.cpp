@@ -76,6 +76,14 @@ GatewayStreamDeleteReason reason_of(JsonString text) noexcept {
         return GatewayStreamDeleteReason::safety_guild_rate_limited;
     return GatewayStreamDeleteReason::other;
 }
+// Keys are plain ASCII; an escaped key is decoded before parsing.
+bool gateway_stream_key_parse_json(JsonString text, GatewayStreamKey* output) noexcept {
+    if (!text.has_escapes)
+        return gateway_stream_key_parse(text.encoded, output);
+    char decoded[kGatewayStreamKeyMaximumBytes];
+    const auto result = json_string_decode_utf8(text, {decoded, sizeof(decoded)});
+    return result.ok() && gateway_stream_key_parse({decoded, result.bytes}, output);
+}
 bool visit_stream(void* opaque, JsonString name, JsonValue value) noexcept {
     auto& d = *static_cast<StreamDecode*>(opaque);
     struct Field {
@@ -163,8 +171,6 @@ bool visit_stream(void* opaque, JsonString name, JsonValue value) noexcept {
     return valid;
 }
 GatewayEventDecodeResult decode_stream(JsonValue data, Slice<u32> scratch, u32 depth, StreamDecode* d) noexcept {
-    if (!data.source.data || !data.source.bytes || !scratch.data || !scratch.count || !depth)
-        return {0, GatewayEventDecodeError::invalid_input};
     if (data.kind != JsonValueKind::object)
         return {data.source_offset, GatewayEventDecodeError::invalid_data};
     const auto scan = json_scan_structurals_avx1(data.source, scratch);
@@ -196,7 +202,7 @@ GatewayStreamKey gateway_stream_key_for(u64 guild_id, u64 channel_id, u64 owner_
 }
 
 u32 gateway_stream_key_write(const GatewayStreamKey& key, Slice<char> output) noexcept {
-    if (!gateway_stream_key_valid(key) || !output.data)
+    if (!gateway_stream_key_valid(key))
         return 0;
     char text[kGatewayStreamKeyMaximumBytes];
     u32 at = 0;
@@ -219,7 +225,7 @@ u32 gateway_stream_key_write(const GatewayStreamKey& key, Slice<char> output) no
 }
 
 bool gateway_stream_key_parse(Utf8View text, GatewayStreamKey* output) noexcept {
-    if (!output || !text.data || !text.bytes || text.bytes > kGatewayStreamKeyMaximumBytes)
+    if (text.bytes > kGatewayStreamKeyMaximumBytes)
         return false;
     GatewayStreamKey key{};
     u32 at = 0;
@@ -253,15 +259,6 @@ bool gateway_stream_key_parse(Utf8View text, GatewayStreamKey* output) noexcept 
     return true;
 }
 
-bool gateway_stream_key_parse_json(JsonString text, GatewayStreamKey* output) noexcept {
-    // Keys are plain ASCII; an escaped key is decoded before parsing.
-    if (!text.has_escapes)
-        return gateway_stream_key_parse(text.encoded, output);
-    char decoded[kGatewayStreamKeyMaximumBytes];
-    const auto result = json_string_decode_utf8(text, {decoded, sizeof(decoded)});
-    return result.ok() && gateway_stream_key_parse({decoded, result.bytes}, output);
-}
-
 GatewayCommandWriteResult gateway_write_stream_delete(const GatewayStreamKey& key, Slice<u8> output) noexcept {
     return keyed("{\"op\":19,\"d\":{\"stream_key\":", key, output);
 }
@@ -274,8 +271,6 @@ GatewayCommandWriteResult gateway_write_stream_ping(const GatewayStreamKey& key,
 
 GatewayEventDecodeResult gateway_decode_stream_create(JsonValue data, Slice<u32> scratch, u32 depth,
                                                       GatewayStreamCreate* output) noexcept {
-    if (!output)
-        return {0, GatewayEventDecodeError::invalid_input};
     StreamDecode d{};
     d.kind = 0;
     const auto result = decode_stream(data, scratch, depth, &d);
@@ -285,8 +280,6 @@ GatewayEventDecodeResult gateway_decode_stream_create(JsonValue data, Slice<u32>
 }
 GatewayEventDecodeResult gateway_decode_stream_server(JsonValue data, Slice<u32> scratch, u32 depth,
                                                       GatewayStreamServer* output) noexcept {
-    if (!output)
-        return {0, GatewayEventDecodeError::invalid_input};
     StreamDecode d{};
     d.kind = 1;
     const auto result = decode_stream(data, scratch, depth, &d);
@@ -296,8 +289,6 @@ GatewayEventDecodeResult gateway_decode_stream_server(JsonValue data, Slice<u32>
 }
 GatewayEventDecodeResult gateway_decode_stream_update(JsonValue data, Slice<u32> scratch, u32 depth,
                                                       GatewayStreamUpdate* output) noexcept {
-    if (!output)
-        return {0, GatewayEventDecodeError::invalid_input};
     StreamDecode d{};
     d.kind = 2;
     const auto result = decode_stream(data, scratch, depth, &d);
@@ -307,8 +298,6 @@ GatewayEventDecodeResult gateway_decode_stream_update(JsonValue data, Slice<u32>
 }
 GatewayEventDecodeResult gateway_decode_stream_delete(JsonValue data, Slice<u32> scratch, u32 depth,
                                                       GatewayStreamDelete* output) noexcept {
-    if (!output)
-        return {0, GatewayEventDecodeError::invalid_input};
     StreamDecode d{};
     d.kind = 3;
     const auto result = decode_stream(data, scratch, depth, &d);
