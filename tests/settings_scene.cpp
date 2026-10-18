@@ -200,11 +200,11 @@ void test_controls(Check check) noexcept {
     const auto wide = ui_settings_modal_layout(tokens, {0, 0, 2400, 1400}, UiSettingsPresentation::modal);
     const auto mid = ui_settings_modal_layout(tokens, {0, 0, 1000, 800}, UiSettingsPresentation::modal);
     const auto small = ui_settings_modal_layout(tokens, {0, 0, 500, 600}, UiSettingsPresentation::modal);
-    check(close_to(ui_rect_width(wide.modal), 1280) && close_to(wide.modal.top, 56) &&
+    check(close_to(ui_rect_width(wide.modal), 1280) && close_to(wide.modal.top, 24) && close_to(wide.modal.bottom, 1400 - 24) &&
               close_to(ui_rect_width(mid.modal), 1000 - 48) && small.compact && close_to(ui_rect_width(small.modal), 500) &&
               close_to(wide.close.right, wide.panel.right - 20) && close_to(ui_rect_width(wide.close), 36) &&
               ui_rect_width(wide.column) <= 740 && wide.column.left > wide.sidebar.right,
-          "settings controls: modal is at most 1280 DIP, insets below the title bar and fills small windows");
+          "settings controls: modal is at most 1280 DIP, is vertically centred and fills small windows");
     // Chips reserve a colour dot only when asked (role lists), and leave room
     // for a whole chord label at the 13 DIP description size.
     const auto chord = utf8_literal("Ctrl+Alt+M");

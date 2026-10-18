@@ -258,7 +258,7 @@ struct UiThemeSettings {
         mod_normal{}, mod_strong{}, input_background{}, input_border{}, brand_hover{}, critical{},
         critical_text{}, critical_tint{}, positive{}, focus_ring{}, scrim{}, switch_track{}, switch_border{},
         slider_track{}, radio_border{}, modal_background{}, sidebar_background{};
-    u16 modal_max_width{1280}, modal_viewport_ratio{80}, modal_ratio_threshold{1080}, modal_inset_top{56},
+    u16 modal_max_width{1280}, modal_viewport_ratio{80}, modal_ratio_threshold{1080}, modal_inset_top{24},
         modal_inset_side{24}, modal_inset_bottom{24}, modal_radius{12}, modal_compact_width{560};
     u16 sidebar_width{248}, sidebar_padding{12}, sidebar_top{16}, search_height{32}, nav_header_height{28},
         nav_item_height{32}, nav_item_radius{6}, nav_item_gap{2}, nav_item_padding{10}, nav_icon{18},
