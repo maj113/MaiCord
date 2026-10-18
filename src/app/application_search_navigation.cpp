@@ -402,11 +402,16 @@ bool application_search_navigation_pending(u64 now) noexcept {
 }
 u64 application_search_navigation_next_wake() noexcept {
     application_search_navigation_synchronize();
-    if (navigation.phase == MessageNavigationPhase::idle || navigation.request_id ||
-        (navigation.phase == MessageNavigationPhase::membership && navigation.membership.serial)) return 0;
-    return navigation.retry_at ? navigation.retry_at :
-        (navigation.phase == MessageNavigationPhase::channel || navigation.phase == MessageNavigationPhase::parent
-            ? clock_monotonic_milliseconds() : 0);
+    if (navigation.request_id) return 0;
+    switch (navigation.phase) {
+    case MessageNavigationPhase::channel:
+    case MessageNavigationPhase::parent:
+        // A busy DETAILS lane wakes the loop when its request completes.
+        return g_app.details_request_owner == MessageHistoryRequestOwner::none ? maximum(navigation.retry_at, u64{1}) : 0;
+    case MessageNavigationPhase::membership: return navigation.membership.serial ? 0 : navigation.retry_at;
+    case MessageNavigationPhase::history_retry: return navigation.retry_at;
+    default: return 0;
+    }
 }
 bool application_search_navigation_submit(u64 id, u64 now) noexcept {
     if (!id || !application_search_navigation_pending(now)) return false;

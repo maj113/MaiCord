@@ -20,6 +20,7 @@
 #include "application_video.hpp"
 #include "application_tooltip.hpp"
 #include "application_search.hpp"
+#include "application_search_navigation.hpp"
 #include "application_pinned_messages.hpp"
 #include "application_media_picker.hpp"
 #include "application_quick_switcher.hpp"
@@ -153,6 +154,7 @@ u64 application_next_wake_at_ms() noexcept {
         add(g_app.message_edit.retry_at_ms);
     add(application_message_reaction_next_wake());
     add(application_thread_actions_next_wake());
+    add(application_search_navigation_next_wake());
     add(application_channel_prefetch_next_wake());
     add(g_app.member_list_subscription.retry_at_ms);
     add(application_author_hydration_next_wake());

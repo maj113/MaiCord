@@ -1187,7 +1187,7 @@ void test_message_navigation_lifecycle() noexcept {
     reaction_observation_needed = forum_observation_needed = false;
     constexpr auto held_body =
         utf8_literal(R"({"id":"999","guild_id":"7","type":0,"name":"Target","permission_overwrites":[]})");
-    for (u32 scenario = 0; scenario < 10; ++scenario) {
+    for (u32 scenario = 0; scenario < 11; ++scenario) {
         application_message_navigation_release();
         g_app.plugin_account_scope_serial = 31;
         g_app.pending_message_jump_channel_id = g_app.pending_message_jump_message_id = 0;
@@ -1241,6 +1241,19 @@ void test_message_navigation_lifecycle() noexcept {
                 application_search_navigation_submit(500 + scenario, clock_monotonic_milliseconds()) &&
                 navigation_fetches == 1 && application_message_navigation_observation_needed(),
             "timeline permalink actual shared owner admits one metadata GET from readable resident source");
+        if (scenario == 10) {
+            RestClientResponse limited{};
+            limited.request_id = 510;
+            limited.status_code = 429;
+            limited.rate_limited = true;
+            const u64 now = clock_monotonic_milliseconds();
+            limited.retry_at_ms = now + 400;
+            check(application_search_navigation_response(limited, {}) &&
+                      application_wait_timeout(now, now * 1000, true) == 400,
+                  "navigation_rate_limit_schedules_retry_wake");
+            application_message_navigation_release();
+            continue;
+        }
         reset_counts();
         check(application_pump_account() && !g_app.message_pump.reaction_observe &&
                   g_app.message_pump.reaction_source_observe &&
