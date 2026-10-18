@@ -30,7 +30,7 @@ maicord_program(MaiCordGuildRolePayloadBenchmark ENTRY maicord_guild_role_payloa
 maicord_program(MaiCordTextProjectionBenchmark ENTRY maicord_text_projection_benchmark_entry
     SOURCES tests/bench/text_projection.cpp $<TARGET_OBJECTS:maicord_text_projection_observer>
     LIBS maicord_core maicord_platform maicord_ui maicord_ui_input maicord_model maicord_protocol
-        maicord_app_core maicord_text kernel32 user32 crypt32 dwrite)
+        maicord_app_core maicord_text kernel32 user32 crypt32)
 maicord_program(MaiCordProcessBenchmark ENTRY maicord_process_benchmark_entry
     SOURCES benchmarks/process_benchmark.cpp
     LIBS maicord_core kernel32)
@@ -107,13 +107,13 @@ maicord_program(MaiCordCoreBenchmark ENTRY maicord_core_benchmark_entry
     LIBS maicord_core maicord_protocol maicord_model kernel32)
 maicord_program(MaiCordTextBenchmark ENTRY maicord_text_benchmark_entry
     SOURCES benchmarks/text_benchmark.cpp src/render/message_hit_test.cpp
-    LIBS maicord_core maicord_text kernel32 dwrite)
+    LIBS maicord_core maicord_text kernel32)
 maicord_program(MaiCordMarkdownBenchmark ENTRY maicord_markdown_benchmark_entry
     SOURCES benchmarks/markdown_benchmark.cpp
     LIBS maicord_core maicord_ui kernel32)
 maicord_program(MaiCordGlyphBenchmark ENTRY maicord_glyph_benchmark_entry
     SOURCES benchmarks/glyph_benchmark.cpp
-    LIBS maicord_core maicord_text maicord_render_core maicord_atlas_gpu kernel32 dwrite d3d11)
+    LIBS maicord_core maicord_text maicord_render_core maicord_atlas_gpu kernel32 d3d11)
 maicord_program(MaiCordMediaBenchmark ENTRY maicord_media_benchmark_entry
     SOURCES benchmarks/media_benchmark.cpp tests/media_fixture.cpp
     LIBS maicord_core maicord_protocol maicord_render_core maicord_media_core maicord_media_codec
@@ -156,7 +156,7 @@ maicord_program(MaiCordUiBenchmark ENTRY maicord_ui_benchmark_entry
         src/render/text_edit_layout.cpp src/render/text_form_surface.cpp
     LIBS maicord_core maicord_platform maicord_ui maicord_ui_input maicord_model maicord_protocol
         maicord_app_core maicord_message_runtime maicord_message_media maicord_media_core maicord_render_core
-        maicord_text kernel32 user32 crypt32 dwrite)
+        maicord_text kernel32 user32 crypt32)
 maicord_program(MaiCordModelBenchmark ENTRY maicord_model_benchmark_entry
     SOURCES benchmarks/model_benchmark.cpp
     LIBS maicord_core maicord_model kernel32)

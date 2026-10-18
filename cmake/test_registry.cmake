@@ -146,7 +146,7 @@ maicord_test(MaiCordNativeExtensionTests ENTRY maicord_native_extensions_entry
     LIBS maicord_core maicord_platform maicord_app_core maicord_ui maicord_plugin_host
         maicord_client_preferences maicord_account_host maicord_account_paths maicord_account_media
         maicord_plugin_modules maicord_message_media maicord_ui_input maicord_text maicord_render_core
-        maicord_model kernel32 user32 dwrite bcrypt crypt32 ws2_32 secur32 ole32 ntdll
+        maicord_model kernel32 user32 bcrypt crypt32 ws2_32 secur32 ole32 ntdll
     INCLUDES src/app third_party/opus/include
     DEFINES MAICORD_PLUGIN_BUNDLE_INSTALL_FIXTURE=1
         "MAICORD_UPDATE_PAIR_TEST_EXECUTABLE=L\"$<TARGET_FILE:MaiCord>\""
@@ -520,7 +520,6 @@ maicord_test(MaiCordCommandUiTests ENTRY maicord_command_ui_tests_entry
         src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_text maicord_ui
         maicord_ui_input maicord_model maicord_message_runtime kernel32 user32 ws2_32 secur32 bcrypt crypt32
-        dwrite
     TEST maicord_command_ui)
 maicord_test(MaiCordMediaVisibilityTests ENTRY maicord_media_visibility_tests_entry
     SOURCES tests/application_media_visibility.cpp tests/stream_preview_media_stub.cpp
@@ -529,7 +528,7 @@ maicord_test(MaiCordMediaVisibilityTests ENTRY maicord_media_visibility_tests_en
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_text maicord_ui
         maicord_ui_input maicord_model maicord_message_runtime maicord_message_media maicord_render_core
         maicord_media_core maicord_account_media maicord_atlas_gpu maicord_renderer kernel32 user32 ws2_32
-        secur32 bcrypt crypt32 d3d11 dxgi dcomp dwrite
+        secur32 bcrypt crypt32 d3d11 dxgi dcomp
     TEST maicord_media_visibility)
 add_executable(MaiCordAccountPumpTests tests/application_account_pump.cpp
     src/app/application_thread_header_activation.cpp
@@ -541,7 +540,7 @@ add_executable(MaiCordAccountPumpTests tests/application_account_pump.cpp
 target_link_libraries(MaiCordAccountPumpTests PRIVATE
     maicord_compile_contract maicord_core maicord_platform maicord_protocol maicord_app_core
     maicord_text maicord_ui maicord_ui_input maicord_model maicord_message_runtime maicord_media_core
-    kernel32 user32 ws2_32 secur32 bcrypt crypt32 dwrite)
+    kernel32 user32 ws2_32 secur32 bcrypt crypt32)
 target_link_options(MaiCordAccountPumpTests PRIVATE
     /ENTRY:maicord_account_pump_tests_entry /SUBSYSTEM:CONSOLE,6.02)
 maicord_add_tests(MaiCordAccountPumpTests TEST maicord_account_pump)
@@ -921,7 +920,6 @@ maicord_test(MaiCordLoginCancelRuntimeTests ENTRY maicord_login_cancel_runtime_e
         src/app/account_host.cpp src/core/log.cpp
     LIBS maicord_core maicord_platform maicord_protocol maicord_app_core maicord_text maicord_ui
         maicord_ui_input maicord_model maicord_account_paths kernel32 user32 ws2_32 secur32 bcrypt crypt32
-        dwrite
     INCLUDES src/app)
 maicord_test(MaiCordNotificationTests ENTRY maicord_notifications_tests_entry
     SOURCES tests/notification_policy.cpp tests/notification_settings_wire.cpp
@@ -1651,7 +1649,7 @@ add_dependencies(MaiCordUiProbe maicord_app_icon)
 set(maicord_scene_probe_libs maicord_core maicord_text maicord_ui maicord_ui_input maicord_model
     maicord_message_runtime maicord_render_core maicord_media_codec maicord_atlas_gpu maicord_renderer
     maicord_platform maicord_protocol maicord_app_core maicord_message_media maicord_account_media)
-set(maicord_scene_probe_system_libs kernel32 user32 ws2_32 secur32 bcrypt crypt32 d3d11 dxgi dcomp dwrite shell32)
+set(maicord_scene_probe_system_libs kernel32 user32 ws2_32 secur32 bcrypt crypt32 d3d11 dxgi dcomp shell32)
 maicord_test(MaiCordMessageLinkUiProbe WIN32 ENTRY maicord_message_link_ui_probe_entry
     SOURCES config/maicord.manifest tests/integration/message_link_ui_probe.cpp
         src/app/application_content_input.cpp src/app/application_search_navigation.cpp
