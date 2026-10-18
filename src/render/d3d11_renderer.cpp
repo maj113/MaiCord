@@ -405,6 +405,7 @@ bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
         renderer->previous_buffer_damage_rect = {};
         renderer->retained_presentation.valid = false;
         presentation_damage_invalidate_full(&renderer->presentation_damage);
+        d3d11_renderer_caption_invalidate(renderer);
     } else {
         // The DirectComposition target clips the natural-size visual to the
         // HWND client. Keeping the source region equal to the backing texture

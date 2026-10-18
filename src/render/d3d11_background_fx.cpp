@@ -184,6 +184,7 @@ bool d3d11_background_fx_begin_frame(D3D11BackgroundFxOwner* owner, ID3D11Device
     owner->source = BackgroundFxSource::none;
     owner->drawn_count = 0;
     owner->draws_last_frame = 0;
+    owner->vertex_constants_bound = false;
     owner->layer_opacity = 1;
     owner->timing_frame = nullptr;
     collect(owner, context);
@@ -257,7 +258,11 @@ bool d3d11_background_fx_draw(D3D11BackgroundFxOwner* owner, ID3D11DeviceContext
     context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
     context->IASetInputLayout(nullptr);
     context->VSSetShader(owner->vertex_shader, nullptr, 0);
-    context->VSSetConstantBuffers(2, 1, &owner->constant_buffer);
+    // VS b2 is the effect's alone: bound once per frame.
+    if (!owner->vertex_constants_bound) {
+        context->VSSetConstantBuffers(2, 1, &owner->constant_buffer);
+        owner->vertex_constants_bound = true;
+    }
     context->PSSetShader(plugin ? owner->plugin_shader : owner->builtin_shader, nullptr, 0);
     context->PSSetConstantBuffers(0, 1, &owner->constant_buffer);
     // Plugin shaders get no textures or samplers.

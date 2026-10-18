@@ -95,13 +95,16 @@ const UiNode* scene_node(const D3D11Renderer* renderer, UiSemantic semantic) noe
 // State every pipeline shares: target, rasterizer, blend, frame constants
 // (VS b0) and the sampler. Text and media rely on it as much as paint does.
 void bind_shared_state(D3D11Renderer* renderer, DrawSubmissionState* submission) noexcept {
-    if (!draw_submission_bind_shared(submission))
-        return;
     auto* context = renderer->graphics.context;
     const auto& pipeline = renderer->pipeline;
+    const float blend_factor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    if (!draw_submission_bind_shared(submission)) {
+        if (draw_submission_rebind_blend(submission))
+            context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
+        return;
+    }
     context->OMSetRenderTargets(1, &renderer->graphics.target, nullptr);
     context->RSSetState(pipeline.ui_rasterizer_state);
-    const float blend_factor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
     context->VSSetConstantBuffers(0, 1, &pipeline.ui_frame_buffer);
     context->PSSetSamplers(0, 1, &pipeline.glyph_sampler);
@@ -463,7 +466,7 @@ bool draw_paint_batches(D3D11Renderer* renderer, DrawSubmissionState* submission
                                          {canvas.left, canvas.top, canvas.right, canvas.bottom}, quad)) {
                 ++renderer->draw_calls_last_frame;
                 // The effect bound its own shaders, constants and blend state.
-                draw_submission_reset(submission);
+                draw_submission_reset_pipeline(submission);
             }
         }
         append_run(target, &run, scissor, first, end);

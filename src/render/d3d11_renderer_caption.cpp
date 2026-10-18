@@ -56,6 +56,13 @@ struct RendererCaption {
     u32 buttons_first_quad;
     u32 scrim_quad;
     RECT tooltip_pixels;
+    // The uploaded quads, reused while appearance, theme and the atlas cells
+    // they sample are unchanged.
+    Theme built_theme;
+    u64 built_key;
+    u32 builds, draws;
+    u32 title_glyphs, tooltip_glyphs;
+    bool built;
     // Appearance changed since the last Present, and before it (the other
     // back buffer still shows the older caption).
     bool dirty;
@@ -98,6 +105,24 @@ u64 appearance_stamp(const D3D11Renderer& renderer, const RendererCaption& capti
     hash = hash64_bytes(hash, scrim, sizeof(scrim));
     hash = hash64_mix(hash, static_cast<u64>(ui_icon_theme_weight(theme) * 1000.0f));
     return hash64_bytes(hash, &theme.scale, sizeof(theme.scale));
+}
+
+u64 build_key(const D3D11Renderer& renderer, const RendererCaption& caption) noexcept {
+    const u32 atlases[5]{
+        renderer.glyph_text.allocator.evicted_entries, renderer.glyph_text.allocator.full_resets,
+        renderer.icon_atlas.allocator.evicted_entries, renderer.icon_atlas.allocator.full_resets,
+        static_cast<u32>(renderer.glyph_text.ready) | static_cast<u32>(renderer.icon_atlas.ready) << 1};
+    return hash64_bytes(hash64_mix(kHash64Seed, caption.stamp), atlases, sizeof(atlases));
+}
+
+bool same_theme(const Theme& a, const Theme& b) noexcept {
+    static_assert(sizeof(Theme) % sizeof(u64) == 0 && alignof(Theme) >= alignof(u64));
+    const auto* x = reinterpret_cast<const u64*>(&a);
+    const auto* y = reinterpret_cast<const u64*>(&b);
+    u64 difference = 0;
+    for (u32 i = 0; i < sizeof(Theme) / sizeof(u64); ++i)
+        difference |= x[i] ^ y[i];
+    return !difference;
 }
 
 u64 caption_text_seed(const RendererCaption& caption) noexcept {
@@ -392,6 +417,7 @@ bool renderer_set_caption_icon(D3D11Renderer* renderer, const u32* pixels, u32 e
     caption->icon_view = view;
     caption->icon_extent = extent;
     caption->dirty = true;
+    caption->built = false;
     return true;
 }
 
@@ -400,7 +426,8 @@ bool d3d11_renderer_caption_pending(D3D11Renderer* renderer, const Theme& theme)
     if (!renderer->caption_height || !caption)
         return false;
     const u64 stamp = appearance_stamp(*renderer, *caption, theme);
-    if (stamp != caption->stamp) {
+    // Any other theme change (tooltip, backdrop tiers) restyles the bar too.
+    if (stamp != caption->stamp || (caption->built && !same_theme(caption->built_theme, theme))) {
         caption->stamp = stamp;
         caption->dirty = true;
         const u64 text_key =
@@ -418,39 +445,56 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     auto* caption = renderer->caption;
     if (!renderer->caption_height || !caption || !renderer->graphics.target)
         return true;
-    if (!renderer->present_full && !d3d11_renderer_caption_pending(renderer, theme) &&
+    // The back buffer still holds the bar unless it changed since that buffer
+    // was presented (scrims of this frame's content draw included), the
+    // content covered its tooltip or an animated backdrop moved under it.
+    const bool animated = renderer->present_full && renderer->background_fx.source != BackgroundFxSource::none;
+    if (!d3d11_renderer_caption_pending(renderer, theme) && !animated &&
         !content_covers_tooltip(*renderer, *caption))
         return true;
     auto* context = renderer->graphics.context;
     auto& pipeline = renderer->pipeline;
     const UiCaptionBarLayout layout = caption_layout(*renderer, *caption, theme);
     const float scale = static_cast<float>(renderer->dpi) / 96.0f;
-    u32 glyph_count = 0, tooltip_glyphs = 0;
-    caption->buttons_first_quad = 0;
-    caption->scrim_quad = ~0u;
-    // The stream culls to its viewport: the band and the content a tooltip
-    // hangs into.
-    if (!paint_stream_reset(&caption->paint, layout.width, layout.height + dips(renderer->height, renderer->dpi)) ||
-        !ui_caption_bar_paint(&caption->paint, theme, layout, caption->state, scale,
-                              &caption->buttons_first_quad) ||
-        caption->paint.rejected || !append_scrim(caption, layout) ||
-        !append_title(renderer, caption, layout, ui_caption_bar_title_color(theme, caption->state),
-                      &glyph_count) ||
-        !append_tooltip(renderer, caption, theme, layout, glyph_count, &tooltip_glyphs) ||
-        !create_buffer(renderer->graphics.device,
-                       static_cast<u32>(sizeof(PaintQuad)) * kCaptionPaintCapacity,
-                       &caption->paint_buffer) ||
-        !create_buffer(renderer->graphics.device,
-                       static_cast<u32>(sizeof(GlyphQuad)) * kCaptionGlyphCapacity * 2,
-                       &caption->glyph_buffer) ||
-        !upload_paint(renderer, caption, ui_icon_theme_weight(theme)) ||
-        !upload_icon_quad(renderer, caption, layout) ||
-        (glyph_count + tooltip_glyphs &&
-         !upload(context, caption->glyph_buffer, caption->glyphs,
-                 (glyph_count + tooltip_glyphs) * static_cast<u32>(sizeof(GlyphQuad))))) {
-        log_write(LogLevel::error, "render", "caption_build_failed");
-        return false;
+    if (!caption->built || caption->built_key != build_key(*renderer, *caption) ||
+        !same_theme(caption->built_theme, theme)) {
+        caption->built = false;
+        u32 glyph_count = 0, tooltip_glyphs = 0;
+        caption->buttons_first_quad = 0;
+        caption->scrim_quad = ~0u;
+        // The stream culls to its viewport: the band and the content a tooltip
+        // hangs into.
+        if (!paint_stream_reset(&caption->paint, layout.width,
+                                layout.height + dips(renderer->height, renderer->dpi)) ||
+            !ui_caption_bar_paint(&caption->paint, theme, layout, caption->state, scale,
+                                  &caption->buttons_first_quad) ||
+            caption->paint.rejected || !append_scrim(caption, layout) ||
+            !append_title(renderer, caption, layout, ui_caption_bar_title_color(theme, caption->state),
+                          &glyph_count) ||
+            !append_tooltip(renderer, caption, theme, layout, glyph_count, &tooltip_glyphs) ||
+            !create_buffer(renderer->graphics.device,
+                           static_cast<u32>(sizeof(PaintQuad)) * kCaptionPaintCapacity,
+                           &caption->paint_buffer) ||
+            !create_buffer(renderer->graphics.device,
+                           static_cast<u32>(sizeof(GlyphQuad)) * kCaptionGlyphCapacity * 2,
+                           &caption->glyph_buffer) ||
+            !upload_paint(renderer, caption, ui_icon_theme_weight(theme)) ||
+            !upload_icon_quad(renderer, caption, layout) ||
+            (glyph_count + tooltip_glyphs &&
+             !upload(context, caption->glyph_buffer, caption->glyphs,
+                     (glyph_count + tooltip_glyphs) * static_cast<u32>(sizeof(GlyphQuad))))) {
+            log_write(LogLevel::error, "render", "caption_build_failed");
+            return false;
+        }
+        caption->title_glyphs = glyph_count;
+        caption->tooltip_glyphs = tooltip_glyphs;
+        // Keyed after the build: its own glyph and icon rasters may evict.
+        caption->built_key = build_key(*renderer, *caption);
+        copy_bytes(&caption->built_theme, &theme, sizeof(Theme));
+        caption->built = true;
+        ++caption->builds;
     }
+    const u32 glyph_count = caption->title_glyphs, tooltip_glyphs = caption->tooltip_glyphs;
 
     // Caption rows: their own viewport and frame transform, then the content's again.
     const D3D11_VIEWPORT viewport{
@@ -464,17 +508,12 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     const float blend_factor[4]{};
     const UINT offset = 0;
     const UINT paint_stride = sizeof(PaintQuad);
-    const auto bind_paint = [&]() noexcept {
-        context->OMSetRenderTargets(1, &renderer->graphics.target, nullptr);
-        context->RSSetState(pipeline.ui_rasterizer_state);
-        context->RSSetViewports(1, &viewport);
-        context->RSSetScissorRects(1, &scissor);
-        context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
-        context->VSSetConstantBuffers(0, 1, &pipeline.ui_frame_buffer);
+    // The paint pipeline over the shared state (target, rasterizer, blend,
+    // frame constants, sampler), which other pipelines here leave bound.
+    const auto bind_paint_pipeline = [&]() noexcept {
         ID3D11Buffer* pixel_constants[2]{pipeline.ui_frame_buffer,
                                          pipeline.background_active ? pipeline.background_buffer : nullptr};
         context->PSSetConstantBuffers(0, 2, pixel_constants);
-        context->PSSetSamplers(0, 1, &pipeline.glyph_sampler);
         context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         context->IASetInputLayout(pipeline.ui_input_layout);
         context->IASetVertexBuffers(0, 1, &caption->paint_buffer, &paint_stride, &offset);
@@ -482,6 +521,16 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         context->PSSetShader(pipeline.ui_pixel_shader, nullptr, 0);
         ID3D11ShaderResourceView* icon_view = renderer->icon_atlas.gpu.texture_view;
         context->PSSetShaderResources(0, 1, &icon_view);
+    };
+    const auto bind_paint = [&]() noexcept {
+        context->OMSetRenderTargets(1, &renderer->graphics.target, nullptr);
+        context->RSSetState(pipeline.ui_rasterizer_state);
+        context->RSSetViewports(1, &viewport);
+        context->RSSetScissorRects(1, &scissor);
+        context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
+        context->VSSetConstantBuffers(0, 1, &pipeline.ui_frame_buffer);
+        context->PSSetSamplers(0, 1, &pipeline.glyph_sampler);
+        bind_paint_pipeline();
     };
     if (!frame(false))
         return false;
@@ -495,12 +544,15 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         first = 1;
         const float top = -layout.height;
         if (renderer->background_fx.source != BackgroundFxSource::none && frame(true)) {
+            // The effect binds its shaders, input, pixel constants, view and blend.
             if (d3d11_background_fx_draw(&renderer->background_fx, context, {0, top, layout.width, 0},
-                                         kCaptionEffectCanvas))
+                                         kCaptionEffectCanvas)) {
                 ++renderer->draw_calls_last_frame;
+                context->OMSetBlendState(pipeline.ui_blend_state, blend_factor, 0xFFFFFFFFu);
+                bind_paint_pipeline();
+            }
             if (!frame(false))
                 return false;
-            bind_paint();
         }
     }
     const u32 bar_end = caption->tooltip_first_quad;
@@ -539,7 +591,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     if (scrim) {
         // The scrim over band, icon, title and items; the window buttons
         // follow undimmed.
-        bind_paint();
+        bind_paint_pipeline();
         context->DrawInstanced(6, 1, 0, caption->scrim_quad);
         if (caption->scrim_quad > buttons)
             context->DrawInstanced(6, caption->scrim_quad - buttons, 0, buttons);
@@ -557,7 +609,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
         if (!d3d11_draw_pipeline_update_caption(pipeline, context, renderer->width, target_height, 0,
                                                 renderer->dpi, false))
             return false;
-        bind_paint();
+        bind_paint_pipeline();
         context->RSSetViewports(1, &surface);
         context->RSSetScissorRects(1, &clip);
         context->DrawInstanced(6, caption->paint.count - bar_end, 0, bar_end);
@@ -568,6 +620,7 @@ bool d3d11_renderer_caption_draw(D3D11Renderer* renderer, const Theme& theme) no
     ID3D11ShaderResourceView* null_views[3]{};
     context->PSSetShaderResources(0, 3, null_views);
     caption->drawn = true;
+    ++caption->draws;
     return d3d11_draw_pipeline_update_transform(pipeline, context, renderer->width, renderer->height,
                                                 renderer->dpi, renderer->target_origin_y);
 }
@@ -612,9 +665,16 @@ void d3d11_renderer_caption_note_scrim(D3D11Renderer* renderer, Color color, flo
 void d3d11_renderer_caption_invalidate(D3D11Renderer* renderer) noexcept {
     if (!renderer->caption)
         return;
+    // Both buffers draw the bar, and its tooltip, again.
     renderer->caption->dirty = true;
-    // The whole target is repainted; the tooltip is redrawn over it.
-    renderer->caption->tooltip_pixels = {};
+}
+
+u32 d3d11_renderer_caption_builds(const D3D11Renderer& renderer) noexcept {
+    return renderer.caption ? renderer.caption->builds : 0;
+}
+
+u32 d3d11_renderer_caption_draws(const D3D11Renderer& renderer) noexcept {
+    return renderer.caption ? renderer.caption->draws : 0;
 }
 
 void d3d11_renderer_caption_release(D3D11Renderer* renderer) noexcept {

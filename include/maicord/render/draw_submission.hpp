@@ -9,8 +9,9 @@ namespace maicord {
 // frame constants (VS b0) and the sampler: those bind once per stream, and a
 // pass that switches pipelines binds only its own topology, input layout,
 // vertex stream, shaders, pixel constants and views, and only when it draws.
-// Anything else that binds over the shared state (the background effect, the
-// settings backdrop) resets the state, so the next pass binds everything again.
+// Anything else that binds over the shared state (the settings backdrop)
+// resets the state, so the next pass binds everything again; the background
+// effect replaces only the pipeline and the blend state.
 enum class DrawPipeline : u8 {
     none,
     paint,
@@ -23,6 +24,7 @@ struct DrawSubmissionState {
     DrawPipeline pipeline;
     bool shared_bound;
     bool scissor_valid;
+    bool blend_stale;
     u32 pipeline_binds, shared_binds, scissor_sets, scissor_skips;
 };
 
@@ -38,6 +40,21 @@ inline void draw_submission_reset(DrawSubmissionState* state) noexcept {
     state->pipeline = DrawPipeline::none;
     state->shared_bound = false;
     state->scissor_valid = false;
+    state->blend_stale = false;
+}
+
+// The background effect bound its shaders, input, pixel constants, view and
+// blend state: the next pass binds its pipeline and the blend state again.
+inline void draw_submission_reset_pipeline(DrawSubmissionState* state) noexcept {
+    state->pipeline = DrawPipeline::none;
+    state->blend_stale = state->shared_bound;
+}
+
+// True when only the blend state must be bound again before drawing.
+inline bool draw_submission_rebind_blend(DrawSubmissionState* state) noexcept {
+    const bool stale = state->blend_stale;
+    state->blend_stale = false;
+    return stale;
 }
 
 // True when the shared state must be bound before drawing.
@@ -45,6 +62,7 @@ inline bool draw_submission_bind_shared(DrawSubmissionState* state) noexcept {
     if (state->shared_bound)
         return false;
     state->shared_bound = true;
+    state->blend_stale = false;
     ++state->shared_binds;
     return true;
 }

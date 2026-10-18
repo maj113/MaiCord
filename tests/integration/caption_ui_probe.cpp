@@ -4,7 +4,9 @@
 // content pixels keep their place relative to the content origin, the
 // sign-in screen with its Settings entry, the bar's own tooltip below it, a
 // content scrim dimming the bar but not its window buttons, and a gradient
-// backdrop continuing across the seam. Synthetic data only; frames
+// backdrop continuing across the seam. Full-target frames leave an unchanged
+// bar in place, and redraws reuse its uploaded quads (draws and builds are
+// counted). Synthetic data only; frames
 // go to MAICORD_UI_PROBE_CAPTURE_DIR when set.
 #include "probe_capture.hpp"
 #include "../../src/app/app_icon.hpp"
@@ -63,6 +65,7 @@ bool draw(D3D11Renderer& renderer, const Theme& theme, const Color* scrim = null
         return false;
     const float black[4]{0, 0, 0, 1};
     renderer.graphics.context->ClearRenderTargetView(renderer.graphics.target, black);
+    d3d11_renderer_caption_invalidate(&renderer);
     if (!d3d11_renderer_draw_stream(&renderer, theme, true, true, nullptr))
         return false;
     if (scrim)
@@ -306,6 +309,72 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
             return fail(108);
     }
 
+    // A cleared target draws the bar from its uploaded quads, pixel for pixel;
+    // a change builds them once. Full-target content frames leave the bar in
+    // place, unless the tooltip hangs into them.
+    {
+        UiCaptionBarState state{none, none, true, false, UiCaptionUpdate::hidden, false, 0};
+        ProbeTargetReadback first{}, again{};
+        if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme) ||
+            probe_target_readback(renderer, &first))
+            return fail(110);
+        const u32 builds = d3d11_renderer_caption_builds(renderer);
+        if (!draw(renderer, theme) || !draw(renderer, theme) || probe_target_readback(renderer, &again) ||
+            d3d11_renderer_caption_builds(renderer) != builds)
+            return fail(111);
+        for (u32 y = 0; y < caption; ++y)
+            for (u32 x = 0; x < renderer.width; ++x)
+                if (!equal(read(first, x, y), read(again, x, y)))
+                    return fail(112);
+        state.hovered = UiCaptionPart::minimize;
+        if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme) ||
+            !draw(renderer, theme) || d3d11_renderer_caption_builds(renderer) != builds + 1)
+            return fail(113);
+        // Settled on both buffers: full content frames draw no caption.
+        const auto full_frame = [&]() noexcept {
+            presentation_damage_invalidate_full(&renderer.presentation_damage);
+            return renderer_present(&renderer, theme);
+        };
+        // Two presents settle both buffers; the next back buffer is read
+        // before two full content frames repaint both again.
+        ProbeTargetReadback settled{};
+        if (!renderer_present(&renderer, theme) || !renderer_present(&renderer, theme) ||
+            probe_target_readback(renderer, &settled))
+            return fail(114);
+        const u32 draws = d3d11_renderer_caption_draws(renderer);
+        const u64 full = renderer.full_present_draws;
+        if (!full_frame() || !full_frame() || renderer.full_present_draws != full + 2 ||
+            d3d11_renderer_caption_draws(renderer) != draws || d3d11_renderer_caption_builds(renderer) != builds + 1)
+            return fail(118);
+        // The buffer they drew into still holds the bar it showed before.
+        {
+            ProbeTargetReadback kept{};
+            if (probe_target_readback(renderer, &kept))
+                return fail(121);
+            for (u32 y = 0; y < caption; ++y)
+                for (u32 x = 0; x < renderer.width; ++x)
+                    if (!equal(read(settled, x, y), read(kept, x, y)))
+                        return fail(122);
+        }
+        state.hovered = state.tooltip = UiCaptionPart::close;
+        if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme) ||
+            d3d11_renderer_caption_builds(renderer) != builds + 2)
+            return fail(115);
+        // The tooltip covers content: every full frame draws it again.
+        RECT dirty{};
+        if (!renderer_present(&renderer, theme) || !renderer_present(&renderer, theme))
+            return fail(119);
+        const u32 tooltip_draws = d3d11_renderer_caption_draws(renderer);
+        if (!full_frame() || d3d11_renderer_caption_draws(renderer) != tooltip_draws + 1 ||
+            !draw(renderer, theme) || d3d11_renderer_caption_builds(renderer) != builds + 2 ||
+            !d3d11_renderer_caption_dirty_rect(renderer, &dirty) ||
+            dirty.bottom <= static_cast<LONG>(caption + px(16)))
+            return fail(116);
+        state.hovered = state.tooltip = none;
+        if (!renderer_set_caption(&renderer, state, utf8_literal("Native Lab")) || !draw(renderer, theme))
+            return fail(117);
+    }
+
     // A gradient theme: the band is the shell's backdrop, so the gradient
     // runs on across the seam into the guild rail below.
     {
@@ -330,13 +399,43 @@ bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_heig
             return fail(101);
         if (!probe_write_capture(image, L"titlebar_gradient_seam.bmp"))
             return fail(102);
-        // With Stars, captured for review.
+        // With Stars, captured for review. The theme change builds the bar
+        // once; the moving effect redraws it without building.
+        const u32 builds = d3d11_renderer_caption_builds(renderer);
         gradient.background.effect = BackgroundEffect::stars;
         ProbeTargetReadback stars{};
         if (!renderer_set_background_phase(&renderer, 3.5f) || !draw(renderer, gradient) ||
             probe_target_readback(renderer, &stars) ||
-            !probe_write_capture(stars, L"titlebar_gradient_stars.bmp"))
+            !probe_write_capture(stars, L"titlebar_gradient_stars.bmp") ||
+            d3d11_renderer_caption_builds(renderer) != builds + 1)
             return fail(103);
+        // Effect draws rebind only what they replace: stars add sparse light,
+        // every other content and caption pixel stays as without them.
+        u32 changed = 0;
+        for (u32 y = 0; y < image.height; ++y)
+            for (u32 x = 0; x < renderer.width; ++x)
+                changed += equal(read(image, x, y), read(stars, x, y)) ? 0u : 1u;
+        log_u64(LogLevel::info, "probe", "caption_stars_changed_pixels", changed);
+        if (!changed || changed * 20 > renderer.width * image.height)
+            return fail(123);
+        // The reused quads under the moving effect match a fresh build.
+        ProbeTargetReadback reused{}, rebuilt{};
+        if (!draw(renderer, gradient) || probe_target_readback(renderer, &reused) || !draw(renderer, theme) ||
+            !draw(renderer, gradient) || probe_target_readback(renderer, &rebuilt) ||
+            d3d11_renderer_caption_builds(renderer) != builds + 3)
+            return fail(124);
+        for (u32 y = 0; y < caption; ++y)
+            for (u32 x = 0; x < renderer.width; ++x)
+                if (!equal(read(reused, x, y), read(rebuilt, x, y)))
+                    return fail(125);
+        if (!renderer_present(&renderer, gradient) || !renderer_present(&renderer, gradient))
+            return fail(109);
+        const u32 draws = d3d11_renderer_caption_draws(renderer);
+        const u64 full = renderer.full_present_draws;
+        if (!renderer_set_background_phase(&renderer, 4.5f) || !renderer_present(&renderer, gradient) ||
+            renderer.full_present_draws != full + 1 || d3d11_renderer_caption_draws(renderer) != draws + 1 ||
+            d3d11_renderer_caption_builds(renderer) != builds + 3)
+            return fail(120);
         renderer_set_background_phase(&renderer, 0);
         if (!draw(renderer, theme))
             return fail(104);

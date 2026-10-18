@@ -82,7 +82,21 @@ void test_state() noexcept {
               draw_submission_select(&state, DrawPipeline::paint) && draw_submission_scissor(&state, clip) &&
               state.shared_binds == 2 && state.pipeline_binds == 4,
           "state: after another user binds, everything binds again");
+    check(!draw_submission_rebind_blend(&state), "state: a full rebind restores the blend state");
+    // The background effect: only the pipeline and the blend state bind again.
+    draw_submission_reset_pipeline(&state);
+    check(
+        !draw_submission_bind_shared(&state) && draw_submission_rebind_blend(&state) &&
+            !draw_submission_rebind_blend(&state) && draw_submission_select(&state, DrawPipeline::paint) &&
+            !draw_submission_scissor(&state, clip) && state.shared_binds == 2 && state.pipeline_binds == 5,
+        "state: after the effect, the pipeline and blend bind again, not the shared state or scissor");
+    draw_submission_reset_pipeline(&state);
+    draw_submission_reset(&state);
+    check(draw_submission_bind_shared(&state) && !draw_submission_rebind_blend(&state),
+          "state: a full reset after the effect binds the blend state once");
     draw_submission_begin(&state);
+    draw_submission_reset_pipeline(&state);
+    check(!draw_submission_rebind_blend(&state), "state: nothing bound, nothing to restore");
     check(!state.pipeline_binds && !state.shared_binds && !state.scissor_sets && !state.shared_bound,
           "state: a new stream restarts its counters");
 }
