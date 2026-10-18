@@ -1,5 +1,8 @@
 #include "maicord/ui/video_scene.hpp"
+#include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
+#include "maicord/ui/controls/settings_controls.hpp"
+#include "maicord/ui/controls/settings_tokens.hpp"
 #include "maicord/ui/icon.hpp"
 
 namespace maicord {
@@ -102,6 +105,53 @@ UiRect range_track(UiRect bounds, const UiVideoSceneStyle& style) noexcept {
     return {bounds.left + half_thumb, center_y - style.track_height * .5f,
             bounds.right - half_thumb, center_y + style.track_height * .5f};
 }
+constexpr u32 kVolumeSteps = 101;
+// The shared settings slider with the player's thumb and track sizes, so seek
+// and volume match. The media chrome is light on black in every appearance.
+UiSettingsTokens volume_tokens(const UiVideoSceneStyle& style) noexcept {
+    auto tokens = ui_settings_tokens(kDefaultTheme);
+    tokens.metric.slider_grabber = style.thumb_size;
+    tokens.metric.slider_bar = style.track_height;
+    return tokens;
+}
+// Centred in the volume control; its grabber sets the pill behind it.
+UiSliderGeometry volume_slider(const UiSettingsTokens& tokens, UiRect bounds, u32 value) noexcept {
+    const float middle = (bounds.top + bounds.bottom) * .5f, half = ui_slider_height(tokens, false) * .5f;
+    return ui_slider_geometry(tokens, {bounds.left, middle - half, bounds.right, middle + half}, kVolumeSteps,
+                              value, false);
+}
+void append_clock(char* text, u32& cursor, u64 milliseconds, bool hours) noexcept {
+    const u64 seconds = milliseconds / 1000;
+    if (hours) {
+        cursor += decimal_write(text + cursor, seconds / 3600);
+        text[cursor++] = ':';
+    }
+    const u64 minutes = hours ? (seconds / 60) % 60 : seconds / 60;
+    if (hours && minutes < 10)
+        text[cursor++] = '0';
+    cursor += decimal_write(text + cursor, minutes);
+    text[cursor++] = ':';
+    if (seconds % 60 < 10)
+        text[cursor++] = '0';
+    cursor += decimal_write(text + cursor, seconds % 60);
+}
+// The bubble follows the hovered second rather than the raw pointer, so
+// its glyphs move only when the label changes.
+void update_hover_time(UiVideoScene& scene) noexcept {
+    scene.hover_time_bytes = 0;
+    const auto* control = descriptor(scene, UiVideoControl::seek);
+    const u64 duration = scene.projection.playback.duration_ms;
+    if ((scene.hover != UiVideoControl::seek && scene.capture != UiVideoControl::seek) || !eligible(scene, UiVideoControl::seek) ||
+        !control || !duration)
+        return;
+    const auto track = range_track(control->bounds, scene.style);
+    if (track.right <= track.left)
+        return;
+    const float ratio = maximum(0.0f, minimum(1.0f, (scene.hover_x - track.left) / ui_rect_width(track)));
+    const u64 at = static_cast<u64>(static_cast<double>(duration) * ratio) / 1000 * 1000;
+    append_clock(scene.hover_time, scene.hover_time_bytes, at, duration >= 3'600'000);
+    scene.hover_x = track.left + ui_rect_width(track) * static_cast<float>(static_cast<double>(at) / duration);
+}
 bool range_request(const UiVideoScene& scene, UiVideoControl id, UiPoint point,
                    UiVideoAction* out) noexcept {
     const auto* control = descriptor(scene, id);
@@ -117,7 +167,11 @@ bool range_request(const UiVideoScene& scene, UiVideoControl id, UiPoint point,
         return false;
     const float ratio =
         maximum(0.0f, minimum(1.0f, (clamped_x - track.left) / ui_rect_width(track)));
-    const u32 value = minimum(control->maximum, static_cast<u32>(ratio * control->maximum + .5f));
+    const u32 value = id == UiVideoControl::volume
+                          ? ui_slider_index_at(volume_slider(volume_tokens(scene.style), control->bounds,
+                                                             control->value),
+                                               kVolumeSteps, clamped_x)
+                          : minimum(control->maximum, static_cast<u32>(ratio * control->maximum + .5f));
     UiVideoAction request{};
     request.control = id;
     request.owner = scene.projection.playback.owner;
@@ -224,6 +278,7 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
     scene->style = style;
     scene->clip = effective;
     scene->preview = preview;
+    scene->text_advance = controls.time_advance;
     scene->active = true;
     if (playback.buffering && !playback.error)
         scene->buffering_indicator = ui_video_play_affordance_rectangle(preview, {});
@@ -253,6 +308,7 @@ bool ui_video_scene_project(UiVideoScene* scene, const UiVideoPlaybackState& pla
     if (preserve_capture && eligible(*scene, old_capture))
         scene->capture = old_capture;
     restore_controls_presentation(*scene, previous_presentation, same_source, geometry_same);
+    update_hover_time(*scene);
     scene->text_revision = text_revision(*scene, theme);
     return true;
 }
@@ -278,8 +334,9 @@ bool ui_video_play_affordance_paint(UiRect preview, UiRect clip, const UiVideoPl
         return true;
     if (!paint_stream_push_clip(paint, visible.left, visible.top, visible.right, visible.bottom))
         return false;
-    (void)theme;
-    const Color background{0, 0, 0, style.opacity};
+    // The media scrim's black at the affordance's own opacity.
+    Color background = theme.tokens.overlay.media;
+    background.alpha = style.opacity;
     const bool ok = quad(paint, button, background, style.radius) &&
                     symbol(paint, button, UiVideoControl::play_pause, {}, kUiMediaControlTarget,
                            kDefaultTheme.text_primary);
@@ -379,8 +436,9 @@ bool ui_video_scene_hover(UiVideoScene* scene, UiPoint point) noexcept {
     const auto previous_control = scene->hover;
     scene->preview_hovered = scene->active && contains(ui_rect_overlap(scene->preview, scene->clip), point);
     scene->hover = ui_video_scene_hit(*scene, point);
-    if (scene->hover == UiVideoControl::seek)
+    if (scene->hover == UiVideoControl::seek || scene->capture == UiVideoControl::seek)
         scene->hover_x = point.x;
+    update_hover_time(*scene);
     settle_immediate_controls(*scene);
     return previous_preview != scene->preview_hovered || previous_control != scene->hover;
 }
@@ -517,7 +575,7 @@ u64 ui_video_scene_paint_revision(const UiVideoScene& scene) noexcept {
     hash = hash64_mix(hash, scene.keyboard_focus);
     hash = hash64_mix(hash, scene.preview_hovered);
     hash = hash64_mix(hash, scene.idle);
-    if (scene.hover == UiVideoControl::seek)
+    if (scene.hover_time_bytes)
         hash = hash64_bytes(hash, &scene.hover_x, sizeof(scene.hover_x));
     hash = hash64_bytes(hash, &scene.controls_transition.value, sizeof(scene.controls_transition.value));
     hash = hash64_mix(hash, scene.projection.playback.playing);
@@ -537,8 +595,26 @@ u64 ui_video_scene_paint_revision(const UiVideoScene& scene) noexcept {
     return hash;
 }
 u64 ui_video_scene_text_paint_revision(const UiVideoScene& scene) noexcept {
-    return hash64_bytes(scene.text_revision, &scene.controls_transition.value,
-                        sizeof(scene.controls_transition.value));
+    u64 hash = hash64_bytes(scene.text_revision, &scene.controls_transition.value,
+                            sizeof(scene.controls_transition.value));
+    if (scene.hover_time_bytes)
+        hash = hash64_bytes(hash64_counted_bytes(hash, scene.hover_time, scene.hover_time_bytes), &scene.hover_x,
+                            sizeof(scene.hover_x));
+    return hash;
+}
+float ui_video_scene_chrome_opacity(const UiVideoScene& scene) noexcept {
+    return scene.active && !scene.play_only && scene.preview_hovered ? scene.controls_transition.value : 1.0f;
+}
+UiRect ui_video_scene_hover_bubble(const UiVideoScene& scene) noexcept {
+    const auto* control = descriptor(scene, UiVideoControl::seek);
+    if (!scene.active || !scene.hover_time_bytes || !control)
+        return {};
+    constexpr float padding = 8, height = 20, gap = 4;
+    const float width = scene.hover_time_bytes * scene.text_advance + 2 * padding;
+    const UiRect bounds = ui_rect_overlap(scene.preview, scene.clip);
+    const float left = maximum(bounds.left, minimum(bounds.right - width, scene.hover_x - width * .5f));
+    const float bottom = scene.projection.bounds.top - gap;
+    return {left, bottom - height, left + width, bottom};
 }
 u64 ui_video_scene_next_wake(const UiVideoScene& scene, u64 now_ms, bool reduced_motion) noexcept {
     if (!scene.active)
@@ -608,7 +684,8 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
     // Media chrome sits on video pixels: a black scrim with light glyphs in
     // every appearance; only the accent follows the active theme.
     const Theme& ink = kDefaultTheme;
-    const Color surface = {0, 0, 0, scene.style.surface_opacity * opacity};
+    Color surface = theme.tokens.overlay.media;
+    surface.alpha = scene.style.surface_opacity * opacity;
     const auto bar = scene.projection.bounds;
     bool ok = true;
     if (!scene.play_only && opacity > 0) {
@@ -652,11 +729,30 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
             const float position = left + (right - left) * value;
             const float round = scene.style.track_height * .5f;
             if (control.id == UiVideoControl::volume) {
-                const float pill = minimum(ui_rect_height(control.bounds), scene.style.thumb_size + 10);
-                ok = quad(paint,
-                          {control.bounds.left, center_y - pill * .5f, control.bounds.right,
-                           center_y + pill * .5f},
-                          ui_theme_color_alpha(theme.tokens.overlay.dense, opacity), pill * .5f);
+                // The shared slider on a pill whose ends share the grabber's centres.
+                auto tokens = volume_tokens(scene.style);
+                tokens.color.brand = tokens.color.brand_hover = theme.tokens.emphasis.fill;
+                const auto slider = volume_slider(tokens, control.bounds, control.value);
+                const float inset = theme.scale.space_2;
+                const UiRect pill{control.bounds.left, slider.grabber.top - inset, control.bounds.right,
+                                  slider.grabber.bottom + inset};
+                // The resting slider: its pill already marks hover, and a grown
+                // grabber would leave the pill.
+                const u32 first = paint->count;
+                const float radius = ui_rect_height(pill) * .5f;
+                ok = quad(paint, pill, theme.tokens.overlay.dense, radius) &&
+                     ui_slider_paint(paint, tokens, slider, kVolumeSteps, kVolumeSteps, {control.enabled});
+                if (ok && scene.keyboard_focus && scene.focus == control.id) {
+                    const float gap = scene.style.focus_width;
+                    ok = paint_stream_push_rounded_border(paint, pill.left - gap, pill.top - gap, pill.right + gap,
+                                                          pill.bottom + gap, {}, theme.tokens.border.focus,
+                                                          radius + gap, scene.style.focus_width);
+                }
+                for (u32 i = first; i < paint->count; ++i) {
+                    paint->quads[i].fill.alpha *= opacity;
+                    paint->quads[i].border.alpha *= opacity;
+                }
+                continue;
             }
             Color track_color = ink.text_primary;
             track_color.alpha *= scene.style.track_opacity * opacity;
@@ -683,13 +779,16 @@ bool ui_video_scene_paint(const UiVideoScene& scene, const Theme& theme, PaintSt
                 ok = quad(paint, {left, track.top, position, track.bottom},
                           ui_theme_color_alpha(control.enabled ? theme.tokens.emphasis.fill : ink.text_secondary, opacity), round);
             }
-            if (ok && (engaged || control.id == UiVideoControl::volume ||
-                       (scene.keyboard_focus && scene.focus == control.id))) {
+            if (ok && (engaged || (scene.keyboard_focus && scene.focus == control.id))) {
                 ok = quad(paint,
                           {position - half_thumb, center_y - half_thumb, position + half_thumb,
                            center_y + half_thumb},
-                          ui_theme_color_alpha(control.id == UiVideoControl::seek ? theme.tokens.emphasis.outline : ink.text_primary, opacity),
-                          half_thumb);
+                          ui_theme_color_alpha(theme.tokens.emphasis.outline, opacity), half_thumb);
+            }
+            if (ok && control.id == UiVideoControl::seek && scene.hover_time_bytes) {
+                const auto bubble = ui_video_scene_hover_bubble(scene);
+                ok = quad(paint, bubble, ui_theme_color_alpha(theme.tokens.overlay.dense, opacity),
+                          theme.scale.radius_sm);
             }
         } else if (control.id == UiVideoControl::status && ui_video_scene_label(scene, control.id).bytes) {
             ok = quad(paint, control.bounds, surface, scene.style.radius);
@@ -723,6 +822,14 @@ bool ui_video_scene_text_output(const UiVideoScene& scene, const Theme& theme, U
                                 UiWidgetReference text_owner) noexcept {
     if (!scene.active)
         return true;
+    if (const auto bubble = ui_video_scene_hover_bubble(scene); ui_rect_has_area(bubble)) {
+        Color color = kDefaultTheme.text_primary;
+        color.alpha *= scene.controls_transition.value;
+        if (!ui_text_output_push(text, {{scene.hover_time, scene.hover_time_bytes}, text_owner, bubble, scene.clip,
+                                        color, text_style_subtext, UiTextAlignment::center, UiTextAlignment::center,
+                                        UiTextWrapping::no_wrap, UiTextOverflow::clip}))
+            return false;
+    }
     for (const auto& control : scene.projection.controls) {
         const auto label = ui_video_scene_label(scene, control.id);
         const auto clip = ui_rect_overlap(control.bounds, scene.clip);

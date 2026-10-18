@@ -459,6 +459,15 @@ bool application_video_viewer_pointer(UINT, UiPoint) noexcept { return false; }
 bool application_video_viewer_hidden_cursor() noexcept { return false; }
 void application_video_cancel_pointer() noexcept {}
 bool application_video_key(UINT, bool, bool) noexcept { return false; }
+float application_video_viewer_chrome() noexcept { return 1; }
+void application_video_viewer_activity() noexcept {}
+bool g_window_fullscreen;
+bool application_window_fullscreen() noexcept { return g_window_fullscreen; }
+bool application_window_set_fullscreen(bool on) noexcept {
+    if (on == g_window_fullscreen) return false;
+    g_window_fullscreen = on;
+    return true;
+}
 void application_composer_text_input_suspend() noexcept { ++image_viewer_runtime_test::suspends; }
 float client_dip_x(LPARAM value) noexcept { return static_cast<i16>(LOWORD(value)); }
 float client_dip_y(LPARAM value) noexcept { return static_cast<i16>(HIWORD(value)); }

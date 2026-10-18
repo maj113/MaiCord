@@ -29,6 +29,10 @@ bool application_video_expanded() noexcept;
 void application_video_viewer_detach() noexcept;
 bool application_video_viewer_pointer(UINT message, UiPoint) noexcept;
 bool application_video_viewer_hidden_cursor() noexcept;
+// Viewer toolbar opacity: it hides with the idle player's controls.
+float application_video_viewer_chrome() noexcept;
+// Viewer input restarts the idle countdown of the hosted player.
+void application_video_viewer_activity() noexcept;
 // Inline media under the pointer: selected players and unselected cards.
 bool application_video_cursor(UiPoint, UiCursor*) noexcept;
 // Expanded viewer controls (or the idle hidden pointer); false elsewhere.

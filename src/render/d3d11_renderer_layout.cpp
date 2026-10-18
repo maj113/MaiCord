@@ -2328,7 +2328,8 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             const auto r = viewer.display;
             if (allocation.ok() &&
                 !queue_media_quad(renderer, allocation, r.left, r.top, r.right, r.bottom,
-                                  viewer.reveal < 1 ? viewer.viewport : viewer.body, false, true, domain))
+                                  viewer.reveal < 1 ? viewer.viewport : viewer.body, false, true, domain,
+                                  ui_image_viewer_media_opacity(viewer)))
                 return layout_step_failed(__LINE__);
         }
 
@@ -2343,6 +2344,10 @@ bool build_layout(D3D11Renderer* renderer, const Theme& theme,
             return layout_step_failed(__LINE__);
         renderer->theme_editor_paint_end_batch = paint_stream_seal(&renderer->paint_stream);
         renderer->form_paint_first_batch = paint_stream_seal(&renderer->paint_stream);
+        // Toolbar tooltips: the form layer draws above the viewer chrome.
+        if (d3d11_renderer_tooltip_visible(*renderer) &&
+            !ui_tooltip_paint(*renderer->tooltip_scene, theme, &renderer->paint_stream))
+            return layout_step_failed(__LINE__);
         return queue_inline_flags(renderer);
 
     }

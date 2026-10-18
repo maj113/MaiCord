@@ -77,7 +77,9 @@ void test_embed_colors(void (*check)(bool, const char*) noexcept) noexcept {
             bool found = false;
             for (u32 q = 0; item && q < f.paint.count; ++q) {
                 const PaintQuad& quad = f.paint.quads[q];
-                if (quad.left == item->rectangle.left && quad.top == item->rectangle.top && quad.right - quad.left == 4.0f) {
+                // The accent stripe starts below the card's top corner.
+                if (quad.left == item->rectangle.left &&
+                    quad.top == item->rectangle.top + kDefaultTheme.scale.radius_sm && quad.right - quad.left == 4.0f) {
                     found = rgb(quad.fill) == expected && rgb(quad.border) == expected && quad.fill.alpha == 1.0f;
                 }
             }

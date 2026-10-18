@@ -1557,6 +1557,10 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_attachment(
     const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
         application.account.instance, &request, now_ms, now_seconds);
     log_message_media_failure("attachment_request_failed", requested, key);
+    if (application.image_viewer.scene.active &&
+        (requested.state == AccountMediaRequestState::unsupported ||
+         (requested.state == AccountMediaRequestState::failed && requested.error != AccountMediaError::target)))
+        application_image_viewer_request_failed(key);
     if (requested.state == AccountMediaRequestState::queued) {
         record_media_request_queued();
         // At most one speculative miss per pump; never fill every free lane
@@ -1730,6 +1734,10 @@ __declspec(noinline) bool ApplicationMediaPump::request_visible_embed_media(
     const AccountMediaRequestResult requested = application.account.api.media_attachment_request(
         application.account.instance, &request, now_ms, now_seconds);
     log_message_media_failure("embed_media_request_failed", requested, key);
+    if (application.image_viewer.scene.active &&
+        (requested.state == AccountMediaRequestState::unsupported ||
+         (requested.state == AccountMediaRequestState::failed && requested.error != AccountMediaError::target)))
+        application_image_viewer_request_failed(key);
     if (requested.state == AccountMediaRequestState::queued) {
         record_media_request_queued();
         if (prefetch_only)

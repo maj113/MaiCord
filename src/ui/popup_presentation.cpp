@@ -142,6 +142,8 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
         ui_surface_paint_plate(paint, panel->rectangle, theme, UiElevation::popover, panel_radius) &&
         paint_stream_record_content(paint, UiWidgetReference{&scene.widgets, scene.panel}, panel->rectangle,
                                     UiLayoutContentKind::control, ui_layout_content_bounds_allow_overlap);
+    // Rows sit the panel padding inside its corners, so their fills share its corner centres.
+    const float row_radius = ui_inner_radius(panel_radius, popup_metrics(scene).menu_padding);
     for (u32 index = 0; success && index < scene.item_count; ++index) {
         const PopupItem& item = scene.items[index];
         const PopupRowWidget& row = scene.rows[index];
@@ -177,8 +179,7 @@ bool popup_presentation_build(const PopupScene& scene, const Theme& theme, Paint
             (item.flags & popup_item_enabled) != 0 &&
             !paint_stream_push_rounded_border(paint, layout->rectangle.left, layout->rectangle.top,
                                               layout->rectangle.right, layout->rectangle.bottom, highlight,
-                                              highlight, popup_paint_metrics(scene, theme).compact_radius,
-                                              0.0f)) {
+                                              highlight, row_radius, 0.0f)) {
             success = false;
             break;
         }

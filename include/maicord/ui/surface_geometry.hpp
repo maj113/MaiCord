@@ -5,6 +5,11 @@ namespace maicord {
 // Nested rounded rectangles share a corner center when the outer radius is
 // the inner radius plus their edge inset. Keep paint, layout and media masks
 // on the same DIP dimensions; the renderer handles pixel scaling.
+// Radius of a shape `inset` inside one of radius `outer`, never negative; a
+// negative inset gives the radius of a ring or plate outside the shape.
+constexpr float ui_inner_radius(float outer, float inset) noexcept {
+    return outer > inset ? outer - inset : 0.0f;
+}
 inline constexpr float kUiCompactCornerRadius = 4.0f;
 inline constexpr float kUiControlCornerRadius = 6.0f;
 inline constexpr float kUiEditCornerRadius = 8.0f;

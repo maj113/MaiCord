@@ -112,4 +112,44 @@ bool application_create_main_window(WNDPROC window_proc) noexcept {
     return true;
 }
 
+namespace {
+struct WindowFullscreen {
+    WINDOWPLACEMENT placement;
+    LONG_PTR style;
+    bool on;
+} g_fullscreen{};
+} // namespace
+
+bool application_window_fullscreen() noexcept {
+    return g_fullscreen.on;
+}
+
+bool application_window_set_fullscreen(bool on) noexcept {
+    const HWND window = g_app.window;
+    if (!window || on == g_fullscreen.on)
+        return false;
+    if (on) {
+        g_fullscreen.placement = {};
+        g_fullscreen.placement.length = sizeof(g_fullscreen.placement);
+        MONITORINFO monitor{};
+        monitor.cbSize = sizeof(monitor);
+        if (!GetWindowPlacement(window, &g_fullscreen.placement) ||
+            !GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
+            return false;
+        g_fullscreen.style = GetWindowLongPtrW(window, GWL_STYLE);
+        SetWindowLongPtrW(window, GWL_STYLE,
+                          g_fullscreen.style & ~static_cast<LONG_PTR>(WS_CAPTION | WS_THICKFRAME));
+        const auto& r = monitor.rcMonitor;
+        SetWindowPos(window, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    } else {
+        SetWindowLongPtrW(window, GWL_STYLE, g_fullscreen.style);
+        SetWindowPlacement(window, &g_fullscreen.placement);
+        SetWindowPos(window, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    }
+    g_fullscreen.on = on;
+    return true;
+}
+
 } // namespace maicord::app_detail

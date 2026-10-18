@@ -255,7 +255,6 @@ inline bool d3d11_renderer_tooltip_visible(const D3D11Renderer& renderer) noexce
            !d3d11_renderer_message_modal_active(renderer) && !(renderer_settings_page_visible(renderer)) &&
            !(renderer.friends_requests_scene && renderer.friends_requests_scene->active) &&
            !(renderer.profile_scene && renderer.profile_scene->active) &&
-           !(renderer.image_viewer && renderer.image_viewer->active) &&
            !(renderer.popup_scene && renderer.popup_scene->active) &&
            !(renderer.reaction_viewer && renderer.reaction_viewer->active) &&
            !d3d11_renderer_form_active(renderer) &&

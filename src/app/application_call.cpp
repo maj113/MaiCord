@@ -14,6 +14,7 @@
 #include "application_stream.hpp"
 #include "application_thread_browser.hpp"
 #include "application_voice.hpp"
+#include "application_window.hpp"
 #include "maicord/app/call_video_presenter.hpp"
 #include "maicord/app/call_view_lifecycle.hpp"
 #include "maicord/app/gateway_stream_session.hpp"
@@ -37,8 +38,6 @@ struct CallView {
     char title[kUiCallTitleBytes];
     u64 channel_id, focus_user, opened_ms, next_poll_ms, video_generation, pressed_user;
     u32 intent_revision, title_bytes;
-    WINDOWPLACEMENT placement;
-    LONG_PTR style;
     UiCallControl pressed;
     bool open, fullscreen, window_fullscreen, snapshot_valid, captured;
     // Navigation in the handler that opened the view (accepting a DM call
@@ -78,30 +77,8 @@ bool scene_visible() noexcept {
            !application_settings_active();
 }
 void set_window_fullscreen(bool on) noexcept {
-    const HWND window = g_app.window;
-    if (!window || on == view.window_fullscreen)
-        return;
-    if (on) {
-        view.placement = {};
-        view.placement.length = sizeof(view.placement);
-        MONITORINFO monitor{};
-        monitor.cbSize = sizeof(monitor);
-        if (!GetWindowPlacement(window, &view.placement) ||
-            !GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
-            return;
-        view.style = GetWindowLongPtrW(window, GWL_STYLE);
-        // Borderless: no caption or sizing frame, covering the whole monitor.
-        SetWindowLongPtrW(window, GWL_STYLE, view.style & ~static_cast<LONG_PTR>(WS_CAPTION | WS_THICKFRAME));
-        const auto& r = monitor.rcMonitor;
-        SetWindowPos(window, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top,
-                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-    } else {
-        SetWindowLongPtrW(window, GWL_STYLE, view.style);
-        SetWindowPlacement(window, &view.placement);
-        SetWindowPos(window, nullptr, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-    }
-    view.window_fullscreen = on;
+    if (on != view.window_fullscreen && application_window_set_fullscreen(on))
+        view.window_fullscreen = on;
 }
 void set_fullscreen(bool on) noexcept {
     if (view.fullscreen == on)

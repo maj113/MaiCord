@@ -2094,7 +2094,7 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
             const float x = r.left + 28, y = r.top + 28;
             rows_ok = rows_ok &&
                       paint_stream_push_rounded(out, x - 16, y - 16, x + 16, y + 16,
-                                                theme.avatar_placeholder, 16) &&
+                                                theme.avatar_placeholder, theme.scale.radius_full) &&
                       paint_stream_push_rounded(out, x - 5, y - 9, x + 5, y + 1, theme.text_secondary, 5) &&
                       paint_stream_push_rounded(out, x - 9, y + 3, x + 9, y + 11, theme.text_secondary, 7);
         }
@@ -2205,7 +2205,7 @@ bool ui_search_scene_paint(const UiSearchScene& s, const Theme& theme, PaintStre
         if (sort) {
             const float x = r.right - 16, y = (r.top + r.bottom) * .5f;
             if (!paint_stream_push_rounded_border(out, x - 8, y - 8, x + 8, y + 8, {}, theme.text_secondary,
-                                                  8, 1) ||
+                                                  theme.scale.radius_full, 1) ||
                 (selected &&
                  !paint_stream_push_rounded(out, x - 4, y - 4, x + 4, y + 4, theme.tokens.emphasis.fill, theme.scale.radius_sm)))
                 return false;

@@ -525,7 +525,8 @@ UiVideoPlaybackState project_video_playback(const ApplicationVideo& video) noexc
     out.can_seek = out.can_play && out.duration_ms != 0;
     out.has_audio = playback.has_audio;
     out.can_volume = out.can_play && playback.has_audio;
-    out.can_expand = !video.source.audio && !video.presentation_failed;
+    // In the viewer the toolbar's full screen button replaces expand.
+    out.can_expand = !video.source.audio && !video.presentation_failed && !video.expanded;
     out.expanded = video.expanded;
     const auto& buffered = video.status.buffered;
     out.buffered_count = minimum<u8>(buffered.count, 4);
@@ -1668,6 +1669,16 @@ bool application_video_viewer_hidden_cursor() noexcept {
     const auto* video = g_app.video;
     return video && video->expanded && !video->source.audio && video->ui.video.active &&
            video->ui.video.idle && video->ui.video.preview_hovered;
+}
+float application_video_viewer_chrome() noexcept {
+    const auto* video = g_app.video;
+    return video && video->expanded && !video->source.audio ? ui_video_scene_chrome_opacity(video->ui.video) : 1.0f;
+}
+void application_video_viewer_activity() noexcept {
+    auto* video = g_app.video;
+    if (video && video->expanded && !video->source.audio && video->ui.video.active &&
+        ui_video_scene_activity(&video->ui.video, clock_monotonic_milliseconds()))
+        application_request_frame();
 }
 bool application_video_key(UINT key, bool shift, bool repeat) noexcept {
     if (content_surface_covers_video())

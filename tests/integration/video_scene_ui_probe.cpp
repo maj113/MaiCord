@@ -243,14 +243,16 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
         const auto* original_video = renderer.video_scene;
         playback.buffering = false;
         playback.playing = true;
-        playback.can_expand = true;
+        // In the viewer full screen belongs to its toolbar, not the bar.
+        playback.can_expand = false;
         playback.expanded = true;
         playback.elapsed_ms = 7000;
         UiVideoSceneStyle expanded{};
         expanded.preview_radius = 0;
         expanded.idle_ms = kUiVideoControlsExpandedIdleMs;
         expanded.scrim_lead = 40;
-        valid = require(ui_image_viewer_open(&viewer, window, {256, 170}) &&
+        valid = require(ui_image_viewer_set_dpi(&viewer, renderer.dpi) &&
+                            ui_image_viewer_open(&viewer, window, {256, 170}) &&
                             ui_image_viewer_set_item(&viewer, {256, 170}, 1, 3, true) &&
                             ui_image_viewer_set_actions(&viewer, ui_image_viewer_action_open) &&
                             ui_image_viewer_set_save_available(&viewer, true) &&
@@ -285,10 +287,30 @@ bool capture_native_video_preview(D3D11Renderer& renderer, UiVideoScene& scene,
         ui_image_viewer_set_actions(&viewer, ui_image_viewer_action_open | ui_image_viewer_action_copy);
         valid = valid && require(ui_image_viewer_set_item(&viewer, {256, 170}, 0, 3, false), 23);
         renderer.retained_presentation.valid = false;
-        valid = valid && require(renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
+        valid = valid && require(ui_image_viewer_set_caption(&viewer, utf8_literal("A synthetic gallery caption")) &&
+                                     renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
                                      probe_present(&renderer, kDefaultTheme) &&
                                      capture(L"media-viewer-gallery-image.bmp"),
                                  24);
+        // A double click zooms in, then the loading and failed states without a resident image.
+        ui_image_viewer_toggle_zoom(&viewer, {(window.left + window.right) * .5f, (window.top + window.bottom) * .5f});
+        valid = valid && require(renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
+                                     probe_present(&renderer, kDefaultTheme) &&
+                                     capture(L"media-viewer-double-click-zoom.bmp"),
+                                 25);
+        ui_image_viewer_apply(&viewer, UiImageViewerCommand::fit);
+        renderer.image_viewer_key = renderer.image_viewer_fallback = {};
+        valid = valid && require(ui_image_viewer_set_media(&viewer, UiImageViewerMedia::loading) &&
+                                     renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
+                                     probe_present(&renderer, kDefaultTheme) &&
+                                     capture(L"media-viewer-loading.bmp"),
+                                 26);
+        valid = valid && require(ui_image_viewer_set_media(&viewer, UiImageViewerMedia::failed) &&
+                                     ui_image_viewer_set_fullscreen(&viewer, true) &&
+                                     renderer_rebuild_content_text(&renderer, kDefaultTheme) &&
+                                     probe_present(&renderer, kDefaultTheme) &&
+                                     capture(L"media-viewer-failed.bmp"),
+                                 27);
         renderer.image_viewer = original_viewer;
         renderer.video_scene_viewer = false;
         viewer.active = false;

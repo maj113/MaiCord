@@ -442,8 +442,10 @@ RendererPresentationStamp renderer_capture_presentation_stamp(const D3D11Rendere
     if (!presentation_stamp_bytes(&stamp, &renderer.scrollbar_viewport,
                                   sizeof(renderer.scrollbar_viewport)))
         return stamp;
+    // The loading spinner's phase repaints without rebuilding the viewer's text.
     if (!presentation_stamp_pointer(&stamp, renderer.image_viewer) ||
-        (renderer.image_viewer && !presentation_stamp_push(&stamp, renderer.image_viewer->revision)))
+        (renderer.image_viewer && (!presentation_stamp_push(&stamp, renderer.image_viewer->revision) ||
+                                   !presentation_stamp_push(&stamp, renderer.image_viewer->spinner_phase))))
         return stamp;
     if (!presentation_stamp_push(&stamp, renderer.gif_favorite_owner.slot) ||
         !presentation_stamp_push(&stamp, renderer.gif_favorite_owner.generation) ||

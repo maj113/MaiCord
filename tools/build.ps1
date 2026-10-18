@@ -9,6 +9,8 @@ param(
     # client-driven tests use the MaiCord.exe/MaiCordAccount.dll already present.
     [switch]$SkipClient,
     [string[]]$TestNames = @(),
+    # UI probes write their BMP frames here; by default captures stay off.
+    [string]$ProbeCaptureDirectory = '',
     # Ninja's own default (logical processors + 2), still capped by available commit below.
     [ValidateRange(1, 32)][int]$Jobs = [Math]::Min(32, [Environment]::ProcessorCount + 2),
     [ValidateRange(1, 64)][int]$TestJobs = [Math]::Max(1, [Math]::Min(16, [Environment]::ProcessorCount)),
@@ -45,6 +47,8 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($AudioPlaybackProbe -and !$Test) { throw '-AudioPlaybackProbe requires -Test so its temporary output is removed.' }
 if ($TestNames.Count -and !$Test) { throw '-TestNames requires -Test.' }
+if ($ProbeCaptureDirectory -and !$Test) { throw '-ProbeCaptureDirectory requires -Test.' }
+if ($ProbeCaptureDirectory) { $ProbeCaptureDirectory = [IO.Path]::GetFullPath($ProbeCaptureDirectory); [void](New-Item -ItemType Directory -Force -Path $ProbeCaptureDirectory) }
 if ($SkipClient -and !$Test -and !$PerfProbe) { throw '-SkipClient requires -Test or -PerfProbe.' }
 if ($Test -and $PerfProbe) { throw '-PerfProbe is a separate temporary configuration; run it without -Test.' }
 if ($StartupProbe -and ($Test -or $PerfProbe -or $SkipClient)) { throw '-StartupProbe requires its own client build.' }
@@ -324,7 +328,7 @@ try {
             $env:LOCALAPPDATA = $profile
             $env:TEMP = $temporary
             $env:TMP = $temporary
-            [Environment]::SetEnvironmentVariable('MAICORD_UI_PROBE_CAPTURE_DIR', $null, 'Process')
+            [Environment]::SetEnvironmentVariable('MAICORD_UI_PROBE_CAPTURE_DIR', $(if ($ProbeCaptureDirectory) { $ProbeCaptureDirectory } else { $null }), 'Process')
             $audioOption = if ($AudioPlaybackProbe) { 'ON' } else { 'OFF' }
             $profileNames = $selectedTestNames -join ';'
             # Without this, test targets that drive the client would relink it.

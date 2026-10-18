@@ -8,7 +8,9 @@
 #include "application_media_policy.hpp"
 #include "application_shell_input.hpp"
 #include "application_video.hpp"
+#include "application_window.hpp"
 #include "maicord/core/time.hpp"
+#include "maicord/render/media_atlas.hpp"
 #include "maicord/media/presentation_policy.hpp"
 #include "maicord/ui/clipboard.hpp"
 namespace maicord::app_detail {
@@ -18,10 +20,6 @@ constexpr UiMotionStyle kRevealOpen{360, UiMotionCurve::spring}, kRevealClose{18
 UiRect viewport() noexcept {
     const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
     return {0, 0, g_app.renderer.width * scale, g_app.renderer.height * scale};
-}
-UiPoint center() noexcept {
-    const auto r = g_app.image_viewer.scene.body;
-    return {(r.left + r.right) * .5f, (r.top + r.bottom) * .5f};
 }
 UiMotionScope reveal_scope() noexcept {
     return {0x4d45444941564945ull, g_app.image_viewer.reveal_generation};
@@ -167,6 +165,20 @@ u32 collect_items(const MessageRichStore& store, const MessageRichRecord& rich, 
     }
     return count;
 }
+// Alt text when the author wrote one, otherwise the file name.
+Utf8View item_caption(const ApplicationSearchSourceView& source, const ApplicationMediaViewerItem& item) noexcept {
+    const auto& store = *source.rich_store;
+    if (item.kind == MessageSceneRichItemKind::attachment && item.index < source.rich->attachment_count) {
+        const auto& attachment = source.rich->attachments[item.index];
+        const Utf8View description = message_rich_store_string(store, attachment.description);
+        return description.bytes ? description : message_rich_store_string(store, attachment.filename);
+    }
+    MessageRichEmbedMediaSelection selected{};
+    if (item.kind == MessageSceneRichItemKind::embed && item.index < source.rich->embed_count &&
+        message_rich_embed_resource_select(store, source.rich->embeds[item.index], item.resource, &selected))
+        return message_rich_store_string(store, selected.media->description);
+    return {};
+}
 void select_item(u32 index) noexcept {
     auto& viewer = g_app.image_viewer;
     if (index >= viewer.item_count)
@@ -178,8 +190,10 @@ void select_item(u32 index) noexcept {
     viewer.item_index = static_cast<u8>(index);
     auto& item = viewer.items[index];
     viewer.attachment_id = item.attachment_id;
+    viewer.failed_key = {};
     if (!ui_image_viewer_set_item(&viewer.scene, item.pixels, index, viewer.item_count, item.video))
         return;
+    ui_image_viewer_set_caption(&viewer.scene, item_caption(source, item));
     if (item.video) {
         MediaAssetKey key{};
         if (application_video_open_viewer_item(viewer.message_id, viewer.message_revision,
@@ -199,7 +213,7 @@ void navigate(i32 direction) noexcept {
     const auto& viewer = g_app.image_viewer;
     if (viewer.item_count < 2 || viewer.closing)
         return;
-    select_item(static_cast<u32>((viewer.item_index + viewer.item_count + direction) % viewer.item_count));
+    select_item(ui_image_viewer_step(viewer.item_index, viewer.item_count, direction));
 }
 // The current item's original CDN URL, borrowed from the rich store.
 Utf8View current_url() noexcept {
@@ -248,6 +262,18 @@ bool copy_image() noexcept {
     }
     return copied;
 }
+// Full screen the viewer turned on; it never takes over the call view's.
+void set_fullscreen(bool on) noexcept {
+    auto& viewer = g_app.image_viewer;
+    if (on && !viewer.fullscreen && !application_window_fullscreen())
+        viewer.fullscreen = application_window_set_fullscreen(true);
+    else if (!on && viewer.fullscreen) {
+        application_window_set_fullscreen(false);
+        viewer.fullscreen = false;
+    }
+    ui_image_viewer_set_fullscreen(&viewer.scene, viewer.fullscreen);
+    application_request_frame();
+}
 void activate(u32 index) noexcept {
     ApplicationSearchSourceView guarded_source{};
     const auto* guarded_item = current_item();
@@ -291,15 +317,17 @@ void activate(u32 index) noexcept {
     case ui_image_viewer_copy:
         copy_image();
         return;
+    case ui_image_viewer_fullscreen:
+        set_fullscreen(!g_app.image_viewer.fullscreen);
+        return;
     case ui_image_viewer_previous:
     case ui_image_viewer_next:
         navigate(index == ui_image_viewer_next ? 1 : -1);
         return;
     default:
-        ui_image_viewer_zoom(&scene, index == ui_image_viewer_zoom_out ? .8f
-                                     : index == ui_image_viewer_zoom_in ? 1.25f
-                                                                        : 1.0f / scene.zoom,
-                             center());
+        ui_image_viewer_apply(&scene, index == ui_image_viewer_zoom_out  ? UiImageViewerCommand::zoom_out
+                                      : index == ui_image_viewer_zoom_in ? UiImageViewerCommand::zoom_in
+                                                                         : UiImageViewerCommand::fit);
     }
 }
 u32 find_item(MessageSceneRichItemKind kind, u32 index, MediaEmbedResource resource) noexcept {
@@ -411,6 +439,10 @@ void application_image_viewer_close() noexcept {
     ++scene.revision;
     g_app.image_viewer.closing = false;
     g_app.image_viewer.item_count = 0;
+    if (g_app.image_viewer.fullscreen) {
+        application_window_set_fullscreen(false);
+        g_app.image_viewer.fullscreen = false;
+    }
     const bool capture = scene.dragging || scene.widgets.captured.generation;
     g_app.image_viewer.pointer_tail = g_app.image_viewer.pointer_tail || capture;
     if (scene.keyboard.pressed.manager && !g_app.image_viewer.held_key) g_app.image_viewer.held_key = VK_SPACE;
@@ -433,6 +465,8 @@ void application_image_viewer_dismiss() noexcept {
         application_image_viewer_close();
         return;
     }
+    // Restore the window first so the exit motion lands on the inline preview.
+    set_fullscreen(false);
     viewer.closing = true;
     // Only the item that opened from a preview can travel back into it.
     if (viewer.item_index != viewer.origin_item)
@@ -449,6 +483,14 @@ bool application_image_viewer_video_geometry(MediaAssetKey key, UiRect* preview,
     *preview = viewer.scene.display;
     *clip = viewer.scene.viewport;
     return true;
+}
+void application_image_viewer_request_failed(MediaAssetKey key) noexcept {
+    auto& viewer = g_app.image_viewer;
+    if (!viewer.scene.active || !media_asset_key_valid(key) || !media_asset_key_equal(key, viewer.key) ||
+        media_asset_key_equal(key, viewer.failed_key))
+        return;
+    viewer.failed_key = key;
+    application_request_frame();
 }
 u32 application_image_viewer_request_keys(MediaAssetKey* keys, u32 capacity) noexcept {
     const auto& viewer = g_app.image_viewer;
@@ -467,7 +509,7 @@ u32 application_image_viewer_request_keys(MediaAssetKey* keys, u32 capacity) noe
     for (const i32 step : steps) {
         if (viewer.item_count < 2 || count >= capacity)
             break;
-        const u32 index = static_cast<u32>((viewer.item_index + viewer.item_count + step) % viewer.item_count);
+        const u32 index = ui_image_viewer_step(viewer.item_index, viewer.item_count, step);
         const auto& item = viewer.items[index];
         if (index == viewer.item_index || item.video || !viewer_item_visible(source, item) ||
             !media_asset_key_valid(item.key) || (count && media_asset_key_equal(keys[count - 1], item.key)))
@@ -517,6 +559,7 @@ bool application_image_viewer_synchronize() noexcept {
         scene.pixels = pixels; scene.viewport = {};
         if (item) item->pixels = pixels;
     }
+    ui_image_viewer_set_dpi(&scene, g_app.renderer.dpi);
     if (!ui_image_viewer_layout(&scene, viewport())) {
         application_image_viewer_close();
         return renderer_rebuild_content_text(&g_app.renderer, application_theme());
@@ -550,6 +593,22 @@ bool application_image_viewer_synchronize() noexcept {
                                                            viewer.attachment_snapshot));
     ui_image_viewer_set_save_available(&scene, save);
     ui_image_viewer_set_actions(&scene, ui_image_viewer_action_open | ui_image_viewer_action_copy);
+    ui_image_viewer_set_fullscreen(&scene, viewer.fullscreen);
+    ui_image_viewer_set_chrome(&scene, current_video() ? application_video_viewer_chrome() : 1.0f);
+    if (!current_video()) {
+        // What the renderer draws: the large tier, the inline tier it opened
+        // from, or presented animation frames in the primary atlas.
+        auto* preview = g_app.renderer.preview_media_atlas;
+        auto* primary = g_app.renderer.media_atlas;
+        const bool resident = (preview && (media_atlas_peek(preview, viewer.key).ok() ||
+                                           media_atlas_peek(preview, viewer.fallback).ok())) ||
+                              (primary && media_atlas_peek(primary, viewer.key).ok());
+        const bool failed =
+            media_asset_key_valid(viewer.failed_key) && media_asset_key_equal(viewer.failed_key, viewer.key);
+        ui_image_viewer_set_media(&scene, resident ? UiImageViewerMedia::ready
+                                          : failed ? UiImageViewerMedia::failed
+                                                   : UiImageViewerMedia::loading);
+    }
     g_app.renderer.image_viewer = &scene;
     g_app.renderer.image_viewer_key = viewer.key;
     g_app.renderer.image_viewer_fallback = viewer.fallback;
@@ -845,6 +904,23 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
                message == WM_KEYUP || message == WM_CHAR;
 
     const UiPoint point{client_dip_x(lparam), client_dip_y(lparam)};
+    if ((message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) || message == WM_KEYDOWN)
+        application_video_viewer_activity();
+    // A double click on an image toggles fit and actual size; elsewhere it is
+    // another press.
+    if (message == WM_LBUTTONDBLCLK) {
+        const auto hit = ui_widget_manager_hit_test(scene.widgets, point.x, point.y);
+        if (!hit.generation && !video && ui_rect_contains(scene.image, point.x, point.y) &&
+            ui_rect_contains(scene.body, point.x, point.y)) {
+            ui_image_viewer_toggle_zoom(&scene, point);
+            scene.dragging = true;
+            scene.pointer = point;
+            SetCapture(g_app.window);
+            application_request_frame();
+            return true;
+        }
+        message = WM_LBUTTONDOWN;
+    }
     switch (message) {
     case WM_LBUTTONDOWN:
         pointer_tail = false;
@@ -904,65 +980,101 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
             ++scene.revision;
         return false;
     case WM_MOUSEWHEEL: {
+        // Plain and Ctrl+wheel both zoom about the pointer.
         if (video)
             return true;
         POINT cursor{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
         ScreenToClient(g_app.window, &cursor);
         const float scale = 96.0f / static_cast<float>(g_app.renderer.dpi);
-        ui_image_viewer_zoom(&scene, static_cast<short>(HIWORD(wparam)) > 0 ? 1.25f : .8f,
-                             {cursor.x * scale, cursor.y * scale});
+        ui_image_viewer_wheel(&scene, static_cast<short>(HIWORD(wparam)), {cursor.x * scale, cursor.y * scale});
         application_request_frame();
         return true;
     }
     case WM_KEYDOWN: {
         const bool repeat = (lparam & (1ll << 30)) != 0;
-        const bool control = (GetKeyState(VK_CONTROL) & 0x8000) && !(GetKeyState(VK_MENU) & 0x8000);
-        if (wparam == 'S' && control) {
-            held = static_cast<u32>(wparam); if (!repeat) activate(ui_image_viewer_save); return true;
+        const UiImageViewerKeyModifiers modifiers{(GetKeyState(VK_CONTROL) & 0x8000) != 0,
+                                                  (GetKeyState(VK_SHIFT) & 0x8000) != 0,
+                                                  (GetKeyState(VK_MENU) & 0x8000) != 0};
+        UiImageViewerKey key = UiImageViewerKey::other;
+        switch (wparam) {
+        case VK_ESCAPE: key = UiImageViewerKey::escape; break;
+        case VK_TAB: key = UiImageViewerKey::tab; break;
+        case VK_RETURN: key = UiImageViewerKey::enter; break;
+        case VK_SPACE: key = UiImageViewerKey::space; break;
+        case VK_LEFT: key = UiImageViewerKey::left; break;
+        case VK_RIGHT: key = UiImageViewerKey::right; break;
+        case VK_UP: key = UiImageViewerKey::up; break;
+        case VK_DOWN: key = UiImageViewerKey::down; break;
+        case VK_HOME: key = UiImageViewerKey::home; break;
+        case VK_ADD: case VK_OEM_PLUS: key = UiImageViewerKey::plus; break;
+        case VK_SUBTRACT: case VK_OEM_MINUS: key = UiImageViewerKey::minus; break;
+        case '0': case VK_NUMPAD0: key = UiImageViewerKey::zero; break;
+        case '1': case VK_NUMPAD1: key = UiImageViewerKey::one; break;
+        case 'F': key = UiImageViewerKey::f; break;
+        case 'S': key = UiImageViewerKey::s; break;
+        case 'C': key = UiImageViewerKey::c; break;
+        default: break;
         }
-        if (wparam == 'C' && control && !video) {
-            held = static_cast<u32>(wparam); if (!repeat) activate(ui_image_viewer_copy); return true;
-        }
-        if (wparam == VK_ESCAPE || wparam == VK_RETURN)
+        const auto command = ui_image_viewer_key_command(scene, key, modifiers);
+        // Keys that close or act stay swallowed until released, so their
+        // key-up and character never reach the surface underneath.
+        if (command == UiImageViewerCommand::dismiss || command == UiImageViewerCommand::save ||
+            command == UiImageViewerCommand::copy || wparam == VK_RETURN)
             held = static_cast<u32>(wparam);
-        // Arrows browse the gallery unless a zoomed image needs them to pan.
-        const bool browse = viewer.item_count > 1 && (video || scene.zoom <= 1);
-        if (wparam == VK_ESCAPE)
+        switch (command) {
+        case UiImageViewerCommand::dismiss:
             application_image_viewer_dismiss();
-        else if (wparam == VK_TAB) {
+            break;
+        case UiImageViewerCommand::exit_fullscreen:
+            set_fullscreen(false);
+            break;
+        case UiImageViewerCommand::toggle_fullscreen:
+            if (!repeat)
+                set_fullscreen(!viewer.fullscreen);
+            break;
+        case UiImageViewerCommand::save:
+            if (!repeat)
+                activate(ui_image_viewer_save);
+            break;
+        case UiImageViewerCommand::copy:
+            if (!repeat)
+                activate(ui_image_viewer_copy);
+            break;
+        case UiImageViewerCommand::previous:
+        case UiImageViewerCommand::next:
+            if (!repeat || !video)
+                navigate(command == UiImageViewerCommand::next ? 1 : -1);
+            break;
+        case UiImageViewerCommand::focus_next:
+        case UiImageViewerCommand::focus_previous: {
             const auto target = ui_widget_manager_next_focus(scene.widgets, scene.widgets.focused,
-                                                             (GetKeyState(VK_SHIFT) & 0x8000) != 0, true);
+                                                             command == UiImageViewerCommand::focus_previous, true);
             ui_widget_manager_focus(&scene.widgets, target);
             scene.focus = static_cast<u8>(scene.widgets.storage[target.slot].id - 10);
             scene.keyboard_focus = true;
             ++scene.revision;
-        } else if ((wparam == VK_LEFT || wparam == VK_RIGHT) && browse) {
-            if (!repeat || !video)
-                navigate(wparam == VK_RIGHT ? 1 : -1);
-        } else if (video && wparam != VK_RETURN &&
-                   application_video_key(static_cast<UINT>(wparam), (GetKeyState(VK_SHIFT) & 0x8000) != 0, repeat)) {
-        } else if (wparam == VK_RETURN || wparam == VK_SPACE) {
+            break;
+        }
+        case UiImageViewerCommand::activate: {
             const auto button =
                 ui_button_keyboard_key(&scene.keyboard, &scene.widgets,
-                                       wparam == VK_RETURN ? UiButtonKey::enter : UiButtonKey::space, true,
-                                       repeat);
+                                       wparam == VK_RETURN ? UiButtonKey::enter : UiButtonKey::space, true, repeat);
             if (button.activate)
                 activate(scene.widgets.storage[button.target.slot].id - 10);
-        } else if (wparam == VK_ADD || wparam == VK_OEM_PLUS)
-            activate(ui_image_viewer_zoom_in);
-        else if (wparam == VK_SUBTRACT || wparam == VK_OEM_MINUS)
-            activate(ui_image_viewer_zoom_out);
-        else if (wparam == '0' || wparam == VK_HOME)
-            activate(ui_image_viewer_fit);
-        else if (wparam == VK_LEFT || wparam == VK_RIGHT)
-            ui_image_viewer_pan(&scene, {wparam == VK_LEFT ? 40.0f : -40.0f, 0});
-        else if (wparam == VK_UP || wparam == VK_DOWN)
-            ui_image_viewer_pan(&scene, {0, wparam == VK_UP ? 40.0f : -40.0f});
+            break;
+        }
+        case UiImageViewerCommand::video:
+            application_video_key(static_cast<UINT>(wparam), modifiers.shift, repeat);
+            break;
+        default:
+            ui_image_viewer_apply(&scene, command);
+            break;
+        }
         application_request_frame();
         return true;
     }
     case WM_KEYUP:
-        if (wparam == VK_SPACE) {
+        if (wparam == VK_SPACE && !video) {
             const auto button =
                 ui_button_keyboard_key(&scene.keyboard, &scene.widgets, UiButtonKey::space, false);
             if (button.activate)
@@ -971,7 +1083,6 @@ bool application_image_viewer_message(UINT message, WPARAM wparam, LPARAM lparam
         }
         return true;
     case WM_CHAR:
-    case WM_LBUTTONDBLCLK:
     case WM_RBUTTONDOWN:
     case WM_RBUTTONUP:
     case WM_MBUTTONDOWN:

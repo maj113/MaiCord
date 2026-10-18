@@ -71,6 +71,12 @@ bool push_owned(PaintStream* stream, UiWidgetReference owner, UiRect rectangle, 
                                             rectangle.bottom, fill, border, radius, border_width) &&
            paint_stream_record_content(stream, owner, rectangle, kind, flags);
 }
+// A card's accent stripe: a pill along its left edge that starts below the
+// top corner and ends above the bottom one, so it never crosses the curve.
+UiRect accent_stripe(UiRect card, float width, float card_radius) noexcept {
+    const float inset = minimum(card_radius, ui_rect_height(card) * .5f);
+    return {card.left, card.top + inset, minimum(card.left + width, card.right), card.bottom - inset};
+}
 bool push_material(PaintStream* stream, UiWidgetReference owner, UiRect rectangle, const Theme& theme,
                    Color fill, Color border, float radius, float border_width, UiLayoutContentKind kind,
                    UiBackgroundTier tier,
@@ -438,8 +444,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
         } else {
             const UiRect card{left, top, minimum(item_layout->rectangle.right, left + 420.0f), top + 36.0f};
             const UiRect icon{left + 8.0f, top + 8.0f, left + 28.0f, top + 28.0f};
-            if (!push_material(paint, owner, card, theme, theme.surface, theme.interactive, 6.0f, 1.0f,
-                               UiLayoutContentKind::control, UiBackgroundTier::high) ||
+            if (!push_material(paint, owner, card, theme, theme.surface, theme.interactive,
+                               kUiAttachmentFileCardRadius, 1.0f, UiLayoutContentKind::control,
+                               UiBackgroundTier::high) ||
                 !push_owned(paint, owner, icon, theme.tokens.emphasis.fill, theme.tokens.emphasis.fill, 4.0f, 0.0f,
                             UiLayoutContentKind::icon) ||
                 (!scene.result_cards &&
@@ -470,7 +477,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                           minimum(item_layout->rectangle.right,
                                   left + (measured_width > 0 ? measured_width : kMessageEmbedMaximumWidth)),
                           bottom};
-        const UiRect accent{left, top, left + kMessageEmbedAccentWidth, bottom};
+        const float card_radius = theme.scale.radius_sm;
+        const UiRect accent = accent_stripe(card, kMessageEmbedAccentWidth, card_radius);
         const MessageRichEmbed& embed = rich->embeds[index];
         constexpr float rgb_scale = 1.0f / 255.0f;
         // Embed colors are RGB payload data, not a request for the theme accent.
@@ -482,9 +490,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                                        : theme.interactive;
         const bool media_only = message_rich_embed_media_only(rich->embeds[index]);
         if (!media_only &&
-            (!push_material(paint, owner, card, theme, theme.surface, theme.interactive, 4.0f, 1.0f,
+            (!push_material(paint, owner, card, theme, theme.surface, theme.interactive, card_radius, 1.0f,
                             UiLayoutContentKind::decoration, UiBackgroundTier::low) ||
-             !push_owned(paint, owner, accent, accent_color, accent_color, 0.0f, 0.0f,
+             !push_owned(paint, owner, accent, accent_color, accent_color, ui_rect_width(accent) * .5f, 0.0f,
                          UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap))) {
             return false;
         }
@@ -635,7 +643,8 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                              scene.interaction.component_index == index && !row.forwarded_snapshot;
         switch (kind) {
         case MessageComponentKind::container: {
-            if (!push_material(paint, owner, control, theme, theme.surface, theme.interactive, 10.0f, 1.0f,
+            constexpr float container_radius = 10.0f;
+            if (!push_material(paint, owner, control, theme, theme.surface, theme.interactive, container_radius, 1.0f,
                                UiLayoutContentKind::control, UiBackgroundTier::low))
                 return false;
             if (component.has_accent_color) {
@@ -644,10 +653,9 @@ bool append_row(const MessageScene& scene, const MessageSceneRowWidget& row, con
                 const Color color{static_cast<float>((rgb >> 16) & 255) * scale,
                                   static_cast<float>((rgb >> 8) & 255) * scale,
                                   static_cast<float>(rgb & 255) * scale, 1};
-                const UiRect accent{control.left, control.top, minimum(control.left + 4, control.right),
-                                    control.bottom};
-                if (!push_owned(paint, owner, accent, color, color, 2, 0, UiLayoutContentKind::decoration,
-                                ui_layout_content_bounds_allow_overlap))
+                const UiRect accent = accent_stripe(control, kMessageEmbedAccentWidth, container_radius);
+                if (!push_owned(paint, owner, accent, color, color, ui_rect_width(accent) * .5f, 0,
+                                UiLayoutContentKind::decoration, ui_layout_content_bounds_allow_overlap))
                     return false;
             }
             break;

@@ -884,6 +884,7 @@ Utf8View viewer_button(u32 index, const UiImageViewer& v) noexcept {
     case ui_image_viewer_save: return utf8_literal("Save");
     case ui_image_viewer_open_original: return utf8_literal("Open original");
     case ui_image_viewer_copy: return v.copied ? utf8_literal("Copied") : utf8_literal("Copy image");
+    case ui_image_viewer_fullscreen: return v.fullscreen ? utf8_literal("Exit full screen") : utf8_literal("Full screen");
     case ui_image_viewer_previous: return utf8_literal("Previous");
     case ui_image_viewer_next: return utf8_literal("Next");
     default: return {};
@@ -903,10 +904,15 @@ void mount_viewer_media(void* context, UiAccessTree* tree, u32 node) noexcept {
         g_name.add(utf8_literal(" ")).number(v.item + 1u).add(utf8_literal(" of ")).number(v.item_count);
     media.name = g_name.view();
     UiAccessNameBuilder help{};
+    // 100% is one source pixel per device pixel.
     if (!v.video && v.zoom > 0) {
-        help.add(utf8_literal("Zoom ")).number(static_cast<u64>(v.zoom * 100.0f + 0.5f)).add(utf8_literal("%"));
+        help.add(utf8_literal("Zoom "))
+            .number(static_cast<u64>(v.zoom / ui_image_viewer_actual_zoom(v) * 100.0f + 0.5f))
+            .add(utf8_literal("%"));
         media.help = help.view();
     }
+    if (v.caption_bytes)
+        media.value = {v.caption, v.caption_bytes};
     ui_access_add(tree, node, media);
 }
 

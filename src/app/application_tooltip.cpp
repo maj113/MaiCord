@@ -15,6 +15,7 @@
 #include "maicord/ui/call_scene.hpp"
 #include "maicord/ui/theme_editor.hpp"
 #include "maicord/ui/pinned_messages_scene.hpp"
+#include "maicord/ui/profile_scene.hpp"
 
 #include <Windows.h>
 
@@ -44,6 +45,13 @@ bool content_available() noexcept {
            !g_app.image_viewer.scene.active &&
            !(g_app.renderer.profile_scene && g_app.renderer.profile_scene->active) &&
            !application_friends_requests_active() && !IsIconic(g_app.window);
+}
+// The media viewer owns the window while open; only its toolbar and chevrons
+// offer tooltips, and not while idle playback hides them.
+bool viewer_available() noexcept {
+    const auto& viewer = g_app.image_viewer;
+    return g_app.renderer_ready && viewer.scene.active && !viewer.closing && viewer.scene.chrome >= 1 &&
+           !IsIconic(g_app.window);
 }
 bool widget_target(const UiWidgetManager& manager, UiWidgetHandle handle, u64 scope, u64 identity,
                    u64 revision, u32 action, Utf8View label, UiTooltipTarget* target) noexcept {
@@ -502,12 +510,48 @@ bool plugin_surface_target(UiPoint point, u64 scope, UiTooltipTarget* target) no
         target->placement = UiTooltipPlacement::right;
     return true;
 }
+bool viewer_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* target) noexcept {
+    const auto& scene = g_app.image_viewer.scene;
+    const auto handle = !keyboard                ? ui_widget_manager_hit_test(scene.widgets, point.x, point.y)
+                        : scene.keyboard_focus ? scene.widgets.focused
+                                               : ui_widget_invalid_handle();
+    const auto* widget = ui_widget_manager_resolve(scene.widgets, handle);
+    if (!widget || widget->kind != UiWidgetKind::button || widget->id < 10)
+        return false;
+    const u32 index = widget->id - 10;
+    return widget_target(scene.widgets, handle, scope, g_app.image_viewer.reveal_generation, 0, index,
+                         ui_image_viewer_tooltip(scene, index), target);
+}
+// The profile card covers the content; only its own hints show (activity
+// artwork text, cut-off activity lines, a disabled join button's reason).
+bool profile_available() noexcept {
+    const auto* scene = g_app.renderer.profile_scene;
+    return g_app.renderer_ready && scene && scene->active && !g_app.popup_scene.active && !g_app.text_form &&
+           !IsIconic(g_app.window);
+}
+bool profile_target(UiPoint point, bool keyboard, u64 scope, UiTooltipTarget* target) noexcept {
+    const auto& scene = *g_app.renderer.profile_scene;
+    const auto handle = keyboard ? scene.widgets.focused : profile_scene_hit_test(scene, point.x, point.y);
+    UiRect anchor{};
+    const Utf8View label = profile_scene_hint(scene, handle, &anchor);
+    if (!label.bytes)
+        return false;
+    *target = {{{&scene.widgets, handle}, scope, scene.opens, handle.slot, 0x5800u}, anchor, label};
+    return true;
+}
 bool resolve_target(UiPoint point, bool keyboard, UiTooltipTarget* target) noexcept {
+    const u64 scope = g_app.plugin_account_scope_serial ? g_app.plugin_account_scope_serial
+                                                        : g_app.account.status.profile_id;
+    if (g_app.image_viewer.scene.active)
+        return viewer_available() && GetCapture() != g_app.window && scope &&
+               (!keyboard || g_app.keyboard_focus_visible || g_app.image_viewer.scene.keyboard_focus) &&
+               viewer_target(point, keyboard, scope, target);
+    if (g_app.renderer.profile_scene && g_app.renderer.profile_scene->active)
+        return profile_available() && GetCapture() != g_app.window && scope &&
+               (!keyboard || g_app.keyboard_focus_visible) && profile_target(point, keyboard, scope, target);
     // Check current host ownership before touching any old scene descriptor.
     if (!content_available() || GetCapture() == g_app.window)
         return false;
-    const u64 scope = g_app.plugin_account_scope_serial ? g_app.plugin_account_scope_serial
-                                                        : g_app.account.status.profile_id;
     if (!scope)
         return false;
     if (renderer_theme_editor_visible(g_app.renderer))
@@ -733,9 +777,10 @@ void application_tooltip_input(UINT message, WPARAM wparam, LPARAM lparam) noexc
     // Retain the first eligible pointer observation even when dispatch has not
     // published its action bar/video control yet. Synchronize resolves the new
     // typed source after dispatch without requiring a second mouse movement.
-    const bool first_pointer = pointer && content_available();
+    const bool available = content_available() || viewer_available() || profile_available();
+    const bool first_pointer = pointer && available;
     if (!g_app.tooltip && !first_pointer && !resolve_target(point, keyboard, &candidate) &&
-        !(navigation && content_available()))
+        !(navigation && available))
         return;
     auto* owner = ensure();
     if (!owner)

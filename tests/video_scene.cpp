@@ -56,6 +56,87 @@ void test_video_pointer_tracks(void (*check)(bool, const char*) noexcept) noexce
               "video tracks: a clipped captured seek clamps to its visible quarter-track without accessing the hidden prefix");
     }
 }
+// Seek hover time, the shared volume slider and the chrome that hides with idle
+// controls, all against an injected clock.
+void test_video_polish(void (*check)(bool, const char*) noexcept) noexcept {
+    UiVideoPlaybackState playback{7, 8, 9, 3000, 120000, 40, true, false, false, false, true, true, true, true};
+    const UiRect preview{0, 0, 640, 360};
+    UiVideoScene scene{};
+    UiVideoSceneStyle style{};
+    style.fade_ms = 0;
+    const auto project = [&]() noexcept {
+        return ui_video_scene_project(&scene, playback, preview, preview, {}, style, kDefaultTheme);
+    };
+    const auto seek = [&]() noexcept { return scene.projection.controls[1].bounds; };
+    const auto at = [&](float fraction) noexcept {
+        const auto b = seek();
+        const float left = b.left + style.thumb_size * .5f, right = b.right - style.thumb_size * .5f;
+        return UiPoint{left + (right - left) * fraction, (b.top + b.bottom) * .5f};
+    };
+    check(project() && ui_video_scene_hover(&scene, at(.5f)) &&
+              utf8_equal({scene.hover_time, scene.hover_time_bytes}, utf8_literal("1:00")),
+          "video hover time: the seek track names the time under the pointer");
+    const auto bubble = ui_video_scene_hover_bubble(scene);
+    check(ui_rect_has_area(bubble) && bubble.bottom == scene.projection.bounds.top - 4 &&
+              (bubble.left + bubble.right) * .5f - at(.5f).x < .5f && at(.5f).x - (bubble.left + bubble.right) * .5f < .5f,
+          "video hover time: its bubble sits above the bar, centred on the hovered second");
+    const u64 text = ui_video_scene_text_paint_revision(scene);
+    ui_video_scene_hover(&scene, {at(.5f).x + .05f, at(.5f).y});
+    const bool steady = ui_video_scene_text_paint_revision(scene) == text;
+    ui_video_scene_hover(&scene, at(.75f));
+    check(steady && ui_video_scene_text_paint_revision(scene) != text &&
+              utf8_equal({scene.hover_time, scene.hover_time_bytes}, utf8_literal("1:30")),
+          "video hover time: glyphs move only when the hovered second changes");
+    ui_video_scene_hover(&scene, at(0));
+    check(ui_video_scene_hover_bubble(scene).left >= preview.left &&
+              utf8_equal({scene.hover_time, scene.hover_time_bytes}, utf8_literal("0:00")),
+          "video hover time: the bubble stays inside the player at the track start");
+    playback.duration_ms = 7'200'000;
+    ++playback.revision;
+    check(project() && ui_video_scene_hover(&scene, at(.5f)) &&
+              utf8_equal({scene.hover_time, scene.hover_time_bytes}, utf8_literal("1:00:00")),
+          "video hover time: long videos show hours");
+    ui_video_scene_hover(&scene, {320, 100});
+    check(!scene.hover_time_bytes && !ui_rect_has_area(ui_video_scene_hover_bubble(scene)),
+          "video hover time: leaving the track removes the bubble");
+    // Volume: the shared slider on a pill whose ends are concentric with its grabber.
+    PaintStream paint{};
+    bool concentric = project() && ui_video_scene_focus(&scene, UiVideoControl::volume, true) && project() &&
+                      scene.projection.volume_expanded && paint_stream_initialize(&paint) &&
+                      paint_stream_reset(&paint, 640, 360) && ui_video_scene_paint(scene, kDefaultTheme, &paint);
+    const auto volume = scene.projection.controls[4].bounds;
+    u32 pill = paint.count, grabber = paint.count;
+    for (u32 i = 0; concentric && i < paint.count; ++i) {
+        const auto& q = paint.quads[i];
+        if (q.left == volume.left && q.right == volume.right && pill == paint.count)
+            pill = i;
+        if (q.right - q.left == style.thumb_size && q.bottom - q.top == style.thumb_size && q.border_width == 1)
+            grabber = i;
+    }
+    concentric = concentric && pill < paint.count && grabber < paint.count &&
+                 paint.quads[pill].radius - (paint.quads[grabber].top - paint.quads[pill].top) ==
+                     paint.quads[grabber].radius;
+    check(concentric, "video volume: the shared slider's grabber is concentric with its pill");
+    paint_stream_release(&paint);
+    // Chrome around the player hides with idle controls.
+    ui_video_scene_blur(&scene);
+    playback.duration_ms = 120000;
+    ++playback.revision;
+    check(project() && ui_video_scene_hover(&scene, {320, 100}) && !ui_video_scene_tick(&scene, 1000, false) &&
+              ui_video_scene_chrome_opacity(scene) == 1,
+          "video chrome: shown while the pointer moves over the picture");
+    check(ui_video_scene_tick(&scene, 1000 + style.idle_ms, false) && scene.idle &&
+              ui_video_scene_chrome_opacity(scene) == 0,
+          "video chrome: hides with the controls after the idle delay");
+    ui_video_scene_tick(&scene, 5000, false);
+    check(scene.idle && ui_video_scene_chrome_opacity(scene) == 0 && ui_video_scene_activity(&scene, 5000) &&
+              !scene.idle && ui_video_scene_chrome_opacity(scene) == 1,
+          "video chrome: pointer activity shows it again");
+    ui_video_scene_pointer(&scene, UiVideoPointerEvent::leave, {});
+    ui_video_scene_tick(&scene, 20000, false);
+    check(ui_video_scene_chrome_opacity(scene) == 1 && !scene.idle,
+          "video chrome: away from the picture it stays and nothing idles");
+}
 void test_video_idle(void (*check)(bool, const char*) noexcept) noexcept {
     UiVideoPlaybackState playback{7,     8,     9,     3000, 120000, 40,   true,
                                   false, false, false, true, true,   true, true};
@@ -293,6 +374,7 @@ UiWidgetReference poster_metadata(void (*check)(bool, const char*) noexcept) noe
 void test_video_scene(void (*check)(bool, const char*) noexcept) noexcept {
     test_video_pointer_tracks(check);
     test_video_idle(check);
+    test_video_polish(check);
     ContentTextRetentionOwner retained{};
     retained.valid = true;
     retained.key = {1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 96, 12, 13, true};

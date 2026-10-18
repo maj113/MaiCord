@@ -125,6 +125,7 @@ u32 application_image_viewer_request_keys(MediaAssetKey* keys, u32 capacity) noe
 bool application_image_viewer_key_current(MediaAssetKey key) noexcept {
     return g_app.image_viewer.scene.active && media_asset_key_equal(key, g_app.image_viewer.key);
 }
+void application_image_viewer_request_failed(MediaAssetKey) noexcept {}
 // The fixture does not select native video or submit a frame to the GPU.
 bool application_video_ordinary(MediaAssetKey) noexcept {
     return false;

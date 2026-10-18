@@ -43,6 +43,11 @@ struct UiVideoScene {
     // Last host-reported pointer/key activity; zero arms on the next tick.
     u64 activity_ms{};
     float hover_x{};
+    // Time under the pointer on the seek track ("m:ss"), shown above it while
+    // hovered or dragged; text_advance sizes its bubble.
+    char hover_time[24]{};
+    u32 hover_time_bytes{};
+    float text_advance{6.25f};
     u8 spinner_phase{};
     bool active{}, keyboard_focus{}, play_only{};
     bool preview_hovered{}, idle{};
@@ -96,6 +101,11 @@ u64 ui_video_scene_text_paint_revision(const UiVideoScene&) noexcept;
 bool ui_video_scene_tick(UiVideoScene*, u64 now_ms, bool reduced_motion) noexcept;
 u64 ui_video_scene_next_wake(const UiVideoScene&, u64 now_ms, bool reduced_motion) noexcept;
 bool ui_video_scene_paint(const UiVideoScene&, const Theme&, PaintStream*) noexcept;
+// The seek bubble above the track; empty without a hover time.
+UiRect ui_video_scene_hover_bubble(const UiVideoScene&) noexcept;
+// Opacity for chrome around the player (the media viewer's toolbar): it fades
+// with the controls while the pointer rests on the picture, else stays shown.
+float ui_video_scene_chrome_opacity(const UiVideoScene&) noexcept;
 // The host supplies a live, generation-checked handle. Keeping it outside the
 // scene keeps the scene safe to copy and preserves the shared text ownership contract.
 bool ui_video_scene_text_output(const UiVideoScene&, const Theme&, UiTextOutput*,

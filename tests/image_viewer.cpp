@@ -32,7 +32,7 @@ void test_image_gallery(void (*check)(bool, const char*) noexcept) noexcept {
               ui_rect_has_area(ui_image_viewer_button(viewer, ui_image_viewer_next)) &&
               ui_image_viewer_button(viewer, ui_image_viewer_previous).right <= viewer.body.left &&
               ui_image_viewer_button(viewer, ui_image_viewer_next).left >= viewer.body.right &&
-              utf8_equal({viewer.footer, 6}, utf8_literal("2 / 3 ")),
+              utf8_equal({viewer.counter, viewer.counter_bytes}, utf8_literal("2 / 3")),
           "gallery: a new item resets zoom and pan, and chevrons own gutters outside the media body");
     const auto previous = ui_image_viewer_button(viewer, ui_image_viewer_previous);
     const UiPoint at{(previous.left + previous.right) * .5f, (previous.top + previous.bottom) * .5f};
@@ -66,6 +66,160 @@ void test_image_gallery(void (*check)(bool, const char*) noexcept) noexcept {
     ui_image_viewer_set_reveal(&viewer, 1, {});
     check(ui_rect_equal(viewer.display, viewer.image) && !ui_image_viewer_set_item(&viewer, {10, 10}, 3, 3, false),
           "gallery: a settled reveal paints at layout and out-of-range items reject");
+    paint_stream_release(&paint);
+}
+bool approx(float a, float b, float tolerance = .01f) noexcept {
+    return a - b <= tolerance && b - a <= tolerance;
+}
+// Zoom and fit math: fit never upscales past one source pixel per DIP, actual
+// size is one source pixel per device pixel, the wheel steps by 1.25 per notch.
+void test_image_viewer_zoom(void (*check)(bool, const char*) noexcept) noexcept {
+    UiImageViewer v{};
+    // Body {24, 64, 1256, 760}: 1232 x 696 fits 1600 x 900 at 0.77.
+    check(ui_image_viewer_open(&v, {0, 0, 1280, 800}, {1600, 900}) && approx(v.fit, .77f) &&
+              approx(ui_rect_width(v.image), 1232) && approx(ui_image_viewer_actual_zoom(v), 1 / .77f),
+          "viewer zoom: fit scale and actual size at 96 DPI");
+    ui_image_viewer_toggle_zoom(&v, {640, 412});
+    check(approx(ui_rect_width(v.image), 1600) && approx(ui_rect_height(v.image), 900) &&
+              v.image.left == static_cast<float>(static_cast<i32>(v.image.left)),
+          "viewer zoom: double click from fit shows actual pixels on whole device pixels");
+    ui_image_viewer_toggle_zoom(&v, {100, 100});
+    check(v.zoom == 1 && v.pan.x == 0 && v.pan.y == 0 && approx(ui_rect_width(v.image), 1232),
+          "viewer zoom: double click when zoomed returns to fit");
+    ui_image_viewer_wheel(&v, 120, {640, 412});
+    const float notch = v.zoom;
+    ui_image_viewer_wheel(&v, -120, {640, 412});
+    const float back = v.zoom;
+    ui_image_viewer_wheel(&v, 60, {640, 412});
+    ui_image_viewer_wheel(&v, 60, {640, 412});
+    check(approx(notch, 1.25f, 1e-4f) && approx(back, 1, 1e-4f) && approx(v.zoom, 1.25f, 1e-3f),
+          "viewer zoom: a notch is 1.25 and two half notches compose to it");
+    ui_image_viewer_wheel(&v, -120 * 5, {640, 412});
+    check(v.zoom == 1, "viewer zoom: zooming out stops at fit");
+    ui_image_viewer_zoom(&v, 1000, {640, 412});
+    check(v.zoom == kUiImageViewerMaximumZoom, "viewer zoom: zooming in stops at its maximum");
+    ui_image_viewer_pan(&v, {-1e6f, 1e6f});
+    check(approx(v.image.right, v.body.right) && approx(v.image.top, v.body.top),
+          "viewer zoom: pan clamps the image to the body edges");
+    // Resizing keeps a zoomed image's absolute scale and refits a fitted one.
+    ui_image_viewer_apply(&v, UiImageViewerCommand::actual_size);
+    check(ui_image_viewer_layout(&v, {0, 0, 1000, 700}) && approx(ui_rect_width(v.image), 1600) &&
+              approx(v.zoom * v.fit, 1),
+          "viewer zoom: a resize keeps actual size");
+    ui_image_viewer_apply(&v, UiImageViewerCommand::fit);
+    check(ui_image_viewer_layout(&v, {0, 0, 1280, 800}) && v.zoom == 1 && approx(ui_rect_width(v.image), 1232),
+          "viewer zoom: a resize refits a fitted image");
+    // 150% DPI: actual size is 2/3 DIP per pixel and snaps to the device grid.
+    check(ui_image_viewer_set_dpi(&v, 144) && approx(ui_image_viewer_actual_zoom(v), 1 / (1.5f * .77f)),
+          "viewer zoom: actual size follows the DPI");
+    ui_image_viewer_apply(&v, UiImageViewerCommand::actual_size);
+    const float device = v.image.left * 1.5f;
+    check(approx(ui_rect_width(v.image) * 1.5f, 1600) && approx(device, static_cast<float>(static_cast<i32>(device + .5f)), 1e-3f),
+          "viewer zoom: actual size at 144 DPI is 1600 device pixels on the device grid");
+    // A small image sits at its size; double click doubles it.
+    check(ui_image_viewer_set_dpi(&v, 96) && ui_image_viewer_set_item(&v, {120, 80}, 0, 1, false) && v.fit == 1 &&
+              approx(ui_rect_width(v.image), 120),
+          "viewer zoom: small images are not upscaled to fit");
+    ui_image_viewer_toggle_zoom(&v, {640, 412});
+    check(v.zoom == 2 && approx(ui_rect_width(v.image), 240), "viewer zoom: double click doubles a small image");
+    check(ui_image_viewer_set_item(&v, {1920, 1080}, 0, 1, true) && v.zoom == 1 &&
+              !ui_image_viewer_apply(&v, UiImageViewerCommand::zoom_in) && v.zoom == 1,
+          "viewer zoom: video ignores zoom commands");
+}
+void test_image_viewer_keys(void (*check)(bool, const char*) noexcept) noexcept {
+    using Key = UiImageViewerKey;
+    using Command = UiImageViewerCommand;
+    UiImageViewer v{};
+    const UiImageViewerKeyModifiers none{}, control{true, false, false}, shift{false, true, false}, alt{false, false, true};
+    check(ui_image_viewer_open(&v, {0, 0, 1280, 800}, {1600, 900}) &&
+              ui_image_viewer_set_item(&v, {1600, 900}, 0, 3, false),
+          "viewer keys: gallery opens");
+    const auto command = [&](Key key, UiImageViewerKeyModifiers modifiers = {}) noexcept {
+        return ui_image_viewer_key_command(v, key, modifiers);
+    };
+    check(command(Key::escape) == Command::dismiss && command(Key::f) == Command::toggle_fullscreen &&
+              command(Key::s, control) == Command::save && command(Key::c, control) == Command::copy &&
+              command(Key::s) == Command::none && command(Key::f, alt) == Command::none &&
+              command(Key::tab) == Command::focus_next && command(Key::tab, shift) == Command::focus_previous &&
+              command(Key::enter) == Command::activate && command(Key::space) == Command::activate,
+          "viewer keys: Esc, F, Ctrl+S, Ctrl+C, Tab and activation");
+    check(command(Key::left) == Command::previous && command(Key::right) == Command::next &&
+              command(Key::plus) == Command::zoom_in && command(Key::minus) == Command::zoom_out &&
+              command(Key::zero) == Command::fit && command(Key::home) == Command::fit &&
+              command(Key::one) == Command::actual_size && command(Key::up) == Command::pan_up,
+          "viewer keys: arrows browse a fitted gallery; zoom, fit and actual size keys");
+    ui_image_viewer_apply(&v, Command::zoom_in);
+    check(command(Key::left) == Command::pan_left && command(Key::right) == Command::pan_right,
+          "viewer keys: a zoomed image pans with the arrows");
+    ui_image_viewer_set_fullscreen(&v, true);
+    check(command(Key::escape) == Command::exit_fullscreen, "viewer keys: Esc leaves full screen before closing");
+    ui_image_viewer_set_fullscreen(&v, false);
+    check(ui_image_viewer_set_item(&v, {1920, 1080}, 1, 3, true) && command(Key::space) == Command::video &&
+              command(Key::other) == Command::video && command(Key::zero) == Command::video &&
+              command(Key::up) == Command::video && command(Key::left) == Command::previous &&
+              command(Key::c, control) == Command::none && command(Key::plus) == Command::none &&
+              command(Key::f) == Command::toggle_fullscreen,
+          "viewer keys: video items pass Space, M, digits and volume to the player, keep F and browsing");
+    check(ui_image_viewer_set_item(&v, {1920, 1080}, 0, 1, true) && command(Key::left) == Command::video,
+          "viewer keys: a single video seeks with the arrows");
+    // Gallery neighbours wrap.
+    check(ui_image_viewer_step(0, 3, -1) == 2 && ui_image_viewer_step(2, 3, 1) == 0 &&
+              ui_image_viewer_step(1, 3, 1) == 2 && ui_image_viewer_step(0, 1, 1) == 0 &&
+              ui_image_viewer_step(5, 0, 1) == 0,
+          "viewer gallery: previous and next wrap around");
+}
+// Toolbar placement, counter and caption alignment, chrome fade and states.
+void test_image_viewer_chrome(void (*check)(bool, const char*) noexcept) noexcept {
+    UiImageViewer v{};
+    check(ui_image_viewer_open(&v, {0, 0, 1280, 800}, {1600, 900}) &&
+              ui_image_viewer_set_actions(&v, ui_image_viewer_action_open | ui_image_viewer_action_copy) &&
+              ui_image_viewer_set_item(&v, {1600, 900}, 1, 12, false) &&
+              ui_image_viewer_set_caption(&v, utf8_literal("A synthetic caption")),
+          "viewer chrome: gallery opens");
+    const auto close = ui_image_viewer_button(v, ui_image_viewer_close);
+    const auto full = ui_image_viewer_button(v, ui_image_viewer_fullscreen);
+    const auto open = ui_image_viewer_button(v, ui_image_viewer_open_original);
+    const auto fit = ui_image_viewer_button(v, ui_image_viewer_fit);
+    const auto zoom_out = ui_image_viewer_button(v, ui_image_viewer_zoom_out);
+    const auto previous = ui_image_viewer_button(v, ui_image_viewer_previous);
+    check(close.top == 12 && close.right == 1264 && full.top == close.top && full.right + 8 == zoom_out.left &&
+              open.left - fit.right == 20,
+          "viewer chrome: one toolbar row; the view group ends with Full screen after the group gap");
+    check(approx((previous.top + previous.bottom) * .5f, (v.body.top + v.body.bottom) * .5f),
+          "viewer chrome: chevrons centre on the media body");
+    UiTextCommand commands[4]{};
+    UiTextCommandStream stream{};
+    UiTextOutput output{&stream, nullptr};
+    check(ui_text_command_stream_initialize(&stream, {commands, 4}) &&
+              ui_image_viewer_text_output(v, kDefaultTheme, &output) && stream.count == 2 &&
+              utf8_equal(stream.storage[0].text, utf8_literal("2 / 12")) &&
+              approx((stream.storage[0].rectangle.top + stream.storage[0].rectangle.bottom) * .5f,
+                   (close.top + close.bottom) * .5f) &&
+              stream.storage[0].rectangle.left == 16 &&
+              stream.storage[1].rectangle.left == v.body.left && stream.storage[1].rectangle.right == v.body.right &&
+              stream.storage[1].rectangle.top == v.body.bottom,
+          "viewer chrome: counter centres on the toolbar row, caption spans the media column");
+    PaintStream paint{};
+    bool faded = paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1280, 800) &&
+                 ui_image_viewer_set_chrome(&v, 0) && ui_image_viewer_paint(v, kDefaultTheme, &paint) &&
+                 paint.quads[0].fill.alpha > .9f;
+    for (u32 i = 1; faded && i < paint.count; ++i)
+        faded = paint.quads[i].fill.alpha == 0;
+    check(faded, "viewer chrome: hidden chrome keeps the scrim and fades every toolbar quad");
+    ui_image_viewer_set_chrome(&v, 1);
+    check(ui_image_viewer_set_media(&v, UiImageViewerMedia::loading) && ui_image_viewer_spinner_visible(v) &&
+              paint_stream_reset(&paint, 1280, 800) && ui_image_viewer_paint_overlay(v, kDefaultTheme, &paint) &&
+              paint.count > 4,
+          "viewer chrome: loading paints a spinner over the media body");
+    ui_text_command_stream_reset(&stream);
+    check(ui_image_viewer_set_media(&v, UiImageViewerMedia::failed) && !ui_image_viewer_spinner_visible(v) &&
+              ui_image_viewer_text_output(v, kDefaultTheme, &output) && stream.count == 3,
+          "viewer chrome: a failed image says so under its icon");
+    check(utf8_equal(ui_image_viewer_tooltip(v, ui_image_viewer_close), utf8_literal("Close (Esc)")) &&
+              utf8_equal(ui_image_viewer_tooltip(v, ui_image_viewer_fullscreen), utf8_literal("Full screen (F)")) &&
+              ui_image_viewer_set_fullscreen(&v, true) &&
+              utf8_equal(ui_image_viewer_tooltip(v, ui_image_viewer_fullscreen), utf8_literal("Exit full screen (F)")),
+          "viewer chrome: tooltips name the action and its shortcut");
     paint_stream_release(&paint);
 }
 void test_clipboard_image(void (*check)(bool, const char*) noexcept) noexcept {
@@ -271,9 +425,10 @@ void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
     UiTextCommand commands[5]{};
     UiTextCommandStream text{};
     UiTextOutput text_output{&text, nullptr};
+    ui_image_viewer_set_caption(&viewer, utf8_literal("diagram.png"));
     check(paint_stream_initialize(&paint) && paint_stream_reset(&paint, 1200, 800) &&
-              ui_image_viewer_paint(viewer, kDefaultTheme, &paint) && paint.count == 10 &&
-              ui_icon_quad(paint.quads[2]) && ui_icon_quad(paint.quads[8]) &&
+              ui_image_viewer_paint(viewer, kDefaultTheme, &paint) && paint.count == 12 &&
+              ui_icon_quad(paint.quads[2]) && ui_icon_quad(paint.quads[10]) &&
               ui_text_command_stream_initialize(&text, {commands, 5}) &&
               ui_image_viewer_text_output(viewer, kDefaultTheme, &text_output) && text.count == 1,
           "viewer uses shared paint and text streams for modal controls");
@@ -300,7 +455,7 @@ void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
             ++bright_icons;
     }
     check(
-        light_controls && bright_icons == 4,
+        light_controls && bright_icons == 5,
         "viewer keeps actual toolbar strokes and footer light against its black scrim in Light gradients");
     viewer.keyboard_focus = true;
     paint_stream_reset(&paint, 1200, 800);
@@ -343,6 +498,9 @@ void test_image_viewer(void (*check)(bool, const char*) noexcept) noexcept {
           "cancel ignores pretested target and clears button ownership");
     paint_stream_release(&paint);
     test_image_gallery(check);
+    test_image_viewer_zoom(check);
+    test_image_viewer_keys(check);
+    test_image_viewer_chrome(check);
     test_clipboard_image(check);
     test_clipboard_publish(check);
 

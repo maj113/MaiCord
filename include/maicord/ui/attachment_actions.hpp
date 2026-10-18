@@ -3,8 +3,11 @@
 #include "maicord/ui/background_surface.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/icon.hpp"
+#include "maicord/ui/surface_geometry.hpp"
 
 namespace maicord {
+// File cards, and the inset of their Save action from the card's edge.
+inline constexpr float kUiAttachmentFileCardRadius = kUiControlCornerRadius, kUiAttachmentFileSaveInset = 4;
 // Save action geometry shared by paint and input. It reuses the attachment's
 // widget instead of adding one per row.
 inline UiRect ui_attachment_save_rectangle(UiRect attachment, bool file_card) noexcept {
@@ -12,7 +15,7 @@ inline UiRect ui_attachment_save_rectangle(UiRect attachment, bool file_card) no
         attachment.right = minimum(attachment.right, attachment.left + 420.f);
         attachment.bottom = minimum(attachment.bottom, attachment.top + 36.f);
     }
-    const float inset = file_card ? 4.f : 8.f;
+    const float inset = file_card ? kUiAttachmentFileSaveInset : 8.f;
     const float size = file_card ? 28.f : 30.f;
     if (ui_rect_width(attachment) < size + inset * 2 ||
         ui_rect_height(attachment) < size + inset * 2)
@@ -48,7 +51,10 @@ inline bool ui_attachment_save_paint(PaintStream* paint, UiWidgetReference owner
     const float x = (rectangle.left + rectangle.right - size) * .5f;
     const float y = (rectangle.top + rectangle.bottom - size) * .5f;
     const UiRect icon{x,y,x + size,y + size};
-    bool ok = ui_background_paint_surface(paint,rectangle,theme,fill,border,6,1,1,
+    // On a file card it follows the card's corner; on media it matches the GIF star.
+    const float radius = file_card ? ui_inner_radius(kUiAttachmentFileCardRadius, kUiAttachmentFileSaveInset)
+                                   : theme.scale.radius_sm;
+    bool ok = ui_background_paint_surface(paint,rectangle,theme,fill,border,radius,1,1,
         UiBackgroundSurfaceMode::gradient,UiBackgroundTier::highest) &&
         paint_stream_record_content(paint,owner,visible,UiLayoutContentKind::control,
             ui_layout_content_bounds_allow_overlap) &&

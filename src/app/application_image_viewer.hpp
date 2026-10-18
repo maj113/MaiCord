@@ -30,9 +30,13 @@ struct ApplicationImageViewer {
     ApplicationMediaViewerItem items[kApplicationMediaViewerItems];
     u8 item_count, item_index, origin_item;
     bool closing;
+    // The viewer put the window into full screen and restores it on close.
+    bool fullscreen;
     UiRect origin;
     UiMotionTransition reveal;
     u64 reveal_generation, copied_until_ms;
+    // The current item's request failed; cleared when the item changes.
+    MediaAssetKey failed_key;
 };
 // Probe reports whether a click would open a preview without opening it.
 bool application_image_viewer_open_at(float x, float y, bool probe = false) noexcept;
@@ -52,6 +56,8 @@ bool application_image_viewer_key_current(MediaAssetKey key) noexcept;
 // Scoped borrowed content for the foreground high-resolution request owner.
 bool application_image_viewer_source(ApplicationSearchSourceView*) noexcept;
 void application_image_viewer_close() noexcept;
+// A request for the current viewer key failed for good (not a refresh).
+void application_image_viewer_request_failed(MediaAssetKey key) noexcept;
 // User dismissal: animates back toward the inline preview, then closes.
 void application_image_viewer_dismiss() noexcept;
 bool application_image_viewer_synchronize() noexcept;

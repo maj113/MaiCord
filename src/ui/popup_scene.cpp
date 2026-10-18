@@ -666,7 +666,9 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
             UiWidgetDesc{id, UiWidgetKind::button,
                          static_cast<u16>(ui_widget_hit_test | ui_widget_focusable |
                                           (enabled ? ui_widget_enabled : 0)),
-                         UiLayoutNodeSpec{utf8_literal("PopupItem"),
+                         UiLayoutNodeSpec{quick_strip && (items[index].flags & popup_item_quick_reaction)
+                                              ? utf8_literal("QuickReaction")
+                                              : utf8_literal("PopupItem"),
                                           row_style(items[index], index, quick_strip, items,
                                                     width - 2.0f * padding, styles),
                                           UiSize{}, 0.0f, id}});
@@ -674,7 +676,9 @@ PopupSceneResult open_popup(PopupScene* scene, PopupKind kind, u64 owner_id, Con
             row.ok() ? ui_widget_manager_add_prevalidated(
                            &scene->widgets, row.handle,
                            UiWidgetDesc{id + 1u, UiWidgetKind::text, ui_widget_enabled,
-                                        UiLayoutNodeSpec{utf8_literal("PopupItemLabel"),
+                                        UiLayoutNodeSpec{quick_strip && (items[index].flags & popup_item_quick_reaction)
+                                                             ? utf8_literal("QuickReactionLabel")
+                                                             : utf8_literal("PopupItemLabel"),
                                                          label_style(items[index], styles), UiSize{},
                                                          0.0f, id + 1u}})
                      : UiWidgetResult{};
