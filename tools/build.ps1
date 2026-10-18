@@ -63,6 +63,8 @@ foreach ($name in @($TestNames | ForEach-Object { $_ -split "," } | Where-Object
 }
 if ($AudioPlaybackProbe -and $selectedTestNames.Count) { [void]$selectedTestNames.Add('maicord_account_audio_playback') }
 $excludedLabels = @($ExcludeTestLabels | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+# Opt-in labels run only when -TestNames names their tests (showcase: website screenshots).
+$skippedLabels = @($excludedLabels + @(if (!$selectedTestNames.Count) { 'showcase' }))
 $repository = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).ProviderPath
 $cacheRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path -Parent $repository) 'MaiCord-build\Release'))
 $mutex = [Threading.Mutex]::new($false, 'Local\MaiCordReleaseBuild')
@@ -188,9 +190,9 @@ function Invoke-WholeTestSuite {
     if ($VerbosePreference -eq 'Continue') {
         $arguments.Add('--verbose')
     }
-    if ($excludedLabels.Count) {
+    if ($skippedLabels.Count) {
         $arguments.Add('--label-exclude')
-        $arguments.Add('^(' + ((@($excludedLabels) | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')$')
+        $arguments.Add('^(' + ((@($skippedLabels) | ForEach-Object { [regex]::Escape($_) }) -join '|') + ')$')
     }
     if ($selectedTestNames.Count) {
         $arguments.Add('--tests-regex')
@@ -414,7 +416,7 @@ try {
             foreach ($entry in $catalog.tests) {
                 if ($selectedTestNames.Count -and !$selectedTestNames.Contains($entry.name)) { continue }
                 $labels = @($entry.properties | Where-Object { $_.name -eq 'LABELS' } | ForEach-Object { $_.value })
-                if (@($labels | Where-Object { $excludedLabels -ccontains $_ }).Count) { continue }
+                if (@($labels | Where-Object { $skippedLabels -ccontains $_ }).Count) { continue }
                 foreach ($executable in $testExecutables[$entry.name]) { [void]$referenced.Add($executable) }
             }
             if (!$referenced.Count) { throw 'No CTest executable maps to the temporary target manifest.' }

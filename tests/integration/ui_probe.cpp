@@ -10,6 +10,7 @@
 //   MAICORD_GLYPH_CACHE_METRICS, MAICORD_SCENE_MEMORY, MAICORD_SCENE_FONT_RESIDENCY,
 //     MAICORD_EMOJI_PAGE_CONTROL  measurement runs (tools/measure_*.py).
 //   MAICORD_SCROLL_BENCHMARK  benchmark (tools/benchmark_scroll.ps1).
+//   MAICORD_UI_SHOWCASE_PROBE  website screenshots (label showcase, opt-in).
 //   MAICORD_REGIONAL_FLAG_REFERENCE_DIRECTORY (with MAICORD_REGIONAL_FLAG_SURFACES_PROBE)
 //     the pinned external flag corpus; registered only when the CMake option names it.
 #include "../application_downloads_inactive.hpp"
@@ -166,6 +167,7 @@ extern u32 inbox_ui_probe_stage;
 bool caption_ui_probe(D3D11Renderer& renderer, bool (*relayout)(u32 content_height) noexcept,
                       bool (*show_login)(bool visible) noexcept) noexcept;
 extern u32 caption_ui_probe_stage;
+bool showcase_ui_probe(D3D11Renderer& renderer, MessageTextPresentation& presentation) noexcept;
 bool login_recovery_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept,
                              bool (*text_pixels)(ConstSlice<UiRect>) noexcept) noexcept;
 bool login_reset_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*) noexcept,
@@ -10079,6 +10081,17 @@ int run_probe() noexcept {
         renderer_shutdown(&g_probe.renderer);
         DestroyWindow(g_probe.window);
         return valid ? 0 : 270;
+    }
+    wchar_t showcase_only[2]{};
+    if (GetEnvironmentVariableW(L"MAICORD_UI_SHOWCASE_PROBE", showcase_only, 2) == 1 &&
+        showcase_only[0] == L'1') {
+        const bool valid =
+            initialize_fixture(true) && showcase_ui_probe(g_probe.renderer, g_probe.message_text);
+        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
+                  valid ? "showcase_native_ui_passed" : "showcase_native_ui_failed");
+        renderer_shutdown(&g_probe.renderer);
+        DestroyWindow(g_probe.window);
+        return valid ? 0 : 304;
     }
     wchar_t inline_flags_only[2]{};
     if (GetEnvironmentVariableW(L"MAICORD_UI_INLINE_FLAGS_PROBE", inline_flags_only, 2) == 1 &&

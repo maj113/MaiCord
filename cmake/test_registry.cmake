@@ -1613,6 +1613,7 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/notification_settings_ui_probe.cpp tests/integration/shortcuts_ui_probe.cpp
         tests/integration/call_scene_ui_probe.cpp tests/integration/inbox_ui_probe.cpp
         tests/integration/caption_ui_probe.cpp src/app/app_icon.cpp config/maicord.rc
+        tests/integration/showcase_probe.cpp
         tests/integration/login_recovery_ui_probe.cpp tests/login_reset_ui_probe.cpp
         tests/integration/login_phone_ui_probe.cpp tests/integration/login_browser_ui_probe.cpp
         tests/integration/member_paging_probe.cpp tests/integration/thread_members_probe.cpp
@@ -1642,7 +1643,8 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
     PROPERTIES MSVC_RUNTIME_LIBRARY "MultiThreaded")
 # The constinit probe state (renderer plus every scene owner) exceeds the
 # default constant-evaluation step budget.
-set_source_files_properties(tests/integration/ui_probe.cpp PROPERTIES COMPILE_OPTIONS "/constexpr:steps8388608")
+set_source_files_properties(tests/integration/ui_probe.cpp tests/integration/showcase_probe.cpp
+    PROPERTIES COMPILE_OPTIONS "/constexpr:steps8388608")
 # The caption probe decodes the client's own icon resource.
 add_dependencies(MaiCordUiProbe maicord_app_icon)
 # The single-scene WIN32 probes link the renderer stack and run with GPU metrics.
@@ -1765,6 +1767,11 @@ foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_
     maicord_ui_probe_test(maicord_${maicord_ui_gate_name}_probe ${maicord_ui_gate}_PROBE BOOTSTRAP
         TIMEOUT 15 LABELS native-ui display)
 endforeach()
+# Website screenshots (tests/integration/showcase_probe.cpp). Opt-in: build.ps1
+# runs label showcase only when the test is named, e.g.
+# -TestNames maicord_showcase_ui_probe -ProbeCaptureDirectory <dir>.
+maicord_ui_probe_test(maicord_showcase_ui_probe UI_SHOWCASE_PROBE BOOTSTRAP
+    TIMEOUT 120 LABELS showcase display RESOURCE_LOCK native_gpu)
 # COLR compute bindings: layered, narrow and wide kernels over hand-built
 # programs, upload growth, owner changes and failed-submission unbinding.
 maicord_ui_probe_test(maicord_colr_binding_probe COLR_BINDING_PROBE TIMEOUT 15 LABELS gpu)
