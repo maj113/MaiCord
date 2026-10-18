@@ -1,5 +1,6 @@
 #include "application_window.hpp"
 
+#include "application_caption.hpp"
 #include "application_state.hpp"
 
 #include "maicord/core/log.hpp"
@@ -63,15 +64,9 @@ void application_apply_minimum_window_track(HWND window, MINMAXINFO* limits) noe
         minimum_client_width_dips(g_app) * static_cast<float>(dpi) / 96.0f + 0.999f);
     const LONG client_height =
         static_cast<LONG>(kMinimumClientHeightDips * static_cast<float>(dpi) / 96.0f + 0.999f);
-    RECT frame{0, 0, client_width, client_height};
-    const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
-    const DWORD extended_style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
-    // The main HWND is created without a menu and never attaches one.
-    if (!AdjustWindowRectExForDpi(&frame, style, FALSE, extended_style, dpi)) {
-        return;
-    }
-    limits->ptMinTrackSize.x = maximum(limits->ptMinTrackSize.x, frame.right - frame.left);
-    limits->ptMinTrackSize.y = maximum(limits->ptMinTrackSize.y, frame.bottom - frame.top);
+    const SIZE frame = application_caption_window_size(window, dpi, client_width, client_height);
+    limits->ptMinTrackSize.x = maximum(limits->ptMinTrackSize.x, frame.cx);
+    limits->ptMinTrackSize.y = maximum(limits->ptMinTrackSize.y, frame.cy);
 }
 
 bool application_create_main_window(WNDPROC window_proc) noexcept {
@@ -101,6 +96,9 @@ bool application_create_main_window(WNDPROC window_proc) noexcept {
         log_write(LogLevel::error, "window", "adjust_initial_bounds_failed");
         return false;
     }
+    // The window keeps the system frame's outer size; the caption moves into
+    // the client (WM_NCCALCSIZE).
+    application_caption_enable();
     g_app.window = CreateWindowExW(
         extended_style, kClassName, L"MaiCord", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
         CW_USEDEFAULT, bounds.right - bounds.left, bounds.bottom - bounds.top, nullptr, nullptr,
@@ -110,6 +108,8 @@ bool application_create_main_window(WNDPROC window_proc) noexcept {
         return false;
     }
     enable_dark_window_frame(g_app.window);
+    // The renderer splits its first swap chain between caption and content.
+    application_caption_synchronize();
     return true;
 }
 
@@ -138,12 +138,14 @@ bool application_window_set_fullscreen(bool on) noexcept {
             !GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST), &monitor))
             return false;
         g_fullscreen.style = GetWindowLongPtrW(window, GWL_STYLE);
+        application_caption_set_hidden(true);
         SetWindowLongPtrW(window, GWL_STYLE,
                           g_fullscreen.style & ~static_cast<LONG_PTR>(WS_CAPTION | WS_THICKFRAME));
         const auto& r = monitor.rcMonitor;
         SetWindowPos(window, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top,
                      SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
     } else {
+        application_caption_set_hidden(false);
         SetWindowLongPtrW(window, GWL_STYLE, g_fullscreen.style);
         SetWindowPlacement(window, &g_fullscreen.placement);
         SetWindowPos(window, nullptr, 0, 0, 0, 0,

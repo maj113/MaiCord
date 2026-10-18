@@ -156,6 +156,28 @@ MAICORD_THEME_TOKEN(profile, control_border, RGBA(1, 1, 1, .08f), RGBA(1, 1, 1, 
 MAICORD_THEME_TOKEN(profile, control_icon, RGBA(1, 1, 1, 1), RGBA(1, 1, 1, 1))
 MAICORD_THEME_GROUP_END(profile)
 
+// The window caption (ui/caption_bar.hpp): drag band, title and the window
+// buttons. Inactive values apply while another window is active.
+MAICORD_THEME_GROUP(caption)
+MAICORD_THEME_TOKEN(caption, background, P(base_lowest), P(base_lowest))
+MAICORD_THEME_TOKEN(caption, background_inactive, P(base_lowest), P(base_lowest))
+MAICORD_THEME_TOKEN(caption, text, T(text, normal), T(text, normal))
+MAICORD_THEME_TOKEN(caption, text_inactive, T(text, muted), T(text, muted))
+MAICORD_THEME_TOKEN(caption, icon, T(text, muted), T(text, muted))
+MAICORD_THEME_TOKEN(caption, icon_inactive, PA(text_secondary, .6f), PA(text_secondary, .6f))
+MAICORD_THEME_TOKEN(caption, icon_hover, T(text, normal), T(text, normal))
+MAICORD_THEME_TOKEN(caption, hover, T(state, hover), T(state, hover))
+MAICORD_THEME_TOKEN(caption, pressed, T(state, pressed), T(state, pressed))
+MAICORD_THEME_TOKEN(caption, close_hover, T(accent, danger), T(accent, danger))
+MAICORD_THEME_TOKEN(caption, close_pressed, PA(notification, .8f), PA(notification, .8f))
+MAICORD_THEME_TOKEN(caption, close_icon, T(text, on_accent), T(text, on_accent))
+// The update badge: download progress on its track, and the ready state.
+MAICORD_THEME_TOKEN(caption, badge_track, T(fill, muted), T(fill, muted))
+MAICORD_THEME_TOKEN(caption, badge_progress, T(accent, brand), T(accent, brand))
+MAICORD_THEME_TOKEN(caption, badge_ready, T(accent, success), T(accent, success))
+MAICORD_THEME_TOKEN(caption, badge_ready_fill, RGBA(.14f, .65f, .38f, .16f), RGBA(.14f, .65f, .38f, .14f))
+MAICORD_THEME_GROUP_END(caption)
+
 // Scales in DIPs: MAICORD_THEME_SCALE(name, default, minimum, maximum).
 MAICORD_THEME_SCALE(space_1, 2, 0, 8)
 MAICORD_THEME_SCALE(space_2, 4, 0, 12)
@@ -166,6 +188,18 @@ MAICORD_THEME_SCALE(radius_md, 8, 0, 20)
 MAICORD_THEME_SCALE(radius_lg, 12, 0, 28)
 MAICORD_THEME_SCALE(radius_xl, 16, 0, 36)
 MAICORD_THEME_SCALE(radius_full, 9999, 0, 9999)
+// Window caption: band height, button width, window-button glyph box, app
+// icon and item icon size, the inset of button fills from the band edges and
+// the leading/trailing padding. window_radius
+// is the top-level window's corner radius (Windows 11 rounds it by 8 DIPs);
+// caption fills nest inside it.
+MAICORD_THEME_SCALE(caption_height, 32, 24, 48)
+MAICORD_THEME_SCALE(caption_button_width, 40, 24, 64)
+MAICORD_THEME_SCALE(caption_glyph, 10, 8, 16)
+MAICORD_THEME_SCALE(caption_icon, 16, 12, 24)
+MAICORD_THEME_SCALE(caption_button_inset, 2, 0, 8)
+MAICORD_THEME_SCALE(caption_padding, 12, 0, 32)
+MAICORD_THEME_SCALE(window_radius, 8, 0, 16)
 
 // Motion: MAICORD_THEME_MOTION(name, duration ms, UiMotionCurve). Reduced
 // motion always settles immediately regardless of these durations.

@@ -136,6 +136,24 @@
       "control": [0, 0, 0, 0.56],
       "control_border": [1, 1, 1, 0.08],
       "control_icon": "#ffffff"
+    },
+    "caption": {
+      "background": "{colors.base_lowest}",
+      "background_inactive": "{colors.base_lowest}",
+      "text": "{semantic.text.normal}",
+      "text_inactive": "{semantic.text.muted}",
+      "icon": "{semantic.text.muted}",
+      "icon_inactive": "{colors.text_secondary}@0.6",
+      "icon_hover": "{semantic.text.normal}",
+      "hover": "{semantic.state.hover}",
+      "pressed": "{semantic.state.pressed}",
+      "close_hover": "{semantic.accent.danger}",
+      "close_pressed": "{colors.notification}@0.8",
+      "close_icon": "{semantic.text.on_accent}",
+      "badge_track": "{semantic.fill.muted}",
+      "badge_progress": "{semantic.accent.brand}",
+      "badge_ready": "{semantic.accent.success}",
+      "badge_ready_fill": [0.14, 0.65, 0.38, 0.16]
     }
   },
   "scale": {
@@ -147,7 +165,14 @@
     "radius_md": 8,
     "radius_lg": 12,
     "radius_xl": 16,
-    "radius_full": 9999
+    "radius_full": 9999,
+    "caption_height": 32,
+    "caption_button_width": 40,
+    "caption_glyph": 10,
+    "caption_icon": 16,
+    "caption_button_inset": 2,
+    "caption_padding": 12,
+    "window_radius": 8
   },
   "motion": {
     "fast": {

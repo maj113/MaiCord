@@ -2,6 +2,7 @@
 
 #include "maicord/core/log.hpp"
 #include "maicord/render/renderer_presentation.hpp"
+#include "d3d11_renderer_caption.hpp"
 #include "d3d11_renderer_edit.hpp"
 #include "d3d11_renderer_layout.hpp"
 #include "d3d11_renderer_login_form.hpp"
@@ -14,7 +15,7 @@ namespace {
 
 bool update_frame_transform(D3D11Renderer* renderer) noexcept {
     return d3d11_draw_pipeline_update_transform(renderer->pipeline, renderer->graphics.context, renderer->width,
-                                                renderer->height, renderer->dpi);
+                                                renderer->height, renderer->dpi, renderer->target_origin_y);
 }
 
 bool create_glyph_instance_buffer(D3D11Renderer* renderer, u32 capacity) noexcept {
@@ -316,7 +317,9 @@ bool renderer_initialize(D3D11Renderer* renderer, HWND window) noexcept {
         return false;
     }
     renderer->width = graphics.width;
-    renderer->height = graphics.height;
+    renderer->height =
+        graphics.height > renderer->caption_height ? graphics.height - renderer->caption_height : 1;
+    renderer->target_origin_y = renderer->caption_height;
     renderer->dpi = graphics.dpi;
     renderer->startup_prestart = graphics.prestarted ? 1 : 0;
     // The icon atlas is created here while the prestart worker still builds the
@@ -362,9 +365,10 @@ bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
         height == 0) {
         return true;
     }
+    const u32 target_height = height + renderer->caption_height;
     if (renderer->width == width && renderer->height == height && renderer->graphics.target &&
         (renderer->live_resize ||
-         (renderer->graphics.buffer_width == width && renderer->graphics.buffer_height == height))) {
+         (renderer->graphics.buffer_width == width && renderer->graphics.buffer_height == target_height))) {
         return true;
     }
     // Reserve a small growth margin only inside Windows' sizing modal loop.
@@ -372,13 +376,13 @@ bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept {
     // work for the compositor while the normal display-clock loop is paused.
     // A client that still fits the current buffers is clipped, not reallocated;
     // finishing the resize trims the buffers to the final client size.
-    u32 buffer_width = width, buffer_height = height;
+    u32 buffer_width = width, buffer_height = target_height;
     if (renderer->live_resize) {
         buffer_width = renderer->graphics.buffer_width;
         buffer_height = renderer->graphics.buffer_height;
-        if (width > buffer_width || height > buffer_height) {
+        if (width > buffer_width || target_height > buffer_height) {
             buffer_width = maximum((width + 63u) & ~63u, buffer_width);
-            buffer_height = maximum((height + 63u) & ~63u, buffer_height);
+            buffer_height = maximum((target_height + 63u) & ~63u, buffer_height);
         }
     }
     if (buffer_width != renderer->graphics.buffer_width ||
@@ -445,7 +449,8 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
         (!renderer->login_visible || d3d11_renderer_login_form_text(*renderer)) &&
         !renderer->begin_frame_permit && !renderer_settings_backdrop_stale(renderer, theme) &&
         renderer_presentation_stamp_equal(current, renderer->retained_presentation) &&
-        presentation_damage_empty(renderer->presentation_damage)) {
+        presentation_damage_empty(renderer->presentation_damage) &&
+        !d3d11_renderer_caption_pending(renderer, theme)) {
         renderer->draw_calls_last_frame = 0;
         renderer->media_draws_last_frame = 0;
         ++renderer->unchanged_present_skips;
@@ -486,9 +491,14 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
     // The first image has no prior frame to pace against. Avoid making startup
     // pay a complete refresh interval; later invalidations remain synchronized.
     const UINT sync_interval = renderer->live_resize || !renderer->has_presented ? 0u : 1u;
-    const HRESULT result =
-        d3d11_device_owner_present(&renderer->graphics, sync_interval,
-                                   renderer->present_full ? nullptr : renderer->present_dirty_rect.native());
+    // Content damage is in content rows; the caption is its own rectangle.
+    RECT dirty[2]{*renderer->present_dirty_rect.native(), {}};
+    dirty[0].top += static_cast<LONG>(renderer->target_origin_y);
+    dirty[0].bottom += static_cast<LONG>(renderer->target_origin_y);
+    const u32 dirty_count = 1 + d3d11_renderer_caption_dirty_rect(*renderer, &dirty[1]);
+    const HRESULT result = d3d11_device_owner_present(&renderer->graphics, sync_interval,
+                                                      renderer->present_full ? nullptr : dirty,
+                                                      dirty_count);
     if (FAILED(result)) {
         log_write(LogLevel::error, "render", "present_failed_or_device_removed");
         return false;
@@ -526,6 +536,7 @@ bool renderer_present(D3D11Renderer* renderer, const Theme& theme) noexcept {
     }
     presentation_damage_commit(&renderer->presentation_damage);
     renderer_paint_diff_commit(renderer);
+    d3d11_renderer_caption_presented(renderer);
     renderer->present_required = false;
     renderer->present_full = false;
     renderer->present_logical_damage_valid = false;
@@ -794,8 +805,29 @@ void renderer_set_dpi(D3D11Renderer* renderer, u32 dpi) noexcept {
     }
 }
 
+void renderer_set_caption_height(D3D11Renderer* renderer, u32 height) noexcept {
+    if (!renderer || renderer->caption_height == height)
+        return;
+    renderer->caption_height = height;
+    renderer_bind_target_origin(renderer, height);
+    renderer->previous_buffer_damage_valid = true;
+    renderer->previous_buffer_damage_full = true;
+    renderer->retained_presentation.valid = false;
+    presentation_damage_invalidate_full(&renderer->presentation_damage);
+    d3d11_renderer_caption_invalidate(renderer);
+}
+
+void renderer_bind_target_origin(D3D11Renderer* renderer, u32 origin_y) noexcept {
+    if (!renderer || renderer->target_origin_y == origin_y)
+        return;
+    renderer->target_origin_y = origin_y;
+    if (renderer->pipeline.ui_frame_buffer && renderer->graphics.context)
+        update_frame_transform(renderer);
+}
+
 void renderer_shutdown(D3D11Renderer* renderer) noexcept {
     release_prestarted_pipeline();
+    d3d11_renderer_caption_release(renderer);
     renderer_release_login_form_text(renderer);
     if (renderer->inline_media.flags)
         VirtualFree(renderer->inline_media.flags, 0, MEM_RELEASE);

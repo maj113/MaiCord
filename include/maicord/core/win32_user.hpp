@@ -120,7 +120,13 @@
 #define WM_NCCREATE 0x0081
 #define WM_NCCALCSIZE 0x0083
 #define WM_NCHITTEST 0x0084
+#define WM_NCACTIVATE 0x0086
+#define WM_NCMOUSEMOVE 0x00A0
 #define WM_NCLBUTTONDOWN 0x00A1
+#define WM_NCLBUTTONUP 0x00A2
+#define WM_NCLBUTTONDBLCLK 0x00A3
+#define WM_NCRBUTTONDOWN 0x00A4
+#define WM_NCRBUTTONUP 0x00A5
 #define WM_KEYFIRST 0x0100
 #define WM_KEYDOWN 0x0100
 #define WM_KEYUP 0x0101
@@ -165,22 +171,41 @@
 #define WM_POINTERDOWN 0x0246
 #define WM_IME_SETCONTEXT 0x0281
 #define WM_IME_KEYUP 0x0291
+#define WM_NCMOUSELEAVE 0x02A2
 #define WM_MOUSELEAVE 0x02A3
 #define WM_DPICHANGED 0x02E0
 #define WM_CUT 0x0300
 #define WM_UNDO 0x0304
+#define WM_GETTITLEBARINFOEX 0x033F
 #define WM_APP 0x8000
 #define WM_USER 0x0400
+#define HTNOWHERE 0
 #define HTCLIENT 1
+#define HTCAPTION 2
+#define HTSYSMENU 3
+#define HTMINBUTTON 8
+#define HTMAXBUTTON 9
+#define HTLEFT 10
+#define HTRIGHT 11
+#define HTTOP 12
+#define HTTOPLEFT 13
+#define HTTOPRIGHT 14
+#define HTBOTTOM 15
+#define HTBOTTOMLEFT 16
+#define HTBOTTOMRIGHT 17
+#define HTCLOSE 20
 #define SMTO_NORMAL 0x0000
 #define SMTO_BLOCK 0x0001
 #define SMTO_ABORTIFHUNG 0x0002
 #define ICON_SMALL 0
 #define ICON_BIG 1
+#define SIZE_RESTORED 0
 #define SIZE_MINIMIZED 1
+#define SIZE_MAXIMIZED 2
 #define MK_LBUTTON 0x0001
 #define MK_SHIFT 0x0004
 #define TME_LEAVE 0x00000002
+#define TME_NONCLIENT 0x00000010
 #define WS_OVERLAPPED 0x00000000L
 #define WS_POPUP 0x80000000L
 #define WS_VISIBLE 0x10000000L
@@ -233,10 +258,12 @@
 #define QS_INPUT (QS_MOUSE | QS_KEY | QS_RAWINPUT | QS_TOUCH | QS_POINTER)
 #define QS_ALLINPUT (QS_INPUT | QS_POSTMESSAGE | QS_TIMER | QS_PAINT | QS_HOTKEY | QS_SENDMESSAGE)
 #define SM_CXICON 11
+#define SM_CXFRAME 32
 #define SM_CXDOUBLECLK 36
 #define SM_CYDOUBLECLK 37
 #define SM_MENUDROPALIGNMENT 40
 #define SM_CXSMICON 49
+#define SM_CXPADDEDBORDER 92
 #define TPM_RIGHTBUTTON 0x0002L
 #define TPM_LEFTALIGN 0x0000L
 #define TPM_RIGHTALIGN 0x0008L
@@ -251,7 +278,11 @@
 #define MF_UNCHECKED 0x00000000L
 #define MF_CHECKED 0x00000008L
 #define MF_STRING 0x00000000L
+#define SC_MINIMIZE 0xF020
+#define SC_MAXIMIZE 0xF030
+#define SC_CLOSE 0xF060
 #define SC_RESTORE 0xF120
+#define SC_KEYMENU 0xF100
 #define IDC_ARROW MAKEINTRESOURCE(32512)
 #define IDC_IBEAM MAKEINTRESOURCE(32513)
 #define IDC_SIZEWE MAKEINTRESOURCE(32644)
@@ -274,6 +305,7 @@ struct tagLASTINPUTINFO;
 struct tagMONITORINFO;
 struct tagNCCALCSIZE_PARAMS;
 struct tagPAINTSTRUCT;
+struct tagTITLEBARINFOEX;
 struct tagTPMPARAMS;
 struct tagTRACKMOUSEEVENT;
 struct tagWINDOWPLACEMENT;
@@ -397,6 +429,14 @@ struct tagMONITORINFO {
 };
 typedef tagMONITORINFO MONITORINFO;
 typedef tagMONITORINFO* LPMONITORINFO;
+struct tagTITLEBARINFOEX {
+    DWORD cbSize;
+    RECT rcTitleBar;
+    DWORD rgstate[6];
+    RECT rgrect[6];
+};
+typedef tagTITLEBARINFOEX TITLEBARINFOEX;
+typedef tagTITLEBARINFOEX* PTITLEBARINFOEX;
 MAICORD_SYS_TYPES_END
 
 // <winuser.h>
@@ -438,6 +478,7 @@ extern "C" __declspec(dllimport) BOOL WINAPI GetWindowPlacement(HWND hWnd, WINDO
 extern "C" __declspec(dllimport) BOOL WINAPI SetWindowPlacement(HWND hWnd, const WINDOWPLACEMENT* lpwndpl);
 extern "C" __declspec(dllimport) BOOL WINAPI IsWindowVisible(HWND hWnd);
 extern "C" __declspec(dllimport) BOOL WINAPI IsIconic(HWND hWnd);
+extern "C" __declspec(dllimport) BOOL WINAPI IsZoomed(HWND hWnd);
 extern "C" __declspec(dllimport) BOOL WINAPI OpenClipboard(HWND hWndNewOwner);
 extern "C" __declspec(dllimport) BOOL WINAPI CloseClipboard();
 extern "C" __declspec(dllimport) DWORD WINAPI GetClipboardSequenceNumber();
@@ -519,6 +560,7 @@ extern "C" __declspec(dllimport) DWORD WINAPI GetGuiResources(HANDLE hProcess, D
 extern "C" __declspec(dllimport) BOOL WINAPI SystemParametersInfoW(UINT uiAction, UINT uiParam, PVOID pvParam,
     UINT fWinIni);
 extern "C" __declspec(dllimport) HMONITOR WINAPI MonitorFromWindow(HWND hwnd, DWORD dwFlags);
+extern "C" __declspec(dllimport) HMONITOR WINAPI MonitorFromRect(LPCRECT lprc, DWORD dwFlags);
 extern "C" __declspec(dllimport) BOOL WINAPI GetMonitorInfoW(HMONITOR hMonitor, LPMONITORINFO lpmi);
 extern "C" __declspec(dllimport) UINT WINAPI GetDpiForWindow(HWND hwnd);
 

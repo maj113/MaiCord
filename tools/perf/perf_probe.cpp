@@ -461,6 +461,8 @@ void gpu_replay(bool full) noexcept {
             const bool timer = renderer.gpu_timer.enabled;
             renderer.gpu_timer.enabled = false;
             renderer.graphics.target = g_replay.target;
+            const u32 origin = renderer.target_origin_y;
+            renderer_bind_target_origin(&renderer, 0);
             context->Begin(frame.disjoint);
             context->End(frame.begin);
             const bool drawn =
@@ -469,6 +471,7 @@ void gpu_replay(bool full) noexcept {
             context->End(frame.end);
             context->End(frame.disjoint);
             renderer.graphics.target = presented;
+            renderer_bind_target_origin(&renderer, origin);
             context->OMSetRenderTargets(1, &renderer.graphics.target, nullptr);
             renderer.gpu_timer.enabled = timer;
             renderer.text_effect_next_ms = effect_next;

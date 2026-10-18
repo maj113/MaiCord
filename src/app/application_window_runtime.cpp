@@ -1,4 +1,5 @@
 #include "application_navigation_drag.hpp"
+#include "application_content_point.hpp"
 #include "application_shortcuts.hpp"
 #include "application_call.hpp"
 #include "application_stream.hpp"
@@ -57,6 +58,7 @@
 #include "application_surface_motion.hpp"
 #include "application_poll.hpp"
 #include "application_accessibility.hpp"
+#include "application_caption.hpp"
 #include "application_desktop.hpp"
 #include "application_voice_message.hpp"
 
@@ -80,6 +82,14 @@ void update_keyboard_focus_visible(UINT message, WPARAM wparam) noexcept {
 } // namespace
 
 LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
+    // The caption owns the frame and the rows above the content.
+    LRESULT caption_result = 0;
+    if (application_caption_window_message(window, message, wparam, lparam, &caption_result))
+        return caption_result;
+    // Client pointer coordinates become content coordinates below the caption.
+    if (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST && message != WM_MOUSEWHEEL &&
+        message != WM_MOUSEHWHEEL)
+        lparam = application_caption_content_point(lparam);
     if (message == WM_ACTIVATE)
         application_animation_window_active(LOWORD(wparam) != WA_INACTIVE);
     // UI Automation (WM_GETOBJECT) and its deferred actions; observes WM_DESTROY.
@@ -414,7 +424,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
     case WM_SETCURSOR:
         if (LOWORD(lparam) == HTCLIENT && g_app.renderer_ready) {
             POINT point{};
-            if (GetCursorPos(&point) && ScreenToClient(window, &point) &&
+            if (GetCursorPos(&point) && application_screen_to_content(&point) &&
                 set_client_cursor(point.x, point.y)) {
                 return TRUE;
             }
@@ -634,7 +644,7 @@ LRESULT CALLBACK application_window_proc(HWND window, UINT message, WPARAM wpara
                 log_write(LogLevel::warning, "ui", "focused_context_popup_open_failed");
             return 0;
         }
-        if (!ScreenToClient(window, &point)) {
+        if (!application_screen_to_content(&point)) {
             return 0;
         }
         if (!open_context_popup(point.x, point.y)) {

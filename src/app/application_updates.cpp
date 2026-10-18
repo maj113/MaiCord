@@ -1,5 +1,6 @@
 #include "application_updates.hpp"
 #include "application_settings.hpp"
+#include "application_state.hpp"
 #include "maicord/app/update_https.hpp"
 #include "maicord/app/update_log.hpp"
 #include "maicord/core/text_bank.hpp"
@@ -285,7 +286,12 @@ bool application_updates_poll() noexcept {
     const bool quit = w->quit;
     if (revision != g_seen_revision) g_view = w->view;
     ReleaseSRWLockShared(w->lock.native());
-    if (revision != g_seen_revision) { g_seen_revision = revision; application_settings_refresh_pages(); }
+    if (revision != g_seen_revision) {
+        g_seen_revision = revision;
+        application_settings_refresh_pages();
+        // The caption's update badge follows the view.
+        application_request_frame();
+    }
     if (quit && !g_quit_reported) { g_quit_reported = true; return true; }
     return false;
 }
@@ -293,6 +299,13 @@ bool application_updates_project(SettingBinding binding, UiSettingsControl* cont
     u32 slot = binding == SettingBinding::update_status ? 0 : binding == SettingBinding::update_channel ? 1
         : binding == SettingBinding::update_rollback ? 2 : 3;
     return application_updates_project_view(g_view, binding, &g_text[slot], control, presentation);
+}
+ApplicationUpdatesView application_updates_view() noexcept {
+    return g_view;
+}
+bool application_updates_restart() noexcept {
+    return application_update_badge_restarts(g_view.state) &&
+           application_updates_activate(SettingBinding::update_status, 0);
 }
 bool application_updates_activate(SettingBinding binding, u32 choice) noexcept {
     Worker* w = g_worker;

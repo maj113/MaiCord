@@ -40,6 +40,7 @@ add_executable(MaiCord WIN32
     src/app/application_plugins_render.cpp src/app/application_plugins_fx.cpp
     src/app/application_plugins_compose.cpp src/app/application_plugin_menus.cpp src/app/login_continuations.cpp
     src/app/application_window.cpp src/app/application_window_runtime.cpp src/app/application_input_routing.cpp
+    src/app/application_caption.cpp src/app/app_icon.cpp
     src/app/application_keyboard_focus.cpp src/app/application_account_module.cpp
     src/app/account_module_decoders.cpp src/app/account_module_cdn_urls.cpp src/app/application_account_logout.cpp
     src/app/application_account_pump.cpp src/app/application_account_presentation.cpp

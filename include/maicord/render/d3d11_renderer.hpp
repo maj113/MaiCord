@@ -19,6 +19,7 @@
 #include "maicord/render/media_atlas_gpu.hpp"
 #include "maicord/render/presentation_damage.hpp"
 #include "maicord/render/renderer_media_draw_storage.hpp"
+#include "maicord/ui/caption_bar.hpp"
 #include "maicord/ui/login_scene.hpp"
 #include "maicord/ui/login_view.hpp"
 #include "maicord/ui/message_action_bar.hpp"
@@ -319,6 +320,8 @@ struct RendererShellSegment {
 
 struct PickerGlyphCache;
 struct ShapedTextCache;
+struct RendererCaption;
+
 struct D3D11Renderer {
     // Startup storage remains zero-filled; renderer_initialize binds identity.
     RendererLayerOpacity layer_opacity;
@@ -629,9 +632,16 @@ struct D3D11Renderer {
     // epoch prefix_epoch), the remainder from instance suffix_base.
     u32 uploaded_text_prefix, uploaded_text_prefix_base, uploaded_text_suffix_base;
     u32 uploaded_text_prefix_serial, uploaded_text_prefix_epoch, text_ring_epoch;
+    // Content size: the target less the caption rows above it.
     u32 width;
     u32 height;
     u32 dpi;
+    // Window caption drawn above the content (renderer_set_caption_height).
+    RendererCaption* caption;
+    u32 caption_height;
+    // Rows above the content in the bound target: caption_height for the swap
+    // chain, zero for offscreen targets that hold only content.
+    u32 target_origin_y;
     bool has_presented;
     bool present_required;
     bool present_full;
@@ -656,6 +666,20 @@ void renderer_prestart() noexcept;
 void renderer_prestart_cancel() noexcept;
 bool renderer_initialize(D3D11Renderer* renderer, HWND window) noexcept;
 bool renderer_resize(D3D11Renderer* renderer, u32 width, u32 height) noexcept;
+// The top `height` pixels of the swap chain hold the window caption; width,
+// height and every content coordinate exclude them. Before renderer_initialize
+// the initial client splits the same way; afterwards follow a change with
+// renderer_resize to the new content size. Zero (the default) removes it.
+void renderer_set_caption_height(D3D11Renderer* renderer, u32 height) noexcept;
+// Caption state and title for the next frame. The caption is redrawn, and
+// presented as its own dirty rectangle, only when its appearance changes.
+bool renderer_set_caption(D3D11Renderer* renderer, const UiCaptionBarState& state, Utf8View title) noexcept;
+// The app icon for the caption: `extent` x `extent` premultiplied BGRA, kept
+// as one texture until another extent replaces it. Needs renderer_set_caption.
+bool renderer_set_caption_icon(D3D11Renderer* renderer, const u32* pixels, u32 extent) noexcept;
+// Viewport origin for the bound target; an offscreen content-only replay
+// binds zero and restores caption_height.
+void renderer_bind_target_origin(D3D11Renderer* renderer, u32 origin_y) noexcept;
 // Only sampled presentation state and full-surface damage change. Scene,
 // widget, retained paint/text and media generations remain untouched.
 // Returns success, including an unchanged valid phase; invalid input fails.

@@ -752,6 +752,24 @@ const UiSettingsSchemaPanel& settings_catalog_panel(SettingsPanel panel) noexcep
 ConstSlice<UiSettingsNavEntry> settings_catalog_navigation(bool log_out) noexcept {
     return {navigation, log_out ? kNavigationCount : kNavigationCount - 1};
 }
+// Before sign-in: the account-independent pages in the same order.
+constexpr UiSettingsNavEntry signed_out_navigation[]{
+    nav_header(1),
+    nav_page(SettingsPanel::voice),
+    nav_page(SettingsPanel::appearance),
+    nav_page(SettingsPanel::accessibility),
+    nav_page(SettingsPanel::system),
+    nav_page(SettingsPanel::keybinds),
+    nav_page(SettingsPanel::language_time),
+    nav_separator,
+    nav_header(3),
+    nav_page(SettingsPanel::updates),
+    nav_separator,
+    nav_page(SettingsPanel::advanced),
+};
+ConstSlice<UiSettingsNavEntry> settings_catalog_navigation_signed_out() noexcept {
+    return {signed_out_navigation, sizeof(signed_out_navigation) / sizeof(signed_out_navigation[0])};
+}
 
 bool settings_control_location(u64 id, UiSettingsSchemaLocation* location) noexcept {
     const u64 panel = (id >> 16) - 1, node = (id & 0xffff) - 1;

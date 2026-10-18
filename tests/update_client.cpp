@@ -22,6 +22,9 @@
 namespace maicord {
 namespace app_detail {
 void application_settings_refresh_pages() noexcept {}
+bool application_request_frame() noexcept {
+    return true;
+}
 } // namespace app_detail
 namespace {
 using namespace signed_update_fixture;
@@ -747,10 +750,85 @@ void test_replay() noexcept {
     test_write_metric("update replay error=", static_cast<u64>(r.error));
     check(r.outcome == UpdateCheckOutcome::ready, "update replay: the published release installs into a fresh generation root");
 }
+// The caption's update badge: when it shows, what a click does, its progress.
+void test_caption_badge() noexcept {
+    using app_detail::application_update_badge;
+    using app_detail::application_update_badge_restarts;
+    using State = app_detail::ApplicationUpdateState;
+    constexpr State kHidden[]{State::disabled, State::idle,     State::checking,
+                              State::up_to_date, State::error, State::rate_limited};
+    bool hidden = true;
+    for (State state : kHidden)
+        hidden = hidden && application_update_badge(state) == UiCaptionUpdate::hidden &&
+                 !application_update_badge_restarts(state);
+    check(hidden, "badge hidden without an update in flight");
+    check(application_update_badge(State::downloading) == UiCaptionUpdate::downloading &&
+              application_update_badge(State::installing) == UiCaptionUpdate::installing &&
+              application_update_badge(State::ready) == UiCaptionUpdate::ready &&
+              application_update_badge(State::restarting) == UiCaptionUpdate::ready,
+          "badge states");
+    // Ready restarts; a download in flight opens the Updates page instead.
+    check(application_update_badge_restarts(State::ready) &&
+              !application_update_badge_restarts(State::downloading) &&
+              !application_update_badge_restarts(State::installing) &&
+              !application_update_badge_restarts(State::restarting),
+          "badge action");
+    app_detail::ApplicationUpdatesView view{};
+    view.received = 3;
+    view.total = 12;
+    check(app_detail::application_update_progress(view) == .25f, "badge progress");
+    view.received = 20;
+    check(app_detail::application_update_progress(view) == 1, "progress clamps");
+    view.total = 0;
+    check(app_detail::application_update_progress(view) == 0, "unknown size shows no progress");
+}
+
+// Settings before sign-in: account-independent pages only, Updates among them.
+void test_signed_out_pages() noexcept {
+    const auto navigation = settings_catalog_navigation_signed_out();
+    bool allowed = navigation.count != 0;
+    bool updates = false, appearance = false, voice = false, advanced = false;
+    for (u32 i = 0; i < navigation.count; ++i) {
+        const auto& entry = navigation[i];
+        allowed = allowed && entry.kind != UiSettingsNavKind::action &&
+                  entry.kind != UiSettingsNavKind::contributed;
+        if (entry.kind != UiSettingsNavKind::page)
+            continue;
+        const auto panel = static_cast<SettingsPanel>(entry.page.page_id - 1);
+        allowed =
+            allowed && entry.page.owner_id == kSettingsNativeOwner && settings_panel_signed_out(panel);
+        updates = updates || panel == SettingsPanel::updates;
+        appearance = appearance || panel == SettingsPanel::appearance;
+        voice = voice || panel == SettingsPanel::voice;
+        advanced = advanced || panel == SettingsPanel::advanced;
+    }
+    check(allowed, "signed-out navigation lists only account-independent pages, no Log out");
+    check(updates && appearance && voice && advanced,
+          "signed-out navigation offers Updates and local pages");
+    constexpr SettingsPanel kAccountBound[]{SettingsPanel::account,         SettingsPanel::profiles,
+                                            SettingsPanel::devices,         SettingsPanel::content_social,
+                                            SettingsPanel::data_privacy,    SettingsPanel::authorized_apps,
+                                            SettingsPanel::notifications,   SettingsPanel::registered_games,
+                                            SettingsPanel::activity_privacy, SettingsPanel::plugins};
+    bool bound = true;
+    for (SettingsPanel panel : kAccountBound)
+        bound = bound && !settings_panel_signed_out(panel);
+    check(bound, "account-bound pages stay hidden before sign-in");
+    u32 signed_out = 0;
+    for (u32 panel = 0; panel < kSettingsPanelCount; ++panel)
+        signed_out += settings_panel_signed_out(static_cast<SettingsPanel>(panel)) ? 1u : 0u;
+    u32 listed = 0;
+    for (u32 i = 0; i < navigation.count; ++i)
+        listed += navigation[i].kind == UiSettingsNavKind::page ? 1u : 0u;
+    check(listed == signed_out, "every signed-out page is listed once");
+}
+
 } // namespace
 } // namespace maicord
 
 extern "C" __declspec(noreturn) void WINAPI maicord_update_client_tests_entry() noexcept {
+    maicord::test_caption_badge();
+    maicord::test_signed_out_pages();
     maicord::test_versions();
     maicord::test_locations();
     maicord::test_redirects_and_schedule();

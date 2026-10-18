@@ -129,8 +129,9 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_glyph_instances(D3D11DrawPip
 D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_ui_instances(D3D11DrawPipelineOwner* owner,
                                                                  ID3D11Device* device, u32 stride,
                                                                  u32 required_count) noexcept;
+// The viewport starts origin_y pixels down the target (below a window caption).
 bool d3d11_draw_pipeline_update_transform(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context,
-                                          u32 width, u32 height, u32 dpi) noexcept;
+                                          u32 width, u32 height, u32 dpi, u32 origin_y = 0) noexcept;
 // Update only the existing shared frame buffer, without uploading instances or
 // changing the viewport. Invalid opacity becomes identity; the caller restores
 // identity before drawing other groups. update_transform also restores it.

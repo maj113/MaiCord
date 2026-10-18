@@ -30,6 +30,8 @@ HANDLE application_preferences_notification() noexcept;
 void application_preferences_poll() noexcept;
 void application_preferences_shutdown() noexcept;
 bool application_settings_active() noexcept;
+// Settings is open before sign-in, offering only account-independent pages.
+bool application_settings_signed_out() noexcept;
 // Appearance, or search results that can show its controls, is selected.
 bool application_settings_appearance_selected() noexcept;
 u32 application_settings_owner_bytes() noexcept;

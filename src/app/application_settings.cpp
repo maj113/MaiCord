@@ -1,10 +1,13 @@
 #include "maicord/ui/splitter.hpp"
+#include "application_content_point.hpp"
 #include "maicord/app/shortcut_registry.hpp"
 #include "application_settings.hpp"
 #include "application_profile_editor.hpp"
 #include "application_activity.hpp"
 #include "application_channel_overview.hpp"
 #include "application_state.hpp"
+#include "application_login_ui.hpp"
+#include "application_ui_runtime.hpp"
 #include "application_account_presentation.hpp"
 #include "application_account_module.hpp"
 #include "application_account_logout.hpp"
@@ -136,6 +139,28 @@ struct ApplicationSettings {
 // The bank is allocated lazily; nothing is allocated at application startup.
 static_assert(sizeof(ApplicationSettings) <= 3 * 4096);
 namespace {
+// Settings opened before sign-in: it borrows an account UI runtime for its
+// text and measurement (released again unless an account started meanwhile)
+// and covers the sign-in form until it closes.
+struct SignedOutSession {
+    bool active;
+    bool created_runtime;
+    // Closed: the next frame returns the runtime and the sign-in form, outside
+    // any caller still holding the settings owner.
+    bool ending;
+} g_signed_out;
+
+bool settings_allowed() noexcept {
+    return g_app.account_ui && (!g_app.login.visible || g_signed_out.active);
+}
+
+bool page_allowed(UiPageKey page) noexcept {
+    return !g_signed_out.active ||
+           (page.owner_id == kSettingsNativeOwner && page.page_id >= 1 &&
+            page.page_id <= kSettingsPanelCount &&
+            settings_panel_signed_out(static_cast<SettingsPanel>(page.page_id - 1)));
+}
+
 constexpr u64 kNativeSettingsOwner = kSettingsNativeOwner;
 constexpr u64 kPluginsPage = static_cast<u64>(SettingsPanel::plugins) + 1;
 
@@ -424,6 +449,8 @@ u32 project_search(ApplicationSettings& settings, bool* changed) noexcept {
         settings.presentation[count++] = presentation;
     };
     for (u32 panel = 0; panel < schema.panels.count; ++panel) {
+        if (g_signed_out.active && !settings_panel_signed_out(static_cast<SettingsPanel>(panel)))
+            continue;
         const auto& source = schema.panels[panel];
         bool header = false;
         const auto group = [&]() noexcept {
@@ -450,7 +477,7 @@ u32 project_search(ApplicationSettings& settings, bool* changed) noexcept {
     }
     for (u32 page = 0; page < settings.registry.count; ++page) {
         const auto& entry = settings.registry.storage[page];
-        if (entry.key.owner_id != kNativeSettingsOwner &&
+        if (entry.key.owner_id != kNativeSettingsOwner && !g_signed_out.active &&
             ui_settings_search_text_matches(search_query(settings), entry.label))
             emit({kSettingsPanelLinkFirst + 0x100 + page, entry.label, {}, UiSettingsControlKind::category, true,
                   false},
@@ -650,6 +677,44 @@ UiSettingsAvatarMedia application_listed_user_avatar_media(u64 user_id, Utf8View
 }
 
 namespace {
+bool begin_signed_out() noexcept {
+    if (!g_app.login.visible)
+        return g_app.account_ui != nullptr;
+    if (g_signed_out.active)
+        return true;
+    if (g_signed_out.ending) {
+        // Reopened before the previous session finished: keep its runtime.
+        g_signed_out = {true, g_signed_out.created_runtime, false};
+        return true;
+    }
+    const bool created = !g_app.account_ui;
+    if (!application_initialize_account_ui(g_app))
+        return false;
+    if (!application_login_view_suspend(true)) {
+        if (created)
+            application_release_account_ui(g_app);
+        return false;
+    }
+    g_signed_out = {true, created, false};
+    return true;
+}
+
+void end_signed_out() noexcept {
+    if (g_signed_out.active)
+        g_signed_out = {false, g_signed_out.created_runtime, true};
+}
+
+void finish_signed_out() noexcept {
+    if (!g_signed_out.ending)
+        return;
+    const bool release = g_signed_out.created_runtime && !g_app.account.instance && g_app.login.visible;
+    g_signed_out = {};
+    if (release)
+        application_release_account_ui(g_app);
+    if (!application_login_view_suspend(false))
+        log_write(LogLevel::warning, "ui", "login_view_resume_failed");
+}
+
 ApplicationSettings* ensure() noexcept {
     if (g_app.settings)
         return g_app.settings;
@@ -714,9 +779,14 @@ bool refresh() noexcept {
     return application_request_frame();
 }
 void bind_chrome(ApplicationSettings& settings) noexcept {
-    // Contributed pages expand from the registry, so its revision relayouts.
-    ui_settings_scene_bind_navigation(&settings.scene, settings_catalog_navigation(application_account_logout_available()),
-                                      settings.registry.revision);
+    // Contributed pages expand from the registry, so its revision relayouts;
+    // the signed-out list is a navigation of its own.
+    const bool signed_out = g_signed_out.active;
+    const auto navigation =
+        signed_out ? settings_catalog_navigation_signed_out()
+                   : settings_catalog_navigation(application_account_logout_available());
+    ui_settings_scene_bind_navigation(&settings.scene, navigation,
+                                      settings.registry.revision ^ (signed_out ? 0x8000'0000u : 0u));
     const bool focused = settings.scene.focus.kind == UiSettingsTargetKind::search && g_app.window &&
                          GetFocus() == g_app.window;
     ui_settings_scene_set_search(
@@ -823,7 +893,7 @@ void close_choice() noexcept {
 }
 const UiSettingsControl* choice_control(const ApplicationSettingsChoice& choice) noexcept {
     const auto* settings = g_app.settings;
-    if (!choice.active || !settings || !settings->scene.active || !g_app.account_ui || g_app.login.visible ||
+    if (!choice.active || !settings || !settings->scene.active || !settings_allowed() ||
         choice.profile_id != g_app.account.status.profile_id ||
         !plugin_ui_scope_current(g_app.plugin_account_scope_serial, choice.account_serial) ||
         !ui_page_key_equal(settings->scene.selected_page, choice.token.page) ||
@@ -956,6 +1026,8 @@ bool flash(ApplicationSettings& settings, u64 control_id) noexcept {
 }
 // Opens a panel, optionally scrolling to and flashing one of its controls.
 bool navigate(ApplicationSettings& settings, UiPageKey page, u64 control_id) noexcept {
+    if (!page_allowed(page))
+        return false;
     // Profiles is the profile editor's page: it takes the modal over.
     if (page.owner_id == kNativeSettingsOwner && page.page_id == static_cast<u64>(SettingsPanel::profiles) + 1)
         return application_profile_editor_open(ProfileEditorTab::main);
@@ -1503,6 +1575,8 @@ bool application_settings_open_page(UiPageKey page) noexcept {
     const auto* pages = application_settings_pages();
     if (!pages || !ui_page_registry_find(*pages, page) || !application_settings_open() || !g_app.settings)
         return false;
+    if (!page_allowed(page))
+        return true;
     return navigate(*g_app.settings, page, 0);
 }
 bool application_settings_focus_search() noexcept {
@@ -1517,6 +1591,9 @@ void application_settings_refresh_pages() noexcept {
     project(*g_app.settings);
     if (g_app.settings->scene.active && !refresh())
         log_write(LogLevel::warning, "plugins", "settings_refresh_failed");
+}
+bool application_settings_signed_out() noexcept {
+    return g_signed_out.active;
 }
 bool application_settings_active() noexcept {
     return application_channel_overview_active() || (g_app.settings && g_app.settings->scene.active);
@@ -1558,11 +1635,13 @@ void application_preferences_shutdown() noexcept {
 bool application_settings_open() noexcept {
     if (application_channel_overview_active())
         return false;
-    if (!g_app.renderer_ready || !g_app.account_ui || g_app.login.visible || g_app.text_form)
+    if (!g_app.renderer_ready || g_app.text_form || !begin_signed_out())
         return false;
     auto* settings = ensure();
-    if (!settings)
+    if (!settings) {
+        end_signed_out();
         return false;
+    }
     if (settings->scene.active)
         return true;
     application_friends_close_requests();
@@ -1590,8 +1669,13 @@ bool application_settings_open() noexcept {
     message_composer_clear(&settings->search_edit);
     settings->search_revision = settings->search_edit.text_revision;
     settings->search_bytes = 0;
-    if (searching(*settings) || !ui_page_registry_selected(settings->registry))
+    const auto* selected = ui_page_registry_selected(settings->registry);
+    if (searching(*settings) || !selected || !page_allowed(selected->key))
         ui_page_registry_select(&settings->registry, {kNativeSettingsOwner, static_cast<u64>(SettingsPanel::appearance) + 1});
+    // Before sign-in Settings fills the window: there is no shell beneath it.
+    ui_settings_scene_set_presentation(&settings->scene, g_signed_out.active
+                                                              ? UiSettingsPresentation::layer
+                                                              : UiSettingsPresentation::modal);
     settings->scene.focus = {UiSettingsTargetKind::search, {}, 0};
     project(*settings);
     ui_settings_scene_set_focus_visible(&settings->scene, g_app.keyboard_focus_visible);
@@ -1599,6 +1683,7 @@ bool application_settings_open() noexcept {
         g_app.context_focus = settings->previous_focus;
         if (settings->previous_composer_focus)
             focus_message_composer_control(MessageComposerControl::edit);
+        end_signed_out();
         return false;
     }
     renderer_bind_settings_scene(&g_app.renderer, &settings->scene);
@@ -1660,6 +1745,7 @@ void application_settings_close(bool restore_focus) noexcept {
         refresh_account_text(true);
     }
     synchronize_member_subscription(clock_monotonic_milliseconds());
+    end_signed_out();
     application_request_frame();
 }
 UiScrollBinding application_settings_scroll_binding(bool sidebar) noexcept {
@@ -1669,8 +1755,8 @@ UiScrollBinding application_settings_scroll_binding(bool sidebar) noexcept {
             [](void*, u64 key, UiScrollRange* range) noexcept {
                 auto* settings = g_app.settings;
                 if (!settings || !settings->scene.active || settings->choice.active || settings->slider_dragging ||
-                    settings->scrollbar_dragging || g_app.theme_editor || g_app.text_form || !g_app.account_ui ||
-                    g_app.login.visible)
+                    settings->scrollbar_dragging || g_app.theme_editor || g_app.text_form ||
+                    !settings_allowed())
                     return false;
                 const auto& scene = settings->scene;
                 const bool left = key != 0;
@@ -1722,10 +1808,18 @@ bool application_settings_synchronize() noexcept {
         return false;
     if (application_channel_overview_active())
         return application_channel_overview_synchronize();
+    finish_signed_out();
     auto* settings = g_app.settings;
     if (!settings || !settings->scene.active)
         return true;
-    if (!g_app.account_ui || g_app.login.visible) {
+    if (g_signed_out.active && !g_app.login.visible) {
+        // Signed in while Settings was open: the account owns the runtime now.
+        g_signed_out = {};
+        ui_settings_scene_set_presentation(&settings->scene, UiSettingsPresentation::modal);
+        if (!application_login_view_suspend(false))
+            log_write(LogLevel::warning, "ui", "login_view_resume_failed");
+    }
+    if (!settings_allowed()) {
         application_settings_close(false);
         return true;
     }
@@ -2111,7 +2205,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             return true;
         }
         POINT point{static_cast<short>(LOWORD(lparam)), static_cast<short>(HIWORD(lparam))};
-        if (!ScreenToClient(g_app.window, &point))
+        if (!application_screen_to_content(&point))
             return true;
         const float scale = 96.f / maximum(g_app.renderer.dpi, 1u);
         const bool left = ui_rect_contains(settings->scene.layout.sidebar, point.x * scale, point.y * scale);

@@ -173,6 +173,7 @@ struct tagRECT {
 };
 typedef tagRECT RECT;
 typedef tagRECT* LPRECT;
+typedef const tagRECT* LPCRECT;
 struct tagPOINT {
     LONG x;
     LONG y;

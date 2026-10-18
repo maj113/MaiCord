@@ -2493,6 +2493,15 @@ void application_record_presentation_failure(const char*) noexcept {
 }
 // This target exercises ordinary/plugin Settings with Overview absent. The
 // separate Overview runtime target owns its production controller and page.
+// Settings before sign-in borrows the account UI runtime; these tests open
+// it signed in.
+bool application_initialize_account_ui(Application&) noexcept {
+    return false;
+}
+void application_release_account_ui(Application&) noexcept {}
+bool application_login_view_suspend(bool) noexcept {
+    return true;
+}
 bool application_channel_overview_active() noexcept {
     return false;
 }

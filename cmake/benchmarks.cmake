@@ -40,6 +40,9 @@ maicord_program(MaiCordImportBenchmark ENTRY maicord_import_benchmark_entry
 maicord_program(MaiCordGpuTextureStorageBenchmark ENTRY maicord_gpu_texture_storage_entry
     SOURCES benchmarks/gpu_texture_storage.cpp
     LIBS maicord_core kernel32 d3d11 dxgi)
+maicord_program(MaiCordWindowFrameBenchmark ENTRY maicord_window_frame_benchmark_entry
+    SOURCES benchmarks/window_frame_benchmark.cpp
+    LIBS kernel32 user32 dwmapi d3d11 dxgi dcomp)
 maicord_program(MaiCordPngCrcBenchmark ENTRY maicord_png_crc_entry
     SOURCES benchmarks/png_crc_benchmark.cpp
     LIBS maicord_core maicord_media_codec kernel32)

@@ -175,6 +175,24 @@ const UiSettingsSchemaPanel& settings_catalog_panel(SettingsPanel) noexcept;
 inline constexpr u64 kSettingsNativeOwner = 1;
 inline constexpr u64 kSettingsLogOutAction = 1;
 ConstSlice<UiSettingsNavEntry> settings_catalog_navigation(bool log_out) noexcept;
+// Pages that need no signed-in account: local preferences, devices and
+// updates. Before sign-in Settings offers only these.
+constexpr bool settings_panel_signed_out(SettingsPanel panel) noexcept {
+    switch (panel) {
+    case SettingsPanel::appearance:
+    case SettingsPanel::accessibility:
+    case SettingsPanel::voice:
+    case SettingsPanel::system:
+    case SettingsPanel::keybinds:
+    case SettingsPanel::language_time:
+    case SettingsPanel::updates:
+    case SettingsPanel::advanced:
+        return true;
+    default:
+        return false;
+    }
+}
+ConstSlice<UiSettingsNavEntry> settings_catalog_navigation_signed_out() noexcept;
 
 // Dynamic list rows (devices, authorized apps): list binding in bits 8..15,
 // row index in bits 0..7.

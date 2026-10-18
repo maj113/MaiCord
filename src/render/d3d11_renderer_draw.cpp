@@ -1,6 +1,7 @@
 #include "d3d11_renderer_draw.hpp"
 #include "d3d11_renderer_interaction_state.hpp"
 #include "d3d11_renderer_layout.hpp"
+#include "d3d11_renderer_caption.hpp"
 #include "maicord/render/renderer_presentation.hpp"
 
 #include "maicord/core/log.hpp"
@@ -160,7 +161,8 @@ void select_pipeline(D3D11Renderer* renderer, DrawSubmissionState* submission, D
 
 void set_scissor(D3D11Renderer* renderer, DrawSubmissionState* submission, const RasterClipRect& clip) noexcept {
     if (draw_submission_scissor(submission, clip)) {
-        const D3D11_RECT scissor{clip.left, clip.top, clip.right, clip.bottom};
+        const LONG origin = static_cast<LONG>(renderer->target_origin_y);
+        const D3D11_RECT scissor{clip.left, clip.top + origin, clip.right, clip.bottom + origin};
         renderer->graphics.context->RSSetScissorRects(1, &scissor);
     }
 }
@@ -564,7 +566,13 @@ void release_backdrop_target(D3D11Renderer* renderer) noexcept {
     renderer->settings_backdrop = nullptr;
     renderer->settings_backdrop_valid = false;
 }
-// One render target the size of the back buffer, in its format.
+// Clearing the swap chain target also wipes the caption; it redraws after
+// the stream.
+void clear_target(D3D11Renderer* renderer, const float color[4]) noexcept {
+    renderer->graphics.context->ClearRenderTargetView(renderer->graphics.target, color);
+    d3d11_renderer_caption_invalidate(renderer);
+}
+// One render target the size of the content, in the back buffer's format.
 bool create_backdrop_target(D3D11Renderer* renderer) noexcept {
     if (renderer->settings_backdrop && renderer->settings_backdrop_width == renderer->width &&
         renderer->settings_backdrop_height == renderer->height)
@@ -582,8 +590,10 @@ bool create_backdrop_target(D3D11Renderer* renderer) noexcept {
         back_buffer->Release();
     if (source)
         source->Release();
-    bool ok = typed && description.Width == renderer->width && description.Height == renderer->height;
+    bool ok = typed && description.Width == renderer->width &&
+              description.Height == renderer->height + renderer->target_origin_y;
     if (ok) {
+        description.Height = renderer->height;
         description.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
         description.Usage = D3D11_USAGE_DEFAULT;
         description.CPUAccessFlags = 0;
@@ -622,13 +632,13 @@ bool draw_settings_backdrop(D3D11Renderer* renderer, DrawSubmissionState* submis
     if (!renderer->settings_backdrop_valid) {
         if (!damage) {
             const float color[4]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
-            renderer->graphics.context->ClearRenderTargetView(renderer->graphics.target, color);
+            clear_target(renderer, color);
         }
         return true;
     }
     if (layer) {
         const float color[4]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
-        renderer->graphics.context->ClearRenderTargetView(renderer->graphics.target, color);
+        clear_target(renderer, color);
     }
     D3D11_MAPPED_SUBRESOURCE mapped{};
     if (FAILED(renderer->graphics.context->Map(renderer->settings_backdrop_quad, 0, D3D11_MAP_WRITE_DISCARD, 0,
@@ -664,6 +674,8 @@ bool draw_settings_backdrop(D3D11Renderer* renderer, DrawSubmissionState* submis
     context->PSSetSamplers(0, 1, &renderer->pipeline.glyph_sampler);
     D3D11_RECT scissor{0, 0, static_cast<LONG>(renderer->width), static_cast<LONG>(renderer->height)};
     if (intersect_scissor(&scissor, damage)) {
+        scissor.top += static_cast<LONG>(renderer->target_origin_y);
+        scissor.bottom += static_cast<LONG>(renderer->target_origin_y);
         context->RSSetScissorRects(1, &scissor);
         context->DrawInstanced(6, 1, 0, 0);
         ++renderer->draw_calls_last_frame;
@@ -727,10 +739,13 @@ bool renderer_refresh_settings_backdrop(D3D11Renderer* renderer, const Theme& th
             d3d11_renderer_build_paint(renderer, theme) && create_backdrop_target(renderer)) {
             const float color[4]{theme.base_lowest.red, theme.base_lowest.green, theme.base_lowest.blue, 1};
             ID3D11RenderTargetView* presented = renderer->graphics.target;
+            const u32 origin = renderer->target_origin_y;
             renderer->graphics.target = renderer->settings_backdrop_target;
+            renderer_bind_target_origin(renderer, 0);
             renderer->graphics.context->ClearRenderTargetView(renderer->graphics.target, color);
             drawn = d3d11_renderer_draw_stream(renderer, theme, true, true, nullptr);
             renderer->graphics.target = presented;
+            renderer_bind_target_origin(renderer, origin);
             const u32 media = drawn ? minimum(renderer->media_quad_count, kRendererMediaQuadCapacity) : 0;
             for (u32 i = 0; i < media; ++i) {
                 renderer->settings_backdrop_media[i] = renderer->media_draw.handle_data[i];

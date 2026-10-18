@@ -275,12 +275,12 @@ D3D11DrawPipelineResult d3d11_draw_pipeline_reserve_glyph_instances(D3D11DrawPip
 }
 
 bool d3d11_draw_pipeline_update_transform(const D3D11DrawPipelineOwner& owner, ID3D11DeviceContext* context,
-                                          u32 width, u32 height, u32 dpi) noexcept {
+                                          u32 width, u32 height, u32 dpi, u32 origin_y) noexcept {
     if (!d3d11_draw_pipeline_update_opacity(owner, context, width, height, dpi, 1.0f)) {
         return false;
     }
-    const D3D11_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height),
-                                  0.0f, 1.0f};
+    const D3D11_VIEWPORT viewport{0.0f, static_cast<float>(origin_y), static_cast<float>(width),
+                                  static_cast<float>(height), 0.0f, 1.0f};
     context->RSSetViewports(1, &viewport);
     return true;
 }

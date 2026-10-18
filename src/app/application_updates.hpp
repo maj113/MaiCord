@@ -1,6 +1,7 @@
 #pragma once
 
 #include "maicord/app/update_service.hpp"
+#include "maicord/ui/caption_bar.hpp"
 #include "maicord/ui/settings_scene.hpp"
 #include "settings_catalog.hpp"
 #include "maicord/core/win32_types.hpp"
@@ -39,5 +40,34 @@ HANDLE application_updates_notification() noexcept;
 bool application_updates_poll() noexcept;
 bool application_updates_project(SettingBinding, UiSettingsControl*, UiSettingsControlPresentation*) noexcept;
 bool application_updates_activate(SettingBinding, u32 choice) noexcept;
+// The view as of the last poll.
+ApplicationUpdatesView application_updates_view() noexcept;
+// Restarts into a ready update; false in any other state.
+bool application_updates_restart() noexcept;
+
+// The caption's update badge: shown while an update downloads, installs or
+// waits for a restart. A click restarts a ready update and otherwise opens
+// the Updates page.
+constexpr UiCaptionUpdate application_update_badge(ApplicationUpdateState state) noexcept {
+    switch (state) {
+    case ApplicationUpdateState::downloading:
+        return UiCaptionUpdate::downloading;
+    case ApplicationUpdateState::installing:
+        return UiCaptionUpdate::installing;
+    case ApplicationUpdateState::ready:
+    case ApplicationUpdateState::restarting:
+        return UiCaptionUpdate::ready;
+    default:
+        return UiCaptionUpdate::hidden;
+    }
+}
+constexpr float application_update_progress(const ApplicationUpdatesView& view) noexcept {
+    return view.total
+               ? static_cast<float>(minimum(view.received, view.total)) / static_cast<float>(view.total)
+               : 0;
+}
+constexpr bool application_update_badge_restarts(ApplicationUpdateState state) noexcept {
+    return state == ApplicationUpdateState::ready;
+}
 
 } // namespace maicord::app_detail

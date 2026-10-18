@@ -880,7 +880,7 @@ float host_scale(const UiaProviderHost* host) noexcept {
 
 UiaBounds screen_bounds(const UiaProviderHost* host, const UiRect& rectangle) noexcept {
     const float scale = host_scale(host);
-    POINT origin{};
+    POINT origin{0, host->content_offset_y};
     ClientToScreen(host->window, &origin);
     UiaBounds bounds{};
     bounds.left = static_cast<double>(origin.x) + static_cast<double>(rectangle.left * scale);
@@ -940,6 +940,7 @@ HRESULT STDMETHODCALLTYPE root_from_point(void* self, double x, double y, void**
         return kElementNotAvailable;
     POINT point{static_cast<LONG>(x), static_cast<LONG>(y)};
     ScreenToClient(element->host->window, &point);
+    point.y -= element->host->content_offset_y;
     const float scale = host_scale(element->host);
     const float divisor = scale > 0 ? scale : 1.0f;
     const float dip_x = static_cast<float>(point.x) / divisor;

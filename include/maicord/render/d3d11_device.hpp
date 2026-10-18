@@ -81,9 +81,11 @@ D3D11DeviceOwnerResult d3d11_device_owner_resize(
     D3D11DeviceOwner* owner, u32 width, u32 height) noexcept;
 DWORD d3d11_device_owner_wait(const D3D11DeviceOwner& owner,
                               u32 timeout_ms) noexcept;
+// A null dirty_rectangles presents the whole buffer.
 HRESULT d3d11_device_owner_present(D3D11DeviceOwner* owner,
                                    u32 sync_interval,
-                                   const RECT* dirty_rectangle) noexcept;
+                                   const RECT* dirty_rectangles,
+                                   u32 dirty_count = 1) noexcept;
 void d3d11_device_owner_release(D3D11DeviceOwner* owner) noexcept;
 
 } // namespace maicord

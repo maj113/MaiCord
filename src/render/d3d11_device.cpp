@@ -297,17 +297,17 @@ DWORD d3d11_device_owner_wait(const D3D11DeviceOwner& owner,
 
 HRESULT d3d11_device_owner_present(D3D11DeviceOwner* owner,
                                    u32 sync_interval,
-                                   const RECT* dirty_rectangle) noexcept {
+                                   const RECT* dirty_rectangles,
+                                   u32 dirty_count) noexcept {
     if (!owner || !owner->swap_chain) {
         return E_INVALIDARG;
     }
-    if (!dirty_rectangle) {
+    if (!dirty_rectangles || !dirty_count) {
         return owner->swap_chain->Present(sync_interval, 0);
     }
-    RECT dirty = *dirty_rectangle;
     DXGI_PRESENT_PARAMETERS parameters{};
-    parameters.DirtyRectsCount = 1;
-    parameters.pDirtyRects = &dirty;
+    parameters.DirtyRectsCount = dirty_count;
+    parameters.pDirtyRects = const_cast<RECT*>(dirty_rectangles);
     return owner->swap_chain->Present1(sync_interval, 0, &parameters);
 }
 

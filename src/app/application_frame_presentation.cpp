@@ -23,6 +23,7 @@
 #if defined(MAICORD_STARTUP_PROBE)
 #include "application_shutdown_metrics.hpp"
 #endif
+#include "application_caption.hpp"
 #include "application_frame_presentation.hpp"
 #include "application_media.hpp"
 #include "application_background.hpp"
@@ -187,6 +188,7 @@ bool application_present_frame() noexcept {
         return true;
     }
     MAICORD_PERF_MARK("frame_begin");
+    application_caption_synchronize();
     // Consume a due spinner step first: a rejected draw below must not leave
     // the expired deadline armed (it is re-sampled once scenes are published).
     if (ui_spinner_clock_due(g_loading_spinner, clock_monotonic_milliseconds()))
@@ -413,7 +415,7 @@ void application_resize_client(HWND window) noexcept {
         return;
     }
     const LONG width = client.right - client.left;
-    const LONG height = client.bottom - client.top;
+    const LONG height = client.bottom - client.top - static_cast<LONG>(application_caption_height());
     if (width <= 0 || height <= 0) {
         return;
     }

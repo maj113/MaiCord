@@ -27,6 +27,11 @@
 #define NIF_ICON 0x00000002
 #define NIF_TIP 0x00000004
 #define NIF_SHOWTIP 0x00000080
+#define ABM_GETAUTOHIDEBAREX 0x0000000b
+#define ABE_LEFT 0
+#define ABE_TOP 1
+#define ABE_RIGHT 2
+#define ABE_BOTTOM 3
 
 // <shtypes.h>
 #define PIDLIST_ABSOLUTE LPITEMIDLIST
@@ -41,6 +46,7 @@ typedef DWORD SICHINTF;
 typedef DWORD FILEOPENDIALOGOPTIONS;
 
 MAICORD_SYS_TYPES_BEGIN
+struct _AppBarData;
 struct IFileDialog;
 struct IFileDialogEvents;
 struct IFileOpenDialog;
@@ -58,6 +64,16 @@ struct _NOTIFYICONDATAW;
 struct _SHITEMID;
 
 // <shellapi.h>
+struct _AppBarData {
+    DWORD cbSize;
+    HWND hWnd;
+    UINT uCallbackMessage;
+    UINT uEdge;
+    RECT rc;
+    LPARAM lParam;
+};
+typedef _AppBarData APPBARDATA;
+typedef _AppBarData* PAPPBARDATA;
 struct _NOTIFYICONDATAW {
     DWORD cbSize;
     HWND hWnd;
@@ -277,6 +293,7 @@ MAICORD_SYS_TYPES_END
 // <shellapi.h>
 extern "C" __declspec(dllimport) UINT WINAPI DragQueryFileW(HDROP hDrop, UINT iFile, LPWSTR lpszFile, UINT cch);
 extern "C" __declspec(dllimport) void WINAPI DragFinish(HDROP hDrop);
+extern "C" __declspec(dllimport) UINT_PTR WINAPI SHAppBarMessage(DWORD dwMessage, PAPPBARDATA pData);
 extern "C" __declspec(dllimport) HINSTANCE WINAPI ShellExecuteW(HWND hwnd, LPCWSTR lpOperation, LPCWSTR lpFile,
     LPCWSTR lpParameters, LPCWSTR lpDirectory, INT nShowCmd);
 extern "C" __declspec(dllimport) BOOL WINAPI Shell_NotifyIconW(DWORD dwMessage, PNOTIFYICONDATAW lpData);

@@ -1,4 +1,5 @@
 #include "application_login_ui.hpp"
+#include "application_content_point.hpp"
 #include "application_login_input.hpp"
 #include "application_composer_text_input.hpp"
 #include "application_login_geometry.hpp"
@@ -45,9 +46,10 @@ bool text_store_geometry(void*, SecureTextStoreGeometry* geometry) noexcept {
               static_cast<LONG>(logical.bottom * scale + 0.5f)};
     RECT window{};
     POINT origin{};
-    if (!GetClientRect(application.window, &window) || !ClientToScreen(application.window, &origin)) {
+    if (!GetClientRect(application.window, &window) || !application_content_to_screen(&origin)) {
         return false;
     }
+    window.bottom -= static_cast<LONG>(application.renderer.caption_height);
     geometry->text_screen = {text.left + origin.x, text.top + origin.y,
                              text.right + origin.x, text.bottom + origin.y};
     geometry->window_screen = {window.left + origin.x, window.top + origin.y,
@@ -58,7 +60,7 @@ bool text_store_geometry(void*, SecureTextStoreGeometry* geometry) noexcept {
 bool text_store_point(void*, POINT point, bool round, u32* position, bool* inside) noexcept {
     const auto* edit = application_active_login_edit();
     if (!edit || edit->password || !g_app.renderer.dpi ||
-        !ScreenToClient(g_app.window, &point)) return false;
+        !application_screen_to_content(&point)) return false;
     char visible[48*4]{};
     u32 bytes = 0, relative = 0, first = 0;
     SecureEditRenderWindow window{};
@@ -87,7 +89,7 @@ bool text_store_point(void*, POINT point, bool round, u32* position, bool* insid
 bool text_store_range(void*, u32 first, u32 last, RECT* output, bool* clipped) noexcept {
     const auto* edit = application_active_login_edit();
     POINT origin{};
-    if (!edit || !g_app.renderer_ready || !ClientToScreen(g_app.window, &origin)) return false;
+    if (!edit || !g_app.renderer_ready || !application_content_to_screen(&origin)) return false;
     if (IsIconic(g_app.window)) {
         if (!output || !clipped) return false;
         *output = {}; *clipped = true; return true;
@@ -134,9 +136,24 @@ void application_login_post_phone_verify() noexcept {
         application_phone_tsf_mutation_stamp() = 0;
 }
 
+namespace {
+bool g_login_view_suspended;
+} // namespace
+
+bool application_login_view_suspend(bool suspended) noexcept {
+    if (g_login_view_suspended == suspended)
+        return true;
+    g_login_view_suspended = suspended;
+    if (!suspended)
+        return application_synchronize_login_view();
+    secure_text_store_set_window_focus(&g_app.login.text_store, false);
+    return !g_app.renderer_ready ||
+           renderer_set_login_view(&g_app.renderer, nullptr, RendererLoginView{}, application_theme());
+}
+
 bool application_synchronize_login_view() noexcept {
     Application& application = g_app;
-    if (!application.login.initialized || !application.renderer_ready) {
+    if (!application.login.initialized || !application.renderer_ready || g_login_view_suspended) {
         return true;
     }
     if (application_login_auth_cooldown_active()) {
