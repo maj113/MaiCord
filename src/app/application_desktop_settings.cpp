@@ -63,9 +63,10 @@ bool application_desktop_settings_project(SettingBinding binding, UiSettingsCont
         return true;
     case SettingBinding::start_minimized:
         observe(false);
-        control->checked = g_app.preferences.start_minimized;
-        // Only a launch from the startup entry starts minimized.
+        // Only a launch from the startup entry starts minimized; without one
+        // the switch reads off and is disabled, as in the official client.
         control->enabled = g_registered.startup == DesktopRegistration::ours;
+        control->checked = control->enabled && g_app.preferences.start_minimized;
         return true;
     case SettingBinding::minimize_to_tray:
         control->checked = g_app.preferences.minimize_to_tray;

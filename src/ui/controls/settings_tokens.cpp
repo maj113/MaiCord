@@ -2,6 +2,7 @@
 #include "maicord/ui/background_presentation.hpp"
 #include "maicord/ui/transition.hpp"
 #include "maicord/ui/theme_styles.hpp"
+#include "maicord/ui/theme_style_projection.hpp"
 
 namespace maicord {
 namespace {
@@ -141,6 +142,14 @@ UiSettingsTokens ui_settings_tokens(const Theme& theme) noexcept {
     m.grip_width = 20;
     m.accent_dot = 12;
     m.lead_gap = 12;
+    m.focus_gap = theme.scale.space_1;
+    m.focus_width = theme.scale.space_1;
+    m.ring_gap = theme.scale.space_1;
+    m.ring_width = theme.scale.space_1;
+    m.field_padding = ui_theme_metrics(theme.styles).form_field_padding;
+    m.slider_grabber_grow = 4;
+    m.slider_bar_grow = 2;
+    t.disabled_alpha = .5f;
     t.duration = {s.switch_ms, s.switch_reduced_ms, s.modal_enter_ms, s.flash_ms, s.flash_fade_ms};
     return t;
 }

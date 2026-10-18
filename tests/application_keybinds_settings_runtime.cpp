@@ -84,8 +84,8 @@ void test_application_keybinds_settings_runtime(Check check) noexcept {
                         content() && content()->controls.count > 30;
     const auto* quick = labeled(utf8_literal("Toggle quick switcher"));
     const auto* servers = labeled(utf8_literal("Navigate between servers"));
-    check(opened && control(node(SettingBinding::keybinds_add)) && labeled(utf8_literal("Custom keybinds")) &&
-              labeled(utf8_literal("Default shortcuts")) && labeled(utf8_literal("Navigation")) &&
+    check(opened && control(node(SettingBinding::keybinds_add)) && labeled(utf8_literal("Custom Keybinds")) &&
+              labeled(utf8_literal("Default Keybinds")) && labeled(utf8_literal("Navigation")) &&
               labeled(utf8_literal("Voice")) && chip(quick, utf8_literal("Ctrl+K")) && !quick->action_label.bytes &&
               servers && servers->choices.count == 2,
           "keybinds settings: the page lists custom keybinds and every default shortcut group");

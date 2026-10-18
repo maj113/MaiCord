@@ -1,6 +1,7 @@
 #include "maicord/model/guild_settings_model.hpp"
 #include "maicord/model/channel_reorder.hpp"
 #include "maicord/protocol/guild_assets.hpp"
+#include "maicord/core/color_hex.hpp"
 #include "maicord/core/heap_sort.hpp"
 #include "maicord/core/memory.hpp"
 #include "maicord/core/utf.hpp"
@@ -33,12 +34,6 @@ void copy_name(Utf8View source, char* destination, u16* bytes) noexcept {
 }
 bool same_text(const char* a, u16 a_bytes, const char* b, u16 b_bytes) noexcept {
     return a_bytes == b_bytes && utf8_equal({a, a_bytes}, {b, b_bytes});
-}
-u8 hex_digit(char c) noexcept {
-    return c >= '0' && c <= '9'   ? static_cast<u8>(c - '0')
-           : c >= 'a' && c <= 'f' ? static_cast<u8>(c - 'a' + 10)
-           : c >= 'A' && c <= 'F' ? static_cast<u8>(c - 'A' + 10)
-                                  : 0xff;
 }
 } // namespace
 
@@ -745,30 +740,15 @@ bool guild_role_toggle(GuildRoleDraft* draft, const GuildSettingsAccess& access,
 }
 
 bool guild_role_color_parse(Utf8View text, u32* color) noexcept {
-    if (!color)
+    u32 rgba = 0;
+    if (!color || !color_hex_parse(text, false, &rgba))
         return false;
-    u32 offset = text.bytes && text.data[0] == '#' ? 1 : 0;
-    if (text.bytes - offset != 6)
-        return false;
-    u32 value = 0;
-    for (; offset < text.bytes; ++offset) {
-        const u8 digit = hex_digit(text.data[offset]);
-        if (digit > 15)
-            return false;
-        value = value << 4 | digit;
-    }
-    *color = value;
+    *color = rgba >> 8;
     return true;
 }
 
 u32 guild_role_color_format(u32 color, Slice<char> output) noexcept {
-    if (!output.data || output.count < 7)
-        return 0;
-    constexpr char digits[] = "0123456789ABCDEF";
-    output[0] = '#';
-    for (u32 i = 0; i < 6; ++i)
-        output[1 + i] = digits[(color >> (20 - i * 4)) & 15];
-    return 7;
+    return color_hex_format(color << 8 | 0xFFu, false, output);
 }
 
 u32 guild_role_color_rgba(u32 color) noexcept {

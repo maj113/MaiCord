@@ -78,6 +78,13 @@ struct TextFormContent {
     ConstSlice<Utf8View> select_options;
     u32 select_selected = 0;
     bool select_expanded = false;
+    // Editors: a hint shown while the field is empty; an error outlines the
+    // field and shows the status in the danger colour; a swatch previews the
+    // colour the text names (0xRRGGBBAA) at the field's end.
+    Utf8View placeholder;
+    bool error = false;
+    bool swatch = false;
+    u32 swatch_rgba = 0;
 };
 
 struct UiResolvedThemeStyles;
@@ -116,6 +123,8 @@ void text_form_release(TextFormScene* scene) noexcept;
 const UiLayoutNode* text_form_node(const TextFormScene& scene, TextFormElement element) noexcept;
 // The option row's checkbox square (empty when the form has no option).
 UiRect text_form_option_box(const TextFormScene& scene) noexcept;
+// The colour preview square inside the editor (empty without a swatch).
+UiRect text_form_swatch_box(const TextFormScene& scene) noexcept;
 // A radio row's circle (a choice or an open dropdown's option); empty for
 // other or absent elements.
 UiRect text_form_choice_marker(const TextFormScene& scene, TextFormElement element) noexcept;

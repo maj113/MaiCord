@@ -36,6 +36,13 @@ struct ApplicationTextForm {
     u64 progress_revision;
     Utf8View progress_accept;
     Utf8View status;
+    // The status is an error: the field and status show the danger colour
+    // until the next edit.
+    bool error;
+    // The last text the request's check accepted and the colour it names.
+    u32 swatch_rgba;
+    u8 accepted_bytes;
+    char accepted[64];
     char labels[2048];
 };
 } // namespace maicord::app_detail

@@ -23,6 +23,7 @@
 #include "maicord/app/client_theme_document.hpp"
 #include "maicord/core/ascii.hpp"
 #include "maicord/core/byte_range.hpp"
+#include "maicord/core/color_hex.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/memory.hpp"
 
@@ -319,19 +320,11 @@ bool color_component(void* context, u32 index, JsonValue value) noexcept {
     return true;
 }
 bool hex_color(Utf8View text, Color* output) noexcept {
-    const u32 digits = text.bytes - 1;
-    if (text.bytes < 4 || text.data[0] != '#' || (digits != 3 && digits != 4 && digits != 6 && digits != 8))
+    u32 rgba = 0;
+    if (text.bytes < 4 || text.data[0] != '#' || !color_hex_parse(text, true, &rgba))
         return false;
-    const bool shorthand = digits <= 4;
-    float channels[4]{0, 0, 0, 1};
-    for (u32 i = 0; i < (shorthand ? digits : digits / 2); ++i) {
-        const i32 high = ascii_hex_value(text.data[1 + (shorthand ? i : i * 2)]);
-        const i32 low = shorthand ? high : ascii_hex_value(text.data[2 + i * 2]);
-        if (high < 0 || low < 0)
-            return false;
-        channels[i] = static_cast<float>(high * 16 + low) / 255.f;
-    }
-    *output = {channels[0], channels[1], channels[2], channels[3]};
+    *output = {static_cast<float>(rgba >> 24) / 255.f, static_cast<float>((rgba >> 16) & 255) / 255.f,
+               static_cast<float>((rgba >> 8) & 255) / 255.f, static_cast<float>(rgba & 255) / 255.f};
     return true;
 }
 // Plain decimal in [0, 1] for the reference alpha suffix.

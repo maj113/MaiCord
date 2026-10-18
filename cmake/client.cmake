@@ -324,7 +324,7 @@ maicord_compact_sources(
         src/ui/shortcuts_scene.cpp src/app/application_keybinds_settings.cpp
         src/ui/login_scene.cpp src/ui/login_presentation.cpp src/ui/login_text_presentation.cpp
         src/ui/login_view.cpp src/ui/qr_code.cpp src/ui/profile_scene.cpp src/ui/profile_media.cpp
-        src/ui/profile_dialog_scene.cpp
+        src/ui/profile_dialog_scene.cpp src/ui/profile_activity.cpp
         src/ui/poll_controls.cpp src/ui/poll_voters.cpp
         src/ui/reaction_viewer.cpp src/ui/reaction_viewer_presentation.cpp
         src/ui/message_context_menu.cpp src/ui/attachment_menu.cpp src/ui/received_attachment_menu.cpp

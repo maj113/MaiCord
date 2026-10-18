@@ -147,10 +147,59 @@ bool chips(const UiSettingsPageContent& content, u32 index) noexcept {
 float button_label_width(Utf8View label) noexcept {
     return ui_settings_text_width(label, kUiSettingsDescriptionEm) * 1.08f;
 }
+// A field shows its error state when its row is critical or an error row
+// follows it.
+bool field_error(const UiSettingsPageContent& content, u32 index) noexcept {
+    const auto* p = presentation(content, index);
+    return (p && p->variant == UiSettingsVariant::critical) ||
+           (index + 1 < content.controls.count && content.controls[index + 1].kind == UiSettingsControlKind::error);
+}
+// Slider labels are estimated generously so a value never ellipsizes.
+float slider_label_width(Utf8View label) noexcept {
+    return ui_settings_text_width(label, kUiSettingsDescriptionEm) * 1.25f + 4;
+}
+// The value label of a slider without marks sits at the end of its label
+// line, as wide as its widest end or current label.
+float slider_value_width(const UiSettingsControl& c) noexcept {
+    if (!c.choices.count)
+        return 0;
+    const Utf8View ends[]{c.choices[0], c.choices[c.choices.count - 1],
+                          c.choices[minimum(c.selected_choice, c.choices.count - 1)]};
+    float width = 0;
+    for (const auto label : ends)
+        width = maximum(width, slider_label_width(label));
+    return width;
+}
+// Mark sliders inset their track so the end labels, centred on the end
+// ticks, stay inside the column.
+float slider_mark_inset(const UiSettingsTokens& t, const UiSettingsControl& c) noexcept {
+    if (!c.choices.count)
+        return 0;
+    const float half = maximum(slider_label_width(c.choices[0]), slider_label_width(c.choices[c.choices.count - 1])) * .5f;
+    return maximum(0.f, half - t.metric.slider_grabber * .5f);
+}
+
+// Multi-line fields grow with their text from three lines (four with a
+// counter) to the style's height, then scroll; lines are estimated like other
+// settings text.
+float multiline_height(const UiSettingsStyle& style, const UiSettingsControl& c, float width) noexcept {
+    const float inner = maximum(1.f, width - style.field_padding * 2);
+    const Utf8View text = c.editor ? c.editor->view.text : Utf8View{};
+    u32 lines = 0, start = 0;
+    for (u32 i = 0; i <= text.bytes; ++i)
+        if (i == text.bytes || text.data[i] == '\n') {
+            lines += maximum(1u, ui_settings_text_lines({text.data + start, i - start}, kUiSettingsLabelEm, inner));
+            start = i + 1;
+        }
+    const u32 minimum_lines = c.action_label.bytes ? 4u : 3u;
+    const float grown =
+        static_cast<float>(maximum(lines, minimum_lines)) * kUiSettingsLabelLine + style.field_padding * 2;
+    return minimum(grown, maximum(style.multiline_height, style.single_height));
+}
 
 // One row's geometry, shared by measurement, paint, text and hit-testing.
 struct RowLayout {
-    UiRect row, label, description, control, lead, chips;
+    UiRect row, label, description, control, lead, chips, value;
     float height;
 };
 // Width taken by a row's leading handle, avatar or dot.
@@ -260,6 +309,12 @@ RowLayout row_layout(const UiSettingsTokens& t, const UiSettingsStyle& style, co
     float text_height = text_block(m, c.label, c.description, text_width);
     const float content_top = top + pad_top;
     r.label = {text_left, content_top, text_left + text_width, content_top + kUiSettingsLabelLine};
+    if (c.kind == UiSettingsControlKind::slider && !marks(content, index)) {
+        // The value shares the label line; the label stops a gap before it.
+        const float value = minimum(slider_value_width(c), text_width * .5f);
+        r.value = {r.label.right - value, r.label.top, r.label.right, r.label.bottom};
+        r.label.right = maximum(r.label.left, r.value.left - m.control_gap);
+    }
     if (c.description.bytes) {
         const float desc_top = c.label.bytes ? r.label.bottom + m.label_gap : content_top;
         r.description = {text_left, desc_top, text_left + text_width, content_top + text_height};
@@ -293,7 +348,7 @@ RowLayout row_layout(const UiSettingsTokens& t, const UiSettingsStyle& style, co
     } else {
         float height = maximum(m.control_height, style.single_height);
         if (c.kind == UiSettingsControlKind::multiline)
-            height = style.multiline_height;
+            height = multiline_height(style, c, width);
         else if (c.kind == UiSettingsControlKind::edit)
             height = maximum(m.control_height, style.single_height);
         else if (c.kind == UiSettingsControlKind::radio)
@@ -312,8 +367,11 @@ RowLayout row_layout(const UiSettingsTokens& t, const UiSettingsStyle& style, co
         const float control_right =
             c.kind == UiSettingsControlKind::choice ? left + minimum(width, 360.f) : left + width;
         r.control = {left, control_top, control_right, control_top + height};
-        if (c.kind == UiSettingsControlKind::slider && marks(content, index))
+        if (c.kind == UiSettingsControlKind::slider && marks(content, index)) {
+            const float inset = slider_mark_inset(t, c);
+            r.control.left += inset, r.control.right -= inset;
             r.control.top += 4, r.control.bottom += 4, height += 4;
+        }
         inner = text_height + (text_height > 0 ? m.field_gap : 0) + height;
     }
     r.lead = {left, content_top, text_left, content_top + inner};
@@ -954,6 +1012,7 @@ bool row_pointer_region(const void* context, const UiWidgetManager&, UiWidgetHan
 }
 u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& content, const UiSettingsStyle& style,
                      UiRect viewport, UiPageKey page, u32 registry_revision) noexcept {
+    const auto aside = aside_layout(scene);
     u64 hash = hash64_bytes(kHash64Seed, &viewport, sizeof(viewport));
     hash = hash64_mix(hash, page.owner_id);
     hash = hash64_mix(hash, page.page_id);
@@ -985,6 +1044,9 @@ u64 layout_signature(const UiSettingsScene& scene, const UiSettingsPageContent& 
         if (chips(content, i))
             for (u32 j = 0; j < c.choices.count; ++j)
                 hash = hash64_bytes(hash, c.choices[j].data, c.choices[j].bytes);
+        // A multi-line field relayouts when its text grows or shrinks a line.
+        if (c.kind == UiSettingsControlKind::multiline)
+            hash = hash64_mix(hash, static_cast<u64>(multiline_height(style, c, row_width(scene, aside, i)) * 4));
     }
     return hash;
 }
@@ -1827,16 +1889,17 @@ bool ui_settings_scene_slider_key(const UiSettingsScene& scene, UiSettingsTarget
         (c->kind != UiSettingsControlKind::slider && c->kind != UiSettingsControlKind::palette &&
          c->kind != UiSettingsControlKind::radio && c->kind != UiSettingsControlKind::segments &&
          c->kind != UiSettingsControlKind::swatches) ||
-        key > UiSettingsSliderKey::end)
+        key > UiSettingsSliderKey::page_increase)
         return false;
     const u32 last = c->choices.count - 1;
-    const u32 selected = c->selected_choice > last ? (key == UiSettingsSliderKey::increase ? ~0u : last + 1)
-                                                   : c->selected_choice;
+    const bool up = key == UiSettingsSliderKey::increase || key == UiSettingsSliderKey::page_increase;
+    const bool page = key == UiSettingsSliderKey::page_decrease || key == UiSettingsSliderKey::page_increase;
+    const u32 step = page && c->kind == UiSettingsControlKind::slider ? ui_slider_page_step(c->choices.count) : 1u;
+    const u32 selected = c->selected_choice > last ? (up ? ~0u : last + 1) : c->selected_choice;
     const u32 value = key == UiSettingsSliderKey::home  ? 0
                       : key == UiSettingsSliderKey::end ? last
-                      : key == UiSettingsSliderKey::decrease
-                          ? (selected ? minimum(selected - 1, last) : 0)
-                          : (selected == ~0u ? 0 : minimum(selected + 1, last));
+                      : !up ? (selected > step ? minimum(selected - step, last) : 0)
+                            : (selected == ~0u ? 0 : minimum(selected + step, last));
     *output = {target, c->kind, c->checked, value};
     return true;
 }
@@ -2258,8 +2321,10 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
             ok = paint_stream_push_rounded(paint, tab.left, r.control.bottom - 2, tab.right, r.control.bottom,
                                            tc.brand, theme.scale.radius_xs);
         if (ok && state.focused && scene.focus_visible && ui_rect_has_area(tab))
-            ok = paint_stream_push_rounded_border(paint, tab.left - 6, tab.top - 4, tab.right + 6, tab.bottom - 8, {},
-                                                  tc.focus_ring, theme.scale.radius_sm, 2);
+            ok = ui_settings_focus_paint(paint, t,
+                                         {tab.left - theme.scale.space_2, tab.top, tab.right + theme.scale.space_2,
+                                          tab.top + kUiSettingsLabelLine},
+                                         theme.scale.radius_sm);
         return ok;
     }
     case UiSettingsControlKind::buttons:
@@ -2312,7 +2377,7 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                                             : UiSettingsButtonVariant::secondary,
                                         state);
     case UiSettingsControlKind::choice:
-        return ui_select_paint(paint, t, r.control, false, state);
+        return ui_select_paint(paint, t, r.control, false, state, field_error(scene.content, entry.source_index));
     case UiSettingsControlKind::edit:
     case UiSettingsControlKind::multiline: {
         auto view = c.editor->view;
@@ -2322,9 +2387,10 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
         UiSettingsControlGeometry geometry{};
         if (!ui_settings_scene_control_geometry(scene, entry.target, &geometry))
             return true;
-        return ui_input_shell_paint(paint, t, r.control, {c.enabled, state.hovered, false, view.focused}) &&
-               ui_edit_field_paint(paint, r.control, geometry.text, view, c.editor->geometry, {0, 0, 0, 0}, theme,
-                                   dpi, t.metric.control_radius);
+        return ui_input_shell_paint(paint, t, r.control, {c.enabled, state.hovered, false, view.focused},
+                                    field_error(scene.content, entry.source_index)) &&
+               ui_edit_field_paint_content(paint, ui_rect_overlap(geometry.text, geometry.clip), view,
+                                           c.editor->geometry, theme, dpi);
     }
     case UiSettingsControlKind::slider: {
         const auto g = ui_slider_geometry(t, r.control, c.choices.count, c.selected_choice,
@@ -2380,9 +2446,13 @@ bool paint_row(const UiSettingsScene& scene, const Theme& theme, const UiSetting
                                                                  : tc.mod_subtle;
         const UiRect box{r.row.left, r.row.top + t.metric.row_padding * .5f, r.row.right,
                          r.row.bottom - t.metric.row_padding * .5f};
-        ok = paint_stream_push_rounded(paint, box.left, box.top, box.right, box.bottom, fill, t.metric.control_radius);
-        if (ok && tone == UiSettingsVariant::critical)
-            ok = paint_stream_push_rounded(paint, box.left, box.top, box.left + 3, box.bottom, tc.critical_text, 1.5f);
+        // Critical notices outline the tinted box, sharing its corners.
+        ok = tone == UiSettingsVariant::critical
+                 ? paint_stream_push_rounded_border(paint, box.left, box.top, box.right, box.bottom, fill,
+                                                    ui_settings_color_alpha(tc.critical_text, .5f),
+                                                    t.metric.control_radius, 1)
+                 : paint_stream_push_rounded(paint, box.left, box.top, box.right, box.bottom, fill,
+                                             t.metric.control_radius);
         if (ok && c.action_label.bytes)
             ok = ui_settings_button_paint(paint, t, r.control, UiSettingsButtonVariant::secondary, state);
         if (ok && c.checked) {
@@ -2733,9 +2803,9 @@ bool row_text(const UiSettingsScene& scene, const UiSettingsTokens& t, UiTextOut
                     return false;
             return true;
         }
-        const UiRect value{r.row.right - 96, r.label.top, r.row.right, r.label.bottom};
-        return text(stream, scene, handle, c.choices[c.selected_choice], value,
-                    ui_settings_color_alpha(tc.text_subtle, dim), text_description, UiTextAlignment::end);
+        return c.selected_choice >= c.choices.count ||
+               text(stream, scene, handle, c.choices[c.selected_choice], r.value,
+                    ui_settings_color_alpha(tc.text_default, dim), text_description, UiTextAlignment::end);
     }
     case UiSettingsControlKind::palette: {
         const u32 columns = ui_swatch_columns(t, ui_rect_width(r.control));

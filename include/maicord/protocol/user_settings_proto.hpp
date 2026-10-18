@@ -105,12 +105,13 @@ bool user_settings_proto_partial(ConstSlice<u8> extracted) noexcept;
 ConstSlice<u8> user_settings_proto_group(ConstSlice<u8> extracted, u32 group) noexcept;
 
 // PATCH /users/@me/settings-proto/1 body: {"settings":"<base64>"} plus
-// "required_data_version" when nonzero. The partial message may contain only
+// "required_data_version" when nonzero or `required` (an edit made offline
+// pins the data version it was made against, which may be 0). The partial message may contain only
 // length-delimited top-level groups 2..31 other than status; guild folders
 // (group 14) travel alone, from their own owner.
 bool user_settings_proto_patch_valid(ConstSlice<u8> partial) noexcept;
 u32 user_settings_proto_write_patch_json(ConstSlice<u8> partial, u32 required_data_version,
-                                         Slice<u8> output) noexcept;
+                                         Slice<u8> output, bool required = false) noexcept;
 // {"settings":"<base64>","out_of_date":bool} from GET/PATCH. Escaped base64
 // must be unescaped by the caller into `unescape` scratch.
 struct UserSettingsResponse {
@@ -137,6 +138,8 @@ struct UserSettingsStore {
     u32 offline_data_version;
     u8 session_hash_bytes;
     bool loaded, live, inflight_active, refetch;
+    // An offline edit pinned offline_data_version (which may be 0).
+    bool offline_pinned;
 };
 enum class UserSettingsOutcome : u8 { saved, out_of_date, rate_limited, invalid_data, failed };
 struct UserSettingsCompletion {
@@ -158,7 +161,9 @@ bool user_settings_store_set(UserSettingsStore*, UserSettingsField, const UserSe
 bool user_settings_store_due(const UserSettingsStore&, u64 now_ms) noexcept;
 // Serializes the dirty groups into a partial message and moves the edits in
 // flight. Returns the message bytes (0 when nothing to send or on failure).
-u32 user_settings_store_begin(UserSettingsStore*, Slice<u8> partial, u32* required_data_version) noexcept;
+// *required reports whether required_data_version must be sent.
+u32 user_settings_store_begin(UserSettingsStore*, Slice<u8> partial, u32* required_data_version,
+                              bool* required = nullptr) noexcept;
 // response is the extracted message of the reply (empty on failure).
 UserSettingsCompletion user_settings_store_complete(UserSettingsStore*, UserSettingsOutcome,
                                                     ConstSlice<u8> response, u64 retry_at_ms) noexcept;

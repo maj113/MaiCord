@@ -121,6 +121,12 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
               !user_settings_proto_patch_valid({versions_group, 2}) && !user_settings_proto_patch_valid({scalar, 2}) &&
               !user_settings_proto_write_patch_json({partial, 4}, 0, {json, 20}),
           "user settings: PATCH JSON envelope, data version and partial message validation");
+    u8 pinned_json[96]{};
+    const u32 pinned_bytes = user_settings_proto_write_patch_json({partial, 4}, 0, {pinned_json, 96}, true);
+    check(text_equal({pinned_json, 96}, pinned_bytes,
+                     utf8_literal("{\"settings\":\"agJIAQ==\",\"required_data_version\":0}")) &&
+              !user_settings_proto_write_patch_json({partial, 4}, 0, {pinned_json, 40}, true),
+          "user settings: a pinned data version 0 is still sent, as JSON.stringify writes it");
 
     constexpr char response[] = "{\"settings\":\"agJIAQ==\",\"out_of_date\":true}";
     char unescape[64];
@@ -203,10 +209,27 @@ void test_user_settings_proto(void (*check)(bool, const char*) noexcept) noexcep
     store->live = false;
     user_settings_store_set(store, emoticons, user_settings_number(0), 0);
     store->live = true;
-    user_settings_store_begin(store, {patch, sizeof(patch)}, &required);
-    check(required == 43, "user settings: offline edits pin required_data_version for the conflict check");
+    bool pinned = false;
+    user_settings_store_begin(store, {patch, sizeof(patch)}, &required, &pinned);
+    check(required == 43 && pinned, "user settings: offline edits pin required_data_version for the conflict check");
     completion = user_settings_store_complete(store, UserSettingsOutcome::invalid_data, {}, 0);
     check(completion.rolled_back && store->refetch, "user settings: invalid data rolls back and asks for a refetch");
+    // An account without settings (READY "") loads every default, editable;
+    // an offline edit then pins data version 0 and still sends it.
+    user_settings_store_reset(store);
+    check(user_settings_store_apply(store, {}, false) && store->loaded && !store->present_mask &&
+              !store->data_version && user_settings_store_set(store, compact, user_settings_number(1), 0),
+          "user settings: an empty full snapshot loads defaults and accepts edits");
+    store->live = true;
+    required = 99;
+    pinned = false;
+    check(user_settings_store_begin(store, {patch, sizeof(patch)}, &required, &pinned) && !required && pinned,
+          "user settings: an offline edit against data version 0 pins it");
+    user_settings_store_complete(store, UserSettingsOutcome::saved, {}, 0);
+    user_settings_store_set(store, compact, user_settings_number(1), 0);
+    pinned = true;
+    check(user_settings_store_begin(store, {patch, sizeof(patch)}, &required, &pinned) && !required && !pinned,
+          "user settings: live edits send no required_data_version");
     VirtualFree(store, 0, MEM_RELEASE);
 }
 
@@ -389,8 +412,19 @@ void test_account_settings_rest(void (*check)(bool, const char*) noexcept) noexc
               utf8_equal(path(w.target_bytes), utf8_literal("/api/v10/users/@me/settings-proto/1")) &&
               utf8_equal(view(w.body_bytes), utf8_literal("{\"settings\":\"agJIAQ==\",\"required_data_version\":7}")),
           "account settings: settings-proto PATCH serializes the partial message");
-    r.reserved[0] = 1;
+    r.reserved = 1;
     check(!account_settings_request_valid(r), "account settings: reserved bytes must be zero");
+    r.reserved = 0;
+    r.required_data_version = 0;
+    r.required_data_version_present = true;
+    w = account_settings_write_request(r, {target, sizeof(target)}, {body, sizeof(body)});
+    check(w.ok() &&
+              utf8_equal(view(w.body_bytes), utf8_literal("{\"settings\":\"agJIAQ==\",\"required_data_version\":0}")),
+          "account settings: a pinned data version 0 is written into the PATCH");
+    r.operation = AccountSettingsOperation::settings_fetch;
+    r.payload = {};
+    check(!account_settings_request_valid(r),
+          "account settings: only a settings PATCH may carry required_data_version");
 
     u32 structurals[512];
     constexpr char sessions[] =

@@ -266,6 +266,15 @@ maicord_test(MaiCordPluginBrowserTests ENTRY maicord_plugin_browser_tests_entry
     INCLUDES src/app
     TIMEOUT 10
     TEST maicord_plugin_browser)
+# Nested rounded rectangles, clipped highlights and per-component padding
+# across representative synthetic scenes.
+maicord_test(MaiCordLayoutConsistencyTests ENTRY maicord_layout_consistency_tests_entry
+    SOURCES tests/layout_consistency.cpp src/app/application_plugin_browser_projection.cpp
+    LIBS maicord_core maicord_platform maicord_protocol maicord_model maicord_app_core maicord_ui maicord_text
+        maicord_message_runtime maicord_plugin_manager maicord_plugin_modules kernel32 user32 bcrypt
+    INCLUDES src/app
+    TIMEOUT 10
+    TEST maicord_layout_consistency)
 maicord_test(MaiCordSettingsRuntimeTests ENTRY maicord_settings_runtime_entry
     SOURCES tests/application_settings_runtime.cpp tests/application_custom_theme.cpp
         tests/application_plugin_catalog_runtime.cpp tests/application_plugin_navigation_runtime.cpp
@@ -321,6 +330,14 @@ maicord_test(MaiCordPresenceWaveTests ENTRY maicord_presence_wave_entry
     LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32 ole32
     TIMEOUT 10
     TEST maicord_presence_wave)
+# Profile rich presence cards: order, text, timers, progress, asset URLs and
+# artwork fallback, popout and full profile layout, ticks, and the application
+# icon and button metadata requests.
+maicord_test(MaiCordProfileActivityTests ENTRY maicord_profile_activity_entry
+    SOURCES tests/profile_activity.cpp
+    LIBS ${maicord_app_test_libs} maicord_message_runtime kernel32 user32 ole32
+    TIMEOUT 10
+    TEST maicord_profile_activity)
 # A large-account READY through the production projection and the app's
 # message event pump; skipped-event isolation and diagnostics.
 maicord_test(MaiCordReadyScalePumpTests ENTRY maicord_ready_scale_pump_entry
@@ -839,7 +856,8 @@ maicord_test(MaiCordSearchNavigationRuntimeTests ENTRY maicord_application_searc
     TEST maicord_search_navigation_runtime)
 maicord_test(MaiCordImageViewerRuntimeTests ENTRY maicord_application_image_viewer_runtime_entry
     SOURCES tests/application_image_viewer_runtime.cpp src/app/application_state.cpp src/core/log.cpp
-    LIBS ${maicord_app_test_libs} maicord_ui_input maicord_message_runtime maicord_text kernel32 user32
+    LIBS ${maicord_app_test_libs} maicord_ui_input maicord_message_runtime maicord_text maicord_render_core
+        kernel32 user32
     INCLUDES src/app
     TIMEOUT 15
     TEST maicord_image_viewer_runtime)
@@ -1595,7 +1613,8 @@ maicord_test(MaiCordUiProbe WIN32 ENTRY maicord_ui_probe_entry
         tests/integration/background_theme_probe.cpp
         tests/integration/plugin_ui_probe.cpp tests/integration/plugin_navigation_ui_probe.cpp
         tests/integration/plugin_catalog_ui_probe.cpp src/app/application_plugin_browser_projection.cpp
-        tests/integration/settings_choice_ui_probe.cpp
+        tests/integration/settings_choice_ui_probe.cpp tests/integration/user_settings_ui_probe.cpp
+        src/app/settings_catalog.cpp
         tests/integration/notification_settings_ui_probe.cpp tests/integration/shortcuts_ui_probe.cpp
         tests/integration/call_scene_ui_probe.cpp tests/integration/inbox_ui_probe.cpp
         tests/integration/login_recovery_ui_probe.cpp tests/login_reset_ui_probe.cpp
@@ -1683,6 +1702,9 @@ maicord_ui_probe_test(maicord_guild_rail_icon_probe UI_GUILD_RAIL_ICON_PROBE BOO
 # Profiles settings page, preview card, cropper and decoration picker.
 maicord_ui_probe_test(maicord_profile_editor_ui_probe PROFILE_EDITOR_UI_PROBE BOOTSTRAP
     TIMEOUT 20 LABELS native-ui display RESOURCE_LOCK native_gpu)
+# Rich presence cards in the profile popout and full profile.
+maicord_ui_probe_test(maicord_profile_activity_ui_probe PROFILE_ACTIVITY_UI_PROBE BOOTSTRAP
+    TIMEOUT 20 LABELS native-ui display RESOURCE_LOCK native_gpu)
 maicord_ui_probe_test(maicord_shortcuts_ui_probe UI_SHORTCUTS_PROBE BOOTSTRAP
     TIMEOUT 20 LABELS native-ui display RESOURCE_LOCK native_gpu)
 # Growable media atlases, frame caches and a 1080p DXVA stream: pixels
@@ -1735,7 +1757,7 @@ endforeach()
 # MAICORD_<GATE>_PROBE runs as maicord_<gate>_probe, a leading UI_ moved to the end.
 foreach(maicord_ui_gate IN ITEMS ACCOUNT_MENU_UI ANIMATION_HANDOFF_UI BOOTSTRAP_TITLE CATALOG_APNG_UI INBOX_UI
         LONG_EMBED_UI MEDIA_FAVORITES_UI MEDIA_PICKER_UI MENU_ROW_UI NOTIFICATION_SETTINGS_UI PLUGIN_CATALOG_UI
-        PROFILE_BRAILLE_UI SCOPED_SEARCH_UI SEARCH_UI TOOLTIP_UI TRANSPARENT_GUILD_UI UI_CHANNEL_OVERVIEW
+        PROFILE_BRAILLE_UI SCOPED_SEARCH_UI SEARCH_UI TOOLTIP_UI TRANSPARENT_GUILD_UI USER_SETTINGS_UI UI_CHANNEL_OVERVIEW
         UI_COMPOSER_WORKFLOW UI_DOWNLOAD UI_FORUM_POST UI_FORWARDED_MESSAGES UI_HOVER_RETENTION UI_INLINE_FLAGS
         UI_MEDIA_UNDERLAY UI_MESSAGE_FORWARD UI_PANE_GLYPH_STRESS UI_PINNED_MESSAGES UI_QUICK_SWITCHER
         UI_SEARCH_POLISH UI_SURFACE_MOTION UI_THREAD_CREATION UI_UNIFIED_PICKER)

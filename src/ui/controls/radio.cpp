@@ -38,22 +38,26 @@ u32 ui_radio_hit(const UiSettingsTokens& tokens, UiRect group, u32 count, float 
 bool ui_radio_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect indicator, bool selected,
                     UiControlState state) noexcept {
     const auto& c = tokens.color;
-    const float alpha = state.enabled ? 1.f : .5f;
+    const float alpha = state.enabled ? 1.f : tokens.disabled_alpha;
     const float radius = ui_rect_width(indicator) * .5f;
-    const Color fill = selected ? (state.hovered ? c.brand_hover : c.brand) : c.input_background;
-    const Color border = selected ? c.border_subtle : state.hovered ? c.radio_border_hover : c.radio_border;
+    const bool pressed = state.pressed && state.enabled, hovered = state.hovered && state.enabled;
+    const Color fill = selected ? (pressed ? c.brand_active : hovered ? c.brand_hover : c.brand)
+                       : pressed ? c.mod_normal
+                       : hovered ? c.mod_subtle
+                                 : c.input_background;
+    const Color border = selected ? c.border_subtle : pressed || hovered ? c.radio_border_hover : c.radio_border;
     bool ok = paint_stream_push_rounded_border(paint, indicator.left, indicator.top, indicator.right,
                                                indicator.bottom, ui_settings_color_alpha(fill, alpha),
                                                ui_settings_color_alpha(border, alpha), radius, 2);
     if (ok && selected) {
-        const float dot = ui_rect_width(indicator) * .4f;
-        const float cx = (indicator.left + indicator.right) * .5f, cy = (indicator.top + indicator.bottom) * .5f;
-        ok = paint_stream_push_rounded(paint, cx - dot * .5f, cy - dot * .5f, cx + dot * .5f, cy + dot * .5f,
-                                       ui_settings_color_alpha(c.on_brand, alpha), dot * .5f);
+        // The dot is concentric with the ring: inset by (size - dot) / 2.
+        const float dot = ui_rect_width(indicator) * .4f, inset = (ui_rect_width(indicator) - dot) * .5f;
+        ok = paint_stream_push_rounded(paint, indicator.left + inset, indicator.top + inset, indicator.right - inset,
+                                       indicator.bottom - inset, ui_settings_color_alpha(c.on_brand, alpha),
+                                       ui_inner_radius(radius, inset));
     }
     if (ok && state.focused)
-        ok = paint_stream_push_rounded_border(paint, indicator.left - 3, indicator.top - 3, indicator.right + 3,
-                                              indicator.bottom + 3, {}, c.focus_ring, radius + 3, 2);
+        ok = ui_settings_focus_paint(paint, tokens, indicator, radius);
     return ok;
 }
 

@@ -4,6 +4,7 @@
 // effects in plugin_sdk_data.cpp.
 #include "plugin_sdk_internal.hpp"
 #include "maicord/core/byte_order.hpp"
+#include "maicord/core/color_hex.hpp"
 #include "maicord/core/decimal.hpp"
 #include "maicord/core/hash.hpp"
 
@@ -1305,16 +1306,9 @@ bool native_plugin_sdk_keybind_chord(Utf8View normal, NativePluginSdkChord* chor
 }
 
 bool native_plugin_sdk_colour_parse(Utf8View text, u32* colour) noexcept {
-    u32 at = text.bytes && text.data[0] == '#' ? 1 : 0;
-    if (!colour || text.bytes - at != 6) return false;
-    u32 value = 0;
-    for (; at < text.bytes; ++at) {
-        const char c = text.data[at];
-        const i32 nibble = ascii_hex_value(c);
-        if (nibble < 0) return false;
-        value = value << 4 | static_cast<u32>(nibble);
-    }
-    *colour = value;
+    u32 rgba = 0;
+    if (!colour || !color_hex_parse(text, false, &rgba)) return false;
+    *colour = rgba >> 8;
     return true;
 }
 

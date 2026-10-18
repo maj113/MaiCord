@@ -120,6 +120,19 @@ enum class SettingBinding : u16 {
     game_detection,
     registered_games,
     add_game,
+    // More synced settings (settings-proto/1, application_user_settings):
+    // Messaging Permissions, Data & Privacy and Activity Privacy rows.
+    nsfw_guilds,
+    friend_request_notes,
+    sponsored_activity,
+    sponsored_third_party,
+    share_online,
+    share_streaming,
+    activity_servers,
+    join_friends,
+    join_voice,
+    activity_notice,
+    accessibility_notice,
     count
 };
 enum class SettingBackend : u8 {
@@ -148,7 +161,7 @@ enum class SettingsPanel : u8 {
     data_privacy,
     authorized_apps,
     language_time,
-    chat,
+    registered_games,
     keybinds,
     system,
     activity_privacy,
@@ -189,5 +202,10 @@ struct SettingValue {
 bool settings_store_read(const ClientPreferences&, SettingBinding, SettingValue*) noexcept;
 bool settings_store_write(ClientPreferences*, SettingBinding, SettingValue) noexcept;
 ClientTheme settings_theme_choice(SettingBinding palette, u32 choice) noexcept;
+// The preview of one theme swatch under these preferences: a gradient theme's
+// own stops (Custom: the user's), or a flat theme's surface as one repeated
+// stop, which the swatch paints solid.
+bool settings_theme_swatch(const ClientPreferences&, SettingBinding palette, u32 choice,
+                           BackgroundTheme* output) noexcept;
 
 } // namespace maicord

@@ -2,6 +2,7 @@
 
 #include "maicord/ui/geometry.hpp"
 #include "maicord/ui/paint.hpp"
+#include "maicord/ui/surface_geometry.hpp"
 
 namespace maicord {
 struct UiSettingsTokens;
@@ -11,6 +12,13 @@ struct UiSettingsTokens;
 struct UiControlState {
     bool enabled{true}, hovered{}, pressed{}, focused{};
 };
+
+// Concentric rings: a stroke of `width` whose inner edge sits `gap` outside a
+// rounded shape, every corner sharing the shape's centre of curvature (ring
+// radius = radius + gap + width). Focus rings use the focus gap and width.
+UiRect ui_settings_ring_rect(UiRect shape, float gap, float width) noexcept;
+bool ui_settings_ring_paint(PaintStream*, UiRect shape, float radius, float gap, float width, Color) noexcept;
+bool ui_settings_focus_paint(PaintStream*, const UiSettingsTokens&, UiRect shape, float radius) noexcept;
 
 // Switch: pill track with a white thumb. motion is the normalized time of a
 // running toggle animation (1 when settled); the thumb squashes while pressed.
@@ -33,6 +41,8 @@ bool ui_radio_paint(PaintStream*, const UiSettingsTokens&, UiRect indicator, boo
                     UiControlState) noexcept;
 
 // Slider with optional value marks above the bar; the default mark is tinted.
+// Hovered, pressed or focused sliders paint a larger grabber and thicker bar
+// (by slider_grabber_grow and slider_bar_grow) around the same centres.
 struct UiSliderGeometry {
     UiRect bounds, bar, fill, grabber;
     float track_left, track_right;
@@ -43,6 +53,11 @@ UiSliderGeometry ui_slider_geometry(const UiSettingsTokens&, UiRect bounds, u32 
                                     bool marks) noexcept;
 float ui_slider_position(const UiSliderGeometry&, u32 count, u32 index) noexcept;
 u32 ui_slider_index_at(const UiSliderGeometry&, u32 count, float x) noexcept;
+// Page Up/Down step: a tenth of the range, at least one step.
+u32 ui_slider_page_step(u32 count) noexcept;
+// A press on the grabber keeps its offset from the grabber's centre so the
+// value does not jump; a press elsewhere on the track centres it (0).
+float ui_slider_grab_offset(UiRect grabber, float x, float y) noexcept;
 UiRect ui_slider_mark_label(const UiSettingsTokens&, const UiSliderGeometry&, u32 count, u32 index) noexcept;
 // Meter slider (input sensitivity): the level fills the track, faint below the
 // thumb and positive past it; no brand fill.
@@ -51,11 +66,14 @@ bool ui_slider_meter_paint(PaintStream*, const UiSettingsTokens&, const UiSlider
 bool ui_slider_paint(PaintStream*, const UiSettingsTokens&, const UiSliderGeometry&, u32 count,
                      u32 default_index, UiControlState) noexcept;
 
-// Input shell shared by select, text field and search.
+// Input shell shared by select, text field and search. Focus (or an open
+// select) draws a 2 DIP outline over the border: brand, or critical while the
+// field shows an error.
 bool ui_input_shell_paint(PaintStream*, const UiSettingsTokens&, UiRect, UiControlState,
                           bool error = false) noexcept;
 UiRect ui_select_text_rect(const UiSettingsTokens&, UiRect field) noexcept;
-bool ui_select_paint(PaintStream*, const UiSettingsTokens&, UiRect field, bool open, UiControlState) noexcept;
+bool ui_select_paint(PaintStream*, const UiSettingsTokens&, UiRect field, bool open, UiControlState,
+                     bool error = false) noexcept;
 
 enum class UiSettingsButtonVariant : u8 {
     secondary,

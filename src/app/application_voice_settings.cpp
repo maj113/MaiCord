@@ -148,6 +148,12 @@ bool application_voice_settings_activate(SettingBinding binding, bool checked, u
         else
             shortcut_recorder_start(&page.recorder, ShortcutRecordMode::single_key);
         return true;
+    case SettingBinding::voice_input_mode:
+        // The Push to Talk switch picks the input mode.
+        choice = static_cast<u32>(checked ? VoiceInputMode::push_to_talk : VoiceInputMode::voice_activity);
+        if (!voice_settings_write(&next, binding, {checked, choice}))
+            return false;
+        break;
     case SettingBinding::voice_sensitivity:
         if (p.audio.auto_sensitivity)
             return false;

@@ -38,6 +38,7 @@
 #include "maicord/core/hash.hpp"
 #include "maicord/core/utf.hpp"
 #include "maicord/ui/settings_scene.hpp"
+#include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/guild_icon_media.hpp"
 #include "maicord/model/asset_hash.hpp"
 #include "maicord/core/memory.hpp"
@@ -72,7 +73,10 @@ struct ApplicationPluginSettingsPage {
 // One bank serves the plugin catalog (its 21-row ceiling), any catalog panel
 // and search results. Keybinds, which lists every default shortcut, projects
 // into its own bank (application_keybinds_settings_bank).
-inline constexpr u32 kSettingsControlCapacity = kApplicationPluginSettingsMaximumControls;
+inline constexpr u32 kSettingsControlCapacity = 28;
+static_assert(kSettingsControlCapacity >= kApplicationPluginSettingsMaximumControls);
+// Only short pages carry avatar media (the Account card); longer ones have none.
+inline constexpr u32 kSettingsAvatarRows = 12;
 inline constexpr u32 kSettingsPanelRowLimit = kKeybindsSettingsBankCapacity;
 static_assert(kSettingsPanelRowLimit >= kSettingsControlCapacity);
 inline constexpr u32 kSettingsSearchHits = 16;
@@ -89,7 +93,7 @@ struct ApplicationSettings {
     // search results and the plugin catalog never borrow it at the same time.
     UiSettingsControl controls[kSettingsControlCapacity];
     UiSettingsControlPresentation presentation[kSettingsControlCapacity];
-    UiSettingsAvatarMedia avatar_media[kSettingsControlCapacity];
+    UiSettingsAvatarMedia avatar_media[kSettingsAvatarRows];
     u64 custom_theme_revision;
     u32 native_page;
     ApplicationPluginCatalogText catalog_text[kApplicationPluginCatalogWindow];
@@ -121,6 +125,8 @@ struct ApplicationSettings {
     UiSettingsTarget slider_target;
     bool slider_preview;
     UiRect slider_viewport;
+    // Pointer offset from the grabber's centre when the drag started on it.
+    float slider_grab;
     float scrollbar_grab;
     ApplicationSettingsChoice choice;
     ApplicationPluginSettingsPage* plugin_page;
@@ -277,9 +283,14 @@ bool project_node(const ApplicationSettings& settings, u32 panel, u32 index, UiS
         control->checked = value.checked;
         control->selected_choice = value.choice;
     }
-    // The default group spacing depends on the message display.
-    if (binding == SettingBinding::group_spacing && control->selected_choice == kUiSettingsNoChoice)
-        control->selected_choice = g_app.message_scene.display.compact ? 0 : 3;
+    // The default group spacing, and its highlighted mark, follow the message
+    // display: 16px cozy, 0px compact.
+    if (binding == SettingBinding::group_spacing) {
+        const u16 fallback = g_app.message_scene.display.compact ? 0 : 3;
+        presentation->default_choice = fallback;
+        if (control->selected_choice == kUiSettingsNoChoice)
+            control->selected_choice = fallback;
+    }
     // Registered plugin effects follow the built-in effects.
     if (binding == SettingBinding::background_effect)
         application_plugins_fx_project(control);
@@ -554,14 +565,16 @@ void project(ApplicationSettings& settings) noexcept {
         const u64 card_id =
             settings_catalog_binding(SettingBinding::account_card, &card) ? settings_control_id(card.panel, card.node) : 0;
         const auto self = self_avatar_media();
-        for (u32 i = 0; i < count; ++i) {
+        const bool avatars = count <= kSettingsAvatarRows;
+        for (u32 i = 0; avatars && i < count; ++i) {
             const auto media = card_id && settings.controls[i].id == card_id ? self : UiSettingsAvatarMedia{};
             if (!same_avatar_media(settings.avatar_media[i], media)) {
                 settings.avatar_media[i] = media;
                 page = true;
             }
         }
-        content.avatar_media = settings.avatar_media;
+        page = page || (content.avatar_media != nullptr) != avatars;
+        content.avatar_media = avatars ? settings.avatar_media : nullptr;
         content.meters = native == static_cast<u32>(SettingsPanel::voice) + 1
                              ? application_voice_settings_meters({settings.controls, count})
                              : nullptr;
@@ -797,26 +810,7 @@ bool resolve_palette(void*, u64 control, u32 choice, BackgroundTheme* output) no
     }
     SettingBinding binding{};
     control_node(control, &binding);
-    if ((binding != SettingBinding::theme_base && binding != SettingBinding::theme_color) || !output ||
-        choice >= (binding == SettingBinding::theme_base ? 3u : 5u))
-        return false;
-    auto preferences = g_app.preferences;
-    preferences.theme = settings_theme_choice(binding, choice);
-    const auto theme = client_theme_projection(preferences);
-    *output = theme.background;
-    if (!background_theme_valid(*output)) {
-        // Flat themes report one repeated stop; the swatch paints it solid.
-        *output = background_theme_defaults();
-        const auto base = theme.base_low;
-        const u32 rgb = static_cast<u32>(base.red * 255 + .5f) << 16 | static_cast<u32>(base.green * 255 + .5f) << 8 |
-                        static_cast<u32>(base.blue * 255 + .5f);
-        output->colors[0] = output->colors[1] = rgb;
-        output->colors[2] = output->colors[3] = output->colors[4] = 0;
-        output->color_count = 2;
-        output->intensity = 100;
-        output->effect = BackgroundEffect::none;
-    }
-    return true;
+    return settings_theme_swatch(g_app.preferences, binding, choice, output);
 }
 void close_choice() noexcept {
     if (g_app.settings)
@@ -2026,12 +2020,16 @@ bool application_settings_input(UiInputKind kind, u32 code, bool repeated) noexc
                             focused_control->kind == UiSettingsControlKind::palette ||
                             focused_control->kind == UiSettingsControlKind::radio)) {
         const bool decrease = code == VK_LEFT, increase = code == VK_RIGHT;
-        if (code == VK_HOME || code == VK_END || decrease || increase) {
+        // Page Up/Down move a slider by a tenth of its range.
+        const bool page = focused_control->kind == UiSettingsControlKind::slider && (code == VK_PRIOR || code == VK_NEXT);
+        if (code == VK_HOME || code == VK_END || decrease || increase || page) {
             UiSettingsActivation activation{};
-            const auto direction = code == VK_HOME ? UiSettingsSliderKey::home
-                                   : code == VK_END ? UiSettingsSliderKey::end
-                                   : decrease       ? UiSettingsSliderKey::decrease
-                                                    : UiSettingsSliderKey::increase;
+            const auto direction = code == VK_HOME   ? UiSettingsSliderKey::home
+                                   : code == VK_END   ? UiSettingsSliderKey::end
+                                   : code == VK_PRIOR ? UiSettingsSliderKey::page_increase
+                                   : code == VK_NEXT  ? UiSettingsSliderKey::page_decrease
+                                   : decrease         ? UiSettingsSliderKey::decrease
+                                                      : UiSettingsSliderKey::increase;
             if (ui_settings_scene_slider_key(settings->scene, focused, direction, &activation) &&
                 activation.selected_choice != focused_control->selected_choice) {
                 const bool preview = focused_control->kind == UiSettingsControlKind::slider &&
@@ -2193,7 +2191,7 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
             }
             if (message == WM_MOUSEMOVE) {
                 UiSettingsActivation value{};
-                if (ui_settings_scene_slider_pointer(settings->scene, target, x, &value) &&
+                if (ui_settings_scene_slider_pointer(settings->scene, target, x - settings->slider_grab, &value) &&
                     value.selected_choice != control->selected_choice)
                     activate(target, false, nullptr, false, value.selected_choice, false);
             } else if (message == WM_LBUTTONUP) {
@@ -2382,8 +2380,12 @@ bool application_settings_window_message(UINT message, WPARAM wparam, LPARAM lpa
                 settings->slider_preview = true;
                 settings->slider_generation = settings->scene.widgets.generation;
                 settings->slider_viewport = settings->scene.viewport;
+                UiSettingsSliderGeometry slider{};
+                settings->slider_grab = 0;
+                if (ui_settings_scene_slider_geometry(settings->scene, hit, &slider))
+                    settings->slider_grab = ui_slider_grab_offset(slider.thumb, x, y);
                 UiSettingsActivation value{};
-                if (ui_settings_scene_slider_pointer(settings->scene, hit, x, &value))
+                if (ui_settings_scene_slider_pointer(settings->scene, hit, x - settings->slider_grab, &value))
                     activate(hit, false, nullptr, false, value.selected_choice, false);
             }
             settings->pressed_plugin =

@@ -27,29 +27,30 @@ UiRect ui_swatch_rect(const UiSettingsTokens& tokens, UiRect field, u32 index, u
 bool ui_swatch_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect swatch, Color fill,
                      const BackgroundTheme* gradient, bool selected, UiControlState state) noexcept {
     const auto& c = tokens.color;
-    const float radius = tokens.metric.control_radius;
-    const float alpha = state.enabled ? 1.f : .4f;
+    const auto& m = tokens.metric;
+    const float radius = m.control_radius;
+    const float alpha = state.enabled ? 1.f : tokens.disabled_alpha;
     bool ok = gradient && background_theme_valid(*gradient)
                   ? paint_stream_push_palette_gradient(paint, swatch, *gradient, radius)
                   : paint_stream_push_rounded(paint, swatch.left, swatch.top, swatch.right, swatch.bottom,
                                               ui_settings_color_alpha(fill, alpha), radius);
-    const Color ring = state.hovered && !selected ? c.text_subtle : ui_settings_color_alpha(c.text_subtle, .5f);
+    const Color edge = state.hovered && !selected ? c.text_subtle : ui_settings_color_alpha(c.text_subtle, .5f);
     ok = ok && paint_stream_push_rounded_border(paint, swatch.left, swatch.top, swatch.right, swatch.bottom, {},
-                                                ui_settings_color_alpha(ring, alpha), radius, 1);
-    if (ok && (selected || state.focused))
-        ok = paint_stream_push_rounded_border(paint, swatch.left - 4, swatch.top - 4, swatch.right + 4,
-                                              swatch.bottom + 4, {}, selected ? c.brand : c.focus_ring,
-                                              radius + 4, selected ? 3.f : 2.f);
-    // Keyboard focus on the selected tile sits outside its selection ring.
-    if (ok && selected && state.focused)
-        ok = paint_stream_push_rounded_border(paint, swatch.left - 8, swatch.top - 8, swatch.right + 8,
-                                              swatch.bottom + 8, {}, c.focus_ring, radius + 8, 2);
+                                                ui_settings_color_alpha(edge, alpha), radius, 1);
+    // Selection is a brand ring around the tile; keyboard focus rings the
+    // selection (or the bare tile) from outside. All rings are concentric.
+    const float outside = selected ? m.ring_gap + m.ring_width : 0;
+    if (ok && selected)
+        ok = ui_settings_ring_paint(paint, swatch, radius, m.ring_gap, m.ring_width,
+                                    ui_settings_color_alpha(c.brand, alpha));
+    if (ok && state.focused)
+        ok = ui_settings_ring_paint(paint, swatch, radius, outside + m.focus_gap, m.focus_width, c.focus_ring);
     if (ok && selected) {
-        const float badge = 20, x = swatch.right - badge + 6, y = swatch.top - 6;
-        ok = paint_stream_push_rounded_border(paint, x, y, x + badge, y + badge, c.on_brand, c.brand, badge * .5f,
-                                              0) &&
-             paint_stream_push_rounded(paint, x + 2, y + 2, x + badge - 2, y + badge - 2, c.brand,
-                                       badge * .5f - 2) &&
+        // The check badge sits over the tile's top end corner.
+        const float badge = 20, x = swatch.right - badge + 6, y = swatch.top - 6, inset = m.ring_width;
+        ok = paint_stream_push_rounded(paint, x, y, x + badge, y + badge, c.on_brand, badge * .5f) &&
+             paint_stream_push_rounded(paint, x + inset, y + inset, x + badge - inset, y + badge - inset, c.brand,
+                                       ui_inner_radius(badge * .5f, inset)) &&
              ui_icon_paint(paint, UiIcon::check, {x + 4, y + 4, x + badge - 4, y + badge - 4}, c.on_brand);
     }
     return ok;

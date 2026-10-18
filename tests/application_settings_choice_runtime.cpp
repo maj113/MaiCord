@@ -371,8 +371,11 @@ void test_application_settings_choice_runtime(void (*check)(bool, const char*) n
             pointer_settings && scene->widgets.captured.generation && GetCapture() == f.window;
         SendMessageW(f.window, WM_LBUTTONUP, 0, section_point);
         pointer_settings = pointer_settings && ui_page_key_equal(scene->selected_page, kAccessibilityPage) &&
-                           !scene->widgets.captured.generation && GetCapture() != f.window &&
-                           target_point(smooth, &toggle_point);
+                           !scene->widgets.captured.generation && GetCapture() != f.window;
+        // Smooth scrolling sits below Visual Density; bring it into view.
+        if (pointer_settings)
+            ui_settings_scene_reveal(scene, smooth);
+        pointer_settings = pointer_settings && target_point(smooth, &toggle_point);
     }
     const bool smooth_before = g_app.preferences.smooth_scroll;
     if (pointer_settings) {

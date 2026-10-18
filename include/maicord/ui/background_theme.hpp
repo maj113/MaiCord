@@ -1,5 +1,6 @@
 #pragma once
 #include "maicord/core/utf.hpp"
+#include "maicord/core/color_hex.hpp"
 
 namespace maicord {
 enum class BackgroundEffect : u8 {
@@ -89,7 +90,8 @@ constexpr bool background_theme_equal(const BackgroundTheme& a, const Background
            a.intensity == b.intensity && a.effect == b.effect && a.speed == b.speed &&
            a.strength == b.strength && a.density == b.density;
 }
-// Accept one solid #RRGGBB color or up to five comma-separated gradient colors.
+// Accept one solid colour or up to five comma-separated gradient colours, each
+// #RGB or #RRGGBB with an optional '#'.
 // Rejected input preserves the caller's complete current descriptor.
 inline bool background_theme_parse_colors(Utf8View text, BackgroundTheme* output) noexcept {
     if (!output || !text.data || text.bytes > 128)
@@ -104,22 +106,13 @@ inline bool background_theme_parse_colors(Utf8View text, BackgroundTheme* output
             ++offset;
         if (offset == text.bytes || count == 5)
             return false;
-        if (text.data[offset] == '#')
+        const u32 start = offset;
+        while (offset < text.bytes && !space(text.data[offset]) && text.data[offset] != ',')
             ++offset;
-        u32 color = 0;
-        for (u32 digit = 0; digit < 6; ++digit) {
-            if (offset == text.bytes)
-                return false;
-            const char c = text.data[offset++];
-            const u32 value = c >= '0' && c <= '9'   ? c - '0'
-                              : c >= 'a' && c <= 'f' ? c - 'a' + 10
-                              : c >= 'A' && c <= 'F' ? c - 'A' + 10
-                                                     : 16;
-            if (value == 16)
-                return false;
-            color = (color << 4) | value;
-        }
-        next.colors[count++] = color;
+        u32 rgba = 0;
+        if (!color_hex_parse({text.data + start, offset - start}, false, &rgba))
+            return false;
+        next.colors[count++] = rgba >> 8;
         while (offset < text.bytes && space(text.data[offset]))
             ++offset;
         if (offset == text.bytes)

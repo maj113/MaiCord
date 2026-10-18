@@ -1,4 +1,5 @@
 #include "maicord/model/profile_editor.hpp"
+#include "maicord/core/color_hex.hpp"
 
 namespace maicord {
 namespace {
@@ -207,33 +208,14 @@ bool profile_editor_patches(ProfileEditorTab tab, const ProfileEditorBase& base,
 }
 
 u32 profile_editor_format_color(u32 color, Slice<char> output) noexcept {
-    if (!output.data || output.count < 7 || color > 0xFFFFFF)
-        return 0;
-    constexpr char digits[] = "0123456789ABCDEF";
-    output[0] = '#';
-    for (u32 i = 0; i < 6; ++i)
-        output[1 + i] = digits[(color >> (20 - i * 4)) & 15];
-    return 7;
+    return color > 0xFFFFFF ? 0 : color_hex_format(color << 8 | 0xFFu, false, output);
 }
 
 bool profile_editor_parse_color(Utf8View text, u32* color) noexcept {
-    if (!color)
+    u32 rgba = 0;
+    if (!color || !color_hex_parse(text, false, &rgba))
         return false;
-    u32 at = text.bytes && text.data[0] == '#' ? 1 : 0;
-    if (text.bytes - at != 6)
-        return false;
-    u32 value = 0;
-    for (; at < text.bytes; ++at) {
-        const char c = text.data[at];
-        const u32 digit = c >= '0' && c <= '9'   ? static_cast<u32>(c - '0')
-                          : c >= 'a' && c <= 'f' ? static_cast<u32>(c - 'a' + 10)
-                          : c >= 'A' && c <= 'F' ? static_cast<u32>(c - 'A' + 10)
-                                                 : 16u;
-        if (digit > 15)
-            return false;
-        value = value << 4 | digit;
-    }
-    *color = value;
+    *color = rgba >> 8;
     return true;
 }
 

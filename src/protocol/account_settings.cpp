@@ -233,7 +233,8 @@ bool account_settings_primary(AccountSettingsOperation operation) noexcept {
 }
 
 bool account_settings_request_valid(const AccountSettingsRequest& r) noexcept {
-    if (!byte_range_valid(r.payload) || r.reserved[0] || r.reserved[1] ||
+    if (!byte_range_valid(r.payload) || r.reserved ||
+        (r.required_data_version_present && r.operation != Op::settings_patch) ||
         static_cast<u8>(r.field) > static_cast<u8>(AccountProfileField::bio))
         return false;
     switch (r.operation) {
@@ -279,7 +280,8 @@ AccountSettingsWriteResult account_settings_write_request(const AccountSettingsR
         result.route_id = kAccountSettingsRouteId;
         result.method = r.operation == Op::settings_fetch ? RestMethod::get : RestMethod::patch;
         if (r.operation == Op::settings_patch) {
-            at = user_settings_proto_write_patch_json(r.payload, r.required_data_version, body);
+            at = user_settings_proto_write_patch_json(r.payload, r.required_data_version, body,
+                                                      r.required_data_version_present);
             if (!at)
                 return fail_capacity();
         }

@@ -25,6 +25,13 @@ constexpr UserSettingsField kCompact{6, 17, 0, K::boolean}, kNsfwCommands{6, 23,
     kRenderReactions{6, 13, 0, K::boolean}, kAnimateEmoji{6, 14, 0, K::boolean},
     kAnimateStickers{6, 15, 0, K::uint32}, kConvertEmoticons{6, 21, 0, K::boolean};
 constexpr UserSettingsField kLegacyExplicit{6, 19, 0, K::uint32};
+// Messaging Permissions, Data & Privacy and Activity Privacy rows.
+// hide_friend_request_notes, drops_opted_out and quests_3p_data_opted_out
+// are shown inverted, as in the official client.
+constexpr UserSettingsField kNsfwGuilds{6, 20, 0, K::boolean}, kHideRequestNotes{8, 33, 0, K::boolean},
+    kDropsOptedOut{8, 18, 0, K::boolean}, kQuests3pOptedOut{8, 30, 0, K::boolean},
+    kNotifyOnline{7, 25, 0, K::boolean}, kNotifyGoLive{7, 26, 0, K::boolean},
+    kActivityServers{8, 29, 0, K::enumeration}, kJoinFriends{8, 1, 0, K::boolean}, kJoinVoice{8, 2, 0, K::boolean};
 constexpr Utf8View kExplicitChoices[]{utf8_literal("Show"), utf8_literal("Blur"), utf8_literal("Block")};
 // privacy.restricted_guild_ids, message_request_restricted_guild_ids,
 // activity_restricted_guild_ids, activity_joining_restricted_guild_ids.
@@ -37,12 +44,17 @@ constexpr UserSettingsField kGuildLists[]{{8, 3, 0, K::id_member},
 // render_spoilers strings by MessageSpoilerReveal; unset or unknown is ON_CLICK.
 constexpr Utf8View kSpoilerValues[]{utf8_literal("ON_CLICK"), utf8_literal("IF_MODERATOR"),
                                     utf8_literal("ALWAYS")};
-// friend_source_flags: MUTUAL_FRIENDS 2, MUTUAL_GUILDS 4, NO_RELATION 8 (all 14).
+// The select lists On click, Always, On servers I moderate.
+constexpr u8 kSpoilerChoices[]{0, 2, 1};
+// friend_source_flags: MUTUAL_FRIENDS 2, MUTUAL_GUILDS 4, NO_RELATION 8. Everyone
+// means all three (14); turning it off keeps both narrower sources (6).
 constexpr u32 kFriendsOfFriends = 2, kServerMembers = 4, kEveryone = 8, kFriendDefault = 14;
 constexpr u64 kInvalidUserSettingsData = 50105;
 // Radio/choice index <-> proto enum.
 constexpr u8 kSpamValues[]{3, 2, 1};          // filter all, non-friends, off
 constexpr u8 kVisibilityValues[]{3, 2, 1};    // all servers, small servers, friends only
+// default_guilds_activity_restricted_v2: OFF 1 (share everywhere), ON_FOR_LARGE_GUILDS 2, ON 3.
+constexpr u8 kActivityServerValues[]{1, 2, 3};
 
 struct Bank {
     UserSettingsStore store;
@@ -167,6 +179,26 @@ u32 index_of(const u8* values, u32 count, u64 value, u32 fallback) noexcept {
 bool dm_restricted() noexcept {
     return present(kDmRestrictedV2) ? read_number(kDmRestrictedV2, 0) != 0 : read_number(kDmRestricted, 0) != 0;
 }
+bool restricted_account() noexcept {
+    return content_policy().eligibility == AccountContentEligibility::restricted;
+}
+// dm_spam_filter_v2 when unset: restricted accounts filter all; others follow
+// the legacy explicit_content_filter (0 off, 1 non-friends, 2 all; unset 1).
+u64 spam_filter() noexcept {
+    const u64 value = read_number(kSpam, 0);
+    if (value >= 1 && value <= 3)
+        return value;
+    if (restricted_account())
+        return 3;
+    const u64 legacy = read_number(kLegacyExplicit, 1);
+    return legacy <= 2 ? legacy + 1 : 2;
+}
+// default_guilds_activity_restricted_v2 when unset: shared everywhere, or in
+// small servers only for restricted accounts.
+u64 activity_servers() noexcept {
+    const u64 value = read_number(kActivityServers, 0);
+    return value >= 1 && value <= 3 ? value : restricted_account() ? 2 : 1;
+}
 u32 spoiler_choice() noexcept {
     UserSettingsValue value{};
     if (store() && user_settings_store_read(*store(), kSpoilers, &value))
@@ -174,6 +206,24 @@ u32 spoiler_choice() noexcept {
             if (utf8_equal({value.text, value.text_bytes}, kSpoilerValues[i]))
                 return i;
     return 0;
+}
+// Synced switches with their value when unset; inverted ones show !value.
+struct SyncedToggle {
+    UserSettingsField field;
+    bool fallback, inverted;
+};
+bool synced_toggle(SettingBinding binding, SyncedToggle* toggle) noexcept {
+    switch (binding) {
+    case SettingBinding::nsfw_guilds: *toggle = {kNsfwGuilds, false, false}; return true;
+    case SettingBinding::friend_request_notes: *toggle = {kHideRequestNotes, restricted_account(), true}; return true;
+    case SettingBinding::sponsored_activity: *toggle = {kDropsOptedOut, false, true}; return true;
+    case SettingBinding::sponsored_third_party: *toggle = {kQuests3pOptedOut, false, true}; return true;
+    case SettingBinding::share_online: *toggle = {kNotifyOnline, true, false}; return true;
+    case SettingBinding::share_streaming: *toggle = {kNotifyGoLive, true, false}; return true;
+    case SettingBinding::join_friends: *toggle = {kJoinFriends, true, false}; return true;
+    case SettingBinding::join_voice: *toggle = {kJoinVoice, true, false}; return true;
+    default: return false;
+    }
 }
 // Unset fields keep the service defaults: everything shown and animated.
 MessageRichDisplay chat_display() noexcept {
@@ -261,7 +311,9 @@ bool application_user_settings_submit(u64 request_id, u64 now_ms) noexcept {
         return true;
     }
     u32 required = 0;
-    const u32 bytes = user_settings_store_begin(s, {g_owner.bank->partial, kUserSettingsPartialMaximumBytes}, &required);
+    bool pinned = false;
+    const u32 bytes =
+        user_settings_store_begin(s, {g_owner.bank->partial, kUserSettingsPartialMaximumBytes}, &required, &pinned);
     if (!bytes) {
         // Unserializable (oversized) groups: drop the edits rather than loop.
         UserSettingsEdit cleared[kUserSettingsEditCapacity]{};
@@ -275,6 +327,7 @@ bool application_user_settings_submit(u64 request_id, u64 now_ms) noexcept {
     request.operation = AccountSettingsOperation::settings_patch;
     request.payload = {g_owner.bank->partial, bytes};
     request.required_data_version = required;
+    request.required_data_version_present = pinned;
     const auto admitted = g_app.account.api.account_settings(g_app.account.instance, &request, request_id);
     SecureZeroMemory(g_owner.bank->partial, bytes);
     if (!admitted.ok()) {
@@ -495,6 +548,8 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
     case SettingBinding::privacy_notice:
     case SettingBinding::language_notice:
     case SettingBinding::chat_notice:
+    case SettingBinding::activity_notice:
+    case SettingBinding::accessibility_notice:
         return notice();
     case SettingBinding::animate_stickers: {
         const u64 value = read_number(kAnimateStickers, 0);
@@ -502,21 +557,29 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
         return true;
     }
     case SettingBinding::render_spoilers:
-        control->selected_choice = spoiler_choice();
+        control->selected_choice = index_of(kSpoilerChoices, 3, spoiler_choice(), 0);
         return true;
     case SettingBinding::dm_from_members:
         control->checked = !dm_restricted();
         return true;
     case SettingBinding::message_requests:
-        // The switch is the official client's "Enable message requests": ON is
-        // default_message_request_restricted false (or unset).
-        control->checked = read_number(kMessageRequests, 0) == 0;
+        // ON is default_message_request_restricted false (or unset). Requests
+        // need DMs: while DMs are restricted the switch reads off, disabled.
+        control->checked = !dm_restricted() && read_number(kMessageRequests, 0) == 0;
+        control->enabled = ready && !dm_restricted();
         return true;
     case SettingBinding::nsfw_commands:
-        control->checked = read_number(kNsfwCommands, 0) != 0;
+    case SettingBinding::nsfw_guilds:
+        // Age-restricted access is for adults; restricted accounts see it off.
+        control->checked = !restricted_account() &&
+                           read_number(binding == SettingBinding::nsfw_commands ? kNsfwCommands : kNsfwGuilds, 0) != 0;
+        control->enabled = ready && !restricted_account();
         return true;
     case SettingBinding::dm_spam_filter:
-        control->selected_choice = index_of(kSpamValues, 3, read_number(kSpam, 2), 1);
+        control->selected_choice = index_of(kSpamValues, 3, spam_filter(), 1);
+        return true;
+    case SettingBinding::activity_servers:
+        control->selected_choice = index_of(kActivityServerValues, 3, activity_servers(), 0);
         return true;
     case SettingBinding::explicit_friends:
     case SettingBinding::explicit_others:
@@ -549,13 +612,9 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
     case SettingBinding::friend_mutual_friends:
     case SettingBinding::friend_mutual_guilds: {
         const u64 flags = read_number(kFriendFlags, kFriendDefault);
-        const bool everyone = (flags & kEveryone) != 0;
-        control->checked = binding == SettingBinding::friend_everyone       ? everyone
-                           : binding == SettingBinding::friend_mutual_friends ? everyone || (flags & kFriendsOfFriends)
-                                                                              : everyone || (flags & kServerMembers);
-        // Everyone implies both narrower sources, as in the official client.
-        if (binding != SettingBinding::friend_everyone && everyone)
-            control->enabled = false;
+        control->checked = binding == SettingBinding::friend_everyone ? (flags & kFriendDefault) == kFriendDefault
+                           : binding == SettingBinding::friend_mutual_friends ? (flags & kFriendsOfFriends) != 0
+                                                                              : (flags & kServerMembers) != 0;
         return true;
     }
     case SettingBinding::profile_visibility:
@@ -573,6 +632,11 @@ bool application_user_settings_project(SettingBinding binding, UiSettingsControl
         return true;
     }
     default: {
+        SyncedToggle toggle{};
+        if (synced_toggle(binding, &toggle)) {
+            control->checked = (read_number(toggle.field, toggle.fallback ? 1 : 0) != 0) != toggle.inverted;
+            return true;
+        }
         UserSettingsField field{};
         if (!chat_toggle(binding, &field))
             return false;
@@ -586,18 +650,25 @@ bool application_user_settings_activate(SettingBinding binding, bool checked, u3
     if (!loaded())
         return false;
     switch (binding) {
-    case SettingBinding::dm_from_members: {
-        const bool ok = write(kDmRestricted, user_settings_number(!checked));
-        if (ok && present(kDmRestrictedV2))
-            write(kDmRestrictedV2, user_settings_number(!checked));
-        return ok;
-    }
+    case SettingBinding::dm_from_members:
+        // The official switch writes default_guilds_restricted_v2 alone.
+        return write(kDmRestrictedV2, user_settings_number(!checked));
     case SettingBinding::message_requests:
-        return write(kMessageRequests, user_settings_number(!checked));
+        return !dm_restricted() && write(kMessageRequests, user_settings_number(!checked));
     case SettingBinding::nsfw_commands:
-        return write(kNsfwCommands, user_settings_number(checked));
+    case SettingBinding::nsfw_guilds:
+        if (restricted_account())
+            return false;
+        if (checked && application_user_settings_content_confirmation_required()) {
+            application_user_settings_request_content_confirmation();
+            return true;
+        }
+        return write(binding == SettingBinding::nsfw_commands ? kNsfwCommands : kNsfwGuilds,
+                     user_settings_number(checked));
     case SettingBinding::dm_spam_filter:
         return choice < 3 && write(kSpam, user_settings_number(kSpamValues[choice]));
+    case SettingBinding::activity_servers:
+        return choice < 3 && write(kActivityServers, user_settings_number(kActivityServerValues[choice]));
     case SettingBinding::explicit_friends:
     case SettingBinding::explicit_others:
     case SettingBinding::explicit_guilds: {
@@ -616,10 +687,10 @@ bool application_user_settings_activate(SettingBinding binding, bool checked, u3
     case SettingBinding::friend_mutual_guilds: {
         u64 flags = read_number(kFriendFlags, kFriendDefault);
         if (binding == SettingBinding::friend_everyone)
-            flags = checked ? kFriendDefault : flags & ~static_cast<u64>(kEveryone);
+            flags = checked ? kFriendDefault : kFriendsOfFriends | kServerMembers;
         else {
             const u64 bit = binding == SettingBinding::friend_mutual_friends ? kFriendsOfFriends : kServerMembers;
-            flags = checked ? flags | bit : flags & ~bit;
+            flags = checked ? flags | bit : flags & ~(bit | kEveryone);
         }
         return write(kFriendFlags, user_settings_number(flags));
     }
@@ -634,8 +705,11 @@ bool application_user_settings_activate(SettingBinding binding, bool checked, u3
     case SettingBinding::animate_stickers:
         return choice < 3 && write(kAnimateStickers, user_settings_number(choice));
     case SettingBinding::render_spoilers:
-        return choice < 3 && write(kSpoilers, user_settings_text(kSpoilerValues[choice]));
+        return choice < 3 && write(kSpoilers, user_settings_text(kSpoilerValues[kSpoilerChoices[choice]]));
     default: {
+        SyncedToggle toggle{};
+        if (synced_toggle(binding, &toggle))
+            return write(toggle.field, user_settings_number(checked != toggle.inverted));
         UserSettingsField field{};
         return chat_toggle(binding, &field) && write(field, user_settings_number(checked));
     }

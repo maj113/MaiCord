@@ -1123,7 +1123,8 @@ template <usize Field> HRESULT STDMETHODCALLTYPE range_read(void* self, double* 
     if (!resolve_element(element_from<kRangeValue>(self), &r))
         return kElementNotAvailable;
     const auto& range = r.node->range;
-    const float values[]{range.value, range.minimum, range.maximum, range.step};
+    const float values[]{range.value, range.minimum, range.maximum, range.step,
+                         range.large_step > 0 ? range.large_step : range.step};
     *out = static_cast<double>(values[Field]);
     return S_OK;
 }
@@ -1151,6 +1152,9 @@ HRESULT STDMETHODCALLTYPE range_maximum(void* self, double* out) noexcept {
 }
 HRESULT STDMETHODCALLTYPE range_step(void* self, double* out) noexcept {
     return range_read<3>(self, out);
+}
+HRESULT STDMETHODCALLTYPE range_large_step(void* self, double* out) noexcept {
+    return range_read<4>(self, out);
 }
 
 HRESULT STDMETHODCALLTYPE scroll_scroll(void* self, int horizontal, int vertical) noexcept {
@@ -1861,7 +1865,7 @@ constexpr ValueVtbl kValueVtbl{unknown_vtbl<kValue>(), UIA_MARSHAL(kValue, value
 constexpr RangeValueVtbl kRangeValueVtbl{
     unknown_vtbl<kRangeValue>(), UIA_MARSHAL(kRangeValue, range_set), UIA_MARSHAL(kRangeValue, range_value_get),
     UIA_MARSHAL(kRangeValue, read_only_get<kRangeValue>), UIA_MARSHAL(kRangeValue, range_maximum),
-    UIA_MARSHAL(kRangeValue, range_minimum), UIA_MARSHAL(kRangeValue, range_step),
+    UIA_MARSHAL(kRangeValue, range_minimum), UIA_MARSHAL(kRangeValue, range_large_step),
     UIA_MARSHAL(kRangeValue, range_step)};
 constexpr ScrollVtbl kScrollVtbl{unknown_vtbl<kScroll>(), UIA_MARSHAL(kScroll, scroll_scroll),
                                  &scroll_set_percent, &scroll_no_scroll,

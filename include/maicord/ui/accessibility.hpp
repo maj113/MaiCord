@@ -131,6 +131,8 @@ enum class UiAccessScroll : u8 {
 
 struct UiAccessRange {
     float value, minimum, maximum, step;
+    // The Page Up/Down step (UIA LargeChange); 0 reports step.
+    float large_step;
 };
 
 // Scroll position for ui_access_action_scroll nodes, in percent (0..100);

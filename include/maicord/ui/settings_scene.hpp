@@ -216,11 +216,15 @@ struct UiSettingsSliderGeometry {
     UiSettingsControlGeometry control;
     UiRect track, thumb;
 };
+// Arrows step by one; Page keys by ui_slider_page_step on sliders and by
+// one on option rows.
 enum class UiSettingsSliderKey : u8 {
     decrease,
     increase,
     home,
-    end
+    end,
+    page_decrease,
+    page_increase
 };
 struct UiSettingsPaletteSource {
     void* context;

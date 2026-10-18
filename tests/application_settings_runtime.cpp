@@ -174,6 +174,12 @@ bool await_save_retained() noexcept {
            current->widgets.storage[0].generation == generation && current->storage.arena.base == widgets &&
            observed.text_builds == text_builds;
 }
+bool labelled(const UiSettingsPageContent& page, u64 id, Utf8View label) noexcept {
+    for (u32 i = 0; i < page.controls.count; ++i)
+        if (page.controls[i].id == id)
+            return utf8_equal(page.controls[i].label, label);
+    return false;
+}
 void test_native_projection_bank() noexcept {
     auto* pages = application_settings_pages();
     auto* current = scene();
@@ -202,9 +208,9 @@ void test_native_projection_bank() noexcept {
               notifications->controls.count == 11 && !appearance->controls.data &&
               !appearance->controls.count && appearance->revision > appearance_revision &&
               !plugins->controls.data && !plugins->controls.count &&
-              utf8_equal(notifications->controls[0].label, utf8_literal("Desktop notifications")) &&
-              utf8_equal(notifications->controls[7].label, utf8_literal("Sound volume")) &&
-              notifications->controls[7].choices.count == 201 &&
+              utf8_equal(notifications->controls[0].label, utf8_literal("Overview")) &&
+              utf8_equal(notifications->controls[8].label, utf8_literal("Sound volume")) &&
+              notifications->controls[8].choices.count == 201 &&
               observed.notifications_refreshes == refreshes + 1 &&
               ui_settings_scene_focus(current, {UiSettingsTargetKind::control, kNotificationsPage, cid("notifications.volume")}),
           "settings shared bank: external Notifications selection projects and refreshes before its first "
@@ -231,9 +237,9 @@ void test_native_projection_bank() noexcept {
           "settings shared bank: 5 to 1 retires old borrow and routes focus to Appearance labels");
     const u32 retired_appearance_revision = appearance->revision;
     check(ui_page_registry_select(pages, kAccessibilityPage).ok() && application_settings_synchronize() &&
-              accessibility->controls.data == shared && accessibility->controls.count == 3 &&
+              accessibility->controls.data == shared && accessibility->controls.count >= 9 &&
               !appearance->controls.data && appearance->revision > retired_appearance_revision &&
-              utf8_equal(accessibility->controls[1].label, utf8_literal("Reduced motion")) &&
+              labelled(*accessibility, cid("accessibility.reduced_motion"), utf8_literal("Enable Reduced Motion")) &&
               ui_settings_scene_focus(current, {UiSettingsTargetKind::control, kAccessibilityPage, cid("accessibility.reduced_motion")}) &&
               ui_settings_scene_focused(*current).page.page_id == 3 &&
               observed.notifications_refreshes == refreshes + 1,
@@ -243,7 +249,7 @@ void test_native_projection_bank() noexcept {
               notifications->controls.data == shared && notifications->controls.count == 11 &&
               !accessibility->controls.data && !accessibility->controls.count &&
               accessibility->revision > accessibility_revision &&
-              utf8_equal(notifications->controls[0].label, utf8_literal("Desktop notifications")) &&
+              utf8_equal(notifications->controls[0].label, utf8_literal("Overview")) &&
               ui_settings_scene_focus(current, {UiSettingsTargetKind::control, kNotificationsPage, cid("notifications.volume")}) &&
               ui_settings_scene_focused(*current).page.page_id == 1 &&
               observed.notifications_refreshes == refreshes + 2 &&
@@ -1433,11 +1439,14 @@ void test_controller() noexcept {
           "theme editor host: optional single-color form has current drawer authority");
     const auto old_hex = gradient_form.request;
     const auto before_hex = g_app.preferences;
-    check(old_hex.valid && old_hex.save && !old_hex.save(old_hex.owner, utf8_literal("#123")) &&
-              !old_hex.save(old_hex.owner, utf8_literal("112233,445566")) &&
+    u32 swatch = 0;
+    check(old_hex.valid && old_hex.save && !old_hex.save(old_hex.owner, utf8_literal("#12345")) &&
+              !old_hex.save(old_hex.owner, utf8_literal("112233,445566")) && old_hex.check && old_hex.swatch &&
+              !old_hex.check(old_hex.owner, utf8_literal("#12345"), &swatch) &&
+              old_hex.check(old_hex.owner, utf8_literal("1a2"), &swatch) && swatch == 0x11AA22FFu &&
               client_preferences_equal(before_hex, g_app.preferences),
-          "theme editor host: invalid RGB retains complete draft");
-    check(old_hex.save && old_hex.save(old_hex.owner, utf8_literal("#112233")) &&
+          "theme editor host: invalid RGB retains complete draft; the live check previews #RGB");
+    check(old_hex.save && old_hex.save(old_hex.owner, utf8_literal("#123")) &&
               g_app.preferences.gradient.colors[editor ? editor->selected_stop : 0] == 0x112233 &&
               g_app.preferences.gradient.angle_degrees == 121 &&
               g_app.preferences.gradient.intensity == 41 && application_settings_synchronize() &&
@@ -2736,6 +2745,36 @@ void test_settings_catalog() noexcept {
               settings_binding_backend(SettingBinding::developer_mode) == SettingBackend::local &&
               settings_binding_backend(SettingBinding::custom_import) == SettingBackend::action,
           "settings store: local bindings write preferences; actions have no stored value");
+    // Every theme swatch previews its own theme: flat themes as their own
+    // surface (one repeated stop), colour themes as their own stops and
+    // Custom as the user's.
+    preferences = client_preferences_defaults();
+    preferences.gradient.color_count = 2;
+    preferences.gradient.colors[0] = 0x123456;
+    preferences.gradient.colors[1] = 0x654321;
+    preferences.gradient.colors[2] = preferences.gradient.colors[3] = preferences.gradient.colors[4] = 0;
+    BackgroundTheme swatches[8]{};
+    bool resolved = true;
+    for (u32 i = 0; i < 8; ++i)
+        resolved = resolved && settings_theme_swatch(preferences, i < 3 ? SettingBinding::theme_base
+                                                                      : SettingBinding::theme_color,
+                                                     i < 3 ? i : i - 3, &swatches[i]);
+    const auto luma = [](u32 rgb) noexcept { return ((rgb >> 16) & 255) * 3 + ((rgb >> 8) & 255) * 6 + (rgb & 255); };
+    bool flat = resolved, distinct = resolved;
+    for (u32 i = 0; i < 3; ++i)
+        flat = flat && swatches[i].color_count == 2 && swatches[i].colors[0] == swatches[i].colors[1];
+    for (u32 i = 3; i < 8; ++i)
+        flat = flat && swatches[i].colors[0] != swatches[i].colors[1];
+    // Custom light shows the same stops as Custom; every other pair differs.
+    for (u32 i = 0; i < 7; ++i)
+        for (u32 j = i + 1; j < 7; ++j)
+            distinct = distinct && !bytes_equal(swatches[i].colors, swatches[j].colors, sizeof(swatches[i].colors));
+    check(flat && distinct && luma(swatches[0].colors[0]) > luma(swatches[1].colors[0]) &&
+              luma(swatches[1].colors[0]) > luma(swatches[2].colors[0]) && swatches[6].colors[0] == 0x123456 &&
+              swatches[6].colors[1] == 0x654321 && swatches[7].colors[0] == 0x123456 &&
+              !settings_theme_swatch(preferences, SettingBinding::theme_base, 3, &swatches[0]) &&
+              !settings_theme_swatch(preferences, SettingBinding::member_list, 0, &swatches[0]),
+          "settings catalog: theme swatches resolve to their own theme, Light > Dark > AMOLED, Custom to the user's stops");
     const auto navigation = settings_catalog_navigation(true);
     bool pages = navigation.count == settings_catalog_navigation(false).count + 1 &&
                  navigation[navigation.count - 1].kind == UiSettingsNavKind::action &&

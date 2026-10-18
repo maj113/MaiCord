@@ -15,6 +15,7 @@ bool voice_settings_read(const VoicePreferences& p, SettingBinding binding, Sett
         return true;
     case SettingBinding::voice_input_mode:
         value->choice = static_cast<u32>(a.mode);
+        value->checked = a.mode == VoiceInputMode::push_to_talk;
         return true;
     case SettingBinding::voice_auto_sensitivity:
         value->checked = a.auto_sensitivity;

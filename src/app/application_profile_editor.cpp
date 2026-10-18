@@ -1195,31 +1195,62 @@ bool prepare_uri(Picked& picked) noexcept {
 }
 
 // Colours (Primary / Accent / Banner Color): a hex value, like the picker's input.
+// Valid text recolours the preview live; closing without Apply restores the
+// colours the draft had when the form opened.
 enum ColorSlot : u64 { color_primary = 1, color_accent, color_banner };
+struct ColorPreview {
+    bool active, applied, accent_set, theme_set, theme_reset;
+    u32 accent, theme[2];
+} g_color_preview;
 bool color_valid(TextFormOwnerKey key) noexcept {
     return owner && owner->lifetime == key.scope && owner->scene.active && editable();
 }
-bool color_save(TextFormOwnerKey key, Utf8View text) noexcept {
-    u32 color = 0;
-    if (!color_valid(key) || !profile_editor_parse_color(text, &color))
-        return false;
+void color_apply(u64 slot, u32 color) noexcept {
     auto& p = *owner;
-    if (key.collection == color_banner) {
+    if (slot == color_banner) {
         p.draft.accent_set = true;
         p.draft.accent = color;
     } else {
         u32 colors[2]{};
         if (effective_theme(colors) != 2)
             colors[0] = colors[1] = 0x41434A;
-        colors[key.collection == color_primary ? 0 : 1] = color;
+        colors[slot == color_primary ? 0 : 1] = color;
         p.draft.theme_set = true;
         p.draft.theme_reset = false;
         p.draft.theme[0] = colors[0];
         p.draft.theme[1] = colors[1];
     }
-    application_text_form_close(false, false);
     repaint();
+}
+bool color_check(TextFormOwnerKey key, Utf8View text, u32* rgba) noexcept {
+    if (!application_text_form_color_check(key, text, rgba))
+        return false;
+    if (g_color_preview.active && color_valid(key))
+        color_apply(key.collection, *rgba >> 8);
     return true;
+}
+bool color_save(TextFormOwnerKey key, Utf8View text) noexcept {
+    u32 color = 0;
+    if (!color_valid(key) || !profile_editor_parse_color(text, &color))
+        return false;
+    color_apply(key.collection, color);
+    g_color_preview.applied = true;
+    application_text_form_close(false, false);
+    return true;
+}
+void color_closed(TextFormOwnerKey key) noexcept {
+    const auto preview = g_color_preview;
+    g_color_preview = {};
+    if (!preview.active || preview.applied || !color_valid(key))
+        return;
+    auto& d = owner->draft;
+    d.accent_set = preview.accent_set;
+    d.accent = preview.accent;
+    d.theme_set = preview.theme_set;
+    d.theme_reset = preview.theme_reset;
+    d.theme[0] = preview.theme[0];
+    d.theme[1] = preview.theme[1];
+    repaint();
 }
 void edit_color(ColorSlot slot) noexcept {
     auto& p = *owner;
@@ -1239,9 +1270,17 @@ void edit_color(ColorSlot slot) noexcept {
     request.owner = {p.lifetime, slot, 0};
     request.valid = color_valid;
     request.save = color_save;
+    request.closed = color_closed;
     request.maximum_codepoints = 7;
     request.single_line = true;
-    application_text_form_open(request);
+    request.placeholder = utf8_literal("#RRGGBB");
+    request.check = color_check;
+    request.rejected = utf8_literal("That isn't a hex colour. Use #RGB or #RRGGBB.");
+    request.swatch = true;
+    const auto& d = p.draft;
+    g_color_preview = {true, false, d.accent_set, d.theme_set, d.theme_reset, d.accent, {d.theme[0], d.theme[1]}};
+    if (!application_text_form_open(request))
+        g_color_preview = {};
 }
 
 // Navigation away from the page --------------------------------------------------------------

@@ -12,12 +12,21 @@ bool ui_edit_field_paint(PaintStream* paint, UiRect field, UiRect content, const
         paint, field, theme, background, view.focused ? theme.tokens.border.focus : theme.tokens.border.strong, radius, 1, 1,
         UiBackgroundSurfaceMode::gradient, UiBackgroundTier::highest,
         view.focused ? UiBackgroundBorderTone::semantic : UiBackgroundBorderTone::palette);
-    if (!ok || !view.focused || !geometry)
-        return ok;
-    if (!paint_stream_push_clip(paint, content.left, content.top, content.right, content.bottom))
-        return false;
+    return ok && ui_edit_field_paint_content(paint, content, view, geometry, theme, dpi);
+}
+Color ui_edit_selection_color(const Theme& theme) noexcept {
     Color selection = theme.tokens.emphasis.outline;
     selection.alpha = .38f;
+    return selection;
+}
+bool ui_edit_field_paint_content(PaintStream* paint, UiRect content, const UiEditView& view,
+                                 const UiEditGeometry* geometry, const Theme& theme, u32 dpi) noexcept {
+    if (!view.active || !view.focused || !geometry)
+        return true;
+    if (!paint_stream_push_clip(paint, content.left, content.top, content.right, content.bottom))
+        return false;
+    const Color selection = ui_edit_selection_color(theme);
+    bool ok = true;
     for (u32 i = 0; ok && i < geometry->selection_count; ++i) {
         const auto r = ui_rect_intersection(geometry->selections[i], content);
         if (ui_rect_has_area(r))

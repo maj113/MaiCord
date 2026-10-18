@@ -60,9 +60,9 @@ bool ui_switch_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect 
                                          c.switch_border_on, on);
     Color thumb = c.thumb;
     if (!state.enabled) {
-        fill = ui_settings_color_alpha(fill, .5f);
-        border = ui_settings_color_alpha(border, .5f);
-        thumb = ui_settings_color_alpha(thumb, .5f);
+        fill = ui_settings_color_alpha(fill, tokens.disabled_alpha);
+        border = ui_settings_color_alpha(border, tokens.disabled_alpha);
+        thumb = ui_settings_color_alpha(thumb, tokens.disabled_alpha);
     }
     const float radius = ui_rect_height(track) * .5f;
     const auto knob = ui_switch_thumb(tokens, track, checked, motion, reduced_motion,
@@ -72,8 +72,7 @@ bool ui_switch_paint(PaintStream* paint, const UiSettingsTokens& tokens, UiRect 
               paint_stream_push_rounded(paint, knob.box.left, knob.box.top, knob.box.right, knob.box.bottom,
                                         thumb, knob.radius);
     if (ok && state.focused)
-        ok = paint_stream_push_rounded_border(paint, track.left - 3, track.top - 3, track.right + 3,
-                                              track.bottom + 3, {}, c.focus_ring, radius + 3, 2);
+        ok = ui_settings_focus_paint(paint, tokens, track, radius);
     return ok;
 }
 

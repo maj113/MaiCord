@@ -14,8 +14,10 @@ GatewayClientDispatchRouteResult gateway_client_publish_user_settings(
         result.error = GatewayClientDispatchRouteError::invalid_input;
         return result;
     }
+    // A READY without settings (missing or "") is an empty message: every
+    // setting at its default and editable, as the official client loads it.
     JsonString text{};
-    if (!json_value_as_string(settings_proto, &text)) {
+    if ((partial || settings_proto.source.data) && !json_value_as_string(settings_proto, &text)) {
         result.error = GatewayClientDispatchRouteError::decode;
         return result;
     }
@@ -37,8 +39,7 @@ GatewayClientDispatchRouteResult gateway_client_publish_user_settings(
         if (decoded.ok())
             hash = {hash_storage, decoded.bytes};
     }
-    // An empty READY string carries no settings; the store stays unloaded.
-    if (!encoded.bytes)
+    if (!encoded.bytes && partial)
         return result;
     const Slice<u8> output{reinterpret_cast<u8*>(storage.data), output_bytes};
     const auto extracted = user_settings_proto_extract_base64(encoded, kUserSettingsStoredGroups, hash,

@@ -375,8 +375,8 @@ bool application_account_settings_project(SettingBinding binding, UiSettingsCont
     case SettingBinding::account_mfa:
         if (!self)
             return false;
-        control->label = b->self.mfa_enabled ? utf8_literal("Two-factor authentication is on")
-                                             : utf8_literal("Two-factor authentication is off");
+        control->label = b->self.mfa_enabled ? utf8_literal("Multi-Factor Authentication is on")
+                                             : utf8_literal("Multi-Factor Authentication is off");
         control->description = b->self.mfa_enabled
                                    ? utf8_literal("Your account asks for a code when you sign in.")
                                    : utf8_literal("Turn it on in Discord to protect your account.");

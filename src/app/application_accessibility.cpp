@@ -26,6 +26,7 @@
 #include "maicord/app/message_interaction_rules.hpp"
 #include "maicord/core/hash.hpp"
 #include "maicord/core/log.hpp"
+#include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/platform/uia_provider.hpp"
 #include "maicord/render/forum_post_surface.hpp"
 #include "maicord/render/text_form_surface.hpp"
@@ -776,7 +777,7 @@ void describe_settings(void*, const UiWidgetManager& manager, UiWidgetHandle han
             const float last = control->choices.count ? static_cast<float>(control->choices.count - 1) : 0.0f;
             info->range = {static_cast<float>(minimum<u32>(control->selected_choice,
                                                            control->choices.count ? control->choices.count - 1 : 0)),
-                           0.0f, last, 1.0f};
+                           0.0f, last, 1.0f, static_cast<float>(ui_slider_page_step(control->choices.count))};
             info->value = choice();
             break;
         }

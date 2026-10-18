@@ -201,6 +201,12 @@ bool application_plugins_settings_edit(UiPageKey page, u64 control_id) noexcept 
     request.save = edit_save;
     request.maximum_bytes = maximum(edit.max_bytes, 1u);
     request.single_line = true;
+    if (edit.kind == MC_SETTING_COLOUR) {
+        request.placeholder = utf8_literal("#RRGGBB");
+        request.check = application_text_form_color_check;
+        request.rejected = utf8_literal("That isn't a hex colour. Use #RGB or #RRGGBB.");
+        request.swatch = true;
+    }
     return application_text_form_open(request);
 }
 

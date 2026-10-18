@@ -694,10 +694,16 @@ bool ui_theme_editor_paint(const UiThemeEditorScene& s, const Theme& theme, Pain
         } else if (e >= UiThemeEditorElement::stop0 && e <= UiThemeEditorElement::stop4) {
             const auto stop = i - at(UiThemeEditorElement::stop0);
             const auto c = stop < s.draft.color_count ? background_color_rgb24(s.draft.colors[stop]) : theme.base_low;
-            ok = paint_stream_push_rounded_border(
-                paint, r.left, r.top, r.right, r.bottom, c,
-                stop == s.selected_stop ? theme.text_primary : theme.interactive, s.style.control_radius,
-                stop == s.selected_stop ? 2.f : 1.f);
+            // Every stop leaves room for the selection ring inside its cell, so
+            // stops share one size and the ring stays concentric with the fill.
+            const auto& m = tokens.metric;
+            const float inset = m.ring_gap + m.ring_width;
+            const UiRect fill{r.left + inset, r.top + inset, r.right - inset, r.bottom - inset};
+            const float radius = ui_inner_radius(s.style.control_radius, inset);
+            ok = paint_stream_push_rounded_border(paint, fill.left, fill.top, fill.right, fill.bottom, c,
+                                                  theme.interactive, radius, 1) &&
+                 (stop != s.selected_stop ||
+                  ui_settings_ring_paint(paint, fill, radius, m.ring_gap, m.ring_width, tokens.color.brand));
         } else {
             const auto variant =
                 editor_primary(s, e) ? UiSettingsButtonVariant::primary : UiSettingsButtonVariant::secondary;

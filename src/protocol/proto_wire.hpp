@@ -187,20 +187,22 @@ struct ProtoWriter {
 };
 
 // The settings-proto PATCH body: {"settings":"<base64 proto>"}, with
-// ,"required_data_version":N before the closing brace when version is nonzero.
+// ,"required_data_version":N before the closing brace when version is nonzero
+// or present.
 inline constexpr char kSettingsPatchHead[] = "{\"settings\":\"";
 inline constexpr char kSettingsPatchVersion[] = ",\"required_data_version\":";
 inline constexpr u32 kSettingsPatchHeadBytes = sizeof(kSettingsPatchHead) - 1;
 inline constexpr u32 kSettingsPatchVersionBytes = sizeof(kSettingsPatchVersion) - 1;
 
-inline u32 proto_settings_patch_bytes(u32 proto_bytes, u32 version) noexcept {
-    const u32 version_bytes = version ? kSettingsPatchVersionBytes + decimal_digits(version) : 0;
+inline u32 proto_settings_patch_bytes(u32 proto_bytes, u32 version, bool present = false) noexcept {
+    const u32 version_bytes = version || present ? kSettingsPatchVersionBytes + decimal_digits(version) : 0;
     return kSettingsPatchHeadBytes + base64_encoded_size(proto_bytes) + 1 + version_bytes + 1;
 }
 
 // Writes the PATCH body; output must hold proto_settings_patch_bytes. False
 // when the proto cannot be base64 encoded.
-inline bool proto_write_settings_patch(ConstSlice<u8> proto, u32 version, Slice<u8> output) noexcept {
+inline bool proto_write_settings_patch(ConstSlice<u8> proto, u32 version, Slice<u8> output,
+                                       bool present = false) noexcept {
     copy_bytes(output.data, kSettingsPatchHead, kSettingsPatchHeadBytes);
     u32 at = kSettingsPatchHeadBytes;
     const u32 encoded = base64_encoded_size(proto.count);
@@ -208,7 +210,7 @@ inline bool proto_write_settings_patch(ConstSlice<u8> proto, u32 version, Slice<
         return false;
     at += encoded;
     output.data[at++] = '"';
-    if (version) {
+    if (version || present) {
         copy_bytes(output.data + at, kSettingsPatchVersion, kSettingsPatchVersionBytes);
         at += kSettingsPatchVersionBytes;
         at += decimal_write(output.data + at, version);

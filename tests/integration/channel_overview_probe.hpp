@@ -170,7 +170,9 @@ inline bool channel_overview_ui_probe(D3D11Renderer& renderer, UiTextMeasureCach
     UiSettingsActivation activation{};
     if (!ui_settings_scene_control_geometry(scene, name_target, &name_geometry) ||
         !ui_settings_scene_control_geometry(scene, topic_target, &topic_geometry) ||
-        ui_rect_height(name_geometry.field) != 40 || ui_rect_height(topic_geometry.field) != 160 ||
+        // The two-line topic sits in a field grown to its three-line minimum
+        // (3 x 20 DIP plus 12 DIP padding each side).
+        ui_rect_height(name_geometry.field) != 40 || ui_rect_height(topic_geometry.field) != 84 ||
         ui_rect_width(name_geometry.field) > 680 ||
         name_geometry.text.left != name_geometry.field.left + 12 ||
         ui_settings_scene_activation(scene, save_target, false, &activation))
@@ -258,7 +260,9 @@ inline bool channel_overview_ui_probe(D3D11Renderer& renderer, UiTextMeasureCach
     footer.status = utf8_literal("Unsaved changes");
     footer.can_save = true;
     ++content.revision;
-    if (!ui_settings_scene_update(&scene, &registry, viewport) ||
+    // The long topic grows its field to the style height, which relayouts the
+    // page inside the retained storage.
+    if (!ui_settings_scene_update(&scene, &registry, viewport) || !rebuilt_in_place() ||
         !ui_settings_scene_focus(&scene, topic_target))
         return fail();
     ui_settings_scene_set_focus_visible(&scene, true);

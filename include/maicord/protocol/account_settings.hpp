@@ -35,13 +35,16 @@ inline constexpr u64 kAccountSelfRouteId = 0x41434353454c4655ull;
 // for settings_patch, the session id hash for session_logout, UTF-8 text for
 // profile_patch/display_name (empty clears). id is the token, or the self
 // user for profile.
+// settings_patch sends required_data_version when it is nonzero or
+// required_data_version_present is set.
 struct AccountSettingsRequest {
     ConstSlice<u8> payload;
     u64 id;
     u32 required_data_version;
     AccountSettingsOperation operation;
     AccountProfileField field;
-    u8 reserved[2];
+    bool required_data_version_present;
+    u8 reserved;
 };
 static_assert(sizeof(AccountSettingsRequest) == 32);
 

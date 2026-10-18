@@ -3,6 +3,7 @@
 #include "maicord/ui/controls/settings_controls.hpp"
 #include "maicord/ui/button.hpp"
 #include "maicord/ui/controls/settings_tokens.hpp"
+#include "maicord/core/color_hex.hpp"
 
 namespace maicord {
 namespace {
@@ -16,8 +17,128 @@ bool resolve_palette(void*, u64, u32 choice, BackgroundTheme* output) noexcept {
     output->angle_degrees = static_cast<u16>(choice * 37);
     return true;
 }
+// Flat themes as the host reports them: one repeated stop per theme.
+constexpr u32 kFlatThemes[]{0xF2F3F5, 0x313338, 0x000000};
+bool resolve_flat(void*, u64, u32 choice, BackgroundTheme* output) noexcept {
+    if (choice >= 3)
+        return false;
+    *output = background_theme_defaults();
+    output->color_count = 2;
+    output->colors[0] = output->colors[1] = kFlatThemes[choice];
+    output->colors[2] = output->colors[3] = output->colors[4] = 0;
+    return true;
+}
 UiPoint center(UiRect rect) noexcept {
     return {(rect.left + rect.right) * .5f, (rect.top + rect.bottom) * .5f};
+}
+
+// Rings share their shape's centre of curvature: the stroke's inner edge sits
+// the gap outside the shape with radius + gap.
+bool concentric(const PaintQuad& ring, UiRect shape, float radius, float gap, float width) noexcept {
+    const float out = gap + width;
+    return close_to(ring.left, shape.left - out) && close_to(ring.top, shape.top - out) &&
+           close_to(ring.right, shape.right + out) && close_to(ring.bottom, shape.bottom + out) &&
+           close_to(ring.radius, radius + out) && close_to(ring.border_width, width) &&
+           close_to(ring.radius - ring.border_width, radius + gap);
+}
+void test_control_rings(Check check, const UiSettingsTokens& tokens, PaintStream* paint) noexcept {
+    const auto& m = tokens.metric;
+    const UiRect track{100, 100, 100 + m.switch_width, 100 + m.switch_height};
+    check(paint_stream_reset(paint, 1000, 1000) &&
+              ui_switch_paint(paint, tokens, track, true, 1, false, {true, false, false, true}) && paint->count == 3 &&
+              concentric(paint->quads[2], track, m.switch_height * .5f, m.focus_gap, m.focus_width),
+          "settings controls: the switch focus ring is concentric with the track");
+    const UiRect swatch{200, 200, 200 + m.swatch, 200 + m.swatch};
+    check(paint_stream_reset(paint, 1000, 1000) &&
+              ui_swatch_paint(paint, tokens, swatch, {.2f, .3f, .4f, 1}, nullptr, true, {true, false, false, true}) &&
+              paint->count >= 4 &&
+              concentric(paint->quads[2], swatch, m.control_radius, m.ring_gap, m.ring_width) &&
+              concentric(paint->quads[3], swatch, m.control_radius, m.ring_gap + m.ring_width + m.focus_gap,
+                         m.focus_width),
+          "settings controls: swatch selection and focus rings are concentric with gaps between them");
+    const UiRect cell{300, 300, 300 + m.color_cell, 300 + m.color_cell};
+    check(paint_stream_reset(paint, 1000, 1000) &&
+              ui_color_grid_paint(paint, tokens, cell, {1, 1, 1, 1}, true, {true, false, false, true}) &&
+              paint->count >= 3 && concentric(paint->quads[1], cell, m.control_radius * .5f, m.ring_gap, m.ring_width) &&
+              concentric(paint->quads[2], cell, m.control_radius * .5f, m.ring_gap + m.ring_width, m.focus_width),
+          "settings controls: colour cells ring their selection and focus concentrically");
+    const UiRect indicator{0, 0, m.radio_size, m.radio_size};
+    check(paint_stream_reset(paint, 1000, 1000) &&
+              ui_radio_paint(paint, tokens, indicator, true, {true, false, true, false}) && paint->count == 2 &&
+              close_to(paint->quads[1].radius, m.radio_size * .5f - (paint->quads[1].left - indicator.left)) &&
+              close_to(paint->quads[1].left - indicator.left, indicator.right - paint->quads[1].right),
+          "settings controls: the selected radio dot is centred and concentric with its ring");
+    const UiRect field{0, 0, 300, m.control_height};
+    check(paint_stream_reset(paint, 1000, 1000) &&
+              ui_input_shell_paint(paint, tokens, field, {true, false, false, true}, true) && paint->count == 2 &&
+              paint->quads[1].border_width == 2 && paint->quads[1].border.red == tokens.color.critical_text.red &&
+              paint_stream_reset(paint, 1000, 1000) &&
+              ui_input_shell_paint(paint, tokens, field, {false, true, false, true}) && paint->count == 1,
+          "settings controls: focused fields keep their error outline; disabled fields draw no focus");
+}
+
+void test_slider_input(Check check, const UiSettingsTokens& tokens, PaintStream* paint) noexcept {
+    check(ui_slider_page_step(201) == 20 && ui_slider_page_step(361) == 36 && ui_slider_page_step(101) == 10 &&
+              ui_slider_page_step(5) == 1 && ui_slider_page_step(2) == 1 && ui_slider_page_step(0) == 1,
+          "settings slider: Page keys move a tenth of the range, at least one step");
+    const UiRect bounds{100, 0, 420, ui_slider_height(tokens, false)};
+    const auto g = ui_slider_geometry(tokens, bounds, 201, 50, false);
+    const float center = (g.grabber.left + g.grabber.right) * .5f, middle = (g.grabber.top + g.grabber.bottom) * .5f;
+    check(close_to(ui_slider_grab_offset(g.grabber, center + 5, middle), 5) &&
+              close_to(ui_slider_grab_offset(g.grabber, center - 6, middle), -6) &&
+              ui_slider_grab_offset(g.grabber, center + 40, middle) == 0 &&
+              ui_slider_index_at(g, 201, center + 5 - ui_slider_grab_offset(g.grabber, center + 5, middle)) == 50,
+          "settings slider: a press on the grabber keeps its offset so the value does not jump");
+    const auto& m = tokens.metric;
+    const auto grown = [&](UiControlState state) noexcept {
+        if (!paint_stream_reset(paint, 1000, 1000) || !ui_slider_paint(paint, tokens, g, 201, kUiSettingsNoChoice, state))
+            return -1.f;
+        // The grabber is the last quad before any focus ring.
+        const auto& grabber = paint->quads[state.focused ? paint->count - 2 : paint->count - 1];
+        return grabber.right - grabber.left;
+    };
+    check(close_to(grown({true, false, false, false}), m.slider_grabber) &&
+              close_to(grown({true, true, false, false}), m.slider_grabber + m.slider_grabber_grow) &&
+              close_to(grown({true, false, true, false}), m.slider_grabber + m.slider_grabber_grow) &&
+              close_to(grown({true, false, false, true}), m.slider_grabber + m.slider_grabber_grow) &&
+              close_to(grown({false, true, false, false}), m.slider_grabber) &&
+              close_to(paint->quads[0].bottom - paint->quads[0].top, m.slider_bar),
+          "settings slider: hover, drag and focus grow the grabber and bar; disabled sliders stay at rest");
+    // A host with its own slider sizes (the media volume) grows from them.
+    auto small_tokens = tokens;
+    small_tokens.metric.slider_grabber = 12;
+    const auto small = ui_slider_geometry(small_tokens, bounds, 201, 50, false);
+    check(paint_stream_reset(paint, 1000, 1000) &&
+              ui_slider_paint(paint, small_tokens, small, 201, kUiSettingsNoChoice, {true, true, false, false}) &&
+              close_to(paint->quads[paint->count - 1].right - paint->quads[paint->count - 1].left,
+                       12 + m.slider_grabber_grow),
+          "settings slider: hover growth follows an overridden grabber size");
+}
+
+void test_color_hex(Check check) noexcept {
+    u32 rgba = 0;
+    const auto parse = [&](const char* text, bool alpha) noexcept {
+        u32 bytes = 0;
+        while (text[bytes])
+            ++bytes;
+        rgba = 0x12345678;
+        return color_hex_parse({text, bytes}, alpha, &rgba);
+    };
+    check(parse("#5865F2", false) && rgba == 0x5865F2FFu && parse("5865f2", false) && rgba == 0x5865F2FFu &&
+              parse("#58f", false) && rgba == 0x5588FFFFu && parse("abc", false) && rgba == 0xAABBCCFFu,
+          "colour hex: #RRGGBB and #RGB parse with or without the '#', in either case");
+    check(parse("#5865F280", true) && rgba == 0x5865F280u && parse("#58f8", true) && rgba == 0x5588FF88u &&
+              !parse("#5865F280", false) && rgba == 0x12345678u && !parse("#58f8", false),
+          "colour hex: #RRGGBBAA and #RGBA parse only where the input takes alpha");
+    check(!parse("", false) && !parse("#", false) && !parse("#12", false) && !parse("#12345", false) &&
+              !parse("#1234567", true) && !parse("#12345G", false) && !parse(" #123456", false) &&
+              !parse("##123456", false) && rgba == 0x12345678u && !color_hex_parse({"#fff", 4}, false, nullptr),
+          "colour hex: other lengths, non-hex digits and spaces are rejected and leave the value");
+    char text[10]{};
+    check(color_hex_format(0x0A0B0CFFu, true, {text, 10}) == 7 && bytes_equal(text, "#0A0B0C", 7) &&
+              color_hex_format(0x0A0B0C80u, true, {text, 10}) == 9 && bytes_equal(text, "#0A0B0C80", 9) &&
+              color_hex_format(0x0A0B0C80u, false, {text, 10}) == 7 && !color_hex_format(0x0A0B0C80u, true, {text, 8}),
+          "colour hex: values format as #RRGGBB, with alpha digits only when translucent and allowed");
 }
 
 void test_controls(Check check) noexcept {
@@ -106,6 +227,9 @@ void test_controls(Check check) noexcept {
           "settings controls: the settings layer shrinks its sidebar and padding at the minimum window width");
     check(small.column.left - small.panel.left <= 20 && ui_rect_width(small.column) >= 240,
           "settings controls: a window-filling modal halves its side padding");
+    test_control_rings(check, tokens, &paint);
+    test_slider_input(check, tokens, &paint);
+    test_color_hex(check);
     paint_stream_release(&paint);
 }
 
@@ -272,8 +396,12 @@ void test_modal_scene(Check check) noexcept {
               activation.selected_choice == 4 &&
               ui_settings_scene_slider_key(scene, slider, UiSettingsSliderKey::increase, &activation) &&
               activation.selected_choice == 3 &&
+              ui_settings_scene_slider_key(scene, slider, UiSettingsSliderKey::page_decrease, &activation) &&
+              activation.selected_choice == 1 &&
+              ui_settings_scene_slider_key(scene, slider, UiSettingsSliderKey::page_increase, &activation) &&
+              activation.selected_choice == 3 &&
               ui_settings_scene_slider_hit(scene, slider, center(track.thumb).x, center(track.thumb).y),
-          "settings modal: sliders map pointer and keys to clamped choices");
+          "settings modal: sliders map pointer, arrow and Page keys to clamped choices");
     UiSettingsControlGeometry radio_geometry{};
     const auto tokens = ui_settings_tokens(kDefaultTheme);
     const bool radio_ok = ui_settings_scene_control_geometry(scene, radio, &radio_geometry);
@@ -353,6 +481,30 @@ void test_modal_scene(Check check) noexcept {
               ranges.modal_end_quad <= paint.count && !paint.rejected && paint.batch_count < kMaxPaintBatches / 2 &&
               paint.quads[0].fill.alpha > .7f && paint.quads[0].fill.alpha < .75f,
           "settings modal: scrim precedes the scaled dialog range which contains the page range");
+    // Each theme swatch paints its own resolved theme: flat themes solid in
+    // their own colour, so distinct themes never share a fill.
+    UiSettingsControlGeometry themes{};
+    bool solid = ui_settings_scene_bind_palette(&scene, {&palette_context, resolve_flat, 2}) &&
+                 ui_settings_scene_control_geometry(scene, {UiSettingsTargetKind::control, page, 1}, &themes) &&
+                 paint_stream_reset(&paint, viewport.right, viewport.bottom) &&
+                 ui_settings_scene_paint(scene, kDefaultTheme, &paint, 96, nullptr);
+    const auto swatch_tokens = ui_settings_tokens(kDefaultTheme);
+    const u32 columns = ui_swatch_columns(swatch_tokens, ui_rect_width(themes.field));
+    for (u32 choice = 0; solid && choice < 3; ++choice) {
+        const auto rect = ui_swatch_rect(swatch_tokens, themes.field, choice, columns);
+        const u32 rgb = kFlatThemes[choice];
+        bool found = false;
+        for (u32 i = 0; i < paint.count && !found; ++i) {
+            const auto& q = paint.quads[i];
+            found = close_to(q.left, rect.left) && close_to(q.top, rect.top) && close_to(q.right, rect.right) &&
+                    q.border_width == 0 && close_to(q.fill.red * 255, static_cast<float>(rgb >> 16)) &&
+                    close_to(q.fill.green * 255, static_cast<float>((rgb >> 8) & 255)) &&
+                    close_to(q.fill.blue * 255, static_cast<float>(rgb & 255));
+        }
+        solid = found;
+    }
+    check(solid && ui_settings_scene_bind_palette(&scene, {&palette_context, resolve_palette, 1}),
+          "settings modal: theme swatches fill with their own resolved theme colours");
     bool page_started = false, contiguous = true, header = false, escape = false, marks = false, logout = false;
     for (u32 i = 0; painted && i < text.count; ++i) {
         const bool owned = ui_settings_scene_page_owner(scene, commands[i].owner);
@@ -422,12 +574,14 @@ void test_layer_scene(Check check) noexcept {
     UiSettingsControlGeometry name_geometry{}, topic_geometry{}, hit{};
     const bool valid = ui_settings_scene_control_geometry(scene, name_target, &name_geometry) &&
                        ui_settings_scene_control_geometry(scene, topic_target, &topic_geometry);
-    check(valid && close_to(ui_rect_height(name_geometry.field), 40) && close_to(ui_rect_height(topic_geometry.field), 160) &&
+    check(valid && close_to(ui_rect_height(name_geometry.field), 40) &&
+              close_to(ui_rect_height(topic_geometry.field), 3 * kUiSettingsLabelLine + 24) &&
               close_to(name_geometry.text.left, name_geometry.field.left + 12) && topic_geometry.multiline &&
               ui_settings_scene_editor_hit(scene, center(name_geometry.clip).x, center(name_geometry.clip).y, &hit) &&
               ui_settings_target_equal(hit.target, name_target) &&
               !ui_settings_scene_editor_hit(scene, center(name_geometry.clip).x, name_geometry.field.top - 4, &hit),
-          "settings layer: editors keep 40 and 160 DIP fields with exact field hits");
+          "settings layer: single-line editors are 40 DIP and multi-line ones start at three lines, with exact "
+          "field hits");
     check(ui_settings_scene_focus(&scene, name_target) && name_geometry.scene_revision != scene.revision &&
               ui_settings_scene_control_geometry(scene, name_target, &name_geometry) &&
               name_geometry.scene_revision == scene.revision,
@@ -442,6 +596,27 @@ void test_layer_scene(Check check) noexcept {
     check(save && body && save->rectangle.top >= body->rectangle.bottom &&
               !ui_settings_scene_editor_hit(scene, save->rectangle.left + 1, save->rectangle.top + 1, &hit),
           "settings layer: the unsaved-changes bar sits below the scrolling rows");
+    // A multi-line field grows a line at a time with its text, up to its
+    // style height, and relayouts only when its line count changes.
+    const auto topic_height = [&](Utf8View text) noexcept {
+        topic.view.text = text;
+        ++content.revision;
+        UiSettingsControlGeometry geometry{};
+        return ui_settings_scene_update(&scene, &registry, viewport) &&
+                       ui_settings_scene_control_geometry(scene, topic_target, &geometry)
+                   ? ui_rect_height(geometry.field)
+                   : 0.f;
+    };
+    const u16 generation = scene.widgets.generation;
+    const float five = topic_height(utf8_literal("one\ntwo\nthree\nfour\nfive"));
+    const u16 grown_generation = scene.widgets.generation;
+    const float same = topic_height(utf8_literal("one\ntwo\nthree\nfour\nfivE"));
+    const u16 same_generation = scene.widgets.generation;
+    const float capped = topic_height(utf8_literal("1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12"));
+    check(close_to(five, 5 * kUiSettingsLabelLine + 24) && grown_generation != generation &&
+              close_to(same, five) && same_generation == grown_generation && close_to(capped, 160),
+          "settings layer: multi-line fields grow by line up to the style height");
+    topic.view.text = utf8_literal("Topic\nSecond line");
     footer.saving = true;
     controls[0].enabled = false;
     ++content.revision;

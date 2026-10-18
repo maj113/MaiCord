@@ -409,12 +409,12 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
               shown.emoji == MessageMediaAnimation::always && shown.stickers == MessageMediaAnimation::never &&
               shown.convert_emoticons && project(SettingBinding::inline_attachment_media) && !c.checked &&
               project(SettingBinding::render_embeds) && c.checked && project(SettingBinding::render_spoilers) &&
-              c.selected_choice == 2 && project(SettingBinding::animate_stickers) && c.selected_choice == 2 &&
+              c.selected_choice == 1 && project(SettingBinding::animate_stickers) && c.selected_choice == 2 &&
               application_user_settings_reveal_spoilers(0),
           "user settings runtime: Chat settings read text_and_images into the display policy");
     UserSettingsValue chat_value{};
     check(application_user_settings_activate(SettingBinding::render_reactions, true, 0) && shown.reactions &&
-              application_user_settings_activate(SettingBinding::render_spoilers, false, 1) &&
+              application_user_settings_activate(SettingBinding::render_spoilers, false, 2) &&
               shown.spoilers == MessageSpoilerReveal::moderator && !application_user_settings_reveal_spoilers(0) &&
               application_user_settings_read({6, 4, 0, UserSettingsKind::string}, &chat_value) &&
               utf8_equal({chat_value.text, chat_value.text_bytes}, utf8_literal("IF_MODERATOR")) &&
@@ -440,6 +440,67 @@ void test_application_user_settings_runtime(void (*check)(bool, const char*) noe
     check(application_user_settings_response(terminal, {}) && !application_user_settings_pending(~u64{0}) &&
               project(SettingBinding::user_settings_notice) && p.variant == UiSettingsVariant::critical,
           "user settings runtime: terminal verification 429 rolls back without automatic retry");
+
+    // Messaging Permissions, Data & Privacy and Activity Privacy follow the
+    // official reads and writes. Update: text_and_images with only the legacy
+    // explicit_content_filter {0} and privacy with friend_source_flags 10.
+    const u8 permissions[]{50, 3, 0x9A, 0x01, 0, 66, 4, 90, 2, 8, 10, 0xC8, 0x3E, 1};
+    application_user_settings_gateway(event, {permissions, sizeof(permissions)});
+    check(project(SettingBinding::dm_spam_filter) && c.selected_choice == 2 &&
+              project(SettingBinding::friend_everyone) && !c.checked && c.enabled &&
+              project(SettingBinding::friend_mutual_friends) && c.checked && c.enabled &&
+              project(SettingBinding::friend_mutual_guilds) && !c.checked && c.enabled &&
+              project(SettingBinding::activity_servers) && c.selected_choice == 0 &&
+              project(SettingBinding::share_online) && c.checked && project(SettingBinding::join_voice) && c.checked &&
+              project(SettingBinding::friend_request_notes) && c.checked &&
+              project(SettingBinding::sponsored_third_party) && c.checked &&
+              project(SettingBinding::nsfw_guilds) && !c.checked && c.enabled,
+          "user settings runtime: unset rows show the official defaults; spam follows the legacy filter and "
+          "Everyone needs all three friend sources");
+    check(application_user_settings_activate(SettingBinding::friend_everyone, true, 0) &&
+              project(SettingBinding::friend_mutual_guilds) && c.checked &&
+              application_user_settings_activate(SettingBinding::friend_mutual_guilds, false, 0) &&
+              project(SettingBinding::friend_everyone) && !c.checked &&
+              application_user_settings_activate(SettingBinding::dm_from_members, false, 0) &&
+              project(SettingBinding::dm_from_members) && !c.checked &&
+              project(SettingBinding::message_requests) && !c.checked && !c.enabled &&
+              !application_user_settings_activate(SettingBinding::message_requests, true, 0) &&
+              application_user_settings_activate(SettingBinding::activity_servers, false, 1) &&
+              project(SettingBinding::activity_servers) && c.selected_choice == 1 &&
+              application_user_settings_activate(SettingBinding::share_online, false, 0) &&
+              application_user_settings_activate(SettingBinding::friend_request_notes, false, 0) &&
+              application_user_settings_activate(SettingBinding::sponsored_activity, false, 0) &&
+              project(SettingBinding::sponsored_activity) && !c.checked,
+          "user settings runtime: permission edits apply optimistically; requests wait for DMs");
+    check(application_user_settings_submit(908, clock_monotonic_milliseconds() + 10'000),
+          "user settings runtime: the permission edits batch into one PATCH");
+    json = body_of(body, kUserSettingsPatchBytes, target, sizeof(target), &path);
+    u8 permissions_sent[256]{};
+    const auto permissions_decoded =
+        json.bytes > prefix + 2 ? base64_decode({json.data + prefix, json.bytes - prefix - 2}, {permissions_sent, 256})
+                                : Base64Result{0, 0, Base64Error::invalid_input};
+    const ConstSlice<u8> permissions_message{permissions_sent, permissions_decoded.bytes};
+    const auto permission_privacy = user_settings_proto_group(permissions_message, 8);
+    const auto notifications_sent = user_settings_proto_group(permissions_message, 7);
+    using SK = UserSettingsKind;
+    const u8 dms_v2[]{0xDA, 0x01, 2, 8, 1}, activity_v2[]{0xE8, 0x01, 2}, hide_notes[]{0x8A, 0x02, 2, 8, 1},
+        drops_out[]{0x92, 0x01, 2, 8, 1}, online_off[]{0xCA, 0x01, 0};
+    check(permissions_decoded.ok() && utf8_equal(path, utf8_literal("/api/v10/users/@me/settings-proto/1")) &&
+              has_bytes(permission_privacy, dms_v2, sizeof(dms_v2)) &&
+              !user_settings_proto_read(permission_privacy, {8, 4, 0, SK::plain_bool}, &v) &&
+              user_settings_proto_read(permission_privacy, {8, 11, 0, SK::uint32}, &v) && v.number == 2 &&
+              has_bytes(permission_privacy, activity_v2, sizeof(activity_v2)) &&
+              has_bytes(permission_privacy, hide_notes, sizeof(hide_notes)) &&
+              has_bytes(permission_privacy, drops_out, sizeof(drops_out)) &&
+              has_bytes(notifications_sent, online_off, sizeof(online_off)) &&
+              !user_settings_proto_group(permissions_message, 6).count,
+          "user settings runtime: the PATCH writes default_guilds_restricted_v2 alone, friend sources 2, "
+          "activity v2 2, hidden notes, the drops opt-out and come-online off");
+    application_user_settings_response(reply(908, 500), {});
+    check(project(SettingBinding::friend_mutual_friends) && c.checked && project(SettingBinding::friend_everyone) &&
+              !c.checked && project(SettingBinding::dm_from_members) && c.checked &&
+              project(SettingBinding::activity_servers) && c.selected_choice == 0,
+          "user settings runtime: a rejected permission PATCH rolls every row back");
 
     check(application_account_settings_pending(now) && application_account_settings_submit(1000, now) &&
               captured.operation == AccountSettingsOperation::sessions,

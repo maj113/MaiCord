@@ -1,4 +1,5 @@
 #pragma once
+#include "maicord/core/color_hex.hpp"
 #include "maicord/ui/secure_edit.hpp"
 #include "maicord/ui/input_router.hpp"
 #include "application_forum_post.hpp"
@@ -22,6 +23,9 @@ struct ApplicationTextFormProgress {
     bool can_cancel = true, dismissible = true;
 };
 using TextFormProgress = ApplicationTextFormProgress (*)(TextFormOwnerKey key) noexcept;
+// Reads an editor's text after every edit: whether it is acceptable, and the
+// colour it names (0xRRGGBBAA) for forms with a swatch.
+using TextFormCheck = bool (*)(TextFormOwnerKey key, Utf8View text, u32* swatch_rgba) noexcept;
 using TextFormClosed = void (*)(TextFormOwnerKey key) noexcept;
 struct ApplicationTextFormRequest {
     Utf8View title, context, label, accept, initial;
@@ -64,7 +68,20 @@ struct ApplicationTextFormRequest {
     ConstSlice<Utf8View> select_options{};
     u32 select_selected = 0;
     TextFormSaveChoices save_choices = nullptr;
+    // Editors only: a hint while the field is empty.
+    Utf8View placeholder{};
+    // Editors only: a live check of the text. Accept with text the check
+    // rejects restores the last accepted text and shows `rejected` as an
+    // error instead of saving; with `swatch` the field previews the colour of
+    // the last accepted text.
+    TextFormCheck check = nullptr;
+    Utf8View rejected{};
+    bool swatch = false;
 };
+// Check for colour editors: #RGB or #RRGGBB, with or without the '#'.
+inline bool application_text_form_color_check(TextFormOwnerKey, Utf8View text, u32* swatch_rgba) noexcept {
+    return color_hex_parse(text, false, swatch_rgba);
+}
 bool application_text_form_forum_child(const ApplicationForumPostTicket&) noexcept;
 bool application_text_form_open(const ApplicationTextFormRequest& request) noexcept;
 void application_text_form_close(bool restore_focus = true, bool redraw = true) noexcept;

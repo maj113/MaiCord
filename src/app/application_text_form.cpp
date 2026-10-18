@@ -171,7 +171,28 @@ bool project(ApplicationTextForm* form) noexcept {
     content.select_options = {form->options, request.select_options.count};
     content.select_selected = form->select_selected;
     content.select_expanded = form->select_expanded;
+    content.placeholder = request.placeholder;
+    content.error = form->error;
+    content.swatch = request.swatch;
+    content.swatch_rgba = form->swatch_rgba;
     return text_form_update(&form->scene, content, application_viewport_dips(), form->measure);
+}
+// Runs the request's check on the current text, remembering it while the
+// check accepts it. Returns whether it was accepted.
+bool check_text(ApplicationTextForm* form) noexcept {
+    if (!form->request.check || form->request.confirmation_only)
+        return true;
+    const auto view = secure_edit_view(form->edit);
+    const Utf8View text{reinterpret_cast<const char*>(view.data), view.count};
+    u32 rgba = form->swatch_rgba;
+    if (!form->request.check(form->request.owner, text, &rgba))
+        return false;
+    form->swatch_rgba = rgba;
+    if (text.bytes <= sizeof(form->accepted)) {
+        copy_bytes(form->accepted, text.data, text.bytes);
+        form->accepted_bytes = static_cast<u8>(text.bytes);
+    }
+    return true;
 }
 bool refresh(ApplicationTextForm* form) noexcept {
     if (form->refreshing)
@@ -223,7 +244,9 @@ void changed(void* opaque) noexcept {
     if (form != g_app.text_form || form->refreshing || !form->editable)
         return;
     form->status = {};
+    form->error = false;
     form->typed = true;
+    check_text(form);
     reset_caret(form);
     refresh(form);
 }
@@ -299,6 +322,15 @@ bool activate(ApplicationTextForm* form, TextFormElement element) noexcept {
         return false;
     if (!form->can_accept)
         return true;
+    if (!check_text(form)) {
+        // Rejected text reverts to the last accepted text with an error.
+        secure_edit_assign(&form->edit, {form->accepted, form->accepted_bytes});
+        form->status = form->request.rejected.bytes ? form->request.rejected : utf8_literal("Enter a valid value.");
+        form->error = true;
+        reset_caret(form);
+        refresh(form);
+        return true;
+    }
     const auto text = form->request.confirmation_only ? ConstSlice<u8>{} : secure_edit_view(form->edit);
     const Utf8View typed{reinterpret_cast<const char*>(text.data), text.count};
     const bool saved =
@@ -322,18 +354,19 @@ bool activate(ApplicationTextForm* form, TextFormElement element) noexcept {
             form->request.confirmation_only
                 ? utf8_literal("Something went wrong. Try again.")
                 : utf8_literal("Couldn't save. Try again.");
+        form->error = true;
         refresh(form);
     }
     return true;
 }
 bool apply(ApplicationTextForm* form, SecureEditResult result) noexcept {
     if (result == SecureEditResult::capacity)
-        form->status = utf8_literal("This text is too long.");
+        form->status = utf8_literal("This text is too long."), form->error = true;
     else if (result == SecureEditResult::invalid_input || result == SecureEditResult::invalid_utf8 ||
              result == SecureEditResult::invalid_utf16)
-        form->status = utf8_literal("This text contains an unsupported character.");
+        form->status = utf8_literal("This text contains an unsupported character."), form->error = true;
     else if (result == SecureEditResult::changed)
-        form->status = {};
+        form->status = {}, form->error = false;
     if (result == SecureEditResult::pending_surrogate)
         return true;
     if (result == SecureEditResult::unchanged && form->surface.layout.active) {
@@ -381,10 +414,11 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         (!request.select_options.data && request.select_options.count) ||
         (request.choice_selected != ~0u && request.choice_selected >= request.choices.count) ||
         (request.choice_editor != ~0u && request.choice_editor >= request.choices.count) ||
-        (request.select_options.count && request.select_selected >= request.select_options.count))
+        (request.select_options.count && request.select_selected >= request.select_options.count) ||
+        ((request.check || request.swatch) && request.confirmation_only) || (request.swatch && !request.check))
         return false;
-    const Utf8View labels[] = {request.title, request.context, request.label,
-                               request.accept, request.cancel, request.option};
+    const Utf8View labels[] = {request.title,  request.context, request.label,       request.accept,
+                               request.cancel, request.option,  request.placeholder, request.rejected};
     u32 label_bytes = 0;
     for (const auto label : labels) {
         if (!utf8_validate(label).valid || label.bytes > 2048 - label_bytes)
@@ -433,7 +467,8 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
     form->editable = form->can_accept = form->can_cancel = form->dismissible = true;
     form->option_checked = request.option.bytes && request.option_checked;
     Utf8View* copied[] = {&form->request.title,  &form->request.context, &form->request.label,
-                          &form->request.accept, &form->request.cancel,  &form->request.option};
+                          &form->request.accept, &form->request.cancel,  &form->request.option,
+                          &form->request.placeholder, &form->request.rejected};
     static_assert(sizeof(copied) / sizeof(copied[0]) == sizeof(labels) / sizeof(labels[0]));
     u32 offset = 0;
     const auto copy_label = [&](Utf8View source) noexcept {
@@ -462,6 +497,8 @@ bool application_text_form_open(const ApplicationTextFormRequest& request) noexc
         if (initialized) {
             const auto assigned = secure_edit_assign(&form->edit, request.initial);
             initialized = assigned == SecureEditResult::changed || assigned == SecureEditResult::unchanged;
+            if (initialized)
+                check_text(form);
         }
         initialized = initialized && secure_edit_enable_history(&form->edit, 32 * 1024);
         form->blink_ms = GetCaretBlinkTime();

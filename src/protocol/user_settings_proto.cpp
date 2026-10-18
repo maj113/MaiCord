@@ -427,14 +427,15 @@ bool user_settings_proto_patch_valid(ConstSlice<u8> partial) noexcept {
     return !folders || fields == 1;
 }
 
-u32 user_settings_proto_write_patch_json(ConstSlice<u8> partial, u32 version, Slice<u8> output) noexcept {
+u32 user_settings_proto_write_patch_json(ConstSlice<u8> partial, u32 version, Slice<u8> output,
+                                         bool required) noexcept {
     if (!user_settings_proto_patch_valid(partial) || !range_valid(output) ||
         byte_ranges_overlap(partial, {output.data, output.count}))
         return 0;
-    const u32 required = proto_settings_patch_bytes(partial.count, version);
-    if (output.count < required || !proto_write_settings_patch(partial, version, output))
+    const u32 bytes = proto_settings_patch_bytes(partial.count, version, required);
+    if (output.count < bytes || !proto_write_settings_patch(partial, version, output, required))
         return 0;
-    return required;
+    return bytes;
 }
 
 namespace {
@@ -497,7 +498,7 @@ void user_settings_store_reset(UserSettingsStore* store) noexcept {
     store->dirty_count = store->inflight_count = store->offline_data_version = 0;
     store->session_hash_bytes = 0;
     store->due_ms = 0;
-    store->loaded = store->live = store->inflight_active = store->refetch = false;
+    store->loaded = store->live = store->inflight_active = store->refetch = store->offline_pinned = false;
     store->revision = revision;
 }
 
@@ -629,8 +630,10 @@ bool user_settings_store_set(UserSettingsStore* store, UserSettingsField field, 
     store->dirty[index] = {field, value};
     if (!store->due_ms)
         store->due_ms = now_ms + kUserSettingsBatchMilliseconds;
-    if (!store->live && !store->offline_data_version)
+    if (!store->live && !store->offline_pinned) {
         store->offline_data_version = store->data_version;
+        store->offline_pinned = true;
+    }
     ++store->revision;
     return true;
 }
@@ -640,8 +643,8 @@ bool user_settings_store_due(const UserSettingsStore& store, u64 now_ms) noexcep
            now_ms >= store.due_ms;
 }
 
-u32 user_settings_store_begin(UserSettingsStore* store, Slice<u8> partial, u32* required) noexcept {
-    if (!store || !store->dirty_count || store->inflight_active || !range_valid(partial) || !required)
+u32 user_settings_store_begin(UserSettingsStore* store, Slice<u8> partial, u32* version, bool* required) noexcept {
+    if (!store || !store->dirty_count || store->inflight_active || !range_valid(partial) || !version)
         return 0;
     u32 groups = 0;
     for (u32 i = 0; i < store->dirty_count; ++i)
@@ -676,8 +679,11 @@ u32 user_settings_store_begin(UserSettingsStore* store, Slice<u8> partial, u32* 
     store->dirty_count = 0;
     store->due_ms = 0;
     store->inflight_active = true;
-    *required = store->offline_data_version;
+    *version = store->offline_data_version;
+    if (required)
+        *required = store->offline_pinned;
     store->offline_data_version = 0;
+    store->offline_pinned = false;
     return out.at;
 }
 

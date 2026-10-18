@@ -950,14 +950,17 @@ void test_gateway_ready_projection(void (*check)(bool, const char*) noexcept) no
         valid.batch_counts[0] == 1 && valid.batch_counts[1] == 64 && valid.batch_counts[2] == 64 &&
         valid.batch_counts[3] == 1 && valid.complete == 1 && hash(input) == immutable,
         "READY preflight is callback-free and immutable before valid users publish in existing 64-record batches");
-    check(valid.admitted == 14 && valid.order[5] == GatewayClientDispatchKind::notification_snapshot_begin &&
+    // An empty user_settings_proto still publishes: the official client loads
+    // every setting at its default.
+    check(valid.admitted == 15 && valid.order[5] == GatewayClientDispatchKind::notification_snapshot_begin &&
         valid.order[6] == GatewayClientDispatchKind::notification_global &&valid.order[7]==GatewayClientDispatchKind::notification_snapshot_complete&&
         valid.order[8] == GatewayClientDispatchKind::guild_folders &&
-        valid.order[9] == GatewayClientDispatchKind::guild_create &&
-        valid.order[10] == GatewayClientDispatchKind::read_state_snapshot &&
-        valid.order[11] == GatewayClientDispatchKind::relationship_snapshot_begin &&
-        valid.order[12] == GatewayClientDispatchKind::relationship_snapshot_complete &&
-        valid.order[13] == GatewayClientDispatchKind::ready_state_complete &&valid.notification_complete==1&&!valid.notification_incomplete,
+        valid.order[9] == GatewayClientDispatchKind::user_settings &&
+        valid.order[10] == GatewayClientDispatchKind::guild_create &&
+        valid.order[11] == GatewayClientDispatchKind::read_state_snapshot &&
+        valid.order[12] == GatewayClientDispatchKind::relationship_snapshot_begin &&
+        valid.order[13] == GatewayClientDispatchKind::relationship_snapshot_complete &&
+        valid.order[14] == GatewayClientDispatchKind::ready_state_complete &&valid.notification_complete==1&&!valid.notification_incomplete,
         "READY projection keeps header users guilds reads relationships and completion order");
 
     // Publication replayed from the preflight's staged records matches

@@ -4,6 +4,17 @@
 namespace maicord {
 namespace {
 constexpr float kTrackInset = 5;
+// A hovered, dragged or focused slider grows its grabber and bar about their
+// centres; hit-testing keeps the resting geometry.
+UiSliderGeometry active(const UiSettingsTokens& tokens, UiSliderGeometry g, UiControlState state) noexcept {
+    if (!state.enabled || !(state.hovered || state.pressed || state.focused))
+        return g;
+    const float grow = tokens.metric.slider_grabber_grow * .5f, thicken = tokens.metric.slider_bar_grow * .5f;
+    g.grabber = {g.grabber.left - grow, g.grabber.top - grow, g.grabber.right + grow, g.grabber.bottom + grow};
+    g.bar.top -= thicken, g.bar.bottom += thicken;
+    g.fill.top = g.bar.top, g.fill.bottom = g.bar.bottom;
+    return g;
+}
 } // namespace
 
 float ui_slider_height(const UiSettingsTokens& tokens, bool marks) noexcept {
@@ -41,6 +52,15 @@ u32 ui_slider_index_at(const UiSliderGeometry& geometry, u32 count, float x) noe
     return static_cast<u32>(fraction * static_cast<float>(count - 1) + .5f);
 }
 
+u32 ui_slider_page_step(u32 count) noexcept {
+    const u32 range = count ? count - 1 : 0;
+    return maximum(1u, (range + 5) / 10);
+}
+
+float ui_slider_grab_offset(UiRect grabber, float x, float y) noexcept {
+    return ui_rect_contains(grabber, x, y) ? x - (grabber.left + grabber.right) * .5f : 0.f;
+}
+
 UiRect ui_slider_mark_label(const UiSettingsTokens& tokens, const UiSliderGeometry& geometry, u32 count,
                             u32 index) noexcept {
     const float x = ui_slider_position(geometry, count, index);
@@ -48,10 +68,11 @@ UiRect ui_slider_mark_label(const UiSettingsTokens& tokens, const UiSliderGeomet
     return {x - half, geometry.bounds.top, x + half, geometry.bounds.top + tokens.metric.slider_mark_height - 6};
 }
 
-bool ui_slider_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiSliderGeometry& g, u32 count,
+bool ui_slider_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiSliderGeometry& resting, u32 count,
                      u32 default_index, UiControlState state) noexcept {
+    const auto g = active(tokens, resting, state);
     const auto& c = tokens.color;
-    const float alpha = state.enabled ? 1.f : .6f;
+    const float alpha = state.enabled ? 1.f : tokens.disabled_alpha;
     const float bar_radius = ui_rect_height(g.bar) * .5f;
     bool ok = true;
     if (g.marks && count >= 2 && count <= 32) {
@@ -64,7 +85,7 @@ bool ui_slider_paint(PaintStream* paint, const UiSettingsTokens& tokens, const U
                                            1);
         }
     }
-    const Color fill = state.hovered || state.pressed ? c.brand_hover : c.brand;
+    const Color fill = c.brand;
     const float grab_radius = ui_rect_width(g.grabber) * .5f;
     ok = ok &&
          paint_stream_push_rounded(paint, g.bar.left, g.bar.top, g.bar.right, g.bar.bottom,
@@ -77,15 +98,15 @@ bool ui_slider_paint(PaintStream* paint, const UiSettingsTokens& tokens, const U
                                           ui_settings_color_alpha(c.thumb, alpha),
                                           ui_settings_color_alpha(c.border_normal, alpha), grab_radius, 1);
     if (ok && state.focused)
-        ok = paint_stream_push_rounded_border(paint, g.grabber.left - 3, g.grabber.top - 3, g.grabber.right + 3,
-                                              g.grabber.bottom + 3, {}, c.focus_ring, grab_radius + 3, 2);
+        ok = ui_settings_focus_paint(paint, tokens, g.grabber, grab_radius);
     return ok;
 }
 
-bool ui_slider_meter_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiSliderGeometry& g, u32 count,
-                           u32 level, UiControlState state) noexcept {
+bool ui_slider_meter_paint(PaintStream* paint, const UiSettingsTokens& tokens, const UiSliderGeometry& resting,
+                           u32 count, u32 level, UiControlState state) noexcept {
+    const auto g = active(tokens, resting, state);
     const auto& c = tokens.color;
-    const float alpha = state.enabled ? 1.f : .6f;
+    const float alpha = state.enabled ? 1.f : tokens.disabled_alpha;
     const float radius = ui_rect_height(g.bar) * .5f;
     const float thumb = (g.grabber.left + g.grabber.right) * .5f;
     const float lit = maximum(g.bar.left, minimum(g.bar.right, ui_slider_position(g, count, level)));
@@ -104,8 +125,7 @@ bool ui_slider_meter_paint(PaintStream* paint, const UiSettingsTokens& tokens, c
                                                g.grabber.bottom, ui_settings_color_alpha(c.thumb, alpha),
                                                ui_settings_color_alpha(c.border_normal, alpha), grab_radius, 1);
     if (ok && state.focused)
-        ok = paint_stream_push_rounded_border(paint, g.grabber.left - 3, g.grabber.top - 3, g.grabber.right + 3,
-                                              g.grabber.bottom + 3, {}, c.focus_ring, grab_radius + 3, 2);
+        ok = ui_settings_focus_paint(paint, tokens, g.grabber, grab_radius);
     return ok;
 }
 

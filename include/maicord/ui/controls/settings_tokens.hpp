@@ -31,6 +31,14 @@ struct UiSettingsMetrics {
     // Administration rows: segmented options, colour grid, chips and row leads.
     float segment_size, segment_gap, color_cell, color_gap, chip_height, chip_gap, chip_padding, avatar_size,
         grip_width, accent_dot, lead_gap;
+    // Rings around a control: keyboard focus, and the selection of a swatch
+    // or colour cell. Each stroke's inner edge sits its gap outside the shape.
+    float focus_gap, focus_width, ring_gap, ring_width;
+    // Inner padding of text fields and selects (the theme's form field padding).
+    float field_padding;
+    // How much a hovered, dragged or focused slider's grabber and bar grow,
+    // whatever their resting size.
+    float slider_grabber_grow, slider_bar_grow;
 };
 
 struct UiSettingsDurations {
@@ -41,6 +49,8 @@ struct UiSettingsTokens {
     UiSettingsColors color;
     UiSettingsMetrics metric;
     UiSettingsDurations duration;
+    // Opacity of every disabled control.
+    float disabled_alpha;
     bool light;
 };
 

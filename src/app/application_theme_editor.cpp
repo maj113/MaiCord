@@ -184,18 +184,25 @@ bool action(ApplicationThemeEditor& e, UiThemeEditorElement element) noexcept {
         application_theme_editor_close(true);
         return true;
     }
-    if (element == UiThemeEditorElement::hex)
-        return application_text_form_open(
-            {utf8_literal("Edit color"),
-             utf8_literal("Enter a color in #RRGGBB notation."),
-             utf8_literal("Color"),
-             utf8_literal("Apply"),
-             {e.scene.hex, 7},
-             {e.lifetime, static_cast<u64>(e.scene.widgets.generation) << 32 | e.edit_revision,
-              e.scene.selected_stop},
-             hex_valid,
-             hex_save,
-             14});
+    if (element == UiThemeEditorElement::hex) {
+        ApplicationTextFormRequest request{utf8_literal("Edit color"),
+                                           utf8_literal("Enter a hex color such as #5865F2 or #58F."),
+                                           utf8_literal("Color"),
+                                           utf8_literal("Apply"),
+                                           {e.scene.hex, 7},
+                                           {e.lifetime,
+                                            static_cast<u64>(e.scene.widgets.generation) << 32 | e.edit_revision,
+                                            e.scene.selected_stop},
+                                           hex_valid,
+                                           hex_save,
+                                           14};
+        request.single_line = true;
+        request.placeholder = utf8_literal("#RRGGBB");
+        request.check = application_text_form_color_check;
+        request.rejected = utf8_literal("That isn't a hex color. Use #RGB or #RRGGBB.");
+        request.swatch = true;
+        return application_text_form_open(request);
+    }
     if (element == UiThemeEditorElement::dark || element == UiThemeEditorElement::light) {
         const bool light = element == UiThemeEditorElement::light;
         if (light != e.scene.light_mode) {

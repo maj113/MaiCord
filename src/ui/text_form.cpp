@@ -2,6 +2,7 @@
 #include "maicord/ui/text_form.hpp"
 #include "maicord/ui/foreground_color.hpp"
 #include "maicord/ui/icon.hpp"
+#include "maicord/ui/edit_field.hpp"
 #include "maicord/ui/surface_elevation.hpp"
 #include "maicord/ui/widget_scroll.hpp"
 #include "maicord/ui/widget_builder.hpp"
@@ -98,6 +99,14 @@ bool editor_collapsed(const TextFormContent& content) noexcept {
 // The checkbox square and the gap before its label.
 constexpr float kOptionBox = 20.0f;
 constexpr float kOptionGap = 8.0f;
+// The colour swatch square at the editor's end and the editor's end padding
+// that makes room for it.
+float swatch_side(const UiThemeMetrics& metrics) noexcept {
+    return metrics.control_height * .75f;
+}
+float edit_end_padding(const TextFormContent& content, const UiThemeMetrics& metrics) noexcept {
+    return metrics.form_field_padding + (content.swatch ? swatch_side(metrics) + metrics.form_field_padding * .5f : 0);
+}
 bool action(TextFormElement element) noexcept {
     return element == TextFormElement::cancel || element == TextFormElement::accept;
 }
@@ -359,6 +368,7 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
     signature = hash64_mix(signature, content.option.bytes != 0);
     signature = hash64_mix(signature, present_mask(content));
     signature = hash64_mix(signature, editor_collapsed(content));
+    signature = hash64_mix(signature, content.swatch);
     for (u32 i = 0; i < kTextFormElements; ++i) {
         if (i == index(TextFormElement::edit) ||
             (content.confirmation_only && i == index(TextFormElement::label)))
@@ -368,7 +378,7 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
             return false;
         signature = hash64_counted_bytes(signature, text.data, text.bytes);
     }
-    if (!content.confirmation_only && !utf8_validate(content.text).valid)
+    if (!content.confirmation_only && (!utf8_validate(content.text).valid || !utf8_validate(content.placeholder).valid))
         return false;
     if (!content.confirmation_only && ((!content.composition.data && content.composition.count) ||
                                        content.composition.count > kTextCompositionSpanCapacity))
@@ -409,7 +419,9 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
         content.select_selected != scene->content.select_selected ||
         content.select_expanded != scene->content.select_expanded ||
         content.caret_visible != scene->content.caret_visible ||
-        content.focus_visible != scene->content.focus_visible;
+        content.focus_visible != scene->content.focus_visible || content.error != scene->content.error ||
+        content.swatch_rgba != scene->content.swatch_rgba ||
+        !utf8_equal(content.placeholder, scene->content.placeholder);
     scene->content = content;
     scene->measure = measure;
     if ((!scene->widgets.count || present_mask(content) != scene->built) && !build(scene)) {
@@ -442,7 +454,8 @@ bool text_form_update(TextFormScene* scene, const TextFormContent& content, UiRe
             edit_layout->spec.style.padding =
                 collapsed ? UiInsets{}
                           : UiInsets{metrics.form_field_padding, maximum(0.f, metrics.form_field_padding - 2),
-                                     metrics.form_field_padding, maximum(0.f, metrics.form_field_padding - 2)};
+                                     edit_end_padding(content, metrics),
+                                     maximum(0.f, metrics.form_field_padding - 2)};
             edit_layout->spec.style.height = ui_layout_fixed(
                 collapsed             ? 0.f
                 : content.single_line ? maximum(metrics.control_height, metrics.form_single_height + 4)
@@ -514,6 +527,16 @@ void text_form_release(TextFormScene* scene) noexcept {
         return;
     ui_fixed_widget_storage_release(&scene->storage);
     *scene = {};
+}
+UiRect text_form_swatch_box(const TextFormScene& scene) noexcept {
+    const auto* node = text_form_node(scene, TextFormElement::edit);
+    if (!scene.active || !scene.content.swatch || !node || editor_collapsed(scene.content))
+        return {};
+    const auto& metrics = ui_theme_metrics(scene.theme_styles);
+    const float side = swatch_side(metrics), right = node->rectangle.right - metrics.form_field_padding;
+    const float top = scene.content.single_line ? (node->rectangle.top + node->rectangle.bottom - side) * .5f
+                                                : node->rectangle.top + metrics.form_field_padding;
+    return {right - side, top, right, top + side};
 }
 TextFormElement text_form_hit_test(const TextFormScene& scene, float x, float y) noexcept {
     if (!scene.active)
@@ -600,8 +623,15 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
             valid = false;
             break;
         }
-        if (!paint_stream_push_clip(paint, node->clip_rectangle.left, node->clip_rectangle.top,
-                                    node->clip_rectangle.right, node->clip_rectangle.bottom)) {
+        // A button's focus ring sits outside it: clip buttons to the panel
+        // rather than the content box they lie in.
+        UiRect bounds = node->clip_rectangle;
+        if (action(element)) {
+            const float ring = theme.scale.space_2 * .75f;
+            bounds = ui_rect_intersection(
+                {bounds.left - ring, bounds.top - ring, bounds.right + ring, bounds.bottom + ring}, panel->rectangle);
+        }
+        if (!paint_stream_push_clip(paint, bounds.left, bounds.top, bounds.right, bounds.bottom)) {
             valid = false;
             break;
         }
@@ -609,10 +639,21 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
         const bool outlined = focused && scene.content.focus_visible;
         const auto& metrics = ui_theme_metrics(scene.theme_styles);
         if (element == TextFormElement::edit) {
+            // An error keeps its outline while focused, like settings fields.
+            const bool error = scene.content.error;
             valid = paint_stream_push_rounded_border(
                 paint, node->rectangle.left, node->rectangle.top, node->rectangle.right,
-                node->rectangle.bottom, theme.base_lowest, outlined ? theme.tokens.border.focus : theme.interactive,
-                metrics.compact_radius, outlined ? 2.0f : 1.0f);
+                node->rectangle.bottom, theme.base_lowest,
+                error ? theme.tokens.text.danger : outlined ? theme.tokens.border.focus : theme.interactive,
+                metrics.compact_radius, error || outlined ? 2.0f : 1.0f);
+            const auto swatch = text_form_swatch_box(scene);
+            if (valid && ui_rect_has_area(swatch)) {
+                const u32 rgba = scene.content.swatch_rgba;
+                const Color color{static_cast<float>(rgba >> 24) / 255.f, static_cast<float>((rgba >> 16) & 255) / 255.f,
+                                  static_cast<float>((rgba >> 8) & 255) / 255.f, static_cast<float>(rgba & 255) / 255.f};
+                valid = paint_stream_push_rounded_border(paint, swatch.left, swatch.top, swatch.right, swatch.bottom,
+                                                         color, theme.tokens.border.strong, theme.scale.radius_xs, 1);
+            }
         } else if (radio(element)) {
             // A radio circle with a dot when chosen.
             u32 at = 0;
@@ -680,7 +721,7 @@ bool text_form_paint(const TextFormScene& scene, const TextFormEditGeometry& edi
         if (element == TextFormElement::edit) {
             const auto clip = ui_rect_overlap(node->content_rectangle, node->clip_rectangle);
             for (u32 i = 0; valid && i < edit.selections.count; ++i)
-                valid = fill(paint, ui_rect_overlap(edit.selections[i], clip), theme.interactive_hover);
+                valid = fill(paint, ui_rect_overlap(edit.selections[i], clip), ui_edit_selection_color(theme));
             for (u32 i = 0; valid && i < edit.composition.count; ++i) {
                 const auto& mark = edit.composition[i];
                 const bool targeted =
@@ -704,7 +745,9 @@ bool text_form_text_output(const TextFormScene& scene, const TextFormEditGeometr
         const auto element = static_cast<TextFormElement>(i);
         if (!(scene.built & (1u << i)) || (element == TextFormElement::edit && editor_collapsed(scene.content)))
             continue;
-        const auto text = label(scene.content, element);
+        const bool hint = element == TextFormElement::edit && !scene.content.text.bytes &&
+                          scene.content.placeholder.bytes && !scene.content.confirmation_only;
+        const auto text = hint ? scene.content.placeholder : label(scene.content, element);
         if (!text.bytes)
             continue;
         const auto* node = text_form_node(scene, element);
@@ -715,9 +758,10 @@ bool text_form_text_output(const TextFormScene& scene, const TextFormEditGeometr
             continue;
         const bool button = action(element);
         Color color = element == TextFormElement::label || element == TextFormElement::choices_label ||
-                              element == TextFormElement::select_label
+                              element == TextFormElement::select_label || hint
                           ? theme.text_secondary
-                          : theme.text_primary;
+                      : element == TextFormElement::status && scene.content.error ? theme.tokens.text.danger
+                                                                                  : theme.text_primary;
         if (button) {
             Color fill = button_fill(scene, element, theme);
             fill.alpha = 1;
@@ -731,7 +775,7 @@ bool text_form_text_output(const TextFormScene& scene, const TextFormEditGeometr
         if (!ui_text_output_push(
                 stream, {text,
                          {&scene.widgets, scene.elements[i]},
-                         element == TextFormElement::edit ? edit.text_rectangle : node->content_rectangle,
+                         element == TextFormElement::edit && !hint ? edit.text_rectangle : node->content_rectangle,
                          clip,
                          color,
                          text_style(element),

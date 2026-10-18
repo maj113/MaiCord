@@ -152,6 +152,8 @@ bool settings_choice_ui_probe(D3D11Renderer& renderer, PopupScene& popup,
                               bool (*capture)(const wchar_t*) noexcept) noexcept;
 bool shortcuts_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
 bool call_scene_ui_probe(D3D11Renderer& renderer, bool (*capture)(const wchar_t*, const Theme&) noexcept) noexcept;
+bool user_settings_ui_probe(D3D11Renderer& renderer, UiTextMeasureCache& cache,
+                            bool (*capture)(const wchar_t*) noexcept) noexcept;
 bool notification_settings_ui_probe(D3D11Renderer& renderer,
                                     bool (*capture)(const wchar_t*) noexcept) noexcept;
 bool inbox_ui_probe(D3D11Renderer& renderer, PopupScene& popup, bool (*capture)(const wchar_t*) noexcept) noexcept;
@@ -8565,8 +8567,10 @@ bool probe_profile_card() noexcept {
     return valid;
 }
 
-// Rich presence: a Spotify card with its progress track and a game card in
-// the full profile's Activity tab, from synthetic activities (no network).
+// Rich presence: the popout's first card (a game with both images, party,
+// timer and buttons) with the next one peeking, then every card in the full
+// profile's Activity tab (Spotify with its progress bar, an episode), from
+// synthetic activities (no network).
 bool probe_profile_activity_card() noexcept {
     g_probe.failure_stage = 740;
     auto* data = static_cast<UserProfile*>(
@@ -8579,23 +8583,31 @@ bool probe_profile_activity_card() noexcept {
         {scratch, 2048}, 4343, 0, data);
     const auto presence = utf8_literal(R"({"activities":[
         {"type":2,"name":"Spotify","details":"Native Song Title","state":"First Artist; Second Artist",
+         "created_at":1700000000300,"party":{"id":"spotify:probe"},
          "timestamps":{"start":1700000000000,"end":1700000200000},
-         "assets":{"large_image":"mp:external/probe/https/example.invalid/album.png","large_text":"Probe Album"}},
+         "assets":{"large_image":"spotify:ab67616d0000b2730000000000000000000000aa","large_text":"Probe Album"}},
         {"type":0,"name":"Mossrun","application_id":"500000000000000001","details":"Chapter 7","state":"Ascent",
-         "timestamps":{"start":1700000000000},"party":{"size":[2,4]},
-         "assets":{"large_image":"500000000000000002","small_image":"500000000000000003"}}]})");
+         "created_at":1700000000100,"timestamps":{"start":1700000000000},"party":{"id":"p","size":[2,4]},
+         "buttons":["Open Map","Party Finder"],
+         "assets":{"large_image":"500000000000000002","large_text":"High Ridge",
+                   "small_image":"500000000000000003","small_text":"Wanderer"}},
+        {"type":3,"name":"Cinema","details":"A Long Synthetic Film Title That Runs Past The Card","state":"Part One",
+         "created_at":1700000000200,"timestamps":{"start":1700000000000},
+         "assets":{"large_image":"mp:external/probe/https/example.invalid/poster.png",
+                   "large_text":"Season 2, Episode 5"}}]})");
     UserActivitySet activities{};
     bool has = false;
     const auto scan = json_scan_structurals_avx1(presence, {scratch, 2048});
     valid = valid && scan.ok() &&
             user_activities_decode({presence, {scratch, scan.count}}, {presence, 0, JsonValueKind::object}, 4343,
                                    &activities, &has) &&
-            has && activities.count == 2;
-    // Pin the Spotify clock to half way so the capture is deterministic.
+            has && activities.count == 3;
+    // Spotify half way through, the game 12:34 in, the film an hour in.
     const u64 now = clock_unix_milliseconds();
     activities.items[0].start_ms = now - 100'000;
     activities.items[0].end_ms = now + 100'000;
     activities.items[1].start_ms = now - 754'000;
+    activities.items[2].start_ms = now - 3'723'000;
     valid = valid && user_activity_upsert(&g_probe.users.activities, activities);
     ProfileScene scene{};
     scene.phase = ProfilePhase::ready;
@@ -8616,6 +8628,7 @@ bool probe_profile_activity_card() noexcept {
             pixels[at + 3] = 255;
         }
     u32 cards = 0, progress = 0, artwork = 0;
+    // Every resolved image is resident, the avatar included.
     const auto upload = [&]() noexcept {
         cards = progress = artwork = 0;
         for (u32 i = 0; i < scene.part_count; ++i) {
@@ -8623,26 +8636,49 @@ bool probe_profile_activity_card() noexcept {
             progress += media == ProfileMediaKind::activity_progress;
             cards += media == ProfileMediaKind::activity_large;
             ProfileMedia resolved{};
-            if ((media == ProfileMediaKind::activity_large || media == ProfileMediaKind::activity_small) &&
-                profile_media_resolve(scene, i, &resolved)) {
-                ++artwork;
-                if (!renderer_upload_png_scanlines(&g_probe.renderer, resolved.key, image, {pixels, sizeof(pixels)}).ok())
-                    return false;
-            }
+            if (!profile_media_resolve(scene, i, &resolved))
+                continue;
+            artwork += media == ProfileMediaKind::activity_large || media == ProfileMediaKind::activity_small;
+            if (!renderer_upload_png_scanlines(&g_probe.renderer, resolved.key, image, {pixels, sizeof(pixels)}).ok())
+                return false;
         }
         return true;
     };
-    valid = valid && upload() && cards == 1 && progress == 1 && artwork == 1 && scene.activity_timed;
+    // The avatar's whole circle is queued with the profile media, which draws
+    // after the card body's paint: one quad on the avatar, its clip and its
+    // rounded mask both holding the full circle.
+    const auto avatar_above_body = [&]() noexcept {
+        const auto& r = g_probe.renderer;
+        const UiRect a = scene.avatar;
+        const auto holds = [&](UiRect outer) noexcept {
+            return outer.left <= a.left && outer.top <= a.top && outer.right >= a.right && outer.bottom >= a.bottom;
+        };
+        if (r.profile_paint_first_batch >= r.profile_foreground_first_batch)
+            return false;
+        for (u32 b = r.profile_media_first_batch; b < r.profile_effect_media_first_batch && b < r.media_batch_count;
+             ++b) {
+            const auto& batch = r.media_draw.batch_data[b];
+            for (u32 q = batch.first_quad; q < batch.first_quad + batch.quad_count; ++q) {
+                const auto& quad = r.media_draw.quad_data[q];
+                if (ui_rect_equal({quad.left, quad.top, quad.right, quad.bottom}, a) && holds(batch.clip) &&
+                    holds(quad.rounded_clip) && quad.radius == ui_rect_width(a) * .5f)
+                    return true;
+            }
+        }
+        return false;
+    };
+    valid = valid && upload() && cards == 1 && progress == 0 && artwork == 2 && scene.activity_timed;
     g_probe.renderer.profile_scene = &scene;
     valid = valid && rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
-            probe_capture_frame(L"profile-activity-card.bmp");
+            avatar_above_body() && probe_capture_frame(L"profile-activity-card.bmp");
     if (valid)
         g_probe.failure_stage = 741;
     // The full profile lists every activity under Activity.
     scene.presentation = ProfilePresentation::modal;
     scene.tab = 0;
-    valid = valid && profile_scene_layout(&scene, viewport, true) && upload() && cards == 2 && artwork == 3 &&
-            rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) &&
+    valid = valid && profile_scene_layout(&scene, viewport, true) && upload() && cards == 3 && progress == 1 &&
+            artwork == 4 &&
+            rebuild_probe_content_text() && probe_present(&g_probe.renderer, kDefaultTheme) && avatar_above_body() &&
             probe_capture_frame(L"profile-activity-tab.bmp");
     g_probe.renderer.profile_scene = nullptr;
     profile_scene_release(&scene);
@@ -8983,7 +9019,8 @@ bool probe_image_viewer() noexcept {
         !renderer_upload_png_scanlines(&g_probe.renderer, expanded_key, expanded_image,
                                        {expanded_pixels, sizeof(expanded_pixels)})
              .ok() ||
-        !ui_image_viewer_open(&image_viewer, viewport, {1024, 512}))
+        !ui_image_viewer_open(&image_viewer, viewport, {1024, 512}) ||
+        !ui_image_viewer_set_caption(&image_viewer, utf8_literal("probe-image.png")))
         return false;
     g_probe.failure_stage = 131;
     g_probe.renderer.image_viewer = &image_viewer;
@@ -9869,6 +9906,10 @@ int run_probe() noexcept {
         GetEnvironmentVariableW(L"MAICORD_NOTIFICATION_SETTINGS_UI_PROBE", notification_settings_option,
                                 2) == 1 &&
         notification_settings_option[0] == L'1';
+    wchar_t user_settings_option[2]{};
+    const bool user_settings_requested =
+        GetEnvironmentVariableW(L"MAICORD_USER_SETTINGS_UI_PROBE", user_settings_option, 2) == 1 &&
+        user_settings_option[0] == L'1';
     wchar_t flag_surfaces_option[2]{};
     const bool flag_surfaces_requested =
         GetEnvironmentVariableW(L"MAICORD_REGIONAL_FLAG_SURFACES_PROBE", flag_surfaces_option, 2) == 1 &&
@@ -10467,6 +10508,16 @@ int run_probe() noexcept {
         DestroyWindow(g_probe.window);
         return valid ? 0 : 272;
     }
+    wchar_t activity_only[2]{};
+    if (GetEnvironmentVariableW(L"MAICORD_PROFILE_ACTIVITY_UI_PROBE", activity_only, 2) == 1 &&
+        activity_only[0] == L'1') {
+        const bool valid = initialize_fixture(true) && probe_profile_activity_card();
+        log_write(valid ? LogLevel::info : LogLevel::error, "probe",
+                  valid ? "profile_activity_native_ui_passed" : "profile_activity_native_ui_failed");
+        renderer_shutdown(&g_probe.renderer);
+        DestroyWindow(g_probe.window);
+        return valid ? 0 : static_cast<int>(g_probe.failure_stage ? g_probe.failure_stage : 742);
+    }
     wchar_t braille_only[2]{};
     if (GetEnvironmentVariableW(L"MAICORD_PROFILE_BRAILLE_UI_PROBE", braille_only, 2) == 1 &&
         braille_only[0] == L'1') {
@@ -10558,6 +10609,13 @@ int run_probe() noexcept {
         renderer_shutdown(&g_probe.renderer);
         DestroyWindow(g_probe.window);
         return valid ? 0 : 249;
+    }
+    if (user_settings_requested) {
+        const bool valid = initialize_fixture(true) &&
+                           user_settings_ui_probe(g_probe.renderer, g_probe.text_measure_cache, probe_capture_frame);
+        renderer_shutdown(&g_probe.renderer);
+        DestroyWindow(g_probe.window);
+        return valid ? 0 : 302;
     }
     const char password_mask[] = {static_cast<char>(0xE2u), static_cast<char>(0x80u),
                                   static_cast<char>(0xA2u), static_cast<char>(0xE2u),
@@ -12109,8 +12167,6 @@ int run_probe() noexcept {
         if (!probe_dm_name_styles())
             return 237;
         if (!probe_profile_card())
-            return static_cast<int>(g_probe.failure_stage);
-        if (!probe_profile_activity_card())
             return static_cast<int>(g_probe.failure_stage);
         if (!probe_empty_decorations(g_probe.renderer))
             return 239;
